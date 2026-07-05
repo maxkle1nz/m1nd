@@ -25,6 +25,11 @@
 > section). Anchors verified at `origin/main` @ `2de6d0c` (post-#262: the Hall shipped,
 > `/api/instances` PROJECT-named). Same law as the parent amendment: surface, don't build —
 > where the backend is missing, the affordance ships disabled with the residue named.
+> **Amended 2026-07-05: §4A.11 The Mailbox** — each PROJECT's field-report caixinha (repo-side,
+> travels with git; day chapters, matte class chips, fate-lines), by founder direction
+> (verbatim in §4A.11); design-source: the Fable mailbox artifact (canonical); backend twin:
+> `docs/MEDULLA-PRD.md` §9.2/M7b (landed the same PR). D3 is made concrete by this amendment;
+> INV-17/18 join §7.
 
 ---
 
@@ -570,7 +575,7 @@ fields below. Everything else is DEPTH — it lives in the receipt drawer, one d
 |---|---|---|---|---|
 | D1 | **The last learned claim** | One line: "*latest claim label*" — `agent-refactor` · 2 h ago (absent → "author unknown", INV-04) | newest `light`-namespace node by `light:created` desc + `light:source_agent` tag (snapshot; same provenance rules as §3.3) | Open/bound: TODAY. Hosted: §4A.9 selector |
 | D2 | **Honest gaps** | "51 of 6,520 files visited" + "12 guessed links (dashed on the map)" + the open `honest_gaps[]` lines | `orient.coverage` (`server.rs:2703`) / `coverage_session`; ghost edges (`GhostEdgeOutput`, `core.rs:422`); `north.honest_gaps[]` (`server.rs:3219`) | Open/bound: TODAY (all three verbs REST-reachable). Hosted: §4A.9 |
-| D3 | **Per-project inbox** | "3 notes waiting" on the matching project card's receipt (read-only list when opened) | The per-project inbox doctrine (`<repo>/.m1nd/inbox.jsonl` — sealed as live doctrine in the medulla's memory; PATHOS next-steps: the runtime hands are `inbox_drop` / `inbox_sweep` + a `north` inbox counter) | **`[needs-backend — inbox verbs]`**: renders nothing until the counter exists; never a fabricated zero |
+| D3 | **The Mailbox count** — the per-project inbox, **made concrete by §4A.11 (founder amendment, 2026-07-05):** "N abertas" — unresolved field-report letters in THIS project's box; click opens the Mailbox (§4A.11) | `mailbox_open_count` (`wet_ink + in_flight` only) via the §9.5.1-family instances enrichment; box contents via `GET /api/mailbox?brain=…` — both spec'd at MEDULLA-PRD §9.2 (slice M7b). The box IS the sealed doctrine's `<repo>/.m1nd/inbox.jsonl` (project property, travels with git), and `inbox_sweep` is spec'd there as the cross-box triage hand; `inbox_drop` (agent notes) remains a future letter source into the same file, not smuggled into this slice | **`[needs-backend — M7b]`**: renders nothing until the count exists; never a fabricated zero |
 
 **Anti-scope (binding, the §1 kills carried down):** NO timeseries charts, NO aggregate
 health scores ("brain health: 87%" is a lie with a number on it), NO animated percentages,
@@ -721,7 +726,7 @@ Two **distinct** confirmations — the card acknowledge and the typed name — a
 | Delete (clean) | `delete-state` route, guarded | hosted-brain store dirs are a **new file layout** — their delete must land with the slice or the card says so | **hosted-brain delete** with the same live-guard + the same calm flow |
 | Eject | — | — | V2 (TWO-TIER §20) — reserved, named |
 | Card v2 GOLD (§4A.3.1): freshness-vs-git (G1) · calibration (G2) · compounding (G3) | `am_i_stale` · `predict.calibration` · snapshot `light:*` aggregation — all REST-reachable TODAY for the open/bound brain (`POST /api/tools/*`, the same `dispatch_tool` as stdio) | — | per-hosted-brain reads ride the §4A.9 selector; node-free per-brain `calibration_armed` + memory stamps join the §9.5.1 serde-default family |
-| Card v2 DEPTH: per-project inbox (D3) | — | — | **inbox verbs** (`inbox_drop` / `inbox_sweep` + the `north` inbox counter — doctrine sealed in medulla memory; runtime hands unbuilt) |
+| Card v2 DEPTH: the Mailbox count (D3, §4A.11) + the Mailbox view | — | the global spool exists (`~/.m1nd/field-reports.jsonl`, 53 letters at write time) — distribution/read machinery to build | **M7b** (MEDULLA-PRD §9.2): distribution into repo-side project boxes (`<repo>/.m1nd/inbox.jsonl`) + the medulla box · letter ids + `answers[]` · cross-box `inbox_sweep` · `GET /api/mailbox?brain=…` · `mailbox_open_count` enrichment |
 | Reading the Tree (§4A.10): meaning-search · layer grouping · freshness/tremor filters | `seek` · `layers` · `am_i_stale` · `tremor` · `trust` — REST-reachable for the bound brain AND, **now, any hosted brain via the §4A.9 selector** (INV-16); grouping, filter chips, name-search, breadcrumb, density are client-only | — | — **SHIPPED 2026-07-04** (hosted brains inherit the selector) |
 | Per-brain Open (§4A.9) | the **REST brain selector** (`?brain=` + `served_brain` echo + `rest_brain_selector` stamp + brain-scoped `graph_changed`) — Open enabled on hosted cards, tree adopts the brain end-to-end (INV-15) | — | — **SHIPPED 2026-07-04 (slice 2H)** |
 
@@ -734,7 +739,8 @@ Open is enabled on hosted cards and the tree adopts the brain end-to-end (§4A.9
 in the same slice (`disk_roster()` + cold union, §9.5.5); (2) the §9.5.1 optional
 registry fields (dormant counts, mtime, calibration, sessions — warm brains already report
 real counts) — §4A.3.1 adds the same-family memory stamps; (3) hosted-brain delete; (4) an
-in-UI stop; (5) eject (V2); (6) the **inbox verbs** behind §4A.3.1-D3. Until each lands,
+in-UI stop; (5) eject (V2); (6) the **mailbox backend** behind §4A.3.1-D3 and §4A.11
+(distribution + `/api/mailbox` + the count enrichment — MEDULLA-PRD M7b). Until each lands,
 its affordance renders disabled with the residue's name in the tooltip — the PRD's honesty
 carried into the pixels.
 
@@ -777,7 +783,7 @@ duotone/fill variants invite exactly the decoration this system bans) and Heroic
 | Verdict: reverify | `RotateCcw` | inside `VerdictChip`, before the text | bare at rung 0 |
 | Verdict: abstain | `CircleDashed` | inside `VerdictChip` — supersedes the current plain iris dot (`VerdictChip.tsx`), same size, iris ink; still NEVER animates (INV-02) | any other hue than the iris family |
 | Agents attached | `Cable` | G4 caption, receipt sessions list — the `--attach` word made visible | a humanoid icon (agents aren't users) |
-| Inbox / field reports | `Inbox` | D3 count + receipt list | before the inbox verbs exist |
+| Mailbox / field reports | `Inbox` | D3 count + the §4A.11 Mailbox header | before the M7b backend exists |
 | Ingest / re-read | `RefreshCw` | `[Re-read]` actions, Threshold's first action | as an ambient spinner (INV-05: progress is words) |
 | Receipt / drawer | `ReceiptText` | "more in the receipt →" affordances | — |
 | Delete (danger zone) | `Trash2` | ONLY inside the §4A.4 forget flow (step 1 card) | on a card face |
@@ -1044,6 +1050,105 @@ of these calls carries the §4A.9 selector — Reading the Tree needs zero verbs
 any other brain (stale panel across an Open switch, wrong echo) is dropped with an honest
 notice, never rendered into the wrong tree.
 
+### 4A.11 The Mailbox — each brain its caixinha (founder amendment, 2026-07-05)
+
+**Founder ask, verbatim:** *"dá pra colocar as caixas de um jeito bonito assim dentro do
+sistema visual humano do m1nd? cada projeto com a sua caixinha, e a do m1nd no m1nd?"*
+
+**Design-source:** the Fable mailbox artifact (orchestrator seat, 2026-07-05) — the "assim"
+in the ask. Its language is CANONICAL for this view and restated below so this document
+stands alone. **Backend-source:** the mailbox architecture is spec'd whole at
+`docs/MEDULLA-PRD.md` §9.2 (spool → distribution → **repo-side project boxes** at
+`<repo>/.m1nd/inbox.jsonl` (the ownership law: the box is the PROJECT's, travels with git)
++ one medulla box for genuinely projectless letters, letter ids + `answers[]`, fate-state
+derivation, the cross-box `inbox_sweep`, the REST read surface, slice M7b) — this section
+defines only the rendering. Every field below cites its source, hoje-vs-precisa-backend, as
+always.
+
+**What the box is:** the project's field-report letters — what agents witnessed HERE (bugs,
+frictions, wins, honesty findings) and what answered them (triage receipts). It is the
+antifragile loop (MEDULLA-PRD §9) made visible to the human: *the system eats its own
+confusion, and you can watch it chew.* The box is the **project's property** — it exists
+brain or no brain, and a clone carries it. Written by AGENTS through the global mail slot
+(plus letters arriving by git from teammates' machines); the human **reads and navigates** —
+there is no compose box, no editor, no threads, no comments (anti-scope, binding).
+
+**1. Entry — the D3 field opens the box.** The Hall card's D3 field renders **"N abertas"**
+(count source: the `mailbox_open_count` instances enrichment, MEDULLA-PRD §9.2 —
+`[needs-backend — M7b]`; until it exists the field renders nothing, never a fabricated zero,
+INV-10 discipline). Click → the project's Mailbox opens at rung 0 (drawer-class surface
+beside the card, ESC returns to the Hall — the ladder grammar). **Universality:** the m1nd
+card's box is just the m1nd *project's* box — same view, same rules, zero special casing
+("a do m1nd no m1nd"). **The medulla's box is its own, clearly labeled view** — header
+"Medulla — relatos transversais" — holding ONLY what genuinely belongs to no project:
+transversal-tool reports (the Context7 letter, filed without a repo), research-task letters,
+owner-runtime letters. A letter that names a project NEVER appears here (MEDULLA-PRD
+MED-INV-10). It opens from the owner's own card, labeled, never mixed into a project box.
+**Honest gap:** a brainless repo's box (almus today) exists on disk, travels with git, and
+is swept by triage — but has no Hall card to open it from until its brain is born; the box
+is faceless, never lost.
+
+**2. The letters — chronological chapters, matte class chips.** Letters render
+oldest-context-last (newest on top), grouped into **day chapters** ("2026-07-04 — quinta") —
+the box reads as correspondence, not as a log viewer. Each letter card:
+
+| Element | Renders | Source (per field) |
+|---|---|---|
+| Class chip + left border | one matte chip naming the class, and the card's 1 px left border in the class hue — **win = sage · bug = brick · honesty = âmbar · friction = stone · recibo (triage) = slate**. Matte token families only (the §6 material law; brick rides the terracotta family). Nothing glows, nothing animates; violet stays quarantined (§6.2) — even the `external` fate wears stone, not violet | letter `class` (spool field, exists today) |
+| Header line | `agent` · `ts` in Plex Mono (INV-13: numbers never proportional) · the `tool` touched | spool fields, exist today |
+| Body | `what` verbatim; `expected` folded under a quiet "esperado" caret; `snippet` in Plex Mono, one-line clamp, expand on click | spool fields, exist today |
+| **The fate-line** (the soul of the view) | exactly one per letter: **`↳ respondida pela carta N`** (link — scrolls/highlights the receipt) · **`● EM ABERTO`** · **`◍ EM VOO`** · **`◌ externa`** | derived states `fired_clay / wet_ink / in_flight / external` + `answers[]`/`answered_by[]` — MEDULLA-PRD §9.2 (`[needs-backend — M7b]`: ids + linkage; legacy prose refs resolved best-effort at migration, unresolved letters honestly wear ●) |
+| Receipt letters (class `recibo`) | render in-thread like any letter, slate-chipped, their fate-line pointing DOWN at what they answered ("responde a carta N") — the visible loop closes in both directions | `answers[]` on the triage letter |
+
+**3. Scope — one box, one brain, ever.** The box renders ONLY the viewed brain's letters
+(`GET /api/mailbox?brain=<project_root>` — the §4A.9 selector contract reused verbatim:
+registered roots only, `served_brain` echo asserted, wrong-echo responses dropped not
+rendered). No cross-brain folding, no "all boxes" merged view — coherent with the memory
+layer's pull-only law (MEDULLA-PRD MED-INV-1): nothing on the screen that isn't this brain's;
+the medulla box is one click away and labeled as itself.
+
+**4. Counts stay honest.** "N abertas" counts `wet_ink + in_flight` ONLY — resolved letters
+(`fired_clay`) rest in their chapters, and `external` letters are visible but never counted
+(a counter that can never reach zero is pressure, not honesty — MEDULLA-PRD MED-INV-9). The
+box header states the whole truth in one line: "12 cartas · 3 abertas · 1 em voo · 1 externa".
+
+**5. Migration — where the 53 live letters go.** Distribution is the backend's, one rule,
+idempotent (MEDULLA-PRD §9.2): a letter with a project — explicit `brain` field or
+normalized `repo` (expand `~`, strip "(worktree …)" annotations, `m1nd-*` worktrees → m1nd)
+— files into **that project's repo-side box, always, brain or no brain**: m1nd → m1nd's box;
+`Cherrybubbles1` → cherry's; `gitrooms` → reporooms' (brain freshly revealed by the 2H cold
+listing, 1131 nodes — irrelevant to the rule); `~/almus` → almus' (no brain, box works).
+Only genuinely projectless letters (owner-runtime, `all`, no-repo tool reports like the
+Context7 one) reach the medulla box; a letter whose repo dir is absent from this machine
+waits in the spool (`pending_distribution`), never re-routed. The UI never re-sorts a letter
+into a different box than the endpoint served (INV-17).
+
+**6. The sweep keeps the whole view.** Per-project boxes never fragment triage: the
+`inbox_sweep` runtime hand reads spool ∪ every known box (id-deduplicated — ids are
+content-derived, so git-traveled letters dedup across machines) and remains the entry point
+of every m1nd improvement session. The m1nd team sees the conjunto; each project keeps what
+it felt there. Sweep output names any box it could not reach. *(Backend: MEDULLA-PRD §9.2 —
+`[needs-backend — M7b]`; no UI surface in this slice beyond the per-box view.)*
+
+**Acceptance (slice 3M is done when):** a two-box fixture (m1nd + Cherry, from the real
+spool distributed) renders each box with only its own letters (INV-17 green); every rendered
+receipt's `↳` link resolves to a letter in the same box (INV-18 green); the D3 count equals
+the endpoint's `wet_ink + in_flight` exactly and renders absent (not zero) against an owner
+without the enrichment; the Context7 letter appears in the medulla box wearing `◌ externa`
+and is excluded from its count, and no repo-bearing letter renders there (MED-INV-10
+fixture); day chapters group by the letter's `ts` timezone-honest; keyboard-only navigation
+(arrows between letters, Enter expands, ESC to Hall); zero compose affordances in the DOM;
+matte-lint green (no new hues outside the five class token families; violet untouched).
+
+**INV-17 (the box-scope invariant, §7):** the Mailbox renders only letters the endpoint
+served for the viewed brain — never a letter from another box, never a client-side re-fold
+of the global spool.
+
+**INV-18 (the receipt-linkage invariant, §7):** a receipt (triage) letter always renders
+linked to the letter(s) it answers; a `fired_clay` fate-line always resolves to a receipt in
+the same box; a link that cannot resolve renders the honest breakage ("recibo não
+localizado"), never a silent plain chip.
+
 ---
 
 ## 5. Architecture — evolve the served m1nd-ui (decided)
@@ -1219,8 +1324,8 @@ air-gapped; no CDN fonts).
 ## 7. Honesty invariants (UI) — component-testable
 
 The six from the research, plus the two the critic forced, each phrased as a rule + a test.
-The 4A amendment adds four more (`[4A]`), and the precision pass four more (INV-13..16),
-same discipline.
+The 4A amendment adds four more (`[4A]`), the precision pass four more (INV-13..16), and
+the Mailbox two more (INV-17..18), same discipline.
 Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-streams/*.jsonl`)
 — never hand-written JSON, so the tests can't drift from the wire.
 
@@ -1242,6 +1347,8 @@ Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-stream
 | **INV-14** `[4A.8]` | **No card labels a brain by implementation class.** "this brain" / "project" / "sibling" / "bound" / "hosted" never render on a Hall card face; classes live in the receipt drawer's `binding:` line only; exactly one card wears the viewing chip, sourced from the same envelope as the Brain Chip. | Instances fixture (bound + hosted + sibling) → zero class strings in card DOM; drawer open → `binding:` line present; viewing chip count === 1 and its name === the top-bar chip's name. |
 | **INV-15** `[4A.9]` | **The tree never renders one brain's nodes under another brain's chip.** While a brain is viewed, every graph/tool fetch carries its selector; a response whose `served_brain` echo names a different brain is discarded, never rendered. | Two-brain fixture → open hosted: all fetch URLs carry `brain=<root>`; inject a wrong-echo response → zero rows from it rendered + the drop is surfaced; chip name === `served_brain.display_name` throughout. |
 | **INV-16** `[4A.10]` | **Search and filters never leave the viewed brain.** `meaning` results render only for the brain the chip names; stale panels across an Open switch drop with an honest notice; filter residue is always stated ("N hidden by filters"), never a silently smaller world. | Seek fixture from brain A while brain B is viewed → zero result rows + notice present; active-filter fixture → footer residue count equals hidden rows exactly; clearing filters restores the full row count. |
+| **INV-17** `[4A.11]` | **The Mailbox renders only letters the endpoint served for the viewed brain** — never a letter from another box, never a client-side re-fold of the global spool; the "abertas" count carries `wet_ink + in_flight` only (`external` visible, never counted). | Two-box fixture (real spool, distributed) → box A DOM contains zero box-B letter ids; wrong-echo mailbox response dropped with the notice; count equals the fixture's `wet_ink + in_flight` exactly; the external letter renders `◌` and is absent from the count. |
+| **INV-18** `[4A.11]` | **Receipts are always linked.** A triage letter renders pointing at what it answers; a `fired_clay` fate-line resolves to a receipt in the same box; an unresolvable link renders the honest breakage ("recibo não localizado"), never a silent plain chip. | Threaded fixture → every `↳` href resolves to an in-box letter id; receipt card carries the down-pointing "responde a carta N" line; a fixture with a dangling `answers[]` id renders the breakage string, not a bare chip. |
 
 These land as a `honesty.spec` suite in `m1nd-ui` and run in CI next to the palette lint
 (§6.2). A slice is not done while any invariant test is red (§8).
@@ -1388,6 +1495,7 @@ green, claims scoped).
 | **2H — per-brain Open** *(§4A.9)* — **SHIPPED 2026-07-04** | The `brain` query param on `/api/graph/*` + `/api/tools/*` reusing the wire's resolution (`resolve_brain`); `served_brain` echo; `rest_brain_selector` capability stamp; brain-scoped `graph_changed` (additive field); the tree/chip/Hall adoption end-to-end; Open's residue tooltip deleted. **Plus the cold-listing fix** (`disk_roster()` + cold union in `instances_listing`). | ✅ INV-15 green (wrong-echo fixture dropped); Rust (`per_brain_open.rs`): `snapshot?brain=<hosted>` ≠ bound snapshot, unknown root refused with the honest error, absent param byte-compatible, warm-boot via REST after restart, tools respect the selector, cold-listing from disk with zero routed calls; UI (29 new tests): every fetch carries the selector while viewing, chip flips to the echo's name, warm-boot renders words not bars, Open stays disabled against an old owner (no stamp). |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
+| **3M — the Mailbox** *(§4A.11; gated on MEDULLA-PRD M7b — the backend twin lands first or same-PR)* | Each brain's caixinha: D3 "N abertas" entry, day chapters, matte class chips (win sage · bug brick · honesty âmbar · friction stone · recibo slate) with class left-border, fate-lines (● / ◍ / ↳ / ◌), the labeled medulla box, read-only always. | INV-17/18 green on a real-spool distributed fixture; D3 count = endpoint `wet_ink + in_flight`, absent (not zero) without the enrichment; Context7 letter in the medulla box wearing `◌`, uncounted; keyboard-only; zero compose affordances in DOM; matte-lint green (five class hues from existing token families, violet untouched). |
 
 Explicitly **not** on this roadmap (killed or deferred): the L1GHT write-editor (killed), the
 full-repo ceramic graph as a headline surface (killed), the treemap home screen (folded into
