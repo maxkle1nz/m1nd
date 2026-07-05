@@ -26,12 +26,13 @@ Unlike `activate` (which propagates signal through edges), `seek` scores every n
 ### Scoring Formula
 
 ```
-relevance = max(embedding_similarity, keyword_match, trigram)
-combined  = keyword_match * 0.4
-          + embedding_similarity * 0.3
-          + graph_activation * activation_gate(relevance) * 0.2
-          + trigram * 0.1
-          + path/anchor biases
+relevance  = max(embedding_similarity, keyword_match, trigram)
+base_score = keyword_match * 0.4
+           + embedding_similarity * 0.3
+           + graph_activation * activation_gate(relevance) * 0.2
+           + trigram * 0.1
+           + path/anchor biases
+combined   = (base_score + conformance_boost).max(0.0) * (trust_factor * tremor_factor)
 ```
 
 `embedding_similarity` is the query↔node cosine (static local embeddings; falls back to the
@@ -44,6 +45,18 @@ semantically-irrelevant hub from riding pure centrality to the top and drowning 
 centrality remains a full-strength co-ranker and tie-breaker, it just no longer acts alone.
 
 The combined base is then damped multiplicatively by trust × tremor heuristics before ranking.
+
+**Conformance composes as an additive term (X-RAY steers attention).** When an X-RAY manifesto
+resolves for the workspace and `conformance_aware` is on (the default), each node's grammar-4 state
+adds a separate `conformance_boost` to `base_score` **before** the trust × tremor damping: a BEDROCK
+node (proven/grounded) gets **+0.20**, an EROSION source (a layer/forbid-violating cross-module source)
+gets **−0.30**, and everything else is neutral (0.0). Because the term is *additive*, conformance can
+*raise* a proven node's attention, not only damp a suspect one — and because it composes with (rather
+than replaces) relevance and the multiplicative damping, **no single term dominates**: a BEDROCK but
+semantically-irrelevant node still cannot ride the boost above genuinely relevant results. Conformance
+only re-orders within the relevance-cleared pool; it never drops a node. With no manifesto or with
+`conformance_aware=false`, every boost is 0.0 and ranking is byte-identical to the base formula above.
+`focus` rides the same rerank, so it is conformance-aware too.
 
 ### Example Request
 

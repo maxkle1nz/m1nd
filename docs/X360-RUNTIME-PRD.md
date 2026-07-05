@@ -667,6 +667,23 @@ flowchart TD
 
 ### 5.5 Seek Integration (manifesto / X-RAY as an attention gradient)
 
+> **[SHIPPED 2026-07-05 — ORGANISM ladder R17.]** The additive `conformance_boost` term is live in the
+> shared `handle_seek` rerank (`layer_handlers.rs`): `combined = (base_score + conformance_boost).max(0.0)
+> * heuristic_factor`, with `CONFORMANCE_BEDROCK_BOOST = +0.20` and `CONFORMANCE_EROSION_MALUS = -0.30`.
+> `focus` rides the same rerank, so both are conformance-aware. Grammar-4 state is sourced verbatim from
+> `resolve_node_conformance()` (`xray_handlers.rs`, the same `erosion_source_set`/`exercised_set`
+> predicates the gate uses — no second evaluator): a `grounded_in`/test-exercised node → `Bedrock`, a
+> layer/forbid-violating cross-module source → `ErosionCandidate`, else neutral (boost 0.0). Absence /
+> opt-out (`conformance_aware=false` or no resolved manifesto) is byte-identical to the pre-conformance
+> path (zero-cost by absence). Both P1 (EROSION malus) **and** P2 (BEDROCK up-boost) shipped — the
+> P1-only leapfrog is superseded. The R17 rung added the RED→GREEN composition proof
+> (`conformance_boost_composes_bedrock_up_erosion_down_no_term_dominates`) — BEDROCK rises, EROSION drops,
+> a semantically-irrelevant BEDROCK node cannot ride the boost above the relevant pool, and the exact
+> per-node delta equals `boost × heuristic_factor` (trust × tremor still composes) — plus a battery
+> no-regression (`m1nd_wins` unchanged). **Deferred (honest residue):** P3 (freshness-aware
+> `Bedrock`→`Unprovable` downgrade via `cross_verify(evidence_freshness)`) and P4 (lifting the three
+> boost constants into `SessionState`/config for measured calibration) are NOT yet implemented.
+
 **Goal / one-liner.** Make declared architectural intent *shape what the agent loads*: BEDROCK-conforming context gets an additive attention up-boost, EROSION context a malus, and every conformance-relevant drop is named honestly in the existing `budget` accounting. This is the payoff axis: the manifesto stops being a report and starts steering attention. **It wires into the shared `handle_seek` rerank (`layer_handlers.rs:75`). Both `seek` and the shipped `focus` verb (PR #157 — a thin layer that calls `handle_seek`) ride this rerank, so injecting the conformance term here boosts attention for both at once.**
 
 **Problem & non-goals.**

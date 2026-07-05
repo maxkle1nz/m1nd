@@ -11105,6 +11105,15 @@ mod tests {
         query: &str,
         conformance_aware: bool,
     ) -> crate::protocol::layers::SeekOutput {
+        run_seek_conformance_ranked(state, query, conformance_aware, true)
+    }
+
+    fn run_seek_conformance_ranked(
+        state: &mut SessionState,
+        query: &str,
+        conformance_aware: bool,
+        graph_rerank: bool,
+    ) -> crate::protocol::layers::SeekOutput {
         handle_seek(
             state,
             SeekInput {
@@ -11114,7 +11123,7 @@ mod tests {
                 scope: None,
                 node_types: vec![],
                 min_score: 0.0,
-                graph_rerank: true,
+                graph_rerank,
                 conformance_aware,
                 token_budget: None,
             },
@@ -11535,6 +11544,392 @@ mod tests {
             hub_rank, 0,
             "a node that is both central and relevant must rank first \
              (hub_rank={hub_rank})"
+        );
+    }
+
+    /// A multi-token query for the conformance-composition fixture. Every scored
+    /// node carries a subset of these tags; the count of matched tags is the only
+    /// relevance lever between them (same isolation trick as the rerank-balance
+    /// graph: relevance lives in TAGS, labels stay opaque).
+    const CONFORMANCE_COMPOSITION_QUERY: &str =
+        "parse tokenize evaluate serialize deserialize validate normalize \
+         canonicalize interpolate marshal";
+
+    /// Build ONE synthetic graph that isolates the R17 conformance-composition
+    /// contract. All scored nodes share the opaque `zzznode_` label prefix, so the
+    /// matched-tag count is the sole relevance lever. Tag counts are chosen so the
+    /// fixed +0.20 boost crosses exactly one relevance step but never the whole
+    /// relevance ladder:
+    ///
+    ///   * `plain`    — 8 matched tags, NEUTRAL conformance. The pivot the bedrock
+    ///     node's up-boost must cross.
+    ///   * `bedrock`  — 7 matched tags (one step BELOW `plain` on base score), made
+    ///     BEDROCK by an incoming `grounded_in` edge. The +0.20 boost must lift it
+    ///     ABOVE its pre-boost position (past `plain`).
+    ///   * `eroded`   — 8 matched tags in `modA`, made an EROSION source by a
+    ///     layer-violating `modA -> modB` import. The -0.30 malus must drop it
+    ///     below its pre-boost position.
+    ///   * `far_hi`   — 9 matched tags, NEUTRAL conformance. A strongly-relevant
+    ///     node used only to anchor the top of the relevance-cleared pool.
+    ///   * `off_topic_bedrock` — 1 matched tag (near-zero relevance) but BEDROCK.
+    ///     The dominance pin: +0.20 must NOT let a semantically-irrelevant BEDROCK
+    ///     node ride to the top of the relevant pool. No single term dominates.
+    ///
+    /// A `layer_order ["modA","modB"]` manifesto on disk makes `modA -> modB` the
+    /// layer-axis divergence; every other node lives in `modB`/`modC`/`proof` so
+    /// only `eroded` is flagged. `grounded_in` edges (never `imports`/`depends_on`)
+    /// create the two BEDROCK nodes without tripping the erosion rule.
+    fn build_conformance_composition_graph(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+
+        // Distinct query tokens, sliced by count to set relevance.
+        let tags7 = &[
+            "parse",
+            "tokenize",
+            "evaluate",
+            "serialize",
+            "deserialize",
+            "validate",
+            "normalize",
+        ];
+        let tags8 = &[
+            "parse",
+            "tokenize",
+            "evaluate",
+            "serialize",
+            "deserialize",
+            "validate",
+            "normalize",
+            "canonicalize",
+        ];
+        let tags9 = &[
+            "parse",
+            "tokenize",
+            "evaluate",
+            "serialize",
+            "deserialize",
+            "validate",
+            "normalize",
+            "canonicalize",
+            "interpolate",
+        ];
+        let lo = &["marshal"];
+
+        let bedrock = graph
+            .add_node(
+                "file::modB/bedrock.rs",
+                "zzznode_bedrock",
+                NodeType::Function,
+                tags7,
+                0.0,
+                0.0,
+            )
+            .expect("add bedrock");
+        let _plain = graph
+            .add_node(
+                "file::modB/plain.rs",
+                "zzznode_plain",
+                NodeType::Function,
+                tags8,
+                0.0,
+                0.0,
+            )
+            .expect("add plain");
+        let eroded = graph
+            .add_node(
+                "file::modA/eroded.rs",
+                "zzznode_eroded",
+                NodeType::Function,
+                tags8,
+                0.0,
+                0.0,
+            )
+            .expect("add eroded");
+        let modb_import = graph
+            .add_node(
+                "file::modB/imported.rs",
+                "zzznode_imported",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add imported");
+        let _far_hi = graph
+            .add_node(
+                "file::modB/far_hi.rs",
+                "zzznode_farhi",
+                NodeType::Function,
+                tags9,
+                0.0,
+                0.0,
+            )
+            .expect("add far_hi");
+        let off_topic_bedrock = graph
+            .add_node(
+                "file::modC/off_topic.rs",
+                "zzznode_offtopic",
+                NodeType::Function,
+                lo,
+                0.0,
+                0.0,
+            )
+            .expect("add off_topic_bedrock");
+
+        // Proof-source nodes (in a `proof` module) that ground the two BEDROCK
+        // nodes via `grounded_in`. A `grounded_in` edge marks its TARGET as
+        // exercised → BEDROCK, and is not an `imports`/`depends_on` relation, so it
+        // never trips the erosion rule.
+        let proof_a = graph
+            .add_node(
+                "file::proof/proof_a.rs",
+                "proof_a",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add proof_a");
+        let proof_b = graph
+            .add_node(
+                "file::proof/proof_b.rs",
+                "proof_b",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add proof_b");
+
+        let grounded = |g: &mut Graph, s: m1nd_core::types::NodeId, t: m1nd_core::types::NodeId| {
+            g.add_edge(
+                s,
+                t,
+                "grounded_in",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("grounded_in edge");
+        };
+        grounded(&mut graph, proof_a, bedrock);
+        grounded(&mut graph, proof_b, off_topic_bedrock);
+
+        // The layer-violating boundary edge: modA -> modB import makes `eroded`
+        // an erosion source under the `["modA","modB"]` layer_order.
+        graph
+            .add_edge(
+                eroded,
+                modb_import,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge eroded->imported");
+        graph.finalize().expect("finalize");
+
+        std::fs::write(
+            root.join("xray.manifest.json"),
+            br#"{"ratified": true, "layer_order": ["modA", "modB"]}"#,
+        )
+        .expect("write manifest");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    /// R17 ladder — the conformance_boost composition proof (JOINT-J: X-RAY steers
+    /// attention). Grammar-4 conformance (BEDROCK/EROSION) becomes an ADDITIVE term
+    /// in the shared `handle_seek` rerank, composing with the trust×tremor damping
+    /// and the base relevance + activation gate. Proven RED→GREEN on ONE fixture:
+    ///
+    ///   RED  (conformance_aware=false): the BEDROCK node and the EROSION node rank
+    ///        by BASE SCORE only — the bedrock node sits just below its neutral
+    ///        `plain` neighbor, the eroded node sits among its relevance peers.
+    ///   GREEN(conformance_aware=true):  the +0.20 boost lifts the bedrock node
+    ///        ABOVE its pre-boost position (past `plain`), and the -0.30 malus drops
+    ///        the eroded node BELOW its pre-boost position.
+    ///
+    /// The composition is PINNED so no single term dominates:
+    ///   * a BEDROCK-but-semantically-irrelevant node (`off_topic_bedrock`) still
+    ///     cannot ride +0.20 to the top — the genuinely-relevant nodes outrank it
+    ///     in BOTH runs (base relevance + the activation gate still gate it);
+    ///   * the highest-relevance neutral node (`far_hi`) stays first in both runs
+    ///     (conformance re-orders WITHIN the relevance-cleared pool, never over it).
+    #[test]
+    fn conformance_boost_composes_bedrock_up_erosion_down_no_term_dominates() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_conformance_composition_graph(temp.path());
+
+        // `graph_rerank=false` removes the PageRank prior from `base_score`, so
+        // matched-tag relevance is the SOLE base lever between the scored nodes —
+        // the `grounded_in` edges that make the BEDROCK nodes don't leak in as
+        // centrality. This isolates the conformance term as the only mover between
+        // the RED and GREEN runs.
+        // RED: the base ranking, conformance term OFF.
+        let base =
+            run_seek_conformance_ranked(&mut state, CONFORMANCE_COMPOSITION_QUERY, false, false);
+        // GREEN: the same graph + manifesto, conformance term ON.
+        let boosted =
+            run_seek_conformance_ranked(&mut state, CONFORMANCE_COMPOSITION_QUERY, true, false);
+
+        assert!(
+            base.conformance.is_none(),
+            "conformance_aware=false must carry no summary"
+        );
+        assert!(
+            boosted.conformance.is_some(),
+            "conformance_aware=true with a manifesto must carry a summary"
+        );
+
+        let pos = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            rank_of(o, id).unwrap_or_else(|| panic!("{id} present in results"))
+        };
+
+        // --- Fixture sanity: the RED base ranking is what the proof assumes. ---
+        // The bedrock node ranks BELOW its neutral peer on base score alone, so the
+        // up-boost has a real position to cross.
+        let base_bedrock = pos(&base, "file::modB/bedrock.rs");
+        let base_plain = pos(&base, "file::modB/plain.rs");
+        assert!(
+            base_bedrock > base_plain,
+            "fixture invalid: on base score the bedrock node must sit BELOW plain \
+             (bedrock={base_bedrock}, plain={base_plain})"
+        );
+
+        // --- RED baseline: the off-topic BEDROCK node is near-zero relevance and
+        // already ranks below every genuinely-relevant node with the term OFF. ---
+        let base_offtopic = pos(&base, "file::modC/off_topic.rs");
+        let base_farhi = pos(&base, "file::modB/far_hi.rs");
+        let base_eroded = pos(&base, "file::modA/eroded.rs");
+        assert!(
+            base_farhi < base_offtopic
+                && base_plain < base_offtopic
+                && base_bedrock < base_offtopic
+                && base_eroded < base_offtopic,
+            "fixture invalid: off-topic node must start below the relevant pool \
+             (farhi={base_farhi}, plain={base_plain}, bedrock={base_bedrock}, \
+             eroded={base_eroded}, offtopic={base_offtopic})"
+        );
+
+        // --- GREEN: BEDROCK rises, EROSION drops. ---
+        let boosted_bedrock = pos(&boosted, "file::modB/bedrock.rs");
+        let boosted_plain = pos(&boosted, "file::modB/plain.rs");
+        assert!(
+            boosted_bedrock < base_bedrock,
+            "the +0.20 boost must lift the BEDROCK node above its pre-boost position \
+             (before={base_bedrock}, after={boosted_bedrock})"
+        );
+        assert!(
+            boosted_bedrock < boosted_plain,
+            "the boosted BEDROCK node must now out-rank its neutral peer \
+             (bedrock={boosted_bedrock}, plain={boosted_plain})"
+        );
+
+        let boosted_eroded = pos(&boosted, "file::modA/eroded.rs");
+        assert!(
+            boosted_eroded > base_eroded,
+            "the -0.30 malus must drop the EROSION node below its pre-boost position \
+             (before={base_eroded}, after={boosted_eroded})"
+        );
+
+        // --- The composition pin: no single term dominates. ---
+        // (1) A BEDROCK-but-semantically-irrelevant node cannot ride +0.20 over the
+        // genuinely-relevant, non-eroded nodes: base relevance + the activation gate
+        // still gate it. (`eroded` is excluded here — its -0.30 malus can legitimately
+        // sink it past an off-topic node; that is the malus working, not the boost
+        // dominating.)
+        let boosted_offtopic = pos(&boosted, "file::modC/off_topic.rs");
+        let boosted_farhi = pos(&boosted, "file::modB/far_hi.rs");
+        assert!(
+            boosted_farhi < boosted_offtopic
+                && boosted_plain < boosted_offtopic
+                && boosted_bedrock < boosted_offtopic,
+            "a semantically-irrelevant BEDROCK node must NOT ride the boost above the \
+             relevant pool (farhi={boosted_farhi}, plain={boosted_plain}, \
+             bedrock={boosted_bedrock}, offtopic={boosted_offtopic})"
+        );
+        // (2) The strongest-relevance node leads the RED base ranking, and after the
+        // conformance term it stays first among the NEUTRAL nodes (plain) — the boost
+        // only lets a genuinely-relevant BEDROCK node cross a neutral peer, it does
+        // not re-order the neutral pool among itself.
+        assert_eq!(
+            base_farhi, 0,
+            "the strongest-relevance node ranks first on base score"
+        );
+        assert!(
+            boosted_farhi < boosted_plain,
+            "the strongest-relevance neutral node still leads its neutral peer after \
+             the conformance term (farhi={boosted_farhi}, plain={boosted_plain})"
+        );
+
+        // --- Trust/tremor still compose: the damping factor is untouched and
+        // still applied on top of the additive term (combined = (base+boost)*factor).
+        // With no trust/tremor history in this fixture every factor is 1.0, so the
+        // additive term is the visible mover — but it rides THROUGH the multiplier,
+        // not instead of it: the score equals (base + boost) exactly here.
+        let factor_of = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results
+                .iter()
+                .find(|r| r.node_id == id)
+                .and_then(|r| r.heuristic_signals.as_ref())
+                .map(|h| h.heuristic_factor)
+        };
+        let score_of = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results
+                .iter()
+                .find(|r| r.node_id == id)
+                .map(|r| r.score)
+                .unwrap_or_else(|| panic!("{id} present"))
+        };
+        // The multiplicative trust×tremor damping still composes ON TOP of the
+        // additive term: `combined = (base + boost) * heuristic_factor`. With no
+        // trust/tremor history the factor sits in the L2 dead-band right around the
+        // identity (~0.99) — present and near-neutral, never dominating and never
+        // absent. That it is NOT exactly 1.0 is the point: the damping term is real.
+        let bedrock_factor =
+            factor_of(&boosted, "file::modB/bedrock.rs").expect("heuristic signals present");
+        assert!(
+            (0.95..=1.05).contains(&bedrock_factor),
+            "the multiplicative heuristic_factor must remain a near-identity co-term \
+             in the composition, not vanish or dominate (factor={bedrock_factor})"
+        );
+        // Exact composition through the factor: the ONLY delta between RED and GREEN
+        // is the additive constant scaled by the (shared) damping factor —
+        // +0.20*factor for BEDROCK, -0.30*factor for EROSION — proving the term is a
+        // bounded, inspectable additive nudge riding THROUGH the multiplier, not an
+        // opaque re-weighting. (`combined = (base + boost) * factor`.)
+        let bedrock_delta =
+            score_of(&boosted, "file::modB/bedrock.rs") - score_of(&base, "file::modB/bedrock.rs");
+        assert!(
+            (bedrock_delta - super::CONFORMANCE_BEDROCK_BOOST * bedrock_factor).abs() < 1e-3,
+            "BEDROCK score must rise by exactly +{}*factor (delta={bedrock_delta}, \
+             factor={bedrock_factor})",
+            super::CONFORMANCE_BEDROCK_BOOST
+        );
+        let eroded_factor =
+            factor_of(&boosted, "file::modA/eroded.rs").expect("heuristic signals present");
+        let eroded_delta =
+            score_of(&boosted, "file::modA/eroded.rs") - score_of(&base, "file::modA/eroded.rs");
+        assert!(
+            (eroded_delta - super::CONFORMANCE_EROSION_MALUS * eroded_factor).abs() < 1e-3,
+            "EROSION score must fall by exactly {}*factor (delta={eroded_delta}, \
+             factor={eroded_factor})",
+            super::CONFORMANCE_EROSION_MALUS
         );
     }
 

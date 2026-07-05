@@ -828,18 +828,28 @@ the 2H residue family (`[needs-backend §9.5.1/§4A.9]` card fields, per-brain `
 rides this rung. *RED:* letter#51's misattribution case.
 
 **R17 — the conformance_boost rerank (JOINT-J: X-RAY steers attention) — owner: the X-RAY/seek
-family; small, parallel.** *What:* grammar-4 conformance becomes the payoff axis it was designed to
-be — the manifesto stops being a report and steers what loads. Inject an additive `conformance_boost`
-term into the shared `handle_seek` rerank (BEDROCK **+0.20**, EROSION **−0.30**); because `focus` is a
-thin layer over `handle_seek`, the same term boosts seek and focus at once. It **composes** with the
-two terms already in that rerank — trust × tremor (damping, multiplicative) × conformance (additive) —
-the one place intent-vs-reality feeds attention. *State:* shipped-partial (DESIGNED, X360 §5.5 —
-P1 malus-only leapfrog: EROSION down-ranking first). *Precondition (LANDED):* the centrality-vs-semantic
-balance of this rerank was corrected first — the `graph_activation` term is now gated by node relevance
-so a high-PageRank/low-similarity hub can't ride pure centrality to the top; R17 adds `conformance_boost`
-on top of that corrected base. *RED:* a rerank fixture — a BEDROCK node
-out-ranks its pre-boost position and an EROSION node drops, with the composition against trust/tremor
-pinned so no term silently dominates.
+family; small, parallel. [SHIPPED 2026-07-05]** *What:* grammar-4 conformance becomes the payoff axis it
+was designed to be — the manifesto stops being a report and steers what loads. An additive
+`conformance_boost` term rides the shared `handle_seek` rerank (BEDROCK **+0.20**, EROSION **−0.30**);
+because `focus` is a thin layer over `handle_seek`, the same term boosts seek and focus at once. It
+**composes** with the two terms already in that rerank — trust × tremor (damping, multiplicative) ×
+conformance (additive) — the one place intent-vs-reality feeds attention. *What landed:* the additive
+term + full plumbing (constants, `resolve_node_conformance`, `SeekInput.conformance_aware`,
+`SeekOutput.conformance` summary + erosion-in-result-set drift note) was implemented on `main` in
+`8244c48`; this rung composed it onto the **corrected base** (below) and pinned the composition with a
+RED→GREEN proof + a battery no-regression. Both the BEDROCK up-boost (+0.20) and the EROSION malus
+(−0.30) ship — the P1 malus-only leapfrog is superseded (up-boost is live and proven). *Precondition
+(LANDED):* the centrality-vs-semantic balance of this rerank was corrected first (#278) — the
+`graph_activation` term is now gated by node relevance so a high-PageRank/low-similarity hub can't ride
+pure centrality to the top; `conformance_boost` sits on that corrected base. *RED→GREEN (PROVEN):* a
+synthetic rerank fixture — with the term OFF, a BEDROCK node and an EROSION node rank by base score only;
+with it ON, the BEDROCK node out-ranks its pre-boost position (+0.20) and the EROSION node drops (−0.30).
+Composition pinned: a BEDROCK-but-semantically-irrelevant node still can't ride the boost above the
+relevant pool (base relevance + the activation gate gate it), the exact per-node delta equals
+`boost × heuristic_factor` (trust × tremor still composes, never dominated), and absence/opt-out stays
+byte-identical. Battery: `m1nd_wins` unchanged (20/20, 38/38 pass) before vs after. *Residue:* X360 §5.5
+P3 (freshness-aware `Unprovable` downgrade) + P4 (calibration surface for the three constants) remain
+deferred — see the X360 §5.5 note.
 
 **R16 — SOUL: the PRD, then slices — LAST.** Bound by §C8.6's seven constraints; designed against
 a working medulla (R2–R4 landed). If the SOUL-PRD lands on main before this constitution, its row
