@@ -483,8 +483,9 @@ fn mission_dir(state: &SessionState) -> PathBuf {
 
 /// Acquire the per-mission exclusive lock held across a load→mutate→save
 /// read-modify-write, so two concurrent writers to the same mission cannot
-/// clobber each other's update. Reuses the memorize `flock` primitive
-/// ([`crate::light_author_handlers::LockGuard`]) on
+/// clobber each other's update. Reuses the memorize lock primitive
+/// ([`crate::light_author_handlers::LockGuard`]) — an in-process mutex on every
+/// platform, plus a cross-process `flock` on unix — on
 /// `<runtime_root>/mission-control/.locks/<mission_id>.lock`.
 fn mission_lock(
     state: &SessionState,
@@ -1727,32 +1728,41 @@ mod tests {
         assert_eq!(out["evidence_grade"], "direct");
     }
 
-    /// FIX 4b — the load→mutate→save is lock-serialized. Two independent sessions
-    /// on the SAME runtime_root each append N events to the SAME mission
-    /// concurrently. `save_mission` rewrites the whole file, so without the flock a
-    /// racing writer's read-modify-write would clobber the other's appends and the
-    /// final event count would fall short of 2N. The lock must serialize them so
-    /// every event lands.
+    /// FIX 4b — the load→mutate→save is lock-serialized. `THREADS` independent
+    /// sessions on the SAME runtime_root each append `PER_THREAD` events to the
+    /// SAME mission concurrently. `save_mission` rewrites the whole file, so
+    /// without serialization a racing writer's read-modify-write would clobber the
+    /// other's appends and the final event count would fall short of the total.
+    ///
+    /// This asserts the property on EVERY platform (NOT `#[cfg(unix)]`): the
+    /// in-process registry mutex in [`LockGuard`] is the serializer here (all
+    /// sessions share one process), so this catches the Windows regression where
+    /// the old `#[cfg(not(unix))]` no-op guard let appends race and vanish. On
+    /// unix the cross-process `flock` additionally serializes sibling processes.
+    /// Many threads × many iterations widen the race window so a broken lock loses
+    /// events deterministically.
     #[test]
     fn concurrent_mission_writes_serialize_and_lose_no_events() {
         use std::sync::Arc;
         use std::thread;
 
-        const PER_THREAD: usize = 40;
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 60;
 
         let temp = tempfile::tempdir().expect("tempdir");
         let root = Arc::new(temp.path().to_path_buf());
 
-        // Create the mission once, then reload it from two sibling sessions.
+        // Create the mission once, then reload it from sibling sessions.
         let mission_id = {
             let mut state = build_session(root.as_path());
             start_mission(&mut state, "jimi")
         };
 
-        // Build both sessions sequentially (initialization is not the property under
-        // test); the per-mission flock is the only serializer of the racing RMW.
-        let sessions: Vec<SessionState> =
-            (0..2u32).map(|_| build_session(root.as_path())).collect();
+        // Build sessions sequentially (initialization is not the property under
+        // test); the per-mission lock is the only serializer of the racing RMW.
+        let sessions: Vec<SessionState> = (0..THREADS as u32)
+            .map(|_| build_session(root.as_path()))
+            .collect();
 
         let mut handles = Vec::new();
         for (i, mut state) in sessions.into_iter().enumerate() {
@@ -1782,7 +1792,7 @@ mod tests {
         let mission = load_mission(&reader, &mission_id).expect("reload mission");
         assert_eq!(
             mission.events.len(),
-            2 * PER_THREAD,
+            THREADS * PER_THREAD,
             "the lock must serialize concurrent RMW so no appended event is lost"
         );
     }
