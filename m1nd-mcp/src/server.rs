@@ -3161,6 +3161,17 @@ fn handle_orient(
 ///     when the graph can't answer yet.
 ///   - `honest_gaps` names what m1nd does NOT yet know for this task.
 ///
+/// Freshest-first ordering key for the broad (non-task-scoped) L1GHT recall
+/// fallback. `authored_ms_ago` is an AGE (now − Created), so a smaller value is
+/// fresher and an absent value is an UNKNOWN age (undated legacy claim). The key
+/// `(is_none, age)` sorts dated claims ahead of undated ones (`false` < `true`)
+/// and, within the dated claims, ascending age = freshest first. A plain
+/// `sort_by_key(|r| r.authored_ms_ago)` is inverted, because Rust orders
+/// `None < Some(_)`, which would float every undated claim to the front.
+fn light_recall_freshness_key(authored_ms_ago: Option<u64>) -> (bool, Option<u64>) {
+    (authored_ms_ago.is_none(), authored_ms_ago)
+}
+
 /// Read-only safe: every composed handler is read-only (`trust_selftest`,
 /// `orient`→`activate`, `boot_memory action=list`, `focus`→`seek` all route
 /// through read-only-safe paths).
@@ -3440,8 +3451,11 @@ fn handle_north(
             // a cold agent still sees that institutional memory EXISTS (honest: this is
             // "memory exists, not necessarily about your task", surfaced most-recent).
             hits = seek_light("memory decision finding note claim", 24);
-            // Prefer the freshest few when the recall is not task-scoped.
-            hits.sort_by_key(|r| r.authored_ms_ago);
+            // Prefer the freshest few when the recall is not task-scoped. See
+            // `light_recall_freshness_key`: dated claims first, freshest within
+            // them, undated (unknown-age) claims last — NOT the inverted
+            // `None`-first order a bare `sort_by_key(authored_ms_ago)` gives.
+            hits.sort_by_key(|r| light_recall_freshness_key(r.authored_ms_ago));
         }
         // De-dup by node_id (a memory can surface under both label and evidence path)
         // and cap at light_limit.
@@ -5584,9 +5598,9 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick,
-        should_autotick_daemon, tool_schemas, tool_schemas_for_tier, DaemonRuntimeControl,
-        McpServer, ESSENTIAL_TOOLS,
+        all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms,
+        light_recall_freshness_key, run_daemon_tick, should_autotick_daemon, tool_schemas,
+        tool_schemas_for_tier, DaemonRuntimeControl, McpServer, ESSENTIAL_TOOLS,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -8909,5 +8923,49 @@ mod tests {
         if let Err(panic) = result {
             std::panic::resume_unwind(panic);
         }
+    }
+
+    // ---- Broad L1GHT recall freshest-first ordering (spine-north #10) --------
+
+    #[test]
+    fn broad_light_recall_sorts_dated_claims_before_undated_freshest_first() {
+        // Regression: the broad (non-task-scoped) memory fallback sorted
+        // `Option<u64>` ages with a bare key, and Rust orders `None < Some(_)`, so
+        // an UNDATED legacy claim outranked every dated one — oldest/unknown-first
+        // where freshest-first is promised.
+        //
+        // Fixture mirrors seek hits by (label, authored_ms_ago); smaller age =
+        // fresher. Expected freshest-first order: fresh(1h) → old(30d) → undated.
+        let fresh_ms = 60 * 60 * 1000u64; // 1 hour old
+        let old_ms = 30 * 24 * 60 * 60 * 1000u64; // 30 days old
+        let mut hits: Vec<(&str, Option<u64>)> = vec![
+            ("undated-legacy", None),
+            ("old-dated", Some(old_ms)),
+            ("fresh-dated", Some(fresh_ms)),
+        ];
+
+        hits.sort_by_key(|(_, age)| light_recall_freshness_key(*age));
+
+        let order: Vec<&str> = hits.iter().map(|(label, _)| *label).collect();
+        assert_eq!(
+            order,
+            vec!["fresh-dated", "old-dated", "undated-legacy"],
+            "dated claims must lead (freshest first); undated must trail"
+        );
+
+        // Guard against the specific inversion: the undated claim must NOT be
+        // first, and the bare-key order (which WOULD put it first) must differ.
+        assert_ne!(order.first(), Some(&"undated-legacy"));
+        let mut bare = [
+            ("undated-legacy", None::<u64>),
+            ("old-dated", Some(old_ms)),
+            ("fresh-dated", Some(fresh_ms)),
+        ];
+        bare.sort_by_key(|(_, age)| *age); // the OLD, inverted key
+        assert_eq!(
+            bare.first().map(|(l, _)| *l),
+            Some("undated-legacy"),
+            "sanity: the bare key really does float the undated claim to the front"
+        );
     }
 }
