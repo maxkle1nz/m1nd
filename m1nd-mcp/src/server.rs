@@ -5482,6 +5482,13 @@ impl McpServer {
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // Drain auto-ingest on the idle clock, independent of the code
+                    // daemon: an idle session may have auto-ingest running while the
+                    // daemon is stopped, and the notify callback only enqueues.
+                    // maybe_tick short-circuits when read-only / not running / empty,
+                    // so this stays cheap and must run BEFORE the daemon-inactive
+                    // early continue below.
+                    let _ = auto_ingest::pump_auto_ingest_if_due(&mut self.state);
                     let trigger = if self.state.daemon_state.watch_backend == "native_fs" {
                         "reconciliation"
                     } else {

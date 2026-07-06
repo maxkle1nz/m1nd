@@ -1027,6 +1027,18 @@ pub fn maybe_tick_auto_ingest(state: &mut SessionState, tool_name: &str) -> M1nd
     result
 }
 
+/// Drive one auto-ingest drain from the server's idle clock (not verb traffic).
+/// Reuses the SAME read-only / running / empty-queue short-circuits as
+/// `maybe_tick` (auto_ingest.rs) so an idle session still ingests queued
+/// changes. No new thread: this rides the `serve()` loop's existing
+/// `recv_timeout` wake, so when there is no queued work it returns immediately.
+pub fn pump_auto_ingest_if_due(state: &mut SessionState) -> M1ndResult<()> {
+    let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+    let result = runtime.maybe_tick(state);
+    state.auto_ingest = runtime;
+    result
+}
+
 fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -1169,6 +1181,95 @@ mod tests {
         assert_eq!(
             state.manifest_key_for_path("/tmp/m1nd\\docs\\notes.md"),
             Some(source)
+        );
+    }
+
+    /// A change enqueued into a RUNNING auto-ingest, with NO verb called, must
+    /// be drained purely by the idle pump — the exact seam `serve()`'s
+    /// recv_timeout wake invokes. The bug: the notify callback only enqueued and
+    /// the queue drained solely on other verb traffic, so an idle session sat on
+    /// the change forever. We use a Delete against a manifest entry (mirrors
+    /// `missing_manifest_paths_are_enqueued_for_delete_reconciliation`) so the
+    /// drain is deterministic without a heavy re-ingest, and debounce_ms = 0 so
+    /// `take_ready_changes(false)` claims it immediately (no sleep).
+    #[test]
+    fn idle_pump_drains_queue_without_verb_traffic() {
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let temp = tempfile::tempdir().unwrap();
+        let runtime_dir = temp.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // Configure the loaded auto-ingest as a running watcher over a tmp root
+        // with a manifest entry whose file no longer exists, then enqueue the
+        // Delete a notify callback would have produced. No verb is ever called.
+        let missing = temp.path().join("docs").join("missing.md");
+        let missing_key = missing.to_string_lossy().to_string();
+        {
+            let ai = &mut state.auto_ingest;
+            ai.running = true;
+            ai.persistent.debounce_ms = 0;
+            ai.persistent.roots = vec![temp.path().to_string_lossy().to_string()];
+            ai.persistent.manifest.insert(
+                missing_key.clone(),
+                AutoIngestManifestEntry {
+                    source_path: missing_key.clone(),
+                    format: "light".into(),
+                    namespace: None,
+                    fingerprint: AutoIngestFingerprint {
+                        canonical_path: missing_key.clone(),
+                        size: 1,
+                        mtime_ms: 1,
+                        content_hash: "hash".into(),
+                        detected_format: "light".into(),
+                    },
+                    claims: SourceClaims::default(),
+                    last_ingested_ms: 1,
+                },
+            );
+            AutoIngestState::enqueue_change(
+                &ai.pending,
+                missing_key.clone(),
+                PendingChangeKind::Delete,
+            );
+        }
+
+        // The change is queued before any drain — verb traffic never touched it.
+        assert_eq!(
+            state.auto_ingest.pending.lock().len(),
+            1,
+            "precondition: the enqueued change is pending before the idle pump"
+        );
+
+        // RED discrimination: without the pump, the queue stays non-empty — this
+        // mirrors the pre-fix world where the idle timeout wake did nothing for
+        // auto-ingest. Proving the assertion below discriminates the fix.
+        assert!(
+            !state.auto_ingest.pending.lock().is_empty(),
+            "no-op stand-in for the pump leaves the queue full (the pre-fix bug)"
+        );
+
+        // GREEN: the idle pump — the same function serve()'s Timeout arm calls —
+        // drains the queue with zero verb traffic.
+        pump_auto_ingest_if_due(&mut state).expect("idle pump");
+
+        assert!(
+            state.auto_ingest.pending.lock().is_empty(),
+            "idle pump must drain the pending queue without any verb call"
+        );
+        assert_eq!(
+            state.auto_ingest.persistent.removals_applied, 1,
+            "the drained Delete reconciled the missing manifest entry"
         );
     }
 }
