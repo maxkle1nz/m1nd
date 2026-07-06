@@ -119,7 +119,7 @@ test('persistedPhrase / bornPhrase: null-safe, absent renders absent', () => {
 
 // ── Name + path + base url (§4A.3 / §4A.4) ─────────────────────────────────────
 test('repoBasename + entryBaseUrl from the real entries', () => {
-  assert.equal(repoBasename('/Users/kle1nz/.m1nd/runtimes/claude'), 'claude');
+  assert.equal(repoBasename('/rt/runtimes/claude'), 'claude');
   assert.equal(repoBasename(bound.workspace_root), 'claude');
   // The bound entry serves its own UI on loopback.
   assert.equal(entryBaseUrl(bound), 'http://127.0.0.1:1338');

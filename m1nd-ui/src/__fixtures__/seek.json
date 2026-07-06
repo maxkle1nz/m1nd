@@ -43,19 +43,19 @@
         "name": "m1nd-mcp",
         "version": "1.2.1"
       },
-      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "current_exe": "/path/to/m1nd-tree/target/release/m1nd-mcp",
       "process_id": 9421,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "runtime_root": "/rt",
       "tool": "seek"
     },
     "status": "ok",
     "trust_mode": "full_trust",
     "workspace_binding": {
       "active_ingest_roots": [
-        "/Users/kle1nz/m1nd-tree",
-        "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory"
+        "/path/to/m1nd-tree",
+        "/rt/agent-memory"
       ],
-      "active_workspace_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory",
+      "active_workspace_root": "/rt/agent-memory",
       "active_workspace_root_source": "graph_path_parent",
       "mismatch": null,
       "requested_scope": null,
