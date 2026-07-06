@@ -366,7 +366,7 @@ struct DaemonRuntimeControl {
 // Tool tier gate
 // ---------------------------------------------------------------------------
 
-/// The curated ESSENTIAL tool set (42 tools) advertised by default.
+/// The curated ESSENTIAL tool set (~25 tools) advertised by default.
 ///
 /// These are the high-frequency tools agents need for orientation, trust, and
 /// everyday graph queries. All other tools are "advanced" and are hidden from
