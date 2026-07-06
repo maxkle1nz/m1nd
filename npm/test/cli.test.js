@@ -21,6 +21,10 @@ const {
   restart,
   runtimeBinaryName,
   selfUpdate,
+  parseLaunchctlLabel,
+  parseLaunchctlProgramPath,
+  launchdLabelManagesTarget,
+  shouldKickstartAfterInstall,
 } = require("../lib/cli");
 const { classifyScopeBinding } = require("../lib/agent-cli");
 
@@ -1574,6 +1578,123 @@ function homeForTest() {
   assert(
     !plan.next_actions.some((action) => action.includes("DRY RUN — nothing was installed")),
     "with no installable source, the loud install-swap line must be absent"
+  );
+}
+
+// --- restart reload trio hardening (cli-operator #11) ---------------------
+
+// (c) label parsing: `launchctl list` is `PID\tSTATUS\tLABEL`, and a label MAY
+// contain whitespace. The label is columns 3..end, not the last token.
+{
+  assert.strictEqual(
+    parseLaunchctlLabel("1234\t0\tcom.kle1nz.m1nd-serve"),
+    "com.kle1nz.m1nd-serve",
+    "a normal label parses whole"
+  );
+  assert.strictEqual(
+    parseLaunchctlLabel("1234\t0\tcom.example.m1nd service with spaces"),
+    "com.example.m1nd service with spaces",
+    "a label WITH SPACES must survive intact (the .pop() bug kept only 'spaces')"
+  );
+  assert.strictEqual(
+    parseLaunchctlLabel("-\t0\tcom.example.m1nd.idle"),
+    "com.example.m1nd.idle",
+    "a '-' PID column still yields the full label"
+  );
+  assert.strictEqual(parseLaunchctlLabel("PID\tStatus\tLabel"), "Label", "header parses by shape");
+  assert.strictEqual(parseLaunchctlLabel(""), "", "a blank line yields no label");
+  assert.strictEqual(parseLaunchctlLabel("only two"), "", "a malformed <3-column line yields no label");
+}
+
+// program-path parsing from `launchctl print` — both the `program = …` form and
+// the `program-arguments` array first-entry fallback.
+{
+  const withProgram = [
+    "com.example.m1nd = {",
+    "\tactive count = 1",
+    "\tprogram = /Users/x/.m1nd/bin/m1nd-mcp",
+    "\targuments = {",
+    "\t}",
+    "}",
+  ].join("\n");
+  assert.strictEqual(
+    parseLaunchctlProgramPath(withProgram),
+    "/Users/x/.m1nd/bin/m1nd-mcp",
+    "the explicit program line is preferred"
+  );
+
+  const withArgsOnly = [
+    "com.example.m1nd = {",
+    "\tprogram-arguments = {",
+    "\t\t0 => /opt/m1nd/bin/m1nd-mcp",
+    "\t\t1 => --serve",
+    "\t}",
+    "}",
+  ].join("\n");
+  assert.strictEqual(
+    parseLaunchctlProgramPath(withArgsOnly),
+    "/opt/m1nd/bin/m1nd-mcp",
+    "falls back to the first program-argument"
+  );
+
+  assert.strictEqual(parseLaunchctlProgramPath("no program here"), null, "no program → null");
+}
+
+// (a) kickstart-scope: a label is kicked ONLY when its managed program IS the
+// target binary. A different m1nd install must NOT match (that was the fleet-wide
+// SIGKILL bug). A null program path is fail-closed (never a match).
+{
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, "m1nd-mcp");
+  fs.writeFileSync(target, "#!/bin/sh\n");
+  const other = path.join(tmp, "other-m1nd-mcp");
+  fs.writeFileSync(other, "#!/bin/sh\n");
+
+  assert.strictEqual(
+    launchdLabelManagesTarget(target, target),
+    true,
+    "the exact target program matches"
+  );
+  assert.strictEqual(
+    launchdLabelManagesTarget(other, target),
+    false,
+    "a DIFFERENT m1nd binary must NOT match — no fleet-wide kick"
+  );
+  assert.strictEqual(
+    launchdLabelManagesTarget(null, target),
+    false,
+    "an undiscoverable program path is fail-closed (never kicked)"
+  );
+  assert.strictEqual(
+    launchdLabelManagesTarget("", target),
+    false,
+    "an empty program path is fail-closed"
+  );
+}
+
+// (b) codesign-gate: after an install, a FAILED darwin codesign must block the
+// kickstart (re-execing an unsigned binary → OS kill loop). Everything else
+// proceeds.
+{
+  assert.strictEqual(
+    shouldKickstartAfterInstall("darwin", { attempted: true, ok: false }),
+    false,
+    "darwin + codesign FAILED must NOT kickstart"
+  );
+  assert.strictEqual(
+    shouldKickstartAfterInstall("darwin", { attempted: true, ok: true }),
+    true,
+    "darwin + codesign ok proceeds"
+  );
+  assert.strictEqual(
+    shouldKickstartAfterInstall("darwin", null),
+    true,
+    "darwin + no codesign attempted proceeds (e.g. no install this run)"
+  );
+  assert.strictEqual(
+    shouldKickstartAfterInstall("linux", { attempted: true, ok: false }),
+    true,
+    "non-darwin ignores codesign entirely"
   );
 }
 
