@@ -120,11 +120,21 @@ pub struct Cli {
     ///                count-conservation gate) WITHOUT mutating anything;
     ///   `apply`    — backup-first, then move repo-fact claims into the project
     ///                brain store, stamp `Origin-Brain`, prune ghost ingest-root
-    ///                pointers, and verify count-conservation; prints the receipt;
-    ///   `rollback` — restore the medulla store from the most recent backup.
+    ///                pointers, and verify count- AND content-conservation; prints
+    ///                the receipt (incl. the authoritative `moved_files` list). It
+    ///                REFUSES on any destination name collision (never overwrites)
+    ///                and writes a `manifest.json` + an `ingest_roots.json` copy
+    ///                into the backup dir;
+    ///   `rollback` — restore the medulla store (and `ingest_roots.json`) from the
+    ///                most recent backup, removing exactly the files named in that
+    ///                backup's manifest (never scanning the destination store), and
+    ///                snapshotting the live state first so a mid-restore failure
+    ///                stays recoverable.
     /// Derives every path from the runtime root exactly like `--inbox-sweep`,
     /// runs offline, prints JSON, and exits. `apply`/`rollback` mutate the store —
-    /// intended for the maintainer, never an agent (the CODE-LAND-ONLY posture).
+    /// intended for the maintainer, never an agent (the CODE-LAND-ONLY posture) —
+    /// and REFUSE while a served owner is up (stop the owner first: the offline
+    /// migration must not race a live owner).
     #[arg(long, value_name = "plan|apply|rollback")]
     pub medulla_migrate: Option<MedullaMigrateMode>,
 

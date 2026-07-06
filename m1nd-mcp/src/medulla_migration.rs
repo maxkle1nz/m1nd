@@ -114,10 +114,38 @@ pub struct MedullaMigration {
     /// The `Origin-Brain` value stamped on repo-fact claims moved to the project
     /// store (the m1nd repo root, e.g. `/path/to/repo`).
     project_origin: String,
+    /// Loopback port the owner-alive guard probes before mutating. An offline
+    /// migration must never race a live served owner keeping the store warm, so
+    /// `apply`/`rollback` refuse while something listens here. Defaults to the
+    /// served-owner port; overridable for tests via [`with_owner_guard_port`].
+    owner_guard_port: u16,
 }
 
 /// Prefix that marks the timestamped backup dirs `apply` writes before mutating.
 const BACKUP_PREFIX: &str = ".m5a-backup-";
+
+/// The loopback port a served owner keeps a keepalive listener on. The offline
+/// migration refuses to run against a live owner on this port (owner-alive guard).
+const SERVED_OWNER_PORT: u16 = 1338;
+
+/// Manifest file (inside each backup dir) recording the exact `.light.md` names
+/// `apply` moved into the project store — the authoritative rollback list, so a
+/// rollback never has to scan (and thereby risk deleting) the destination store.
+const MANIFEST_NAME: &str = "manifest.json";
+
+/// Subdir (inside each backup dir) holding a byte-for-byte copy of the owner's
+/// `ingest_roots.json` as it stood before `apply` rewrote it — restored on rollback.
+const ROOTS_BACKUP_SUBDIR: &str = "ingest-roots";
+
+/// Subdir (inside each backup dir) holding copies of any destination-store files
+/// that shared a name with an incoming claim. `apply` refuses on collision, so
+/// this is defence in depth: if a future path ever writes over a destination file,
+/// its original is recoverable here.
+const DEST_PREEXISTING_SUBDIR: &str = "project-preexisting";
+
+/// Subdir (inside the backup dir) where `rollback` snapshots the live medulla
+/// state BEFORE it wipes/restores, so a mid-rollback failure stays recoverable.
+const PRE_ROLLBACK_SUBDIR: &str = "pre-rollback-live";
 
 impl MedullaMigration {
     /// Build a migration for a medulla store, a project-brain destination store,
@@ -133,7 +161,38 @@ impl MedullaMigration {
             project_dir: project_dir.into(),
             ingest_roots_path: ingest_roots_path.into(),
             project_origin: project_origin.into(),
+            owner_guard_port: SERVED_OWNER_PORT,
         }
+    }
+
+    /// Point the owner-alive guard at a different loopback port. Production always
+    /// uses the default served-owner port; tests bind an ephemeral port and pass it
+    /// here to exercise the refusal deterministically.
+    pub fn with_owner_guard_port(mut self, port: u16) -> Self {
+        self.owner_guard_port = port;
+        self
+    }
+
+    /// Owner-alive guard (§4.2 safety): the offline migration must not race a live
+    /// served owner keeping the store warm. If anything accepts a loopback
+    /// connection on the guard port, refuse with a clear instruction to stop the
+    /// owner first. A short connect timeout keeps the probe cheap; a refused/closed
+    /// port (the owner-down case) passes silently.
+    fn ensure_owner_down(&self) -> M1ndResult<()> {
+        use std::net::{SocketAddr, TcpStream};
+        use std::time::Duration;
+        let addr = SocketAddr::from(([127, 0, 0, 1], self.owner_guard_port));
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+            return Err(M1ndError::InvalidParams {
+                tool: "medulla_migration".into(),
+                detail: format!(
+                    "a served owner is listening on 127.0.0.1:{} — stop the served owner first; \
+                     the offline migration must not run against a live owner",
+                    self.owner_guard_port
+                ),
+            });
+        }
+        Ok(())
     }
 
     /// Enumerate the LIVE `.light.md` claims in the medulla store — never the
@@ -388,6 +447,59 @@ impl MedullaMigration {
         Ok(backup_dir)
     }
 
+    /// Persist the authoritative moved-file list into `<backup>/manifest.json`
+    /// (fix 1). This is the ONLY list `rollback` trusts — it never scans the
+    /// destination store, so it can never delete a claim the migration did not
+    /// create.
+    fn write_manifest(&self, backup_dir: &Path, moved_files: &[String]) -> M1ndResult<()> {
+        let json = serde_json::to_string_pretty(moved_files).map_err(M1ndError::Serde)?;
+        std::fs::write(backup_dir.join(MANIFEST_NAME), json).map_err(M1ndError::Io)?;
+        Ok(())
+    }
+
+    /// Read the moved-file manifest from a backup dir. Absent/unreadable → an empty
+    /// list (a legacy backup predating the manifest, or a rollback caller that
+    /// passed its own list).
+    fn read_manifest(backup_dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(backup_dir.join(MANIFEST_NAME))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// Copy the owner's `ingest_roots.json` into the backup dir (fix 5) so rollback
+    /// can restore the pre-migration roots file byte-for-byte. A missing roots file
+    /// is fine (nothing to restore).
+    fn backup_ingest_roots(&self, backup_dir: &Path) -> M1ndResult<()> {
+        if !self.ingest_roots_path.is_file() {
+            return Ok(());
+        }
+        let dir = backup_dir.join(ROOTS_BACKUP_SUBDIR);
+        std::fs::create_dir_all(&dir).map_err(M1ndError::Io)?;
+        let name = self
+            .ingest_roots_path
+            .file_name()
+            .map(|n| n.to_os_string())
+            .unwrap_or_else(|| "ingest_roots.json".into());
+        std::fs::copy(&self.ingest_roots_path, dir.join(name)).map_err(M1ndError::Io)?;
+        Ok(())
+    }
+
+    /// Restore the owner's `ingest_roots.json` from a backup dir (fix 5). No-op when
+    /// the backup predates roots-backup (legacy) or had no roots file.
+    fn restore_ingest_roots(&self, backup_dir: &Path) -> M1ndResult<()> {
+        let name = self
+            .ingest_roots_path
+            .file_name()
+            .map(|n| n.to_os_string())
+            .unwrap_or_else(|| "ingest_roots.json".into());
+        let backed_up = backup_dir.join(ROOTS_BACKUP_SUBDIR).join(name);
+        if backed_up.is_file() {
+            std::fs::copy(&backed_up, &self.ingest_roots_path).map_err(M1ndError::Io)?;
+        }
+        Ok(())
+    }
+
     /// THE GATED EXECUTOR (never run on a live owner by default — scratch/tests
     /// only). Backup-first, then: move project-fact claims into the project store
     /// (stamping `Origin-Brain: <project root>`), stamp `Origin-Brain: medulla`
@@ -400,7 +512,33 @@ impl MedullaMigration {
     /// original, so the move is fully reversible). If count-conservation fails
     /// AFTER the moves, the caller should `rollback` immediately.
     pub fn apply(&self) -> M1ndResult<MigrationReceipt> {
+        // Owner-alive guard (fix 6): never mutate the store while a served owner is
+        // up — the offline migration would race a live keepalive owner.
+        self.ensure_owner_down()?;
+
         let plan = self.plan()?;
+
+        // Name-collision guard (fix 2): a claim must NEVER silently overwrite a
+        // same-named file already living in the destination store. Detect every
+        // collision up front and REFUSE — before any backup or mutation — naming
+        // the offending files so the maintainer resolves them by hand.
+        let collisions: Vec<String> = plan
+            .claims
+            .iter()
+            .filter(|c| c.destination == Destination::Project)
+            .map(|c| c.file_name.clone())
+            .filter(|name| self.project_dir.join(name).exists())
+            .collect();
+        if !collisions.is_empty() {
+            return Err(M1ndError::InvalidParams {
+                tool: "medulla_migration".into(),
+                detail: format!(
+                    "destination name collision — the project store already holds: {}; \
+                     refusing to overwrite. Resolve these files before migrating.",
+                    collisions.join(", ")
+                ),
+            });
+        }
 
         // Idempotency guard (field bug 2026-07-05): a store with no repo fact to
         // move AND nothing left to stamp is already migrated. Re-running `apply`
@@ -416,21 +554,27 @@ impl MedullaMigration {
             return Ok(MigrationReceipt {
                 backup_dir: String::new(),
                 moved_to_project: 0,
+                moved_files: Vec::new(),
                 stamped_medulla: 0,
                 ghosts_pruned: 0,
                 baseline_count: plan.baseline_count,
                 medulla_after,
                 project_after,
                 count_conserved: true,
+                content_conserved: true,
                 already_migrated: true,
             });
         }
 
         let backup_dir = self.backup()?;
 
+        // Back up the owner's ingest_roots.json (fix 5) so rollback can restore it
+        // byte-for-byte after apply rewrites it below.
+        self.backup_ingest_roots(&backup_dir)?;
+
         std::fs::create_dir_all(&self.project_dir).map_err(M1ndError::Io)?;
 
-        let mut moved = 0usize;
+        let mut moved_files: Vec<String> = Vec::new();
         let mut stamped = 0usize;
 
         for claim in &plan.claims {
@@ -439,12 +583,13 @@ impl MedullaMigration {
             match claim.destination {
                 Destination::Project => {
                     // Stamp the project origin, write into the project store, then
-                    // remove from the medulla. The backup keeps the original.
+                    // remove from the medulla. The backup keeps the original, and
+                    // the collision guard above proved the destination path is free.
                     let stamped_text = stamp_origin_brain(&text, &self.project_origin);
                     let dst = self.project_dir.join(&claim.file_name);
                     std::fs::write(&dst, stamped_text).map_err(M1ndError::Io)?;
                     std::fs::remove_file(&src).map_err(M1ndError::Io)?;
-                    moved += 1;
+                    moved_files.push(claim.file_name.clone());
                 }
                 Destination::Medulla | Destination::AmbiguousStay => {
                     // Stays home. Stamp Origin-Brain: medulla if it lacks one.
@@ -456,6 +601,11 @@ impl MedullaMigration {
                 }
             }
         }
+        moved_files.sort();
+
+        // Persist the authoritative moved-list (fix 1): the manifest is the ONLY
+        // source rollback consults, so it never scans the destination store.
+        self.write_manifest(&backup_dir, &moved_files)?;
 
         // Prune ghost ingest-root pointers (write the swept list back).
         let (_ghosts, swept) = self.sweep_ingest_roots()?;
@@ -470,15 +620,27 @@ impl MedullaMigration {
         let project_after = count_project_claims(&self.project_dir);
         let count_conserved = plan.baseline_count == medulla_after + project_after;
 
+        // Content-level conservation (fix 3): cardinality can balance by luck (a
+        // stray destination file offsetting a lost claim). Verify each moved file
+        // is present at the destination AND absent from the source, and that the
+        // cardinality equation `baseline == medulla_after + moved.len()` holds.
+        let content_conserved = count_conserved
+            && moved_files.iter().all(|name| {
+                self.project_dir.join(name).exists() && !self.medulla_dir.join(name).exists()
+            })
+            && plan.baseline_count == medulla_after + moved_files.len();
+
         Ok(MigrationReceipt {
             backup_dir: backup_dir.to_string_lossy().to_string(),
-            moved_to_project: moved,
+            moved_to_project: moved_files.len(),
+            moved_files,
             stamped_medulla: stamped,
             ghosts_pruned: plan.ghost_pointers.len(),
             baseline_count: plan.baseline_count,
             medulla_after,
             project_after,
             count_conserved,
+            content_conserved,
             already_migrated: false,
         })
     }
@@ -488,9 +650,20 @@ impl MedullaMigration {
     /// After a rollback the medulla store is byte-identical to its pre-migration
     /// state (the reversibility proof).
     ///
-    /// `moved_file_names` are the project-store files the migration created — they
-    /// are removed so the project store returns to its pre-migration contents.
-    pub fn rollback(&self, backup_dir: &str, moved_file_names: &[String]) -> M1ndResult<()> {
+    /// `moved_file_names` is a FALLBACK list used only for legacy backups that
+    /// predate the manifest; the authoritative source is the `manifest.json` apply
+    /// wrote inside the backup dir. Returns the files actually removed from the
+    /// project store, so the caller reports a truthful `removed_from_project`
+    /// instead of re-deriving it by scanning (the scan is the data-loss vector).
+    pub fn rollback(
+        &self,
+        backup_dir: &str,
+        moved_file_names: &[String],
+    ) -> M1ndResult<Vec<String>> {
+        // Owner-alive guard (fix 6): as with apply, never mutate against a live
+        // served owner.
+        self.ensure_owner_down()?;
+
         let backup = PathBuf::from(backup_dir);
         if !backup.is_dir() {
             return Err(M1ndError::InvalidParams {
@@ -499,11 +672,32 @@ impl MedullaMigration {
             });
         }
 
+        // Authoritative moved-list (fix 1): trust the manifest apply wrote. Only
+        // fall back to the caller-supplied list when the backup predates manifests
+        // (a legacy backup). NEVER scan the destination store — that is exactly how
+        // a rollback used to delete pre-existing destination claims.
+        let manifest = Self::read_manifest(&backup);
+        let moved: &[String] = if manifest.is_empty() {
+            moved_file_names
+        } else {
+            &manifest
+        };
+
+        // Snapshot-first (fix 4): capture the live medulla state into the backup dir
+        // BEFORE wiping it, so a failure mid-restore leaves a recoverable snapshot.
+        let snapshot = backup.join(PRE_ROLLBACK_SUBDIR);
+        if snapshot.exists() {
+            std::fs::remove_dir_all(&snapshot).map_err(M1ndError::Io)?;
+        }
+        copy_tree(&self.medulla_dir, &snapshot, &backup)?;
+
         // 1. Remove the claims the migration created in the project store.
-        for name in moved_file_names {
+        let mut removed: Vec<String> = Vec::new();
+        for name in moved {
             let dst = self.project_dir.join(name);
             if dst.exists() {
                 std::fs::remove_file(&dst).map_err(M1ndError::Io)?;
+                removed.push(name.clone());
             }
         }
 
@@ -513,7 +707,10 @@ impl MedullaMigration {
             std::fs::remove_file(&path).map_err(M1ndError::Io)?;
         }
         restore_tree(&backup, &self.medulla_dir)?;
-        Ok(())
+
+        // 3. Restore the pre-migration ingest_roots.json (fix 5).
+        self.restore_ingest_roots(&backup)?;
+        Ok(removed)
     }
 }
 
@@ -522,8 +719,14 @@ impl MedullaMigration {
 pub struct MigrationReceipt {
     /// The backup dir written before mutation — pass to `rollback`.
     pub backup_dir: String,
-    /// Claims moved into the project store.
+    /// Claims moved into the project store (== `moved_files.len()`).
     pub moved_to_project: usize,
+    /// The AUTHORITATIVE list of `.light.md` names `apply` moved into the project
+    /// store, also persisted as `manifest.json` in the backup dir. `rollback`
+    /// removes exactly these — it never scans the destination store, so it can
+    /// never delete a pre-existing destination claim (fix 1, the data-loss vector).
+    #[serde(default)]
+    pub moved_files: Vec<String>,
     /// Claims that stayed and were stamped `Origin-Brain: medulla`.
     pub stamped_medulla: usize,
     /// Ghost ingest-root pointers pruned.
@@ -536,6 +739,13 @@ pub struct MigrationReceipt {
     pub project_after: usize,
     /// The count-conservation gate: `baseline == medulla_after + project_after`.
     pub count_conserved: bool,
+    /// The CONTENT-level conservation gate (fix 3): beyond cardinality, every moved
+    /// file exists at the destination AND is gone from the source, and
+    /// `baseline == medulla_after + moved_files.len()`. Cardinality alone can
+    /// balance by luck (a stray destination file offsetting a lost claim); this
+    /// cannot.
+    #[serde(default)]
+    pub content_conserved: bool,
     /// True when the store was already migrated (nothing to move, nothing to
     /// stamp): `apply` short-circuited BEFORE any backup or mutation. A
     /// re-invocation of a done migration never degrades the store (field bug
@@ -638,12 +848,26 @@ fn copy_tree(src: &Path, dst: &Path, backup_self: &Path) -> M1ndResult<()> {
 /// not delete files already present (the caller wipes live claims first); it
 /// overwrites/creates from the backup so the store returns to backup bytes.
 fn restore_tree(backup: &Path, dst: &Path) -> M1ndResult<()> {
+    /// Backup-metadata entries that describe the backup itself and must NEVER be
+    /// restored into the live store (fixes 1/4/5): the moved-list manifest, the
+    /// ingest_roots.json copy, the destination-preexisting snapshot, and the
+    /// pre-rollback live snapshot.
+    const METADATA: &[&str] = &[
+        MANIFEST_NAME,
+        ROOTS_BACKUP_SUBDIR,
+        DEST_PREEXISTING_SUBDIR,
+        PRE_ROLLBACK_SUBDIR,
+    ];
     std::fs::create_dir_all(dst).map_err(M1ndError::Io)?;
     for entry in std::fs::read_dir(backup).map_err(M1ndError::Io)?.flatten() {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
+        // Skip backup-metadata: it belongs to the backup, not the restored store.
+        if METADATA.contains(&name) {
+            continue;
+        }
         let target = dst.join(name);
         if path.is_dir() {
             restore_tree(&path, &target)?;
@@ -693,6 +917,28 @@ mod tests {
 
     fn write_claim(dir: &Path, file: &str, contents: &str) {
         std::fs::write(dir.join(file), contents).expect("write claim");
+    }
+
+    /// A loopback port that is CLOSED right now: bind an ephemeral port, read it,
+    /// then drop the listener so the port is free again. The owner-alive guard
+    /// probing this port gets a refused connection (the owner-down path), so
+    /// scratch tests exercise the migration logic without racing the machine's real
+    /// served owner (which really does listen on 1338 in this environment).
+    fn closed_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind ephemeral")
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// Build a migration over a scratch store with the owner-alive guard pointed at
+    /// a closed port (see [`closed_port`]). Every test that calls `apply`/`rollback`
+    /// uses this so the real served owner never interferes; the guard's own test
+    /// overrides the port back to a live listener to prove the refusal.
+    fn scratch_mig(s: &Scratch) -> MedullaMigration {
+        MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo")
+            .with_owner_guard_port(closed_port())
     }
 
     /// RED (closeout field letter, 2026-07-05): a cross-project doctrine note
@@ -783,7 +1029,7 @@ mod tests {
             })
             .collect();
 
-        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let mig = scratch_mig(&s);
         let plan = mig.plan().expect("plan");
 
         assert_eq!(plan.baseline_count, 3, "three live claims");
@@ -840,7 +1086,7 @@ mod tests {
         )
         .unwrap();
 
-        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let mig = scratch_mig(&s);
         let receipt = mig.apply().expect("apply");
 
         assert!(receipt.count_conserved, "no claim lost");
@@ -902,7 +1148,7 @@ mod tests {
             })
             .collect();
 
-        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let mig = scratch_mig(&s);
         let receipt = mig.apply().expect("apply");
         assert!(receipt.count_conserved);
         // Post-apply the store changed (moved + stamped).
@@ -960,7 +1206,7 @@ mod tests {
         )
         .unwrap();
 
-        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let mig = scratch_mig(&s);
         let (ghosts, swept) = mig.sweep_ingest_roots().expect("sweep");
         assert_eq!(ghosts.len(), 2, "one dangling + one collapsed");
         let roots = swept.expect("swept list");
@@ -1005,7 +1251,7 @@ mod tests {
         )
         .unwrap();
 
-        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let mig = scratch_mig(&s);
         let first = mig.apply().expect("first apply");
         assert!(!first.already_migrated, "first apply actually migrates");
         assert_eq!(first.moved_to_project, 1);
@@ -1056,6 +1302,273 @@ mod tests {
         assert!(
             stamped.find("Origin-Brain:").unwrap() > stamped.find("Source-Agent:").unwrap(),
             "Origin-Brain lands after Source-Agent"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // DATA-SAFETY CLUSTER (M5a) — one RED per data-loss vector.
+    // ---------------------------------------------------------------------
+
+    /// Fixture-neutral helper: a repo-fact claim (code-anchored → Project).
+    fn repo_fact(name: &str) -> String {
+        light_doc(
+            name,
+            "closer",
+            &format!("shipped.\n\n[⍂ entity: {name}]\n[𝔻 evidence: repo-alpha/src/x.rs]\n"),
+        )
+    }
+    /// Fixture-neutral helper: a doctrine claim (stays on the medulla).
+    fn doctrine(name: &str) -> String {
+        light_doc(
+            name,
+            "orch",
+            &format!("maintainer doctrine holds.\n\n[⍂ entity: {name}]\n"),
+        )
+    }
+
+    /// RED (fix 1 — authoritative moved-list): `apply` must report the exact
+    /// files it moved, and that list must survive in a `manifest.json` inside the
+    /// backup dir. A rollback driven by that authoritative list never has to scan
+    /// the destination store (where it would delete claims it never created).
+    #[test]
+    fn apply_receipt_carries_authoritative_moved_files_and_manifest() {
+        let s = scratch();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        write_claim(&s.medulla, "keepdoc.light.md", &doctrine("KeepDoc"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+
+        assert_eq!(
+            receipt.moved_files,
+            vec!["alpha.light.md".to_string()],
+            "receipt must name exactly the moved files"
+        );
+        // The manifest persisted beside the backup is the rollback's source of truth.
+        let manifest = PathBuf::from(&receipt.backup_dir).join("manifest.json");
+        assert!(manifest.is_file(), "backup dir carries a manifest.json");
+        let names: Vec<String> =
+            serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
+        assert_eq!(names, vec!["alpha.light.md".to_string()]);
+    }
+
+    /// RED (fix 1 — rollback must NOT wipe pre-existing destination claims): the
+    /// project store already holds a claim BEFORE the migration. `apply` moves one
+    /// claim in; a rollback driven by the receipt's `moved_files` removes ONLY the
+    /// moved claim and leaves the pre-existing destination claim untouched.
+    /// (Today `main.rs` rollback scans the whole project store → it would delete
+    /// the pre-existing claim. This proves the authoritative-list contract.)
+    #[test]
+    fn rollback_with_moved_files_spares_preexisting_destination_claims() {
+        let s = scratch();
+        std::fs::create_dir_all(&s.project).unwrap();
+        // A claim that already lived in the destination brain BEFORE any migration.
+        write_claim(&s.project, "preexisting.light.md", &doctrine("Preexisting"));
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+        assert!(
+            s.project.join("alpha.light.md").exists(),
+            "moved claim landed"
+        );
+
+        mig.rollback(&receipt.backup_dir, &receipt.moved_files)
+            .expect("rollback");
+
+        assert!(
+            s.project.join("preexisting.light.md").exists(),
+            "rollback must NOT delete a claim it never created"
+        );
+        assert!(
+            !s.project.join("alpha.light.md").exists(),
+            "rollback removed exactly the moved claim"
+        );
+    }
+
+    /// RED (fix 2 — name collision is a hard refusal, never a silent overwrite):
+    /// the destination store already holds a file with the SAME name a repo-fact
+    /// claim would move to. `apply` must REFUSE with an error that names the
+    /// colliding file, and must not have mutated either store.
+    #[test]
+    fn apply_refuses_on_destination_name_collision() {
+        let s = scratch();
+        std::fs::create_dir_all(&s.project).unwrap();
+        // Destination already has `alpha.light.md` with DISTINCT bytes.
+        let preexisting_bytes = doctrine("DestinationAlpha");
+        write_claim(&s.project, "alpha.light.md", &preexisting_bytes);
+        // The medulla has a repo-fact that would move to `alpha.light.md`.
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let err = mig.apply().expect_err("collision must refuse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("alpha.light.md") && msg.to_ascii_lowercase().contains("collision"),
+            "refusal names the colliding file, got: {msg}"
+        );
+        // Neither store was mutated: destination bytes intact, source still present.
+        assert_eq!(
+            std::fs::read_to_string(s.project.join("alpha.light.md")).unwrap(),
+            preexisting_bytes,
+            "pre-existing destination claim untouched by a refused apply"
+        );
+        assert!(
+            s.medulla.join("alpha.light.md").exists(),
+            "source claim still present after a refused apply"
+        );
+    }
+
+    /// RED (fix 3 — content-level conservation, not just cardinality): a stray,
+    /// unrelated `.light.md` sitting in the destination store before migration
+    /// keeps the post-apply cardinality equation balanced by luck, yet the moved
+    /// claim's content must be verified present at the destination and absent from
+    /// the source. `verify_conservation` performs the content-level check and must
+    /// hold on a clean apply.
+    #[test]
+    fn apply_verifies_content_level_conservation() {
+        let s = scratch();
+        std::fs::create_dir_all(&s.project).unwrap();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        write_claim(&s.medulla, "keepdoc.light.md", &doctrine("KeepDoc"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+        assert!(receipt.count_conserved, "cardinality gate holds");
+        assert!(
+            receipt.content_conserved,
+            "content-level gate: every moved file present at dest + gone from source"
+        );
+        // The moved claim exists at the destination and is gone from the source.
+        assert!(s.project.join("alpha.light.md").exists());
+        assert!(!s.medulla.join("alpha.light.md").exists());
+    }
+
+    /// RED (fix 4 — rollback is snapshot-first): rollback must snapshot the live
+    /// state into the backup dir BEFORE it wipes/restores, so a failure mid-way
+    /// leaves a recoverable snapshot. We assert the snapshot dir materialises.
+    #[test]
+    fn rollback_snapshots_live_state_before_restoring() {
+        let s = scratch();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        write_claim(&s.medulla, "keepdoc.light.md", &doctrine("KeepDoc"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+        mig.rollback(&receipt.backup_dir, &receipt.moved_files)
+            .expect("rollback");
+
+        // A pre-rollback snapshot of the live medulla state exists under the backup.
+        let snap = PathBuf::from(&receipt.backup_dir).join("pre-rollback-live");
+        assert!(
+            snap.is_dir(),
+            "rollback snapshots the live medulla state before wiping it"
+        );
+        assert!(
+            snap.join("alpha.light.md").exists() || snap.join("keepdoc.light.md").exists(),
+            "the pre-rollback snapshot captured the live claims"
+        );
+    }
+
+    /// RED (fix 5 — ingest_roots.json is backed up and restored): `apply` prunes
+    /// ghost pointers by rewriting `ingest_roots.json`; a rollback must restore the
+    /// PRE-migration roots file byte-for-byte.
+    #[test]
+    fn rollback_restores_ingest_roots_json() {
+        let s = scratch();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        let dangling = s.medulla.join("gone.light.md");
+        // Original roots: dir root + a dangling per-file pointer (a ghost).
+        let original_roots = serde_json::to_string_pretty(&vec![
+            s.medulla.to_string_lossy().to_string(),
+            dangling.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+        std::fs::write(&s.roots, &original_roots).unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+        // apply rewrote the roots file (pruned the ghost).
+        assert_ne!(
+            std::fs::read_to_string(&s.roots).unwrap(),
+            original_roots,
+            "apply pruned the ghost pointer from ingest_roots.json"
+        );
+
+        mig.rollback(&receipt.backup_dir, &receipt.moved_files)
+            .expect("rollback");
+        assert_eq!(
+            std::fs::read_to_string(&s.roots).unwrap(),
+            original_roots,
+            "rollback restores the pre-migration ingest_roots.json byte-for-byte"
+        );
+    }
+
+    /// RED (fix 6 — owner-alive guard): a live listener on the served-owner port
+    /// means an offline migration would race a keepalive owner. `apply`/`rollback`
+    /// must refuse with a clear "stop the served owner first" message while a
+    /// listener is up.
+    #[test]
+    fn apply_and_rollback_refuse_while_owner_listener_is_up() {
+        use std::net::TcpListener;
+        let s = scratch();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        // Bind an ephemeral port to stand in for a live served owner, and point the
+        // migration's guard at it.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stand-in owner");
+        let port = listener.local_addr().unwrap().port();
+
+        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo")
+            .with_owner_guard_port(port);
+
+        let err = mig
+            .apply()
+            .expect_err("apply must refuse while a listener is up");
+        assert!(
+            err.to_string()
+                .to_ascii_lowercase()
+                .contains("stop the served owner"),
+            "refusal tells the maintainer to stop the served owner, got: {err}"
+        );
+        let err = mig
+            .rollback("unused", &[])
+            .expect_err("rollback must refuse while a listener is up");
+        assert!(
+            err.to_string()
+                .to_ascii_lowercase()
+                .contains("stop the served owner"),
+            "rollback refusal is the same guard, got: {err}"
         );
     }
 }

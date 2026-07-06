@@ -396,12 +396,21 @@ fn run_medulla_migrate(
         .store_dir_for(&ProjectBrainRegistry::canonical_key(&project_origin))
         .join("agent-memory");
 
-    let mig = MedullaMigration::new(
+    let mut mig = MedullaMigration::new(
         &medulla_dir,
         &project_dir,
         &ingest_roots_path,
         project_origin.clone(),
     );
+    // Operational override for the owner-alive guard port (default: the served-owner
+    // port). A maintainer running the owner on a non-default port sets this so the
+    // guard probes the right listener; the CLI integration tests set it to a closed
+    // port so they can exercise `apply`/`rollback` without a live owner interfering.
+    if let Ok(p) = std::env::var("M1ND_MEDULLA_GUARD_PORT") {
+        if let Ok(port) = p.parse::<u16>() {
+            mig = mig.with_owner_guard_port(port);
+        }
+    }
 
     let (mode_str, payload) = match mode {
         MedullaMigrateMode::Plan => match mig.plan() {
@@ -430,25 +439,18 @@ fn run_medulla_migrate(
                     std::process::exit(1);
                 }
             };
-            // The moved files are those now present in the project store — remove
-            // them so the project store returns to its pre-migration contents.
-            let moved: Vec<String> = std::fs::read_dir(&project_dir)
-                .map(|entries| {
-                    entries
-                        .flatten()
-                        .filter_map(|e| {
-                            let name = e.file_name().to_string_lossy().to_string();
-                            (!name.starts_with('.') && name.ends_with(".light.md")).then_some(name)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            match mig.rollback(&backup.to_string_lossy(), &moved) {
-                Ok(()) => (
+            // The moved files come from the AUTHORITATIVE manifest `apply` wrote in
+            // the backup dir — `rollback` reads it and returns exactly what it
+            // removed. We do NOT scan the project store to derive this list: that
+            // scan would sweep up (and delete) claims that already lived in the
+            // destination brain before the migration, a silent data-loss vector.
+            // The empty slice is only a legacy fallback for pre-manifest backups.
+            match mig.rollback(&backup.to_string_lossy(), &[]) {
+                Ok(removed) => (
                     "rollback",
                     serde_json::json!({
                         "restored_from": backup.to_string_lossy(),
-                        "removed_from_project": moved,
+                        "removed_from_project": removed,
                     }),
                 ),
                 Err(e) => {

@@ -32,10 +32,25 @@ fn light_doc(node: &str, source_agent: &str, body: &str) -> String {
     )
 }
 
-/// Run the binary with the given args + a synthetic runtime dir. Returns
-/// (status_code, stdout, stderr). Isolated: a private registry dir + no GUI so it
-/// never touches the developer's real runtime.
-fn run(args: &[&str], runtime_dir: &Path) -> (i32, String, String) {
+/// A loopback port that is CLOSED right now: bind an ephemeral port, read it, then
+/// drop the listener so the port frees again. Passed to the binary via
+/// `M1ND_MEDULLA_GUARD_PORT` so the owner-alive guard sees no listener and the
+/// migration runs — these tests use fully synthetic runtime dirs and must not be
+/// gated on (or race) the developer's real served owner on the default port.
+fn closed_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("bind ephemeral")
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// Run the binary with the owner-alive guard pointed at an explicit port.
+fn run_with_guard_port(
+    args: &[&str],
+    runtime_dir: &Path,
+    guard_port: u16,
+) -> (i32, String, String) {
     let out = Command::new(BIN)
         .args(args)
         .arg("--runtime-dir")
@@ -43,6 +58,7 @@ fn run(args: &[&str], runtime_dir: &Path) -> (i32, String, String) {
         .arg("--no-gui")
         .env("M1ND_REGISTRY_DIR", runtime_dir.join("registry"))
         .env("M1ND_NO_GUI", "1")
+        .env("M1ND_MEDULLA_GUARD_PORT", guard_port.to_string())
         .output()
         .expect("spawn m1nd-mcp");
     (
@@ -50,6 +66,14 @@ fn run(args: &[&str], runtime_dir: &Path) -> (i32, String, String) {
         String::from_utf8_lossy(&out.stdout).to_string(),
         String::from_utf8_lossy(&out.stderr).to_string(),
     )
+}
+
+/// Run the binary with the given args + a synthetic runtime dir. Returns
+/// (status_code, stdout, stderr). Isolated: a private registry dir + no GUI so it
+/// never touches the developer's real runtime, and the owner-alive guard is pointed
+/// at a closed port so `apply`/`rollback` are not gated on a live owner.
+fn run(args: &[&str], runtime_dir: &Path) -> (i32, String, String) {
+    run_with_guard_port(args, runtime_dir, closed_port())
 }
 
 #[test]
@@ -381,5 +405,56 @@ fn apply_is_idempotent_on_an_already_migrated_store() {
     assert!(
         backups.is_empty(),
         "an already-migrated apply writes no backup dir, found: {backups:?}"
+    );
+}
+
+/// RED (owner-alive guard, end to end): with a live listener on the guard port,
+/// `apply` must refuse ("stop the served owner first") and exit non-zero WITHOUT
+/// mutating the store — the offline migration must never race a live served owner.
+#[test]
+fn apply_refuses_while_a_listener_is_up_on_the_guard_port() {
+    use std::net::TcpListener;
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime_dir = tmp.path().join("runtime");
+    let target_repo = tmp.path().join("repo-beta");
+    seed_runtime_bound_to(&runtime_dir, &tmp.path().join("repo-alpha"));
+    std::fs::create_dir_all(&target_repo).expect("mk target repo dir");
+    let medulla = runtime_dir.join("agent-memory");
+
+    // Stand in for a live served owner on an ephemeral port and point the guard
+    // at it (the child holds the socket open for the duration of the call).
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind stand-in owner");
+    let port = listener.local_addr().unwrap().port();
+
+    let (code, stdout, stderr) = run_with_guard_port(
+        &[
+            "--medulla-migrate",
+            "apply",
+            "--migrate-project-root",
+            &target_repo.to_string_lossy(),
+        ],
+        &runtime_dir,
+        port,
+    );
+    assert_ne!(
+        code, 0,
+        "apply must refuse while a listener is up; stdout:\n{stdout}"
+    );
+    assert!(
+        stderr
+            .to_ascii_lowercase()
+            .contains("stop the served owner"),
+        "the refusal tells the maintainer to stop the served owner; stderr:\n{stderr}"
+    );
+    // Refused before mutating: no backup, source claim intact.
+    let backups: Vec<_> = std::fs::read_dir(&medulla)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".m5a-backup-"))
+        .collect();
+    assert!(backups.is_empty(), "a guard-refused apply writes no backup");
+    assert!(
+        medulla.join("sliceship.light.md").exists(),
+        "a guard-refused apply leaves the medulla store untouched"
     );
 }
