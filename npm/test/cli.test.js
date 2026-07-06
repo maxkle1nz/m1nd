@@ -1587,8 +1587,8 @@ function homeForTest() {
 // contain whitespace. The label is columns 3..end, not the last token.
 {
   assert.strictEqual(
-    parseLaunchctlLabel("1234\t0\tcom.kle1nz.m1nd-serve"),
-    "com.kle1nz.m1nd-serve",
+    parseLaunchctlLabel("1234\t0\tcom.example.m1nd-serve"),
+    "com.example.m1nd-serve",
     "a normal label parses whole"
   );
   assert.strictEqual(
