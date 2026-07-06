@@ -176,7 +176,7 @@ The agent does not consult m1nd; it wears it. Every mid-work answer is a calibra
 - **`xray_gate` guards architecture boundaries** — called before an edit, it answers "does this change cross a forbidden module boundary?" with `clear` / `caution` / `blocked`; only a ratified manifest can block (anti-guardrail-fatigue).
 - **Mission Control is proof discipline** — `mission_next` returns exactly one move plus `do_not` guardrails; in `bug_hunt` mode a final direct sweep is required before close, so agents check negative space.
 
-The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readout and a `trust_envelope` — and when the envelope has no calibration row measured yet, it caps its own verdict instead of overclaiming. A real capture, trimmed (the top hit is a memory the last session authored):
+The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readout and a `trust_envelope` — and when the envelope has no calibration row measured yet, it caps its own verdict at `reverify` instead of overclaiming. Arm it the same way you arm `predict`: `calibrate_envelope` measures a split-conformal threshold on the envelope's own reliability scale from the ledger's real learn outcomes, so the verdict can then reach `act` — and with no labeled corpus it stays honestly `envelope_uncalibrated`, never a fabricated `act`. A real capture, trimmed (the top hit is a memory the last session authored):
 
 ```jsonc
 {

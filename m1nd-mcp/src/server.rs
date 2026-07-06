@@ -74,8 +74,10 @@ another project's knowledge.
 
 Retrieval and prediction return a calibrated verdict; obey it:
 - **`act` / `reverify` / `abstain`** — `abstain` means uncalibrated or insufficient \
-evidence: do NOT guess past it. The gate is armed per-repo by running \
-`calibrate_predict` ONCE; until then verdicts cap at `reverify`, never `act`.
+evidence: do NOT guess past it. The prediction gate is armed per-repo by running \
+`calibrate_predict` ONCE, and the seek trust envelope by running `calibrate_envelope` \
+(from the ledger's learn outcomes); until each is armed its verdict caps at `reverify`, \
+never `act`.
 - **`why` answers carry a `closure` verdict** — `blocked` means the path rests on an \
 unresolved (guessed/dropped) edge: verify that edge before you rely on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** — `sufficient` \
@@ -1622,6 +1624,18 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated predictions" },
                         "top_k": { "type": "integer", "default": 10, "description": "Top-k predictions to score per held-out node" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "calibrate_envelope",
+                "description": "OMEGA Move 1: calibrate the seek TRUST ENVELOPE from the trust ledger's real learn outcomes. Each node with learn history is a label — a confirmed defect (learn `correct`) means trusting it would have been WRONG (a miss), a false alarm (learn `wrong`) means trusting it was RIGHT (a hit) — scored by the reliability the envelope assigns its trust band. Derives a split-conformal τ (on the envelope's own [0,1] scale) + precision-at-coverage and persists it under the `envelope` signal, so the seek envelope can reach `act`. With no labeled ledger corpus it stays honestly uncalibrated (reason `envelope_uncalibrated`, capped at `reverify`), never a fabricated `act`.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated envelope decisions" }
                     },
                     "required": ["agent_id"]
                 }
@@ -4446,6 +4460,11 @@ fn dispatch_core_tool(
             let input: layers::CalibratePredictInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_calibrate_predict(state, input)
+        }
+        "calibrate_envelope" => {
+            let input: layers::CalibrateEnvelopeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_calibrate_envelope(state, input)
         }
         "taint_trace" => {
             let input: layers::TaintTraceInput =

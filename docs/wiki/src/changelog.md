@@ -19,6 +19,31 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
   carries this real invocation; registry entries gain a serde-default `brain_kind`
   field. Owner restarts warm-boot each project brain from its own store.
 
+- **`calibrate_envelope` — the seek trust envelope can now reach `act` (hardening wave 2).**
+  The envelope calibration signal finally has a real production writer. It derives a
+  labeled corpus from the trust ledger's learn outcomes (a confirmed defect ⇒ trusting
+  the node would have been wrong; a false alarm ⇒ trusting it was right), scores each by
+  the reliability the envelope assigns its trust band, and measures a split-conformal τ
+  on the envelope's OWN [0,1] scale. Persists the `envelope` row so a calibrated seek can
+  emit `act`; with no labeled corpus it stays honestly `envelope_uncalibrated` (capped at
+  `reverify`), never a fabricated `act`.
+
+### Fixed
+
+- **Activation engines lost order-dependent strengthening (hardening wave 2).** Both
+  structural engines (Heap, Wavefront) now re-relax an already-visited node when a later
+  arrival is stronger by a margin (Dijkstra decrease-key), so the larger value propagates
+  onward; the Heap re-push also rescues a Bloom false-positive first-time node. Proven by a
+  cross-engine equivalence test against a brute-force fixpoint oracle.
+- **PageRank staleness + non-finalized-graph queries (hardening wave 2).** A `pagerank_dirty`
+  flag makes the seek boost skip stale PageRank (degrading to the un-boosted ranking);
+  `query`/`query_readonly` guard on `finalized` and `out_range`/`in_range` are bounds-safe,
+  so a query on a non-finalized graph returns an honest empty result instead of panicking.
+- **Embedding tests no longer self-skip without the model blob (hardening wave 2).** A
+  deterministic `FakeEmbedder` + `SemanticEngine::with_injected_embedder` exercise the seek
+  blend, the 0.40 recall floor, and cache reuse/self-pruning/single-writer/corruption
+  handling blobless, so CI without the ~30 MB model still covers the embed path.
+
 ---
 
 ## [1.3.2] — 2026-07-04

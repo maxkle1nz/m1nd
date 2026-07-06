@@ -59,8 +59,8 @@ this loop by default:
    `search`/`seek`/`activate`. Obey the calibrated verdict — do not override it:
    - retrieval/prediction return **`act` / `reverify` / `abstain`**; `abstain`
      means uncalibrated or insufficient evidence — a STOP, not a weak yes. The
-     gate is armed per-repo by running `calibrate_predict` ONCE; until then
-     verdicts cap at `reverify`.
+     prediction gate is armed by `calibrate_predict` and the seek trust envelope
+     by `calibrate_envelope`; until each is armed its verdict caps at `reverify`.
    - `why` carries a **`closure`** verdict — `blocked` means the path rests on an
      unresolved (guessed/dropped) edge; verify that edge before relying on it.
    - `seek` carries a **`trust_envelope`** + a sufficiency stop-signal —

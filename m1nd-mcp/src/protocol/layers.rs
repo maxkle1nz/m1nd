@@ -1393,6 +1393,19 @@ pub struct CalibratePredictInput {
 }
 
 // ---------------------------------------------------------------------------
+// m1nd.calibrate_envelope (OMEGA Move 1: conformal calibration of the trust
+// ENVELOPE from the ledger's real learn outcomes)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalibrateEnvelopeInput {
+    pub agent_id: String,
+    /// Operator risk budget α (target miscoverage). Default: 0.1.
+    #[serde(default)]
+    pub alpha: Option<f32>,
+}
+
+// ---------------------------------------------------------------------------
 // m1nd.ghost_edges (RB-01: 4D Git Graph)
 // ---------------------------------------------------------------------------
 

@@ -152,18 +152,33 @@ impl CsrGraph {
     }
 
     /// Outgoing edge range for `node`.
+    ///
+    /// Returns an EMPTY range when the forward CSR has not been built for this
+    /// node (an unfinalized/empty graph has `offsets.len() < node+2`), rather
+    /// than indexing an unbuilt offsets array out of bounds. The query paths also
+    /// guard on `finalized`, but making the primitive itself bounds-safe removes
+    /// the OOB risk for every caller (graph-core sheet §Gaps).
     #[inline]
     pub fn out_range(&self, node: NodeId) -> std::ops::Range<usize> {
-        let lo = self.offsets[node.as_usize()] as usize;
-        let hi = self.offsets[node.as_usize() + 1] as usize;
+        let i = node.as_usize();
+        if i + 1 >= self.offsets.len() {
+            return 0..0;
+        }
+        let lo = self.offsets[i] as usize;
+        let hi = self.offsets[i + 1] as usize;
         lo..hi
     }
 
-    /// Incoming edge range for `node` (reverse CSR).
+    /// Incoming edge range for `node` (reverse CSR). Empty range when the reverse
+    /// CSR has not been built for this node (see [`Self::out_range`]).
     #[inline]
     pub fn in_range(&self, node: NodeId) -> std::ops::Range<usize> {
-        let lo = self.rev_offsets[node.as_usize()] as usize;
-        let hi = self.rev_offsets[node.as_usize() + 1] as usize;
+        let i = node.as_usize();
+        if i + 1 >= self.rev_offsets.len() {
+            return 0..0;
+        }
+        let lo = self.rev_offsets[i] as usize;
+        let hi = self.rev_offsets[i + 1] as usize;
         lo..hi
     }
 
@@ -433,6 +448,14 @@ pub struct Graph {
     /// Monotonic counter incremented on every structural mutation.
     pub generation: Generation,
     pub pagerank_computed: bool,
+    /// PageRank is stale relative to the current topology: set on every
+    /// structural mutation (`add_node`/`add_edge`), cleared by `compute_pagerank`
+    /// (i.e. by `finalize`). PageRank is recomputed ONLY in `finalize`, so an
+    /// incremental mutation that is not re-finalized leaves the stored PageRank
+    /// stale. Consumers of the PageRank boost read this flag and degrade
+    /// gracefully rather than silently re-ranking on stale/zero values
+    /// (graph-core sheet §Gaps, "PageRank staleness after incremental mutation").
+    pub pagerank_dirty: bool,
     pub finalized: bool,
 }
 
@@ -452,6 +475,7 @@ impl Graph {
             id_to_node: HashMap::new(),
             generation: Generation(0),
             pagerank_computed: false,
+            pagerank_dirty: false,
             finalized: false,
         }
     }
@@ -465,6 +489,7 @@ impl Graph {
             id_to_node: HashMap::with_capacity(node_cap),
             generation: Generation(0),
             pagerank_computed: false,
+            pagerank_dirty: false,
             finalized: false,
         }
     }
@@ -508,6 +533,7 @@ impl Graph {
         self.id_to_node.insert(ext_interned, id);
         self.generation = self.generation.next();
         self.finalized = false;
+        self.pagerank_dirty = true;
         Ok(id)
     }
 
@@ -563,6 +589,7 @@ impl Graph {
 
         self.generation = self.generation.next();
         self.finalized = false;
+        self.pagerank_dirty = true;
         Ok(edge_idx)
     }
 
@@ -1025,6 +1052,7 @@ impl Graph {
         let n = self.nodes.count as usize;
         if n == 0 {
             self.pagerank_computed = true;
+            self.pagerank_dirty = false;
             return;
         }
 
@@ -1078,6 +1106,8 @@ impl Graph {
             }
         }
         self.pagerank_computed = true;
+        // PageRank now reflects the finalized topology — no longer stale.
+        self.pagerank_dirty = false;
     }
 }
 

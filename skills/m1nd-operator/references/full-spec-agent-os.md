@@ -93,9 +93,10 @@ available for custom multi-tool sequences.
 Retrieval and prediction return a calibrated verdict; obey it, do not override.
 
 - **`act` / `reverify` / `abstain`** on retrieval and prediction. `abstain` =
-  uncalibrated OR insufficient evidence: a STOP, not a weak yes. The gate is
-  armed per-repo by running `calibrate_predict` ONCE; until then verdicts cap at
-  `reverify`, never `act`.
+  uncalibrated OR insufficient evidence: a STOP, not a weak yes. The prediction
+  gate is armed by `calibrate_predict` and the seek trust envelope by
+  `calibrate_envelope` (from the ledger's learn outcomes); until each is armed its
+  verdict caps at `reverify`, never `act`.
 - **`why` carries a `closure` verdict** — `blocked` means the path rests on an
   unresolved (guessed/dropped) edge; verify that edge before relying on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** —

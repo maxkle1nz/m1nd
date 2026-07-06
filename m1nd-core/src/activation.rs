@@ -8,6 +8,25 @@ use crate::error::M1ndResult;
 use crate::graph::Graph;
 use crate::types::*;
 
+/// Minimum activation improvement that justifies re-relaxing (re-enqueuing) an
+/// already-visited node.
+///
+/// Both structural engines discover a node, then may later see a STRONGER
+/// arrival for it. Without re-relaxation the stronger value updates the dense
+/// buffer but never propagates ONWARD to the node's children — an order-
+/// dependent loss (graph-core sheet §Gaps, "HeapEngine re-expansion"). This is
+/// the classic Dijkstra decrease-key situation: on a strict improvement we
+/// re-enqueue the node so its children see the larger value.
+///
+/// The margin guarantees TERMINATION: a re-enqueue is only allowed when the new
+/// activation exceeds the stored one by at least this amount, so per-node
+/// improvements form a strictly increasing, coarsely-quantized, bounded sequence
+/// (activation is bounded and decays along paths) — finitely many re-pushes. It
+/// is one order of magnitude below the default propagation `threshold` (0.04) so
+/// meaningful strengthenings still re-propagate while numerical dust does not.
+/// The hard `max_ops` / `max_depth` caps remain the ultimate backstops.
+pub const REEXPANSION_MARGIN: f32 = 0.004;
+
 // ---------------------------------------------------------------------------
 // BloomFilter — probabilistic visited set (engine_fast.py BloomFilter)
 // Replaces: engine_fast.py BloomFilter class
@@ -229,13 +248,20 @@ impl ActivationEngine for WavefrontEngine {
                     }
 
                     if !is_inhib && signal > threshold {
-                        // Scatter-max: keep strongest arrival
+                        // Scatter-max: keep strongest arrival.
                         if signal > activation[tgt_idx] {
+                            let improved = signal - activation[tgt_idx];
                             activation[tgt_idx] = signal;
-                        }
-                        if !visited[tgt_idx] {
-                            visited[tgt_idx] = true;
-                            next_frontier.push(tgt);
+                            if !visited[tgt_idx] {
+                                visited[tgt_idx] = true;
+                                next_frontier.push(tgt);
+                            } else if improved > REEXPANSION_MARGIN {
+                                // Re-relaxation: an already-visited node got a
+                                // strictly stronger arrival — re-enqueue so the
+                                // larger value propagates ONWARD to its children.
+                                // Margin bounds the number of re-enqueues.
+                                next_frontier.push(tgt);
+                            }
                         }
                     } else if is_inhib {
                         // Inhibitory: subtract (but floor at 0)
@@ -382,9 +408,24 @@ impl ActivationEngine for HeapEngine {
                 }
 
                 if !is_inhib && signal > threshold && signal > activation[tgt_idx] {
+                    let improved = signal - activation[tgt_idx];
                     activation[tgt_idx] = signal;
                     if !bloom.probably_contains(tgt) {
+                        // First (probable) arrival: enqueue and mark visited.
                         bloom.insert(tgt);
+                        heap.push(HeapEntry {
+                            node: tgt,
+                            activation: signal,
+                        });
+                    } else if improved > REEXPANSION_MARGIN {
+                        // Decrease-key via re-push: the node is (probably) already
+                        // in the visited set but this arrival is STRICTLY stronger
+                        // by a meaningful margin. Re-enqueue so the larger value
+                        // propagates onward — the node may already have been popped
+                        // and expanded with a weaker value. This also rescues a
+                        // Bloom false-positive first-time node (it would otherwise
+                        // be silently dropped). The margin bounds re-pushes; the
+                        // `max_ops` cap is the hard backstop.
                         heap.push(HeapEntry {
                             node: tgt,
                             activation: signal,

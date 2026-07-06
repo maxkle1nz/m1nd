@@ -155,6 +155,32 @@ impl QueryOrchestrator {
         })
     }
 
+    /// The honest empty [`QueryResult`] — no activation, no ghost edges/holes,
+    /// zeroed plasticity. Shared by the finalize guard on both query paths so a
+    /// non-finalized graph yields the same well-formed empty shape as an
+    /// empty-seeds query, never a partial/undefined one.
+    fn empty_result(start: Instant) -> QueryResult {
+        QueryResult {
+            activation: ActivationResult {
+                activated: Vec::new(),
+                seeds: Vec::new(),
+                elapsed_ns: 0,
+                xlr_fallback_used: false,
+            },
+            ghost_edges: Vec::new(),
+            structural_holes: Vec::new(),
+            plasticity: PlasticityResult {
+                edges_strengthened: 0,
+                edges_decayed: 0,
+                ltp_events: 0,
+                ltd_events: 0,
+                homeostatic_rescales: 0,
+                priming_nodes: 0,
+            },
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        }
+    }
+
     /// Execute a full query: seed finding -> 4-dim parallel activation -> XLR
     /// -> merge -> ghost edges -> structural holes -> plasticity update.
     /// Four dimensions run in parallel via rayon.
@@ -166,6 +192,16 @@ impl QueryOrchestrator {
         domain: &DomainConfig,
     ) -> M1ndResult<QueryResult> {
         let start = Instant::now();
+
+        // Finalize guard: the query pipeline reads `csr.offsets` and slices
+        // `out_range`/`in_range`, which index an EMPTY offsets array until
+        // `finalize()` builds the CSR (graph-core sheet §Gaps, "Queries can run
+        // against a non-finalized graph"). Refuse honestly with an empty result
+        // rather than risk indexing an unbuilt CSR or returning silently-wrong
+        // structure. Callers finalize before querying on the normal path.
+        if !graph.finalized {
+            return Ok(Self::empty_result(start));
+        }
 
         // Step 1: Find seeds
         let seeds = SeedFinder::find_seeds_semantic(
@@ -236,18 +272,26 @@ impl QueryOrchestrator {
         activation.seeds = seeds.clone();
         activation.xlr_fallback_used = xlr_fallback;
 
-        // Step 5: Add PageRank boost
-        for node in &mut activation.activated {
-            let idx = node.node.as_usize();
-            if idx < graph.nodes.pagerank.len() {
-                let pr_boost = graph.nodes.pagerank[idx].get() * 0.1;
-                node.activation = FiniteF32::new(node.activation.get() + pr_boost);
+        // Step 5: Add PageRank boost — ONLY when PageRank is fresh. If the
+        // stored PageRank is stale relative to the current topology (an
+        // incremental mutation not yet re-finalized), applying it would silently
+        // re-rank on wrong/zero values, so we skip the boost and degrade
+        // gracefully to the un-boosted ranking (graph-core sheet §Gaps,
+        // "PageRank staleness"). On the normal finalized path this is always
+        // fresh (finalize recomputes it).
+        if !graph.pagerank_dirty {
+            for node in &mut activation.activated {
+                let idx = node.node.as_usize();
+                if idx < graph.nodes.pagerank.len() {
+                    let pr_boost = graph.nodes.pagerank[idx].get() * 0.1;
+                    node.activation = FiniteF32::new(node.activation.get() + pr_boost);
+                }
             }
+            // Re-sort after PageRank boost.
+            activation
+                .activated
+                .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
         }
-        // Re-sort after PageRank boost
-        activation
-            .activated
-            .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
 
         // Step 6: Ghost edges
         let ghost_edges = if config.include_ghost_edges {
@@ -335,6 +379,12 @@ impl QueryOrchestrator {
     ) -> M1ndResult<QueryResult> {
         let start = Instant::now();
 
+        // Finalize guard (see `query`): refuse a non-finalized graph honestly
+        // instead of indexing an unbuilt CSR.
+        if !graph.finalized {
+            return Ok(Self::empty_result(start));
+        }
+
         // Zeroed plasticity result — Step 8 is intentionally skipped, so no
         // edges are strengthened/decayed and no events are recorded. This is
         // the exact shape used by the empty-seeds early-return in `query()`.
@@ -409,20 +459,23 @@ impl QueryOrchestrator {
         activation.seeds = seeds.clone();
         activation.xlr_fallback_used = xlr_fallback;
 
-        // Step 5: Add PageRank boost. Reads `graph.nodes.pagerank` only and
-        // mutates the *local* `activation` struct owned by this fn — the graph
-        // is untouched.
-        for node in &mut activation.activated {
-            let idx = node.node.as_usize();
-            if idx < graph.nodes.pagerank.len() {
-                let pr_boost = graph.nodes.pagerank[idx].get() * 0.1;
-                node.activation = FiniteF32::new(node.activation.get() + pr_boost);
+        // Step 5: Add PageRank boost — ONLY when PageRank is fresh (see `query`).
+        // Reads `graph.nodes.pagerank` only and mutates the *local* `activation`
+        // struct owned by this fn — the graph is untouched. A stale PageRank is
+        // skipped so the boost never re-ranks on wrong/zero values.
+        if !graph.pagerank_dirty {
+            for node in &mut activation.activated {
+                let idx = node.node.as_usize();
+                if idx < graph.nodes.pagerank.len() {
+                    let pr_boost = graph.nodes.pagerank[idx].get() * 0.1;
+                    node.activation = FiniteF32::new(node.activation.get() + pr_boost);
+                }
             }
+            // Re-sort after PageRank boost.
+            activation
+                .activated
+                .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
         }
-        // Re-sort after PageRank boost
-        activation
-            .activated
-            .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
 
         // Step 6: Ghost edges (read-only traversal; `&Graph`).
         let ghost_edges = if config.include_ghost_edges {

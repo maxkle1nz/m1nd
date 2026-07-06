@@ -1,6 +1,6 @@
 # Trust & Calibration
 
-A defect-history actuarial ledger + tremor detector feed a live multiplicative re-rank of seek results, plus a split-conformal calibration table gating `predict` (act|reverify|abstain) and an advisory DARK trust envelope on seek (act|reverify|abstain|unprovable). The envelope's own calibration signal has NO production writer, so in real operation it is structurally capped at reverify.
+A defect-history actuarial ledger + tremor detector feed a live multiplicative re-rank of seek results, plus a split-conformal calibration table gating `predict` (act|reverify|abstain) and an advisory DARK trust envelope on seek (act|reverify|abstain|unprovable). Both signals now have a real production calibration writer: `calibrate_predict` measures τ from git-history co-change; `calibrate_envelope` (hardening wave 2) measures τ on the envelope's OWN reliability scale from the trust ledger's real learn outcomes, so the seek envelope can reach `act` when calibrated — with no labeled corpus it stays honestly `envelope_uncalibrated` (capped at reverify), never a fabricated `act`.
 
 ## Class
 
@@ -83,7 +83,7 @@ classDiagram
 
 ## Sequence
 
-WRITE path (learn is the sole production writer) then READ paths (predict verdict binning + seek live re-rank + DARK envelope). The `envelope` calibration row is never set in production, so envelope_cal is always None.
+WRITE path (learn is the sole evidence writer) then READ paths (predict verdict binning + seek live re-rank + DARK envelope). The `envelope` calibration row is set in production by `calibrate_envelope` (from the ledger's learn outcomes); when it has not been run, envelope_cal is None and the verdict is honestly capped at reverify.
 
 ```mermaid
 sequenceDiagram
@@ -132,14 +132,14 @@ sequenceDiagram
     end
     SK->>ENV: compose (worst-of-top-3 trust_band + cheap binding band)
     ENV->>ENV: weigh_factors folds to weighted score
-    ENV->>ENV: bin via "envelope" row (always None in prod)
-    ENV-->>SK: verdict capped at reverify (calibrated=false) -- DARK/advisory
+    ENV->>ENV: bin via "envelope" row (set by calibrate_envelope; None until run)
+    ENV-->>SK: verdict act|reverify|abstain if calibrated, else capped at reverify -- DARK/advisory
     SK-->>Ag: results (unchanged by envelope) + trust_envelope receipt
 ```
 
 ## State/Flow
 
-The trust ladder / verdict binning. Two ladders coexist: predict (3-state) and the seek envelope (4-state, with the `act` rung structurally unreachable in production).
+The trust ladder / verdict binning. Two ladders coexist: predict (3-state) and the seek envelope (4-state). Both have a production calibration writer — the `act` rung is reachable once the signal's `CalibrationRow` is set (`calibrate_predict` / `calibrate_envelope`), and honestly capped at `reverify` (predict: `abstain`) until then.
 
 ```mermaid
 stateDiagram-v2
@@ -161,16 +161,19 @@ stateDiagram-v2
     state EnvelopeVerdict {
         [*] --> Weigh : weigh_factors fold
         Weigh --> Unprovable : all-unknown / zero denom / non-finite
-        Weigh --> CappedReverify : cal_row None (ALWAYS in prod)
-        Weigh --> ActEnv : only if envelope row set (TEST ONLY)
+        Weigh --> CappedReverify : cal_row None (envelope_uncalibrated)
+        Weigh --> ActEnv : envelope row set AND score GE tau
         Weigh --> ReverifyEnv : score in mid band
         Weigh --> AbstainEnv : score below tau_low
     }
 
     note right of EnvelopeVerdict
-        No production writer for the
-        "envelope" signal -> ActEnv is
-        unreachable outside tests. GAP.
+        The "envelope" signal now has a
+        production writer (calibrate_envelope,
+        hardening wave 2): once a row is set,
+        ActEnv is reachable. With no row the
+        verdict is honestly capped at reverify
+        (envelope_uncalibrated), never a fake act.
     end note
 ```
 
@@ -192,24 +195,24 @@ stateDiagram-v2
 
 ## Gaps
 
-- **[high]** The `envelope` calibration signal has NO production writer — no calibrate_envelope harness. CALIBRATION_SIGNAL_ENVELOPE is only .set() inside test helper seed_envelope_calibration; production only .get()s it. So compose_seek_trust_envelope always receives cal_row=None, the verdict is capped at reverify, and act is UNREACHABLE outside tests (layer_handlers.rs:10842-10844 test-only; reads at :244/:918; trust_envelope.rs:170-176).
+- **[high]** ~~The `envelope` calibration signal has NO production writer.~~ **CLOSED** (hardening wave 2): `handle_calibrate_envelope` (MCP verb `calibrate_envelope`) is a real production writer. It derives a labeled corpus from the trust ledger's learn outcomes (`TrustLedger::entries()`: confirmed defect ⇒ trusting was wrong/miss, false alarm ⇒ trusting was right/hit), scores each by the reliability the envelope assigns its trust band, and measures a split-conformal τ (`calibrate_envelope_from_ledger`, mirroring `calibrate_predict`). It `.set()`s + persists the `envelope` row, so `compose_seek_trust_envelope` can receive a real `cal_row` and reach `act`. With no labeled corpus it returns `envelope_uncalibrated` and writes no row — the seek envelope stays honestly capped at `reverify`.
 - **[medium]** The trust envelope is DARK/advisory — attached to SeekOutput but does not gate or alter results; an agent must voluntarily honor it (protocol/layers.rs:147-148; layer_handlers.rs:904).
 - **[medium]** Evidence supply is entirely manual: the only production writer of ledger + tremor is handle_learn; the daemon does not autonomously record defects/tremor. With no learn traffic every node stays cold-start, so trust/tremor contribute ~nothing to re-rank (all other record_* sites are #[cfg(test)]).
-- **[medium]** Scale mismatch: the envelope's reliability-weighted score in [0,1] is binned against a tau conceptually derived from predict/co-change miss-confidences; the two confidence scales are not obviously commensurable, and no envelope-specific harness ever measures the right tau (trust_envelope.rs:166-176 vs only calibrate_predict at layer_handlers.rs:9023).
+- **[medium]** ~~Scale mismatch: the envelope's reliability-weighted score is binned against a tau derived from predict/co-change miss-confidences.~~ **CLOSED** (hardening wave 2): `calibrate_envelope` measures τ from the envelope's OWN factor reliabilities (`trust_band_reliability`), i.e. the same [0,1] units `weigh_factors` produces — the τ and the score are now commensurable by construction, and an envelope-specific harness measures it (`calibrate_envelope_from_ledger`).
 - **[low]** Stale doc comment: tremor.rs:180 says record_observation is called from handle_learn AND handle_activate, but handle_activate does not call it (tools.rs:918+).
 - **[low]** seek_binding_band can only return needs_ingest or full_trust, so the degraded/stale_binding bands (reliability 0.15) that binding_reliability supports are never exercised on the seek path — a genuinely degraded host is invisible to the seek envelope (session.rs:706-716).
 - **[low]** handle_learn maps ALL non-{wrong,partial} feedback to record_defect via a catch-all `_` arm, so a typo ("correkt","ok") is silently recorded as a confirmed DEFECT, lowering trust (tools.rs:2959-2961).
 
 ## Proof gaps (from map proof_missing)
 
-- No test exercises a PRODUCTION envelope path reaching verdict=act (the only act test manually seeds the row via seed_envelope_calibration).
+- ~~No test exercises a PRODUCTION envelope path reaching verdict=act.~~ **CLOSED** (hardening wave 2): `calibrate_envelope_from_ledger_produces_row_that_enables_act` seeds a real ledger corpus, runs `calibrate_envelope`, and asserts the SAME clean seek goes from `reverify` (before) to `act` (after); `calibrate_envelope_empty_ledger_is_honestly_uncalibrated` asserts the no-corpus path stays `reverify` (`envelope_uncalibrated`), never a false `act`.
 - No test covers handle_learn's catch-all feedback arm (typo silently recorded as defect).
 - No end-to-end learn to seek test asserting accrued defects/tremor actually change seek result ORDER.
 - No test that the seek envelope observes a DEGRADED binding on the seek path specifically.
 - No calibration-drift/recalibration test (calibrated_at_ms stored, staleness never asserted).
-- No proof the envelope's reliability-scaled score is commensurable with a predict-derived tau.
+- ~~No proof the envelope's reliability-scaled score is commensurable with a predict-derived tau.~~ **CLOSED** (hardening wave 2): moot — `calibrate_envelope` derives τ from the envelope's own reliabilities, so score and τ share units by construction (no predict-derived tau is used for the envelope).
 - No concurrency/property test on ledger/registry under interleaved learn writes + seek reads.
 
 ## MCP verbs
 
-learn (write path) - trust - tremor - predict (calibrated verdict; abstain-all uncalibrated) - calibrate_predict (measure tau + precision) - seek (live re-rank + DARK envelope) - trust_selftest (binding self-check).
+learn (write path) - trust - tremor - predict (calibrated verdict; abstain-all uncalibrated) - calibrate_predict (measure tau + precision from git history) - calibrate_envelope (measure tau + precision for the seek envelope from the ledger's learn outcomes; `envelope_uncalibrated` when no corpus) - seek (live re-rank + DARK envelope) - trust_selftest (binding self-check).
