@@ -1497,9 +1497,9 @@ impl RustModuleIndex {
         };
 
         // Parent = everything before the last slash
-        let parent_path = match canonical.rfind('/') {
-            Some(idx) => &canonical[..idx],
-            None => return None, // already at root, no super
+        let parent_path = {
+            let idx = canonical.rfind('/')?;
+            &canonical[..idx]
         };
 
         // Try "parent_path" directly (for mod.rs case) or "parent_path.rs"

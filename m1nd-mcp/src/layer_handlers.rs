@@ -6271,8 +6271,8 @@ fn l7_prefix_graph_nodes(
                 let causal = source.csr.causal_strengths[edge_pos].get();
                 let inhibitory = source.csr.inhibitory[edge_pos];
 
-                let new_src_id = format!("{}::{}", repo_name, &source_ext_ids[src_idx]);
-                let new_tgt_id = format!("{}::{}", repo_name, &source_ext_ids[tgt_node.as_usize()]);
+                let new_src_id = format!("{}::{}", repo_name, source_ext_ids[src_idx]);
+                let new_tgt_id = format!("{}::{}", repo_name, source_ext_ids[tgt_node.as_usize()]);
 
                 if let (Some(src), Some(tgt)) = (
                     target.resolve_id(&new_src_id),
@@ -6292,8 +6292,8 @@ fn l7_prefix_graph_nodes(
         }
     } else {
         for edge in &source.csr.pending_edges {
-            let new_src_id = format!("{}::{}", repo_name, &source_ext_ids[edge.source.as_usize()]);
-            let new_tgt_id = format!("{}::{}", repo_name, &source_ext_ids[edge.target.as_usize()]);
+            let new_src_id = format!("{}::{}", repo_name, source_ext_ids[edge.source.as_usize()]);
+            let new_tgt_id = format!("{}::{}", repo_name, source_ext_ids[edge.target.as_usize()]);
             if let (Some(src), Some(tgt)) = (
                 target.resolve_id(&new_src_id),
                 target.resolve_id(&new_tgt_id),

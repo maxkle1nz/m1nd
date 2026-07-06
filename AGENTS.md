@@ -63,6 +63,11 @@ owner on port `1338` — all tests use temp dirs.
 - For **async cloud agents** (Jules) each task becomes its own PR: scope tasks to
   **independent, self-contained units** (a bug fix, a hygiene pass, a doc), not to pieces of a
   themed batch that wants accumulation.
+- **Async-agent close-out (the platform-bot rule):** platform-authored bot commits are never
+  merged to main. The maintainer loop closes the work: cherry-pick the agent's diff re-authored
+  as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
+  State the groundwork's provenance honestly in the commit body — never claim an authorship
+  the platform did not produce.
 - The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
   `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
   the docs reflect it.
