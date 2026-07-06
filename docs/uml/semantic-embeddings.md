@@ -174,7 +174,7 @@ flowchart TD
 
 ## Gaps
 
-- **[high]** Every embed-gated test is model-file-gated and self-skips when the ~30MB vendored blob is absent (gitignored/Git-LFS). CI runners without the model exercise ZERO embedding code — smoke/probe/recall/ARC-E2E all no-op; the default-ON server feature can regress silently (embed.rs:194-204; layer_handlers.rs:10454-10457).
+- **[high]** ~~Every embed-gated test is model-file-gated and self-skips when the ~30MB blob is absent — CI without the model exercises ZERO embedding code.~~ **CLOSED** (hardening wave 2): a deterministic `FakeEmbedder` (FNV-1a seed → zero-mean LCG → L2-normalized; anchor mode for controllable cosine) + `SemanticEngine::with_injected_embedder` (field now `Arc<dyn Embedder>`) exercise the blend, the 0.40 recall floor, cache warm-reuse / self-pruning / single-writer persist / corruption-ignored blobless and unconditionally. The model-gated tests remain (they cover the REAL model when present); the new injected tests give CI coverage when it is absent (proven under a simulated no-blob `M1ND_EMBED_MODEL`).
 - **[medium]** The embedding cosine never reaches primary activation/seed ranking: activate_semantic and seed re-rank call query_fast (trigram+cooccurrence only). why/impact/activation get NO embedding benefit — only seek/focus/semantic-search do (activation.rs:479, seed.rs:400 vs layer_handlers.rs:444-463). Design boundary, not a bug.
 - **[medium]** No test covers the warm-cache REUSE path in build_embeddings (hits/misses accounting, self-pruning next, read-only skip). semantic.rs has zero #[test]; only leaf embed_cache/embed tests exist. A regression in reuse/persist logic passes CI (semantic.rs:641-717 untested end-to-end).
 - **[low]** Doc/comment drift on model identity: embed.rs:62 and Cargo.toml variously say potion-retrieval-32M / ~29MB, but DEFAULT_MODEL_SUBDIR and the vendored asset are potion-base-8M (~30MB) (embed.rs:26 vs 62).
@@ -184,11 +184,11 @@ flowchart TD
 
 ## Proof gaps (from map proof_missing)
 
-- Non-model-gated proof of the embedding path (committed tiny fixture model or injected fake Embedder) so CI without the blob still exercises the seek blend + recall floor.
-- Direct unit test of build_embeddings warm-reuse (hits>0/misses==0 on unchanged nodes, miss on changed text — currently only printed).
-- Test that read-only never writes the cache while read-write does (single-writer invariant is mechanically unenforced).
-- Self-pruning test: seed cache with absent-node entries, rebuild, assert persisted keys == current-graph keys only.
-- File-level corruption test: truncated/garbage cache ignored, build succeeds with recomputed vectors.
+- ~~Non-model-gated proof of the embedding path so CI without the blob still exercises the seek blend + recall floor.~~ **CLOSED** (hardening wave 2): `embed_recall_floor_with_injected_fake_no_blob` (m1nd-mcp) drives the blend + 0.40 floor + truthful `embeddings_used` via the injected `FakeEmbedder`.
+- ~~Direct unit test of build_embeddings warm-reuse.~~ **CLOSED** (hardening wave 2): `injected_build_reuses_warm_cache_vector` (preseeded sentinel reused verbatim; self-pruning persist asserted).
+- ~~Test that read-only never writes the cache while read-write does.~~ **CLOSED** (hardening wave 2): `injected_build_read_only_never_writes_cache` (persist=false ⇒ no file created).
+- ~~Self-pruning test: seed cache with absent-node entries, rebuild, assert persisted keys == current-graph keys only.~~ **CLOSED** (hardening wave 2): `injected_build_self_prunes_stale_cache_entries`.
+- ~~File-level corruption test: truncated/garbage cache ignored, build succeeds with recomputed vectors.~~ **CLOSED** (hardening wave 2): `injected_build_ignores_corrupt_cache_file`.
 - Fallback-equivalence test: model-load-failure yields identical seek output to feature-off.
 - rebuild_engines coherence: embed side-map vs graph generation after a swap under the RwLock.
 - Scale guard for CoOccurrence O(N) near the 50k cap and clean empty-cooccurrence above the cap.

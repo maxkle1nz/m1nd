@@ -180,8 +180,10 @@ stateDiagram-v2
     note right of Finalized
         Query path (query.rs) reads
         csr.offsets + nodes.pagerank.
-        No guard asserts finalized==true
-        at query entry -> GAP.
+        query/query_readonly now GUARD on
+        finalized (honest empty result);
+        out_range/in_range are bounds-safe.
+        (hardening wave 2)
     end note
 ```
 
@@ -204,9 +206,9 @@ stateDiagram-v2
 
 ## Gaps
 
-- **[medium]** PageRank staleness after incremental mutation: compute_pagerank runs ONLY in finalize; add_node/add_edge flip finalized=false but do not recompute. Query Step 5 can read stale/zero pagerank; no finalize guard (graph.rs:848/504/509-510, query.rs:242-244).
-- **[medium]** Queries can run against a non-finalized graph with no guard: out_range indexes empty csr.offsets until finalize; risk of index-OOB. No debug_assert!(self.finalized) at query entry (graph.rs:156-160, query.rs:162).
-- **[medium]** HeapEngine re-expansion bug: node pushed only if Bloom !probably_contains; a later stronger signal updates activation[tgt] but never re-enqueues, so the stronger value never propagates onward; Bloom false-positives can silently drop first-time nodes (activation.rs:384-392; contrast Wavefront exact visited vec).
+- **[medium]** ~~PageRank staleness after incremental mutation.~~ **CLOSED** (hardening wave 2): a `pagerank_dirty` flag is set on every `add_node`/`add_edge` and cleared by `compute_pagerank`; the query Step-5 boost is skipped when dirty (degrades to un-boosted ranking) rather than re-ranking on stale/zero values (graph.rs, query.rs).
+- **[medium]** ~~Queries can run against a non-finalized graph with no guard (out_range indexes empty csr.offsets; index-OOB risk).~~ **CLOSED** (hardening wave 2): `query`/`query_readonly` guard on `finalized` and return an honest empty result; additionally `out_range`/`in_range` are bounds-safe (empty range for an unbuilt CSR), removing the OOB risk for every caller (graph.rs:154-168, query.rs).
+- **[medium]** ~~HeapEngine re-expansion bug: a later stronger signal never propagates onward; Bloom false-positives silently drop first-time nodes.~~ **CLOSED** (hardening wave 2): both engines re-relax an already-visited node when a new arrival exceeds the stored activation by `REEXPANSION_MARGIN` (decrease-key via re-push / re-add to next frontier; margin bounds re-pushes for termination); the Heap re-push also rescues a Bloom false-positive first-time node. Cross-engine equivalence test (brute-force fixpoint oracle) proves convergence (activation.rs).
 - **[low]** SpectralGapAnalyzer documents Err(SpectralDivergence) but never returns it; non-convergence swallowed into converged=false; the error variant is dead for this path (topology.rs:421-422 vs 597-604).
 - **[low]** Louvain non-convergence is silent: FM-TOP-003 branch is empty; detect() returns the partial assignment with no converged flag (topology.rs:194-196; CommunityResult has passes, no converged bool).
 - **[low]** MultiScaleViewer is a facade over single-scale Louvain — always one ScaleView at scale 0, max_scales unused (topology.rs:829-840).
@@ -216,9 +218,9 @@ stateDiagram-v2
 
 ## Proof gaps (from map proof_missing)
 
-- No test asserts querying a non-finalized graph is rejected or safe (out_range OOB risk unproven).
-- No test proves PageRank freshness after incremental add without explicit re-finalize.
-- No cross-engine equivalence test (Heap vs Wavefront) large enough to trigger Bloom collisions / drop-stronger-arrival.
+- ~~No test asserts querying a non-finalized graph is rejected or safe.~~ **CLOSED** (hardening wave 2): `query_on_non_finalized_graph_is_honest_empty_not_panic` (RED: previously panicked with index-OOB on the empty CSR; now an honest empty result).
+- ~~No test proves PageRank freshness after incremental add.~~ **CLOSED** (hardening wave 2): dirty-flag lifecycle tests (`incremental_add_node/edge_marks_pagerank_dirty`, `refinalize_clears_pagerank_dirty`).
+- ~~No cross-engine equivalence test (Heap vs Wavefront) large enough to trigger Bloom collisions.~~ **CLOSED** (hardening wave 2): `heap_and_wavefront_converge_to_fixpoint_on_weak_then_strong` (600-relay weak-first/strong-later topology vs an independent brute-force fixpoint oracle).
 - No forced SpectralDivergence / Louvain converged-vs-capped test.
 - No concurrency/stress test on the atomic weight CAS under real multi-reader + single-writer contention.
 - No JSON to bin cross-format snapshot-equivalence property test.

@@ -499,8 +499,9 @@ guessing past it:
 
 - **`act` / `reverify` / `abstain`** on retrieval and prediction. `abstain`
   means uncalibrated or insufficient evidence: a STOP, not a weak yes. The
-  prediction gate is armed per-repo by running `calibrate_predict` once; until
-  then verdicts cap at `reverify`.
+  prediction gate is armed per-repo by running `calibrate_predict` once, and the
+  seek trust envelope by running `calibrate_envelope` (from the ledger's learn
+  outcomes); until each is armed its verdict caps at `reverify`.
 - **`why` carries a `closure` verdict** — `blocked` means the path rests on an
   unresolved edge; verify that edge before relying on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** —

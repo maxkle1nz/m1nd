@@ -74,8 +74,10 @@ another project's knowledge.
 
 Retrieval and prediction return a calibrated verdict; obey it:
 - **`act` / `reverify` / `abstain`** — `abstain` means uncalibrated or insufficient \
-evidence: do NOT guess past it. The gate is armed per-repo by running \
-`calibrate_predict` ONCE; until then verdicts cap at `reverify`, never `act`.
+evidence: do NOT guess past it. The prediction gate is armed per-repo by running \
+`calibrate_predict` ONCE, and the seek trust envelope by running `calibrate_envelope` \
+(from the ledger's learn outcomes); until each is armed its verdict caps at `reverify`, \
+never `act`.
 - **`why` answers carry a `closure` verdict** — `blocked` means the path rests on an \
 unresolved (guessed/dropped) edge: verify that edge before you rely on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** — `sufficient` \

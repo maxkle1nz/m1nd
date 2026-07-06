@@ -92,8 +92,9 @@ this loop by default:
    federation; it is not stale graph proof.
 3. Follow the `next_move`, or route focused questions through `search`, `seek`,
    or `activate`. Obey the calibrated verdict — do not override it:
-   `act`/`reverify`/`abstain` (abstain = STOP, not a weak yes; the gate is armed
-   by running `calibrate_predict` once, else verdicts cap at `reverify`); `why`
+   `act`/`reverify`/`abstain` (abstain = STOP, not a weak yes; the prediction gate
+   is armed by `calibrate_predict` and the seek trust envelope by
+   `calibrate_envelope`, else each verdict caps at `reverify`); `why`
    carries a `closure` verdict (`blocked` = the path rests on an unresolved
    edge); `seek` carries a `trust_envelope` + a sufficiency signal (`sufficient`
    = stop gathering); `trust_band: insufficient_evidence` means NO evidence, not

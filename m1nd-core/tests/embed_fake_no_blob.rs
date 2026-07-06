@@ -25,10 +25,20 @@ fn fake_model_id() -> String {
 
 fn two_node_graph() -> (Graph, &'static str, &'static str) {
     let mut b = GraphBuilder::new();
-    b.add_node("n_sentinel", "sentinel_probe_label", NodeType::Function, &[])
-        .expect("sentinel");
-    b.add_node("n_fresh", "totally_different_label", NodeType::Function, &[])
-        .expect("fresh");
+    b.add_node(
+        "n_sentinel",
+        "sentinel_probe_label",
+        NodeType::Function,
+        &[],
+    )
+    .expect("sentinel");
+    b.add_node(
+        "n_fresh",
+        "totally_different_label",
+        NodeType::Function,
+        &[],
+    )
+    .expect("fresh");
     let graph = b.finalize().expect("finalize");
     (graph, "sentinel_probe_label", "totally_different_label")
 }
@@ -45,7 +55,10 @@ fn fake_embedder_is_deterministic_and_normalized() {
     assert_ne!(a1, b, "different text must map to a different vector");
     assert_eq!(f.dim(), DIM);
     let norm: f32 = a1.iter().map(|x| x * x).sum::<f32>().sqrt();
-    assert!((norm - 1.0).abs() < 1e-4, "vectors are L2-normalized, got {norm}");
+    assert!(
+        (norm - 1.0).abs() < 1e-4,
+        "vectors are L2-normalized, got {norm}"
+    );
     // Self-cosine is 1; distinct texts are far from parallel.
     assert!((m1nd_core::embed::cosine(&a1, &a2) - 1.0).abs() < 1e-4);
     assert!(m1nd_core::embed::cosine(&a1, &b) < 0.99);
@@ -66,8 +79,11 @@ fn injected_build_populates_embeddings_without_blob() {
     .expect("build with injected embedder");
 
     assert_eq!(engine.embeddings.len(), 2, "every node embedded");
-    assert!(engine.embedder.is_some(), "injected embedder retained for query encode");
-    for (_id, v) in &engine.embeddings {
+    assert!(
+        engine.embedder.is_some(),
+        "injected embedder retained for query encode"
+    );
+    for v in engine.embeddings.values() {
         assert_eq!(v.len(), DIM);
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-3);
@@ -116,7 +132,11 @@ fn injected_build_reuses_warm_cache_vector() {
     // Self-pruning persist: exactly the current graph's two texts survive.
     let reload = EmbeddingCache::load_compatible(&cache_path, &model_id, DIM as u32)
         .expect("cache still compatible");
-    assert_eq!(reload.entries.len(), 2, "persisted cache holds exactly 2 nodes");
+    assert_eq!(
+        reload.entries.len(),
+        2,
+        "persisted cache holds exactly 2 nodes"
+    );
     assert!(reload
         .entries
         .contains_key(&content_key(&model_id, fresh_text)));
@@ -129,10 +149,8 @@ fn injected_build_reuses_warm_cache_vector() {
 fn injected_build_self_prunes_stale_cache_entries() {
     let (graph, sentinel_text, fresh_text) = two_node_graph();
     let model_id = fake_model_id();
-    let cache_path = std::env::temp_dir().join(format!(
-        "m1nd_fake_prune_{}.bin",
-        std::process::id()
-    ));
+    let cache_path =
+        std::env::temp_dir().join(format!("m1nd_fake_prune_{}.bin", std::process::id()));
     let _ = std::fs::remove_file(&cache_path);
 
     // Seed a cache containing an entry for a node NOT in the current graph.
@@ -155,9 +173,13 @@ fn injected_build_self_prunes_stale_cache_entries() {
     )
     .expect("build");
 
-    let reload = EmbeddingCache::load_compatible(&cache_path, &model_id, DIM as u32)
-        .expect("compatible");
-    assert_eq!(reload.entries.len(), 2, "stale ghost entry pruned; only current nodes remain");
+    let reload =
+        EmbeddingCache::load_compatible(&cache_path, &model_id, DIM as u32).expect("compatible");
+    assert_eq!(
+        reload.entries.len(),
+        2,
+        "stale ghost entry pruned; only current nodes remain"
+    );
     assert!(!reload
         .entries
         .contains_key(&content_key(&model_id, "GHOST_absent_node_text")));
@@ -175,10 +197,7 @@ fn injected_build_self_prunes_stale_cache_entries() {
 #[test]
 fn injected_build_read_only_never_writes_cache() {
     let (graph, _, _) = two_node_graph();
-    let cache_path = std::env::temp_dir().join(format!(
-        "m1nd_fake_ro_{}.bin",
-        std::process::id()
-    ));
+    let cache_path = std::env::temp_dir().join(format!("m1nd_fake_ro_{}.bin", std::process::id()));
     let _ = std::fs::remove_file(&cache_path);
     assert!(!cache_path.exists());
 
@@ -202,10 +221,8 @@ fn injected_build_read_only_never_writes_cache() {
 #[test]
 fn injected_build_ignores_corrupt_cache_file() {
     let (graph, _, _) = two_node_graph();
-    let cache_path = std::env::temp_dir().join(format!(
-        "m1nd_fake_corrupt_{}.bin",
-        std::process::id()
-    ));
+    let cache_path =
+        std::env::temp_dir().join(format!("m1nd_fake_corrupt_{}.bin", std::process::id()));
     // Write garbage bytes that are not a valid serialized cache.
     std::fs::write(&cache_path, b"\x00\x01\x02not a real cache\xff\xfe").expect("write garbage");
 
@@ -220,9 +237,12 @@ fn injected_build_ignores_corrupt_cache_file() {
 
     // The corrupt cache is ignored → all nodes freshly embedded (real vectors).
     assert_eq!(engine.embeddings.len(), 2);
-    for (_id, v) in &engine.embeddings {
+    for v in engine.embeddings.values() {
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-3, "recomputed vectors are normalized");
+        assert!(
+            (norm - 1.0).abs() < 1e-3,
+            "recomputed vectors are normalized"
+        );
     }
     let _ = std::fs::remove_file(&cache_path);
 }

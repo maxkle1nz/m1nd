@@ -10,8 +10,9 @@ This file is the operational map: which `m1nd` tools to choose for each kind of 
   `trust_selftest`/`session_handshake`/`recovery_playbook` are the
   degraded/recovery route, not the default first move.
 - Obey verdicts: retrieval/prediction return `act`/`reverify`/`abstain`
-  (`abstain` = stop, not weak-yes; gate caps at `reverify` until
-  `calibrate_predict` runs once); `why` carries `closure` (`blocked` = unresolved
+  (`abstain` = stop, not weak-yes; each caps at `reverify` until its writer runs —
+  `calibrate_predict` for prediction, `calibrate_envelope` for the seek envelope);
+  `why` carries `closure` (`blocked` = unresolved
   edge); `seek` carries `trust_envelope` + sufficiency; `insufficient_evidence` =
   NO evidence, not medium risk.
 - Use `search` when the user already knows the string or regex.

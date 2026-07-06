@@ -35,7 +35,14 @@ fn build_finalized_star() -> Graph {
         .expect("hub");
     for i in 0..4 {
         let leaf = g
-            .add_node(&format!("leaf{i}"), &format!("leaf{i}"), NodeType::Function, &[], 0.0, 1.0)
+            .add_node(
+                &format!("leaf{i}"),
+                &format!("leaf{i}"),
+                NodeType::Function,
+                &[],
+                0.0,
+                1.0,
+            )
             .expect("leaf");
         add_edge(&mut g, hub, leaf);
     }
