@@ -560,18 +560,30 @@ pub fn slugify(s: &str) -> String {
 /// On non-unix targets there is no `flock`; the guard is a documented no-op and
 /// supersession still runs (single-writer assumption — the only degradation is
 /// the loss of cross-process serialization, which unix always has).
-struct LockGuard {
+pub(crate) struct LockGuard {
     #[cfg(unix)]
     fd: std::os::unix::io::RawFd,
 }
 
 impl LockGuard {
+    /// Memory's per-slug lock: `<runtime_root>/agent-memory/.locks/<slug>.lock`.
+    /// Thin wrapper over [`LockGuard::acquire_in`] so the memorize call site is
+    /// unchanged while other read-modify-write stores (missions) reuse the same
+    /// flock primitive with their own locks directory.
     fn acquire(runtime_root: &Path, slug: &str) -> M1ndResult<Self> {
+        let locks_dir = runtime_root.join("agent-memory").join(".locks");
+        Self::acquire_in(&locks_dir, slug)
+    }
+
+    /// Acquire a blocking exclusive `flock` on `<locks_dir>/<slug>.lock`, creating
+    /// `locks_dir` if needed. Released on `Drop`. The lock is per-open-file-
+    /// description, so two sibling sessions (or two threads with independent
+    /// `open`s) serialize their read-modify-write correctly.
+    pub(crate) fn acquire_in(locks_dir: &Path, slug: &str) -> M1ndResult<Self> {
         #[cfg(unix)]
         {
             use std::os::unix::io::AsRawFd;
-            let locks_dir = runtime_root.join("agent-memory").join(".locks");
-            fs::create_dir_all(&locks_dir).map_err(M1ndError::Io)?;
+            fs::create_dir_all(locks_dir).map_err(M1ndError::Io)?;
             let lock_path = locks_dir.join(format!("{}.lock", slug));
             let file = fs::OpenOptions::new()
                 .create(true)
@@ -596,7 +608,7 @@ impl LockGuard {
         }
         #[cfg(not(unix))]
         {
-            let _ = (runtime_root, slug);
+            let _ = (locks_dir, slug);
             Ok(LockGuard {})
         }
     }
