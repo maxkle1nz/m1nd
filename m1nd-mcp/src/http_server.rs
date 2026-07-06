@@ -393,22 +393,68 @@ pub fn spawn_background(
     })
 }
 
+/// Pure network-exposure decision (no I/O, no exit) so it is unit-testable in
+/// both directions. Returns `Err(one_line_error)` when the process MUST refuse to
+/// start, `Ok(warning)` otherwise — `Some(warning)` when the bind is remote and
+/// allowed (a strong exposure warning to print), `None` when it is loopback.
+///
+/// The rule: a bind that does NOT resolve to a loopback address exposes graph
+/// mutation to the network, and there is no authentication yet — so it is refused
+/// unless `allow_remote` is set. This is stricter than a literal `== "0.0.0.0"`
+/// check: `0.0.0.0`, `::`, and any concrete LAN IP (e.g. `192.168.1.10`) are all
+/// non-loopback and all gated. A hostname that does not parse as an IP is treated
+/// as potentially remote (fail-closed) and requires the flag too.
+fn remote_bind_verdict(bind: &str, allow_remote: bool) -> Result<Option<String>, String> {
+    use std::net::IpAddr;
+
+    let is_loopback = bind
+        .trim()
+        .parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false);
+
+    if is_loopback {
+        return Ok(None);
+    }
+
+    if allow_remote {
+        Ok(Some(format!(
+            "[m1nd-mcp] WARNING: Binding to a non-loopback address ({bind}) exposes the server to the network. \
+             No authentication is configured — anyone who can reach this address can read AND MUTATE the graph. \
+             Proceeding only because --allow-remote was given."
+        )))
+    } else {
+        Err(format!(
+            "[m1nd-mcp] REFUSING to bind to non-loopback address {bind}: this exposes graph mutation to the \
+             network and no authentication is configured. Re-run with --allow-remote to opt in explicitly, or \
+             bind to a loopback address (the default 127.0.0.1). Token auth is not yet implemented."
+        ))
+    }
+}
+
 /// Start the HTTP server (and optionally stdio).
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     config: McpConfig,
     port: u16,
     bind: String,
+    allow_remote: bool,
     dev_mode: bool,
     auto_open: bool,
     also_stdio: bool,
     event_log: Option<String>,
     watch_events: Option<String>,
 ) {
-    // Warn about network exposure
-    if bind == "0.0.0.0" {
-        eprintln!("[m1nd-mcp] WARNING: Binding to 0.0.0.0 exposes the server to the network.");
-        eprintln!("[m1nd-mcp] WARNING: No authentication is configured. Anyone on the network can access the API.");
+    // Network-exposure gate: a non-loopback bind is REFUSED unless --allow-remote
+    // is set (no auth yet — see `remote_bind_verdict`). A refusal exits before any
+    // graph load, engine build, or lease is taken.
+    match remote_bind_verdict(&bind, allow_remote) {
+        Ok(Some(warning)) => eprintln!("{warning}"),
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
     }
 
     // 1. Create McpServer to load graph + build engines
@@ -2267,6 +2313,65 @@ mod tests {
         assert_eq!(changed.data["event"], "memorize");
         assert_eq!(changed.data["agent_id"], "agent-b");
         assert_eq!(changed.data["timestamp_ms"], 1234);
+    }
+
+    // ---- Network-exposure bind gate (SECURITY #1) --------------------------
+
+    #[test]
+    fn loopback_bind_needs_no_flag_and_no_warning() {
+        // 127.0.0.1 and ::1 are loopback → allowed with no flag, no warning.
+        assert_eq!(remote_bind_verdict("127.0.0.1", false), Ok(None));
+        assert_eq!(remote_bind_verdict("::1", false), Ok(None));
+        // Whitespace is tolerated.
+        assert_eq!(remote_bind_verdict("  127.0.0.1  ", false), Ok(None));
+    }
+
+    #[test]
+    fn wildcard_bind_is_refused_without_the_flag() {
+        // The regression this closes: `0.0.0.0` used to bind with only a stderr
+        // warning. It must now be a hard refusal (Err) unless opted in.
+        let verdict = remote_bind_verdict("0.0.0.0", false);
+        let msg = verdict.expect_err("0.0.0.0 without --allow-remote must refuse");
+        assert!(msg.contains("REFUSING"), "got: {msg}");
+        assert!(
+            msg.contains("--allow-remote"),
+            "must name the opt-in: {msg}"
+        );
+        // `::` (IPv6 wildcard) is refused the same way.
+        assert!(remote_bind_verdict("::", false).is_err());
+    }
+
+    #[test]
+    fn concrete_lan_ip_is_refused_without_the_flag() {
+        // Stricter than a literal `== "0.0.0.0"`: any non-loopback address, incl.
+        // a concrete LAN IP, is gated.
+        assert!(remote_bind_verdict("192.168.1.10", false).is_err());
+        assert!(remote_bind_verdict("10.0.0.5", false).is_err());
+        // A non-IP hostname is fail-closed (treated as potentially remote).
+        assert!(remote_bind_verdict("example.local", false).is_err());
+    }
+
+    #[test]
+    fn remote_bind_is_allowed_with_the_flag_but_warns() {
+        // With the explicit opt-in the bind proceeds, returning the strong
+        // unauthenticated-exposure warning to print.
+        let verdict = remote_bind_verdict("0.0.0.0", true);
+        let warning = verdict
+            .expect("--allow-remote must not refuse")
+            .expect("a remote bind must carry a warning");
+        assert!(warning.contains("WARNING"), "got: {warning}");
+        assert!(
+            warning.contains("--allow-remote"),
+            "warning should note the opt-in: {warning}"
+        );
+        // A concrete LAN IP with the flag is likewise allowed + warned.
+        assert!(remote_bind_verdict("192.168.1.10", true).unwrap().is_some());
+    }
+
+    #[test]
+    fn loopback_bind_ignores_the_flag() {
+        // The flag is a no-op for loopback — still no warning.
+        assert_eq!(remote_bind_verdict("127.0.0.1", true), Ok(None));
     }
 
     #[test]

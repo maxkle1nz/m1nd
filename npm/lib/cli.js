@@ -2653,38 +2653,112 @@ function codesignAdHoc(targetBinary) {
   };
 }
 
-// The launchd service label managing a target, discovered GENERICALLY from
-// `launchctl list` — never a hardcoded personal label. `launchctl list` prints
-// `PID\tSTATUS\tLABEL` lines; we take the m1nd-owned labels (a label naming
-// m1nd), so a reload targets whatever the operator actually installed. Returns
-// the matching labels (possibly several); empty when launchctl is absent or no
-// m1nd service is loaded (then restart keeps its kill -TERM fallback).
-function managedLaunchdLabels() {
+// Parse the LABEL out of one `launchctl list` line. The format is
+// `PID\tSTATUS\tLABEL`, and a launchd label MAY contain whitespace, so the label
+// is everything from the third column on — `.split(/\s+/).slice(2).join(" ")`,
+// NOT `.pop()` (which would keep only the last space-separated token of a label
+// with spaces). Returns "" for a header/blank/malformed line.
+function parseLaunchctlLabel(line) {
+  const parts = String(line || "").trim().split(/\s+/);
+  if (parts.length < 3) return "";
+  return parts.slice(2).join(" ");
+}
+
+// Candidate m1nd-named labels from `launchctl list` (a label naming m1nd). These
+// are only CANDIDATES: the fleet may run several m1nd services (worktrees, other
+// installs), and a swap must reload ONLY the one whose managed binary is the
+// target just installed — see `launchdLabelManagesTarget`. Returns [] when
+// launchctl is absent / no m1nd service is loaded (restart keeps its kill -TERM
+// fallback).
+function candidateLaunchdLabels() {
   if (process.platform !== "darwin") return [];
   const result = runCommand("launchctl", ["list"]);
   if (!result.ok) return [];
   return result.stdout
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map(parseLaunchctlLabel)
     .filter(Boolean)
-    .map((line) => line.split(/\s+/).pop() || "")
     .filter((label) => /m1nd/i.test(label));
 }
 
-// Reload a managed launchd service so it re-execs the just-installed binary.
-// `launchctl kickstart -k gui/<uid>/<label>` stops (SIGKILL) then restarts the
-// service under the caller's GUI domain — the reliable "reload now" the plain
-// kill -TERM could miss (KeepAlive races, the TERM never reaching the service).
-// Returns one result per label kicked; empty when no m1nd label is loaded.
-function kickstartManagedServices() {
+// The program path a launchd label manages, from `launchctl print gui/<uid>/<label>`.
+// The print output has a `program = /path/to/bin` line (and/or a `program-arguments`
+// array whose first entry is the executable). Returns the resolved path or null
+// when it cannot be determined (absent tool, unreadable output).
+function launchdLabelProgramPath(uid, label) {
+  const result = runCommand("launchctl", ["print", `gui/${uid}/${label}`]);
+  if (!result.ok) return null;
+  return parseLaunchctlProgramPath(result.stdout);
+}
+
+// Pure parse of a `launchctl print` block → the managed executable path. Prefers
+// the explicit `program = …`; falls back to the first `program-arguments` entry.
+// Returns null when neither is present.
+function parseLaunchctlProgramPath(printOutput) {
+  const text = String(printOutput || "");
+  const program = text.match(/^\s*program\s*=\s*(.+?)\s*$/m);
+  if (program && program[1]) return program[1].trim();
+  // program-arguments = {\n\t\t0 => /path/to/exe\n ... }
+  const firstArg = text.match(/program-arguments\s*=\s*\{[^}]*?\b0\s*=>\s*(.+?)\s*$/m);
+  if (firstArg && firstArg[1]) return firstArg[1].trim();
+  return null;
+}
+
+// Whether a launchd label's managed program IS the target binary just installed.
+// Pure + path-normalized so `/var`→`/private/var` aliases and trailing separators
+// do not cause a false miss (or, worse, a false MATCH that SIGKILLs an unrelated
+// m1nd service). A null/empty program path is NOT a match (fail-closed): an
+// undiscoverable program must never be kicked.
+function launchdLabelManagesTarget(programPath, targetBinary) {
+  if (!programPath || !targetBinary) return false;
+  const norm = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch (_) {
+      return path.resolve(String(p));
+    }
+  };
+  return norm(programPath) === norm(targetBinary);
+}
+
+// Reload the managed launchd service that runs the JUST-INSTALLED binary so it
+// re-execs it. `launchctl kickstart -k gui/<uid>/<label>` stops (SIGKILL) then
+// restarts the service — the reliable "reload now" the plain kill -TERM could
+// miss (KeepAlive races, the TERM never reaching the service).
+//
+// SCOPE (field hazard fix): only labels whose managed program path equals
+// `targetBinary` are kicked. The old code kicked EVERY label containing "m1nd",
+// so one swap SIGKILLed the whole fleet (worktrees, other installs). Each
+// candidate is resolved via `launchctl print` and compared to the target;
+// non-matches are recorded as skipped, never kicked. Returns one result per
+// candidate (kicked or skipped); empty when no m1nd label is loaded.
+function kickstartManagedServices(targetBinary) {
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   if (uid === null) return [];
-  const labels = managedLaunchdLabels();
+  const labels = candidateLaunchdLabels();
   return labels.map((label) => {
     const domain = `gui/${uid}/${label}`;
+    const programPath = launchdLabelProgramPath(uid, label);
+    if (!launchdLabelManagesTarget(programPath, targetBinary)) {
+      // A candidate that does NOT manage the target is left untouched — kicking
+      // it would SIGKILL an unrelated m1nd service.
+      return { label, domain, skipped: true, reason: "program path does not match target", program_path: programPath || null };
+    }
     const result = runCommand("launchctl", ["kickstart", "-k", domain]);
-    return { label, domain, ok: result.ok, status: result.status, stderr: (result.stderr || "").trim() || undefined };
+    return { label, domain, ok: result.ok, status: result.status, program_path: programPath, stderr: (result.stderr || "").trim() || undefined };
   });
+}
+
+// Whether the reload (kickstart) may proceed after an install. On darwin a
+// re-exec of an UNSIGNED binary is killed by the OS (OS_REASON_CODESIGNING), so
+// if the ad-hoc codesign was attempted and FAILED, kickstarting would drive the
+// service into a kill/respawn loop — refuse it and tell the operator to sign
+// first. Non-darwin, or a successful/needless codesign, allows the reload.
+// `codesign` is the `codesignAdHoc` result (or null when none was attempted).
+function shouldKickstartAfterInstall(platform, codesign) {
+  if (platform !== "darwin") return true;
+  if (codesign && codesign.attempted && !codesign.ok) return false;
+  return true;
 }
 
 function restart(args) {
@@ -2783,20 +2857,34 @@ function restart(args) {
   if (yes && killRequested) {
     // On macOS a m1nd daemon is a launchd-managed service: a plain kill -TERM can
     // race KeepAlive or never reach the service, so the OLD binary keeps running
-    // after the swap. Kickstart any managed m1nd service FIRST — it stops then
-    // re-execs the just-installed binary reliably. kill -TERM stays as the
+    // after the swap. Kickstart the managed service that runs the JUST-INSTALLED
+    // binary FIRST — it stops then re-execs it reliably. kill -TERM stays as the
     // fallback (and covers non-launchd processes + non-macOS hosts).
-    const kicked = kickstartManagedServices();
-    if (kicked.length > 0) {
-      result.actions.kickstarted_services = kicked;
-      const failedKicks = kicked.filter((k) => !k.ok);
-      if (failedKicks.length > 0) {
-        result.next_actions.push(
-          `Some managed m1nd launchd services did not reload (${failedKicks.map((k) => k.label).join(", ")}); check 'launchctl print ${failedKicks[0].domain}'.`
-        );
+    //
+    // codesign gate: if the ad-hoc codesign was attempted and FAILED, the
+    // installed binary is unsigned and re-execing it would be killed by the OS
+    // (OS_REASON_CODESIGNING) — an endless kill/respawn loop. Do NOT kickstart in
+    // that case; leave the (old, signed) service running and tell the operator to
+    // sign first. kill -TERM is likewise skipped so we don't drop the daemon onto
+    // the unsigned binary via KeepAlive.
+    if (!shouldKickstartAfterInstall(process.platform, result.actions.codesign)) {
+      result.actions.kickstart_skipped = "codesign failed — not re-execing an unsigned binary";
+      result.next_actions.push(
+        `Skipped reloading launchd services: the installed binary at ${targetBinary} is unsigned (codesign failed) and macOS would kill it on re-exec. Sign it (codesign --force --sign - ${targetBinary}), then re-run.`
+      );
+    } else {
+      const kicked = kickstartManagedServices(targetBinary);
+      if (kicked.length > 0) {
+        result.actions.kickstarted_services = kicked;
+        const failedKicks = kicked.filter((k) => !k.skipped && !k.ok);
+        if (failedKicks.length > 0) {
+          result.next_actions.push(
+            `Some managed m1nd launchd services did not reload (${failedKicks.map((k) => k.label).join(", ")}); check 'launchctl print ${failedKicks[0].domain}'.`
+          );
+        }
       }
+      result.actions.stopped_processes = stopRuntimeProcesses(processes);
     }
-    result.actions.stopped_processes = stopRuntimeProcesses(processes);
     const failedStops = result.actions.stopped_processes.filter((processInfo) => !processInfo.ok);
     if (failedStops.length > 0) {
       result.next_actions.push("Some visible m1nd-mcp processes did not stop; restart the host session or OS if the process state is uninterruptible.");
@@ -3146,4 +3234,8 @@ module.exports = {
   githubReleaseAssetName,
   versionFromText,
   compareSemver,
+  parseLaunchctlLabel,
+  parseLaunchctlProgramPath,
+  launchdLabelManagesTarget,
+  shouldKickstartAfterInstall,
 };
