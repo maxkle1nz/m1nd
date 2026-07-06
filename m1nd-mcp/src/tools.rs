@@ -2734,6 +2734,23 @@ pub fn handle_drift(state: &mut SessionState, input: DriftInput) -> M1ndResult<s
 /// Handle m1nd.learn (03-MCP Section 2.10).
 /// Replaces: targeted edge strengthen/weaken bypass of Hebbian cycle
 pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<serde_json::Value> {
+    // Validate the feedback verb BEFORE any mutation. Exactly `correct | wrong |
+    // partial` are meaningful; any other value (a typo like "corect", a stray
+    // "neutral") must be refused, never silently mapped. The old catch-alls sent
+    // an unrecognized verb to `record_defect`, accruing a defect against innocent
+    // nodes, and to the edge path's "treat as correct" fallback — both wrong.
+    match input.feedback.as_str() {
+        "correct" | "wrong" | "partial" => {}
+        other => {
+            return Err(m1nd_core::error::M1ndError::InvalidParams {
+                tool: "learn".into(),
+                detail: format!(
+                    "unknown feedback '{other}': expected one of correct | wrong | partial"
+                ),
+            });
+        }
+    }
+
     let mut graph = state.graph.write();
 
     let mut seen_nodes = HashSet::new();
@@ -2832,15 +2849,12 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
                 }
                 (s_pairs, w_pairs)
             }
-            _ => {
-                // Unrecognized feedback — fall back to treating as "correct"
-                let mut pairs = Vec::new();
-                for i in 0..expanded.len() {
-                    for j in (i + 1)..expanded.len() {
-                        pairs.push((expanded[i], expanded[j]));
-                    }
-                }
-                (pairs, Vec::new())
+            other => {
+                // Unreachable: `input.feedback` was validated to be one of
+                // correct | wrong | partial at the top of this function. This arm
+                // exists only so a future variant is a loud panic in tests, never
+                // a silent "treat as correct".
+                unreachable!("unvalidated learn feedback reached edge match: {other}")
             }
         };
 
@@ -2958,7 +2972,11 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         match input.feedback.as_str() {
             "wrong" => state.trust_ledger.record_false_alarm(external_id, now),
             "partial" => state.trust_ledger.record_partial(external_id, now),
-            _ => state.trust_ledger.record_defect(external_id, now),
+            // Only "correct" remains (validated at the top). A defect is recorded
+            // ONLY for an explicit "wrong"/"partial"; a typo can no longer reach
+            // `record_defect` and accuse an innocent node.
+            "correct" => state.trust_ledger.record_defect(external_id, now),
+            other => unreachable!("unvalidated learn feedback reached ledger match: {other}"),
         }
 
         let weight_delta = node_weight_deltas.get(node).copied().unwrap_or(0.0);
@@ -4616,6 +4634,70 @@ mod tests {
         state.ingest_roots = vec![root.to_string_lossy().to_string()];
         state.workspace_root = Some(root.to_string_lossy().to_string());
         (state, "file::hub.rs".to_string())
+    }
+
+    #[test]
+    fn learn_rejects_typo_feedback_without_accusing_a_defect() {
+        // Regression (trust-calibration ledger #6): a mislabeled feedback verb —
+        // here the typo "corect" — used to fall through the catch-all and call
+        // `record_defect` against the named node, silently accruing a defect on an
+        // innocent node. It must now be a clean InvalidParams refusal that mutates
+        // NOTHING in the trust ledger.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_id) = build_star_graph(temp.path(), 3);
+
+        assert_eq!(
+            state.trust_ledger.external_ids().count(),
+            0,
+            "ledger starts empty"
+        );
+
+        let result = super::handle_learn(
+            &mut state,
+            crate::protocol::LearnInput {
+                query: "did the hub change?".into(),
+                agent_id: "test".into(),
+                feedback: "corect".into(), // typo of "correct"
+                node_ids: vec![hub_id.clone()],
+                strength: crate::protocol::default_feedback_strength(),
+            },
+        );
+
+        let err = result.expect_err("a typo feedback must be refused, not silently mapped");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("corect") && msg.contains("correct") && msg.contains("partial"),
+            "the refusal must name the bad value and list the valid ones, got: {msg}"
+        );
+
+        // The load-bearing guarantee: NO defect (and no entry at all) was recorded
+        // against the node for the typo.
+        assert_eq!(
+            state.trust_ledger.external_ids().count(),
+            0,
+            "a refused typo must not create any trust-ledger entry"
+        );
+    }
+
+    #[test]
+    fn learn_accepts_the_three_valid_feedback_verbs() {
+        // The complement: the exact set correct | wrong | partial is accepted (a
+        // guard that the up-front validation did not over-reject).
+        for verb in ["correct", "wrong", "partial"] {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let (mut state, hub_id) = build_star_graph(temp.path(), 3);
+            let out = super::handle_learn(
+                &mut state,
+                crate::protocol::LearnInput {
+                    query: "q".into(),
+                    agent_id: "test".into(),
+                    feedback: verb.into(),
+                    node_ids: vec![hub_id],
+                    strength: crate::protocol::default_feedback_strength(),
+                },
+            );
+            assert!(out.is_ok(), "'{verb}' must be accepted, got {out:?}");
+        }
     }
 
     #[test]
