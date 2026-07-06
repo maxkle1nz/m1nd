@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const STATE_SCHEMA: &str = "m1nd-mission-control-state-v1";
 const START_SCHEMA: &str = "m1nd-mission-start-v0";
@@ -18,6 +18,11 @@ const NEXT_SCHEMA: &str = "m1nd-mission-next-v0";
 const VERIFY_SCHEMA: &str = "m1nd-mission-verify-v0";
 const HANDOFF_SCHEMA: &str = "m1nd-mission-handoff-v1";
 const CLOSE_SCHEMA: &str = "m1nd-mission-proof-packet-v1";
+
+/// A `direct_unverified` claim (a direct label with no corroborating path or
+/// recorded event) may not report confidence above this ceiling — the number
+/// cannot outrun the evidence backing it.
+const DIRECT_UNVERIFIED_CONFIDENCE_CAP: f32 = 0.5;
 
 const DEFAULT_NON_CLAIMS: &[&str] = &[
     "mission control does not prove graph contents are correct",
@@ -141,6 +146,8 @@ pub fn handle_mission_event(
         outcome,
         agent_confidence,
     } = input;
+    // Serialize the load→mutate→save against concurrent writers to this mission.
+    let _lock = mission_lock(state, &mission_id)?;
     let mut mission = load_mission(state, &mission_id)?;
     ensure_agent(&mission, &agent_id)?;
 
@@ -163,6 +170,7 @@ pub fn handle_mission_event(
 }
 
 pub fn handle_mission_next(state: &mut SessionState, input: MissionNextInput) -> M1ndResult<Value> {
+    let _lock = mission_lock(state, &input.mission_id)?;
     let mut mission = load_mission(state, &input.mission_id)?;
     ensure_agent(&mission, &input.agent_id)?;
     if let Some(event) = input.last_event {
@@ -201,16 +209,34 @@ pub fn handle_mission_verify(
     state: &mut SessionState,
     input: MissionVerifyInput,
 ) -> M1ndResult<Value> {
+    let _lock = mission_lock(state, &input.mission_id)?;
     let mut mission = load_mission(state, &input.mission_id)?;
     ensure_agent(&mission, &input.agent_id)?;
 
-    let grade = classify_evidence(&input.evidence_refs, &mission.events);
+    let verify_roots = mission_verify_roots(state);
+    let grade = classify_evidence(&input.evidence_refs, &mission.events, &verify_roots);
     let mut missing = Vec::new();
+    // Only a corroborated `direct` grade closes a claim. `direct_unverified` — a
+    // direct LABEL with neither a real cited path nor a backing recorded event —
+    // is treated as insufficient and its self-reported confidence is capped, so a
+    // forged label can no longer forge a `verified_for_mission`.
     let verdict = if grade == "direct" {
         "verified_for_mission"
+    } else if grade == "direct_unverified" {
+        missing.push("unverifiable_direct_label_needs_existing_path_or_recorded_event".to_string());
+        "insufficient_evidence"
     } else {
         missing.push("direct_source_read_or_runtime_probe".to_string());
         "insufficient_evidence"
+    };
+    // Cap confidence for a label-only "direct" claim: the number cannot ride
+    // higher than the evidence backing it.
+    let effective_confidence = if grade == "direct_unverified" {
+        input
+            .confidence
+            .map(|c| c.min(DIRECT_UNVERIFIED_CONFIDENCE_CAP))
+    } else {
+        input.confidence
     };
     let next_required_move = if verdict == "verified_for_mission" && mission.mode == "bug_hunt" {
         json!({
@@ -222,6 +248,12 @@ pub fn handle_mission_verify(
         json!({
             "type": "claim_or_close",
             "why": "claim has at least one direct evidence reference; either verify the next claim or close with explicit gaps"
+        })
+    } else if grade == "direct_unverified" {
+        json!({
+            "type": "read_file",
+            "why": "a direct label with no existing cited path and no recorded mission event is unverifiable — cite a real path or record the read as a mission_event before closing",
+            "evidence_required": "existing_path_or_recorded_event"
         })
     } else {
         json!({
@@ -239,7 +271,7 @@ pub fn handle_mission_verify(
         evidence_grade: grade.clone(),
         verdict: verdict.into(),
         missing: missing.clone(),
-        confidence: input.confidence,
+        confidence: effective_confidence,
         created_at_ms: now_ms(),
     };
     mission.claims.push(claim);
@@ -263,6 +295,7 @@ pub fn handle_mission_handoff(
     state: &mut SessionState,
     input: MissionHandoffInput,
 ) -> M1ndResult<Value> {
+    let _lock = mission_lock(state, &input.mission_id)?;
     let mut mission = load_mission(state, &input.mission_id)?;
     ensure_agent(&mission, &input.agent_id)?;
 
@@ -310,6 +343,7 @@ pub fn handle_mission_close(
     state: &mut SessionState,
     input: MissionCloseInput,
 ) -> M1ndResult<Value> {
+    let _lock = mission_lock(state, &input.mission_id)?;
     let mut mission = load_mission(state, &input.mission_id)?;
     ensure_agent(&mission, &input.agent_id)?;
 
@@ -447,6 +481,20 @@ fn mission_dir(state: &SessionState) -> PathBuf {
     state.runtime_root.join("mission-control")
 }
 
+/// Acquire the per-mission exclusive lock held across a load→mutate→save
+/// read-modify-write, so two concurrent writers to the same mission cannot
+/// clobber each other's update. Reuses the memorize lock primitive
+/// ([`crate::light_author_handlers::LockGuard`]) — an in-process mutex on every
+/// platform, plus a cross-process `flock` on unix — on
+/// `<runtime_root>/mission-control/.locks/<mission_id>.lock`.
+fn mission_lock(
+    state: &SessionState,
+    mission_id: &str,
+) -> M1ndResult<crate::light_author_handlers::LockGuard> {
+    let locks_dir = mission_dir(state).join(".locks");
+    crate::light_author_handlers::LockGuard::acquire_in(&locks_dir, mission_id)
+}
+
 fn mission_path(state: &SessionState, mission_id: &str) -> M1ndResult<PathBuf> {
     validate_mission_id(mission_id)?;
     Ok(mission_dir(state).join(format!("{mission_id}.json")))
@@ -458,6 +506,27 @@ fn save_mission(state: &SessionState, mission: &MissionState) -> M1ndResult<()> 
     let path = mission_path(state, &mission.mission_id)?;
     let body = serde_json::to_string_pretty(mission).map_err(M1ndError::Serde)?;
     fs::write(path, body).map_err(M1ndError::Io)
+}
+
+/// The candidate repo roots a cited evidence path is resolved against when
+/// grading a `direct` label. The workspace root (if known) plus every ingest
+/// root — deduped — so a relative `src/auth.rs` in an evidence ref can be checked
+/// for real existence. Empty when nothing is bound (then a relative path cannot
+/// be verified, and a bare direct label honestly grades `direct_unverified`).
+fn mission_verify_roots(state: &SessionState) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut push_unique = |root: PathBuf| {
+        if !root.as_os_str().is_empty() && !roots.contains(&root) {
+            roots.push(root);
+        }
+    };
+    if let Some(workspace_root) = &state.workspace_root {
+        push_unique(PathBuf::from(workspace_root));
+    }
+    for ingest_root in &state.ingest_roots {
+        push_unique(PathBuf::from(ingest_root));
+    }
+    roots
 }
 
 fn load_mission(state: &SessionState, mission_id: &str) -> M1ndResult<MissionState> {
@@ -936,16 +1005,42 @@ fn next_move(
     )
 }
 
-fn classify_evidence(evidence_refs: &[String], events: &[Value]) -> String {
+/// Grade a claim's evidence. `verify_roots` are the candidate repo roots a cited
+/// path is resolved against so a bare `direct` LABEL only earns the full `direct`
+/// grade when it carries a verifiable signal — a path that actually exists on
+/// disk (or a referenced recorded mission event). A label with no backing event
+/// and no resolvable path grades `direct_unverified`: the agent asserted a read
+/// that cannot be corroborated, so the claim must not close on the label alone.
+fn classify_evidence(
+    evidence_refs: &[String],
+    events: &[Value],
+    verify_roots: &[PathBuf],
+) -> String {
     let refs_lower = evidence_refs
         .iter()
         .map(|reference| reference.to_ascii_lowercase())
         .collect::<Vec<_>>();
-    if evidence_refs
+    // A bare label claiming a direct read: trust it as `direct` ONLY when a cited
+    // path is real (verifiable beyond the label). Otherwise it is label-only.
+    let direct_labeled: Vec<&String> = evidence_refs
         .iter()
-        .any(|reference| is_direct_kind(&reference.to_ascii_lowercase()))
-    {
-        return "direct".into();
+        .filter(|reference| is_direct_kind(&reference.to_ascii_lowercase()))
+        .collect();
+    if !direct_labeled.is_empty() {
+        if direct_labeled
+            .iter()
+            .any(|reference| direct_ref_has_verifiable_path(reference, verify_roots))
+        {
+            return "direct".into();
+        }
+        // Fall through: a referenced recorded event below can still corroborate
+        // the read; only if none does is this graded `direct_unverified`.
+        if !events
+            .iter()
+            .any(|event| event_is_referenced(event, &refs_lower))
+        {
+            return "direct_unverified".into();
+        }
     }
     for event in events {
         if !event_is_referenced(event, &refs_lower) {
@@ -1003,6 +1098,78 @@ fn is_direct_kind(kind: &str) -> bool {
         || kind.contains("runtime_probe")
         || kind.contains("rg")
         || kind.contains("grep")
+}
+
+/// Does a direct-labeled evidence ref cite a path that actually EXISTS under one
+/// of the verify roots? This is the verifiable signal that separates a real read
+/// from a forged label: `file_read:src/auth.rs:42` grades `direct` only when
+/// `src/auth.rs` exists. Candidate path tokens are pulled from the ref by
+/// stripping a leading `kind:` prefix and any trailing `:line[:col]` locator, and
+/// by splitting on whitespace (`read_file src/auth.rs`). An absolute cited path
+/// is checked as-is; a relative one is joined onto each root.
+fn direct_ref_has_verifiable_path(reference: &str, verify_roots: &[PathBuf]) -> bool {
+    for candidate in candidate_paths_from_ref(reference) {
+        let candidate_path = Path::new(&candidate);
+        if candidate_path.is_absolute() {
+            if candidate_path.exists() {
+                return true;
+            }
+            continue;
+        }
+        for root in verify_roots {
+            if root.join(&candidate).exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Extract candidate filesystem paths from a direct evidence ref. Handles the two
+/// shipped shapes — `kind:path:line[:col]` and `kind path` — without inventing a
+/// grammar: it yields the substring after the first `:` (locator trimmed) and the
+/// last whitespace-delimited token, so a real path in either form is found.
+fn candidate_paths_from_ref(reference: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let trimmed = reference.trim();
+
+    // Shape `kind:path:line:col` — take everything after the first colon, then
+    // strip a trailing `:<digits>` locator (line, then optional col).
+    if let Some((_, rest)) = trimmed.split_once(':') {
+        let mut path = rest.trim();
+        for _ in 0..2 {
+            if let Some((head, tail)) = path.rsplit_once(':') {
+                if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+                    path = head;
+                    continue;
+                }
+            }
+            break;
+        }
+        let path = path.trim();
+        if !path.is_empty() {
+            out.push(path.to_string());
+        }
+    }
+
+    // Shape `kind path` — the last whitespace-delimited token, locator stripped.
+    if let Some(token) = trimmed.split_whitespace().next_back() {
+        let mut token = token;
+        for _ in 0..2 {
+            if let Some((head, tail)) = token.rsplit_once(':') {
+                if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+                    token = head;
+                    continue;
+                }
+            }
+            break;
+        }
+        if !token.is_empty() && !out.iter().any(|p| p == token) {
+            out.push(token.to_string());
+        }
+    }
+
+    out
 }
 
 fn is_coverage_sweep_kind(kind: &str) -> bool {
@@ -1177,14 +1344,40 @@ mod tests {
 
     #[test]
     fn graph_only_evidence_is_not_enough() {
-        let grade = classify_evidence(&["seek:auth flow".to_string()], &[]);
+        let grade = classify_evidence(&["seek:auth flow".to_string()], &[], &[]);
         assert_eq!(grade, "graph_only");
     }
 
     #[test]
-    fn direct_evidence_wins() {
-        let grade = classify_evidence(&["file_read:src/auth.rs:42".to_string()], &[]);
+    fn direct_label_with_real_path_wins() {
+        // A direct label whose cited path actually EXISTS earns the full grade.
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("auth.rs");
+        fs::write(&file, "// code").unwrap();
+        let grade = classify_evidence(
+            &["file_read:auth.rs:42".to_string()],
+            &[],
+            &[temp.path().to_path_buf()],
+        );
         assert_eq!(grade, "direct");
+    }
+
+    /// FIX 4a — the forge: a direct LABEL citing a path that does NOT exist, with
+    /// no backing recorded event, used to grade full `direct` and close the claim.
+    /// It must now grade `direct_unverified` — the label is not enough.
+    #[test]
+    fn forged_direct_label_with_no_real_path_is_downgraded() {
+        let temp = tempfile::tempdir().unwrap();
+        // The path does not exist under the (real) root — a lying label.
+        let grade = classify_evidence(
+            &["file_read:src/totally-made-up.rs:42".to_string()],
+            &[],
+            &[temp.path().to_path_buf()],
+        );
+        assert_eq!(
+            grade, "direct_unverified",
+            "a direct label with no existing path and no recorded event is unverifiable"
+        );
     }
 
     #[test]
@@ -1196,7 +1389,7 @@ mod tests {
             "evidence_class": "direct"
         })];
 
-        let grade = classify_evidence(&["seek:auth flow".to_string()], &events);
+        let grade = classify_evidence(&["seek:auth flow".to_string()], &events, &[]);
 
         assert_eq!(grade, "graph_only");
     }
@@ -1210,8 +1403,32 @@ mod tests {
             "evidence_class": "direct"
         })];
 
-        let grade = classify_evidence(&["event:evt_1".to_string()], &events);
+        // No path resolution needed: a direct label backed by a REFERENCED recorded
+        // event is corroborated (the read really happened this session).
+        let grade = classify_evidence(&["event:evt_1".to_string()], &events, &[]);
 
+        assert_eq!(grade, "direct");
+    }
+
+    /// A bare direct label is still trusted when a REFERENCED recorded event
+    /// corroborates it — even if the path can't be resolved (no roots). The forge
+    /// only downgrades when NEITHER a real path NOR a backing event exists.
+    #[test]
+    fn direct_label_backed_by_referenced_event_stays_direct() {
+        let events = vec![json!({
+            "event_id": "evt_9",
+            "event": "file_read",
+            "path": "src/auth.rs",
+            "evidence_class": "direct"
+        })];
+        let grade = classify_evidence(
+            &[
+                "file_read:src/auth.rs".to_string(),
+                "event:evt_9".to_string(),
+            ],
+            &events,
+            &[],
+        );
         assert_eq!(grade, "direct");
     }
 
@@ -1406,5 +1623,177 @@ mod tests {
             confidence: Some(0.9),
             created_at_ms: 1,
         }
+    }
+
+    fn build_session(root: &std::path::Path) -> SessionState {
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code()).expect("init session")
+    }
+
+    fn start_mission(state: &mut SessionState, agent_id: &str) -> String {
+        let repo = state
+            .workspace_root
+            .clone()
+            .unwrap_or_else(|| state.runtime_root.to_string_lossy().to_string());
+        let out = handle_mission_start(
+            state,
+            MissionStartInput {
+                agent_id: agent_id.into(),
+                repo,
+                task: "audit behavioral defects".into(),
+                mode: "review".into(),
+                budget: "normal".into(),
+                risk: "medium".into(),
+                parent_mission_id: None,
+            },
+        )
+        .expect("mission_start");
+        out["mission_id"].as_str().expect("mission_id").to_string()
+    }
+
+    /// FIX 4a (end-to-end) — a forged direct label must NOT close a claim. Before
+    /// the fix, `evidence_refs:["file_read:src/nope.rs:1"]` graded `direct` and the
+    /// verdict was `verified_for_mission` with the self-reported confidence intact.
+    /// Now the label is unverifiable (no real path, no recorded event), so the
+    /// verdict is `insufficient_evidence` and confidence is capped.
+    #[test]
+    fn forged_direct_label_does_not_verify_a_mission_claim() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        let mission_id = start_mission(&mut state, "jimi");
+
+        let out = handle_mission_verify(
+            &mut state,
+            MissionVerifyInput {
+                agent_id: "jimi".into(),
+                mission_id: mission_id.clone(),
+                claim: "auth is safe".into(),
+                evidence_refs: vec!["file_read:src/nope.rs:1".into()],
+                confidence: Some(0.99),
+            },
+        )
+        .expect("mission_verify");
+
+        assert_eq!(
+            out["verdict"], "insufficient_evidence",
+            "a forged direct label must not verify a claim"
+        );
+        assert_eq!(out["evidence_grade"], "direct_unverified");
+
+        // The persisted claim's confidence was capped below the self-reported 0.99.
+        let mission = load_mission(&state, &mission_id).expect("reload");
+        let claim = mission.claims.last().expect("claim recorded");
+        assert!(
+            claim.confidence.unwrap() <= DIRECT_UNVERIFIED_CONFIDENCE_CAP,
+            "label-only confidence must be capped, got {:?}",
+            claim.confidence
+        );
+    }
+
+    /// A direct label citing a path that ACTUALLY exists still verifies — the fix
+    /// gates on a verifiable signal, it does not break honest evidence.
+    #[test]
+    fn direct_label_with_existing_path_still_verifies() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        // The evidence path is resolved against the runtime_root (an ingest root).
+        let real = state.runtime_root.join("real_evidence.rs");
+        fs::write(&real, "// real code read by the agent").expect("write evidence");
+        let mission_id = start_mission(&mut state, "jimi");
+
+        let out = handle_mission_verify(
+            &mut state,
+            MissionVerifyInput {
+                agent_id: "jimi".into(),
+                mission_id,
+                claim: "the read really happened".into(),
+                evidence_refs: vec!["file_read:real_evidence.rs:1".into()],
+                confidence: Some(0.9),
+            },
+        )
+        .expect("mission_verify");
+
+        assert_eq!(out["verdict"], "verified_for_mission");
+        assert_eq!(out["evidence_grade"], "direct");
+    }
+
+    /// FIX 4b — the load→mutate→save is lock-serialized. `THREADS` independent
+    /// sessions on the SAME runtime_root each append `PER_THREAD` events to the
+    /// SAME mission concurrently. `save_mission` rewrites the whole file, so
+    /// without serialization a racing writer's read-modify-write would clobber the
+    /// other's appends and the final event count would fall short of the total.
+    ///
+    /// This asserts the property on EVERY platform (NOT `#[cfg(unix)]`): the
+    /// in-process registry mutex in [`LockGuard`] is the serializer here (all
+    /// sessions share one process), so this catches the Windows regression where
+    /// the old `#[cfg(not(unix))]` no-op guard let appends race and vanish. On
+    /// unix the cross-process `flock` additionally serializes sibling processes.
+    /// Many threads × many iterations widen the race window so a broken lock loses
+    /// events deterministically.
+    #[test]
+    fn concurrent_mission_writes_serialize_and_lose_no_events() {
+        use std::sync::Arc;
+        use std::thread;
+
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 60;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = Arc::new(temp.path().to_path_buf());
+
+        // Create the mission once, then reload it from sibling sessions.
+        let mission_id = {
+            let mut state = build_session(root.as_path());
+            start_mission(&mut state, "jimi")
+        };
+
+        // Build sessions sequentially (initialization is not the property under
+        // test); the per-mission lock is the only serializer of the racing RMW.
+        let sessions: Vec<SessionState> = (0..THREADS as u32)
+            .map(|_| build_session(root.as_path()))
+            .collect();
+
+        let mut handles = Vec::new();
+        for (i, mut state) in sessions.into_iter().enumerate() {
+            let mission_id = mission_id.clone();
+            handles.push(thread::spawn(move || {
+                for j in 0..PER_THREAD {
+                    let _ = handle_mission_event(
+                        &mut state,
+                        MissionEventInput {
+                            agent_id: "jimi".into(),
+                            mission_id: mission_id.clone(),
+                            event: json!("file_read"),
+                            payload: Some(json!({"path": format!("t{i}_e{j}.rs")})),
+                            outcome: None,
+                            agent_confidence: None,
+                        },
+                    );
+                }
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread join");
+        }
+
+        // Reload from a fresh session: every appended event survived.
+        let reader = build_session(root.as_path());
+        let mission = load_mission(&reader, &mission_id).expect("reload mission");
+        assert_eq!(
+            mission.events.len(),
+            THREADS * PER_THREAD,
+            "the lock must serialize concurrent RMW so no appended event is lost"
+        );
     }
 }

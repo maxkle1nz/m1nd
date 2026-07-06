@@ -150,8 +150,11 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> ClassifyTissue
-    ClassifyTissue --> Declared : tissue == Declared (short-circuit, never verified)
-    ClassifyTissue --> AnchorCheck : tissue == Verifiable
+    ClassifyTissue --> SupersessionPass : cross-claim, before per-claim verify
+    SupersessionPass --> Superseded : shares an anchor with a LATER claim AND not latest of any own anchor %% CLOSED wave 4
+    SupersessionPass --> ClassifyTissue2 : not superseded
+    ClassifyTissue2 --> Declared : tissue == Declared (short-circuit, never verified)
+    ClassifyTissue2 --> AnchorCheck : tissue == Verifiable
 
     AnchorCheck --> EvidenceStale_Unanchored : anchors.is_empty() (SOUL-INV-1)
     AnchorCheck --> FoldAnchors : has anchors
@@ -159,7 +162,6 @@ stateDiagram-v2
     FoldAnchors --> VerifiedFresh : every anchor checks (rank 1)
     FoldAnchors --> ReceiptRequired : priced hold (rank 2)
     FoldAnchors --> UnprovableNow : priced hold (rank 3)
-    FoldAnchors --> Superseded : rank 4 %% [unverified] DEFINED but no producer emits it
     FoldAnchors --> EvidenceStale : any anchor fails (rank 5, DOMINATES)
 
     note right of FoldAnchors
@@ -167,6 +169,12 @@ stateDiagram-v2
       A fresh sibling never rescues a fail.
       A priced hold never masks a fail.
       (rank: ES 5 > SUP 4 > UN 3 > RR 2 > VF 1 > Declared 0)
+    end note
+
+    note right of SupersessionPass
+      superseded_claim_indices (hardening wave 4):
+      the newer claim owns the anchor; the older is
+      reported superseded regardless of its own anchor state.
     end note
 
     Declared --> [*]
@@ -217,7 +225,7 @@ stateDiagram-v2
 ## Gaps
 
 - **[medium] soul_source is not discoverable**: the memorize tool's advertised JSON schema (server.rs:2381-2409) does NOT list soul_source among its properties, though LightAuthorInput deserializes it via #[serde(default)]. An agent reading the schema cannot know the key exists — the S1 write half is effectively hidden.
-- **[medium] SoulState::Superseded is an unreachable state**: no verifier or consistency path ever emits Superseded, so the designed VF->SUP / ES->SUP transitions do not exist in code. Self-supersession (an addendum shipping a Next-Agent item) is silently NOT detected. [verified: grep shows Superseded ONLY at enum :118, as_str :129, rank :644, bucket :816 — no producer.]
+- **[medium] SoulState::Superseded is an unreachable state** — **CLOSED** (hardening wave 4): a pure cross-claim pass `superseded_claim_indices` now produces it. When two claims speak to the SAME anchor the later one is the current word (newest-wins, document order the age proxy) and the older is reported `superseded` — a claim is superseded iff it shares an anchor with a later claim and is not itself the latest author of any of its anchors. `soul_check` overrides that claim's state to `Superseded` (with a `superseded_claims` evidence block) before per-anchor verification. Self-supersession within one soul is now detected. RED: two claims on one anchor → the older grades Superseded, end-to-end through `parse_soul`.
 - **[medium] Consistency pass is hard-coded to a single quantity keyword ('battery') and range 20..=99**: any other drifting tracked number (node/test/commit counts, version numbers) is invisible — a one-case proof, not a general engine (soul_handlers.rs TRACKED const :663; verified: consistency_findings at :658).
 - **[low] Parser bypasses the universal document pipeline (S0 shortcut)**: it parses markdown directly instead of materializing a document_resolve cache entry, so the soul is NOT a routed document type — bindings/drift/cross_verify do not see it. aged_out/unverifiable reason strings appear only in a doc comment, never emitted.
 - **[low] Symbol verification is O(nodes) linear + substring match**: verify_symbol iterates the ENTIRE graph.id_to_node per symbol anchor (no index) with a `.contains(head)` test that can false-positive; on the live soul the class is never exercised (checks_skipped: 'symbol').

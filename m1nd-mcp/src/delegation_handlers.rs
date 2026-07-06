@@ -187,13 +187,127 @@ fn outcomes_path(state: &SessionState) -> PathBuf {
     delegation_dir(state).join("outcomes.jsonl")
 }
 
-/// Count of debriefed delegations (rows in `outcomes.jsonl`), for the calibration
-/// header. `0` when the ledger is absent.
-fn outcomes_row_count(state: &SessionState) -> u64 {
+/// Parse the outcomes ledger into rows for the calibration reducer. One JSON
+/// object per non-blank line; unparseable lines are skipped (the ledger is
+/// append-only and a torn tail line must never abort the read).
+fn outcomes_rows(state: &SessionState) -> Vec<Value> {
     match fs::read_to_string(outcomes_path(state)) {
-        Ok(body) => body.lines().filter(|l| !l.trim().is_empty()).count() as u64,
-        Err(_) => 0,
+        Ok(body) => body
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .collect(),
+        Err(_) => Vec::new(),
     }
+}
+
+/// The delegation-level calibration derived from the `outcomes.jsonl` ledger
+/// (§O.12.8). `calibrated` is the ONLY field that prints below N ≥ 30 — the three
+/// quality metrics stay `None` until then, because "no quality number prints
+/// anywhere — bands and counts only" while uncalibrated (the exact sin `predict`'s
+/// gate exists to prevent, aimed at m1nd's own self-grades).
+#[derive(Debug, Clone, PartialEq)]
+struct CalibrationMetrics {
+    rows: u64,
+    calibrated: bool,
+    /// |touched ∩ (may_touch ∪ expected_change)| / |touched| across all rows.
+    scope_precision: Option<f64>,
+    /// |unpredicted| / |touched| across all rows (packet-quality miss, not a
+    /// subagent sin).
+    miss_rate: Option<f64>,
+    /// P(failure | contact) − P(failure | stayed): did the guard mark genuinely
+    /// fragile things? Positive ⇒ contacted dependents did correlate with failure.
+    dependents_honesty: Option<f64>,
+}
+
+/// PURE reducer: `outcomes.jsonl` rows → calibration metrics (§O.12.8). No I/O, no
+/// state — every input is a parsed ledger row, so it is exhaustively unit-testable
+/// on synthetic rows. Metric definitions are lifted verbatim from §O.12.8:
+///   scope_precision = Σ(in_scope + expected_change) / Σ(touched_count)
+///   miss_rate       = Σ(unpredicted) / Σ(touched_count)
+///   dependents_honesty = P(failure|contact) − P(failure|stayed)
+/// The three quality numbers are withheld (`None`) until N ≥ 30 — bands and counts
+/// only while uncalibrated. `calibrated` is purely `rows.len() >= 30`.
+fn calibration_metrics_from_rows(rows: &[Value]) -> CalibrationMetrics {
+    let n = rows.len() as u64;
+    let calibrated = n >= CALIBRATION_NEEDED_ROWS;
+
+    let field_u64 =
+        |row: &Value, key: &str| -> u64 { row.get(key).and_then(|v| v.as_u64()).unwrap_or(0) };
+
+    let mut touched_total: u64 = 0;
+    let mut predicted_total: u64 = 0; // in_scope + expected_change
+    let mut unpredicted_total: u64 = 0;
+
+    // dependents_honesty accumulators, partitioned by whether a row contacted any
+    // known dependent.
+    let mut contact_rows: u64 = 0;
+    let mut contact_failures: u64 = 0;
+    let mut stayed_rows: u64 = 0;
+    let mut stayed_failures: u64 = 0;
+
+    for row in rows {
+        let touched = field_u64(row, "touched_count");
+        touched_total += touched;
+        predicted_total += field_u64(row, "in_scope") + field_u64(row, "expected_change");
+        unpredicted_total += field_u64(row, "unpredicted");
+
+        let is_failure = row.get("outcome").and_then(|v| v.as_str()) == Some("failure");
+        if field_u64(row, "dependent_contact") > 0 {
+            contact_rows += 1;
+            if is_failure {
+                contact_failures += 1;
+            }
+        } else {
+            stayed_rows += 1;
+            if is_failure {
+                stayed_failures += 1;
+            }
+        }
+    }
+
+    // Quality numbers ONLY once calibrated; and only when the denominator exists.
+    let scope_precision =
+        (calibrated && touched_total > 0).then(|| predicted_total as f64 / touched_total as f64);
+    let miss_rate =
+        (calibrated && touched_total > 0).then(|| unpredicted_total as f64 / touched_total as f64);
+    let dependents_honesty = (calibrated && contact_rows > 0 && stayed_rows > 0).then(|| {
+        let p_fail_contact = contact_failures as f64 / contact_rows as f64;
+        let p_fail_stayed = stayed_failures as f64 / stayed_rows as f64;
+        p_fail_contact - p_fail_stayed
+    });
+
+    CalibrationMetrics {
+        rows: n,
+        calibrated,
+        scope_precision,
+        miss_rate,
+        dependents_honesty,
+    }
+}
+
+/// Render the packet's `calibration` block. `calibrated` / `rows` / `needed`
+/// always print (the honest count-only header); the three quality numbers are
+/// added ONLY once `calibrated` — while uncalibrated the block carries counts and
+/// bands, never a number that reads as certified quality (§O.12.8).
+fn calibration_block(metrics: &CalibrationMetrics) -> Value {
+    let mut block = json!({
+        "calibrated": metrics.calibrated,
+        "rows": metrics.rows,
+        "needed": CALIBRATION_NEEDED_ROWS,
+    });
+    if metrics.calibrated {
+        if let Some(v) = metrics.scope_precision {
+            block["scope_precision"] = json!(v);
+        }
+        if let Some(v) = metrics.miss_rate {
+            block["miss_rate"] = json!(v);
+        }
+        if let Some(v) = metrics.dependents_honesty {
+            block["dependents_honesty"] = json!(v);
+        }
+    }
+    block
 }
 
 // ---------------------------------------------------------------------------
@@ -508,7 +622,7 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
     let created_ms = now_ms();
     let delegation_id = format!("dlg_{}_{}", created_ms, id_suffix(&task, &agent_id));
     let expires_ms = created_ms + PACKET_TTL_MS;
-    let calibration_rows = outcomes_row_count(state);
+    let calibration = calibration_metrics_from_rows(&outcomes_rows(state));
 
     // Build the structured packet (house style: json! map, sufficiency-gated —
     // droppable fields, no typed struct).
@@ -553,11 +667,7 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
             "scanned": focus_out.ignored.scanned,
             "reason": focus_out.ignored.reason.clone(),
         },
-        "calibration": {
-            "calibrated": false,
-            "rows": calibration_rows,
-            "needed": CALIBRATION_NEEDED_ROWS,
-        },
+        "calibration": calibration_block(&calibration),
         "honest_gaps": honest_gaps,
         "non_claims": non_claims,
     });
@@ -1628,4 +1738,121 @@ fn append_outcome_row(state: &SessionState, row: &Value) -> M1ndResult<()> {
         .open(path)
         .map_err(M1ndError::Io)?;
     file.write_all(line.as_bytes()).map_err(M1ndError::Io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build one synthetic outcomes.jsonl row with the fields the calibration
+    /// reducer consumes.
+    fn row(
+        touched: u64,
+        in_scope: u64,
+        expected_change: u64,
+        unpredicted: u64,
+        dependent_contact: u64,
+        outcome: &str,
+    ) -> Value {
+        json!({
+            "schema": "m1nd-delegation-outcome-v0",
+            "touched_count": touched,
+            "in_scope": in_scope,
+            "expected_change": expected_change,
+            "unpredicted": unpredicted,
+            "dependent_contact": dependent_contact,
+            "outcome": outcome,
+        })
+    }
+
+    /// Below the N ≥ 30 floor the reducer reports `calibrated:false` and withholds
+    /// EVERY quality number — bands and counts only (§O.12.8). This is the pre-fix
+    /// world's honest header, now derived from the ledger instead of hardcoded.
+    #[test]
+    fn calibration_is_uncalibrated_and_number_free_below_thirty_rows() {
+        let rows: Vec<Value> = (0..29).map(|_| row(4, 1, 1, 2, 1, "failure")).collect();
+        let m = calibration_metrics_from_rows(&rows);
+
+        assert_eq!(m.rows, 29);
+        assert!(
+            !m.calibrated,
+            "29 rows is below the 30-row calibration floor"
+        );
+        assert_eq!(
+            m.scope_precision, None,
+            "no quality number prints while uncalibrated"
+        );
+        assert_eq!(
+            m.miss_rate, None,
+            "no quality number prints while uncalibrated"
+        );
+        assert_eq!(
+            m.dependents_honesty, None,
+            "no quality number prints while uncalibrated"
+        );
+
+        // And the rendered block carries only the honest header — no metric keys.
+        let block = calibration_block(&m);
+        assert_eq!(block["calibrated"], json!(false));
+        assert_eq!(block["rows"], json!(29));
+        assert!(block.get("scope_precision").is_none());
+        assert!(block.get("miss_rate").is_none());
+        assert!(block.get("dependents_honesty").is_none());
+    }
+
+    /// At N ≥ 30 the reducer flips `calibrated:true` and the three metrics match
+    /// their §O.12.8 definitions computed by hand over the synthetic ledger.
+    #[test]
+    fn calibration_metrics_match_hand_computed_values_at_thirty_rows() {
+        // 10 "contact" rows (dependent_contact=1), 6 of them failures.
+        // 20 "stayed" rows (dependent_contact=0), 2 of them failures.
+        // Every row: touched=4, in_scope=1, expected_change=1, unpredicted=2.
+        let mut rows: Vec<Value> = Vec::new();
+        for i in 0..10 {
+            let outcome = if i < 6 { "failure" } else { "success" };
+            rows.push(row(4, 1, 1, 2, 1, outcome));
+        }
+        for i in 0..20 {
+            let outcome = if i < 2 { "failure" } else { "success" };
+            rows.push(row(4, 1, 1, 2, 0, outcome));
+        }
+        assert_eq!(rows.len(), 30);
+
+        let m = calibration_metrics_from_rows(&rows);
+
+        assert_eq!(m.rows, 30);
+        assert!(m.calibrated, "30 rows meets the calibration floor");
+
+        // scope_precision = Σ(in_scope+expected_change) / Σ(touched)
+        //                 = (30*2) / (30*4) = 60/120 = 0.5
+        assert_eq!(m.scope_precision, Some(0.5));
+        // miss_rate = Σ(unpredicted) / Σ(touched) = (30*2)/(30*4) = 0.5
+        assert_eq!(m.miss_rate, Some(0.5));
+        // dependents_honesty = P(fail|contact) - P(fail|stayed)
+        //                    = 6/10 - 2/20 = 0.6 - 0.1 = 0.5
+        assert_eq!(m.dependents_honesty, Some(0.5));
+
+        // The rendered block now surfaces the certified numbers.
+        let block = calibration_block(&m);
+        assert_eq!(block["calibrated"], json!(true));
+        assert_eq!(block["rows"], json!(30));
+        assert_eq!(block["scope_precision"], json!(0.5));
+        assert_eq!(block["miss_rate"], json!(0.5));
+        assert_eq!(block["dependents_honesty"], json!(0.5));
+    }
+
+    /// Malformed / torn ledger lines are skipped, and zero-denominator guards keep
+    /// the metrics `None` even at/above the row floor when nothing was touched.
+    #[test]
+    fn calibration_guards_zero_denominators() {
+        // 30 rows that touched nothing (touched_count=0) — calibrated, but the
+        // scope/miss denominators are zero so no ratio is fabricated.
+        let rows: Vec<Value> = (0..30).map(|_| row(0, 0, 0, 0, 0, "success")).collect();
+        let m = calibration_metrics_from_rows(&rows);
+        assert!(m.calibrated);
+        assert_eq!(m.scope_precision, None, "no divide-by-zero ratio");
+        assert_eq!(m.miss_rate, None, "no divide-by-zero ratio");
+        // All rows "stayed" (no contact) → the contact partition is empty → None.
+        assert_eq!(m.dependents_honesty, None, "honesty needs both partitions");
+    }
 }

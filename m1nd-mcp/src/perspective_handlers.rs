@@ -313,6 +313,22 @@ fn require_perspective_mut<'a>(
         .ok_or_else(|| perspective_not_found_error(tool, agent_id, perspective_id))
 }
 
+/// Classify a route family from a CSR edge relation string.
+///
+/// Honest by construction: an edge relation can only distinguish Semantic /
+/// Temporal / Causal from the default Structural bucket. Ghost / Hole / Resonant
+/// families are produced by other (latent-edge / structural-hole / resonance)
+/// synthesis paths, never by a plain stored relation, so they are intentionally
+/// unreachable here.
+fn route_family_for_relation(relation: &str) -> RouteFamily {
+    match relation {
+        "semantic" | "shared_keyword" => RouteFamily::Semantic,
+        "temporal" | "next_binding" => RouteFamily::Temporal,
+        "causal" | "citation_chain" | "cross_cites" => RouteFamily::Causal,
+        _ => RouteFamily::Structural,
+    }
+}
+
 /// Synthesize routes from graph for a focus node.
 /// Uses graph's existing activation data to build route candidates.
 /// This is a simplified V1 implementation that builds routes from direct graph neighbors.
@@ -399,8 +415,19 @@ fn synthesize_routes(
                     .to_string();
                 let _target_type = format!("{:?}", graph.nodes.node_type[target_idx]);
 
-                // Determine route family from edge relation
-                let family = RouteFamily::Structural; // V1: default to structural
+                // Determine route family from the stored edge relation.
+                // Guard the CSR index so a truncated relations vec can never panic.
+                let family = graph
+                    .csr
+                    .relations
+                    .get(edge_pos)
+                    .map(|interned| route_family_for_relation(graph.strings.resolve(*interned)))
+                    .unwrap_or(RouteFamily::Structural);
+
+                // Honor the lens family filter (empty = all families).
+                if !lens.route_families.is_empty() && !lens.route_families.contains(&family) {
+                    continue;
+                }
 
                 let route_id = route_content_id(&target_label, &family);
 
@@ -479,7 +506,20 @@ fn synthesize_routes(
                     }
                     seen_targets.insert(src_label.clone());
 
-                    let family = RouteFamily::Structural;
+                    // Derive the route family from the reverse edge's relation
+                    // (guard the CSR index against a truncated relations vec).
+                    let family = graph
+                        .csr
+                        .relations
+                        .get(edge_pos)
+                        .map(|interned| route_family_for_relation(graph.strings.resolve(*interned)))
+                        .unwrap_or(RouteFamily::Structural);
+
+                    // Honor the lens family filter (empty = all families).
+                    if !lens.route_families.is_empty() && !lens.route_families.contains(&family) {
+                        continue;
+                    }
+
                     let route_id = route_content_id(&src_label, &family);
                     let weight: f32 = graph.csr.read_weight(EdgeIdx::new(edge_pos as u32)).get();
                     let novelty = if visited.contains(&src_label) {
@@ -1878,5 +1918,233 @@ mod tests {
         assert_eq!(tool.as_deref(), Some("perspective_back"));
         assert_eq!(target.as_deref(), Some("persp-7"));
         assert_eq!(hint.as_deref(), Some("No routes available"));
+    }
+
+    // --- Route-family derivation over a real mixed-relation graph -----------
+
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+    /// Build a finalized graph whose focus node has four outgoing edges, one per
+    /// relation class: `semantic`, `calls` (structural), `temporal`, `causal`.
+    /// The focus external_id is `file::focus` so route synthesis resolves it by
+    /// exact external_id match.
+    fn build_mixed_relation_graph() -> Graph {
+        let mut g = Graph::new();
+        let focus = g
+            .add_node("file::focus", "focus", NodeType::Function, &[], 0.0, 0.0)
+            .unwrap();
+        let sem = g
+            .add_node("file::sem", "sem_target", NodeType::Function, &[], 0.0, 0.0)
+            .unwrap();
+        let call = g
+            .add_node(
+                "file::call",
+                "call_target",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        let temp = g
+            .add_node(
+                "file::temp",
+                "temp_target",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        let caus = g
+            .add_node(
+                "file::caus",
+                "caus_target",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.add_edge(
+            focus,
+            sem,
+            "semantic",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+        g.add_edge(
+            focus,
+            call,
+            "calls",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+        g.add_edge(
+            focus,
+            temp,
+            "temporal",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+        g.add_edge(
+            focus,
+            caus,
+            "causal",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+        g.finalize().unwrap();
+        g
+    }
+
+    /// Wrap a finalized graph in a `SessionState` backed by a tempdir so the
+    /// runtime never touches real m1nd artifacts.
+    fn session_for(graph: Graph) -> (SessionState, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = crate::server::McpConfig {
+            graph_source: temp_dir.path().join("graph_snapshot.json"),
+            plasticity_state: temp_dir.path().join("plasticity_state.json"),
+            runtime_dir: Some(temp_dir.path().to_path_buf()),
+            ..crate::server::McpConfig::default()
+        };
+        let state = SessionState::initialize(graph, &config, DomainConfig::code()).unwrap();
+        (state, temp_dir)
+    }
+
+    fn find_route<'a>(routes: &'a [Route], label: &str) -> &'a Route {
+        routes
+            .iter()
+            .find(|r| r.target_label == label)
+            .unwrap_or_else(|| panic!("route for target `{label}` not found in {routes:?}"))
+    }
+
+    #[test]
+    fn synthesize_routes_derives_route_family_from_relation() {
+        let (state, _tmp) = session_for(build_mixed_relation_graph());
+        let lens = PerspectiveLens::default();
+        let visited: HashSet<String> = HashSet::new();
+        let mode_ctx = ModeContext {
+            mode: PerspectiveMode::Local,
+            anchor_node: None,
+            anchor_query: None,
+        };
+
+        let (routes, _version) =
+            synthesize_routes(&state, "file::focus", &lens, &visited, &mode_ctx);
+
+        assert_eq!(
+            find_route(&routes, "sem_target").family,
+            RouteFamily::Semantic,
+            "the `semantic` edge must yield a Semantic-family route"
+        );
+        assert_eq!(
+            find_route(&routes, "call_target").family,
+            RouteFamily::Structural,
+            "the `calls` edge must yield a Structural-family route"
+        );
+        assert_eq!(
+            find_route(&routes, "temp_target").family,
+            RouteFamily::Temporal,
+            "the `temporal` edge must yield a Temporal-family route"
+        );
+        assert_eq!(
+            find_route(&routes, "caus_target").family,
+            RouteFamily::Causal,
+            "the `causal` edge must yield a Causal-family route"
+        );
+    }
+
+    #[test]
+    fn synthesize_routes_respects_lens_route_families() {
+        let (state, _tmp) = session_for(build_mixed_relation_graph());
+        let lens = PerspectiveLens {
+            route_families: vec![RouteFamily::Semantic],
+            ..PerspectiveLens::default()
+        };
+        let visited: HashSet<String> = HashSet::new();
+        let mode_ctx = ModeContext {
+            mode: PerspectiveMode::Local,
+            anchor_node: None,
+            anchor_query: None,
+        };
+
+        let (routes, _version) =
+            synthesize_routes(&state, "file::focus", &lens, &visited, &mode_ctx);
+
+        assert!(
+            !routes.is_empty(),
+            "the Semantic route must survive the lens filter"
+        );
+        assert!(
+            routes.iter().all(|r| r.family == RouteFamily::Semantic),
+            "a lens.route_families = [Semantic] filter must drop non-Semantic routes, got {routes:?}"
+        );
+        assert!(
+            routes.iter().any(|r| r.target_label == "sem_target"),
+            "the `semantic`-edge route must be the one that survives"
+        );
+    }
+
+    #[test]
+    fn route_family_for_relation_maps_known_relations() {
+        // Semantic bucket.
+        assert_eq!(route_family_for_relation("semantic"), RouteFamily::Semantic);
+        assert_eq!(
+            route_family_for_relation("shared_keyword"),
+            RouteFamily::Semantic
+        );
+        // Temporal bucket.
+        assert_eq!(route_family_for_relation("temporal"), RouteFamily::Temporal);
+        assert_eq!(
+            route_family_for_relation("next_binding"),
+            RouteFamily::Temporal
+        );
+        // Causal bucket.
+        assert_eq!(route_family_for_relation("causal"), RouteFamily::Causal);
+        assert_eq!(
+            route_family_for_relation("citation_chain"),
+            RouteFamily::Causal
+        );
+        assert_eq!(
+            route_family_for_relation("cross_cites"),
+            RouteFamily::Causal
+        );
+        // Everything code/structural or unknown falls back to Structural.
+        for rel in [
+            "calls",
+            "imports",
+            "references",
+            "contains",
+            "cites",
+            "implements",
+            "same_as",
+            "depends_on",
+            "uses",
+            "extends",
+            "authored_by",
+            "totally_unknown_relation",
+            "",
+        ] {
+            assert_eq!(
+                route_family_for_relation(rel),
+                RouteFamily::Structural,
+                "relation `{rel}` must map to Structural"
+            );
+        }
     }
 }

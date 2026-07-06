@@ -548,57 +548,126 @@ pub fn slugify(s: &str) -> String {
 // Supersession-on-rewrite (invalidate-and-keep)
 // ---------------------------------------------------------------------------
 
-/// Per-slug advisory file lock held across the read-modify-write of one memory.
+/// Process-wide registry mapping a `.lock` path to a single shared
+/// `Arc<Mutex<()>>`. Every [`LockGuard`] for the same lock path acquires the
+/// SAME mutex, so concurrent read-modify-writes serialize on ALL platforms —
+/// the owner is a single multi-threaded process, and this is precisely the
+/// concurrency the runtime (and the tests) exercise. On unix a real `flock`
+/// stacks on top for cross-PROCESS serialization between sibling sessions;
+/// this registry adds the intra-process guarantee that `flock` alone does not
+/// provide (a same-pid, independent-`open` flock does not block itself).
+static LOCK_REGISTRY: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Arc<std::sync::Mutex<()>>>>,
+> = std::sync::OnceLock::new();
+
+/// Fetch (or create) the shared per-path mutex from the registry.
+fn registry_mutex_for(lock_path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    let registry =
+        LOCK_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+    map.entry(lock_path.to_path_buf())
+        .or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(())))
+        .clone()
+}
+
+/// Per-slug exclusive lock held across the read-modify-write of one memory (or
+/// mission).
 ///
 /// RAII mirror of `instance_registry::InstanceHandle`: acquire on construction,
-/// release on `Drop`. Backed by `libc::flock(LOCK_EX)` on a `.locks/<slug>.lock`
-/// file — a blocking, whole-file exclusive lock that is per-open-file-description,
-/// so two sibling sessions (or two threads with independent `open`s) serialize
-/// correctly. Blocking (not try-lock) is deliberate: memorize is durable and
-/// low-frequency, so correctness beats latency.
+/// release on `Drop`. Two layers, so serialization holds everywhere:
+/// - **In-process (all platforms):** a shared `Arc<Mutex<()>>` from
+///   [`LOCK_REGISTRY`], keyed by the `.lock` path. Two threads (or two sibling
+///   `SessionState`s in the same process) racing the same slug block on the same
+///   mutex — this is the concurrency the served owner actually faces.
+/// - **Cross-process (unix):** a blocking `libc::flock(LOCK_EX)` on
+///   `<locks_dir>/<slug>.lock`, per-open-file-description, so two live sibling
+///   *processes* also serialize. This is unchanged from before.
 ///
-/// On non-unix targets there is no `flock`; the guard is a documented no-op and
-/// supersession still runs (single-writer assumption — the only degradation is
-/// the loss of cross-process serialization, which unix always has).
-struct LockGuard {
+/// Blocking (not try-lock) is deliberate: memorize/missions are durable and
+/// low-frequency, so correctness beats latency. On non-unix targets the `flock`
+/// layer is absent, but the in-process registry still serializes every thread of
+/// the single owner process (the only writer shape on those targets today).
+pub(crate) struct LockGuard {
+    /// Keeps the registry mutex alive for as long as `_in_process_guard` borrows
+    /// it. MUST outlive the guard — field drop order (top-to-bottom) drops the
+    /// guard first, so this ordering is load-bearing; do not reorder these fields.
+    _registry_mutex: std::sync::Arc<std::sync::Mutex<()>>,
+    /// The held in-process guard. Its lifetime is transmuted to `'static`; the
+    /// `_registry_mutex` field above is the real backing storage that keeps the
+    /// `Mutex` alive, making the `'static` sound (see SAFETY in `acquire_in`).
+    _in_process_guard: std::sync::MutexGuard<'static, ()>,
     #[cfg(unix)]
     fd: std::os::unix::io::RawFd,
 }
 
 impl LockGuard {
+    /// Memory's per-slug lock: `<runtime_root>/agent-memory/.locks/<slug>.lock`.
+    /// Thin wrapper over [`LockGuard::acquire_in`] so the memorize call site is
+    /// unchanged while other read-modify-write stores (missions) reuse the same
+    /// lock primitive with their own locks directory.
     fn acquire(runtime_root: &Path, slug: &str) -> M1ndResult<Self> {
+        let locks_dir = runtime_root.join("agent-memory").join(".locks");
+        Self::acquire_in(&locks_dir, slug)
+    }
+
+    /// Acquire the per-slug lock on `<locks_dir>/<slug>.lock`, creating
+    /// `locks_dir` if needed. Blocks until exclusive. Released on `Drop`.
+    ///
+    /// In-process serialization (via [`LOCK_REGISTRY`]) is acquired FIRST on
+    /// every platform; on unix a cross-process `flock` is then stacked on top.
+    /// Ordering matters only for correctness of teardown (`Drop` releases flock
+    /// then the in-process guard) — both layers are held for the guard's life.
+    pub(crate) fn acquire_in(locks_dir: &Path, slug: &str) -> M1ndResult<Self> {
+        fs::create_dir_all(locks_dir).map_err(M1ndError::Io)?;
+        let lock_path = locks_dir.join(format!("{}.lock", slug));
+
+        // --- Layer 1: in-process mutex (all platforms) ---
+        let registry_mutex = registry_mutex_for(&lock_path);
+        // Block until we own the shared mutex. Recover from poisoning: a panic in
+        // a prior RMW does not corrupt the `()` payload, so the lock stays usable.
+        let guard = registry_mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // SAFETY: extend the guard's borrow to `'static`. The guard borrows the
+        // `Mutex` inside `registry_mutex`; we move that same `Arc` into the
+        // returned `LockGuard` (`_registry_mutex`), so the `Mutex` outlives the
+        // guard. Field drop order drops `_in_process_guard` before
+        // `_registry_mutex`, so the guard is released while its backing `Mutex` is
+        // still alive. The `'static` lifetime is thus never observed past the real
+        // storage's lifetime.
+        let guard_static: std::sync::MutexGuard<'static, ()> =
+            unsafe { std::mem::transmute(guard) };
+
+        // --- Layer 2: cross-process flock (unix only) ---
         #[cfg(unix)]
-        {
+        let fd = {
             use std::os::unix::io::AsRawFd;
-            let locks_dir = runtime_root.join("agent-memory").join(".locks");
-            fs::create_dir_all(&locks_dir).map_err(M1ndError::Io)?;
-            let lock_path = locks_dir.join(format!("{}.lock", slug));
             let file = fs::OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(false)
                 .open(&lock_path)
                 .map_err(M1ndError::Io)?;
-            let fd = file.as_raw_fd();
-            // Blocking exclusive lock. `file` is leaked (into_raw handled below) so
-            // the fd stays open until we release+close in Drop.
-            // SAFETY: `fd` is a valid open descriptor for the lifetime of this call.
-            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+            let raw_fd = file.as_raw_fd();
+            // Blocking exclusive lock. `file` is leaked (into_raw below) so the fd
+            // stays open until we release+close in Drop.
+            // SAFETY: `raw_fd` is a valid open descriptor for the lifetime of this call.
+            let rc = unsafe { libc::flock(raw_fd, libc::LOCK_EX) };
             if rc != 0 {
+                // The in-process `guard_static` drops here, releasing layer 1.
                 return Err(M1ndError::Io(std::io::Error::last_os_error()));
             }
             // Keep the fd alive past `file`'s scope; Drop closes it.
-            let raw = {
-                use std::os::unix::io::IntoRawFd;
-                file.into_raw_fd()
-            };
-            Ok(LockGuard { fd: raw })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (runtime_root, slug);
-            Ok(LockGuard {})
-        }
+            use std::os::unix::io::IntoRawFd;
+            file.into_raw_fd()
+        };
+
+        Ok(LockGuard {
+            _registry_mutex: registry_mutex,
+            _in_process_guard: guard_static,
+            #[cfg(unix)]
+            fd,
+        })
     }
 }
 
@@ -606,14 +675,18 @@ impl Drop for LockGuard {
     fn drop(&mut self) {
         #[cfg(unix)]
         {
-            // Release the lock, then close the descriptor. Errors on teardown are
-            // non-actionable (best-effort), matching how the OS reclaims on close.
-            // SAFETY: `self.fd` is the descriptor we opened and locked in `acquire`.
+            // Release the cross-process lock, then close the descriptor. Errors on
+            // teardown are non-actionable (best-effort), matching how the OS
+            // reclaims on close. The in-process guard is released after this by the
+            // automatic field drop (see `LockGuard` field ordering).
+            // SAFETY: `self.fd` is the descriptor we opened and locked in `acquire_in`.
             unsafe {
                 libc::flock(self.fd, libc::LOCK_UN);
                 libc::close(self.fd);
             }
         }
+        // `_in_process_guard` then `_registry_mutex` drop here (field order),
+        // releasing layer 1 while its backing `Mutex` is still alive.
     }
 }
 
@@ -1433,6 +1506,64 @@ mod tests {
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().ends_with(".tmp"));
         assert!(!stray_temp, "no torn/leftover .tmp files should remain");
+    }
+
+    // Test: the LockGuard primitive itself serializes across THREADS on EVERY
+    // platform (NOT `#[cfg(unix)]`). Both memorize and missions route their
+    // read-modify-write through `LockGuard::acquire_in`; this proves the shared
+    // primitive's mutual-exclusion directly, independent of the higher-level
+    // atomic-rename in `handle_light_author` (which alone can mask a broken lock
+    // on Windows by giving last-writer-wins without tearing). A NON-atomic shared
+    // counter is mutated under the lock via a read → yield → write sequence: if
+    // the lock fails to serialize (the old `#[cfg(not(unix))]` no-op), the reads
+    // interleave and updates are lost, so the final total falls short. The
+    // `sleep`/yield inside the critical section widens the race window so a broken
+    // lock loses deterministically.
+    #[test]
+    fn lock_guard_acquire_in_serializes_across_threads_all_platforms() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 50;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let locks_dir = Arc::new(temp.path().join(".locks"));
+        // A plain (non-atomic) shared cell. Only correct locking keeps its
+        // read-modify-write coherent; we read it through a relaxed atomic purely so
+        // the compiler permits the shared &, NOT for synchronization — the atomic
+        // op is a load/store, the increment logic (read → pause → write) is the
+        // unsynchronized critical section the lock must protect.
+        let counter = Arc::new(AtomicU64::new(0));
+
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let locks_dir = Arc::clone(&locks_dir);
+            let counter = Arc::clone(&counter);
+            handles.push(thread::spawn(move || {
+                for _ in 0..PER_THREAD {
+                    // Same slug for every thread → all contend on ONE lock.
+                    let _guard = LockGuard::acquire_in(&locks_dir, "shared").expect("acquire lock");
+                    // Non-atomic read-modify-write: read, yield to widen the window,
+                    // then write back. Serialized correctly ⇒ no lost increment.
+                    let seen = counter.load(Ordering::Relaxed);
+                    std::thread::yield_now();
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                    counter.store(seen + 1, Ordering::Relaxed);
+                }
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread join");
+        }
+
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            (THREADS * PER_THREAD) as u64,
+            "LockGuard::acquire_in must serialize the critical section on every \
+             platform so no update is lost"
+        );
     }
 
     // Test: frontmatter round-trip — a rendered doc with Supersedes parses cleanly

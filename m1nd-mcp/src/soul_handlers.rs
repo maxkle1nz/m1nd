@@ -702,6 +702,59 @@ fn consistency_findings(claims: &[SoulClaim]) -> Vec<serde_json::Value> {
     findings
 }
 
+// ── Supersession (SOUL-PRD §3.4 `superseded`) ────────────────────────────────
+// The soul is append-forward: when two claims speak to the SAME anchor, the later
+// one is the current word and the older is SUPERSEDED (the same newest-wins rule
+// memorize applies to same-slug memory). Document order is the age proxy within a
+// single soul — the parser emits claims top-to-bottom.
+
+/// Indices of claims that are SUPERSEDED by a later claim sharing an anchor. A
+/// claim is superseded iff it shares ≥1 anchor with a later claim AND it is not
+/// itself the latest claim for ANY of its anchors — so a claim that is the newest
+/// word on at least one of its anchors stays live (it is not fully shadowed). The
+/// canonical case (two claims, one shared anchor) marks the older one.
+fn superseded_claim_indices(claims: &[SoulClaim]) -> std::collections::HashSet<usize> {
+    use std::collections::{HashMap, HashSet};
+
+    // anchor ref_text → the max claim index carrying it (its latest author).
+    let mut latest_for_anchor: HashMap<&str, usize> = HashMap::new();
+    for (idx, claim) in claims.iter().enumerate() {
+        for anchor in &claim.anchors {
+            latest_for_anchor
+                .entry(anchor.ref_text.as_str())
+                .and_modify(|slot| {
+                    if idx > *slot {
+                        *slot = idx;
+                    }
+                })
+                .or_insert(idx);
+        }
+    }
+
+    let mut superseded = HashSet::new();
+    for (idx, claim) in claims.iter().enumerate() {
+        if claim.anchors.is_empty() {
+            continue;
+        }
+        // Is this claim the latest author of ANY anchor it carries? If so it is
+        // still live. Is ANY of its anchors owned by a later claim? Only then is
+        // there something superseding it at all.
+        let mut latest_of_some = false;
+        let mut shadowed_by_later = false;
+        for anchor in &claim.anchors {
+            match latest_for_anchor.get(anchor.ref_text.as_str()) {
+                Some(&latest) if latest == idx => latest_of_some = true,
+                Some(&latest) if latest > idx => shadowed_by_later = true,
+                _ => {}
+            }
+        }
+        if shadowed_by_later && !latest_of_some {
+            superseded.insert(idx);
+        }
+    }
+    superseded
+}
+
 fn extract_small_ints(text: &str) -> Vec<u64> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -794,6 +847,9 @@ pub fn handle_soul_check(
     })?;
 
     let claims = parse_soul(&body);
+    // Cross-claim supersession: an older claim whose anchor a later claim re-states
+    // is SUPERSEDED (newest-wins, SOUL-PRD §3.4). Computed once over the claim set.
+    let superseded_indices = superseded_claim_indices(&claims);
 
     let mut ran_symbol = false;
     let mut by_state = [0usize; 6]; // fresh, stale, superseded, receipt, unprovable, declared
@@ -801,15 +857,22 @@ pub fn handle_soul_check(
     let mut declared = 0usize;
     let mut unanchored = 0usize;
     let mut stale_rows: Vec<serde_json::Value> = Vec::new();
+    let mut superseded_rows: Vec<serde_json::Value> = Vec::new();
 
-    for claim in &claims {
+    for (idx, claim) in claims.iter().enumerate() {
         if claim.tissue == Tissue::Declared {
             declared += 1;
         } else {
             verifiable += 1;
         }
 
-        let (st, reason) = roll_claim_state(claim, &repo_root, state, &mut ran_symbol);
+        // A superseded claim reports `superseded` regardless of whether its own
+        // anchor still verifies — a later claim owns that anchor now.
+        let (st, reason) = if superseded_indices.contains(&idx) {
+            (SoulState::Superseded, Some("superseded_by_later_claim"))
+        } else {
+            roll_claim_state(claim, &repo_root, state, &mut ran_symbol)
+        };
         let bucket = match st {
             SoulState::VerifiedFresh => 0,
             SoulState::EvidenceStale => 1,
@@ -822,6 +885,19 @@ pub fn handle_soul_check(
 
         if reason == Some("unanchored") {
             unanchored += 1;
+        }
+        if st == SoulState::Superseded {
+            let anchor_txt = claim
+                .anchors
+                .first()
+                .map(|a| a.ref_text.clone())
+                .unwrap_or_else(|| "<none>".into());
+            superseded_rows.push(json!({
+                "claim": truncate(&claim.text, 160),
+                "section": claim.section,
+                "reason": reason.unwrap_or("superseded_by_later_claim"),
+                "anchor": anchor_txt,
+            }));
         }
         if st == SoulState::EvidenceStale {
             let anchor_txt = claim
@@ -898,6 +974,7 @@ pub fn handle_soul_check(
             "declared": by_state[5],
         },
         "stale": stale_rows,
+        "superseded_claims": superseded_rows,
         "consistency_findings": consistency,
         "checks_skipped": checks_skipped,
         "receipt_line": receipt_line,
@@ -1123,4 +1200,107 @@ fn ymd(ms: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn claim_with_anchors(text: &str, anchors: &[&str]) -> SoulClaim {
+        SoulClaim {
+            section: "State".into(),
+            tissue: Tissue::Verifiable,
+            text: text.into(),
+            anchors: anchors
+                .iter()
+                .map(|a| Anchor {
+                    ref_text: (*a).into(),
+                    class: CheckClass::Path,
+                    line_hint: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// FIX 5 — the canonical case: two claims on the SAME anchor. The OLDER (earlier
+    /// in document order) is `Superseded`; the newer survives. Before the fix
+    /// `SoulState::Superseded` had no producer and this set was always empty.
+    #[test]
+    fn oldest_duplicate_anchor_claim_is_superseded() {
+        let claims = vec![
+            claim_with_anchors("auth was validated here", &["src/auth.rs"]),
+            claim_with_anchors("auth is now validated differently", &["src/auth.rs"]),
+        ];
+        let superseded = superseded_claim_indices(&claims);
+        assert!(
+            superseded.contains(&0),
+            "the older claim (index 0) on the shared anchor must be superseded"
+        );
+        assert!(
+            !superseded.contains(&1),
+            "the newer claim (index 1) is the current word and survives"
+        );
+    }
+
+    /// A claim that is the newest author of at least one of its anchors is NOT
+    /// superseded, even if another of its anchors is re-stated later (it is not
+    /// fully shadowed).
+    #[test]
+    fn claim_latest_on_one_anchor_survives() {
+        let claims = vec![
+            claim_with_anchors("older single", &["a.rs"]),
+            claim_with_anchors("spans two anchors", &["a.rs", "b.rs"]),
+        ];
+        let superseded = superseded_claim_indices(&claims);
+        // Index 0 is shadowed on a.rs by index 1 → superseded.
+        assert!(superseded.contains(&0));
+        // Index 1 is the latest on both a.rs and b.rs → survives.
+        assert!(!superseded.contains(&1));
+    }
+
+    /// Distinct anchors never supersede each other; a lone anchor is never
+    /// superseded.
+    #[test]
+    fn distinct_anchors_are_never_superseded() {
+        let claims = vec![
+            claim_with_anchors("one", &["x.rs"]),
+            claim_with_anchors("two", &["y.rs"]),
+            claim_with_anchors("three", &[]),
+        ];
+        assert!(superseded_claim_indices(&claims).is_empty());
+    }
+
+    /// End-to-end through the real parser: two soul lines citing the same backtick
+    /// path anchor yield exactly one superseded (older) claim.
+    #[test]
+    fn parse_soul_marks_older_shared_anchor_claim_superseded() {
+        let body = "\
+## State
+
+The parser lives in `src/parser.rs` and did the old thing.
+
+The parser in `src/parser.rs` now does the new thing.
+";
+        let claims = parse_soul(body);
+        let superseded = superseded_claim_indices(&claims);
+        assert_eq!(
+            superseded.len(),
+            1,
+            "exactly one (the older) of two same-anchor claims is superseded, claims={:#?}",
+            claims
+        );
+        // The superseded one is the earlier occurrence.
+        let superseded_idx = *superseded.iter().next().unwrap();
+        let survivor_idx = claims
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.anchors.iter().any(|a| a.ref_text == "src/parser.rs"))
+            .map(|(i, _)| i)
+            .max()
+            .unwrap();
+        assert!(
+            superseded_idx < survivor_idx,
+            "the superseded claim precedes the surviving one"
+        );
+    }
 }
