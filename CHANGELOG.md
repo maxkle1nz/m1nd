@@ -6,22 +6,190 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [1.4.0] — 2026-07-06
+
+The ORGANISM release. One served owner now hosts many per-project brains, so m1nd
+works in any repo without a per-repo install; memory crosses brains only by an
+audited promotion, never by leak; agents can spawn and grade sub-work; and the soul
+knows what it can prove. Four hardening waves — bind safety, migration data safety,
+the trust engine, and cross-platform locks — landed underneath the new surface, each
+with a red-first proof.
+
+### Added
+
+- **Per-project brains in the served owner — one-call bootstrap + silent cwd routing.**
+  The one served owner now hosts multiple graphs: its bound dev graph (untouched) plus
+  per-project brains stored under `<runtime_root>/project-brains/<hash>/`. From a repo the
+  owner does not cover, `ingest` with `project_root=<repo root>` creates the brain, ingests
+  the repo, binds the session, and returns the new brain's `north` packet in one call;
+  thereafter every call from that root routes to that brain silently. Owner restarts warm-boot
+  each project brain from its own store.
+- **Reception — degraded mode + reconnect-rebind.** A caller outside the bound repo gets an
+  explicit `caller_root_mismatch` reception block with honest options instead of silent
+  wrong-graph answers, and after an MCP reconnect from a host launched above the repo, routing
+  consults the on-disk brain roster and rebinds to the existing project brain.
+- **The medulla — cross-brain memory with a no-leak law.** Memory is pull, not push: a recall
+  beat carries the caller's own project brain plus the shared medulla (promoted/doctrine
+  claims); another brain's private claim never appears ambiently. `tier` selects the recall
+  scope, every row is labeled `tier` + `origin_brain`, and cross-brain fan-out runs through an
+  eviction gate.
+- **`promote` — the audited project→medulla crossing.** Lifts a project claim into the shared
+  medulla only through a verified-only gate with an origin-qualified evidence rider; demotion
+  reverses it.
+- **Medulla storage split + reversible migration.** Per-brain on-disk storage, `Origin-Brain`
+  labeling, a brainless-root refusal, and a plan/apply/rollback migration that requires an
+  explicit destination brain.
+- **`delegate` / `debrief` — the delegation layer.** Grounded spawn packets for sub-agents and
+  graded returns, with calibration computed from the trust ledger.
+- **`soul_check` / `soul_read` — the agentic soul, PATHOS-native and verified.** Reads the repo's
+  `PATHOS.md`, mechanically checks each claim against the repo, git, and the running owner, and
+  reports what it can and cannot prove.
+- **Per-project mailboxes, per-brain session/query counters, LRU eviction gate, and the `seek`
+  conformance rerank** (X-RAY steers ranking by intent, off by absence without a manifest).
+- **`calibrate_envelope` — the seek trust envelope can now reach `act`.** A real production
+  writer derives a labeled corpus from the trust ledger, measures a split-conformal τ on the
+  envelope's own scale, and persists the row so a calibrated seek can emit `act`; with no labeled
+  corpus it stays honestly capped at `reverify`, never a fabricated `act`.
+- **Hall + human layer.** A projects area (the Hall of brains), the onboarding Threshold, a
+  per-brain Open REST selector, the Pre-Flight Card, and the Mailbox view.
+
 ### Fixed
 
-- **Persist targets now resolve against the runtime root, never the process cwd
-  (field-triage batch B).** A relative `graph_source` / `plasticity_state` (the
-  defaults are `./graph_snapshot.json` / `./plasticity_state.json`) is now
-  anchored on the configured `--runtime-dir` / `M1ND_RUNTIME_DIR` instead of the
-  current working directory. A launchd-spawned `--serve` owner with no
-  `WorkingDirectory` runs with `cwd=/` (a sealed, read-only volume), so every
-  persist — the graph snapshot, the plasticity state, and the `ingest_roots.json`
-  written next to the snapshot — used to fail silently with `Read-only file
-  system (os error 30)`. The medulla therefore re-ingested the whole repo on
-  every boot and warm-boot never worked (`graph_path_exists: false`, "No graph
-  snapshot found, starting fresh"). An explicit absolute `--graph` override is
-  left untouched, and with no runtime dir the historical cwd-relative behavior is
-  preserved. Proven with a red→green test that spawns the real binary under
-  `cwd=/` and asserts a second process warm-boots from the persisted snapshot.
+- **Security wave (wave 1).** A non-loopback HTTP bind is refused without `--allow-remote`,
+  unknown `learn` feedback is rejected instead of charged as a defect, the launchd restart path
+  is scoped and gated, and broad L1GHT recall no longer returns an inverted (oldest-first) order.
+- **Migration data safety (wave 2).** The medulla migration data-loss cluster is closed:
+  `medulla-migrate` requires an explicit destination brain, the owner-alive guard port is
+  overridable, cross-project doctrine stays on the medulla even when it cites evidence, and the
+  destination brain is registered after apply.
+- **Trust engine (wave 3).** Both activation engines re-relax stronger later arrivals (Dijkstra
+  decrease-key), proven by a cross-engine equivalence test against a brute-force oracle; a
+  `pagerank_dirty` flag skips stale PageRank; and `query`/`query_readonly` guard on `finalized`
+  with bounds-safe ranges, so a non-finalized-graph query returns an honest empty result instead
+  of panicking. A deterministic `FakeEmbedder` exercises the embed path blobless in CI.
+- **Cross-platform locks (wave 4).** Concurrent access is serialized in-process on every platform
+  (the Windows advisory-lock gap closed), the auto-ingest queue drains from the server idle clock,
+  and persist targets resolve against the runtime root rather than the process cwd — a
+  launchd-spawned owner with `cwd=/` no longer fails every persist silently and warm-boot works.
+  Proven with a red→green test that spawns the real binary under `cwd=/` and asserts a second
+  process warm-boots from the persisted snapshot.
+
+### Known gaps (honest)
+
+- **Case intelligence (R11) and the ambient wave (R12) are DESIGN-ONLY.** Both PRDs shipped, but
+  their slices are not built; the ambient hook install is a named human gate.
+- **The Solvency & Stop gate (OMEGA Move 2) is roadmap-only** — there is no token ledger yet.
+- **Calibration rests on one signal.** Co-change is the first and only calibrated signal; the
+  document-to-code binding lanes are not yet built, and the poisoned-oracle threat model (a
+  poisoned eval or co-change corpus) remains open.
+
+---
+
+## [1.3.2] — 2026-07-04
+
+The launch-funnel patch — a stranger's first minute now works.
+
+### Fixed
+
+- **`--version` flag (#254).** `npx -y @maxkle1nz/m1nd --version` errored ("missing value")
+  — a stranger's most common first command. Now prints the version.
+- **Fresh installs fetched a months-old beta (#254).** A brand-new HOME received
+  m1nd-mcp `0.9.0-beta.6` plus confusing channel advice; fresh installs now fetch the
+  runtime matching the npm package's own version, with an honest fallback to the latest
+  release.
+
+### Added
+
+- **README conversion pass (#256):** 30-second real-session demo GIF, badges row,
+  a "60-second start", and `llms-install.md` (agent-legible install) — in all 8 languages.
+- **m1nd.world launch-week hero (#255):** the shell story, registry install, honest
+  proof points; stale claims removed.
+
+---
+
+## [1.3.1] — 2026-07-04
+
+Discoverability patch — metadata only, no behavior change.
+
+### Added
+
+- **npm keywords** (`mcp`, `mcp-server`, `model-context-protocol`, `code-graph`, …) and
+  **crates.io keywords + categories** on all three crates — both were shipping **empty**,
+  so the published packages were invisible to registry search. Repo GitHub topics set to
+  match. `glama.json` added (Glama listing claim). `server.json` synced to 1.3.1.
+
+---
+
+## [1.3.0] — 2026-07-04
+
+The construction-era release: **the shell reaches every host.** One 24-hour sweep —
+fourteen PRs — empties the field-triage mailbox to zero, takes the Living Tree live,
+teaches `m1nd hosts` twenty-two agent hosts, and steps m1nd into the official MCP
+Registry. (A `1.2.2` section was drafted here but never tagged; its content ships in
+this release.)
+
+### Added
+
+- **`m1nd hosts` learns 22 hosts (#244).** From 5 to 22: seven TIER-A hook recipes
+  (`SessionStart`/`agentSpawn`/`TaskStart` families — claude, codex, qwen, kiro, cline,
+  continue, grok) plus fifteen B-tier doctrine emitters (cursor, windsurf, zed, vscode,
+  gemini, antigravity, opencode, warp, trae, jetbrains, amp, goose, crush, aider, generic).
+  `plan` is pure print; `apply` is idempotent and never clobbers foreign config (the codex
+  duplicate-TOML incident is now a regression test); on claude, apply never writes
+  `settings.json` — it prints the block for explicit pasting.
+- **`m1nd-north-shim` (#244).** New fail-open bin that wraps `m1nd agent first-minute`
+  and renders its envelope into the hook contract
+  (`{"hookSpecificOutput":{"additionalContext":…}}`) — one stable command every
+  session-start hook can call.
+- **The Living Tree goes live (#242).** A shared mutation predicate now derives a
+  browser `graph_changed` event on the existing `/api/events` SSE stream (closing the
+  known pure-reader relay gap); the UI refetches with a calm ~500 ms debounce and falls
+  back to polling. Fonts are vendored (Instrument Sans, IBM Plex Mono, Fraunces — OFL,
+  ~116 KB): the UI renders fully offline, zero external hosts in `dist/`.
+- **HOST-INTEGRATION-MATRIX (#241).** The canonical map of ~24 agent hosts ×
+  (session-start hooks / MCP `instructions` rendering / roots / rules files), every cell
+  carrying its verification label, with copy-pasteable TIER-A recipes and the honest
+  spec limit: a server speaks only when called — the in-band packet is the universal floor.
+- **First-Contact Reception protocol (#238).** TWO-TIER-BRAIN-PRD §9.5: on first contact
+  the bridge/owner answers with where-you-are, what-exists, machine-executable options,
+  a suggested default, and honest gaps — silent binding only when cwd matches (TT-INV-12).
+  Field-evidenced by the Antigravity silent-bind report.
+- **Two-Tier Brain PRD (#227)**, **Human-Layer PRD (#222)** + Living Tree Slice 0 (#232),
+  and the **§O.12 subagent Delegation Layer (#224)** — the construction era's three official
+  blueprints.
+- **PATHOS auto-refresh + checkpoint 9 (#236/#237/#239).** git-cliff + GitHub Action keep
+  the auto sections fresh on every main push (fail-soft under branch protection); cp9
+  consolidates the era.
+- **MCP Registry manifest (#243).** Root `server.json` (2025-12-11 schema) + `mcpName`
+  in the npm package — the ownership proof the official registry validates.
+- **agent-docs CI gate (#229)** and the **README re-spined around "the shell" (#228)**
+  in all eight languages.
+
+### Fixed
+
+- **Warm-boot immortal graph (#230).** Relative persist targets anchor on the runtime
+  root; the launchd owner stopped failing persistence (39 consecutive failures → 0) and
+  now warm-boots the full graph.
+- **Marker fragments excluded from recall/anchors (#231).** `::tag::` structural
+  fragments no longer pollute north's memory beat or anchor slots.
+- **Attach re-init covers every unknown-session shape (#233)** — including the frameless
+  404 — with restart-survival proven end-to-end.
+- **Attach self-echo (#235).** Write-tool responses return real envelopes through the
+  bridge; `graph_changed` notifications no longer race the response into the stdout sink.
+- **auto_ingest CI flake killed at the source (#240).** Watch events for existing
+  directories are dropped before the queue, so `queue_depth` is an honest signal and the
+  single forced tick is deterministic — proven 20/20 across three configurations.
+
+### Removed
+
+- **The unmeasured `savings` envelope (brand gate G1) and the opt-in `savings`/`report`
+  unmeasured-claims surface (G1.5) (#234).** An uncalibrated "tokens saved" number is a
+  confident guess, and it has no place in a product whose promise is calibrated trust.
+  `savings` is gone entirely (dispatch arm, handler, types, tracker state); `report`
+  survives stripped to its honest content — query counts, elapsed time, graph size,
+  heuristic hotspots. Completes the beta.7 de-advertisement.
 
 ---
 
