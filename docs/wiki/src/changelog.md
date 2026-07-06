@@ -6,43 +6,117 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [1.4.0] — 2026-07-06
+
+The ORGANISM release. One served owner now hosts many per-project brains, so m1nd
+works in any repo without a per-repo install; memory crosses brains only by an
+audited promotion, never by leak; agents can spawn and grade sub-work; and the soul
+knows what it can prove. Four hardening waves — bind safety, migration data safety,
+the trust engine, and cross-platform locks — landed underneath the new surface, each
+with a red-first proof.
+
 ### Added
 
-- **Per-project brains in the served owner — one-call bootstrap + silent cwd routing
-  (Two-Tier interim variant).** The one served owner now hosts multiple graphs: its
-  bound dev graph (untouched) plus per-project brains stored under
-  `<runtime_root>/project-brains/<hash>/`. From a repo the owner does not cover,
-  `ingest` with `project_root=<repo root>` creates the brain, ingests the repo,
-  binds the session, and returns the new brain's `north` packet in one call;
-  thereafter every call from that root — including brand-new sessions — routes to
-  that brain silently (TT-INV-12). The reception `ingest_your_repo` option now
-  carries this real invocation; registry entries gain a serde-default `brain_kind`
-  field. Owner restarts warm-boot each project brain from its own store.
-
-- **`calibrate_envelope` — the seek trust envelope can now reach `act` (hardening wave 2).**
-  The envelope calibration signal finally has a real production writer. It derives a
-  labeled corpus from the trust ledger's learn outcomes (a confirmed defect ⇒ trusting
-  the node would have been wrong; a false alarm ⇒ trusting it was right), scores each by
-  the reliability the envelope assigns its trust band, and measures a split-conformal τ
-  on the envelope's OWN [0,1] scale. Persists the `envelope` row so a calibrated seek can
-  emit `act`; with no labeled corpus it stays honestly `envelope_uncalibrated` (capped at
-  `reverify`), never a fabricated `act`.
+- **Per-project brains in the served owner — one-call bootstrap + silent cwd routing.**
+  The one served owner now hosts multiple graphs: its bound dev graph (untouched) plus
+  per-project brains stored under `<runtime_root>/project-brains/<hash>/`. From a repo the
+  owner does not cover, `ingest` with `project_root=<repo root>` creates the brain, ingests
+  the repo, binds the session, and returns the new brain's `north` packet in one call;
+  thereafter every call from that root — including brand-new sessions — routes to that brain
+  silently. Registry entries gain a serde-default `brain_kind` field; owner restarts warm-boot
+  each project brain from its own store.
+- **Reception — degraded mode.** A caller outside the bound repo now gets an explicit
+  `caller_root_mismatch` reception block with honest options (continue bound, or one-call
+  ingest your repo), instead of silent wrong-graph answers. A silent bind is legal only on a
+  real root match.
+- **Reconnect-rebind.** After an MCP reconnect from a host launched above the repo, routing
+  now consults the on-disk brain roster and rebinds to the existing project brain covering the
+  caller, instead of falling to the owner graph and suggesting an ingest at the wrong root.
+- **The medulla — cross-brain memory with a no-leak law.** Memory is pull, not push: a recall
+  beat carries the caller's own project brain plus the shared medulla (promoted/doctrine
+  claims) — another brain's private claim never appears ambiently. `tier` selects the recall
+  scope (`project` / `medulla` / `project+medulla` / `all-brains`), every row is labeled with
+  its `tier` and `origin_brain`, and cross-brain fan-out runs through an eviction gate.
+- **`promote` — the audited project→medulla crossing.** A verb that lifts a project claim into
+  the shared medulla only when it passes a verified-only gate and carries an origin-qualified
+  evidence rider; demotion reverses it. The one sanctioned way a local finding becomes shared
+  doctrine.
+- **Medulla storage split + reversible migration.** Per-brain on-disk storage, `Origin-Brain`
+  labeling, a brainless-root refusal, and a plan/apply/rollback migration (`medulla-migrate`)
+  that requires an explicit destination brain and registers it after apply.
+- **`delegate` / `debrief` — the delegation layer.** `delegate` produces a grounded spawn
+  packet for a sub-agent; `debrief` records a graded return. Delegation packet memory rows
+  carry `tier` + `origin_brain`, and calibration is computed from the trust ledger rather than
+  hardcoded.
+- **`soul_check` / `soul_read` — the agentic soul, PATHOS-native and verified.** The soul reads
+  the repo's `PATHOS.md`, mechanically checks each claim against the repo, git, and the running
+  owner, and reports what it can and cannot prove — a curator at the gates, with duplicate-
+  per-anchor claims resolved to a `Superseded` state.
+- **Per-project mailboxes — field-report boxes, fates, sweep, confusion metric.** Each brain
+  gets its own inbox; bare repo names and worktree variants resolve against the brain roster by
+  unique-basename match, and a mailbox message's `in_flight` fate is derived from the reply
+  graph.
+- **Per-brain session/query counters.** Aliveness counts are partitioned per brain, so a Hall
+  card no longer wears owner-wide numbers.
+- **LRU eviction gate for the project-brain map.** The in-memory brain map is bounded with
+  persist-on-evict; the bound dev graph is pinned and never evicted.
+- **`seek` conformance rerank.** When a ratified X-RAY manifest resolves, a `conformance_boost`
+  steers `seek` ranking by intent (off by absence without a manifest).
+- **`calibrate_envelope` — the seek trust envelope can now reach `act` (hardening wave 3).**
+  The envelope calibration signal finally has a real production writer. It derives a labeled
+  corpus from the trust ledger's learn outcomes (a confirmed defect ⇒ trusting the node would
+  have been wrong; a false alarm ⇒ trusting it was right), scores each by the reliability the
+  envelope assigns its trust band, and measures a split-conformal τ on the envelope's OWN [0,1]
+  scale. Persists the `envelope` row so a calibrated seek can emit `act`; with no labeled corpus
+  it stays honestly `envelope_uncalibrated` (capped at `reverify`), never a fabricated `act`.
+- **Hall + human layer.** A projects area (the Hall of brains), the onboarding Threshold, a
+  per-brain Open selector on the REST surface, the Pre-Flight Card (the `north` packet rendered
+  for a human), and the Mailbox view.
 
 ### Fixed
 
-- **Activation engines lost order-dependent strengthening (hardening wave 2).** Both
-  structural engines (Heap, Wavefront) now re-relax an already-visited node when a later
-  arrival is stronger by a margin (Dijkstra decrease-key), so the larger value propagates
-  onward; the Heap re-push also rescues a Bloom false-positive first-time node. Proven by a
-  cross-engine equivalence test against a brute-force fixpoint oracle.
-- **PageRank staleness + non-finalized-graph queries (hardening wave 2).** A `pagerank_dirty`
-  flag makes the seek boost skip stale PageRank (degrading to the un-boosted ranking);
-  `query`/`query_readonly` guard on `finalized` and `out_range`/`in_range` are bounds-safe,
-  so a query on a non-finalized graph returns an honest empty result instead of panicking.
-- **Embedding tests no longer self-skip without the model blob (hardening wave 2).** A
-  deterministic `FakeEmbedder` + `SemanticEngine::with_injected_embedder` exercise the seek
-  blend, the 0.40 recall floor, and cache reuse/self-pruning/single-writer/corruption
-  handling blobless, so CI without the ~30 MB model still covers the embed path.
+- **Security wave (hardening wave 1) — refuse the unsafe defaults.** A non-loopback HTTP bind is
+  now refused without an explicit `--allow-remote`; unknown `learn` feedback is rejected instead
+  of being charged as a defect; the launchd restart/reload path is scoped and gated; and broad
+  L1GHT recall no longer returns results in an inverted (oldest-first) order.
+- **Migration data safety (hardening wave 2).** The M5a medulla migration data-loss cluster is
+  closed: `medulla-migrate` requires an explicit destination brain (never the ambient binding),
+  the owner-alive guard port is overridable and proven at the CLI seam, cross-project doctrine
+  stays on the medulla even when it cites evidence, and the destination brain is registered after
+  apply. The migration data-safety posture is documented in the CLI help.
+- **Trust engine (hardening wave 3).** Both structural activation engines (Heap, Wavefront)
+  re-relax an already-visited node when a later arrival is stronger by a margin (Dijkstra
+  decrease-key), so the larger value propagates onward and the Heap re-push rescues a Bloom
+  false-positive first-time node — proven by a cross-engine equivalence test against a
+  brute-force fixpoint oracle. A `pagerank_dirty` flag makes the seek boost skip stale PageRank
+  (degrading to the un-boosted ranking), and `query`/`query_readonly` guard on `finalized` with
+  bounds-safe range access, so a query on a non-finalized graph returns an honest empty result
+  instead of panicking. A deterministic `FakeEmbedder` now exercises the seek blend, the 0.40
+  recall floor, and cache reuse/pruning/single-writer/corruption handling without the ~30 MB
+  model blob, so CI covers the embed path blobless.
+- **Cross-platform locks (hardening wave 4).** Concurrent access is serialized in-process on
+  every platform (the Windows advisory-lock gap closed), the auto-ingest pending queue drains
+  from the server idle clock, perspective route-family derivation honors the lens, mission and
+  soul claims cite verifiable direct evidence, and persist targets resolve against the runtime
+  root rather than the process cwd (a launchd-spawned owner with `cwd=/` no longer fails every
+  persist silently and warm-boot works).
+
+### Known gaps (honest)
+
+- **Case intelligence (ladder R11) is DESIGN-ONLY.** The Case-Intelligence PRD shipped
+  (fingerprints, cases, absence sentinels, claim-vs-measure audit, the abandonment signal), but
+  its slices are not built — the final slice is gated on the ambient wave below.
+- **The ambient wave (ladder R12) is DESIGN-ONLY.** The Stop → distill → memorize / PreCompact
+  trail-save / SessionEnd persist pipeline is specified but not built; the hook install is a
+  named human gate.
+- **The Solvency & Stop gate (OMEGA Move 2) is roadmap-only.** There is no token ledger, so a
+  solvency arbiter has no real budget signal to reason over yet.
+- **Calibration rests on one signal.** Co-change is the first and currently only calibrated
+  signal; case intelligence exists to feed the calibrator labeled rows from the field, and the
+  document-to-code binding lanes are not yet built. The poisoned-oracle threat model (a poisoned
+  eval or co-change corpus) remains open and un-defended-against.
 
 ---
 

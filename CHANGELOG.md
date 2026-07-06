@@ -6,22 +6,84 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [1.4.0] — 2026-07-06
+
+The ORGANISM release. One served owner now hosts many per-project brains, so m1nd
+works in any repo without a per-repo install; memory crosses brains only by an
+audited promotion, never by leak; agents can spawn and grade sub-work; and the soul
+knows what it can prove. Four hardening waves — bind safety, migration data safety,
+the trust engine, and cross-platform locks — landed underneath the new surface, each
+with a red-first proof.
+
+### Added
+
+- **Per-project brains in the served owner — one-call bootstrap + silent cwd routing.**
+  The one served owner now hosts multiple graphs: its bound dev graph (untouched) plus
+  per-project brains stored under `<runtime_root>/project-brains/<hash>/`. From a repo the
+  owner does not cover, `ingest` with `project_root=<repo root>` creates the brain, ingests
+  the repo, binds the session, and returns the new brain's `north` packet in one call;
+  thereafter every call from that root routes to that brain silently. Owner restarts warm-boot
+  each project brain from its own store.
+- **Reception — degraded mode + reconnect-rebind.** A caller outside the bound repo gets an
+  explicit `caller_root_mismatch` reception block with honest options instead of silent
+  wrong-graph answers, and after an MCP reconnect from a host launched above the repo, routing
+  consults the on-disk brain roster and rebinds to the existing project brain.
+- **The medulla — cross-brain memory with a no-leak law.** Memory is pull, not push: a recall
+  beat carries the caller's own project brain plus the shared medulla (promoted/doctrine
+  claims); another brain's private claim never appears ambiently. `tier` selects the recall
+  scope, every row is labeled `tier` + `origin_brain`, and cross-brain fan-out runs through an
+  eviction gate.
+- **`promote` — the audited project→medulla crossing.** Lifts a project claim into the shared
+  medulla only through a verified-only gate with an origin-qualified evidence rider; demotion
+  reverses it.
+- **Medulla storage split + reversible migration.** Per-brain on-disk storage, `Origin-Brain`
+  labeling, a brainless-root refusal, and a plan/apply/rollback migration that requires an
+  explicit destination brain.
+- **`delegate` / `debrief` — the delegation layer.** Grounded spawn packets for sub-agents and
+  graded returns, with calibration computed from the trust ledger.
+- **`soul_check` / `soul_read` — the agentic soul, PATHOS-native and verified.** Reads the repo's
+  `PATHOS.md`, mechanically checks each claim against the repo, git, and the running owner, and
+  reports what it can and cannot prove.
+- **Per-project mailboxes, per-brain session/query counters, LRU eviction gate, and the `seek`
+  conformance rerank** (X-RAY steers ranking by intent, off by absence without a manifest).
+- **`calibrate_envelope` — the seek trust envelope can now reach `act`.** A real production
+  writer derives a labeled corpus from the trust ledger, measures a split-conformal τ on the
+  envelope's own scale, and persists the row so a calibrated seek can emit `act`; with no labeled
+  corpus it stays honestly capped at `reverify`, never a fabricated `act`.
+- **Hall + human layer.** A projects area (the Hall of brains), the onboarding Threshold, a
+  per-brain Open REST selector, the Pre-Flight Card, and the Mailbox view.
+
 ### Fixed
 
-- **Persist targets now resolve against the runtime root, never the process cwd
-  (field-triage batch B).** A relative `graph_source` / `plasticity_state` (the
-  defaults are `./graph_snapshot.json` / `./plasticity_state.json`) is now
-  anchored on the configured `--runtime-dir` / `M1ND_RUNTIME_DIR` instead of the
-  current working directory. A launchd-spawned `--serve` owner with no
-  `WorkingDirectory` runs with `cwd=/` (a sealed, read-only volume), so every
-  persist — the graph snapshot, the plasticity state, and the `ingest_roots.json`
-  written next to the snapshot — used to fail silently with `Read-only file
-  system (os error 30)`. The medulla therefore re-ingested the whole repo on
-  every boot and warm-boot never worked (`graph_path_exists: false`, "No graph
-  snapshot found, starting fresh"). An explicit absolute `--graph` override is
-  left untouched, and with no runtime dir the historical cwd-relative behavior is
-  preserved. Proven with a red→green test that spawns the real binary under
-  `cwd=/` and asserts a second process warm-boots from the persisted snapshot.
+- **Security wave (wave 1).** A non-loopback HTTP bind is refused without `--allow-remote`,
+  unknown `learn` feedback is rejected instead of charged as a defect, the launchd restart path
+  is scoped and gated, and broad L1GHT recall no longer returns an inverted (oldest-first) order.
+- **Migration data safety (wave 2).** The medulla migration data-loss cluster is closed:
+  `medulla-migrate` requires an explicit destination brain, the owner-alive guard port is
+  overridable, cross-project doctrine stays on the medulla even when it cites evidence, and the
+  destination brain is registered after apply.
+- **Trust engine (wave 3).** Both activation engines re-relax stronger later arrivals (Dijkstra
+  decrease-key), proven by a cross-engine equivalence test against a brute-force oracle; a
+  `pagerank_dirty` flag skips stale PageRank; and `query`/`query_readonly` guard on `finalized`
+  with bounds-safe ranges, so a non-finalized-graph query returns an honest empty result instead
+  of panicking. A deterministic `FakeEmbedder` exercises the embed path blobless in CI.
+- **Cross-platform locks (wave 4).** Concurrent access is serialized in-process on every platform
+  (the Windows advisory-lock gap closed), the auto-ingest queue drains from the server idle clock,
+  and persist targets resolve against the runtime root rather than the process cwd — a
+  launchd-spawned owner with `cwd=/` no longer fails every persist silently and warm-boot works.
+  Proven with a red→green test that spawns the real binary under `cwd=/` and asserts a second
+  process warm-boots from the persisted snapshot.
+
+### Known gaps (honest)
+
+- **Case intelligence (R11) and the ambient wave (R12) are DESIGN-ONLY.** Both PRDs shipped, but
+  their slices are not built; the ambient hook install is a named human gate.
+- **The Solvency & Stop gate (OMEGA Move 2) is roadmap-only** — there is no token ledger yet.
+- **Calibration rests on one signal.** Co-change is the first and only calibrated signal; the
+  document-to-code binding lanes are not yet built, and the poisoned-oracle threat model (a
+  poisoned eval or co-change corpus) remains open.
 
 ---
 
