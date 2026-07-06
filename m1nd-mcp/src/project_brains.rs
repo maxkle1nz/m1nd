@@ -381,6 +381,7 @@ impl ProjectBrainRegistry {
         let mut record = serde_json::json!({
             "schema": "m1nd-project-brain-v0",
             "project_root": canonical_root,
+            "brain_kind": "project",
             "created_ms": created_ms,
         });
         if let (Some(n), Some(e)) = (node_count, edge_count) {
@@ -391,6 +392,29 @@ impl ProjectBrainRegistry {
         std::fs::create_dir_all(self.store_dir_for(canonical_root))?;
         std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
         Ok(())
+    }
+
+    /// Register a project brain on disk so the routing layer can MOUNT it: write
+    /// its `project_brain.json` birth record (identity + `brain_kind: project`)
+    /// through the SAME `write_manifest` path a bootstrap uses, keyed by the given
+    /// root. Idempotent: a store that already carries a matching manifest is left
+    /// untouched (so counts a real ingest stamped survive). Returns the canonical
+    /// key registered.
+    ///
+    /// This is the fix for the M5a-migration orphan (field report 2026-07-05T22:31):
+    /// the offline `--medulla-migrate apply` moves `.light.md` files into a store dir
+    /// but is pure-filesystem (holds no `SessionState`), so it cannot register the
+    /// brain itself. The CLI seam calls this after a successful `apply` so the moved
+    /// memories become reachable via `resolve`/`knows` (`manifest_matches`) instead
+    /// of sitting in an unmountable store.
+    pub fn ensure_registered(&self, root: &str) -> M1ndResult<String> {
+        let key = Self::canonical_key(root);
+        if !self.manifest_matches(&key) {
+            // No manifest (or a stale one for a different root) → write the birth
+            // record. `write_manifest` preserves an existing `created_ms`.
+            self.write_manifest(&key, None, None)?;
+        }
+        Ok(key)
     }
 
     /// The store base dir (`<owner runtime_root>/project-brains`) — surfaced for

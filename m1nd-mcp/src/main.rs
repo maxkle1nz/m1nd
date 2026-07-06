@@ -421,7 +421,22 @@ fn run_medulla_migrate(
             }
         },
         MedullaMigrateMode::Apply => match mig.apply() {
-            Ok(receipt) => ("apply", serde_json::to_value(&receipt).unwrap_or_default()),
+            Ok(receipt) => {
+                // Register the destination brain so the owner can MOUNT the moved
+                // memories. `apply` is pure-filesystem (no SessionState) and cannot
+                // register itself; without this the store is an orphan `resolve`/
+                // `knows` never return (field report 2026-07-05T22:31). Reuses the
+                // SAME manifest birth path a bootstrap uses — never a fork.
+                if let Err(e) = registry.ensure_registered(&project_origin) {
+                    eprintln!(
+                        "[m1nd-mcp][medulla_migrate] apply moved the memories but FAILED to \
+                         register the destination brain ({e}); the store may be unmountable — \
+                         resolve this before relying on the migrated memories"
+                    );
+                    std::process::exit(1);
+                }
+                ("apply", serde_json::to_value(&receipt).unwrap_or_default())
+            }
             Err(e) => {
                 eprintln!("[m1nd-mcp][medulla_migrate] apply failed: {e}");
                 std::process::exit(1);
