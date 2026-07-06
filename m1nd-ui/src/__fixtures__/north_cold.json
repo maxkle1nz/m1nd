@@ -12,7 +12,7 @@
       "binary_git_sha": "a44237d-dirty",
       "binary_version": "1.2.1",
       "cache_generation": 0,
-      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "current_exe": "/path/to/m1nd-tree/target/release/m1nd-mcp",
       "edge_count": 0,
       "graph_finalized": false,
       "graph_generation": 0,
@@ -23,9 +23,9 @@
       "plasticity_generation": 0,
       "plasticity_path": "./plasticity_state.json",
       "process_id": 9421,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "runtime_root": "/rt",
       "schema": "m1nd-binding-fingerprint-v0",
-      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root": "/path/to/m1nd-tree/.",
       "workspace_root_source": "graph_path_parent"
     },
     "graph_populated": false,
@@ -40,8 +40,8 @@
       "ingest_roots": [],
       "node_count": 0,
       "plasticity_generation": 0,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
-      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "runtime_root": "/rt",
+      "workspace_root": "/path/to/m1nd-tree/.",
       "workspace_root_source": "graph_path_parent"
     },
     "ok": false,
@@ -69,7 +69,7 @@
       "binary_git_sha": "a44237d-dirty",
       "binary_version": "1.2.1",
       "cache_generation": 0,
-      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "current_exe": "/path/to/m1nd-tree/target/release/m1nd-mcp",
       "edge_count": 0,
       "graph_finalized": false,
       "graph_generation": 0,
@@ -80,9 +80,9 @@
       "plasticity_generation": 0,
       "plasticity_path": "./plasticity_state.json",
       "process_id": 9421,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "runtime_root": "/rt",
       "schema": "m1nd-binding-fingerprint-v0",
-      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root": "/path/to/m1nd-tree/.",
       "workspace_root_source": "graph_path_parent"
     },
     "context_guard": {
@@ -101,8 +101,8 @@
       "ingest_roots": [],
       "node_count": 0,
       "plasticity_generation": 0,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
-      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "runtime_root": "/rt",
+      "workspace_root": "/path/to/m1nd-tree/.",
       "workspace_root_source": "graph_path_parent"
     },
     "input_trust_mode": "needs_ingest",
@@ -121,7 +121,7 @@
         "action": "Call ingest for the intended repository on this same binding.",
         "arguments": {
           "agent_id": "gui",
-          "path": "/Users/kle1nz/m1nd-tree/."
+          "path": "/path/to/m1nd-tree/."
         },
         "id": "call_ingest",
         "reason": "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",

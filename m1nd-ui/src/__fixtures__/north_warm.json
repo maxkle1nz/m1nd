@@ -12,23 +12,23 @@
       "binary_git_sha": "a44237d-dirty",
       "binary_version": "1.2.1",
       "cache_generation": 5,
-      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "current_exe": "/path/to/m1nd-tree/target/release/m1nd-mcp",
       "edge_count": 22007,
       "graph_finalized": true,
       "graph_generation": 5,
       "graph_path": "./graph_snapshot.json",
       "graph_path_exists": true,
       "ingest_roots": [
-        "/Users/kle1nz/m1nd-tree",
-        "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory"
+        "/path/to/m1nd-tree",
+        "/rt/agent-memory"
       ],
       "node_count": 6509,
       "plasticity_generation": 0,
       "plasticity_path": "./plasticity_state.json",
       "process_id": 9421,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "runtime_root": "/rt",
       "schema": "m1nd-binding-fingerprint-v0",
-      "workspace_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory",
+      "workspace_root": "/rt/agent-memory",
       "workspace_root_source": "graph_path_parent"
     },
     "graph_populated": true,
@@ -41,13 +41,13 @@
       "graph_path_exists": true,
       "ingest_root_count": 2,
       "ingest_roots": [
-        "/Users/kle1nz/m1nd-tree",
-        "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory"
+        "/path/to/m1nd-tree",
+        "/rt/agent-memory"
       ],
       "node_count": 6509,
       "plasticity_generation": 0,
-      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
-      "workspace_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory",
+      "runtime_root": "/rt",
+      "workspace_root": "/rt/agent-memory",
       "workspace_root_source": "graph_path_parent"
     },
     "ok": true,
