@@ -232,9 +232,8 @@ fn calibration_metrics_from_rows(rows: &[Value]) -> CalibrationMetrics {
     let n = rows.len() as u64;
     let calibrated = n >= CALIBRATION_NEEDED_ROWS;
 
-    let field_u64 = |row: &Value, key: &str| -> u64 {
-        row.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
-    };
+    let field_u64 =
+        |row: &Value, key: &str| -> u64 { row.get(key).and_then(|v| v.as_u64()).unwrap_or(0) };
 
     let mut touched_total: u64 = 0;
     let mut predicted_total: u64 = 0; // in_scope + expected_change
@@ -268,10 +267,10 @@ fn calibration_metrics_from_rows(rows: &[Value]) -> CalibrationMetrics {
     }
 
     // Quality numbers ONLY once calibrated; and only when the denominator exists.
-    let scope_precision = (calibrated && touched_total > 0)
-        .then(|| predicted_total as f64 / touched_total as f64);
-    let miss_rate = (calibrated && touched_total > 0)
-        .then(|| unpredicted_total as f64 / touched_total as f64);
+    let scope_precision =
+        (calibrated && touched_total > 0).then(|| predicted_total as f64 / touched_total as f64);
+    let miss_rate =
+        (calibrated && touched_total > 0).then(|| unpredicted_total as f64 / touched_total as f64);
     let dependents_honesty = (calibrated && contact_rows > 0 && stayed_rows > 0).then(|| {
         let p_fail_contact = contact_failures as f64 / contact_rows as f64;
         let p_fail_stayed = stayed_failures as f64 / stayed_rows as f64;
@@ -1771,16 +1770,26 @@ mod tests {
     /// world's honest header, now derived from the ledger instead of hardcoded.
     #[test]
     fn calibration_is_uncalibrated_and_number_free_below_thirty_rows() {
-        let rows: Vec<Value> = (0..29)
-            .map(|_| row(4, 1, 1, 2, 1, "failure"))
-            .collect();
+        let rows: Vec<Value> = (0..29).map(|_| row(4, 1, 1, 2, 1, "failure")).collect();
         let m = calibration_metrics_from_rows(&rows);
 
         assert_eq!(m.rows, 29);
-        assert!(!m.calibrated, "29 rows is below the 30-row calibration floor");
-        assert_eq!(m.scope_precision, None, "no quality number prints while uncalibrated");
-        assert_eq!(m.miss_rate, None, "no quality number prints while uncalibrated");
-        assert_eq!(m.dependents_honesty, None, "no quality number prints while uncalibrated");
+        assert!(
+            !m.calibrated,
+            "29 rows is below the 30-row calibration floor"
+        );
+        assert_eq!(
+            m.scope_precision, None,
+            "no quality number prints while uncalibrated"
+        );
+        assert_eq!(
+            m.miss_rate, None,
+            "no quality number prints while uncalibrated"
+        );
+        assert_eq!(
+            m.dependents_honesty, None,
+            "no quality number prints while uncalibrated"
+        );
 
         // And the rendered block carries only the honest header — no metric keys.
         let block = calibration_block(&m);
