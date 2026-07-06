@@ -359,15 +359,16 @@ pub fn read_letters(path: &Path) -> M1ndResult<Vec<Letter>> {
 /// Derive the fate of every letter in a set from the reply graph (§C2.2). One
 /// pass builds the answered-set from all `answers[]`; then each letter's fate is:
 ///   - `external` if its class marks it as about a non-m1nd tool,
-///   - `fired_clay` if any letter answers it,
-///   - `in_flight` if a non-closing letter references it (reserved: today a
-///     reference IS an answer, so this arises only when a letter is referenced
-///     but no receipt has closed it — modeled via `in_flight_refs`),
+///   - `fired_clay` if a receipt closed it (its id is in `answered`),
+///   - `in_flight` if a non-receipt letter references it without closing it
+///     (its id is in `in_flight_ids` — picked up, fix in flight),
 ///   - `wet_ink` otherwise.
 ///
 /// `external_ids` is the set of letter ids judged external (about a non-m1nd
-/// tool). `in_flight_ids` is the set referenced-but-not-closed. This keeps the
-/// derivation pure and testable; [`fates_for`] composes the default policy.
+/// tool). `answered` is the receipt-closed set ([`answered_set`]); `in_flight_ids`
+/// is the referenced-but-not-closed set ([`in_flight_set`]) — closed takes
+/// precedence. This keeps the derivation pure and testable; [`view_letters`]
+/// composes the default policy.
 pub fn derive_fate(
     id: &str,
     answered: &BTreeSet<String>,
@@ -386,13 +387,51 @@ pub fn derive_fate(
     Fate::WetInk
 }
 
-/// The answered-set: every id that appears in some letter's `answers[]` — those
-/// letters are `fired_clay` (a receipt closed them).
+/// The `triage`/receipt class — a letter whose `answers[]` CLOSE the ids they
+/// reference (flip them to `fired_clay`). A letter of any other class that
+/// references an id is a non-closing pickup (→ `in_flight`), per grammar 3.
+pub const CLASS_TRIAGE: &str = "triage";
+
+/// Whether a letter is a receipt — i.e. its `answers[]` close the referenced
+/// letters. Today the receipt class is exactly `triage`; the distribution
+/// receipt writer files under it (§9.2).
+fn is_receipt(letter: &Letter) -> bool {
+    letter.class.eq_ignore_ascii_case(CLASS_TRIAGE)
+}
+
+/// The closed-set: every id CLOSED by a receipt — an id that appears in the
+/// `answers[]` of at least one `triage`/receipt letter. Only these are
+/// `fired_clay`; an id referenced solely by non-receipt letters is a pickup that
+/// has not closed (see [`in_flight_set`]).
 pub fn answered_set(letters: &[Letter]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for l in letters {
+        if !is_receipt(l) {
+            continue;
+        }
         for a in &l.answers {
             out.insert(a.clone());
+        }
+    }
+    out
+}
+
+/// The in-flight set (grammar 3, MED-INV-9): every id that is REFERENCED by some
+/// letter's `answers[]` but NOT closed by any receipt — "picked up, fix in
+/// flight". This is the natural producer the reply graph always supported: a
+/// non-receipt letter that names an earlier id has acknowledged it without
+/// closing it. `closed` is [`answered_set`] (the receipt-closed ids), which take
+/// precedence — an id both picked up and later closed reads as `fired_clay`.
+pub fn in_flight_set(letters: &[Letter], closed: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for l in letters {
+        if is_receipt(l) {
+            continue;
+        }
+        for a in &l.answers {
+            if !closed.contains(a) {
+                out.insert(a.clone());
+            }
         }
     }
     out
@@ -677,11 +716,12 @@ fn view_letters(letters: &[Letter], foreign_tools: &BTreeSet<String>) -> Vec<Swe
         .filter(|l| is_external(l, foreign_tools))
         .map(|l| l.id.clone())
         .collect();
-    // Today a reference IS a closing answer (no separate "picked up but open"
-    // signal in the spool schema), so `in_flight_ids` is empty by default — a
-    // referenced letter is `fired_clay`. The InFlight fate is derivable the moment
-    // a non-closing reference class appears; the derivation is ready for it.
-    let in_flight_ids: BTreeSet<String> = BTreeSet::new();
+    // Natural in_flight derivation from the reply graph: a receipt (`triage`)
+    // letter's answers CLOSE their ids (→ fired_clay, in `answered`); a
+    // non-receipt letter that references an id has PICKED IT UP without closing
+    // it (→ in_flight). `answered` (receipt-closed) takes precedence over
+    // in_flight, so an id closed after a pickup reads as fired_clay.
+    let in_flight_ids: BTreeSet<String> = in_flight_set(letters, &answered);
 
     letters
         .iter()
@@ -1397,6 +1437,77 @@ mod tests {
         // The receipt's answered_by wiring: L1 is answered_by the receipt.
         let l1_view = viewed.iter().find(|l| l.id == l1_id).unwrap();
         assert_eq!(l1_view.answered_by, vec![receipt_view.id.clone()]);
+    }
+
+    #[test]
+    fn non_receipt_reference_derives_in_flight_not_fired_clay() {
+        // Regression (mailbox #9 — in_flight dead code): a NON-receipt letter that
+        // references an earlier id has picked it up WITHOUT closing it. That id
+        // must derive `in_flight`, not `fired_clay` (which is a receipt's job) and
+        // not `wet_ink`. Before the producer, `in_flight_ids` was hardcoded empty,
+        // so this letter was mis-rendered as `fired_clay`.
+        let l1 = line(
+            serde_json::json!({"ts":"t1","agent":"a","repo":"repo-a","tool":"seek","class":"bug","what":"the original bug"}),
+        );
+        let l1_id = letter_id(&l1);
+        // A working (non-receipt) letter that references L1 — "I picked this up".
+        let pickup = line(
+            serde_json::json!({"ts":"t2","agent":"b","repo":"repo-a","tool":"seek","class":"bug","what":"looking into it","answers":[l1_id]}),
+        );
+
+        let letters: Vec<Letter> = [l1.clone(), pickup]
+            .iter()
+            .filter_map(|s| parse_letter(s))
+            .collect();
+        let viewed = view_letters(&letters, &BTreeSet::new());
+
+        let l1_view = viewed.iter().find(|l| l.id == l1_id).unwrap();
+        assert_eq!(
+            l1_view.state, "in_flight",
+            "a non-receipt pickup must make the referenced letter in_flight, got {}",
+            l1_view.state
+        );
+
+        // And in_flight still counts toward the open ("abertas") total — the
+        // same rule every surface uses (wet_ink + in_flight).
+        let in_flight_count = viewed.iter().filter(|l| l.state == "in_flight").count();
+        assert_eq!(
+            in_flight_count, 1,
+            "exactly one picked-up letter is in_flight"
+        );
+        let open = viewed
+            .iter()
+            .filter(|l| l.state == "wet_ink" || l.state == "in_flight")
+            .count();
+        assert!(open >= 1, "in_flight must count toward open, got {open}");
+    }
+
+    #[test]
+    fn receipt_close_wins_over_a_prior_pickup() {
+        // If a letter is first picked up (non-receipt reference) and LATER closed
+        // by a receipt, `fired_clay` wins over `in_flight` — closed is closed.
+        let l1 = line(
+            serde_json::json!({"ts":"t1","agent":"a","repo":"repo-a","tool":"seek","class":"bug","what":"bug"}),
+        );
+        let l1_id = letter_id(&l1);
+        let pickup = line(
+            serde_json::json!({"ts":"t2","agent":"b","repo":"repo-a","tool":"seek","class":"bug","what":"on it","answers":[l1_id]}),
+        );
+        let receipt = line(
+            serde_json::json!({"ts":"t3","agent":"triage","repo":"repo-a","tool":"triage","class":"triage","what":"fixed","answers":[l1_id]}),
+        );
+
+        let letters: Vec<Letter> = [l1, pickup, receipt]
+            .iter()
+            .filter_map(|s| parse_letter(s))
+            .collect();
+        let viewed = view_letters(&letters, &BTreeSet::new());
+        let l1_view = viewed.iter().find(|l| l.id == l1_id).unwrap();
+        assert_eq!(
+            l1_view.state, "fired_clay",
+            "a receipt close wins over a prior pickup, got {}",
+            l1_view.state
+        );
     }
 
     // --- external excluded from the "abertas" count -------------------------
