@@ -20,7 +20,6 @@ import {
   brainDisplayName,
   lastSeenPhrase,
   entryBaseUrl,
-  isProjectBrain,
   canOpenBrainInPlace,
 } from '../../lib/hallSemantics';
 

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ForgetStepView, canFireDelete, liveRefusalLine, type ForgetStep } from './ForgetRuntimeFlow';
+import { ForgetStepView, canFireDelete, liveRefusalLine } from './ForgetRuntimeFlow';
 import { brainDisplayName, nameMatches } from '../../lib/hallSemantics';
 import type { InstanceListResponse } from '../../types';
 

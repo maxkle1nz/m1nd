@@ -22,7 +22,6 @@ import {
   brainDisplayName,
   brainProjectPath,
   isProjectBrain,
-  canOpenBrainInPlace,
 } from '../../lib/hallSemantics';
 import { canonRootForCompare } from '../../lib/viewedBrain';
 import { useCardV2Data } from '../../hooks/useCardV2Data';
@@ -59,7 +58,6 @@ function errorDetail(error: unknown, fallback: string): string {
 
 export default function HallView({
   onExit,
-  onOpenBound,
   onOpenBrain,
   onBootstrap,
   restSelector,

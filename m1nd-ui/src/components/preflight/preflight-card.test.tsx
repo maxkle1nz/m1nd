@@ -38,7 +38,6 @@ const decode = (s: string) =>
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"');
-const visibleText = (el: React.ReactElement) => decode(html(el).replace(/<[^>]+>/g, ' '));
 
 // ── The card mounts and names what's about to be touched ──────────────────────
 test('the card renders its dialog shell + the seeded target', () => {

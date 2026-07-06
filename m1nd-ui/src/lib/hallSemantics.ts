@@ -11,7 +11,6 @@
  * INV-10: every value here traces to an owner-reported field; absence is
  * absence, never an invented number.
  */
-import type { InstanceRegistryEntry, InstanceSelfResponse } from '../types';
 
 // ── Liveness band (PRD §4A.3 card anatomy: the liveness dot) ──────────────────
 // sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard

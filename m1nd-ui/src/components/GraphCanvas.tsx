@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback } from 'react';
 import {
   ReactFlow,
   Background,
@@ -19,7 +19,7 @@ import StructuralHoleNode from './nodes/StructuralHoleNode';
 import WeightedEdge from './edges/WeightedEdge';
 import GhostEdge from './edges/GhostEdge';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any -- @xyflow/react's NodeTypes/EdgeTypes maps reject our concrete node/edge component signatures; casting is the documented workaround */
 const nodeTypes: NodeTypes = {
   file: FileNode as any,
   class: ClassNode as any,
@@ -27,11 +27,11 @@ const nodeTypes: NodeTypes = {
   structuralHole: StructuralHoleNode as any,
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const edgeTypes: EdgeTypes = {
   weighted: WeightedEdge as any,
   ghost: GhostEdge as any,
 };
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Canvas-level Error Boundary (FM-FE-056)
 class CanvasErrorBoundary extends React.Component<
@@ -79,9 +79,8 @@ interface GraphCanvasProps {
   onEdgeContextMenu?: (edgeId: string, position: { x: number; y: number }) => void;
 }
 
-export default function GraphCanvas({ onNodeSelect, onNodeContextMenu, onEdgeContextMenu }: GraphCanvasProps) {
-  const { nodes, edges, showMinimap, setNodes, setEdges, selectNode, clearGraph } = useGraphStore();
-  const lastQueryRef = useRef<{ tool: string; query: string } | null>(null);
+export default function GraphCanvas({ onNodeSelect, onNodeContextMenu }: GraphCanvasProps) {
+  const { nodes, edges, showMinimap, setNodes, selectNode, clearGraph } = useGraphStore();
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
     selectNode(node.id);

@@ -91,6 +91,7 @@ export default function TreeDrawer({ row, band, onClose, onCheckBeforeEditing }:
     return () => {
       mounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the selected row's id; refetch only when it changes
   }, [row?.externalId]);
 
   if (!row) {

@@ -179,7 +179,6 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
   useEffect(() => {
     setLayers(null);
     setStalePaths(new Set());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root]);
 
   // Switching the viewed brain (§4A.9) resets the tree's local view: a different
