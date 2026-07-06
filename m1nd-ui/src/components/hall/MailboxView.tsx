@@ -4,7 +4,7 @@
  * A drawer-class surface beside the Hall (ESC returns). Renders EXACTLY what the
  * `/api/mailbox?brain=…` endpoint served for the viewed brain — letters grouped in
  * day-chapters, each wearing a matte class chip + a class left-border + a FATE line
- * (the visible loop: ● aberta · ◍ em voo · ↳ respondida · ◌ externa). The medulla
+ * (the visible loop: ● open · ◍ in flight · ↳ answered · ◌ external). The medulla
  * box is the same view under its own labeled header. SOFT PROOF only: nothing glows,
  * nothing animates, violet stays quarantined (external wears stone, not iris).
  *
@@ -116,7 +116,7 @@ function LetterCard({
           {letter.ts}
         </span>
         {letter.tool && (
-          <span className="text-[11px] text-ink-soft/70 font-mono">· {letter.tool}</span>
+          <span className="text-[11px] text-ink-soft/80 font-mono">· {letter.tool}</span>
         )}
       </div>
 
@@ -133,7 +133,7 @@ function LetterCard({
           onClick={() => setExpectedOpen((o) => !o)}
           className="mt-1 text-[11px] text-ink-soft hover:text-ink font-mono"
         >
-          {expectedOpen ? '▾' : '▸'} esperado
+          {expectedOpen ? '▾' : '▸'} expected
         </button>
       )}
       {expectedOpen && letter.expected && (
@@ -287,12 +287,12 @@ export function MailboxBody({ brainRoot, displayName, onClose, data, dropped = f
           <div className="flex items-center gap-2">
             <Icon name="inbox" size={16} decorative className="text-ink-soft" />
             <h2 className="text-base text-ink font-semibold truncate" data-role="mailbox-title">
-              {medulla ? 'Medulla — relatos transversais' : `Caixinha — ${displayName ?? brainRoot ?? 'este cérebro'}`}
+              {medulla ? 'Medulla — cross-project reports' : `Mailbox — ${displayName ?? brainRoot ?? 'this brain'}`}
             </h2>
           </div>
           {medulla && (
             <p className="text-[11px] text-ink-soft mt-0.5" data-role="medulla-note">
-              Cartas que não pertencem a nenhum projeto — ferramentas transversais, runtime do dono.
+              Shared reports for tools, routines, and notes that span brains — not owned by any single project.
             </p>
           )}
           {data && (
@@ -306,7 +306,7 @@ export function MailboxBody({ brainRoot, displayName, onClose, data, dropped = f
           data-role="mailbox-close"
           onClick={onClose}
           className="text-xs text-ink-soft hover:text-ink px-2 py-1"
-          title="ESC — voltar ao Hall"
+          title="ESC — back to the Hall"
         >
           ✕
         </button>
@@ -331,12 +331,19 @@ export function MailboxBody({ brainRoot, displayName, onClose, data, dropped = f
             data-role="echo-drop-notice"
             className="rounded-lg border border-verdict-reverify/30 bg-verdict-reverify-tint/40 px-3 py-2 text-xs text-ink"
           >
-            Esta caixa respondeu por outro cérebro — descartada para não misturar as cartas.
+            This box answered for another brain — dropped so the letters never mix.
           </div>
         )}
         {data && flatLetters.length === 0 && !dropped && (
           <div className="rounded-xl border border-ink/10 bg-bone/40 px-5 py-8 text-center text-sm text-ink-soft">
-            Nenhuma carta nesta caixa ainda.
+            {medulla ? (
+              <>
+                <p>No cross-project reports yet.</p>
+                <p className="mt-1 text-ink-soft/80">Reports that span multiple brains show up here.</p>
+              </>
+            ) : (
+              'No letters in this box yet.'
+            )}
           </div>
         )}
         {chapters.map((chapter) => (

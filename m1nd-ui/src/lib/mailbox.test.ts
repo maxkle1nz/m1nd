@@ -51,21 +51,21 @@ test('fate lines render the right glyph per derived state', () => {
   const ids = boxIdSet(boxA.letters);
   const byTool = (t: string) => boxA.letters.find((l) => l.tool === t)!;
 
-  // wet_ink bug → ● EM ABERTO
+  // wet_ink bug → ● open
   assert.equal(fateLine(byTool('impact'), ids).glyph, '●');
-  assert.match(fateLine(byTool('impact'), ids).text, /ABERTO/);
+  assert.match(fateLine(byTool('impact'), ids).text, /open/);
 
-  // in_flight friction → ◍ EM VOO
+  // in_flight friction → ◍ in flight
   assert.equal(fateLine(byTool('trust'), ids).glyph, '◍');
-  assert.match(fateLine(byTool('trust'), ids).text, /VOO/);
+  assert.match(fateLine(byTool('trust'), ids).text, /flight/);
 
-  // external friction → ◌ externa, stone tone (never violet)
+  // external friction → ◌ external, stone tone (never violet)
   const ext = fateLine(byTool('context7'), ids);
   assert.equal(ext.glyph, '◌');
   assert.equal(ext.tone, 'stone');
-  assert.match(ext.text, /externa/);
+  assert.match(ext.text, /external/);
 
-  // fired_clay bug (answered) → ↳ respondida pela carta N, linking IN-BOX
+  // fired_clay bug (answered) → ↳ answered by letter N, linking IN-BOX
   const fired = fateLine(byTool('seek'), ids);
   assert.equal(fired.glyph, '↳');
   assert.equal(fired.broken, false);
@@ -80,7 +80,7 @@ test('INV-18: a receipt points DOWN at what it answers, resolved in-box', () => 
   const fl = fateLine(receipt, ids);
   assert.equal(fl.glyph, '↓');
   assert.equal(fl.broken, false);
-  assert.match(fl.text, /responde a carta/);
+  assert.match(fl.text, /answers letter/);
   for (const id of fl.linkIds) assert.ok(ids.has(id), 'the answered letter is in this box');
 });
 
@@ -89,7 +89,7 @@ test('INV-18: a dangling receipt link renders the honest breakage, never a bare 
   const bug = dangling.letters[0]; // fired_clay whose answered_by id is NOT in-box
   const fl = fateLine(bug, ids);
   assert.equal(fl.broken, true);
-  assert.match(fl.text, /recibo não localizado/);
+  assert.match(fl.text, /receipt not found/);
   assert.equal(fl.linkIds.length, 0, 'no fake link is offered when it cannot resolve');
 });
 
@@ -117,15 +117,15 @@ test('letters group into day-chapters, newest chapter and letter first', () => {
   assert.deepEqual(day05, sorted, 'newest letter first within a chapter');
   // dayKey is the ts head, verbatim (never client re-zoned).
   assert.equal(dayKey('2026-07-04T09:12:00Z'), '2026-07-04');
-  assert.equal(dayKey('garbage'), 'sem data');
+  assert.equal(dayKey('garbage'), 'no date');
 });
 
 // ── Counts stay honest — external visible, never in "abertas" ───────────────────
 test('the header line states the whole truth; open excludes external', () => {
   const line = headerLine(boxA.counts);
-  assert.match(line, /6 cartas/); // 3 wet + 1 flight + 1 fired + 1 external
-  assert.match(line, /4 abertas/); // wet_ink(3) + in_flight(1)
-  assert.match(line, /1 externa/);
+  assert.match(line, /6 letters/); // 3 wet + 1 flight + 1 fired + 1 external
+  assert.match(line, /4 open/); // wet_ink(3) + in_flight(1)
+  assert.match(line, /1 external/);
   assert.equal(boxA.counts.open, boxA.counts.wet_ink + boxA.counts.in_flight);
   assert.equal(isOpenFate('external'), false, 'external is never open');
   assert.equal(isOpenFate('fired_clay'), false, 'answered is never open');

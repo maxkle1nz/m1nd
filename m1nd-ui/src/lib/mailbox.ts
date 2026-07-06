@@ -144,13 +144,13 @@ export function isOpenFate(state: string): boolean {
 export interface FateLine {
   /** The leading glyph: ● wet · ◍ in-flight · ↳ answered · ◌ external. */
   glyph: string;
-  /** The human voice, pt-BR (the PRD's language). */
+  /** The human voice, in English (the served UI's language). */
   text: string;
   /** For `fired_clay`, the receipt letter ids this scrolls/links to (may be
    *  empty → the honest breakage is rendered instead). */
   linkIds: string[];
   /** True when this fate carries a link that could not resolve in-box (INV-18
-   *  breakage: "recibo não localizado"). */
+   *  breakage: "receipt not found"). */
   broken: boolean;
   /** A stable tone for the glyph (never violet). */
   tone: 'stone' | 'amber' | 'sage' | 'ink';
@@ -174,7 +174,7 @@ export function fateLine(letter: MailboxLetter, boxIds: Set<string>): FateLine {
     if (inBox.length === 0) {
       return {
         glyph: '↓',
-        text: 'recibo não localizado',
+        text: 'receipt not found',
         linkIds: [],
         broken: true,
         tone: 'amber',
@@ -182,7 +182,7 @@ export function fateLine(letter: MailboxLetter, boxIds: Set<string>): FateLine {
     }
     return {
       glyph: '↓',
-      text: `responde a ${plural(inBox.length, 'carta', 'cartas')} ${inBox.map(shortId).join(' · ')}`,
+      text: `answers ${plural(inBox.length, 'letter', 'letters')} ${inBox.map(shortId).join(' · ')}`,
       linkIds: inBox,
       broken: false,
       tone: 'ink',
@@ -197,7 +197,7 @@ export function fateLine(letter: MailboxLetter, boxIds: Set<string>): FateLine {
         // breakage — the loop claims closed but the receipt cannot be shown.
         return {
           glyph: '↳',
-          text: 'recibo não localizado',
+          text: 'receipt not found',
           linkIds: [],
           broken: true,
           tone: 'amber',
@@ -205,20 +205,20 @@ export function fateLine(letter: MailboxLetter, boxIds: Set<string>): FateLine {
       }
       return {
         glyph: '↳',
-        text: `respondida pela ${plural(inBox.length, 'carta', 'cartas')} ${inBox.map(shortId).join(' · ')}`,
+        text: `answered by ${plural(inBox.length, 'letter', 'letters')} ${inBox.map(shortId).join(' · ')}`,
         linkIds: inBox,
         broken: false,
         tone: 'sage',
       };
     }
     case 'in_flight':
-      return { glyph: '◍', text: 'EM VOO', linkIds: [], broken: false, tone: 'amber' };
+      return { glyph: '◍', text: 'in flight', linkIds: [], broken: false, tone: 'amber' };
     case 'external':
-      return { glyph: '◌', text: 'externa', linkIds: [], broken: false, tone: 'stone' };
+      return { glyph: '◌', text: 'external', linkIds: [], broken: false, tone: 'stone' };
     case 'wet_ink':
     default:
       // Unknown/absent fate degrades to the honest OPEN state (never a fake close).
-      return { glyph: '●', text: 'EM ABERTO', linkIds: [], broken: false, tone: 'ink' };
+      return { glyph: '●', text: 'open', linkIds: [], broken: false, tone: 'ink' };
   }
 }
 
@@ -233,19 +233,19 @@ function plural(n: number, one: string, many: string): string {
 
 /** The day-chapter key for a letter: the leading `YYYY-MM-DD` of its ts, verbatim
  *  (timezone-honest — the wire ts is authoritative, never re-zoned client-side).
- *  A ts that has no parseable date head groups under "sem data". */
+ *  A ts that has no parseable date head groups under "no date". */
 export function dayKey(ts: string): string {
   const head = ts.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : 'sem data';
+  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : 'no date';
 }
 
-/** A weekday word (pt-BR) for a `YYYY-MM-DD` key, best-effort. "sem data" → ''. */
+/** A weekday word for a `YYYY-MM-DD` key, best-effort. "no date" → ''. */
 export function weekdayLabel(key: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return '';
   const [y, m, d] = key.split('-').map((s) => parseInt(s, 10));
   // Zeller-free: use UTC Date on the pure date (no tz drift for the weekday name).
   const dt = new Date(Date.UTC(y, m - 1, d));
-  const names = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   return names[dt.getUTCDay()] ?? '';
 }
 
@@ -259,7 +259,7 @@ export interface DayChapter {
 /**
  * Group letters into day-chapters, newest chapter FIRST, and within a chapter
  * newest letter first (the box reads as correspondence — §4A.11). Ordering is by
- * the full ts string (ISO-8601 sorts lexicographically); "sem data" sinks last.
+ * the full ts string (ISO-8601 sorts lexicographically); "no date" sinks last.
  */
 export function dayChapters(letters: MailboxLetter[]): DayChapter[] {
   const byDay = new Map<string, MailboxLetter[]>();
@@ -270,8 +270,8 @@ export function dayChapters(letters: MailboxLetter[]): DayChapter[] {
     else byDay.set(k, [l]);
   }
   const keys = [...byDay.keys()].sort((a, b) => {
-    if (a === 'sem data') return 1;
-    if (b === 'sem data') return -1;
+    if (a === 'no date') return 1;
+    if (b === 'no date') return -1;
     return a < b ? 1 : a > b ? -1 : 0; // newest date first
   });
   return keys.map((key) => ({
@@ -287,16 +287,16 @@ export function boxIdSet(letters: MailboxLetter[]): Set<string> {
 }
 
 /**
- * The one-line header truth (§4A.11 §4): "12 cartas · 3 abertas · 1 em voo · 1
- * externa" — only the non-zero segments render, always leading with the total and
- * the "abertas" count (the honest headline). `open` = wet_ink + in_flight.
+ * The one-line header truth (§4A.11 §4): "12 letters · 3 open · 1 in flight · 1
+ * external" — only the non-zero segments render, always leading with the total and
+ * the "open" count (the honest headline). `open` = wet_ink + in_flight.
  */
 export function headerLine(counts: MailboxCounts): string {
   const total = counts.wet_ink + counts.in_flight + counts.fired_clay + counts.external;
-  const segs: string[] = [`${total} ${plural(total, 'carta', 'cartas')}`, `${counts.open} abertas`];
-  if (counts.in_flight > 0) segs.push(`${counts.in_flight} em voo`);
-  if (counts.fired_clay > 0) segs.push(`${counts.fired_clay} respondidas`);
-  if (counts.external > 0) segs.push(`${counts.external} ${plural(counts.external, 'externa', 'externas')}`);
+  const segs: string[] = [`${total} ${plural(total, 'letter', 'letters')}`, `${counts.open} open`];
+  if (counts.in_flight > 0) segs.push(`${counts.in_flight} in flight`);
+  if (counts.fired_clay > 0) segs.push(`${counts.fired_clay} answered`);
+  if (counts.external > 0) segs.push(`${counts.external} external`);
   return segs.join(' · ');
 }
 
