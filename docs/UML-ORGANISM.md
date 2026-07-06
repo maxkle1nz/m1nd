@@ -1,0 +1,156 @@
+# The Organism — UML Atlas
+
+**Every system, subsystem and seam of m1nd as code-grounded UML — one master map, twenty system sheets, one consolidated gap ledger.**
+
+> **Status:** OFFICIAL — maintainer-directed, 2026-07-06. Grounded at `origin/main` @ `ef9c6e9`. Every sheet under `docs/uml/` was derived from an exhaustive per-system code map (file:line-anchored), spot-checked against source, and every Mermaid block validated with the real `mermaid.parse()` (73 blocks, 0 failures). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
+> **How to read this:** this master gives the whole-organism view (topology, the four grammars, the seams) and the honest consolidated gap ledger. Each system's deep view — class / sequence / state diagrams, invariants, per-system gaps — lives in its sheet under [docs/uml/](uml/). Sheets state what the code DOES today, including where it diverges from its PRD; the PRDs state the intent. Where they disagree, the sheet wins about the present and the PRD wins about the target.
+> **Sisters:** the constitution (`ORGANISM-PRD.md`) owns the ladder and the law; the six system PRDs own intent; `PATHOS.md` owns the live handoff state. This atlas owns STRUCTURE.
+
+---
+
+## 1. The organism at one glance
+
+```mermaid
+flowchart TB
+    subgraph Hosts["Agent hosts (22 — Claude Code · Codex · Gemini CLI · Cursor …)"]
+        H1["MCP stdio bridge<br/>(--attach)"]
+        H2["SessionStart shim<br/>(ambient pre-orient)"]
+        H3["HTTP POST /mcp<br/>(M1nd-Caller-Root)"]
+    end
+
+    subgraph Owner["THE SERVED OWNER — one process, one graph, one memory (default :1338)"]
+        direction TB
+        RT["Routing & Reception<br/>caller_root → brain · reconnect-rebind"]
+        SPINE["THE SPINE — north(task)<br/>trust_selftest → orient → boot_memory+L1GHT → focus"]
+        VERBS["Verb surface — 117 tools<br/>server.rs registry · budget law"]
+
+        subgraph Brains["Memory tiers"]
+            MED["MEDULLA<br/>doctrine · promoted claims"]
+            PB["Per-project brains<br/>Origin-Brain · pull-only recall"]
+        end
+
+        subgraph Engine["m1nd-core — the substrate"]
+            G["CSR graph · SoA storage<br/>4-dim spreading activation"]
+            SEM["Semantic + embeddings<br/>(0.40 recall floor)"]
+            TR["Trust ledger · tremor ·<br/>conformal calibration"]
+            RB["RETROBUILDER family<br/>taint · twins · refactor · overlay"]
+            XR["X-RAY conformance<br/>paint states + manifest"]
+        end
+
+        SOUL["SOUL — soul_check<br/>PATHOS as verified claims"]
+        DLG["Delegation — delegate/debrief<br/>packet down · conformance back"]
+        BOX["Mailbox — per-project inbox<br/>derived fates · sweep"]
+        ING["Ingest & L1GHT<br/>extractors · memorize write-path"]
+    end
+
+    Hosts --> RT --> SPINE
+    RT --> VERBS
+    SPINE --> Brains
+    SPINE --> Engine
+    VERBS --> Engine
+    VERBS --> SOUL
+    VERBS --> DLG
+    VERBS --> BOX
+    ING --> G
+    MED -.promote gates C8.2/C8.3.-> PB
+```
+
+Three crates carry it: **m1nd-core** (the in-memory engine), **m1nd-ingest** (the write side), **m1nd-mcp** (the served owner + every verb). The npm wrapper is an installer/operator CLI, never the runtime.
+
+## 2. The four grammars — the organism's orthogonal axes
+
+These cross every system; no sheet may invent a fifth word for any of them.
+
+| # | Grammar | Words | Where it lives |
+|---|---|---|---|
+| 1 | **Trust ladder** (answers) | `act \| reverify \| abstain \| unprovable` | predict gate, seek envelope, delegation-abstain, xray_gate |
+| 2 | **Belief lifecycle** (stored claims) | `project_private → promoted → superseded` (+ `doctrine-born`; overlay `aged`) | medulla stores, promote, L1GHT frontmatter |
+| 3 | **Letter fates** (telemetry) | `wet_ink \| in_flight \| fired_clay \| external` — derived, never stored | mailbox reply graph |
+| 4 | **X-RAY conformance** (architecture) | node paint: `Bedrock \| Overgrowth \| Unproven \| ErosionCandidate` | xray verbs, seek conformance nudge |
+
+**Two precision notes the atlas enforces** (they are commonly mis-stated): X-RAY's *node* grammar is exactly the four paint states above — `BLUEPRINT` is a **manifest-level existence result**, never a node tag, and `UNPROVABLE` belongs to the **trust envelope**, a different subsystem. And the letter fate `in_flight` is currently **dead code** (no producer fills `in_flight_ids`) — see the ledger.
+
+## 3. The seams — where systems meet (what a per-system view misses)
+
+- **The spine weave.** `north` is a pure composer: trust_selftest → orient → boot_memory + L1GHT recall → focus, one read-only round-trip, honesty signals passed through, never fabricated. Every other packet (delegation, reception, soul headline) is a projection of this one spine.
+- **The trust ladder is the universal answer grammar,** not a Trust-system feature: predict speaks it through the conformal gate; seek wears it as a (dark) envelope; delegate abstains in it; underwrite renamed onto it.
+- **Reception + cwd routing sit UNDER every call.** `mcp_http` resolves `M1nd-Caller-Root` → brain before any verb runs; a mismatch produces a reception block instead of silent wrong-brain answers; reconnect prefers a covering brain (unique-ancestry match, abstains on 0/>1).
+- **The read-only attach contract.** Bridges dispatch through `query_readonly` and `persist = !read_only`; exactly one writer process exists by lease — cross-process write races are impossible by construction.
+- **The capture loop.** `memorize` (the sole L1GHT writer) → `.light.md` with Origin-Brain → ingest → graph node → next session's recall → `cross_verify` freshness — read → prove → write, closed.
+- **`finalize` is the universal materialization gate.** Every ingest adapter, snapshot load and merge funnels through it; PageRank exists only downstream of it (and goes stale between finalizes — see ledger).
+- **Delegation + mailbox extend the spine from one agent to a tree.** `delegate` composes the retrieval half of a child's spec from the same graph the spine reads; `debrief` grades the real diff back into `learn`; field letters distribute into per-project boxes the same cwd-routing the calls use.
+- **The medulla law (pull, never push).** A brain's default beat = its own store + the medulla, nothing else; crossing happens only through the audited `promote` (verified-only, evidence re-anchored). *Realized fully only on the HTTP transport today — see ledger.*
+
+## 4. The twenty sheets
+
+| Sheet | System | Diagrams | Honest one-liner |
+|---|---|---|---|
+| [graph-core](uml/graph-core.md) | CSR graph, SoA storage, 4-dim activation, PageRank, topology, resonance, snapshots | class·seq·state | The load-bearing substrate; deterministic; two engine bugs in the ledger |
+| [semantic-embeddings](uml/semantic-embeddings.md) | Symbolic 3-component scorer + static-embedding tier + cache | class·seq | Embed cosine reaches only seek, never activation/seed — by boundary, stated |
+| [trust-calibration](uml/trust-calibration.md) | Trust ledger, tremor, conformal calibration, envelope | class·seq·state | TWO ladders: predict (3-state, live) vs envelope (4-state, structurally capped at reverify) |
+| [retrobuilder](uml/retrobuilder.md) | taint, twins, refactor, overlay, temporal, epidemic, flow, counterfactual, antibody | class·seq | Nine engines, one family; learn→antibody/co-change loop drawn |
+| [layers-xray](uml/layers-xray.md) | Layer system + X-RAY conformance + audit ledger | class·seq·flow | Paint states are FOUR; blueprint is manifest-axis; nudge is additive, never a verdict |
+| [search-surgical](uml/search-surgical.md) | search/glob/seek/activate + surgical_context + edit_preview/commit | class·seq | 14 verbs; incremental merge is additive-only (no prune) — ledger |
+| [ingest-light](uml/ingest-light.md) | Code extractors, universal docs, L1GHT reader, memorize write-path | class·seq·flow | Five core extractors are regex (docs overclaim tree-sitter); pdf lanes silently zero — ledger |
+| [spine-north](uml/spine-north.md) | The north packet composer | class·seq·state | Pure fan-out; MED-INV-6 honesty proven; medulla fold HTTP-only — ledger |
+| [medulla](uml/medulla.md) | Per-project brains, tier recall, promotion, M5a migration | class·2×seq·2×state | Promotion gates live; migration CLI wired but data-unsafe — ledger (fix in flight) |
+| [routing-reception](uml/routing-reception.md) | Served owner, attach bridges, reception, reconnect-rebind, lease | class·2×seq·2×state | The outermost shell; 0.0.0.0 exposure is the top security item — ledger |
+| [soul](uml/soul.md) | PATHOS as verified claims, freshness receipt, curator | class·seq·2×state | Receipt live; `Superseded` state has no producer — ledger |
+| [delegation](uml/delegation.md) | delegate/debrief, conformance algebra, outcomes.jsonl | class·seq·2×state | Loop closes at edge level; calibration flywheel open-loop — ledger |
+| [mailbox](uml/mailbox.md) | Letters, boxes, derived fates, sweep, case intelligence | class·seq·2×state | Substrate live + idempotent; R11 design-only; in_flight dead — ledger |
+| [focus-runtime](uml/focus-runtime.md) | focus(goal,budget), sufficiency, conformance bias | class·seq·2×state | Shipped focus delegates to seek; PRD's composite ranker not built — stated |
+| [tool-surface](uml/tool-surface.md) | 117-verb catalog, dispatch, ESSENTIAL tier, instructions | flow·seq·state | Catalog↔dispatch drift exists (5 `lock_*` dispatchable, uncataloged) — ledger |
+| [mission-control](uml/mission-control.md) | mission lifecycle, evidence classes, handoff | class·seq·state | Keystone: SubagentStop-only, never the default loop; evidence class is lexical — ledger |
+| [perspective](uml/perspective.md) | Multi-viewpoint exploration | class·seq·state | Route family hardcoded Structural — single-viewpoint today — ledger |
+| [auto-ingest-daemon](uml/auto-ingest-daemon.md) | Watcher, tick, code daemon, alerts | class·seq·state | No background pump: idle sessions never drain the queue — ledger |
+| [cli-operator](uml/cli-operator.md) | npm CLI, restart --binary, release parity | flow·seq·state | macOS reload trio (codesign/kickstart/kill) has zero tests — ledger |
+| [host-integration](uml/host-integration.md) | 22-host matrix, shim, hosts apply, ambient wave | flow·seq | Pre-orient half real; the whole ambient/R12 wave is PRD-only — ledger |
+
+## 5. The consolidated gap ledger — every open debt, ranked
+
+Severity order: security > data-loss > correctness > fragility > honesty/cleanup. Each entry carries its home sheet; fixes land RED-first or not at all.
+
+### SECURITY
+1. **Unauthenticated network mutation surface.** `--serve` on `0.0.0.0` exposes graph mutation to the LAN with only a stderr warning, no refusal, no auth. *(routing-reception)*
+
+### DATA-LOSS
+2. **M5a migration cluster** *(medulla; fix in flight at atlas time)*: apply overwrites same-named destination claims with no destination-side backup; rollback reconstructs "moved" by scanning the whole destination store and deletes pre-existing claims; `count_conserved` is cardinality-only (passes through content loss); rollback is destructive-first (no snapshot); `ingest_roots.json` never restored; apply leaves the destination brain unregistered (orphan store, no `project_brain.json`); no live-owner guard (keepalive resurrection raced an offline apply in the field); the runtime's code graph lives at the medulla root, so memory-only migration yields a hybrid.
+3. **Document lanes silently produce zero nodes** (pdf/docx/pptx/xlsx without an external provider) — content vanishes with no warning, no receipt. *(ingest-light)*
+4. **`load_co_change_matrix` is a stub** returning empty — the co-change temporal signal is dead weight wherever it is consumed. *(graph-core)*
+
+### CORRECTNESS
+5. **The seek trust envelope can never reach `act`:** its `envelope` calibration signal has no production writer (only a test helper) — structurally capped at `reverify`. *(trust-calibration)*
+6. **`handle_learn` catch-all maps any non-{wrong,partial} feedback to `record_defect`** — mislabeled feedback silently accrues defects against innocent nodes. *(trust-calibration)*
+7. **HeapEngine re-expansion:** once a node enters the Bloom visited-set, a later STRONGER signal cannot update it — order-dependent activation loss. *(graph-core)*
+8. **Perspective is single-viewpoint:** route family hardcoded `Structural` at both call sites; lens/`route_families` are no-ops. *(perspective)*
+9. **Mailbox `in_flight` fate is dead code:** `in_flight_ids` has no producer, yet every surface counts it inside "open". *(mailbox)*
+10. **North freshest-first inversion:** the broad L1GHT fallback sorts `Option<u64>` ascending, so `None` (undated legacy) outranks every dated claim — oldest-first where freshest-first is promised. *(spine-north)*
+11. **Restart reload trio is field-hazardous:** kickstart matches EVERY label containing "m1nd" (fleet-wide SIGKILL from one swap), runs even when codesign failed (re-execs an unsigned binary → OS-level kill loop), and label parsing breaks on labels with spaces. *(cli-operator; review-confirmed)*
+
+### FRAGILITY
+12. **Medulla fold is HTTP-only:** a stdio caller's `north.memory` silently lacks the medulla feed — the pull law realized on one transport. *(spine-north / routing)*
+13. **PageRank staleness + unfinalized-query hole:** rank recomputed only in `finalize`; queries against a non-finalized graph hit empty CSR with no guard. *(graph-core)*
+14. **Auto-ingest has no background pump:** the watcher only enqueues; drain rides other verbs' traffic — an idle session accumulates forever. *(auto-ingest-daemon)*
+15. **Catalog↔dispatch drift:** 5 `lock_*` verbs dispatchable but uncataloged/invisible to help; no parity test pins catalog(117)↔dispatch↔ESSENTIAL. *(tool-surface)*
+16. **Delegation flywheel open-loop:** `outcomes.jsonl` written but read only as a row count; `calibrated:false` hardcoded; scoping constants never learn. *(delegation)*
+17. **Mission evidence class is lexical** (grade `direct` obtainable by naming an event `file_read`); mission verbs absent from `READ_ONLY_DENIED_TOOLS`; no store lock on load→write→save. *(mission-control)*
+18. **Soul `Superseded` unreachable** — defined, ranked, bucketed, never produced; self-supersession undetectable. *(soul)*
+19. **Embedding tests self-skip without the model blob** — CI without the ~30MB blob exercises ZERO embedding code; needs a deterministic fake Embedder. *(semantic-embeddings)*
+20. **The ambient wave (R12) is entirely unbuilt** — no Stop/PreCompact hooks, no delegate-hook, no `integrations/` dir; only the SessionStart pre-orient shim exists (and it composes a thinner packet than live `north`: no memory[], no honest_gaps). *(host-integration)*
+
+### HONESTY / CLEANUP
+21. Extractor trait doc claims all-tree-sitter; five core extractors are regex. *(ingest-light)* · Stale "102 tools"/"~25 curated" literals in four docstrings. *(tool-surface)* · `query`/`query_readonly` duplicate ~120 lines the doc promises byte-identical. *(graph-core)* · L1GHT supersession is frontmatter-only (no graph edge). *(ingest-light)* · Silent non-convergence in SpectralGapAnalyzer. *(graph-core)*
+
+**Design-only (not debt, but not code):** R11 case intelligence (PRD shipped, S0–S4 unbuilt) · the delegate ambient hook (§O.12.7 slice 3) · the focus composite ranker.
+
+## 6. Proof strategy — how this closes
+
+**Determinism first.** The substrate is already deterministic (seeded LCG, fixed iterations, atomic snapshots, content-addressed caches) — every proof leans on that; no agent-in-the-loop tests for routine QA.
+
+Per family: **graph-core** — JSON↔bin cross-format equivalence, unfinalized-query rejection (RED), Wavefront-as-oracle vs Heap harness to pin the re-expansion bug, loom/concurrency for the CAS weights. **semantic** — deterministic fake Embedder so the blend, the 0.40 floor, warm-cache reuse and corruption-tolerance are CI-proven blobless. **trust** — a learn→seek test asserting defects change ORDER, the catch-all fix test, a production `calibrate_envelope` writer + a test proving `act` is reachable. **write-side** — the silent-zero contract test (no provider ⇒ zero nodes AND a surfaced warning), memorize race + WouldDowngrade tests. **migration** — the six data-safety REDs (collision-refusal, bystander-preservation, manifest rollback, snapshot-first, roots-restore, live-owner refusal). **mailbox/spine** — corpus-replay batteries (the false-absence trilogy groups; the fold reaches stdio or is honestly gapped).
+
+**Multi-environment stress (where the real stress lives).** One served owner; attach in sequence from **Claude Code, Codex CLI, Gemini CLI, Cursor**: per host prove — reception fires from a foreign cwd; `north` composes with the medulla fold (or the gap is stamped); memorize refuses brainless roots; two hosts writing concurrently serialize on the single-writer lease; owner kickstart mid-session and the bridge re-recovers; the shim injects on SessionStart where the host has one. Every failure is a field letter first, a battery case second, a fix third — the triage law, unchanged.
+
+---
+
+*Atlas curated at the design seat from twenty code-grounded system maps; diagrams mechanically drafted from those maps and parser-validated; every load-bearing claim carries a file:line hint in its sheet. Where a sheet and reality diverge tomorrow, trust reality, re-anchor the sheet, and log a letter.*
