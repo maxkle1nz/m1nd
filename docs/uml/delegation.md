@@ -33,7 +33,7 @@ classDiagram
         +sufficiency
         +honest_gaps
         +non_claims (never empty)
-        +calibration : [calibrated:false rows needed:30]
+        +calibration : [calibrated=rows>=30; metrics when calibrated]
         +prompt_markdown : deterministic
         +expires : +4h
     }
@@ -215,7 +215,7 @@ stateDiagram-v2
 - **breach is UNREACHABLE in this slice**: with no ratified must_not_touch fence the worst-of verdict is at most 'unpredicted'.
 - **Untouched dependents are NEVER punished** — learn(correct) fires only for dependents actually contacted.
 - **Clean runs memorize NOTHING and teach nothing** — no filler memories.
-- **A self-reported outcome with no attached evidence is stamped outcome_unverified**; calibration.calibrated is ALWAYS false (hardcoded — verified: "calibrated": false at :557).
+- **A self-reported outcome with no attached evidence is stamped outcome_unverified**; `calibration.calibrated` is derived from the ledger — `false` below N ≥ 30, `true` at/above (hardening wave 4: `calibration_metrics_from_rows`; the hardcoded `false` is gone). The three quality numbers print ONLY once calibrated (bands/counts only below the floor).
 - **Exactly ONE outcomes.jsonl row is appended per debrief** (append_outcome_row — verified: at :1617).
 - **The renderer is string-stable**: same packet in -> byte-identical markdown out (verified: render_delegation_packet at :896).
 - **Memory rows are labeled cargo**: every row carries tier + origin_brain; absent provenance renders 'unknown', never faked to fresh (MED-INV-4).
@@ -223,7 +223,7 @@ stateDiagram-v2
 
 ## Gaps
 
-- **[medium] Calibration flywheel is open-loop**: outcomes.jsonl is appended every debrief but the only consumer is outcomes_row_count (a line count). No code reads the rows to sweep the scoping-floor constants or flip calibration.calibrated — it is hardcoded false. The uncalibrated constants (0.35/0.5/30/budgets) never improve (delegation_handlers.rs:557; only outcomes_row_count reads the file at :192).
+- **[medium] Calibration flywheel is open-loop** — **CLOSED** (hardening wave 4): a pure reducer `calibration_metrics_from_rows` parses every ledger row and computes the three §O.12.8 metrics — scope_precision = Σ(in_scope+expected_change)/Σ(touched), miss_rate = Σ(unpredicted)/Σ(touched), dependents_honesty = P(failure|contact) − P(failure|stayed) — and flips `calibrated` on at N ≥ 30 (the numbers stay withheld below the floor, the predict-gate discipline; torn/zero-denominator rows never fabricate a ratio). The pure function is exhaustively unit-tested on synthetic ledgers. Residual by design: the scoping constants (0.35/0.5/budgets) are still UNTUNED — the sweep at N ≥ 30 is backlog; the loop MEASURES, it does not yet tune.
 - **[medium] Report protocol is a prompt-only contract with no machine parser**: the renderer demands `[m1nd <id>]` + DEVIATIONS + FINDINGS, but nothing parses that string — the orchestrator must manually transcribe it into debrief params. A lazy/wrong transcription silently corrupts the conformance grade and the taught signal (renderer L1095-1102; debrief consumes only structured params).
 - **[medium] Path classification is pure suffix/substring matching**: `s==path || s.ends_with(path) || path.ends_with(s)`, applied to both may_touch and dependents. Short/shared path fragments can mis-classify (a touched 'x.rs' matching may_touch 'prefix/x.rs' by suffix). No normalization to canonical repo-relative paths (classify_path L1538-1541 — verified: at :1532).
 - **[low] static_dependents grounds the entire dependents pass on a SINGLE top focus node** (focus[0]); expected_change is likewise just that one node. If the true blast center is the 2nd+ anchor, the map is 'one anchor too tight' by construction — surfaced only reactively as an unpredicted lesson (delegation_handlers.rs:812-822 — verified: static_dependents at :806).

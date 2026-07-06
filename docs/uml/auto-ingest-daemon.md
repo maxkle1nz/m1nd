@@ -104,10 +104,11 @@ stateDiagram-v2
         [*] --> Stopped
         Stopped --> Running: auto_ingest_start (bootstrap forced tick)
         Running --> Running: maybe_tick on other verb traffic (drains queue)
+        Running --> Running: idle pump on serve() recv_timeout (drains queue) %% CLOSED wave 4
         Running --> Stopped: auto_ingest_stop
         note right of Running
-            [unverified-risk] idle session with NO verb traffic
-            accumulates pending changes, never ingests
+            idle session with NO verb traffic is drained by the
+            serve() idle-clock pump (pump_auto_ingest_if_due) — CLOSED wave 4
         end note
     }
 
@@ -139,7 +140,7 @@ stateDiagram-v2
 - git `since_ref` monotonically advances to current HEAD after each successful scan (:558-560).
 
 ## Gaps
-- **[high] Auto-ingest has no background pump**: the notify callback ONLY enqueues (confirmed :513-561 — callback body is `enqueue_change` only); the queue is drained solely by `maybe_tick_auto_ingest` riding on OTHER verb traffic (server.rs:4007) or the one forced bootstrap tick. In an idle session, watched-file changes sit in the queue indefinitely. The daemon's native_fs event path IS threaded via serve(); auto-ingest is NOT.
+- **[high] Auto-ingest has no background pump** — **CLOSED** (hardening wave 4): `serve()`'s `recv_timeout` Timeout arm now calls `pump_auto_ingest_if_due` (auto_ingest.rs), which reuses `maybe_tick`'s read-only / not-running / empty-queue short-circuits. It rides the SAME idle clock that already drives the code daemon's native_fs reconciliation — no new thread — so an idle session with zero verb traffic drains its queue, and an empty tick stays cheap. RED: a change enqueued into a running auto-ingest with no verb call is drained purely by the idle pump.
 - **[medium] Content hashing uses `DefaultHasher` (SipHash, 64-bit, non-crypto)** for change detection in BOTH systems; the field is named `sha256` (session.rs:203) but is NOT sha256 — a naming lie. Truncated 16-hex + collision could make a real edit read as unchanged and be silently skipped.
 - **[medium] Git changed-set silently drops files the diff reports but the live inventory omits** (gitignore/walker-skip mismatch): the loop only pushes entries found via same_path_text, with no skip counter or drift alert for unmatched diff paths (daemon_handlers.rs:548-557).
 - **[medium] No auto-resume of an interrupted watcher**: `load()` forces `running:false`, `watcher:None` (:141-153); even a prior read-write session that left `running=true` gets no auto-resume — recovery requires re-calling `auto_ingest_start`.
