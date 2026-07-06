@@ -87,6 +87,112 @@ with a red-first proof.
 
 ---
 
+## [1.3.2] — 2026-07-04
+
+The launch-funnel patch — a stranger's first minute now works.
+
+### Fixed
+
+- **`--version` flag (#254).** `npx -y @maxkle1nz/m1nd --version` errored ("missing value")
+  — a stranger's most common first command. Now prints the version.
+- **Fresh installs fetched a months-old beta (#254).** A brand-new HOME received
+  m1nd-mcp `0.9.0-beta.6` plus confusing channel advice; fresh installs now fetch the
+  runtime matching the npm package's own version, with an honest fallback to the latest
+  release.
+
+### Added
+
+- **README conversion pass (#256):** 30-second real-session demo GIF, badges row,
+  a "60-second start", and `llms-install.md` (agent-legible install) — in all 8 languages.
+- **m1nd.world launch-week hero (#255):** the shell story, registry install, honest
+  proof points; stale claims removed.
+
+---
+
+## [1.3.1] — 2026-07-04
+
+Discoverability patch — metadata only, no behavior change.
+
+### Added
+
+- **npm keywords** (`mcp`, `mcp-server`, `model-context-protocol`, `code-graph`, …) and
+  **crates.io keywords + categories** on all three crates — both were shipping **empty**,
+  so the published packages were invisible to registry search. Repo GitHub topics set to
+  match. `glama.json` added (Glama listing claim). `server.json` synced to 1.3.1.
+
+---
+
+## [1.3.0] — 2026-07-04
+
+The construction-era release: **the shell reaches every host.** One 24-hour sweep —
+fourteen PRs — empties the field-triage mailbox to zero, takes the Living Tree live,
+teaches `m1nd hosts` twenty-two agent hosts, and steps m1nd into the official MCP
+Registry. (A `1.2.2` section was drafted here but never tagged; its content ships in
+this release.)
+
+### Added
+
+- **`m1nd hosts` learns 22 hosts (#244).** From 5 to 22: seven TIER-A hook recipes
+  (`SessionStart`/`agentSpawn`/`TaskStart` families — claude, codex, qwen, kiro, cline,
+  continue, grok) plus fifteen B-tier doctrine emitters (cursor, windsurf, zed, vscode,
+  gemini, antigravity, opencode, warp, trae, jetbrains, amp, goose, crush, aider, generic).
+  `plan` is pure print; `apply` is idempotent and never clobbers foreign config (the codex
+  duplicate-TOML incident is now a regression test); on claude, apply never writes
+  `settings.json` — it prints the block for explicit pasting.
+- **`m1nd-north-shim` (#244).** New fail-open bin that wraps `m1nd agent first-minute`
+  and renders its envelope into the hook contract
+  (`{"hookSpecificOutput":{"additionalContext":…}}`) — one stable command every
+  session-start hook can call.
+- **The Living Tree goes live (#242).** A shared mutation predicate now derives a
+  browser `graph_changed` event on the existing `/api/events` SSE stream (closing the
+  known pure-reader relay gap); the UI refetches with a calm ~500 ms debounce and falls
+  back to polling. Fonts are vendored (Instrument Sans, IBM Plex Mono, Fraunces — OFL,
+  ~116 KB): the UI renders fully offline, zero external hosts in `dist/`.
+- **HOST-INTEGRATION-MATRIX (#241).** The canonical map of ~24 agent hosts ×
+  (session-start hooks / MCP `instructions` rendering / roots / rules files), every cell
+  carrying its verification label, with copy-pasteable TIER-A recipes and the honest
+  spec limit: a server speaks only when called — the in-band packet is the universal floor.
+- **First-Contact Reception protocol (#238).** TWO-TIER-BRAIN-PRD §9.5: on first contact
+  the bridge/owner answers with where-you-are, what-exists, machine-executable options,
+  a suggested default, and honest gaps — silent binding only when cwd matches (TT-INV-12).
+  Field-evidenced by the Antigravity silent-bind report.
+- **Two-Tier Brain PRD (#227)**, **Human-Layer PRD (#222)** + Living Tree Slice 0 (#232),
+  and the **§O.12 subagent Delegation Layer (#224)** — the construction era's three official
+  blueprints.
+- **PATHOS auto-refresh + checkpoint 9 (#236/#237/#239).** git-cliff + GitHub Action keep
+  the auto sections fresh on every main push (fail-soft under branch protection); cp9
+  consolidates the era.
+- **MCP Registry manifest (#243).** Root `server.json` (2025-12-11 schema) + `mcpName`
+  in the npm package — the ownership proof the official registry validates.
+- **agent-docs CI gate (#229)** and the **README re-spined around "the shell" (#228)**
+  in all eight languages.
+
+### Fixed
+
+- **Warm-boot immortal graph (#230).** Relative persist targets anchor on the runtime
+  root; the launchd owner stopped failing persistence (39 consecutive failures → 0) and
+  now warm-boots the full graph.
+- **Marker fragments excluded from recall/anchors (#231).** `::tag::` structural
+  fragments no longer pollute north's memory beat or anchor slots.
+- **Attach re-init covers every unknown-session shape (#233)** — including the frameless
+  404 — with restart-survival proven end-to-end.
+- **Attach self-echo (#235).** Write-tool responses return real envelopes through the
+  bridge; `graph_changed` notifications no longer race the response into the stdout sink.
+- **auto_ingest CI flake killed at the source (#240).** Watch events for existing
+  directories are dropped before the queue, so `queue_depth` is an honest signal and the
+  single forced tick is deterministic — proven 20/20 across three configurations.
+
+### Removed
+
+- **The unmeasured `savings` envelope (brand gate G1) and the opt-in `savings`/`report`
+  unmeasured-claims surface (G1.5) (#234).** An uncalibrated "tokens saved" number is a
+  confident guess, and it has no place in a product whose promise is calibrated trust.
+  `savings` is gone entirely (dispatch arm, handler, types, tracker state); `report`
+  survives stripped to its honest content — query counts, elapsed time, graph size,
+  heuristic hotspots. Completes the beta.7 de-advertisement.
+
+---
+
 ## [1.2.2] — 2026-07-03
 
 Brand gate G1 — honesty is the product.
