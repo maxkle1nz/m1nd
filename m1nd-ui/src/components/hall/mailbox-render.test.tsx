@@ -15,6 +15,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MailboxBody } from './MailboxView';
 import BrainCard from './BrainCard';
+import { CARD_FILL_TONE_CLASS } from '../../lib/mailbox';
 import type { MailboxResponse } from '../../lib/mailbox';
 import type { InstanceRegistryEntry } from '../../types';
 
@@ -48,11 +49,11 @@ test('§4A.11: letters render in day-chapters (newest first) with the header cou
   assert.match(out, /data-day="2026-07-04"/);
   // Newest chapter renders BEFORE the older one in the DOM.
   assert.ok(out.indexOf('data-day="2026-07-05"') < out.indexOf('data-day="2026-07-04"'), 'newest day first');
-  // The header states the whole truth (external visible, uncounted in "abertas").
+  // The header states the whole truth (external visible, uncounted in "open").
   const text = decode(out.replace(/<[^>]+>/g, ' '));
-  assert.match(text, /6 cartas/);
-  assert.match(text, /4 abertas/);
-  assert.match(text, /1 externa/);
+  assert.match(text, /6 letters/);
+  assert.match(text, /4 open/);
+  assert.match(text, /1 external/);
 });
 
 // ── Class chips + fate lines are correct ────────────────────────────────────────
@@ -70,6 +71,46 @@ test('§4A.11: each letter wears its matte class chip + exactly one fate line', 
   assert.match(out, /data-fate-glyph="◍"/);
   assert.match(out, /data-fate-glyph="↳"/);
   assert.match(out, /data-fate-glyph="◌"/);
+});
+
+// ── Each letter card wears a soft pastel FILL of its own class (§6.1 tints) ─────
+// Prominence-with-soft-proof: the near-invisible `bg-bone/50` is replaced by a
+// gentle wash of the letter's class tint, so a box reads at a glance. Every fill is
+// an EXISTING -tint token at low opacity (never a new colour, never violet).
+test('§4A.11: a letter card wears the pastel fill token of its class tone', () => {
+  const out = render(boxA, '/path/to/repo-alpha', 'repo-alpha');
+  // boxA covers bug(brick)·triage(slate)·win(sage)·friction(stone); the medulla
+  // box adds honesty(amber) — together all five tones are proven.
+  const medOut = render(medulla, 'medulla', 'medulla');
+
+  // The class→tint mapping the card must apply (reusing the resolved tone).
+  const expectFill: Record<string, string> = {
+    win: CARD_FILL_TONE_CLASS.sage,
+    bug: CARD_FILL_TONE_CLASS.brick,
+    honesty: CARD_FILL_TONE_CLASS.amber,
+    friction: CARD_FILL_TONE_CLASS.stone,
+    triage: CARD_FILL_TONE_CLASS.slate,
+  };
+
+  // Every card in each box carries the fill class its own letter class resolves to.
+  for (const [data, html] of [
+    [boxA, out],
+    [medulla, medOut],
+  ] as const) {
+    for (const letter of data.letters) {
+      const fill = expectFill[letter.class] ?? CARD_FILL_TONE_CLASS.slate;
+      assert.ok(
+        html.includes(fill),
+        `a ${letter.class} card must wear its ${fill} fill (soft proof, per-class tint)`,
+      );
+    }
+  }
+
+  // Concretely: the sage (win) tint and the clay (bug) tint both render in box A.
+  assert.match(out, /bg-verdict-act-tint\/50/); // win → sage
+  assert.match(out, /bg-state-failure-tint\/50/); // bug → clay
+  // And the near-invisible old fill is gone from the letter cards.
+  assert.doesNotMatch(out, /data-role="letter-card"[^>]*bg-bone\/50/);
 });
 
 // ── INV-17: only the viewed brain's letters render (never cross-brain) ──────────
@@ -100,9 +141,9 @@ test('INV-17: a dropped wrong-echo response renders the notice, not the letters'
 test('INV-18: the receipt renders the down-pointing "responde a carta" line, linked in-box', () => {
   const out = render(boxA, '/path/to/repo-alpha', 'repo-alpha');
   const text = decode(out.replace(/<[^>]+>/g, ' '));
-  assert.match(text, /responde a carta/);
-  // The fired bug carries the up-pointing "respondida pela carta" line.
-  assert.match(text, /respondida pela carta/);
+  assert.match(text, /answers letter/);
+  // The fired bug carries the up-pointing "answered by letter" line.
+  assert.match(text, /answered by letter/);
   // Every fate-link's target id is a letter that renders in THIS box.
   const boxIds = new Set(boxA.letters.map((l) => l.id));
   for (const m of out.matchAll(/data-target-id="([0-9a-f]{12})"/g)) {
@@ -113,7 +154,7 @@ test('INV-18: the receipt renders the down-pointing "responde a carta" line, lin
 test('INV-18: a dangling receipt link renders the honest breakage, never a bare chip', () => {
   const out = render(dangling, '/path/to/repo-gamma', 'repo-gamma');
   const text = decode(out.replace(/<[^>]+>/g, ' '));
-  assert.match(text, /recibo n(ã|&#xE3;)o localizado/);
+  assert.match(text, /receipt not found/);
   assert.match(out, /data-broken="true"/);
   // No fake link is offered for the unresolved receipt.
   assert.doesNotMatch(out, /data-target-id="deadbeef0000"/);
@@ -124,12 +165,12 @@ test('§4A.11: the medulla box renders under its labeled header, external uncoun
   const out = render(medulla, 'medulla', 'medulla');
   assert.match(out, /data-brain="medulla"/);
   const text = decode(out.replace(/<[^>]+>/g, ' '));
-  assert.match(text, /Medulla — relatos transversais/);
-  assert.match(text, /data-role="medulla-note"|transversais/);
-  // The external (context7-shaped) letter renders ◌ and is NOT in the abertas count.
+  assert.match(text, /Medulla — cross-project reports/);
+  assert.match(text, /data-role="medulla-note"|cross-project/);
+  // The external (context7-shaped) letter renders ◌ and is NOT in the open count.
   assert.match(out, /data-fate-glyph="◌"/);
-  assert.match(text, /1 abertas/); // wet_ink(1) only — external excluded
-  assert.match(text, /1 externa/);
+  assert.match(text, /1 open/); // wet_ink(1) only — external excluded
+  assert.match(text, /1 external/);
 });
 
 // ── Anti-scope: read-only, no compose affordance in the DOM ─────────────────────

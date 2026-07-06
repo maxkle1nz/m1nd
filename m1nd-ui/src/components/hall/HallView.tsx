@@ -222,7 +222,7 @@ export default function HallView({
               data-role="medulla-entry"
               onClick={() => setMailboxFor({ root: 'medulla', name: 'medulla' })}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded hover:text-ink hover:shadow-contact transition-shadow"
-              title="Relatos transversais — a caixa da medulla (sem projeto)"
+              title="Cross-project reports — the medulla box (no project)"
             >
               <Icon name="inbox" size={14} decorative className="text-ink-soft/80" />
               Medulla

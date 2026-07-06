@@ -291,11 +291,13 @@ fn brains(listing: &serde_json::Value) -> &Vec<serde_json::Value> {
         .expect("instances_listing must return an `instances` array")
 }
 
-/// The bound/dev entry: the one with no `brain_kind` (serde-default None).
+/// The owner's own served brain — the MEDULLA (the doctrine-tier root the owner
+/// serves). Post-fix it is stamped `brain_kind:"medulla"` (never the serde-default
+/// None, which was the pre-fix lie that let it wear a bound workspace's name).
 fn bound_of(list: &[serde_json::Value]) -> &serde_json::Value {
     list.iter()
-        .find(|b| b["brain_kind"].is_null())
-        .expect("a bound (brain_kind: null) entry must be listed")
+        .find(|b| b["brain_kind"] == "medulla")
+        .expect("the owner's own (brain_kind: \"medulla\") entry must be listed")
 }
 
 /// The hosted project entry: `brain_kind == "project"`.
@@ -362,10 +364,12 @@ async fn display_name_is_the_project_basename_never_plumbing() {
     let listing = instances_listing(&owner.app);
     let list = brains(&listing);
 
+    // The owner's own served brain IS the medulla — its card says `medulla`, NOT
+    // the basename of the workspace that bound last (the last-bound-project leak).
     assert_eq!(
         bound_of(list)["display_name"].as_str(),
-        Some("bound-repo"),
-        "the bound brain's name is its PROJECT basename, not its runtime dir: {}",
+        Some("medulla"),
+        "the owner's own brain is the medulla — its name is `medulla`, not the bound workspace basename: {}",
         bound_of(list)
     );
     assert_eq!(
@@ -373,6 +377,59 @@ async fn display_name_is_the_project_basename_never_plumbing() {
         Some("project-repo"),
         "the hosted brain's name is its project basename, not the fingerprint store dir: {}",
         project_of(list)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// (B2) the owner's own card is the MEDULLA, honestly (the last-bound-name leak).
+//
+// Field bug (2026-07-06): after the memory migration the Hall's owner card wore
+// the last-bound project's name + `brain_kind:None` — the medulla's identity had
+// stuck to the last workspace that bound this runtime. The owner it serves IS the
+// medulla (its runtime_root holds the promoted/doctrine store, not a per-project
+// brain), so its card must say `medulla` and carry `brain_kind:"medulla"`, with
+// its real repo path demoted to `project_root` (the receipt), never the headline.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owner_card_is_the_medulla_not_the_last_bound_workspace() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, bound_repo, _project_repo) = owner_with_two_brains(tmp.path()).await;
+
+    let listing = instances_listing(&owner.app);
+    let list = brains(&listing);
+
+    // The owner's own served brain is stamped the medulla kind (never the
+    // serde-default None the classic bound graph carried).
+    let medulla = bound_of(list);
+    assert_eq!(
+        medulla["brain_kind"].as_str(),
+        Some("medulla"),
+        "the owner's own served brain must be stamped brain_kind:\"medulla\": {medulla}"
+    );
+
+    // Its card name is the literal `medulla` — NOT the basename of the workspace
+    // that bound last (the last-bound-project leak the fix kills).
+    assert_eq!(
+        medulla["display_name"].as_str(),
+        Some("medulla"),
+        "the medulla card must read `medulla`, not the bound workspace basename: {medulla}"
+    );
+    assert_ne!(
+        medulla["display_name"].as_str(),
+        Some("bound-repo"),
+        "the medulla must NOT wear the last-bound workspace's name: {medulla}"
+    );
+
+    // The real repo path is not lost — it stays on the entry for the receipt.
+    let root = medulla["project_root"].as_str().unwrap_or("");
+    assert_eq!(
+        Path::new(root)
+            .canonicalize()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        canon(&bound_repo),
+        "the medulla's real repo path is demoted to project_root, never dropped: {medulla}"
     );
 }
 
@@ -387,11 +444,12 @@ async fn bound_brain_leads_the_list() {
 
     let listing = instances_listing(&owner.app);
     let list = brains(&listing);
-    // list_instances sorts freshest-heartbeat first; the live bound owner is the
-    // freshest, so the bound (brain_kind: null) entry leads the Hall.
-    assert!(
-        list[0]["brain_kind"].is_null(),
-        "the graph this owner serves must lead the Hall list: {listing}"
+    // list_instances sorts freshest-heartbeat first; the live owner is the
+    // freshest, so its own served brain — the medulla — leads the Hall.
+    assert_eq!(
+        list[0]["brain_kind"].as_str(),
+        Some("medulla"),
+        "the brain this owner serves (the medulla) must lead the Hall list: {listing}"
     );
 }
 
@@ -431,11 +489,21 @@ async fn no_display_name_is_a_runtime_or_agent_memory_name() {
                 !is_hex_fingerprint,
                 "display_name is a fingerprint store-dir hash, not a project name: {b}"
             );
-            // And the name must actually be the basename of the project_root.
-            // Compute `expected` separator-agnostically (the SAME rule production
-            // uses for display_name) so a Windows backslash project_root yields
-            // the repo basename here too — otherwise this guard reds Windows CI
-            // while production is correct (the trap #279 fell into).
+            // The medulla is the ONE brain whose name is intentionally NOT its
+            // project_root basename: it is the doctrine-tier root and presents as
+            // the literal `medulla`, with its real repo path demoted to the receipt.
+            if b["brain_kind"] == "medulla" {
+                assert_eq!(
+                    name, "medulla",
+                    "the medulla presents as `medulla`, not its bound workspace basename: {b}"
+                );
+                continue;
+            }
+            // Every OTHER brain's name must actually be the basename of its
+            // project_root. Compute `expected` separator-agnostically (the SAME rule
+            // production uses for display_name) so a Windows backslash project_root
+            // yields the repo basename here too — otherwise this guard reds Windows
+            // CI while production is correct (the trap #279 fell into).
             let root = b["project_root"].as_str().unwrap();
             let expected = repo_basename(root);
             assert_eq!(
