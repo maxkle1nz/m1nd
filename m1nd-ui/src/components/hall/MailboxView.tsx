@@ -24,6 +24,7 @@ import {
   classChip,
   CHIP_TONE_CLASS,
   CARD_BORDER_TONE_CLASS,
+  CARD_FILL_TONE_CLASS,
   fateLine,
   type FateLine,
   dayChapters,
@@ -96,9 +97,11 @@ function LetterCard({
           onToggle();
         }
       }}
-      className={`rounded-r-lg border border-l-2 bg-bone/50 px-3 py-2.5 outline-none transition-shadow border-ink/10 ${
-        CARD_BORDER_TONE_CLASS[chip.tone]
-      } ${focused ? 'shadow-card ring-1 ring-ink/15' : 'hover:shadow-contact'}`}
+      className={`rounded-r-lg border border-l-2 px-3 py-2.5 outline-none transition-shadow border-ink/10 ${
+        CARD_FILL_TONE_CLASS[chip.tone]
+      } ${CARD_BORDER_TONE_CLASS[chip.tone]} ${
+        focused ? 'shadow-card ring-1 ring-ink/15' : 'hover:shadow-contact'
+      }`}
     >
       {/* Header: class chip · agent · ts (mono) · tool */}
       <div className="flex items-center gap-2 flex-wrap">

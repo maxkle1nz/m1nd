@@ -115,6 +115,23 @@ export const CARD_BORDER_TONE_CLASS: Record<ClassChip['tone'], string> = {
   slate: 'border-l-ink/30',
 };
 
+/**
+ * The soft PASTEL card FILL per tone — a letter card wears a gentle wash of its
+ * OWN class so the box reads at a glance (win = sage, bug = clay, honesty = honey,
+ * friction = stone), replacing the near-invisible `bg-bone/50`. SOFT PROOF only:
+ * every hue is an EXISTING §6.1 `-tint` token (never a new colour, never violet),
+ * held at a low opacity so the wash stays calm and the `text-ink` body keeps its
+ * contrast. A neutral receipt/other card wears a slightly stronger bone (the
+ * calmest tone), never a coloured tint it did not earn.
+ */
+export const CARD_FILL_TONE_CLASS: Record<ClassChip['tone'], string> = {
+  sage: 'bg-verdict-act-tint/50',
+  brick: 'bg-state-failure-tint/50',
+  amber: 'bg-verdict-reverify-tint/50',
+  stone: 'bg-state-unverified-tint/50',
+  slate: 'bg-bone/70',
+};
+
 /** Whether a fate string is `wet_ink`/`in_flight` — the two OPEN fates. Anything
  *  else (fired_clay, external, unknown) is NOT open. */
 export function isOpenFate(state: string): boolean {
