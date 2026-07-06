@@ -711,6 +711,7 @@ async fn main() {
                 config,
                 cli.port,
                 cli.bind,
+                cli.allow_remote,
                 cli.dev,
                 cli.open,
                 cli.stdio,
