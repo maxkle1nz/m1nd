@@ -116,9 +116,13 @@ export default function BrainCard({
           onSelect(entry);
         }
       }}
-      className={`rounded-xl border bg-bone/60 p-4 cursor-pointer transition-shadow outline-none focus:ring-1 focus:ring-ink/20 ${
-        selected ? 'border-ink/30 shadow-card' : 'border-ink/10 hover:shadow-contact'
-      }`}
+      // The ONE brain the tab is viewing (§4A.8) reads at a glance: a calm act-green
+      // left accent bar + a soft act-tint wash, still SOFT PROOF (an existing token,
+      // low opacity — never neon). Selection (the receipt drawer) keeps its own
+      // ink ring on top; the two states compose.
+      className={`rounded-xl border p-4 cursor-pointer transition-shadow outline-none focus:ring-1 focus:ring-ink/20 ${
+        viewing ? 'border-l-2 border-l-verdict-act bg-verdict-act-tint/30' : 'bg-bone/60'
+      } ${selected ? 'border-ink/30 shadow-card' : 'border-ink/10 hover:shadow-contact'}`}
     >
       {/* Header: dot + name + viewing chip · freshness.
           NO kind badge — implementation class never labels a card face (INV-14);
@@ -137,15 +141,15 @@ export default function BrainCard({
             {viewing && (
               <span
                 data-role="viewing-chip"
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-ink/15 bg-bone text-ink-soft shrink-0"
+                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border border-verdict-act/40 bg-verdict-act-tint/60 text-ink shrink-0"
                 title="the brain this tab is viewing"
               >
-                <Icon name="viewing" size={14} decorative className="text-ink-soft/80" />
-                viewing
+                <Icon name="viewing" size={14} decorative className="text-verdict-act" />
+                Viewing
               </span>
             )}
           </div>
-          <div className="text-[11px] text-ink-soft font-mono break-all" title={projectPath}>
+          <div className="text-[11px] text-ink-soft font-mono truncate" title={projectPath}>
             {shortPath(projectPath)}
           </div>
         </div>
@@ -184,7 +188,7 @@ export default function BrainCard({
           // "not running" is INSTANCE language — never for a project brain, which
           // lives in-process and has no process state. Absent project counts read
           // "counts not recorded yet" (a fresh store before its first persist).
-          <span data-role="counts-absent" className="italic text-ink-soft/70">
+          <span data-role="counts-absent" className="italic text-ink-soft/80">
             {isProject ? 'counts not recorded yet' : 'counts unknown — not running'}
           </span>
         )}
@@ -234,9 +238,9 @@ export default function BrainCard({
           }
           className="px-3 py-1 text-xs bg-porcelain text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-45 disabled:cursor-not-allowed"
         >
-          Open
+          Open brain
         </button>
-        <span className="text-[10px] text-ink-soft/60">more in the receipt →</span>
+        <span className="text-[10px] text-ink-soft/80">more in the receipt →</span>
       </div>
     </div>
   );
