@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { InstanceListResponse, InstanceRegistryEntry, InstanceSelfResponse } from '../types';
+import type { InstanceRegistryEntry, InstanceSelfResponse } from '../types';
 
 interface InstancesPanelProps {
   isOpen: boolean;

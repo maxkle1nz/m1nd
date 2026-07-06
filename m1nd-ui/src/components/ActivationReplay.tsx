@@ -186,7 +186,7 @@ const ActivationReplay = React.memo(function ActivationReplay({ onBack }: Activa
       if (!isReplaying) return;
       if (e.code === 'Space') {
         e.preventDefault();
-        isPlaying ? pause() : play();
+        if (isPlaying) pause(); else play();
       }
       if (e.code === 'ArrowRight') { e.preventDefault(); nextFrame(); }
       if (e.code === 'ArrowLeft')  { e.preventDefault(); prevFrame(); }

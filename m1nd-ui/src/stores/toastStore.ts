@@ -16,7 +16,7 @@ interface ToastStore {
 
 let toastCounter = 0;
 
-export const useToastStore = create<ToastStore>((set, get) => ({
+export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
 
   addToast: (message, detail, type = 'info') => {
