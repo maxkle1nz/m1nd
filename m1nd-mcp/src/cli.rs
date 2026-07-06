@@ -27,9 +27,20 @@ pub struct Cli {
     #[arg(long, default_value = "1337")]
     pub port: u16,
 
-    /// Bind address override (default: 127.0.0.1). Use 0.0.0.0 for network access.
+    /// Bind address override (default: 127.0.0.1). A non-loopback bind (e.g.
+    /// 0.0.0.0 or a concrete LAN IP) exposes graph mutation to the network and is
+    /// REFUSED at startup unless `--allow-remote` is also given — there is no
+    /// authentication yet, so an unguarded remote bind must be an explicit,
+    /// deliberate opt-in, never the default.
     #[arg(long, default_value = "127.0.0.1")]
     pub bind: String,
+
+    /// Explicitly allow binding the HTTP server to a non-loopback address.
+    /// Without this flag a non-loopback `--bind` is refused at startup (there is
+    /// no auth: an open bind would expose graph mutation to the LAN). With it the
+    /// bind proceeds and a strong unauthenticated-exposure warning is printed.
+    #[arg(long)]
+    pub allow_remote: bool,
 
     /// Serve frontend from disk instead of embedded (dev mode)
     #[arg(long)]
