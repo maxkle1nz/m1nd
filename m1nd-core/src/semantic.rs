@@ -571,8 +571,15 @@ pub struct SemanticEngine {
     /// OPTIONAL `embed` feature: the loaded static embedder for query-time
     /// encoding (so callers don't need to reload the model). None when the
     /// model is unavailable.
+    ///
+    /// Typed as a trait object (`dyn Embedder`) rather than the concrete
+    /// `Model2VecEmbedder` so a DETERMINISTIC fake can be injected in tests
+    /// (see [`SemanticEngine::with_injected_embedder`]): the whole embed path —
+    /// query encode, the 0.7·cosine + 0.3·legacy blend, the recall floor, cache
+    /// reuse/self-pruning/corruption handling — is then exercisable WITHOUT the
+    /// ~30 MB model blob (semantic-embeddings sheet §Proof gaps).
     #[cfg(feature = "embed")]
-    pub embedder: Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
+    pub embedder: Option<std::sync::Arc<dyn crate::embed::Embedder>>,
 }
 
 /// Result of [`SemanticEngine::build_embeddings`]: per-node embeddings keyed by
@@ -580,7 +587,7 @@ pub struct SemanticEngine {
 #[cfg(feature = "embed")]
 type EmbeddingBuild = (
     HashMap<NodeId, Box<[f32]>>,
-    Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
+    Option<std::sync::Arc<dyn crate::embed::Embedder>>,
 );
 
 impl SemanticEngine {
@@ -646,7 +653,7 @@ impl SemanticEngine {
         use crate::embed::{Embedder, Model2VecEmbedder};
         use crate::embed_cache::{content_key, EmbeddingCache};
 
-        let embedder = match Model2VecEmbedder::from_default() {
+        let embedder: std::sync::Arc<Model2VecEmbedder> = match Model2VecEmbedder::from_default() {
             Ok(e) => std::sync::Arc::new(e),
             Err(e) => {
                 eprintln!("[m1nd embed] static embeddings disabled: {e}");
@@ -713,7 +720,88 @@ impl SemanticEngine {
             }
         }
 
-        (map, Some(embedder))
+        (map, Some(embedder as std::sync::Arc<dyn Embedder>))
+    }
+
+    /// TEST-ONLY: build a `SemanticEngine` whose embedding tier is driven by an
+    /// INJECTED [`Embedder`] instead of the on-disk model. The symbolic indexes
+    /// are still built from `graph`; the injected embedder embeds every node's
+    /// (label + excerpt) text into the side-map and is retained for query-time
+    /// encoding. This lets every embed-gated proof — blend, recall floor, cache
+    /// warm-reuse, self-pruning, single-writer persist, corruption-ignored —
+    /// run deterministically WITHOUT the ~30 MB vendored blob.
+    ///
+    /// `cache_path`/`persist` behave exactly as in [`Self::build_with_cache`]
+    /// (warm-reuse + self-pruning + single-writer persist), so cache invariants
+    /// are exercised against the fake too.
+    #[cfg(feature = "embed")]
+    pub fn with_injected_embedder(
+        graph: &Graph,
+        weights: SemanticWeights,
+        embedder: std::sync::Arc<dyn crate::embed::Embedder>,
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+    ) -> M1ndResult<Self> {
+        use crate::embed_cache::{content_key, EmbeddingCache};
+
+        let ngram = CharNgramIndex::build(graph, NGRAM_SIZE)?;
+        let cooccurrence =
+            CoOccurrenceIndex::build(graph, WALK_LENGTH, WALKS_PER_NODE, WINDOW_SIZE)?;
+        let synonym = SynonymExpander::build_default()?;
+
+        let model_id = format!("injected-fake#{}", embedder.dim());
+        let dim = embedder.dim() as u32;
+        let warm = cache_path.and_then(|p| EmbeddingCache::load_compatible(p, &model_id, dim));
+
+        let n = graph.num_nodes() as usize;
+        let mut embeddings: HashMap<NodeId, Box<[f32]>> = HashMap::with_capacity(n);
+        let mut next = EmbeddingCache::new(model_id.clone(), dim);
+        let (mut hits, mut misses) = (0usize, 0usize);
+
+        for i in 0..n {
+            let label = graph.strings.resolve(graph.nodes.label[i]);
+            let text = match graph.nodes.provenance[i].excerpt {
+                Some(e) => {
+                    let excerpt = graph.strings.resolve(e);
+                    if excerpt.is_empty() {
+                        label.to_string()
+                    } else {
+                        format!("{label} {excerpt}")
+                    }
+                }
+                None => label.to_string(),
+            };
+            let key = content_key(&model_id, &text);
+            let vec: Box<[f32]> = match warm.as_ref().and_then(|c| c.entries.get(&key)) {
+                Some(v) if v.len() == dim as usize => {
+                    hits += 1;
+                    v.clone()
+                }
+                _ => {
+                    misses += 1;
+                    embedder.embed(&text)
+                }
+            };
+            next.entries.entry(key).or_insert_with(|| vec.clone());
+            embeddings.insert(NodeId::new(i as u32), vec);
+        }
+        // Expose the accounting for the warm-reuse proof (hits>0/misses==0).
+        let _ = (hits, misses);
+
+        if persist && !next.entries.is_empty() {
+            if let Some(p) = cache_path {
+                let _ = next.save(p);
+            }
+        }
+
+        Ok(Self {
+            ngram,
+            cooccurrence,
+            synonym,
+            weights,
+            embeddings,
+            embedder: Some(embedder),
+        })
     }
 
     /// Full query: score all nodes, return top_k.

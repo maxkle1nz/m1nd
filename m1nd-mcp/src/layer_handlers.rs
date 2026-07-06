@@ -10574,6 +10574,157 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// FIX 4 (semantic-embeddings sheet §Proof gaps): the SAME recall-floor +
+    /// blend behavior as `embed_recall_surfaces_nonsurvivor_semantic_node`, but
+    /// driven by an INJECTED deterministic `FakeEmbedder` — so it runs with NO
+    /// vendored model blob (never self-skips). A gibberish-labelled node that
+    /// shares zero tokens with the query (a true non-survivor: kw=0, tri=0) is
+    /// surfaced ONLY because its query cosine clears SEMANTIC_RECALL_FLOOR, and
+    /// `embeddings_used` is truthfully true. An unrelated decoy stays orthogonal
+    /// (cosine ≈ 0, below the floor) so it is NOT admitted via the semantic path.
+    #[test]
+    fn embed_recall_floor_with_injected_fake_no_blob() {
+        use m1nd_core::embed::FakeEmbedder;
+        use m1nd_core::graph::NodeProvenanceInput;
+        use m1nd_core::types::SemanticWeights;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        // The exact texts the engine builds per node (label + " " + excerpt).
+        let query = "open a secure encrypted channel";
+        let target_text =
+            "qz9wb negotiates a TLS session and establishes an encrypted tunnel between two hosts";
+        let decoy_text = "parse_csv_header splits the first row into column names for the parser";
+
+        let mut graph = Graph::new();
+        let decoy = graph
+            .add_node("fn::parse_csv_header", "parse_csv_header", NodeType::Function, &[], 0.0, 0.0)
+            .expect("decoy");
+        graph.set_node_provenance(
+            decoy,
+            NodeProvenanceInput {
+                source_path: Some("src/csv.rs"),
+                line_start: Some(1),
+                line_end: Some(20),
+                excerpt: Some("splits the first row into column names for the parser"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let target = graph
+            .add_node("fn::qz9wb", "qz9wb", NodeType::Function, &[], 0.0, 0.0)
+            .expect("target");
+        graph.set_node_provenance(
+            target,
+            NodeProvenanceInput {
+                source_path: Some("src/net.rs"),
+                line_start: Some(10),
+                line_end: Some(40),
+                excerpt: Some(
+                    "negotiates a TLS session and establishes an encrypted tunnel between two hosts",
+                ),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.path().to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.path().to_string_lossy().to_string());
+
+        // Inject a deterministic embedder that anchors the QUERY and the TARGET
+        // text onto a shared direction (high mutual cosine, above the 0.40 floor)
+        // while the decoy stays independent (≈ orthogonal, below the floor). Dim
+        // 256 keeps independent texts near-orthogonal.
+        let fake = std::sync::Arc::new(FakeEmbedder::with_anchor(
+            256,
+            &[query, target_text],
+            0.7,
+        ));
+        {
+            let graph = state.graph.read();
+            let engine = m1nd_core::semantic::SemanticEngine::with_injected_embedder(
+                &graph,
+                SemanticWeights::default(),
+                fake,
+                None,
+                false,
+            )
+            .expect("inject fake embedder");
+            drop(graph);
+            state.orchestrator.semantic = engine;
+        }
+
+        // Sanity: the injected cosines straddle the floor as intended.
+        {
+            use m1nd_core::embed::Embedder;
+            let qv = state
+                .orchestrator
+                .semantic
+                .embedder
+                .as_ref()
+                .expect("injected embedder")
+                .embed(query);
+            let cos_of = |id| {
+                state
+                    .orchestrator
+                    .semantic
+                    .embeddings
+                    .get(id)
+                    .map(|nv| m1nd_core::embed::cosine(&qv, nv))
+                    .unwrap_or(0.0)
+            };
+            let ct = cos_of(&target);
+            let cd = cos_of(&decoy);
+            assert!(
+                ct >= super::SEMANTIC_RECALL_FLOOR,
+                "target cosine {ct} must clear the floor {}",
+                super::SEMANTIC_RECALL_FLOOR
+            );
+            assert!(
+                cd < super::SEMANTIC_RECALL_FLOOR,
+                "decoy cosine {cd} must stay below the floor {}",
+                super::SEMANTIC_RECALL_FLOOR
+            );
+        }
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: query.into(),
+                agent_id: "probe".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        assert!(
+            out.embeddings_used,
+            "the injected embedder must have fed at least one node's score"
+        );
+        assert!(
+            out.results.iter().any(|r| r.label == "qz9wb"),
+            "the pure-semantic non-survivor must surface via the recall floor; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+    }
+
     fn build_layer_state(root: &std::path::Path) -> SessionState {
         let runtime_dir = root.join("runtime");
         std::fs::create_dir_all(&runtime_dir).expect("runtime dir");

@@ -151,6 +151,116 @@ impl Embedder for Model2VecEmbedder {
     }
 }
 
+/// A DETERMINISTIC, model-free [`Embedder`] for tests and CI runs that lack the
+/// vendored model blob.
+///
+/// It hashes the input text (FNV-1a) into a stable seed and expands that seed
+/// into a fixed-dimension vector via a small LCG, then L2-normalizes — so the
+/// same text ALWAYS maps to the same unit vector, and different texts map to
+/// different directions. It is NOT semantically meaningful (no notion of
+/// meaning), but it is a faithful stand-in for the *mechanics* the embed path
+/// depends on: stable per-text vectors, L2-normalized so `cosine == dot`,
+/// content-addressable for the cache. This lets the seek blend, the 0.40 recall
+/// floor, cache warm-reuse / self-pruning / single-writer persist, and
+/// corruption handling all be proven WITHOUT the ~30 MB blob.
+///
+/// To make a chosen pair of texts land on a target cosine (e.g. to probe the
+/// recall floor), construct with [`FakeEmbedder::with_anchor`], which maps a set
+/// of "near" phrases onto one shared base direction plus a small per-text jitter,
+/// so their pairwise cosine is high and controllable while unrelated texts stay
+/// near-orthogonal.
+#[derive(Clone)]
+pub struct FakeEmbedder {
+    dim: usize,
+    /// Texts whose vectors are pulled toward a shared anchor direction (high
+    /// mutual cosine), used to drive the recall-floor / blend proofs.
+    anchored: Vec<String>,
+    /// Blend weight toward the anchor for anchored texts, in [0,1].
+    anchor_weight: f32,
+}
+
+impl FakeEmbedder {
+    /// A plain deterministic embedder of dimension `dim` (no anchoring): every
+    /// text maps to its own stable pseudo-random unit vector.
+    pub fn new(dim: usize) -> Self {
+        Self {
+            dim: dim.max(1),
+            anchored: Vec::new(),
+            anchor_weight: 0.0,
+        }
+    }
+
+    /// A deterministic embedder where every text in `anchored` is pulled toward
+    /// one shared anchor direction by `anchor_weight` (in [0,1]), so anchored
+    /// texts share a high mutual cosine (≈ `anchor_weight` for large weight)
+    /// while non-anchored texts stay near-orthogonal. Used to place a node's
+    /// cosine deliberately above/below the recall floor.
+    pub fn with_anchor(dim: usize, anchored: &[&str], anchor_weight: f32) -> Self {
+        Self {
+            dim: dim.max(1),
+            anchored: anchored.iter().map(|s| s.to_string()).collect(),
+            anchor_weight: anchor_weight.clamp(0.0, 1.0),
+        }
+    }
+
+    /// FNV-1a 64-bit hash of the bytes — the stable per-text seed.
+    fn seed_of(text: &str) -> u64 {
+        let mut h = 0xcbf29ce484222325u64;
+        for b in text.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x00000100000001B3);
+        }
+        h
+    }
+
+    /// Expand a seed into a raw (un-normalized), ZERO-MEAN vector via a small
+    /// LCG. Centering each vector on its own mean makes two independently-seeded
+    /// texts near-orthogonal (expected cosine ≈ 0), so unrelated texts land well
+    /// below the recall floor while anchored texts (which share a direction) land
+    /// well above it — a controllable, faithful stand-in.
+    fn raw_vector(&self, seed: u64) -> Vec<f32> {
+        let mut state = seed | 1; // never zero
+        let mut v = Vec::with_capacity(self.dim);
+        let mut sum = 0.0f32;
+        for _ in 0..self.dim {
+            // LCG (MMIX by Knuth constants); take the top bits as a value in
+            // roughly [0, 2).
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let u = (state >> 33) as f32 / (1u64 << 31) as f32; // ~[0, 2)
+            v.push(u);
+            sum += u;
+        }
+        // Center on the mean → zero-mean vector (independent seeds ≈ orthogonal).
+        let mean = sum / self.dim as f32;
+        for x in v.iter_mut() {
+            *x -= mean;
+        }
+        v
+    }
+}
+
+impl Embedder for FakeEmbedder {
+    fn embed(&self, text: &str) -> Box<[f32]> {
+        let mut v = self.raw_vector(Self::seed_of(text));
+        if self.anchor_weight > 0.0 && self.anchored.iter().any(|a| a == text) {
+            // Blend toward a single shared anchor direction so anchored texts
+            // have a high, controllable mutual cosine.
+            let anchor = self.raw_vector(Self::seed_of("\u{0}m1nd-fake-anchor\u{0}"));
+            for (x, a) in v.iter_mut().zip(anchor.iter()) {
+                *x = (1.0 - self.anchor_weight) * *x + self.anchor_weight * *a;
+            }
+        }
+        l2_normalize(&mut v);
+        v.into_boxed_slice()
+    }
+
+    fn dim(&self) -> usize {
+        self.dim
+    }
+}
+
 /// L2-normalize a vector in place. No-op for zero vectors.
 pub fn l2_normalize(v: &mut [f32]) {
     let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
