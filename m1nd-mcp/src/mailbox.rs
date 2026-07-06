@@ -238,6 +238,18 @@ pub fn normalize_repo(raw: &str, worktree_base: &str) -> String {
     collapse_worktree(&base, worktree_base)
 }
 
+/// The case-folded ROUTING key for a normalized repo name — the identity under
+/// which `boxes_from_roots` keys `known_repos` and `resolve_box` looks it up. A
+/// letter that types the repo with different casing than the brain's on-disk
+/// basename ("ClientApp" vs `clientapp`) must still route to that brain; only the
+/// key folds — display names (KnownBox label, a `Pending` name) keep natural case.
+/// Case-insensitive is the correct identity here: the two dominant dev filesystems
+/// (macOS APFS default, Windows NTFS) are themselves case-insensitive, so two repo
+/// dirs differing only in case are the SAME dir on those hosts anyway.
+fn repo_match_key(normalized_name: &str) -> String {
+    normalized_name.to_ascii_lowercase()
+}
+
 /// Collapse a `<base>-<suffix>` worktree/annotation name onto `<base>`. A bare
 /// `<base>` stays `<base>`; an unrelated name stays itself.
 fn collapse_worktree(name: &str, worktree_base: &str) -> String {
@@ -310,8 +322,10 @@ pub fn resolve_box(
         return BoxTarget::Project(as_path.to_path_buf());
     }
 
-    // Otherwise resolve the normalized name against the known-repos map.
-    if let Some(dir) = known_repos.get(&normalized) {
+    // Otherwise resolve the normalized name against the known-repos map. The map is
+    // keyed by the case-folded name (`repo_match_key`), so a letter that differs
+    // from the brain basename only in case still resolves.
+    if let Some(dir) = known_repos.get(&repo_match_key(&normalized)) {
         if dir.is_dir() {
             return BoxTarget::Project(dir.clone());
         }
@@ -890,6 +904,15 @@ pub fn boxes_from_roots(
     // Group the DISTINCT dirs each normalized name resolves to. A repeated exact
     // (name, dir) pair is the same brain seen twice (roster + bound root) — one
     // distinct dir, so it still resolves; two DIFFERENT dirs is the ambiguity.
+    //
+    // The map is keyed by the CASE-FOLDED name (`repo_match_key`) so a letter that
+    // types the repo with different casing than the brain's on-disk basename still
+    // resolves — the field shape behind the one bare name that stayed pending after
+    // #293 (a "ClientApp" letter vs a `clientapp` brain). The KnownBox label keeps
+    // the natural-case name for display; only the routing key folds. Two brains
+    // whose basenames differ only in case in different parents fold to one key with
+    // TWO distinct dirs → the abstain law drops it (honest Pending), exactly as a
+    // same-case ambiguous basename already does.
     let mut dirs_by_name: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut boxes: Vec<KnownBox> = Vec::new();
     let mut seen_box: BTreeSet<(String, PathBuf)> = BTreeSet::new();
@@ -903,7 +926,7 @@ pub fn boxes_from_roots(
         let reachable = dir.is_dir();
         if reachable {
             dirs_by_name
-                .entry(name.clone())
+                .entry(repo_match_key(&name))
                 .or_default()
                 .insert(dir.clone());
         }
@@ -1682,6 +1705,79 @@ mod tests {
             resolve_box(&variant, &runtime, "some-bound-project", &known),
             BoxTarget::Project(repo_alpha),
             "a parenthetical worktree variant collapses to the same bare name and resolves"
+        );
+    }
+
+    // --- bare repo names resolve CASE-INSENSITIVELY (A-2) ---------------------
+    //
+    // Post-#293 one bare name still stayed pending: the letter typed the repo with
+    // different casing than the brain's on-disk basename (a "ClientApp" letter vs a
+    // `clientapp` brain). normalize_repo compared basenames case-sensitively, so the
+    // unique brain was missed → Pending. The routing key now folds case; the display
+    // name (KnownBox label, Pending name) keeps its natural case.
+
+    #[test]
+    fn bare_name_resolves_case_insensitively_to_unique_brain() {
+        let s = Scratch::new("casefold-resolve");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // A single brain whose on-disk basename is lowercase `clientapp`.
+        let brain = mk_repo(&s, "place").join("clientapp");
+        std::fs::create_dir_all(&brain).unwrap();
+        let roots = vec![brain.to_string_lossy().to_string()];
+        let (known, _boxes) = boxes_from_roots(&roots, "bound");
+
+        // A letter that types the name in a DIFFERENT case still routes to it.
+        for spelling in ["ClientApp", "CLIENTAPP", "clientApp"] {
+            let letter: Letter = serde_json::from_str(&format!(
+                r#"{{"repo":"{spelling}","tool":"x","class":"bug"}}"#
+            ))
+            .unwrap();
+            assert_eq!(
+                resolve_box(&letter, &runtime, "bound", &known),
+                BoxTarget::Project(brain.clone()),
+                "a case-variant bare name '{spelling}' must resolve to the unique brain"
+            );
+        }
+    }
+
+    #[test]
+    fn casefold_ambiguous_basename_still_abstains_to_pending() {
+        // The unique/abstain law survives folding: two brains whose basenames differ
+        // ONLY in case, in different parents, fold to one key with TWO distinct dirs
+        // → ambiguous → dropped → a bare letter for either casing stays Pending.
+        let s = Scratch::new("casefold-ambiguous");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let lower = mk_repo(&s, "place1").join("clientapp");
+        let upper = mk_repo(&s, "place2").join("ClientApp");
+        std::fs::create_dir_all(&lower).unwrap();
+        std::fs::create_dir_all(&upper).unwrap();
+        let roots = vec![
+            lower.to_string_lossy().to_string(),
+            upper.to_string_lossy().to_string(),
+        ];
+        let (known, boxes) = boxes_from_roots(&roots, "bound");
+
+        assert!(
+            !known.contains_key("clientapp"),
+            "two case-variant brains in different parents must not resolve to one: {known:?}"
+        );
+        let letter: Letter =
+            serde_json::from_str(r#"{"repo":"clientapp","tool":"x","class":"bug"}"#).unwrap();
+        assert_eq!(
+            resolve_box(&letter, &runtime, "bound", &known),
+            BoxTarget::Pending("clientapp".to_string()),
+            "a case-fold-ambiguous bare name abstains to Pending (never a guess)"
+        );
+        // Both distinct roots stay visible as named boxes.
+        assert!(
+            boxes
+                .iter()
+                .filter(|b| b.label.eq_ignore_ascii_case("clientapp"))
+                .count()
+                == 2,
+            "both case-variant roots remain visible as named boxes"
         );
     }
 

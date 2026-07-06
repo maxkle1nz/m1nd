@@ -707,6 +707,46 @@ async fn route_and_run(
                         }
                         return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
                     }
+
+                    // 3b. RECONNECT-REBIND, load-bearing (§C5.4, ladder R13). No brain
+                    // resolves at the caller root EXACTLY, but after an MCP reconnect the
+                    // caller_root can collapse to the host launch dir — an ANCESTOR of the
+                    // real repo (letter#49) — or the caller can sit in a monorepo subdir
+                    // UNDER a brain root, so the exact-match probe above misses even though
+                    // a known brain relates to this caller by ancestry. Consult the SAME
+                    // disk roster signal R13 uses (`covering_brain`): when exactly ONE known
+                    // brain relates to the caller in EITHER direction, warm-resolve it and
+                    // reattach the wire session to it — the roster fact drives routing here,
+                    // not just the reception hint, so the bind survives and a following
+                    // `memorize`/`ingest` lands on that project brain instead of refusing on
+                    // the medulla with `brainless_root`. The unique/abstain law is upheld by
+                    // `covering_brain` itself: it returns `None` for 0 (unknown repo) or >1
+                    // (ambiguous) related brains, so those still fall through to step 4's
+                    // honest mismatch reception — never an auto-pick.
+                    //
+                    // Reception honesty on the BROAD-CALLER direction: when the brain root
+                    // is UNDER the caller (the collapsed host-cwd shape), the served brain
+                    // does NOT cover the wider caller_root, so its own reception is still a
+                    // `caller_root_mismatch`. We route to the brain (so its answers + writes
+                    // are the brain's) BUT re-run the R13 enrichment on the result so that
+                    // mismatch reception NAMES the brain and suggests the PRECISE
+                    // `project_root`, never the bare host cwd — the same seam step 4 uses.
+                    // A caller UNDER the brain root gets a covering match, so R13 finds no
+                    // mismatch to rewrite and returns the response verbatim.
+                    if let Some(brain_root) = app.project_brains.covering_brain(root) {
+                        if let Some(brain) = app.project_brains.resolve(&brain_root) {
+                            if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
+                                s.bound_project_root = Some(brain_root);
+                            }
+                            let response =
+                                serve_and_compose(&app, brain, &request, caller_root.clone(), true);
+                            return enrich_reception_with_roster(
+                                response,
+                                &app,
+                                caller_root.as_deref(),
+                            );
+                        }
+                    }
                 }
             }
 
@@ -719,11 +759,11 @@ async fn route_and_run(
             // `ingest project_root=<caller_root>` — the host cwd. After an MCP
             // reconnect that cwd collapses to the host launch dir, an ANCESTOR of the
             // real repo (letter#49). If the disk roster holds exactly ONE known brain
-            // related to the caller by ancestry, we rewrite the mismatch reception to
-            // name THAT brain — the existing brain is preferred over the owner graph.
-            // The roster consult happens only on the mismatch path (step 4), never on
-            // a match (steps 2/3 already routed + returned), so TT-INV-12 silence is
-            // untouched; 0 or >1 related brains leave the reception exactly as today.
+            // related to the caller by ancestry, step 3b above has already REBOUND to
+            // it (load-bearing) and returned; this reception rewrite remains the
+            // fallback for the READ-ONLY reception verbs that reach step 4 without a
+            // rebindable session, naming THAT brain instead of the host cwd. 0 or >1
+            // related brains leave the reception exactly as today (honest mismatch).
             let response = serve_and_compose(
                 &app,
                 app.session.clone(),
@@ -1967,5 +2007,218 @@ mod tests {
         )
         .await;
         assert_eq!(resp3.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ---- A-1 RECONNECT-REBIND: the collapsed caller_root rebinds (load-bearing) ----
+
+    /// Register a project brain on disk under `app`'s registry so the routing layer
+    /// can `resolve`/`covering_brain` it, returning its canonical root key.
+    fn register_brain_on_disk(app: &Arc<AppState>, root: &std::path::Path) -> String {
+        std::fs::create_dir_all(root).expect("mk brain root");
+        app.project_brains
+            .ensure_registered(&root.to_string_lossy())
+            .expect("register brain")
+    }
+
+    /// A `memorize` `tools/call` request (the write that refuses with `brainless_root`
+    /// when served by the medulla for a foreign caller root).
+    fn memorize_request(node: &str) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "memorize",
+                "arguments": {
+                    "agent_id": "rebind-test",
+                    "node_label": node,
+                    "state": "authored",
+                    "claims": [{
+                        "label": "Claim",
+                        "text": "A claim.",
+                        "kind": "entity",
+                        "confidence": "0.6"
+                    }]
+                }
+            }),
+        }
+    }
+
+    /// Pull the tool payload JSON out of a `JsonRpcResponse` (`result.content[0].text`).
+    fn tool_payload(resp: &JsonRpcResponse) -> serde_json::Value {
+        let text = resp
+            .result
+            .as_ref()
+            .and_then(|r| r.get("content"))
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .expect("tool result carries content[0].text");
+        serde_json::from_str(text).expect("tool payload is JSON")
+    }
+
+    /// The load-bearing rebind (A-1). After an MCP reconnect the `caller_root`
+    /// collapses to an ANCESTOR of the real repo. The exact-match probe (step 3)
+    /// misses, but the disk roster holds exactly ONE brain under that ancestor. The
+    /// routing seam must REBIND the wire session to that brain — not merely rewrite
+    /// the reception — so a following `memorize` is served by the brain (which covers
+    /// its own root) and does NOT refuse with `brainless_root`.
+    #[tokio::test]
+    async fn collapsed_caller_root_rebinds_to_unique_covering_brain() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        // One brain on disk at <tmp>/workspace/repo-a.
+        let workspace = temp.path().join("workspace");
+        let key_a = register_brain_on_disk(&app, &workspace.join("repo-a"));
+
+        // A call whose caller_root is the ANCESTOR (workspace) that covers exactly
+        // that one brain — the letter#49 collapsed-cwd shape.
+        let resp = route_and_run(
+            app.clone(),
+            memorize_request("RebindFact"),
+            Some(workspace.to_string_lossy().to_string()),
+            sid.clone(),
+        )
+        .await;
+
+        // The wire session auto-reattached to the covering brain (load-bearing bind).
+        let bound = app
+            .mcp_sessions
+            .lock()
+            .get(&sid)
+            .and_then(|s| s.bound_project_root.clone());
+        assert_eq!(
+            bound,
+            Some(key_a),
+            "the session must rebind to the unique covering brain, not stay on the medulla"
+        );
+
+        // And the write is NOT refused — served by the project brain, which covers
+        // its own root, so no `brainless_root`.
+        let payload = tool_payload(&resp);
+        assert_ne!(
+            payload["refused"], "brainless_root",
+            "a rebound write must not refuse with brainless_root, got: {payload}"
+        );
+    }
+
+    /// The OTHER ancestry direction: the caller sits in a monorepo SUBDIR under a
+    /// brain root. The exact-match probe misses (the subdir is not itself a brain
+    /// root), but `covering_brain` relates it to the one brain ABOVE it, so the
+    /// session rebinds to that brain and the write lands there (no medulla refusal).
+    #[tokio::test]
+    async fn caller_in_monorepo_subdir_rebinds_to_the_brain_above_it() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        // A brain at <tmp>/repo-a; the caller is a deep subdir inside it.
+        let repo_a = temp.path().join("repo-a");
+        let key_a = register_brain_on_disk(&app, &repo_a);
+        let subdir = repo_a.join("crates").join("inner");
+        std::fs::create_dir_all(&subdir).expect("mk subdir");
+
+        let resp = route_and_run(
+            app.clone(),
+            memorize_request("SubdirFact"),
+            Some(subdir.to_string_lossy().to_string()),
+            sid.clone(),
+        )
+        .await;
+
+        let bound = app
+            .mcp_sessions
+            .lock()
+            .get(&sid)
+            .and_then(|s| s.bound_project_root.clone());
+        assert_eq!(
+            bound,
+            Some(key_a),
+            "a caller under a brain root must rebind to that brain"
+        );
+        let payload = tool_payload(&resp);
+        assert_ne!(
+            payload["refused"], "brainless_root",
+            "a write from a subdir under a covered brain must land, got: {payload}"
+        );
+    }
+
+    /// Abstain law, zero covering brains: a caller_root unrelated to any known brain
+    /// must NOT rebind and the medulla write stays refused (genuine unknown repo).
+    #[tokio::test]
+    async fn unrelated_caller_root_does_not_rebind_and_write_is_refused() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        // A brain exists, but the caller is on a totally separate branch of the tree.
+        register_brain_on_disk(&app, &temp.path().join("workspace").join("repo-a"));
+        let stranger = temp.path().join("elsewhere").join("stranger");
+        std::fs::create_dir_all(&stranger).expect("mk stranger");
+
+        let resp = route_and_run(
+            app.clone(),
+            memorize_request("StrangerFact"),
+            Some(stranger.to_string_lossy().to_string()),
+            sid.clone(),
+        )
+        .await;
+
+        let bound = app
+            .mcp_sessions
+            .lock()
+            .get(&sid)
+            .and_then(|s| s.bound_project_root.clone());
+        assert_eq!(
+            bound, None,
+            "an unrelated caller must not rebind to any brain"
+        );
+
+        let payload = tool_payload(&resp);
+        assert_eq!(
+            payload["refused"], "brainless_root",
+            "an unknown foreign repo must still be refused on the medulla, got: {payload}"
+        );
+    }
+
+    /// Abstain law, MORE THAN ONE covering brain: an ancestor that covers two brains
+    /// is ambiguous — the front desk must NOT auto-pick, so no rebind and the write
+    /// stays refused (honesty over a guess).
+    #[tokio::test]
+    async fn ambiguous_caller_root_does_not_auto_pick_and_write_is_refused() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        // TWO brains under the same ancestor workspace → ancestor relates to both.
+        let workspace = temp.path().join("workspace");
+        register_brain_on_disk(&app, &workspace.join("repo-a"));
+        register_brain_on_disk(&app, &workspace.join("repo-b"));
+
+        let resp = route_and_run(
+            app.clone(),
+            memorize_request("AmbiguousFact"),
+            Some(workspace.to_string_lossy().to_string()),
+            sid.clone(),
+        )
+        .await;
+
+        let bound = app
+            .mcp_sessions
+            .lock()
+            .get(&sid)
+            .and_then(|s| s.bound_project_root.clone());
+        assert_eq!(
+            bound, None,
+            "two covering brains is ambiguous — the session must not auto-pick one"
+        );
+
+        let payload = tool_payload(&resp);
+        assert_eq!(
+            payload["refused"], "brainless_root",
+            "an ambiguous ancestor must still be refused (no fabricated pick), got: {payload}"
+        );
     }
 }
