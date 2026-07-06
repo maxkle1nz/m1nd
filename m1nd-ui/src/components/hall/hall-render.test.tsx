@@ -299,6 +299,32 @@ test('naming guard: the project card shows "project-b", not the fingerprint stor
   assert.equal(project.display_name, 'project-b');
 });
 
+// ── The MEDULLA card renders as "medulla", never the last-bound workspace ──────
+// Field bug (2026-07-06): the owner card wore the last-bound project's name — the
+// medulla had taken on the name of the workspace that bound its runtime last. The
+// server now stamps the owner's own served brain `brain_kind:"medulla"` +
+// `display_name:"medulla"`; the card must render that literal, with the real repo
+// path (project_root) demoted to the receipt, never the headline.
+test('naming guard: a medulla-kind card renders "medulla", not its bound workspace basename', () => {
+  // A medulla entry as the server now enriches it: the honest kind + name, with the
+  // real repo path still on project_root (its receipt path) — modeled on the leak
+  // where the project_root basename wrongly became the rendered name.
+  const medulla = {
+    ...bound,
+    brain_kind: 'medulla' as string,
+    display_name: 'medulla',
+    project_root: '/path/to/last-bound-repo',
+  };
+  const text = cardName(medulla, true);
+  assert.match(text, /medulla/, 'the medulla card headline reads "medulla"');
+  // brainDisplayName is the ONE name source (the card headline + the chip) — it
+  // returns the stamped medulla name, NEVER the project_root basename
+  // ("last-bound-repo") that leaked pre-fix. The real repo path is still shown on
+  // the card's path line (the receipt path), demoted — not the identity.
+  assert.equal(brainDisplayName(medulla), 'medulla');
+  assert.notEqual(brainDisplayName(medulla), 'last-bound-repo', 'the name must not be the last-bound workspace basename');
+});
+
 // ── Project-brain semantics: a project brain is NOT an instance (§4A.3) ───────
 // Max's live screenshot: the project-b project card wore "counts unknown — not
 // running" + a "stale lock" badge — instance language on an in-process brain.
