@@ -396,12 +396,21 @@ fn run_medulla_migrate(
         .store_dir_for(&ProjectBrainRegistry::canonical_key(&project_origin))
         .join("agent-memory");
 
-    let mig = MedullaMigration::new(
+    let mut mig = MedullaMigration::new(
         &medulla_dir,
         &project_dir,
         &ingest_roots_path,
         project_origin.clone(),
     );
+    // Operational override for the owner-alive guard port (default: the served-owner
+    // port). A maintainer running the owner on a non-default port sets this so the
+    // guard probes the right listener; the CLI integration tests set it to a closed
+    // port so they can exercise `apply`/`rollback` without a live owner interfering.
+    if let Ok(p) = std::env::var("M1ND_MEDULLA_GUARD_PORT") {
+        if let Ok(port) = p.parse::<u16>() {
+            mig = mig.with_owner_guard_port(port);
+        }
+    }
 
     let (mode_str, payload) = match mode {
         MedullaMigrateMode::Plan => match mig.plan() {
