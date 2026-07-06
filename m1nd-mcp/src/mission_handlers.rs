@@ -232,7 +232,9 @@ pub fn handle_mission_verify(
     // Cap confidence for a label-only "direct" claim: the number cannot ride
     // higher than the evidence backing it.
     let effective_confidence = if grade == "direct_unverified" {
-        input.confidence.map(|c| c.min(DIRECT_UNVERIFIED_CONFIDENCE_CAP))
+        input
+            .confidence
+            .map(|c| c.min(DIRECT_UNVERIFIED_CONFIDENCE_CAP))
     } else {
         input.confidence
     };
@@ -1008,7 +1010,11 @@ fn next_move(
 /// disk (or a referenced recorded mission event). A label with no backing event
 /// and no resolvable path grades `direct_unverified`: the agent asserted a read
 /// that cannot be corroborated, so the claim must not close on the label alone.
-fn classify_evidence(evidence_refs: &[String], events: &[Value], verify_roots: &[PathBuf]) -> String {
+fn classify_evidence(
+    evidence_refs: &[String],
+    events: &[Value],
+    verify_roots: &[PathBuf],
+) -> String {
     let refs_lower = evidence_refs
         .iter()
         .map(|reference| reference.to_ascii_lowercase())
@@ -1415,7 +1421,10 @@ mod tests {
             "evidence_class": "direct"
         })];
         let grade = classify_evidence(
-            &["file_read:src/auth.rs".to_string(), "event:evt_9".to_string()],
+            &[
+                "file_read:src/auth.rs".to_string(),
+                "event:evt_9".to_string(),
+            ],
             &events,
             &[],
         );

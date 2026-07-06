@@ -6051,6 +6051,15 @@ mod tests {
     fn mission_control_records_guardrails_and_proof_packet() {
         let (_temp, mut state) = build_state();
 
+        // The agent's direct evidence must point at a path that actually exists
+        // under a verify root (workspace_root == runtime_root in this fixture) so
+        // `mission_verify` grades it `direct` on a verifiable signal, not on the
+        // label alone. Write the real source the mission claims to have read.
+        let auth_src = state.runtime_root.join("src").join("auth.rs");
+        std::fs::create_dir_all(auth_src.parent().expect("src dir")).expect("create src dir");
+        std::fs::write(&auth_src, "// logout route clears the session cookie\n")
+            .expect("write auth.rs evidence");
+
         let start = super::dispatch_tool(
             &mut state,
             "mission_start",
@@ -6151,6 +6160,8 @@ mod tests {
             }),
         )
         .expect("mission_verify direct");
+        // `src/auth.rs` exists under the verify root and was read this turn, so the
+        // direct label carries a verifiable signal and legitimately closes the claim.
         assert_eq!(direct["verdict"], "verified_for_mission");
         assert_eq!(direct["evidence_grade"], "direct");
 
