@@ -1186,6 +1186,77 @@ mod tests {
         );
     }
 
+    /// CODE-GRAPH INVARIANT (LEVA 3-PREP, option B — MEDULLA-PRD §4.2): the runtime
+    /// owner is BOTH the medulla AND the home brain of its own repo, so the ~6.6k-node
+    /// code graph legitimately lives at the medulla root. `apply` is a MEMORY-ONLY
+    /// split: it moves `.light.md` claims and must NEVER touch the code graph — the
+    /// medulla's `graph_snapshot.json` stays byte-for-byte, and `apply` fabricates no
+    /// graph in the destination project store (a split that reassociated a large graph
+    /// would be the expensive, data-risky path B deliberately rejects). This pins the
+    /// "code graph stays at the medulla root" hazard as a proven invariant.
+    #[test]
+    fn apply_is_memory_only_and_never_touches_the_code_graph() {
+        let s = scratch();
+        // The owner's code graph sits at the medulla root — stand it in with a
+        // sentinel snapshot whose bytes we can prove are untouched.
+        let graph_path = s.medulla.join("graph_snapshot.json");
+        let graph_bytes = "{\"schema\":\"stand-in-code-graph\",\"nodes\":6657}";
+        std::fs::write(&graph_path, graph_bytes).expect("seed code graph");
+
+        write_claim(
+            &s.medulla,
+            "sliceship.light.md",
+            &light_doc(
+                "SliceShip",
+                "closer",
+                "shipped.\n\n[⍂ entity: SliceShip]\n[𝔻 evidence: m1nd-mcp/src/x.rs]\n",
+            ),
+        );
+        write_claim(
+            &s.medulla,
+            "maxpref.light.md",
+            &light_doc(
+                "MaxPref",
+                "orch",
+                "maintainer doctrine.\n\n[⍂ entity: MaxPref]\n",
+            ),
+        );
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = scratch_mig(&s);
+        let receipt = mig.apply().expect("apply");
+        assert!(
+            receipt.count_conserved,
+            "the memory split still conserves count"
+        );
+
+        // The code graph at the medulla root is byte-identical — never migrated.
+        assert!(
+            graph_path.exists(),
+            "the medulla's code graph must survive a memory-only migration"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&graph_path).unwrap(),
+            graph_bytes,
+            "apply must not touch the medulla's code graph (option B: the owner keeps it)"
+        );
+        // And no graph was fabricated in the destination project store (it is a
+        // memory brain; option A — reassociating a large graph — is rejected here).
+        assert!(
+            !s.project.join("graph_snapshot.json").exists(),
+            "apply must not fabricate a code graph in the destination project store"
+        );
+        // The `.light.md` split itself still happened (the memory DID move).
+        assert!(
+            s.project.join("sliceship.light.md").exists(),
+            "the repo fact still moved (memory-only migration is not a no-op)"
+        );
+    }
+
     /// Ghost-pointer sweep: a dangling per-file pointer is pruned; a live per-file
     /// pointer collapses into the dir root.
     #[test]

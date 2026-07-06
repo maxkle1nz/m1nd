@@ -338,6 +338,96 @@ fn apply_uses_explicit_target_and_ignores_ambient_binding() {
     );
 }
 
+/// Read a store dir's `project_brain.json` manifest and return its `project_root`
+/// field, mirroring exactly what the routing layer's `manifest_matches` /
+/// `resolve` require to MOUNT a brain (a store without this manifest, or whose
+/// `project_root` does not equal the resolved key, is an unmountable orphan).
+/// `None` = no manifest / unreadable / no `project_root` — the orphan condition.
+fn manifest_project_root(store_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(store_dir.join("project_brain.json")).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()?
+        .get("project_root")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// RED (LEVA 3-PREP, orphan-brain — field report 2026-07-05T22:31): after a
+/// successful `apply` the destination project brain must be MOUNTABLE — its store
+/// dir must carry a `project_brain.json` manifest whose `project_root` equals the
+/// `--migrate-project-root`, plus `brain_kind: "project"`. Today `apply` writes the
+/// `.light.md` files into `project-brains/<fp>/agent-memory/` but never registers
+/// the brain (no manifest), so `resolve`/`knows` return None and the owner cannot
+/// mount the moved memories — de-facto data loss at the routing layer.
+#[test]
+fn apply_registers_the_destination_brain_so_it_is_mountable() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime_dir = tmp.path().join("runtime");
+    let target_repo = tmp.path().join("repo-beta");
+    seed_runtime_bound_to(&runtime_dir, &tmp.path().join("repo-alpha"));
+    std::fs::create_dir_all(&target_repo).expect("mk target repo dir");
+
+    let (code, stdout, stderr) = run(
+        &[
+            "--medulla-migrate",
+            "apply",
+            "--migrate-project-root",
+            &target_repo.to_string_lossy(),
+        ],
+        &runtime_dir,
+    );
+    assert_eq!(
+        code, 0,
+        "apply with an explicit target must succeed; stderr:\n{stderr}\nstdout:\n{stdout}"
+    );
+
+    // The moved claim landed under some project-brains/<fp>/agent-memory/ dir. Its
+    // store dir is that agent-memory's PARENT — where the manifest must live.
+    let moved = light_files_under(&runtime_dir.join("project-brains"));
+    let sliceship: Vec<_> = moved
+        .iter()
+        .filter(|p| p.ends_with("sliceship.light.md"))
+        .collect();
+    assert_eq!(
+        sliceship.len(),
+        1,
+        "the repo fact moved into exactly one project brain, found: {moved:?}"
+    );
+    let store_dir = Path::new(sliceship[0])
+        .parent()
+        .and_then(|agent_memory| agent_memory.parent())
+        .expect("store dir = agent-memory's parent")
+        .to_path_buf();
+
+    // THE MOUNT CONTRACT: a `project_brain.json` naming the target repo must exist.
+    // Without it the store is an orphan `resolve`/`knows` can never return.
+    let canonical_target = std::fs::canonicalize(&target_repo)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| target_repo.to_string_lossy().to_string());
+    let manifest_root = manifest_project_root(&store_dir).unwrap_or_else(|| {
+        panic!(
+            "orphan store: no mountable project_brain.json in {}; contents: {:?}",
+            store_dir.display(),
+            std::fs::read_dir(&store_dir)
+                .map(|e| e.flatten().map(|d| d.file_name()).collect::<Vec<_>>())
+                .unwrap_or_default()
+        )
+    });
+    assert_eq!(
+        manifest_root, canonical_target,
+        "the manifest's project_root must equal the --migrate-project-root so resolve() mounts it"
+    );
+
+    // brain_kind: "project" — the shared phonebook tells this brain from the medulla.
+    let manifest_text =
+        std::fs::read_to_string(store_dir.join("project_brain.json")).expect("read manifest");
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_text).expect("manifest json");
+    assert_eq!(
+        manifest["brain_kind"], "project",
+        "the registered brain is stamped brain_kind: project, got:\n{manifest_text}"
+    );
+}
+
 /// RED (field bug 2026-07-05, idempotency): running `apply` a SECOND time over an
 /// already-migrated store (every claim moved or stamped, nothing left to do) must
 /// report `already_migrated` with `moved: 0` and `count_conserved != false`,

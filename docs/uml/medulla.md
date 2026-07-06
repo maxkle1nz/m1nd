@@ -3,8 +3,9 @@
 The owner-hosted multi-brain layer: one served process holds N per-project brain stores
 (tier-is-a-directory) plus a shared "medulla" doctrine store. Recall is pull-only
 (own store + medulla); `promote` is the audited copy-up crossing; the M5a migration
-splits the legacy mixed store — with confirmed, still-unfixed data-loss/orphan hazards
-on the CLI apply path.
+splits the legacy mixed store — CLI apply now registers the destination brain (no
+orphan) and the code graph stays at the medulla root by design (option B), with the
+remaining CLI-apply gaps ranked medium/low below.
 
 ## Class
 
@@ -181,11 +182,14 @@ stateDiagram-v2
     Apply --> Backup : has claims to move
     Backup --> Move : snapshot whole medulla dir first
     Move --> CountCheck : write-then-remove per claim
-    CountCheck --> Done : baseline == project_after + medulla_after
+    CountCheck --> Register : baseline == project_after + medulla_after
+    Register --> Done : CLI ensure_registered writes project_brain.json
     Note right of Done
-      HAZARD: no project_brain.json written ->
-      ORPHAN store the owner cannot mount [high]
-      code graph stays at medulla root [high]
+      RESOLVED 2026-07-06:
+      CLI registers the brain (project_brain.json +
+      brain_kind:project) -> mountable, no orphan.
+      Code graph stays at medulla root BY DESIGN
+      (option B: owner is medulla AND its own home brain).
     end note
     Done --> [*]
 
@@ -241,9 +245,9 @@ sequenceDiagram
 
 ## Gaps
 
-- **[high] CLI apply leaves an ORPHAN, unmountable project store**: run_medulla_migrate -> apply writes .light.md into project-brains/<fp>/agent-memory/ but never creates project_brain.json (no write_manifest), no plasticity/graph state. resolve()/knows() require manifest_matches, so the moved claims are unreachable — de-facto data loss at the routing layer (main.rs:394-404; field report 2026-07-05T22:31; manifest_matches project_brains.rs:157-166).
+- **[high] CLI apply leaves an ORPHAN, unmountable project store** — **CLOSED (2026-07-06)**: after a successful move the CLI calls `ProjectBrainRegistry::ensure_registered(project_root)`, which reuses the SAME `write_manifest` birth path a bootstrap uses to stamp `project_brain.json` (identity + `brain_kind:"project"`) — so `resolve()`/`knows()` (`manifest_matches`) now mount the moved claims instead of finding an orphan. Idempotent (a matching manifest is left untouched; a re-run self-heals a prior orphan). Proven by `apply_registers_the_destination_brain_so_it_is_mountable` driving the real binary (ensure_registered project_brains.rs; apply arm main.rs; manifest_matches project_brains.rs:157-166). *(Graph/plasticity state is intentionally NOT written — see the code-graph resolution below: the owner keeps the code graph, a migrated memory brain is graph-less by design.)*
 - **[high] No live-owner-detection guard on apply**: the CLI mutates on-disk stores while a served owner (launchd keepalive) may be live at :1338, then resurrect mid-apply and race the file moves (main.rs:330-472 has no :1338/lock/liveness check; same field report).
-- **[high] The split has no design for the CODE GRAPH**: migration moves only .light.md; the ~6657-node code graph stays at the medulla root -> hybrid medulla (doctrine + full code graph) and a graph-less project brain (medulla_migration.rs live_claims :143 enumerates only *.light.md; apply :402 never touches graph_snapshot.json).
+- **[high] The split has no design for the CODE GRAPH** — **CLOSED (2026-07-06, option B)**: the design is now explicit — the runtime owner is BOTH the medulla AND the home brain of its own repo, so the ~6657-node code graph legitimately stays at the medulla root, and migration separates memories BY origin (owner-repo claims stay; only other projects' facts move). Option A (reassociate the graph into the project brain) is rejected as the expensive, data-risky path; dropping the m1nd code root from the owner is deferred post-M5 (Slices 5–7). `apply` already never touches `graph_snapshot.json` (`live_claims` enumerates only `*.light.md`), so no code change was needed — the invariant is pinned by `apply_is_memory_only_and_never_touches_the_code_graph` so a future change cannot silently start migrating the graph (MEDULLA-PRD §4.2 "the code graph stays at the medulla root").
 - **[medium] Rollback incomplete against a real store**: restore_tree never DELETES files the backup lacks (only overwrites/creates); CLI derives moved names from a post-apply dir scan, unreliable if apply half-failed (medulla_migration.rs:493-517, restore_tree :640; main.rs:435-445).
 - **[medium] Classifier is heuristic substring-matching**: a doctrine note using 'gate' misfiles to a project brain; a repo fact using 'always' stays medulla — silent wrong-tier routing (medulla_migration.rs:182-274; field report 23/27 legacy claims routed to project).
 - **[low] promote slug divergence**: source lookup uses slugify(input.claim) while medulla_slug=slugify(node_label from frontmatter) — a fork instead of a supersede if they differ (promote_handlers.rs:391 vs 432-437, witness :489).
