@@ -3315,8 +3315,8 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
             "full_registry_tool_count": full_registry_tool_count,
             // advertised_tool_count: what tools/list currently exposes (tier-dependent)
             "advertised_tool_count": advertised_tool_count,
-            // tool_tier: "essential" (default, ~25 tools) or "full" (all tools).
-            // Set M1ND_TOOL_TIER=full to expose all 102 tools in tools/list.
+            // tool_tier: "essential" (default, 42 tools) or "full" (all tools).
+            // Set M1ND_TOOL_TIER=full to expose all 118 tools in tools/list.
             // Hidden tools remain callable via tools/call dispatch at all times.
             "tool_tier": tool_tier,
             "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,

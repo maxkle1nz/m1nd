@@ -366,7 +366,7 @@ struct DaemonRuntimeControl {
 // Tool tier gate
 // ---------------------------------------------------------------------------
 
-/// The curated ESSENTIAL tool set (~25 tools) advertised by default.
+/// The curated ESSENTIAL tool set (42 tools) advertised by default.
 ///
 /// These are the high-frequency tools agents need for orientation, trust, and
 /// everyday graph queries. All other tools are "advanced" and are hidden from
@@ -421,8 +421,8 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
 ///
-/// - Unset or `essential` (case-insensitive) → `"essential"` (curated ~25)
-/// - `full` (case-insensitive) → `"full"` (all 102 tools)
+/// - Unset or `essential` (case-insensitive) → `"essential"` (curated 42)
+/// - `full` (case-insensitive) → `"full"` (all 118 tools)
 /// - Any unrecognized value → defaults to `"essential"`
 pub fn active_tool_tier() -> &'static str {
     match std::env::var("M1ND_TOOL_TIER")
@@ -463,7 +463,7 @@ pub fn proof_gate_enabled() -> bool {
 }
 
 /// Returns ALL registered MCP tool schemas regardless of tier.
-/// Use this when you always need the full 102-tool registry (e.g., health
+/// Use this when you always need the full 118-tool registry (e.g., health
 /// contract counts, internal tests that verify advanced tool registration).
 pub fn all_tool_schemas() -> serde_json::Value {
     all_tool_schemas_inner()
@@ -503,7 +503,7 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
     serde_json::json!({ "tools": filtered })
 }
 
-/// Internal: the complete static tool registry (all 102 tools). Never filtered.
+/// Internal: the complete static tool registry (all 118 tools). Never filtered.
 fn all_tool_schemas_inner() -> serde_json::Value {
     serde_json::json!({
         "tools": [
