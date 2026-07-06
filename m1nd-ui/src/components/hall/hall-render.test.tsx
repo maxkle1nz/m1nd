@@ -154,14 +154,28 @@ test('INV-14: exactly one card wears the viewing chip, and its name === the top-
   assert.match(chipName, new RegExp(viewingName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'viewing chip name === Brain Chip name');
 });
 
-test('INV-14: the viewing chip carries the Eye icon and the word "viewing"', () => {
+test('INV-14: the viewing chip carries the Eye icon and the word "Viewing"', () => {
   const out = html(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />);
   assert.match(out, /data-role="viewing-chip"/);
   assert.match(out, /data-icon="viewing"/, 'the viewing chip uses the Eye (viewing) icon from the registry');
-  assert.match(visibleText(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />), /viewing/);
+  assert.match(visibleText(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />), /Viewing/);
   // A non-viewed card wears NO chip.
   const notViewed = html(<BrainCard entry={project} isSelf={false} viewing={false} selected={false} onSelect={noop} onOpen={noop} />);
   assert.doesNotMatch(notViewed, /data-role="viewing-chip"/);
+});
+
+test('§4A.8: the viewing card wears a calm act-green accent bar + tint (SOFT PROOF, existing tokens)', () => {
+  // The one brain the tab is viewing must read at a glance: a left accent bar +
+  // a soft act-tint wash — both from the EXISTING verdict-act family (never neon,
+  // never violet). A non-viewed card keeps the plain bone fill.
+  const viewingCard = html(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />);
+  assert.match(viewingCard, /border-l-2/, 'the viewing card has a left accent bar');
+  assert.match(viewingCard, /border-l-verdict-act/, 'the accent bar is the calm act-green (existing token)');
+  assert.match(viewingCard, /bg-verdict-act-tint\/30/, 'the viewing card wears a soft act-tint wash');
+
+  const plainCard = html(<BrainCard entry={bound} isSelf viewing={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.doesNotMatch(plainCard, /border-l-verdict-act/, 'a non-viewed card carries no accent bar');
+  assert.match(plainCard, /bg-bone\/60/, 'a non-viewed card keeps the plain bone fill');
 });
 
 // ── INV-11: no affordance without a surface (disabled-with-tooltip) ───────────
@@ -186,6 +200,26 @@ test('§4A.9: a hosted project brain renders Open ENABLED once the owner adverti
 test('INV-11: the bound brain CAN be opened (Open is enabled)', () => {
   const out = html(<BrainCard entry={bound} isSelf selected={false} onSelect={noop} onOpen={noop} />);
   assert.ok(!hasDisabledAttr(openTag(out, 'open-brain')), 'the bound brain Open is enabled');
+});
+
+// ── Clarity pass: "Open brain" (the action) is never bare "Open" — it must not
+// collide with the "N open" letter count (the mailbox badge). ─────────────────
+test('§4A.3: the open action reads "Open brain", distinct from the "N open" letter count', () => {
+  const out = visibleText(<BrainCard entry={bound} isSelf selected={false} onSelect={noop} onOpen={noop} />);
+  assert.match(out, /Open brain/, 'the action button names the noun (brain), not a bare "Open"');
+});
+
+// ── Clarity pass: a long path truncates with ellipsis (uniform card rhythm),
+// the full path staying available on hover via the title attribute. ───────────
+test('§4A.3: the card path line truncates (never wraps) and keeps the full path on hover', () => {
+  const longPath = '/path/to/a/very/deeply/nested/workspace/reporooms';
+  const longEntry = { ...project, project_root: longPath, display_name: 'reporooms' };
+  const out = html(<BrainCard entry={longEntry} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
+  // The path line clamps to one line (truncate), never break-all (multi-line wrap).
+  assert.match(out, /class="[^"]*\btruncate\b[^"]*"[^>]*title="[^"]*reporooms"/);
+  assert.doesNotMatch(out, /class="[^"]*break-all[^"]*"[^>]*title=/, 'the path no longer wraps across lines');
+  // The full path is on hover (the title carries the un-shortened root).
+  assert.ok(out.includes(`title="${longPath}"`), 'the full path is available on hover');
 });
 
 // ── INV-11: the receipt drawer carries the stop + eject disabled rungs ────────
@@ -297,6 +331,32 @@ test('naming guard: the project card shows "project-b", not the fingerprint stor
   // The fingerprint hash (the pre-fix leak) must not be the headline.
   assert.doesNotMatch(text, /68c5ce186f6efcd2/);
   assert.equal(project.display_name, 'project-b');
+});
+
+// ── The MEDULLA card renders as "medulla", never the last-bound workspace ──────
+// Field bug (2026-07-06): the owner card wore the last-bound project's name — the
+// medulla had taken on the name of the workspace that bound its runtime last. The
+// server now stamps the owner's own served brain `brain_kind:"medulla"` +
+// `display_name:"medulla"`; the card must render that literal, with the real repo
+// path (project_root) demoted to the receipt, never the headline.
+test('naming guard: a medulla-kind card renders "medulla", not its bound workspace basename', () => {
+  // A medulla entry as the server now enriches it: the honest kind + name, with the
+  // real repo path still on project_root (its receipt path) — modeled on the leak
+  // where the project_root basename wrongly became the rendered name.
+  const medulla = {
+    ...bound,
+    brain_kind: 'medulla' as string,
+    display_name: 'medulla',
+    project_root: '/path/to/last-bound-repo',
+  };
+  const text = cardName(medulla, true);
+  assert.match(text, /medulla/, 'the medulla card headline reads "medulla"');
+  // brainDisplayName is the ONE name source (the card headline + the chip) — it
+  // returns the stamped medulla name, NEVER the project_root basename
+  // ("last-bound-repo") that leaked pre-fix. The real repo path is still shown on
+  // the card's path line (the receipt path), demoted — not the identity.
+  assert.equal(brainDisplayName(medulla), 'medulla');
+  assert.notEqual(brainDisplayName(medulla), 'last-bound-repo', 'the name must not be the last-bound workspace basename');
 });
 
 // ── Project-brain semantics: a project brain is NOT an instance (§4A.3) ───────

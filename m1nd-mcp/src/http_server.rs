@@ -351,6 +351,12 @@ pub fn spawn_background(
         let _ = session
             .instance
             .set_running_endpoint("127.0.0.1".into(), port);
+        // The served owner IS the medulla — stamp its on-disk registry entry so a
+        // sibling owner listing it reads the honest kind (the self-listing path
+        // stamps it too, but only THIS process can label its own entry on disk).
+        if session.is_medulla_store() {
+            let _ = session.instance.set_brain_kind("medulla");
+        }
     }
     let _heartbeat = {
         let session = app_state.session.lock();
@@ -501,6 +507,12 @@ pub async fn run(
     {
         let session = app_state.session.lock();
         let _ = session.instance.set_running_endpoint(bind.clone(), port);
+        // The served owner IS the medulla — stamp its on-disk registry entry so a
+        // sibling owner listing it reads the honest kind (the self-listing path
+        // stamps it too, but only THIS process can label its own entry on disk).
+        if session.is_medulla_store() {
+            let _ = session.instance.set_brain_kind("medulla");
+        }
     }
     let _heartbeat = {
         let session = app_state.session.lock();
@@ -924,6 +936,7 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
         self_runtime_root,
         self_project_root,
         self_display_name,
+        self_is_medulla,
         self_attached_sessions,
         self_query_count,
         self_calibration_armed,
@@ -933,10 +946,23 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
             canon_root(&session.runtime_root.to_string_lossy()),
             session.project_root_display(),
             session.display_name(),
+            session.is_medulla_store(),
             session.sessions.len() as u64,
             session.queries_processed,
             session.calibration_armed(),
         )
+    };
+    // The owner it serves IS the medulla (MEDULLA-PRD §4.1: the tier is the
+    // directory): its runtime_root holds the promoted/doctrine store, not a
+    // per-project brain. On the Hall its card must say so — `medulla`, never the
+    // basename of whatever workspace happened to bind this runtime last (the field
+    // bug where the medulla card wore the last-bound project's name). The honest
+    // name for a medulla self-entry is the literal `medulla`; its real repo path
+    // stays on the entry (`project_root`) for the receipt drawer.
+    let self_display_name = if self_is_medulla {
+        Some("medulla".to_string())
+    } else {
+        self_display_name
     };
     let store_base = state.project_brains.base_dir().to_path_buf();
 
@@ -955,6 +981,10 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
             // brain has no live SessionState right now (a dormant project brain),
             // so the live counters render ABSENT, never a fabricated 0 (TT-INV-2).
             let mut brain_aliveness: Option<(u64, u64, bool)> = None;
+            // True when THIS entry is the owner's own served brain AND that brain is
+            // the medulla — so the card gets stamped `brain_kind:"medulla"` below,
+            // the one honest label for the doctrine-tier root (never a project name).
+            let mut is_self_medulla = false;
 
             let (display_name, project_root) = if canon_root(&entry.runtime_root)
                 == self_runtime_root
@@ -965,6 +995,7 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                     self_query_count,
                     self_calibration_armed,
                 ));
+                is_self_medulla = self_is_medulla;
                 (self_display_name.clone(), self_project_root.clone())
             } else if is_project {
                 // A hosted project brain: its workspace_root IS its store dir;
@@ -1027,6 +1058,16 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                 }
             });
             if let Some(map) = value.as_object_mut() {
+                // The served owner IS the medulla: stamp the honest kind so the Hall
+                // renders a `medulla` card, not the classic bound/dev graph (whose
+                // brain_kind is the serde-default None). The UI keys on this; a
+                // sibling owner's on-disk entry carries it too (stamped at serve).
+                if is_self_medulla {
+                    map.insert(
+                        "brain_kind".into(),
+                        serde_json::Value::String("medulla".into()),
+                    );
+                }
                 map.insert(
                     "display_name".into(),
                     match display_name {
