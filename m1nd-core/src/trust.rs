@@ -245,6 +245,20 @@ impl TrustLedger {
         let _ = timestamp;
     }
 
+    /// Iterate the recorded `(external_id, &TrustEntry)` pairs without exposing
+    /// the backing map. Mirrors `CalibrationTable::signals()`. Used by the
+    /// envelope-calibration harness to derive a labeled corpus from real learn
+    /// outcomes (a confirmed defect ⇒ trusting the node would have been WRONG;
+    /// a false alarm ⇒ trusting it was RIGHT).
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &TrustEntry)> {
+        self.entries.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Number of nodes with any recorded learn history.
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Compute trust score for a single node at the given time (default params).
     pub fn compute_trust(&self, external_id: &str, now: f64) -> TrustScore {
         self.compute_trust_with_params(

@@ -1627,6 +1627,18 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
+                "name": "calibrate_envelope",
+                "description": "OMEGA Move 1: calibrate the seek TRUST ENVELOPE from the trust ledger's real learn outcomes. Each node with learn history is a label — a confirmed defect (learn `correct`) means trusting it would have been WRONG (a miss), a false alarm (learn `wrong`) means trusting it was RIGHT (a hit) — scored by the reliability the envelope assigns its trust band. Derives a split-conformal τ (on the envelope's own [0,1] scale) + precision-at-coverage and persists it under the `envelope` signal, so the seek envelope can reach `act`. With no labeled ledger corpus it stays honestly uncalibrated (reason `envelope_uncalibrated`, capped at `reverify`), never a fabricated `act`.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated envelope decisions" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "taint_trace",
                 "description": "Inject taint at entry points and trace propagation through the graph to detect missed validation, auth, or sanitization boundaries.",
                 "inputSchema": {
@@ -4432,6 +4444,11 @@ fn dispatch_core_tool(
             let input: layers::CalibratePredictInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_calibrate_predict(state, input)
+        }
+        "calibrate_envelope" => {
+            let input: layers::CalibrateEnvelopeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_calibrate_envelope(state, input)
         }
         "taint_trace" => {
             let input: layers::TaintTraceInput =

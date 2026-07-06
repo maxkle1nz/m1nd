@@ -9267,6 +9267,189 @@ pub fn handle_calibrate_predict(
     }))
 }
 
+/// OMEGA Move 1 (calibration): derive a labeled corpus for the trust ENVELOPE
+/// from the trust ledger's real learn outcomes, then measure the SAME
+/// split-conformal τ + precision-at-coverage `predict` uses — but on the
+/// envelope's OWN reliability scale (fixing the scale-mismatch: τ is now in the
+/// same [0,1] units the envelope bins, not predict's co-change confidences).
+///
+/// LABELS (honest, from evidence we already have): each node with learn history
+/// is one labeled example.
+///   * `learn("correct")` records a CONFIRMED DEFECT — the node really is buggy,
+///     so trusting it (verdict `act`) would have been WRONG → a MISS.
+///   * `learn("wrong")` records a FALSE ALARM — the flagged bug was not real, the
+///     code was fine, so trusting it was RIGHT → a HIT.
+///
+/// A node is labelled a hit iff its false alarms strictly outweigh its confirmed
+/// defects; defect-dominant (or tied) nodes are misses. Nodes with only partials
+/// or zero events carry no act/no-act signal and are skipped.
+///
+/// FEATURE (confidence): the reliability the envelope's `trust_band` factor would
+/// assign this node — `trust_band(tier) → trust_band_reliability` — i.e. exactly
+/// the per-factor value the weighted fold consumes. So τ is measured in the
+/// envelope's own score units.
+///
+/// Returns `None` when there is no usable labeled corpus (no ledger history that
+/// resolves to an act/no-act label) — the caller then reports the honest
+/// `envelope_uncalibrated` cap instead of a fabricated row.
+fn calibrate_envelope_from_ledger(
+    ledger: &m1nd_core::trust::TrustLedger,
+    alpha: f32,
+    now: f64,
+) -> Option<CalibrationOutcome> {
+    use m1nd_core::calibration::{conformal_quantile, CalibrationRow};
+
+    let mut labeled: Vec<LabeledPrediction> = Vec::new();
+    for (external_id, entry) in ledger.entries() {
+        // Only nodes whose history expresses an act/no-act outcome are labels:
+        // at least one confirmed defect or false alarm (partial-only carries no
+        // act signal). Ties (defect == false_alarm) are treated as misses — the
+        // conservative choice (do not credit `act` on ambiguous evidence).
+        if entry.defect_count == 0 && entry.false_alarm_count == 0 {
+            continue;
+        }
+        let hit = entry.false_alarm_count > entry.defect_count;
+
+        // Confidence = the envelope reliability of this node's trust band, on the
+        // SAME [0,1] scale the envelope folds. `insufficient_evidence` maps to
+        // None (no band evidence) — but such a node has no defect/false_alarm
+        // history, so it was already skipped above.
+        let score = ledger.compute_trust(external_id, now);
+        let band = m1nd_core::trust::trust_band(score.tier);
+        let confidence = match crate::trust_envelope::trust_band_reliability(band) {
+            Some(r) => r,
+            None => continue,
+        };
+        labeled.push(LabeledPrediction { confidence, hit });
+    }
+
+    if labeled.is_empty() {
+        return None;
+    }
+
+    // Conformal τ from the MISS confidences (nonconformity = a trusted-but-wrong
+    // node's reliability). Same machinery as calibrate_predict.
+    let miss_scores: Vec<f32> = labeled
+        .iter()
+        .filter(|l| !l.hit)
+        .map(|l| l.confidence)
+        .collect();
+    let tau = conformal_quantile(&miss_scores, alpha);
+
+    // Precision-at-coverage at τ (the `act` band).
+    let act: Vec<&LabeledPrediction> = labeled.iter().filter(|l| l.confidence >= tau).collect();
+    let act_n = act.len();
+    let act_hits = act.iter().filter(|l| l.hit).count();
+    let measured_precision = if act_n > 0 {
+        act_hits as f32 / act_n as f32
+    } else {
+        0.0
+    };
+    let coverage = act_n as f32 / labeled.len() as f32;
+
+    let row = CalibrationRow {
+        tau,
+        target_alpha: alpha,
+        measured_precision,
+        coverage,
+        n: labeled.len(),
+        calibrated_at_ms: now as u64,
+    };
+
+    Some(CalibrationOutcome {
+        row,
+        test_commits: 0, // not a commit-split corpus; kept for the shared shape
+        labeled: labeled.len(),
+        act_predictions: act_n,
+        split_timestamp: 0.0,
+        curve: precision_coverage_curve(&labeled),
+    })
+}
+
+/// OMEGA Move 1 (calibration): calibrate the trust ENVELOPE from the ledger's
+/// real learn outcomes and persist the resulting `CalibrationRow` under the
+/// `envelope` signal, so `seek`'s trust envelope can reach `act` on a genuinely
+/// calibrated basis (previously the `envelope` signal had NO production writer,
+/// so the envelope was structurally capped at `reverify`).
+///
+/// With no usable labeled corpus, the envelope stays HONESTLY uncalibrated:
+/// `calibrated:false`, reason `envelope_uncalibrated`, and the seek envelope
+/// remains capped at `reverify` — never a fabricated `act`.
+pub fn handle_calibrate_envelope(
+    state: &mut SessionState,
+    input: layers::CalibrateEnvelopeInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let alpha = input
+        .alpha
+        .unwrap_or(m1nd_core::calibration::DEFAULT_TARGET_ALPHA);
+    let now = crate::util::now_ms() as f64;
+
+    let outcome = calibrate_envelope_from_ledger(&state.trust_ledger, alpha, now);
+
+    let outcome = match outcome {
+        Some(o) => o,
+        None => {
+            return Ok(serde_json::json!({
+                "calibrated": false,
+                "signal": m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
+                "reason": "envelope_uncalibrated",
+                "detail": "no labeled corpus for the trust envelope: the ledger has no learn outcomes (learn `correct`/`wrong`) that express an act/no-act label. Record verified vs refuted seek hits via `learn`, then re-run. Until then the seek envelope is honestly capped at `reverify` — `act` unreachable.",
+                "ledger_nodes": state.trust_ledger.entry_count(),
+                "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+            }));
+        }
+    };
+
+    state.calibration_table.set(
+        m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
+        outcome.row.clone(),
+    );
+    // Deliberate, durable checkpoint — persist directly (skip on read-only).
+    if !state.read_only {
+        if let Err(e) = m1nd_core::calibration::save_calibration_state(
+            &state.calibration_table,
+            &state.calibration_path,
+        ) {
+            eprintln!("[m1nd] WARNING: calibration persist failed: {e}");
+        }
+    }
+    state.queries_processed += 1;
+
+    let row = &outcome.row;
+    Ok(serde_json::json!({
+        "calibrated": true,
+        "signal": m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
+        "tau": row.tau,
+        "target_alpha": row.target_alpha,
+        "measured_precision": row.measured_precision,
+        "coverage": row.coverage,
+        "n": row.n,
+        "act_labels": outcome.act_predictions,
+        "ledger_nodes": state.trust_ledger.entry_count(),
+        "precision_coverage_curve": outcome
+            .curve
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "threshold": p.threshold,
+                    "coverage": p.coverage,
+                    "precision": p.precision,
+                })
+            })
+            .collect::<Vec<_>>(),
+        "summary": format!(
+            "envelope: at {:.0}% coverage, `act` is {:.0}% precise on {} labeled node(s) (τ={:.3}, α={:.2}); the seek trust envelope can now reach `act` when the weighted reliability clears τ",
+            row.coverage * 100.0,
+            row.measured_precision * 100.0,
+            row.n,
+            row.tau,
+            row.target_alpha,
+        ),
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+}
+
 // =========================================================================
 // RETROBUILDER Handlers (RB-01 through RB-05)
 // =========================================================================
@@ -10282,7 +10465,8 @@ fn generate_dot(
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_focus, handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData,
+        handle_calibrate_envelope, handle_focus, handle_layers, handle_scan, handle_seek,
+        handle_validate_plan, TrailData,
     };
     use crate::protocol::layers::{
         HypothesizeInput, LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput,
@@ -10606,7 +10790,14 @@ mod tests {
 
         let mut graph = Graph::new();
         let decoy = graph
-            .add_node("fn::parse_csv_header", "parse_csv_header", NodeType::Function, &[], 0.0, 0.0)
+            .add_node(
+                "fn::parse_csv_header",
+                "parse_csv_header",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
             .expect("decoy");
         graph.set_node_provenance(
             decoy,
@@ -10646,11 +10837,7 @@ mod tests {
         // text onto a shared direction (high mutual cosine, above the 0.40 floor)
         // while the decoy stays independent (≈ orthogonal, below the floor). Dim
         // 256 keeps independent texts near-orthogonal.
-        let fake = std::sync::Arc::new(FakeEmbedder::with_anchor(
-            256,
-            &[query, target_text],
-            0.7,
-        ));
+        let fake = std::sync::Arc::new(FakeEmbedder::with_anchor(256, &[query, target_text], 0.7));
         {
             let graph = state.graph.read();
             let engine = m1nd_core::semantic::SemanticEngine::with_injected_embedder(
@@ -11139,6 +11326,201 @@ mod tests {
             "uncalibrated envelope must cap at `reverify`, never `act`"
         );
         assert_ne!(env.verdict, "act", "act is unreachable without calibration");
+    }
+
+    // ── FIX 1 (OMEGA Move 1 calibration): a PRODUCTION writer for the envelope ──
+    //
+    // Seed the trust ledger with a synthetic-but-real corpus: several
+    // false-alarm-dominant nodes (learn `wrong` — trusting them was RIGHT ⇒ hits,
+    // high reliability) and several confirmed-defect-dominant nodes (learn
+    // `correct` — trusting them would have been WRONG ⇒ misses, low reliability).
+    // handle_calibrate_envelope must derive a real split-conformal τ on the
+    // envelope's own reliability scale and persist an `envelope` row so a clean
+    // seek can THEN reach `act` — impossible before this fix.
+
+    /// Seed `n_hits` false-alarm-dominant (high-trust) nodes and `n_misses`
+    /// confirmed-defect-dominant (low-trust, recent) nodes into the ledger.
+    fn seed_envelope_corpus(state: &mut SessionState, n_hits: usize, n_misses: usize) {
+        let now = crate::util::now_ms() as f64;
+        for i in 0..n_hits {
+            let id = format!("file::hit_{i}.rs");
+            // Repeated false alarms, zero confirmed defects → defect_density 0 →
+            // high trust → band `low` → reliability 0.8 (a hit at high confidence).
+            for _ in 0..5 {
+                state.trust_ledger.record_false_alarm(&id, now);
+            }
+        }
+        for i in 0..n_misses {
+            let id = format!("file::miss_{i}.rs");
+            // Repeated recent confirmed defects → defect_density 1 → low trust →
+            // band `high` → reliability 0.2 (a miss at low confidence).
+            for _ in 0..5 {
+                state.trust_ledger.record_defect(&id, now);
+            }
+        }
+    }
+
+    #[test]
+    fn calibrate_envelope_from_ledger_produces_row_that_enables_act() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        assert!(
+            state.calibration_table.get("envelope").is_none(),
+            "precondition: envelope uncalibrated"
+        );
+
+        // Before calibration: a clean seek is capped at reverify (the GAP).
+        let before = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+        assert_eq!(
+            before.trust_envelope.verdict, "reverify",
+            "before calibration the envelope is structurally capped at reverify"
+        );
+        assert!(!before.trust_envelope.calibrated);
+
+        // Calibrate the envelope from a corpus that supports high confidence.
+        seed_envelope_corpus(&mut state, 8, 8);
+        let out = handle_calibrate_envelope(
+            &mut state,
+            crate::protocol::layers::CalibrateEnvelopeInput {
+                agent_id: "jimi".into(),
+                alpha: Some(0.1),
+            },
+        )
+        .expect("calibrate_envelope ok");
+        assert_eq!(
+            out["calibrated"],
+            serde_json::json!(true),
+            "corpus present ⇒ calibrated"
+        );
+        let tau = out["tau"].as_f64().expect("tau present");
+        assert!(
+            tau <= 1.0 && tau.is_finite(),
+            "τ must be a finite reliability threshold, got {tau}"
+        );
+        assert!(
+            state.calibration_table.get("envelope").is_some(),
+            "an `envelope` row must now be set (production writer)"
+        );
+
+        // After calibration: the SAME clean seek can now reach `act` (the clean
+        // binding factor's reliability 1.0 clears the measured τ).
+        let after = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+        assert!(
+            after.trust_envelope.calibrated,
+            "after calibrate_envelope the seek envelope is calibrated"
+        );
+        assert_eq!(
+            after.trust_envelope.verdict, "act",
+            "a calibrated envelope on a clean graph MUST be able to reach `act` (was impossible before FIX 1); score {}",
+            after.trust_envelope.score
+        );
+    }
+
+    #[test]
+    fn calibrate_envelope_empty_ledger_is_honestly_uncalibrated() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        // No learn history at all → no labeled corpus.
+
+        let out = handle_calibrate_envelope(
+            &mut state,
+            crate::protocol::layers::CalibrateEnvelopeInput {
+                agent_id: "jimi".into(),
+                alpha: None,
+            },
+        )
+        .expect("calibrate_envelope ok");
+
+        assert_eq!(
+            out["calibrated"],
+            serde_json::json!(false),
+            "no corpus ⇒ NOT calibrated"
+        );
+        assert_eq!(
+            out["reason"],
+            serde_json::json!("envelope_uncalibrated"),
+            "the honest, explicit cap reason must be surfaced"
+        );
+        assert!(
+            state.calibration_table.get("envelope").is_none(),
+            "no row is written when there is no corpus (never a fabricated one)"
+        );
+
+        // And a seek is still honestly capped at reverify, never a false `act`.
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+        assert!(!out.trust_envelope.calibrated);
+        assert_eq!(out.trust_envelope.verdict, "reverify");
+        assert_ne!(
+            out.trust_envelope.verdict, "act",
+            "an uncalibrated envelope must NEVER fabricate `act`"
+        );
+    }
+
+    #[test]
+    fn calibrate_envelope_persists_row_across_reload() {
+        // The calibration must be durable (persisted), like calibrate_predict.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        seed_envelope_corpus(&mut state, 6, 6);
+        let out = handle_calibrate_envelope(
+            &mut state,
+            crate::protocol::layers::CalibrateEnvelopeInput {
+                agent_id: "jimi".into(),
+                alpha: Some(0.1),
+            },
+        )
+        .expect("calibrate ok");
+        assert_eq!(out["calibrated"], serde_json::json!(true));
+
+        // Reload the persisted table from disk and confirm the envelope row survived.
+        let reloaded = m1nd_core::calibration::load_calibration_state(&state.calibration_path)
+            .expect("reload");
+        assert!(
+            reloaded.get("envelope").is_some(),
+            "the envelope calibration row must be persisted to calibration_state.json"
+        );
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that
