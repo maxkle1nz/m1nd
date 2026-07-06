@@ -18,7 +18,7 @@ Glyph key used here:
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Live sample captured 2026-07-06                                               │
 │ scanned 199 · ◆ solid 0 · ♧ growing 195 · ◇ unwired 4 · ✕ drifting 0           │
-│ proof coverage 0.0 · current snapshot paint tags: 0 of 199                    │
+│ proof coverage 0.0 · scenario: distribution after a paint commit              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Legend  ◆ solid  ♧ growing  ◇ unwired  ✕ drifting  ░ not scanned yet          │
 │                                                                              │
@@ -78,9 +78,9 @@ Glyph key used here:
 │ MASSIF block map                   │ Piece detail                            │
 ├────────────────────────────────────┼─────────────────────────────────────────┤
 │                                    │ label                                   │
-│   ┌──────┐ ┌──────┐ ┌──────┐      │   node I                                │
+│   ┌──────┐ ┌──────┐ ┌──────┐      │   node M                                │
 │   │ ♧    │ │ ◆    │ │ ♧    │      │ state                                   │
-│   │doc H │ │node I│ │doc J │      │   ◆ solid                                │
+│   │doc H │ │node M│ │doc J │      │   ◆ solid                                │
 │   └──────┘ └──────┘ └──────┘      │ exact tag                               │
 │                                    │   xray:state:bedrock                    │
 │                                    │ evidence                                │
@@ -119,6 +119,9 @@ Glyph key used here:
 │              [ Run X-RAY paint scan ]        [ Read what states mean ]        │
 │                                                                              │
 │  Copy note: not scanned yet is neutral. It is not the same as unwired.        │
+│                                                                              │
+│  Read-only attach variant: the scan control renders disabled with the copy    │
+│  "read-only attach: scanning unavailable here" — never a dead control.        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 

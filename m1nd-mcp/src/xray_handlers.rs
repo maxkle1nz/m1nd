@@ -2359,19 +2359,21 @@ pub fn handle_xray_gate(
 // verb makes them durable graph metadata).
 //
 // CLASSIFICATION (honest / proof-grown — these are STRUCTURAL labels, not
-// confirmed verdicts). For each in-scope node:
+// confirmed verdicts). For each in-scope node, in precedence order:
 //   * `erosion-candidate` — the node is the SOURCE of a cross-module edge that
 //     the shared `classify_edge` predicate flags as a divergence against the
 //     input manifest. HONEST: a candidate (the manifest may not be ratified),
 //     never a confirmed violation — same stance as xray_orient.
-//   * else `bedrock` — the node has REFERENCE in-degree > 0 (something imports/
-//     calls/references/depends_on it): it is load-bearing.
+//   * else `bedrock` — the node has PROOF EVIDENCE: it is test-exercised
+//     (imported/called/referenced from a test source) OR carries a
+//     `grounded_in` anchor. Structural evidence, not semantic correctness.
 //   * else `overgrowth` — the node is an orphan over the reference relations
 //     (off-lattice): nothing points at it.
+//   * else `unproven` — referenced (load-bearing) but with no proof evidence.
 // In-degree is computed over the REFERENCE relations only (`imports`, `calls`,
 // `references`, `depends_on`) by walking every node's outgoing CSR range ONCE
 // and counting targets. BLUEPRINT is a manifest-level ABSENCE (a require_exists
-// that has no node), so it is NEVER painted on a node — only the three states
+// that has no node), so it is NEVER painted on a node — only the four states
 // above are node tags.
 //
 // IDEMPOTENT RE-PAINT: before adding the computed state tag, every existing

@@ -83,7 +83,7 @@ Copy law: MASSIF never tells the operator a block is semantically correct or fin
 
 **F9. Detail panel.** Clicking a piece opens a panel with: label, external ID, state, exact state tag or `no xray state tag`, evidence line, connectedness summary, source path when available, `manifest_source`, and a short copy-law-compliant explanation. If no manifest is active, show `manifest_source: no manifest active` and disable erosion interpretation.
 
-**F10. First-run unpainted screen.** A 100% unpainted graph is not an error. It is a first-class screen using the real sample counts: `199 nodes in snapshot scope`, `0 painted tags in current snapshot`, and a call to run the X-RAY paint scan in the appropriate operator flow.
+**F10. First-run unpainted screen.** A 100% unpainted graph is not an error. It is a first-class screen using the real sample counts: `199 nodes in snapshot scope`, `0 painted tags in current snapshot`, and a call to run the X-RAY paint scan in the appropriate operator flow. In a read-only attach session the scan is unavailable by design (`xray_paint` is write-denied there): the control renders disabled with the copy `read-only attach: scanning unavailable here` — never a dead control.
 
 **F11. Colorblind-safe redundancy.** Every state has at least two non-hue cues: glyph, texture, border, hatch, crack, dash, or shape. Hue alone is never the state channel.
 
@@ -167,7 +167,7 @@ P0 before implementation: update `m1nd-ui/src/api/toolTypes.ts` so `TrustEnvelop
 |---|---|
 | 1. Specify per-node paint-state source or add read-only state surface; do not claim dry-run supplies per-node states. | Sections 3, 6 F1, 11 |
 | 2. Correct erosion: manifest plus rule present; ratification only affects gate severity. | Sections 3, 5, 6 F12, 12 |
-| 3. Remove `coverage_session` from health axis. | Sections 3, 7, 11 |
+| 3. Remove `coverage_session` from health axis. | Sections 3, 7 |
 | 4. Resolve layer membership truncation before rollup. | Sections 3, 6 F4, 11 |
 | 5. Define containers explicitly; layers are architectural, not functional subsystems. | Sections 6 F3-F5, 7 |
 | 6. Define honest rule for absent tags. | Sections 5, 6 F1-F2, 6 F10 |
