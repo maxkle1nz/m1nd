@@ -1075,14 +1075,14 @@ brain or no brain, and a clone carries it. Written by AGENTS through the global 
 (plus letters arriving by git from teammates' machines); the human **reads and navigates** —
 there is no compose box, no editor, no threads, no comments (anti-scope, binding).
 
-**1. Entry — the D3 field opens the box.** The Hall card's D3 field renders **"N abertas"**
+**1. Entry — the D3 field opens the box.** The Hall card's D3 field renders **"N open"**
 (count source: the `mailbox_open_count` instances enrichment, MEDULLA-PRD §9.2 —
 `[needs-backend — M7b]`; until it exists the field renders nothing, never a fabricated zero,
 INV-10 discipline). Click → the project's Mailbox opens at rung 0 (drawer-class surface
 beside the card, ESC returns to the Hall — the ladder grammar). **Universality:** the m1nd
 card's box is just the m1nd *project's* box — same view, same rules, zero special casing
 ("a do m1nd no m1nd"). **The medulla's box is its own, clearly labeled view** — header
-"Medulla — relatos transversais" — holding ONLY what genuinely belongs to no project:
+"Medulla — cross-project reports" — holding ONLY what genuinely belongs to no project:
 transversal-tool reports (the Context7 letter, filed without a repo), research-task letters,
 owner-runtime letters. A letter that names a project NEVER appears here (MEDULLA-PRD
 MED-INV-10). It opens from the owner's own card, labeled, never mixed into a project box.
@@ -1091,16 +1091,17 @@ is swept by triage — but has no Hall card to open it from until its brain is b
 is faceless, never lost.
 
 **2. The letters — chronological chapters, matte class chips.** Letters render
-oldest-context-last (newest on top), grouped into **day chapters** ("2026-07-04 — quinta") —
-the box reads as correspondence, not as a log viewer. Each letter card:
+oldest-context-last (newest on top), grouped into **day chapters** ("2026-07-04 — Thursday") —
+the box reads as correspondence, not as a log viewer. The served UI's copy is English
+(the clarity pass, 2026-07-06). Each letter card:
 
 | Element | Renders | Source (per field) |
 |---|---|---|
 | Class chip + left border + card fill | one matte chip naming the class, the card's 1 px left border in the class hue, AND (2026-07-06) a soft pastel WASH of that same hue across the whole card — **win = sage · bug = brick · honesty = âmbar · friction = stone · recibo (triage) = neutral bone**. The fill replaced the near-invisible flat `bg-bone/50` so a box reads at a glance; it reuses the tone the chip already resolves (`classChip().tone` → `CARD_FILL_TONE_CLASS`), composed at `/50` opacity from the EXISTING §6.1 `-tint` tokens, so no new colour enters the palette and the `text-ink` body keeps its contrast. Matte token families only (the §6 material law; brick rides the terracotta family). Nothing glows, nothing animates; violet stays quarantined (§6.2) — even the `external` fate wears stone, not violet | letter `class` (spool field, exists today) |
 | Header line | `agent` · `ts` in Plex Mono (INV-13: numbers never proportional) · the `tool` touched | spool fields, exist today |
-| Body | `what` verbatim; `expected` folded under a quiet "esperado" caret; `snippet` in Plex Mono, one-line clamp, expand on click | spool fields, exist today |
-| **The fate-line** (the soul of the view) | exactly one per letter: **`↳ respondida pela carta N`** (link — scrolls/highlights the receipt) · **`● EM ABERTO`** · **`◍ EM VOO`** · **`◌ externa`** | derived states `fired_clay / wet_ink / in_flight / external` + `answers[]`/`answered_by[]` — MEDULLA-PRD §9.2 (`[needs-backend — M7b]`: ids + linkage; legacy prose refs resolved best-effort at migration, unresolved letters honestly wear ●) |
-| Receipt letters (class `recibo`) | render in-thread like any letter, slate-chipped, their fate-line pointing DOWN at what they answered ("responde a carta N") — the visible loop closes in both directions | `answers[]` on the triage letter |
+| Body | `what` verbatim; `expected` folded under a quiet "expected" caret; `snippet` in Plex Mono, one-line clamp, expand on click | spool fields, exist today |
+| **The fate-line** (the soul of the view) | exactly one per letter: **`↳ answered by letter N`** (link — scrolls/highlights the receipt) · **`● open`** · **`◍ in flight`** · **`◌ external`** | derived states `fired_clay / wet_ink / in_flight / external` + `answers[]`/`answered_by[]` — MEDULLA-PRD §9.2 (`[needs-backend — M7b]`: ids + linkage; legacy prose refs resolved best-effort at migration, unresolved letters honestly wear ●) |
+| Receipt letters (class `recibo`) | render in-thread like any letter, slate-chipped, their fate-line pointing DOWN at what they answered ("answers letter N") — the visible loop closes in both directions | `answers[]` on the triage letter |
 
 **3. Scope — one box, one brain, ever.** The box renders ONLY the viewed brain's letters
 (`GET /api/mailbox?brain=<project_root>` — the §4A.9 selector contract reused verbatim:
@@ -1109,10 +1110,10 @@ rendered). No cross-brain folding, no "all boxes" merged view — coherent with 
 layer's pull-only law (MEDULLA-PRD MED-INV-1): nothing on the screen that isn't this brain's;
 the medulla box is one click away and labeled as itself.
 
-**4. Counts stay honest.** "N abertas" counts `wet_ink + in_flight` ONLY — resolved letters
+**4. Counts stay honest.** "N open" counts `wet_ink + in_flight` ONLY — resolved letters
 (`fired_clay`) rest in their chapters, and `external` letters are visible but never counted
 (a counter that can never reach zero is pressure, not honesty — MEDULLA-PRD MED-INV-9). The
-box header states the whole truth in one line: "12 cartas · 3 abertas · 1 em voo · 1 externa".
+box header states the whole truth in one line: "12 letters · 3 open · 1 in flight · 1 external".
 
 **5. Migration — where the 53 live letters go.** Distribution is the backend's, one rule,
 idempotent (MEDULLA-PRD §9.2): a letter with a project — explicit `brain` field or
@@ -1136,7 +1137,7 @@ it felt there. Sweep output names any box it could not reach. *(Backend: MEDULLA
 spool distributed) renders each box with only its own letters (INV-17 green); every rendered
 receipt's `↳` link resolves to a letter in the same box (INV-18 green); the D3 count equals
 the endpoint's `wet_ink + in_flight` exactly and renders absent (not zero) against an owner
-without the enrichment; the Context7 letter appears in the medulla box wearing `◌ externa`
+without the enrichment; the Context7 letter appears in the medulla box wearing `◌ external`
 and is excluded from its count, and no repo-bearing letter renders there (MED-INV-10
 fixture); day chapters group by the letter's `ts` timezone-honest; keyboard-only navigation
 (arrows between letters, Enter expands, ESC to Hall); zero compose affordances in the DOM;
@@ -1350,7 +1351,7 @@ Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-stream
 | **INV-15** `[4A.9]` | **The tree never renders one brain's nodes under another brain's chip.** While a brain is viewed, every graph/tool fetch carries its selector; a response whose `served_brain` echo names a different brain is discarded, never rendered. | Two-brain fixture → open hosted: all fetch URLs carry `brain=<root>`; inject a wrong-echo response → zero rows from it rendered + the drop is surfaced; chip name === `served_brain.display_name` throughout. |
 | **INV-16** `[4A.10]` | **Search and filters never leave the viewed brain.** `meaning` results render only for the brain the chip names; stale panels across an Open switch drop with an honest notice; filter residue is always stated ("N hidden by filters"), never a silently smaller world. | Seek fixture from brain A while brain B is viewed → zero result rows + notice present; active-filter fixture → footer residue count equals hidden rows exactly; clearing filters restores the full row count. |
 | **INV-17** `[4A.11]` | **The Mailbox renders only letters the endpoint served for the viewed brain** — never a letter from another box, never a client-side re-fold of the global spool; the "abertas" count carries `wet_ink + in_flight` only (`external` visible, never counted). | Two-box fixture (real spool, distributed) → box A DOM contains zero box-B letter ids; wrong-echo mailbox response dropped with the notice; count equals the fixture's `wet_ink + in_flight` exactly; the external letter renders `◌` and is absent from the count. |
-| **INV-18** `[4A.11]` | **Receipts are always linked.** A triage letter renders pointing at what it answers; a `fired_clay` fate-line resolves to a receipt in the same box; an unresolvable link renders the honest breakage ("recibo não localizado"), never a silent plain chip. | Threaded fixture → every `↳` href resolves to an in-box letter id; receipt card carries the down-pointing "responde a carta N" line; a fixture with a dangling `answers[]` id renders the breakage string, not a bare chip. |
+| **INV-18** `[4A.11]` | **Receipts are always linked.** A triage letter renders pointing at what it answers; a `fired_clay` fate-line resolves to a receipt in the same box; an unresolvable link renders the honest breakage ("receipt not found"), never a silent plain chip. | Threaded fixture → every `↳` href resolves to an in-box letter id; receipt card carries the down-pointing "answers letter N" line; a fixture with a dangling `answers[]` id renders the breakage string, not a bare chip. |
 
 These land as a `honesty.spec` suite in `m1nd-ui` and run in CI next to the palette lint
 (§6.2). A slice is not done while any invariant test is red (§8).
@@ -1528,6 +1529,7 @@ green, claims scoped).
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
 | **3M — the Mailbox** ✅ **SHIPPED 2026-07-05** *(§4A.11; on R8's M7b backend, already on main)* | Each brain's caixinha: D3 "N open" entry, day chapters, matte class chips (win sage · bug brick · honesty âmbar · friction stone · recibo slate) with class left-border, fate-lines (● / ◍ / ↳ / ◌), the labeled medulla box, read-only always. *What landed:* the pure heart `lib/mailbox.ts` (fate-line derivation, day-chapter grouping, the class→matte-chip palette from the five EXISTING non-violet token families, the receipt-linkage resolver, the INV-17 echo guard reusing `servedBrainMatches`); `components/hall/MailboxView.tsx` (`MailboxBody` = the pure component-testable surface + the fetch shell); the D3 "N open" entry on `BrainCard` (absent-honest — renders only when `mailbox_open_count` exists); the medulla entry in the Hall header; `api.mailbox()`; `mailbox_open_count` on `InstanceRegistryEntry`. 20 new tests (`lib/mailbox.test.ts` + `components/hall/mailbox-render.test.tsx`) from five REAL captured `/api/mailbox` fixtures (neutral repo names). | ✅ INV-17/18 green on a two-box distributed fixture (box A DOM carries zero box-B ids; a wrong-echo response is dropped with a notice; a receipt points DOWN at what it answers, a dangling link renders "recibo não localizado" not a bare chip); D3 count = endpoint `wet_ink + in_flight`, absent (not zero) without the enrichment; the Context7-shaped letter in the medulla box wears `◌` and is uncounted; keyboard-only (↑/↓ between letters, Enter expands, ESC returns); zero compose affordances in DOM; violet-lint + icon-lint green (five class hues from existing token families, violet untouched — external wears stone); `npm test` 227 green, tsc + vite build green, dist regenerated, air-gap grep zero external hosts. |
+| **3M-clarity — the clarity pass** ✅ **SHIPPED 2026-07-06** *(§4A.11 + §4A.3/§4A.8; client-only, zero new verbs)* | Legibility polish over the Hall + caixinha, honouring the sealed vocabulary (items are **letters** never "cards"; adding a repo is **read**; the noun is **brain**; the shared tier is **medulla**). Five fixes: (1) the served UI is unified to **English** — every hardcoded pt-BR string in `MailboxView.tsx` + `lib/mailbox.ts` (fate-line voices `● open / ◍ in flight / ↳ answered by letter N / ◌ external`, `receipt not found`, day-chapter weekdays + "no date", the `N open` header line, the medulla header "Medulla — cross-project reports" + its empty state, the "expected" caret) AND the test assertions that pinned them; (2) the card action reads **"Open brain"** (never a bare "Open" colliding with the "N open" letter count); (3) the **viewing** card gains a calm act-green left accent bar + soft act-tint wash + a stronger "Viewing" chip (existing `verdict-act` tokens only — SOFT PROOF, never neon); (4) long paths **truncate** with ellipsis + full-path-on-hover `title` (uniform card rhythm, no more multi-line wrap); (5) the faintest tertiary text lifted one tone (`/60`–`/70` → `/80` within `ink-soft`, no new colour). | ✅ `npm test` 232 green (3 new: viewing accent tokens, "Open brain" label, path truncation), tsc + vite build green, dist regenerated, violet-lint + icon-lint green (act-green tint is an existing non-violet token); zero pt-BR left in the Hall/caixinha UI copy or their test strings. |
 
 Explicitly **not** on this roadmap (killed or deferred): the L1GHT write-editor (killed), the
 full-repo ceramic graph as a headline surface (killed), the treemap home screen (folded into
