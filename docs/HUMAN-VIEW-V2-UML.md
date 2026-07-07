@@ -265,3 +265,163 @@ classDiagram
 | Pins projection | NEW thin — over existing ledger + fates |
 | Build Map / Show Code / Ratification / Recipe / ULM / Clients screens | NEW UI — per screen book |
 | TrustEnvelope UI type fix (add unprovable) | PRE-WORK — one line, exists as bug |
+
+---
+
+## 9. The COMPLETE state-machine set (start → conclusion, every one)
+
+Sections 2/5/6 defined three machines (SystemBlock, Receipt, Mission/Pin). A running system needs nine.
+The remaining six, plus one explicit NON-machine, follow. Every machine names its failure states and its
+exits — no state without a way out.
+
+### 9.1 Scan / Skeleton run (one execution of the pipeline)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Queued : owner clicks scan - or drift triggers scoped rescan
+    Queued --> Scanning : reads graph and receipts
+    Scanning --> Clustering : structure pass
+    Clustering --> Naming : agent proposes names via runner
+    Naming --> Attaching : names returned with confidence
+    Naming --> NamingDegraded : runner failed or timed out
+    NamingDegraded --> Attaching : fallback - cluster ids as names, marked unnamed
+    Attaching --> ReadingReceipts
+    ReadingReceipts --> CandidateReady : candidate vN plus residue plus seams
+    Scanning --> Failed : graph unreadable
+    Failed --> Queued : retry
+    CandidateReady --> [*] : hands off to Ratification session
+```
+Rule: a failed NAMING never blocks the scan — the candidate arrives with honest `unnamed` clusters.
+
+### 9.2 Runner execution (under every spawned mission — the stall lesson, learned live)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Launching : policy gate passed, worktree created
+    Launching --> Running : first heartbeat received
+    Launching --> LaunchFailed : bridge unreachable
+    Running --> Running : heartbeat plus progress
+    Running --> Stalled : NO new output within stall window
+    Stalled --> Running : output resumes
+    Stalled --> Killed : stall limit hit - kill ONLY this process
+    Killed --> Retrying : one retry with the stall cause named in the prompt
+    Retrying --> Running
+    Retrying --> DegradedToFallback : second stall - offer another runner or clipboard mode
+    Running --> Completed : output plus exit ok - hands to debrief
+    Running --> RunFailed : nonzero exit or error
+    RunFailed --> Retrying : one retry max
+    LaunchFailed --> [*] : surfaced on the pin as failed
+    DegradedToFallback --> [*]
+    Completed --> [*]
+```
+Stall-window policy: no-new-output window per runner type (one-shot minutes, loop engines longer). Kill is
+surgical (the launched process only), retry is single, degradation is explicit — exactly the discipline
+proven operationally on 2026-07-07.
+
+### 9.3 MissionPacket lifecycle (per mode — direct REUSES the existing mailbox fates)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : composer opened from a block
+    Draft --> Composed : preview approved by owner
+    Composed --> Copied : clipboard mode - terminal state, no tracking claimed
+    Composed --> Delivered : direct mode - lands in agent inbox as wet_ink
+    Delivered --> PickedUp : referenced by a reply - in_flight
+    PickedUp --> Answered : receipt letter closes it - fired_clay
+    Composed --> Spawned : spawn mode - becomes a Mission - machine 6
+    Copied --> [*]
+    Answered --> [*]
+```
+Direct mode maps 1:1 onto the mailbox fates that already exist (wet_ink / in_flight / fired_clay) —
+no new letter states are invented. Clipboard honestly claims NO tracking.
+
+### 9.4 Wire / Edge (a connection between blocks)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Declared : socket contract names the connection - planned block
+    [*] --> Observed : scan finds real edges between members
+    Declared --> Wired : observed edges match the declaration
+    Observed --> Wired : ratified into the skeleton
+    Wired --> Evidenced : an edge receipt exists and is fresh - bead on wire
+    Evidenced --> Wired : edge receipt expires
+    Wired --> Broken : endpoints vanished, socket renamed, or rule violation on a ratified manifest
+    Broken --> Wired : repaired and re-scanned
+    Declared --> Ghost : declared but never observed - rendered dashed, never hidden
+```
+
+### 9.5 Agent / client card (connection + workspace truth)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Offline
+    Offline --> Connected : bridge handshake
+    Connected --> WrongWorkspace : engine reception reports caller_root mismatch
+    WrongWorkspace --> Connected : rebind packet accepted - reception match
+    Connected --> StaleLink : no heartbeat within window
+    StaleLink --> Connected : heartbeat resumes
+    StaleLink --> Offline : timeout
+    Connected --> Offline : disconnect
+```
+WrongWorkspace is not an error label — it is the engine's reception state projected as UI, and it
+always carries its own repair (the rebind packet).
+
+### 9.6 ULM Blueprint (greenfield document lifecycle)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Drafting : intent, audience, flows being written
+    Drafting --> AxesInProgress : canvas blocks forming - readiness panel mixed
+    AxesInProgress --> Ready : every axis at ready or explicitly waived
+    Ready --> Generated : Generate Blueprint - snapshot vN
+    Generated --> SentToMap : planned blocks with contracts appear on Build Map
+    Generated --> Drafting : owner reopens - next version
+    SentToMap --> [*] : blocks live their own SystemBlock machine from here
+```
+
+### 9.7 Ratification session (the screen's own machine — partial approval is real)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Reviewing : candidate or drift-scoped set opened
+    Reviewing --> Editing : rename, merge, split, resolve seam, assign residue
+    Editing --> Reviewing
+    Reviewing --> PartiallyRatified : ratify selected only - rest stays candidate
+    PartiallyRatified --> Reviewing : continue with the remainder
+    Reviewing --> RatifiedVn : ratify all - skeleton version bumps
+    Reviewing --> Deferred : later - candidate persists, map stays visibly unratified
+    RatifiedVn --> [*]
+    Deferred --> [*]
+```
+
+### 9.8 Drift watch (per ratified block — snooze made formal)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Watching : block ratified vN
+    Watching --> DriftDetected : new unowned files, vanished members, broken socket, name mismatch
+    DriftDetected --> ScopedReview : owner opens ratification scoped to this block
+    DriftDetected --> Snoozed : snooze 7d - alert suppressed, state NOT cleared
+    Snoozed --> DriftDetected : window ends and drift persists
+    ScopedReview --> Watching : re-ratified vN+1
+```
+
+### 9.9 NOT a machine (explicit): block color
+
+Block color (green/amber/red/purple/blue) is a **stateless projection** — `rollup(members, receipts,
+wires, runtime signal)` recomputed on every render from the machines above. It has no memory of its
+own, no transitions, and can never disagree with its inputs. Anything that LOOKS like a color
+transition is one of the nine real machines moving underneath.
+
+### Machine ↔ machine wiring (who triggers whom)
+
+```
+ScanRun.CandidateReady ──▶ RatificationSession.Reviewing
+RatificationSession.RatifiedVn ──▶ SystemBlock.Ratified + DriftWatch.Watching
+DriftWatch.DriftDetected ──▶ ScanRun (scoped) + SystemBlock.Drifted
+Packet.Spawned ──▶ Mission.Running ──▶ RunnerExec (whole machine) ──▶ Debrief ──▶ Pin
+Pin.DoneDebriefed ──▶ Receipt.Earned (only via block rules)
+Receipt.(Fresh|Stale|Failed) ──▶ color projection (9.9)
+Wire.Broken ──▶ color projection + DriftWatch.DriftDetected (if socketed)
+AgentCard.WrongWorkspace ──▶ PolicyGate blocks spawn to that agent
+```
