@@ -91,7 +91,7 @@ Rollup edge rules (explicit): truncated membership never rolls up (request full 
 
 ## 7. Orchestration — the leap out of passivity (in the MVP)
 
-The bridges already exist on the operator's machine: **l00p** (deterministic-gated loop engine), **goGOD** (superior hand + verifier), **askGOD** (judge), **AGY** (Antigravity/Gemini CLI: new/send/tail), **codex** headless. The engine already has the bottom half: `delegate` composes packets and writes a registry; `debrief` classifies what was touched; the outcomes ledger and the mailbox fates exist. v2 adds the thin missing middle:
+The runner layer is **pluggable by capability**: each role is filled by whatever local agent the operator configures — a **build-runner** (one-shot code), a **naming-runner** (a fast, cheap model), a **loop-runner** (a deterministic-gated loop engine), a **hand-runner** (a superior implementation + verifier), a **review-runner** (a judge). These roles are slated to become **first-class m1nd runners** over time (today they are filled by the operator's own configured local agents). The engine already has the bottom half: `delegate` composes packets and writes a registry; `debrief` classifies what was touched; the outcomes ledger and the mailbox fates exist. v2 adds the thin missing middle:
 
 ```
 MissionPacket (block-scoped delegate packet, one shape for all modes)
@@ -99,10 +99,10 @@ MissionPacket (block-scoped delegate packet, one shape for all modes)
    mode: direct      → delivered to the target's inbox (the mailbox that already exists)
    mode: spawn       → handed to a RUNNER that launches a real agent
 Runner (thin adapter per bridge)
-   codex-runner   one-shot codex exec — MVP's first validated cycle (simplest)
-   agy-runner     agy new/send + tail — the cheap fast lane (skeleton naming, research)
-   l00p-runner    long-loop missions with deterministic gate — wave 2 (needs heartbeat UI)
-   gogod-runner   key-moment implementations — wave 2
+   build-runner   a one-shot build agent — MVP's first validated cycle (simplest)
+   naming-runner  a fast, cheap model — the naming/research lane (skeleton naming, research)
+   loop-runner    long-loop missions with a deterministic gate — wave 2 (needs heartbeat UI)
+   hand-runner    key-moment implementations — wave 2
 Return path: agent output → debrief → outcomes ledger → PIN on the block
 ```
 
@@ -111,7 +111,7 @@ Return path: agent output → debrief → outcomes ledger → PIN on the block
 - Every spawn mission runs in an **isolated worktree** (the operator's worktree-per-agent doctrine, now product law).
 - Agents **propose**; nothing auto-applies. Landing stays with the human/CI. The "Apply" button on a pin opens the diff, never merges silently.
 - Audit trail = the delegate registry + outcomes ledger (already persisted).
-- **Routing Rules** (screen: Clients & Agents): work-type → default agent (Build→Codex, Review→Claude, Research→Gemini, Stress→AGY, Ask God→/askgod). Rules route; the human can always override per-mission.
+- **Routing Rules** (screen: Clients & Agents): work-type → default runner by capability (Build→build-runner, Review→review-runner, Research→naming-runner, Stress→loop-runner). A capability role is filled by whatever connected agent the operator assigns; rules route, and the human can always override per-mission.
 
 **Pins** are projections of the outcomes ledger + mailbox fates: `running` (heartbeat), `needs reply`, `output landed (unverified)`, `debriefed`, `failed`. A pin becomes a **receipt** only when its outcome passes the block's declared receipt rules — answers are not evidence by default.
 
@@ -142,7 +142,7 @@ Return path: agent output → debrief → outcomes ledger → PIN on the block
 - F14. New block = contract: name, purpose, expected inputs/outputs (typed sockets), needed receipts, suggested agent. Contract completeness is enforced: **cannot Send to Agent until every socket is defined** (the mockup's "0/5 connected" gate).
 
 **Clients & Agents + Routing**
-- F15. Agent cards with connection state, workspace truth, capability chips, inbox. Routing Rules table. Packet mode toggle. Local skills (/l00p, /askgod, /gogod) are first-class agents.
+- F15. Agent cards with connection state, workspace truth, capability chips, inbox. Routing Rules table. Packet mode toggle. Locally-configured runners (build / loop / review / hand roles) are first-class agents alongside connected external tools.
 
 **ULM Generator**
 - F16. Intent/Audience/Flows → blueprint canvas → readiness panel → Generate Blueprint → Send to Build Map (Planned blocks with contracts). The five agent roles (Architect, Researcher, Builder, Reviewer, Stress Tester) render as pipeline progress.
@@ -160,12 +160,12 @@ Return path: agent output → debrief → outcomes ledger → PIN on the block
 |---|---|---|
 | **F0a** | SystemBlock contract + receipt taxonomy (docs + Rust types + store) | contract review; types compile; fixtures |
 | **F0b** | Seed skeleton of the m1nd repo itself, **ratified by the owner** (manual/assisted) | owner ratifies with <20% manual correction |
-| **F0c** | Skeleton engine (candidate pipeline) with **AGY runner naming** | candidate quality vs seed; unmapped residue honest |
+| **F0c** | Skeleton engine (candidate pipeline) with **naming-runner** | candidate quality vs seed; unmapped residue honest |
 | **F1** | Build Map read-only (ARTKIT), real data, all degraded states | vibecoder legibility test; no green without receipts |
 | **F2** | Show Code + Copy Packet (clipboard) | packet solves a real task in a cold agent |
-| **F2.5** | **Spawn cycle with codex-runner + agy-runner** (policy layer live) | UI-launched mission returns as pin + debrief |
+| **F2.5** | **Spawn cycle with build-runner + naming-runner** (policy layer live) | UI-launched mission returns as pin + debrief |
 | **F3** | Block Recipe (Planned blocks, contracts) + ULM Generator | contract gate blocks incomplete sends |
-| **F4** | Routing Rules + l00p/gogod runners + Mission heartbeats | routed mission with live progress + audit trail |
+| **F4** | Routing Rules + loop-runner / hand-runner + Mission heartbeats | routed mission with live progress + audit trail |
 
 ## 11. Validation
 
@@ -183,6 +183,6 @@ Operator language everywhere; every claim scoped and auditable. Banned: "proven"
 
 MASSIF v1 (PRD/UML/screens, commits f472214+fd24dae) is **absorbed**: its honest-state rules (unpainted, manifest_source, candidate≠violation, no truncated rollups, read-only disabled states, colorblind redundancy) carry into §5/§8 verbatim; its isometric-maquette rendering direction is **discarded** (owner verdict); its scope is widened from "a proof-topography lens" to the visual OS described here. The Human-Layer PRD front-door decision is revoked per the header note.
 
-## 15. askGOD compliance map
+## 15. Review compliance map
 
 **17 of the 18** required changes from the first 2026-07-07 verdict are addressed **in these documents**; **#11 is a code pre-work item** (the `toolTypes.ts` `TrustEnvelope.verdict` `unprovable` union + its `verdictLabel`/`VerdictChip` consumers + a regression guard) landed **separately before F0a**, not claimed done here. A **second review pass (2026-07-07)** further hardened the package: copy-law swept (no `proven`/`done` as states), the receipt-counter contradiction fixed (required vs optional axes), the state-machine set completed to **thirteen** with finite retries and no dead-end states (UML §9), the runtime read-only source made explicit (§5), and the store's **transactional law added (§3.1)**. Map of the first 18: 1→header+§14 · 2→§3 · 3→§10 F0a/F0b · 4→§3 ratification law + §6 · 5→§10 order · 6→§10 F0b–F2 gates · 7→§14 carry-ins · 8→§4 badge ban · 9→§4 taxonomy · 10→§5 tags source + F6 read-only · 11→pre-work: fix `toolTypes.ts` TrustEnvelope union (add `unprovable`) · 12→§5 rollup policy · 13→§5 blue row · 14→F13 effects declaration · 15→§7 pins protocol + F17 · 16→F14 contract gate · 17→§13 · 18→§11.

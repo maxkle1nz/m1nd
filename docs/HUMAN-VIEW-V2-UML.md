@@ -85,7 +85,7 @@ flowchart LR
     C --> D["4 Attach files<br/>NEW - membership many-to-many"]
     D --> E["5 Read receipts<br/>NEW rollup over existing evidence"]
     E --> F["6 Candidate map<br/>confidence, residue, seams"]
-    C -.uses.-> R["agy runner<br/>fast cheap lane"]
+    C -.uses.-> R["naming-runner<br/>fast cheap lane"]
 ```
 
 ```mermaid
@@ -93,7 +93,7 @@ sequenceDiagram
     participant U as Owner
     participant UI as Human View
     participant SK as Skeleton engine
-    participant RN as Runner agy
+    participant RN as naming_runner
     participant SB as SystemBlock store
 
     U->>UI: Run first scan
@@ -154,10 +154,10 @@ flowchart LR
     CMP --> M2["direct<br/>EXISTS - mailbox inbox"]
     CMP --> M3["spawn"]
     M3 --> POL["Policy gate<br/>capabilities, workspace truth,<br/>isolated worktree, propose-only"]
-    POL --> RC["codex runner<br/>one-shot"]
-    POL --> RA["agy runner<br/>fast lane"]
-    POL --> RL["l00p runner<br/>wave 2 - gated loop"]
-    POL --> RG["gogod runner<br/>wave 2 - key moments"]
+    POL --> RC["build-runner<br/>one-shot"]
+    POL --> RA["naming-runner<br/>fast lane"]
+    POL --> RL["loop-runner<br/>wave 2 - gated loop"]
+    POL --> RG["hand-runner<br/>wave 2 - key moments"]
     RC --> DB["debrief<br/>EXISTS"]
     RA --> DB
     DB --> LG["outcomes ledger<br/>EXISTS"]
@@ -259,9 +259,9 @@ classDiagram
 | graph snapshot with tags, x-ray paint/orient, delegate/debrief, outcomes ledger, mailbox, surgical_context, impact, layers | EXISTS — consumed as-is |
 | SystemBlock store (contract, ratification, versions, drift) | NEW — F0a |
 | Receipt taxonomy + per-block contracts | NEW — F0a |
-| Skeleton engine (cluster + agent naming + attach + residue) | NEW — F0c, uses agy runner |
+| Skeleton engine (cluster + agent naming + attach + residue) | NEW — F0c, uses naming-runner |
 | Packet composer (block-scoped, 3 modes, declared effects) | NEW — F2, wraps delegate |
-| Policy gate + runners (codex, agy; l00p/gogod wave 2) | NEW — F2.5 |
+| Policy gate + runners (build + naming; loop + hand wave 2) | NEW — F2.5 |
 | Pins projection | NEW thin — over existing ledger + fates |
 | Build Map / Show Code / Ratification / Recipe / ULM / Clients screens | NEW UI — per screen book |
 | TrustEnvelope UI type fix (add unprovable) | PRE-WORK — one line, exists as bug |

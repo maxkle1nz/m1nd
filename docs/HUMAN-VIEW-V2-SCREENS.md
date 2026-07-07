@@ -136,7 +136,7 @@ READ-ONLY ATTACH          EMPTY (no repo bound)        LOADING                ER
 │   ∵⠿⠿∵   … 8 more        │  ▣ Tests       44f  conf 81% ▸   │  multi-owner seams       3           │
 │                          │  ▣ Dead Code   23f  conf 55% ▸   │  ──────────────────────────          │
 │  total files 342         │                                  │  NAMING                              │
-│                          │  naming: agy-runner (fast lane)  │  proposed by  agy · gemini-flash     │
+│                          │  naming: naming-runner (fast)    │  proposed by  naming-runner (fast)   │
 │                          │  [ ✎ Edit names & boundaries ]   │  cost         1 session              │
 │                          │  [ ⠿ drag to merge / split ]     │  every name = a guess until          │
 │                          │                                  │  ratified (v0 candidate)             │
@@ -354,11 +354,11 @@ Send to Build Map emits `Planned` blocks whose contracts arrive pre-filled from 
 │ │ ● connected         │ │ ◐ wrong workspace ⚠  │ │ ● connected │ │  Build      → [ Codex      ▾ ]  │
 │ │ ws: mind-main       │ │ ws: other-repo       │ │ ws: mind-…  │ │  Review     → [ Claude Code▾ ]  │
 │ │ [edit][test][m1nd]  │ │ [edit][test][m1nd]   │ │ [edit][…]   │ │  Research   → [ Gemini CLI ▾ ]  │
-│ │ [packets] ✉         │ │ [packets] ✉          │ │             │ │  Stress     → [ AGY        ▾ ]  │
-│ └─────────────────────┘ └──────────────────────┘ └─────────────┘ │  Ask God    → [ /askgod    ▾ ]  │
-│ ┌ AGY (Antigravity) ──┐ ┌ /l00p ───────────────┐ ┌ /gogod ─────┐ │  rules route; any mission can   │
-│ │ ● connected         │ │ ● connected          │ │ ● connected │ │  override per-send              │
-│ │ gemini-flash lane   │ │ loop engine · gate   │ │ fugu hand   │ │─────────────────────────────────│
+│ │ [packets] ✉         │ │ [packets] ✉          │ │             │ │  Stress     → [ loop-runner▾ ]  │
+│ └─────────────────────┘ └──────────────────────┘ └─────────────┘ │  Review     → [ review-run.▾ ]  │
+│ ┌ naming-runner ──────┐ ┌ loop-runner ─────────┐ ┌ hand-runner ┐ │  rules route by CAPABILITY;     │
+│ │ ● connected         │ │ ● connected          │ │ ● connected │ │  any mission overrides per-send │
+│ │ fast cheap model    │ │ gated loop engine    │ │ verified hand│ │─────────────────────────────────│
 │ └─────────────────────┘ └──────────────────────┘ └─────────────┘ │ WORKSPACE TRUTH                 │
 │                                                                  │  repo  mind-main · bound ✓      │
 │  "wrong workspace" = the engine's reception/caller_root state    │  last scan 2m · inbox 3 packets │
@@ -415,7 +415,7 @@ CONTEXT MENU (right-click block)       TOOLTIP (hover)                    LEGEND
 | Screen | PRD refs |
 |---|---|
 | 1.1–1.3 Build Map + states | F1–F7, §5 rollup, §13 copy law |
-| 2 LIGHT Skeleton | §6 brownfield, §7 agy-runner naming, §3 candidate law |
+| 2 LIGHT Skeleton | §6 brownfield, §7 naming-runner, §3 candidate law |
 | 3 Ratification + drift | F11, §3 ratification/versioning/drift |
 | 4 Show Code (4 tabs) | F8–F10, §4 taxonomy on screen, edge receipts |
 | 5 Ask Agent + spawn confirm | F12–F13, §7 modes/policy |
