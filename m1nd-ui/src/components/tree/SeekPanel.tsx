@@ -12,7 +12,7 @@
  * ("matched by text, not meaning"); a foreign-brain hit is dropped (INV-16).
  * No sparkle — the honesty markers ARE the sufficiency line and the verdict chip.
  */
-import type { SeekOutput, SeekResultEntry } from '../../api/toolTypes';
+import type { SeekOutput, SeekResultEntry, TrustVerdict } from '../../api/toolTypes';
 import { humanizeAge, authorLabel } from '../../lib/softProof';
 import { textNotMeaningCaption, resultBelongsToBrain } from '../../lib/treeLenses';
 import { Icon } from '../../lib/icons/registry';
@@ -33,12 +33,14 @@ interface SeekPanelProps {
 }
 
 /** The verdict → action-language label (no epistemic vocabulary at the header). */
-function verdictLabel(verdict: 'act' | 'reverify' | 'abstain'): string {
+function verdictLabel(verdict: TrustVerdict): string {
   switch (verdict) {
     case 'act':
       return 'good to go';
     case 'reverify':
       return 'worth a second look';
+    case 'unprovable':
+      return 'nothing to check this against';
     case 'abstain':
     default:
       return "I won't guess this one";

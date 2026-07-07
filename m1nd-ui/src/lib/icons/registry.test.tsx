@@ -60,9 +60,9 @@ test('INV-13: StatValue renders right-aligned tabular mono; StatCell pairs icon 
 });
 
 test('the CONCEPT→ICON registry has no duplicate glyph within a concept family it must distinguish', () => {
-  // Verdict glyphs must all be distinct (act/reverify/abstain read differently).
-  const verdicts = [ICON.verdictAct, ICON.verdictReverify, ICON.verdictAbstain];
-  assert.equal(new Set(verdicts).size, 3, 'act/reverify/abstain are three distinct glyphs');
+  // Verdict glyphs must all be distinct (the four ladder rungs read differently).
+  const verdicts = [ICON.verdictAct, ICON.verdictReverify, ICON.verdictAbstain, ICON.verdictUnprovable];
+  assert.equal(new Set(verdicts).size, 4, 'act/reverify/abstain/unprovable are four distinct glyphs');
   // Lens glyphs distinct.
   const lenses = [ICON.groupDir, ICON.groupKind, ICON.layer];
   assert.equal(new Set(lenses).size, 3, 'directory/kind/layer are three distinct lens glyphs');
