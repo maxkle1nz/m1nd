@@ -197,11 +197,11 @@ stateDiagram-v2
     [*] --> Running : mission launched
     Running --> NeedsReply : agent asks a question
     NeedsReply --> Running : owner answers
-    Running --> DoneUnverified : output landed, no debrief yet
-    DoneUnverified --> DoneDebriefed : debrief classifies touched paths
+    Running --> OutputLanded : output landed, no debrief yet
+    OutputLanded --> Debriefed : debrief classifies touched paths
     Running --> Failed : error or cancel
-    DoneDebriefed --> Receipt : outcome passes block receipt rules
-    DoneDebriefed --> History : informative only
+    Debriefed --> Receipt : outcome passes block receipt rules
+    Debriefed --> History : informative only
 ```
 
 ---
@@ -270,8 +270,9 @@ classDiagram
 
 ## 9. The COMPLETE state-machine set (start → conclusion, every one)
 
-Sections 2/5/6 defined three machines (SystemBlock, Receipt, Mission/Pin). A running system needs nine.
-The remaining six, plus one explicit NON-machine, follow. Every machine names its failure states and its
+Sections 2/5/6 defined three machines (SystemBlock, Receipt, Mission/Pin). The full set is **thirteen**
+state machines plus one explicit NON-machine. The ten that follow (9.1–9.11; 9.9 is the non-machine),
+plus the three above, are the thirteen. Every machine names its failure states and its
 exits — no state without a way out.
 
 ### 9.1 Scan / Skeleton run (one execution of the pipeline)
@@ -304,19 +305,21 @@ stateDiagram-v2
     Running --> Stalled : NO new output within stall window
     Stalled --> Running : output resumes
     Stalled --> Killed : stall limit hit - kill ONLY this process
-    Killed --> Retrying : one retry with the stall cause named in the prompt
-    Retrying --> Running
-    Retrying --> DegradedToFallback : second stall - offer another runner or clipboard mode
     Running --> Completed : output plus exit ok - hands to debrief
     Running --> RunFailed : nonzero exit or error
-    RunFailed --> Retrying : one retry max
-    LaunchFailed --> [*] : surfaced on the pin as failed
+    Killed --> Retrying : retry budget not spent - one retry, stall cause named
+    RunFailed --> Retrying : retry budget not spent - one retry
+    Retrying --> Running : relaunch
+    Killed --> DegradedToFallback : retry budget spent - offer another runner or clipboard
+    RunFailed --> Failed : retry budget spent - terminal
+    LaunchFailed --> Failed : bridge never came up
     DegradedToFallback --> [*]
+    Failed --> [*]
     Completed --> [*]
 ```
 Stall-window policy: no-new-output window per runner type (one-shot minutes, loop engines longer). Kill is
 surgical (the launched process only), retry is single, degradation is explicit — exactly the discipline
-proven operationally on 2026-07-07.
+validated operationally on 2026-07-07.
 
 ### 9.3 MissionPacket lifecycle (per mode — direct REUSES the existing mailbox fates)
 
@@ -348,6 +351,10 @@ stateDiagram-v2
     Wired --> Broken : endpoints vanished, socket renamed, or rule violation on a ratified manifest
     Broken --> Wired : repaired and re-scanned
     Declared --> Ghost : declared but never observed - rendered dashed, never hidden
+    Ghost --> Wired : edges finally observed on a later scan
+    Ghost --> Waived : owner accepts it as external or deferred - documented
+    Ghost --> [*] : contract drops the declaration
+    Waived --> [*]
 ```
 
 ### 9.5 Agent / client card (connection + workspace truth)
@@ -404,14 +411,49 @@ stateDiagram-v2
     DriftDetected --> Snoozed : snooze 7d - alert suppressed, state NOT cleared
     Snoozed --> DriftDetected : window ends and drift persists
     ScopedReview --> Watching : re-ratified vN+1
+    ScopedReview --> Watching : dismissed - not real drift
+    ScopedReview --> Snoozed : owner defers the review
+    ScopedReview --> Retired : owner abandons the block - hands to archive machine 9.11
 ```
+
+### 9.10 Block Recipe / Visual Contract completeness (produces NOT SENDABLE)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : recipe opened - name and purpose
+    Draft --> Incomplete : one or more contract axes unfilled - sockets, receipts, spec
+    Incomplete --> Incomplete : edit axes - renders NOT SENDABLE, Send disabled
+    Incomplete --> Complete : every axis defined - contract N of N
+    Complete --> Incomplete : an axis is cleared again
+    Complete --> Sent : owner sends to agent - legal ONLY from Complete
+    Sent --> Building : mission spawned - block enters SystemBlock.Building
+    Building --> [*] : handed off to the SystemBlock and Mission machines
+```
+`NOT SENDABLE` is the render of `Incomplete`; the Send control is disabled until `Complete`.
+
+### 9.11 Block delete / archive (destructive - contract, confirmation, OCC)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Live : block exists - candidate, ratified, or planned
+    Live --> ConfirmDelete : owner requests delete or archive
+    ConfirmDelete --> Live : cancelled
+    ConfirmDelete --> Archived : confirmed - OCC version check passes, members released to unmapped residue
+    ConfirmDelete --> Conflict : OCC check fails - block changed under the request
+    Conflict --> Live : reload and retry
+    Archived --> Restored : owner restores within retention window
+    Restored --> Live
+    Archived --> [*] : retention window ends - terminal
+```
+A destructive store mutation never fires without confirmation and an optimistic-concurrency check
+(see the transactional law, PRD §3.1). `Delete block` in the context menu enters this machine.
 
 ### 9.9 NOT a machine (explicit): block color
 
 Block color (green/amber/red/purple/blue) is a **stateless projection** — `rollup(members, receipts,
 wires, runtime signal)` recomputed on every render from the machines above. It has no memory of its
 own, no transitions, and can never disagree with its inputs. Anything that LOOKS like a color
-transition is one of the nine real machines moving underneath.
+transition is one of the thirteen real machines moving underneath.
 
 ### Machine ↔ machine wiring (who triggers whom)
 
@@ -420,8 +462,10 @@ ScanRun.CandidateReady ──▶ RatificationSession.Reviewing
 RatificationSession.RatifiedVn ──▶ SystemBlock.Ratified + DriftWatch.Watching
 DriftWatch.DriftDetected ──▶ ScanRun (scoped) + SystemBlock.Drifted
 Packet.Spawned ──▶ Mission.Running ──▶ RunnerExec (whole machine) ──▶ Debrief ──▶ Pin
-Pin.DoneDebriefed ──▶ Receipt.Earned (only via block rules)
+Pin.Debriefed ──▶ Receipt.Earned (only via block rules)
 Receipt.(Fresh|Stale|Failed) ──▶ color projection (9.9)
 Wire.Broken ──▶ color projection + DriftWatch.DriftDetected (if socketed)
 AgentCard.WrongWorkspace ──▶ PolicyGate blocks spawn to that agent
+Recipe.Complete ──(Send)──▶ SystemBlock.Planned → Building
+Archive.Archived ──▶ SystemBlock removed, members → unmapped residue
 ```

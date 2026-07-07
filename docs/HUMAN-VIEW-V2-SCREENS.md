@@ -52,10 +52,10 @@ Legend used in every wireframe below:
 ├──────────┬─────────────────────────────────────────────────────────────────┬───────────────────────┤
 │ OVERVIEW │  All systems ▾   [Evidence 4] [Needs 2] [Broken 1] [Unknown 2]  │  AUTH        ▣ AUTH   │
 │ ◈ Build  │                  [Planned 1] [Runtime 1]         ⊕ ⊖ 100% ⛶    │  Auth Service         │
-│   Map    │                                                                 │  Receipts 6/6 ✓ fresh │
+│   Map    │                                                                 │  Receipts 5/5 · fresh │
 │ ⌥ Tree   │   ┌ ▣ AUTH ────────────┐        ┌ ▣ PAYMENTS ─────────┐        │  ─────────────────────│
 │ ⑂ Graph  │   │ Auth Service       │━━●━━━━▶│ Payments API        │        │  HEALTH               │
-│ ⎙ Receipts│  │ repo/auth · go     │        │ repo/payments · go  │        │  Receipts   6/6  ●    │
+│ ⎙ Receipts│  │ repo/auth · go     │        │ repo/payments · go  │        │  Receipts   5/5  ●    │
 │ ≈ Stress │   │ [Login][Session]   │        │ [Checkout][Billing] │        │  Tests    18/18  ●    │
 │ ⚉ Agents │   │ [Users][Roles]     │        │ [Subs][Invoices]    │        │  Structural  ✓ paint  │
 │ ⚙ Settings│  │ C92 T86 D4  ◉fresh │        │ C74 T61 D7  ◉ 12m   │        │  Runtime  ▸ no signal │
@@ -200,7 +200,7 @@ Sub-state — DRIFT ALERT (reopens scoped):
 │ │ FILES BY PURPOSE (28)     │  login.page.tsx        react·ts ⧉ │ AUTH HEALTH                    │ │
 │ │ ▾ Login screen        ● 3 │  1 import { LoginForm } from '…'  │  Files        12  ●            │ │
 │ │   login.page.tsx      ●   │  2 import { redirect } from '…'   │  Tests     18/18  ●            │ │
-│ │   LoginForm.tsx           │  4 export default function        │  Receipts    6/6  ●            │ │
+│ │   LoginForm.tsx           │  4 export default function        │  Receipts    5/5  ●            │ │
 │ │   login.schema.ts         │      LoginPage() {                │  Type safety      ●            │ │
 │ │ ▸ Session keeper      ● 4 │  5   return (                     │  Lint             ●            │ │
 │ │ ▸ Password reset      ◐ 4 │  6   <div className="min-h-…">    │  Build            ●            │ │
@@ -214,22 +214,21 @@ Sub-state — DRIFT ALERT (reopens scoped):
 │ └───────────────────────────┴───────────────────────────────────┴────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
-Health counters carry auditable denominators (Receipts 6/6 = of the block's declared contract).
+Health counters carry auditable denominators (Receipts 5/5 = of the block's declared required contract; optional axes like runtime are shown but never counted).
 Security ⚠ expands to the finding — a check, not a vibe. ABOUT is one human sentence per file.
 
 ### 4.2 Receipts tab (the taxonomy on screen, PRD §4)
 
 ```
-│ RECEIPTS — 6 of 6 declared for this block                    contract: auth.receipts v1 ▸ │
+│ RECEIPTS — 5 of 5 required · all fresh                       contract: auth.receipts v1 ▸ │
 │  ✓ test        login-flow           14 tests green            2m ago   fresh              │
 │  ✓ test        session-create        4 tests green            2m ago   fresh              │
 │  ✓ structural  x-ray paint          test-exercised/grounded   1h ago   fresh              │
 │  ✓ review      webhook-signatures   agent: claude-reviewer    8m ago   fresh              │
 │  ✓ spec        business-rules       attached by owner         3d ago   fresh              │
-│  ◇ runtime     auth-latency         no spans in window        —        STALE → renews on  │
-│                                                                         next ingestion    │
-│  A receipt expires when its members change. Expired ≠ deleted: it shows ◇ stale, asking   │
-│  to be re-earned.                                                                         │
+│  ┈ optional    runtime auth-latency no spans yet — NOT required, NOT counted in 5/5        │
+│  A required receipt expires when its members change; expired shows ◇ stale and must be     │
+│  re-earned. An OPTIONAL axis with no signal is neutral — never counted for or against.     │
 ```
 
 ### 4.3 Impact tab
@@ -376,8 +375,8 @@ Send to Build Map emits `Planned` blocks whose contracts arrive pre-filled from 
 PIN STATES (dock on the block edge)                MISSION DRAWER (click a pin)
  ⟳ running     — heartbeat + %                     ┌───────────────────────────────────────┐
  ✉ needs reply — agent asked something             │ Mission m_0142 · Codex · Auth ▸ Reset │
- ◐ done (unverified) — output landed, no debrief   │ status ⟳ running 42% · started 2m ago │
- ● done (debriefed)  — touched paths classified    │ workspace wt/auth-reset-m0142 (isolated)│
+ ◐ output landed (unverified) — output landed, no debrief   │ status ⟳ running 42% · started 2m ago │
+ ● debriefed  — touched paths classified    │ workspace wt/auth-reset-m0142 (isolated)│
  ✕ failed      — with the failure line             │ scope 6 files · policy propose-only   │
                                                    │ live: "Creating reset.service test…"  │
 ┌ ▣ AUTH ────────────┐                             │ [ View diff ] [ Cancel ] [ Open log ] │
@@ -401,7 +400,7 @@ CONTEXT MENU (right-click block)       TOOLTIP (hover)                    LEGEND
 │ Show impact        │                │ "Reads identity from    │     receipts missing/stale
 │ Copy packet        │                │  IdP"                   │   ✕ broken/drifting — failing
 │ Add pin            │                │ owner platform · 2h ago │     receipt or ratified-rule hit
-│ ─────────────────  │                │ tests 86% · receipts 6/6│   ? unknown — not scanned yet
+│ ─────────────────  │                │ tests 86% · receipts 5/5│   ? unknown — not scanned yet
 │ Show dependencies  │                └─────────────────────────┘     (neutral, not a warning)
 │ Copy path · id     │                                              ≈ runtime — only with real
 │ Mute alerts        │                SEARCH+FILTERS                  spans ("no signal" otherwise)

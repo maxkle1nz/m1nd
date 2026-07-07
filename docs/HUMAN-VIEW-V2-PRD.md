@@ -44,6 +44,14 @@ SystemBlock {
 
 **Ratification law:** auto-clustering (the Skeleton engine, §6) only ever produces a **candidate skeleton** — names suggested, boundary diffs, confidence, unmapped files, multi-owner seams. A candidate becomes the Build Map **only after human ratification** (the Edit Names & Boundaries screen). Ratified skeletons drift-detect: new files with no block, blocks whose files vanished, broken sockets, names that no longer match reality — surfaced as `stale ratification`, never silently re-clustered.
 
+## 3.1 Concurrency & the transactional law (the store's first invariant)
+
+The SystemBlock store is touched concurrently: a scan re-attaches members while the owner ratifies a boundary; a receipt expires while a debrief lands a pin; span ingestion recolors runtime while a recipe edits sockets. Without concurrency control the map can show a **ratified block with fresh receipts against a stale boundary**, or promote an agent output into **evidence for the wrong contract version** — the worst failure for an evidence tool. Law:
+- Every `SystemBlock`, its **boundary**, its **contract**, and each **receipt** carry a version.
+- Every mutation (ratify, re-scan attach, recipe edit, receipt earn/expire, debrief→pin, span recolor, delete/archive) is an **optimistic-concurrency transaction** keyed on the version it read. A stale write is **rejected and reloaded**, never silently applied (see the delete/archive machine, UML §9.11, and the OCC `Conflict` state).
+- A receipt is **bound to the `(block_id, boundary_version, contract_version)` it was earned against**. If any of those advanced, the receipt is re-scoped or marked stale — **never counted for the new version**.
+- Pins/outcomes carry the `contract_version` they targeted; a debrief **cannot become evidence for a version it never saw**.
+
 ## 4. Receipt taxonomy (before any "6/6" appears on screen)
 
 A receipt is a **typed, attributable, expirable** piece of evidence attached to a block:
@@ -73,9 +81,11 @@ Per-node states come from the persisted `xray:state:*` tags already carried by t
 
 Rollup edge rules (explicit): truncated membership never rolls up (request full membership or show `≥ N`); mixed blocks show **proportion**, not worst-of; the block ring (ARTKIT Proof Ring) carries freshness; borders carry wired/holes separately from fill.
 
+**Runtime signal is read-only at render.** The blue signal is read from a persisted, read-only runtime overlay artifact — the render NEVER calls the span-ingesting overlay verb (which mutates/persists boosts). Ingestion is a separate, explicit operator step; the map only reads its last persisted result. No spans persisted ⇒ `no runtime signal`, never a fabricated blue.
+
 ## 6. The two paths onto the map
 
-**Brownfield — LIGHT Skeleton** (screen: pipeline): `Scan repo → Cluster purpose → Name blocks → Attach files → Read receipts → Render map`. Clustering uses the graph (communities, directories, semantics); **naming is agent work** — a cheap fast model (Gemini Flash via the AGY runner, §7) proposes names/purposes; the pipeline outputs a **candidate** with confidences and unmapped residue; the human ratifies. The engine orchestrates its own analysis — passivity ends here, on day one.
+**Brownfield — LIGHT Skeleton** (screen: pipeline): `Scan repo → Cluster purpose → Name blocks → Attach files → Read receipts → Render map`. Clustering uses the graph (communities, directories, semantics); **naming is agent work** — a **minimal one-shot naming runner** proposes names/purposes (with a manual-naming fallback if it is unavailable); the full policy-gated runner fleet (§7) is not required for F0c — it arrives in F2.5; the pipeline outputs a **candidate** with confidences and unmapped residue; the human ratifies. The engine orchestrates its own analysis — passivity ends here, on day one.
 
 **Greenfield — ULM Generator** (screen: intent → blueprint): Project Intent + Audience + Core Flows → a product blueprint of blocks (Product Core, Auth, Data, Workflows, UI Surfaces, **Proof Gates**) with Blueprint Readiness per axis → **Send to Build Map** as `Planned` blocks carrying their Visual Contract (sockets, needed receipts). Both paths converge on the same map: scanned blocks beside planned ones.
 
@@ -89,7 +99,7 @@ MissionPacket (block-scoped delegate packet, one shape for all modes)
    mode: direct      → delivered to the target's inbox (the mailbox that already exists)
    mode: spawn       → handed to a RUNNER that launches a real agent
 Runner (thin adapter per bridge)
-   codex-runner   one-shot codex exec — MVP's first proven cycle (simplest)
+   codex-runner   one-shot codex exec — MVP's first validated cycle (simplest)
    agy-runner     agy new/send + tail — the cheap fast lane (skeleton naming, research)
    l00p-runner    long-loop missions with deterministic gate — wave 2 (needs heartbeat UI)
    gogod-runner   key-moment implementations — wave 2
@@ -103,7 +113,7 @@ Return path: agent output → debrief → outcomes ledger → PIN on the block
 - Audit trail = the delegate registry + outcomes ledger (already persisted).
 - **Routing Rules** (screen: Clients & Agents): work-type → default agent (Build→Codex, Review→Claude, Research→Gemini, Stress→AGY, Ask God→/askgod). Rules route; the human can always override per-mission.
 
-**Pins** are projections of the outcomes ledger + mailbox fates: `running` (heartbeat), `needs reply`, `done (unverified)`, `done (debriefed)`, `failed`. A pin becomes a **receipt** only when its outcome passes the block's declared receipt rules — answers are not evidence by default.
+**Pins** are projections of the outcomes ledger + mailbox fates: `running` (heartbeat), `needs reply`, `output landed (unverified)`, `debriefed`, `failed`. A pin becomes a **receipt** only when its outcome passes the block's declared receipt rules — answers are not evidence by default.
 
 ## 8. Functional requirements (per surface)
 
@@ -175,4 +185,4 @@ MASSIF v1 (PRD/UML/screens, commits f472214+fd24dae) is **absorbed**: its honest
 
 ## 15. askGOD compliance map
 
-All 18 required changes from the 2026-07-07 verdict are addressed: 1→header+§14 · 2→§3 · 3→§10 F0a/F0b · 4→§3 ratification law + §6 · 5→§10 order · 6→§10 F0b–F2 gates · 7→§14 carry-ins · 8→§4 badge ban · 9→§4 taxonomy · 10→§5 tags source + F6 read-only · 11→pre-work: fix `toolTypes.ts` TrustEnvelope union (add `unprovable`) · 12→§5 rollup policy · 13→§5 blue row · 14→F13 effects declaration · 15→§7 pins protocol + F17 · 16→F14 contract gate · 17→§13 · 18→§11.
+**17 of the 18** required changes from the first 2026-07-07 verdict are addressed **in these documents**; **#11 is a code pre-work item** (the `toolTypes.ts` `TrustEnvelope.verdict` `unprovable` union + its `verdictLabel`/`VerdictChip` consumers + a regression guard) landed **separately before F0a**, not claimed done here. A **second review pass (2026-07-07)** further hardened the package: copy-law swept (no `proven`/`done` as states), the receipt-counter contradiction fixed (required vs optional axes), the state-machine set completed to **thirteen** with finite retries and no dead-end states (UML §9), the runtime read-only source made explicit (§5), and the store's **transactional law added (§3.1)**. Map of the first 18: 1→header+§14 · 2→§3 · 3→§10 F0a/F0b · 4→§3 ratification law + §6 · 5→§10 order · 6→§10 F0b–F2 gates · 7→§14 carry-ins · 8→§4 badge ban · 9→§4 taxonomy · 10→§5 tags source + F6 read-only · 11→pre-work: fix `toolTypes.ts` TrustEnvelope union (add `unprovable`) · 12→§5 rollup policy · 13→§5 blue row · 14→F13 effects declaration · 15→§7 pins protocol + F17 · 16→F14 contract gate · 17→§13 · 18→§11.
