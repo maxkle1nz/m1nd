@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://gitrooms.com/github/maxkle1nz/m1nd">
+    <img src="https://gitrooms.com/api/badge/github/maxkle1nz/m1nd.svg" alt="Join the m1nd room on GitRooms" width="560" />
+  </a>
+</p>
+
 🇬🇧 [English](README.md) | 🇧🇷 [Português](i18n/README.pt-BR.md) | 🇪🇸 [Español](i18n/README.es.md) | 🇮🇹 [Italiano](i18n/README.it.md) | 🇫🇷 [Français](i18n/README.fr.md) | 🇩🇪 [Deutsch](i18n/README.de.md) | 🇨🇳 [中文](i18n/README.zh.md) | 🇯🇵 [日本語](i18n/README.ja.md)
 
 <p align="center">
