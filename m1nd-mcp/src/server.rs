@@ -2634,6 +2634,11 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // (it is read-only like north; its omission from this list IS its ambient
     // legality — ORGANISM R6 / NEXTGEN-AGENT-PRD §O.12.3).
     "debrief",
+    // runtime_overlay INGESTS spans, applies activation boosts to the live graph
+    // and persists overlay state — a mutation, not a render source. A read-only
+    // attach must refuse it (HUMAN-VIEW-V2-F0-TECH §6/§12: the render path reads
+    // a persisted artifact; it never calls this verb).
+    "runtime_overlay",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -5693,6 +5698,7 @@ mod tests {
             "learn",
             "daemon_start",
             "auto_ingest_start",
+            "runtime_overlay",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
