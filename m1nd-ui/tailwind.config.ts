@@ -40,6 +40,19 @@ const config: Config = {
           veil: '#ede9fe',
           deep: '#4c1d95',
         },
+        // Human View v2 ARTKIT tokens (HUMAN-VIEW-V2-SCREENS §0/§10). The four
+        // that the existing SOFT PROOF palette did not already carry; the Build
+        // Map's states REUSE the verdict/state families above (the coabitação
+        // decision), so only these four are new:
+        //   socket-blue  → wires/sockets + the runtime axis ("no signal" today)
+        //   stale-lilac  → the candidate/ratification accent (iris is reserved by
+        //                  violet-lint, so the candidate wears stale-lilac)
+        //   warm-paper   → block card fill
+        //   hairline     → the neutral card/border hairline (no-sockets border)
+        'socket-blue': '#3d6f8e',
+        'stale-lilac': '#8a7ba8',
+        'warm-paper': '#fcfaf6',
+        hairline: '#d8d1c6',
       },
       fontFamily: {
         // Self-hosted per §6.5 (served UI must work air-gapped). Falls back to
