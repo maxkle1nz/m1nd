@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import LivingTree from './components/tree/LivingTree';
 import HallView from './components/hall/HallView';
+import BuildMapView from './components/map/BuildMapView';
 import BrainChip from './components/hall/BrainChip';
 import ThresholdCard from './components/hall/ThresholdCard';
 import OrientationBeats from './components/hall/OrientationBeats';
@@ -18,6 +19,7 @@ import { useToastStore } from './stores/toastStore';
 import ToastContainer from './components/ToastContainer';
 import { useSSE } from './hooks/useSSE';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useBuildMap } from './hooks/useBuildMap';
 import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
 import type { NorthPacket } from './api/toolTypes';
@@ -278,8 +280,10 @@ function IngestModal({
   );
 }
 
-/** The surface the shell is showing. Threshold is rung −∞; Hall is rung −1; tree is rung 0. */
-type Surface = 'tree' | 'hall' | 'threshold';
+/** The surface the shell is showing. Threshold is rung −∞; Hall is rung −1; tree is
+ *  rung 0. The Build Map ('map') is the HUMAN-VIEW-V2 front door — it leads when a
+ *  ratified skeleton is present; the tree/Hall stay one click away. */
+type Surface = 'tree' | 'hall' | 'threshold' | 'map';
 
 /**
  * The brains the owner holds — the landing signal (§4A.1, INV-12) AND the Cmd+K
@@ -341,6 +345,9 @@ export default function App() {
   const self = useSelf(backendUp);
   const brains = useBrains(backendUp);
   const restSelector = useRestBrainSelector(backendUp);
+  // The Build Map read (HUMAN-VIEW-V2 F1) — decides the front door and feeds the
+  // 'map' surface. Read-only; gated on the backend being up.
+  const buildMap = useBuildMap(backendUp);
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
@@ -367,13 +374,21 @@ export default function App() {
   );
 
   // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine).
-  // Zero brains → the Threshold (empty-state-as-onboarding). Otherwise the tree
-  // (experts land in their work; the Hall is one ESC away). INV-12: a returning
-  // user never meets the Threshold.
+  // HUMAN-VIEW-V2 front door: the Build Map LEADS when a ratified skeleton is
+  // present — so we wait for the snapshot to settle before deciding (no flash of
+  // the tree then a jump). A no-skeleton / absent / errored snapshot falls back to
+  // the prior doctrine: zero brains → the Threshold (empty-state-as-onboarding),
+  // otherwise the tree (the Hall is one ESC away, the map fallback protects
+  // first-run). INV-12: a returning user never meets the Threshold.
   useEffect(() => {
     if (surface != null || brainCount == null) return;
+    if (buildMap.status === 'loading') return; // still deciding — wait, don't flash
+    if (buildMap.present) {
+      setSurface('map');
+      return;
+    }
     setSurface(brainCount <= 0 ? 'threshold' : 'tree');
-  }, [surface, brainCount]);
+  }, [surface, brainCount, buildMap.status, buildMap.present]);
 
   // Cmd+K opens the Brains group (§4A.5). Not on the Threshold (no brains yet).
   useKeyboardShortcuts({
@@ -470,6 +485,10 @@ export default function App() {
               restSelector={restSelector}
               viewedRoot={viewedBrain.root}
             />
+          ) : surface === 'map' ? (
+            // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living
+            // Tree is one click away (the deterministic surface is never killed).
+            <BuildMapView onOpenTree={() => setSurface('tree')} enabled={backendUp} />
           ) : (
             <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}
