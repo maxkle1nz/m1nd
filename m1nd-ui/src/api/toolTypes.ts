@@ -128,9 +128,14 @@ export interface TrustEnvelopeFactor {
   weight: number;
 }
 
+/** The four-state trust ladder — mirrors the Rust protocol union verbatim
+ *  (protocol/layers.rs TrustEnvelope.verdict). `unprovable` = nothing exists
+ *  to check the claim against; a REAL answer, never collapsed into abstain. */
+export type TrustVerdict = 'act' | 'reverify' | 'abstain' | 'unprovable';
+
 /** The trust envelope — ALWAYS present on SeekOutput (layers.rs:180-231). */
 export interface TrustEnvelope {
-  verdict: 'act' | 'reverify' | 'abstain';
+  verdict: TrustVerdict;
   calibrated: boolean; // false → capped at reverify by engine law (G2 explains)
   score?: number;
   factors?: TrustEnvelopeFactor[];

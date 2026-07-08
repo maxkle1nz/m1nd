@@ -7,8 +7,10 @@
  * animates (INV-02); the chip carries NO numeral.
  */
 import { Icon, type IconName } from '../../lib/icons/registry';
+import type { TrustVerdict } from '../../api/toolTypes';
 
-export type Verdict = 'act' | 'reverify' | 'abstain';
+/** The chip's verdict IS the wire's four-state trust ladder (protocol/layers.rs). */
+export type Verdict = TrustVerdict;
 
 interface VerdictChipProps {
   verdict: Verdict;
@@ -31,6 +33,15 @@ const VERDICT_META: Record<
   // IRIS — the only violet chip. The CircleDashed glyph wears iris ink (inherited
   // from the chip's text-iris-deep) and never animates.
   abstain: { text: "I won't guess this one", bg: 'bg-iris-veil', fg: 'text-iris-deep', icon: 'verdictAbstain', abstain: true },
+  // The fourth rung of the ladder: nothing exists to check the claim against.
+  // Unfired grey (the honest no-evidence tone), never animates, no numeral.
+  unprovable: {
+    text: 'nothing to check this against',
+    bg: 'bg-state-unverified-tint',
+    fg: 'text-ink',
+    icon: 'verdictUnprovable',
+    abstain: false,
+  },
 };
 
 export default function VerdictChip({ verdict, label }: VerdictChipProps) {

@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://gitrooms.com/github/maxkle1nz/m1nd">
+    <img src="https://gitrooms.com/api/badge/github/maxkle1nz/m1nd.svg?layout=card&amp;theme=signal&amp;density=standard&amp;accent=green&amp;radius=10&amp;width=700&amp;bg=%2307111f&amp;blocks=identity%3Aroom%3A%3Amark%3A22c55e%2Cmembers%3Amembers%3A%3A%25E2%2597%2589%3Ae8edf3%2Conline%3Aonline%3A%3A%25E2%2597%2590%3A22c55e%2Cmessages%3Amessages%3A%3A%25E2%2589%25A1%3Ae8edf3%2Crooms%3Arooms%3A%3A%25E2%2596%25A4%3Ae8edf3%2Clatest_message%3Alatest%3A%3A%25E2%259C%258E%3A06b6d4&amp;brand=cta_row" alt="m1nd live room on GitRooms — members, online now, and latest messages" width="700" />
+  </a>
+</p>
+
 🇬🇧 [English](README.md) | 🇧🇷 [Português](i18n/README.pt-BR.md) | 🇪🇸 [Español](i18n/README.es.md) | 🇮🇹 [Italiano](i18n/README.it.md) | 🇫🇷 [Français](i18n/README.fr.md) | 🇩🇪 [Deutsch](i18n/README.de.md) | 🇨🇳 [中文](i18n/README.zh.md) | 🇯🇵 [日本語](i18n/README.ja.md)
 
 <p align="center">

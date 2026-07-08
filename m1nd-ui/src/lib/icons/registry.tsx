@@ -33,6 +33,7 @@ import {
   Check,
   RotateCcw,
   CircleDashed,
+  CircleOff,
   Cable,
   Inbox,
   RefreshCw,
@@ -68,6 +69,7 @@ export const ICON = {
   verdictAct: Check,
   verdictReverify: RotateCcw,
   verdictAbstain: CircleDashed, // supersedes the plain iris dot; iris ink; NEVER animates
+  verdictUnprovable: CircleOff, // the 4th rung: nothing exists to check against; grey ink; NEVER animates
   // Aliveness / inbox / ingest
   agents: Cable, // G4 caption, receipt sessions — the `--attach` word made visible
   inbox: Inbox, // D3 count + receipt list (before the verbs exist: never shown)
