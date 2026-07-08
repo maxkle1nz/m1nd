@@ -25,6 +25,7 @@
   <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
   <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
+  <a href="https://gitrooms.com/github/maxkle1nz/m1nd"><img src="https://gitrooms.com/api/badge/github/maxkle1nz/m1nd.svg" alt="Join the room on GitRooms" /></a>
 </p>
 
 <p align="center">
