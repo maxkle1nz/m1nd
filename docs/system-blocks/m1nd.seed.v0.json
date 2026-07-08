@@ -8,12 +8,12 @@
   "skeleton": {
     "skeleton_id": "sk_m1nd_seed_2026_07",
     "version": 1,
-    "state": "candidate",
+    "state": "ratified",
     "ratification": {
       "method": "pr_merge",
-      "ratifier": "owner",
-      "ratified_at": "pending",
-      "commit": "pending"
+      "ratifier": "owner-delegated:orchestrator-review-2026-07-07",
+      "ratified_at": "2026-07-08T09:39:25Z",
+      "commit": "pending-merge"
     }
   },
   "blocks": [
@@ -22,10 +22,10 @@
       "name": "Core Graph Kernel",
       "purpose": "Stores and traverses the code graph: CSR storage, activation, topology, query.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-core/src/lib.rs",
@@ -131,7 +131,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -148,10 +148,10 @@
       "name": "Core Evidence & Risk Engines",
       "purpose": "Trust, calibration, tremor, temporal, snapshots, semantics and the analysis engine family.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-core/src/calibration.rs",
@@ -281,7 +281,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -298,10 +298,10 @@
       "name": "Ingest & Document Canonicalization",
       "purpose": "Reads repos and documents into graph nodes: extractors, canonicalization, the write path.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-ingest/src/**",
@@ -359,7 +359,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -376,10 +376,10 @@
       "name": "Served Owner & Brain Routing",
       "purpose": "The served process: transport, sessions, reception, per-project brains and routing.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-mcp/src/main.rs",
@@ -493,7 +493,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -510,10 +510,10 @@
       "name": "Retrieval & Analysis Verbs",
       "purpose": "Seek, search, impact, layers, audit, report and the answer-shaping surface.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-mcp/src/tools.rs",
@@ -615,7 +615,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -632,10 +632,10 @@
       "name": "Memory, Soul, Mailbox & Delegation",
       "purpose": "Durable memory, medulla, soul receipts, field mailbox, delegation packets and missions.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-mcp/src/boot_memory_handlers.rs",
@@ -725,7 +725,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -742,10 +742,10 @@
       "name": "Editing, Safety, X-RAY & Locks",
       "purpose": "Surgical edits, X-RAY conformance, locks, persistence and the SystemBlock contract.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-mcp/src/surgical_handlers.rs",
@@ -835,7 +835,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -852,10 +852,10 @@
       "name": "Human UI Shell, Hall & Living Tree",
       "purpose": "The human-facing app shell and its surfaces: Hall, Living Tree, canvas, soft components.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-ui/src/App.tsx",
@@ -925,7 +925,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -942,10 +942,10 @@
       "name": "UI API, State & Fixtures",
       "purpose": "The UI's data layer: api client, hooks, stores, captured fixtures and the test suite.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "m1nd-ui/src/api/**",
@@ -1027,7 +1027,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -1044,10 +1044,10 @@
       "name": "Distribution, Host Packs & Installer",
       "purpose": "How m1nd reaches machines: the npm wrapper, skills packs, install surfaces and i18n.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "npm/**",
@@ -1115,7 +1115,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -1132,10 +1132,10 @@
       "name": "Docs & Product Contracts",
       "purpose": "The written truth: PATHOS, PRDs, the UML atlas, guides and the repo's public contracts.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": "docs/**",
@@ -1199,7 +1199,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
@@ -1216,10 +1216,10 @@
       "name": "CI, Scripts, Demo & OpenClaw",
       "purpose": "Pipelines, release tooling, proofs harnesses, the demo crate and the openclaw crate.",
       "kind": "scanned",
-      "state": "candidate",
+      "state": "ratified",
       "boundary_version": 1,
       "contract_version": 1,
-      "membership_source": "proposed",
+      "membership_source": "ratified",
       "membership": [
         {
           "path": ".github/**",
@@ -1289,7 +1289,7 @@
         ],
         "waived": [],
         "declared_by": "owner",
-        "declared_at": "pending"
+        "declared_at": "2026-07-08T09:39:25Z"
       },
       "receipts": [],
       "layout": {
