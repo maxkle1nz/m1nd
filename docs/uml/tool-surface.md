@@ -149,10 +149,10 @@ stateDiagram-v2
 - `resonate` is a handler-only back-compat verb: dispatchable (:4226) but ABSENT from every advertised tier (test `resonate_schema_absent_from_all_tiers_after_surface_removal` :7391).
 
 ## Gaps
-- **[medium] No parity/drift-guard test** between advertised catalog (118), the dispatch table, and `ESSENTIAL_TOOLS`. A verb can be added to one and forgotten in another with green CI. Live drift PRESENT: 5 `lock_` verbs dispatchable (server.rs:5114-5162) but NOT in the 118-catalog; `resonate` dispatchable-but-uncatalogued (by design).
+- **[medium] No parity/drift-guard test** between advertised catalog (122), the dispatch table, and `ESSENTIAL_TOOLS`. A verb can be added to one and forgotten in another with green CI. Live drift PRESENT: 5 `lock_` verbs dispatchable (server.rs:5114-5162) but NOT in the 122-catalog; `resonate` dispatchable-but-uncatalogued (by design).
 - **[medium] `lock_` verbs are invisible verbs**: callable via tools/call but never advertised in ANY tier (not even `full`), and `help`/`find_similar_tool_names` cannot see or suggest them because `schema_tools()` reads the tier-gated `tool_schemas()` (help_guidance.rs:444), not `all_tool_schemas()`.
 - **[low] In essential (DEFAULT) tier, `help` + fuzzy suggestion see only 41 verbs**: an agent that knows a hidden-but-callable verb exists gets no schema help / did-you-mean for it unless `M1ND_TOOL_TIER=full`.
-- **[low] Stale count literals** — **CLOSED**: docstrings now state the registry-derived counts (118 full / 42 essential).
+- **[low] Stale count literals** — **CLOSED**: docstrings now state the registry-derived counts (122 full / 42 essential — the F0a slice-2 landing added the four system-blocks verbs).
   Original finding: in doctrine-adjacent comments: "all 102 tools" (server.rs:423,465,504 — confirmed in code read), "expose all 102 tools" (tools.rs:3301), "curated ~25 tools" for the 41-entry const (server.rs:367). Live values are correct; only the human-readable comments mislead.
 - **[low] `session_handshake` degraded verdict trusts the caller**: the server cannot independently see which subset the host injected (non_claim, tools.rs:3323-3326). A host that omits verbs but passes no `available_tools` yields a false "ok".
 - **[low] Naming hazard — two "budgets"**: the verb budget (tier gate) and the result token budget (result_shaping) are orthogonal; the token estimate is chars/4, explicitly NOT real BPE (result_shaping.rs:114), so packed budgets can drift.
