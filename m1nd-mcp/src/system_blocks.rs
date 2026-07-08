@@ -1,9 +1,15 @@
-//! Human View v2 F0a — SystemBlock contract seed types and validator.
+//! Human View v2 F0a — SystemBlock contract seed types, validator, and the live
+//! sidecar store.
 //!
-//! This module is deliberately data-only for slice 1: it models the ratified
-//! seed contract (`m1nd-system-block-seed-v0`), validates import-time safety
-//! invariants, and exports a deterministic pretty JSON form. It does not add
-//! verbs, routes, UI, runner execution, or a live sidecar store.
+//! Slice 1 modelled the ratified seed contract (`m1nd-system-block-seed-v0`),
+//! validated import-time safety invariants, and exported a deterministic pretty
+//! JSON form. Slice 2 adds the LIVE side: the per-project-brain sidecar store
+//! (`m1nd-system-block-store-v0`, [`SystemBlockStore`]) that the F0a verbs serve,
+//! its atomic load/save, the optimistic-concurrency (OCC) transaction law
+//! (PRD §3.1 — every mutation is keyed on the `store_version` it read; a stale
+//! write is rejected with [`SeedError::Conflict`], never silently applied), and
+//! the anti-poison receipt-evidence contract (§3). It still adds no routes, UI,
+//! or runner execution — the MCP verbs live in `system_blocks_handlers`.
 
 use std::error::Error;
 use std::fmt;
@@ -148,16 +154,31 @@ pub struct ReceiptScope {
     pub resolution_hash: String,
 }
 
+/// Receipt evidence (anti-poison, HUMAN-VIEW-V2-F0-TECH §3). The EXECUTION fields
+/// are optional — a `spec`/`structural`/`review` receipt is not born from a shell
+/// command — but the UNIVERSAL ANCHOR (`artifact_hash` + `evidence_refs`) is
+/// mandatory and never empty: evidence a tool cannot point at is not evidence. A
+/// `test` receipt is held to the stronger contract that its execution identity
+/// (`command`/`cwd`/`exit_status`/`started_at`/`ended_at`) is present — see
+/// [`validate_receipt_evidence`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReceiptEvidence {
-    pub command: String,
-    pub cwd: String,
-    pub exit_status: i32,
-    pub started_at: String,
-    pub ended_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    /// The universal anchor: the sha256 of the raw artifact. NEVER empty.
     pub artifact_hash: String,
-    pub stdout_excerpt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_excerpt: Option<String>,
+    /// The universal anchor: artifact paths or CI run urls. NEVER empty.
     pub evidence_refs: Vec<String>,
 }
 
@@ -344,6 +365,8 @@ pub enum UnmappedDefaultAction {
 #[derive(Debug)]
 pub enum SeedError {
     Json(serde_json::Error),
+    /// Filesystem error reading/writing the sidecar store.
+    Io(std::io::Error),
     SchemaMismatch {
         expected: String,
         found: String,
@@ -358,12 +381,46 @@ pub enum SeedError {
         block_id: String,
         receipt_block_id: String,
     },
+    /// OCC conflict (PRD §3.1): the mutation was keyed on a `store_version` that is
+    /// no longer current. The write is REJECTED and nothing is applied — reload and
+    /// retry against the fresh version.
+    Conflict {
+        expected: u64,
+        actual: u64,
+    },
+    /// A seed import found an existing store and `force` was not set. Honest refusal
+    /// (`already_present`); nothing is applied.
+    StoreAlreadyPresent,
+    /// A store mutation was attempted where no store exists yet — import a seed first.
+    NoStore,
+    /// A targeted `block_id` is not present in the store (no silent skip).
+    BlockNotFound {
+        block_id: String,
+    },
+    /// A receipt was earned against a `(boundary_version, contract_version)` that is
+    /// not the block's current one (`stale_scope`, PRD §3.1) — evidence is never
+    /// counted for a version it did not see. Nothing is applied.
+    ReceiptStaleScope {
+        block_id: String,
+        receipt_boundary: u32,
+        receipt_contract: u32,
+        block_boundary: u32,
+        block_contract: u32,
+    },
+    /// Receipt evidence failed the anti-poison contract (§3): the universal anchor
+    /// (`artifact_hash` + `evidence_refs`) was empty, or a `test` receipt was missing
+    /// a required execution field.
+    EvidenceIncomplete {
+        receipt_type: String,
+        missing: String,
+    },
 }
 
 impl fmt::Display for SeedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SeedError::Json(err) => write!(f, "invalid SystemBlock seed JSON: {err}"),
+            SeedError::Io(err) => write!(f, "system-block store I/O error: {err}"),
             SeedError::SchemaMismatch { expected, found } => {
                 write!(
                     f,
@@ -384,6 +441,38 @@ impl fmt::Display for SeedError {
                 f,
                 "receipt scope block_id mismatch: block {block_id}, receipt {receipt_block_id}"
             ),
+            SeedError::Conflict { expected, actual } => write!(
+                f,
+                "store version conflict: expected {expected}, actual {actual} — reload and retry (nothing was applied)"
+            ),
+            SeedError::StoreAlreadyPresent => write!(
+                f,
+                "already_present: a system-block store already exists here — pass force:true to overwrite (nothing was applied)"
+            ),
+            SeedError::NoStore => write!(
+                f,
+                "no system-block store here yet — import a seed before mutating it"
+            ),
+            SeedError::BlockNotFound { block_id } => {
+                write!(f, "unknown block_id `{block_id}` — not in the store")
+            }
+            SeedError::ReceiptStaleScope {
+                block_id,
+                receipt_boundary,
+                receipt_contract,
+                block_boundary,
+                block_contract,
+            } => write!(
+                f,
+                "stale_scope: block {block_id} is at boundary {block_boundary}/contract {block_contract}, but the receipt was earned against boundary {receipt_boundary}/contract {receipt_contract} — never counted for a version it did not see (nothing was applied)"
+            ),
+            SeedError::EvidenceIncomplete {
+                receipt_type,
+                missing,
+            } => write!(
+                f,
+                "receipt evidence incomplete for a `{receipt_type}` receipt: missing {missing}"
+            ),
         }
     }
 }
@@ -392,6 +481,7 @@ impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             SeedError::Json(err) => Some(err),
+            SeedError::Io(err) => Some(err),
             _ => None,
         }
     }
@@ -426,13 +516,13 @@ fn validate_seed(seed: &SeedFile) -> Result<(), SeedError> {
         }
         for receipt in &block.receipts {
             validate_receipt_scope(block, receipt)?;
+            validate_receipt_evidence(receipt)?;
         }
     }
     Ok(())
 }
 
 fn validate_receipt_scope(block: &SystemBlock, receipt: &Receipt) -> Result<(), SeedError> {
-    validate_repo_relative_path(&receipt.evidence.cwd)?;
     if receipt.scope.block_id != block.block_id
         || receipt.scope.boundary_version != block.boundary_version
         || receipt.scope.contract_version != block.contract_version
@@ -445,7 +535,71 @@ fn validate_receipt_scope(block: &SystemBlock, receipt: &Receipt) -> Result<(), 
     Ok(())
 }
 
-fn validate_repo_relative_path(path: &str) -> Result<(), SeedError> {
+/// The anti-poison receipt-evidence contract (HUMAN-VIEW-V2-F0-TECH §3). Enforced
+/// at BOTH seed-load time and `receipt_import` time:
+/// - the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty
+///   (evidence a tool cannot point at is not evidence);
+/// - `cwd`, when present, obeys the repo-relative law;
+/// - a `test` receipt additionally carries its full execution identity
+///   (`command`/`cwd`/`exit_status`/`started_at`/`ended_at`).
+pub(crate) fn validate_receipt_evidence(receipt: &Receipt) -> Result<(), SeedError> {
+    let ev = &receipt.evidence;
+    let type_str = receipt_type_str(receipt.type_);
+    if ev.artifact_hash.trim().is_empty() {
+        return Err(SeedError::EvidenceIncomplete {
+            receipt_type: type_str.to_string(),
+            missing: "artifact_hash".to_string(),
+        });
+    }
+    if ev.evidence_refs.is_empty() {
+        return Err(SeedError::EvidenceIncomplete {
+            receipt_type: type_str.to_string(),
+            missing: "evidence_refs".to_string(),
+        });
+    }
+    if let Some(cwd) = &ev.cwd {
+        validate_repo_relative_path(cwd)?;
+    }
+    if receipt.type_ == ReceiptType::Test {
+        let mut missing: Vec<&str> = Vec::new();
+        if ev.command.is_none() {
+            missing.push("command");
+        }
+        if ev.cwd.is_none() {
+            missing.push("cwd");
+        }
+        if ev.exit_status.is_none() {
+            missing.push("exit_status");
+        }
+        if ev.started_at.is_none() {
+            missing.push("started_at");
+        }
+        if ev.ended_at.is_none() {
+            missing.push("ended_at");
+        }
+        if !missing.is_empty() {
+            return Err(SeedError::EvidenceIncomplete {
+                receipt_type: type_str.to_string(),
+                missing: missing.join(", "),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The wire string for a receipt type (matches the `snake_case` serde rename).
+fn receipt_type_str(t: ReceiptType) -> &'static str {
+    match t {
+        ReceiptType::Test => "test",
+        ReceiptType::Structural => "structural",
+        ReceiptType::Runtime => "runtime",
+        ReceiptType::Review => "review",
+        ReceiptType::Handoff => "handoff",
+        ReceiptType::Spec => "spec",
+    }
+}
+
+pub(crate) fn validate_repo_relative_path(path: &str) -> Result<(), SeedError> {
     let trimmed = path.trim();
     if trimmed.starts_with('/')
         || trimmed.starts_with('\\')
@@ -489,6 +643,274 @@ fn missing_field_name(message: &str) -> Option<String> {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+// ===========================================================================
+// Slice 2 — the live sidecar store (`m1nd-system-block-store-v0`).
+//
+// Store locus (HUMAN-VIEW-V2-F0-TECH §1): a sidecar file per project brain,
+// `system_blocks.json`, alongside the brain's other runtime artifacts. The seed
+// (in the repo) is the reviewable form; the store (in the brain runtime dir) is
+// the living form. Import = seed -> store; every accepted mutation bumps the
+// global OCC counter `store_version` (PRD §3.1).
+// ===========================================================================
+
+/// The only store schema Slice 2 reads/writes.
+pub const SYSTEM_BLOCK_STORE_SCHEMA: &str = "m1nd-system-block-store-v0";
+
+/// The sidecar file name inside the brain's runtime dir.
+pub const SYSTEM_BLOCK_STORE_FILE: &str = "system_blocks.json";
+
+/// The living SystemBlock store — the sidecar form of the seed, plus the global
+/// optimistic-concurrency counter `store_version`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SystemBlockStore {
+    pub schema: String,
+    /// The global OCC counter (PRD §3.1). Starts at 1 on import; every accepted
+    /// mutation increments it by exactly one.
+    pub store_version: u64,
+    pub skeleton: SeedSkeleton,
+    pub blocks: Vec<SystemBlock>,
+    pub unmapped_policy: UnmappedPolicy,
+}
+
+/// What a ratify transaction changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RatifySummary {
+    /// The block ids that were targeted (and are now ratified).
+    pub ratified_block_ids: Vec<String>,
+    /// The store version AFTER the bump.
+    pub store_version: u64,
+}
+
+/// The outcome of a seed import into a brain dir.
+#[derive(Debug, Clone)]
+pub struct SeedImportOutcome {
+    pub store: SystemBlockStore,
+    /// True when an existing store was overwritten (`force`).
+    pub overwritten: bool,
+}
+
+impl SystemBlockStore {
+    /// The store file path inside a brain runtime dir.
+    pub fn path_in(dir: &Path) -> std::path::PathBuf {
+        dir.join(SYSTEM_BLOCK_STORE_FILE)
+    }
+
+    /// Build a fresh store from a validated seed. `store_version` starts at 1.
+    pub fn from_seed(seed: SeedFile) -> Self {
+        Self {
+            schema: SYSTEM_BLOCK_STORE_SCHEMA.to_string(),
+            store_version: 1,
+            skeleton: seed.skeleton,
+            blocks: seed.blocks,
+            unmapped_policy: seed.unmapped_policy,
+        }
+    }
+
+    /// Load the store from a brain dir. `None` when the sidecar does not exist yet
+    /// (an honest "no skeleton" state, never an error).
+    pub fn load(dir: &Path) -> Result<Option<Self>, SeedError> {
+        let path = Self::path_in(dir);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(SeedError::Io(e)),
+        };
+        let store: SystemBlockStore = serde_json::from_str(&raw).map_err(classify_json_error)?;
+        if store.schema != SYSTEM_BLOCK_STORE_SCHEMA {
+            return Err(SeedError::SchemaMismatch {
+                expected: SYSTEM_BLOCK_STORE_SCHEMA.to_string(),
+                found: store.schema.clone(),
+            });
+        }
+        Ok(Some(store))
+    }
+
+    /// Persist the store to a brain dir atomically: write a sibling temp file, then
+    /// rename over the target (mirrors the repo's `save_json_atomic`), so a reader
+    /// never sees a half-written store.
+    pub fn save(&self, dir: &Path) -> Result<(), SeedError> {
+        std::fs::create_dir_all(dir).map_err(SeedError::Io)?;
+        let path = Self::path_in(dir);
+        let tmp = path.with_extension("json.tmp");
+        let payload = serde_json::to_vec_pretty(self).map_err(SeedError::Json)?;
+        std::fs::write(&tmp, payload).map_err(SeedError::Io)?;
+        std::fs::rename(&tmp, &path).map_err(SeedError::Io)?;
+        Ok(())
+    }
+
+    /// Ratify blocks (F0a `system_blocks_ratify`). OCC-checked (PRD §3.1): a stale
+    /// `expected` is rejected with [`SeedError::Conflict`] and NOTHING is mutated.
+    /// `block_ids == None` ratifies every block; a target id absent from the store
+    /// is a hard [`SeedError::BlockNotFound`] (no silent skip). On success each
+    /// target flips `candidate -> ratified` (state) and `proposed -> ratified`
+    /// (membership_source), the skeleton records this ratification event
+    /// (method `verb`), and `store_version` is bumped by one.
+    pub fn ratify(
+        &mut self,
+        expected_store_version: u64,
+        block_ids: Option<&[String]>,
+        ratifier: &str,
+        ratified_at: &str,
+    ) -> Result<RatifySummary, SeedError> {
+        if expected_store_version != self.store_version {
+            return Err(SeedError::Conflict {
+                expected: expected_store_version,
+                actual: self.store_version,
+            });
+        }
+        // Resolve targets up front so an unknown id fails BEFORE any mutation.
+        let targets: Vec<String> = match block_ids {
+            None => self.blocks.iter().map(|b| b.block_id.clone()).collect(),
+            Some(ids) => {
+                for id in ids {
+                    if !self
+                        .blocks
+                        .iter()
+                        .any(|b| b.block_id.as_str() == id.as_str())
+                    {
+                        return Err(SeedError::BlockNotFound {
+                            block_id: id.clone(),
+                        });
+                    }
+                }
+                ids.to_vec()
+            }
+        };
+        for block in self.blocks.iter_mut() {
+            if !targets
+                .iter()
+                .any(|id| id.as_str() == block.block_id.as_str())
+            {
+                continue;
+            }
+            if block.state == SystemBlockState::Candidate {
+                block.state = SystemBlockState::Ratified;
+            }
+            if block.membership_source == MembershipSource::Proposed {
+                block.membership_source = MembershipSource::Ratified;
+            }
+        }
+        self.skeleton.state = SeedSkeletonState::Ratified;
+        self.skeleton.ratification = SeedRatification {
+            method: "verb".to_string(),
+            ratifier: ratifier.to_string(),
+            ratified_at: ratified_at.to_string(),
+            // A verb ratification has no merge commit; the seed's PR-merge form
+            // carries that. Empty is honest here rather than fabricated.
+            commit: String::new(),
+        };
+        self.store_version += 1;
+        Ok(RatifySummary {
+            ratified_block_ids: targets,
+            store_version: self.store_version,
+        })
+    }
+
+    /// Attach an imported receipt to a block (F0a `receipt_import`). OCC-checked
+    /// (PRD §3.1) and anti-poison (§3), in this order, so nothing mutates unless
+    /// every gate passes:
+    /// 1. `expected_store_version` matches -> else [`SeedError::Conflict`];
+    /// 2. the block exists -> else [`SeedError::BlockNotFound`];
+    /// 3. the receipt's `scope` binds to THIS block's CURRENT `(block_id,
+    ///    boundary_version, contract_version)` -> else [`SeedError::ReceiptStaleScope`]
+    ///    (evidence is never counted for a version it did not see);
+    /// 4. the evidence obeys the anti-poison contract ([`validate_receipt_evidence`]).
+    ///
+    /// On success the receipt is appended and `store_version` is bumped by one.
+    pub fn import_receipt(
+        &mut self,
+        expected_store_version: u64,
+        block_id: &str,
+        receipt: Receipt,
+    ) -> Result<(), SeedError> {
+        if expected_store_version != self.store_version {
+            return Err(SeedError::Conflict {
+                expected: expected_store_version,
+                actual: self.store_version,
+            });
+        }
+        let block = self
+            .blocks
+            .iter_mut()
+            .find(|b| b.block_id.as_str() == block_id)
+            .ok_or_else(|| SeedError::BlockNotFound {
+                block_id: block_id.to_string(),
+            })?;
+        if receipt.scope.block_id.as_str() != block_id
+            || receipt.scope.boundary_version != block.boundary_version
+            || receipt.scope.contract_version != block.contract_version
+        {
+            return Err(SeedError::ReceiptStaleScope {
+                block_id: block_id.to_string(),
+                receipt_boundary: receipt.scope.boundary_version,
+                receipt_contract: receipt.scope.contract_version,
+                block_boundary: block.boundary_version,
+                block_contract: block.contract_version,
+            });
+        }
+        validate_receipt_evidence(&receipt)?;
+        block.receipts.push(receipt);
+        self.store_version += 1;
+        Ok(())
+    }
+}
+
+/// Import a seed into a brain dir (F0a `system_blocks_seed_import`). Refuses an
+/// existing store unless `force` ([`SeedError::StoreAlreadyPresent`]). The seed is
+/// fully validated (schema, repo-relative paths, receipt scope + evidence) before
+/// anything is written; the fresh store carries `store_version = 1`.
+pub fn import_seed_into_dir(
+    dir: &Path,
+    raw: &str,
+    force: bool,
+) -> Result<SeedImportOutcome, SeedError> {
+    let seed = load_seed(raw)?;
+    let existed = SystemBlockStore::load(dir)?.is_some();
+    if existed && !force {
+        return Err(SeedError::StoreAlreadyPresent);
+    }
+    let store = SystemBlockStore::from_seed(seed);
+    store.save(dir)?;
+    Ok(SeedImportOutcome {
+        store,
+        overwritten: existed,
+    })
+}
+
+/// Ratify against the store in a brain dir: load -> [`SystemBlockStore::ratify`]
+/// -> save. The store is saved ONLY on success, so an OCC conflict (or any gate
+/// failure) leaves the on-disk store byte-for-byte intact. A missing store is a
+/// hard [`SeedError::NoStore`].
+pub fn ratify_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    block_ids: Option<&[String]>,
+    ratifier: &str,
+    ratified_at: &str,
+) -> Result<(SystemBlockStore, RatifySummary), SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    let summary = store.ratify(expected_store_version, block_ids, ratifier, ratified_at)?;
+    store.save(dir)?;
+    Ok((store, summary))
+}
+
+/// Import a receipt against the store in a brain dir: load ->
+/// [`SystemBlockStore::import_receipt`] -> save. Saved ONLY on success, so a
+/// conflict / stale scope / bad evidence leaves the on-disk store intact. A
+/// missing store is a hard [`SeedError::NoStore`].
+pub fn import_receipt_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    block_id: &str,
+    receipt: Receipt,
+) -> Result<SystemBlockStore, SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    store.import_receipt(expected_store_version, block_id, receipt)?;
+    store.save(dir)?;
+    Ok(store)
 }
 
 #[cfg(test)]
@@ -692,5 +1114,373 @@ mod tests {
         for needle in ["/Users/", "/home/", "C:\\", "~/"] {
             assert!(!raw.contains(needle), "seed must not carry {needle}");
         }
+    }
+
+    // =======================================================================
+    // Slice 2 — evidence anti-poison (§3), the store, OCC, and the verbs' cores.
+    // =======================================================================
+
+    const REAL_SEED: &str = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+
+    fn anchor_only_evidence() -> ReceiptEvidence {
+        ReceiptEvidence {
+            command: None,
+            cwd: None,
+            exit_status: None,
+            started_at: None,
+            ended_at: None,
+            artifact_hash: "sha256:art".to_string(),
+            stdout_excerpt: None,
+            evidence_refs: vec!["artifacts/x.txt".to_string()],
+        }
+    }
+
+    fn full_exec_evidence() -> ReceiptEvidence {
+        ReceiptEvidence {
+            command: Some("cargo test -p m1nd-core".to_string()),
+            cwd: Some(".".to_string()),
+            exit_status: Some(0),
+            started_at: Some("2026-07-09T00:00:00Z".to_string()),
+            ended_at: Some("2026-07-09T00:01:00Z".to_string()),
+            artifact_hash: "sha256:art".to_string(),
+            stdout_excerpt: Some("test result: ok".to_string()),
+            evidence_refs: vec!["artifacts/x.txt".to_string()],
+        }
+    }
+
+    fn mk_receipt(
+        type_: ReceiptType,
+        block_id: &str,
+        boundary: u32,
+        contract: u32,
+        evidence: ReceiptEvidence,
+    ) -> Receipt {
+        Receipt {
+            type_,
+            emitter: ReceiptEmitter {
+                kind: ReceiptEmitterKind::Ci,
+                id: "ci-x".to_string(),
+            },
+            scope: ReceiptScope {
+                block_id: block_id.to_string(),
+                boundary_version: boundary,
+                contract_version: contract,
+                resolution_hash: "sha256:res".to_string(),
+            },
+            evidence,
+            validity: ReceiptValidity {
+                expires_on: None,
+                stales_on: Vec::new(),
+            },
+        }
+    }
+
+    fn store_from_fixture() -> SystemBlockStore {
+        SystemBlockStore::from_seed(load_seed(fixture_seed()).expect("fixture parses"))
+    }
+
+    // --- A) evidence anti-poison -------------------------------------------
+
+    #[test]
+    fn spec_receipt_without_execution_fields_passes() {
+        // A `spec` receipt is not born from a command; the universal anchor is
+        // enough. This is the review-note fix: execution fields are optional.
+        let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 1, anchor_only_evidence());
+        validate_receipt_evidence(&r).expect("spec receipt with anchor-only evidence is valid");
+    }
+
+    #[test]
+    fn test_receipt_without_command_is_rejected() {
+        // A `test` receipt MUST carry its execution identity (semantic validation).
+        let r = mk_receipt(ReceiptType::Test, "sb_core", 1, 1, anchor_only_evidence());
+        let err = validate_receipt_evidence(&r).expect_err("test receipt needs execution fields");
+        match err {
+            SeedError::EvidenceIncomplete {
+                receipt_type,
+                missing,
+            } => {
+                assert_eq!(receipt_type, "test");
+                assert!(
+                    missing.contains("command"),
+                    "missing must name command: {missing}"
+                );
+            }
+            other => panic!("expected EvidenceIncomplete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn evidence_anchor_is_mandatory_for_every_type() {
+        // Empty artifact_hash -> rejected even for a spec receipt.
+        let mut ev = anchor_only_evidence();
+        ev.artifact_hash = "   ".to_string();
+        let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 1, ev);
+        assert!(matches!(
+            validate_receipt_evidence(&r),
+            Err(SeedError::EvidenceIncomplete { ref missing, .. }) if missing == "artifact_hash"
+        ));
+        // Empty evidence_refs -> rejected.
+        let mut ev = anchor_only_evidence();
+        ev.evidence_refs.clear();
+        let r = mk_receipt(ReceiptType::Review, "sb_core", 1, 1, ev);
+        assert!(matches!(
+            validate_receipt_evidence(&r),
+            Err(SeedError::EvidenceIncomplete { ref missing, .. }) if missing == "evidence_refs"
+        ));
+    }
+
+    #[test]
+    fn spec_receipt_omits_execution_fields_from_json() {
+        // skip_serializing_if keeps a spec receipt's JSON free of null execution keys.
+        let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 1, anchor_only_evidence());
+        let v = serde_json::to_value(&r).expect("serializes");
+        let ev = &v["evidence"];
+        assert!(ev.get("command").is_none(), "command omitted");
+        assert!(ev.get("exit_status").is_none(), "exit_status omitted");
+        assert_eq!(ev["artifact_hash"], "sha256:art");
+        assert_eq!(ev["evidence_refs"][0], "artifacts/x.txt");
+    }
+
+    // --- B) the sidecar store: roundtrip, empty-dir None, atomic save -------
+
+    #[test]
+    fn store_roundtrip_save_load_in_tempdir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Empty dir -> honest None (no store yet).
+        assert!(SystemBlockStore::load(dir.path())
+            .expect("load ok")
+            .is_none());
+        let store = store_from_fixture();
+        store.save(dir.path()).expect("save");
+        let loaded = SystemBlockStore::load(dir.path())
+            .expect("load ok")
+            .expect("store present");
+        assert_eq!(loaded, store, "save->load is value-stable");
+        assert_eq!(loaded.schema, SYSTEM_BLOCK_STORE_SCHEMA);
+        assert_eq!(loaded.store_version, 1);
+    }
+
+    #[test]
+    fn store_save_is_atomic_no_temp_left_behind() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        assert!(
+            SystemBlockStore::path_in(dir.path()).exists(),
+            "store file exists"
+        );
+        // The temp sibling used for the atomic rename must not survive the write.
+        let tmp = SystemBlockStore::path_in(dir.path()).with_extension("json.tmp");
+        assert!(!tmp.exists(), "no .json.tmp left after atomic save");
+    }
+
+    // --- OCC: a stale write is rejected and the store is left INTACT --------
+
+    #[test]
+    fn occ_conflict_rejects_ratify_and_leaves_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+
+        // expected != current (1) -> Conflict, nothing applied.
+        let err = ratify_in_dir(dir.path(), 99, None, "owner", "2026-07-09T00:00:00Z")
+            .expect_err("stale expected must conflict");
+        match err {
+            SeedError::Conflict { expected, actual } => {
+                assert_eq!(expected, 99);
+                assert_eq!(actual, 1);
+            }
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+        // On-disk store is byte-for-byte the same (reload and compare).
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(after, before, "a rejected write must not touch the store");
+    }
+
+    #[test]
+    fn mutating_a_missing_store_is_no_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(matches!(
+            ratify_in_dir(dir.path(), 1, None, "owner", "t"),
+            Err(SeedError::NoStore)
+        ));
+    }
+
+    // --- C) seed_import: real seed, re-import guard, force ------------------
+
+    #[test]
+    fn seed_import_real_seed_then_guard_then_force() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outcome = import_seed_into_dir(dir.path(), REAL_SEED, false).expect("first import");
+        assert_eq!(
+            outcome.store.blocks.len(),
+            12,
+            "the real skeleton is twelve blocks"
+        );
+        assert_eq!(
+            outcome.store.store_version, 1,
+            "a fresh import starts at version 1"
+        );
+        assert!(!outcome.overwritten, "first import overwrites nothing");
+
+        // Snapshot equivalent: the store on disk has the twelve blocks.
+        let snap = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(snap.blocks.len(), 12);
+
+        // Re-import without force is an honest refusal.
+        assert!(matches!(
+            import_seed_into_dir(dir.path(), REAL_SEED, false),
+            Err(SeedError::StoreAlreadyPresent)
+        ));
+
+        // Re-import WITH force overwrites, reporting it, and resets to version 1.
+        let forced = import_seed_into_dir(dir.path(), REAL_SEED, true).expect("forced import");
+        assert!(forced.overwritten, "force reports the overwrite");
+        assert_eq!(forced.store.store_version, 1);
+    }
+
+    // --- ratify: flips states + bumps version; partial only flips its target -
+
+    #[test]
+    fn ratify_all_flips_states_stamps_skeleton_and_bumps_version() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        // Fixture: sb_core is already ratified; sb_api is candidate + manual.
+        let (store, summary) =
+            ratify_in_dir(dir.path(), 1, None, "owner", "2026-07-09T00:00:00Z").expect("ratify");
+        assert_eq!(
+            store.store_version, 2,
+            "an accepted write bumps the version"
+        );
+        assert_eq!(summary.store_version, 2);
+        assert!(store
+            .blocks
+            .iter()
+            .all(|b| b.state == SystemBlockState::Ratified));
+        assert_eq!(store.skeleton.state, SeedSkeletonState::Ratified);
+        assert_eq!(store.skeleton.ratification.method, "verb");
+        assert_eq!(store.skeleton.ratification.ratifier, "owner");
+        assert_eq!(
+            store.skeleton.ratification.ratified_at,
+            "2026-07-09T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn ratify_partial_only_flips_the_named_block() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Two candidate/proposed blocks so a partial ratify is observable.
+        let mut store = store_from_fixture();
+        for b in store.blocks.iter_mut() {
+            b.state = SystemBlockState::Candidate;
+            b.membership_source = MembershipSource::Proposed;
+        }
+        store.save(dir.path()).expect("save");
+
+        let targets = vec!["sb_api".to_string()];
+        let (store, summary) =
+            ratify_in_dir(dir.path(), 1, Some(&targets), "owner", "t").expect("partial ratify");
+        assert_eq!(summary.ratified_block_ids, vec!["sb_api".to_string()]);
+        let api = store
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_api")
+            .unwrap();
+        let core = store
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_core")
+            .unwrap();
+        assert_eq!(api.state, SystemBlockState::Ratified, "target flipped");
+        assert_eq!(api.membership_source, MembershipSource::Ratified);
+        assert_eq!(
+            core.state,
+            SystemBlockState::Candidate,
+            "non-target untouched"
+        );
+        assert_eq!(core.membership_source, MembershipSource::Proposed);
+        assert_eq!(store.store_version, 2);
+    }
+
+    #[test]
+    fn ratify_unknown_block_id_is_a_hard_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let targets = vec!["sb_ghost".to_string()];
+        assert!(matches!(
+            ratify_in_dir(dir.path(), 1, Some(&targets), "owner", "t"),
+            Err(SeedError::BlockNotFound { .. })
+        ));
+    }
+
+    // --- receipt_import: spec ok, stale scope intact, test without command --
+
+    #[test]
+    fn receipt_import_spec_ok_bumps_and_appends() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        // sb_core is at boundary 1 / contract 1 in the fixture.
+        let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 1, anchor_only_evidence());
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        let before_n = before
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_core")
+            .unwrap()
+            .receipts
+            .len();
+        let store = import_receipt_in_dir(dir.path(), 1, "sb_core", r).expect("spec receipt lands");
+        assert_eq!(
+            store.store_version, 2,
+            "an accepted receipt bumps the version"
+        );
+        let after_n = store
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_core")
+            .unwrap()
+            .receipts
+            .len();
+        assert_eq!(after_n, before_n + 1, "the receipt was appended");
+    }
+
+    #[test]
+    fn receipt_import_stale_scope_rejected_and_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        // Receipt earned against contract_version 2, but sb_core is at contract 1.
+        let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 2, anchor_only_evidence());
+        let err = import_receipt_in_dir(dir.path(), 1, "sb_core", r)
+            .expect_err("stale scope must be refused");
+        assert!(matches!(err, SeedError::ReceiptStaleScope { .. }));
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            after, before,
+            "a stale-scope receipt must not touch the store"
+        );
+    }
+
+    #[test]
+    fn receipt_import_test_without_command_rejected_and_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        // A `test` receipt with valid anchor + scope but no execution fields.
+        let r = mk_receipt(ReceiptType::Test, "sb_core", 1, 1, anchor_only_evidence());
+        let err = import_receipt_in_dir(dir.path(), 1, "sb_core", r)
+            .expect_err("test receipt without execution is refused");
+        assert!(matches!(err, SeedError::EvidenceIncomplete { .. }));
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(after, before, "a rejected receipt must not touch the store");
+    }
+
+    #[test]
+    fn receipt_import_test_with_full_execution_lands() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let r = mk_receipt(ReceiptType::Test, "sb_core", 1, 1, full_exec_evidence());
+        let store =
+            import_receipt_in_dir(dir.path(), 1, "sb_core", r).expect("full test receipt lands");
+        assert_eq!(store.store_version, 2);
     }
 }

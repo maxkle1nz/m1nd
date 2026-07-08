@@ -34,6 +34,7 @@ pub mod promote_handlers;
 pub mod soul_handlers;
 pub mod surgical_handlers;
 pub mod system_blocks;
+pub mod system_blocks_handlers;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;

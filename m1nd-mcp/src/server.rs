@@ -2595,6 +2595,62 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id"]
                 }
+            },
+            // =================================================================
+            // Human View v2 F0a: the SystemBlock store verbs (Slice 2)
+            // =================================================================
+            {
+                "name": "system_blocks_snapshot",
+                "description": "Human View v2 F0a READ verb. Returns the ENTIRE live SystemBlock store for this project brain — its schema, the global OCC `store_version` (the token every mutation must echo back), the skeleton (id/version/state/ratification), every block (id, name, purpose, kind, state, boundary/contract versions, membership, sockets, receipt_contract, receipts, layout, residue), and the unmapped policy. When the brain has no store yet it returns `{present:false, honest:\"no skeleton yet — import a seed or run a scan\"}` — a first-class normal state, never an error. The store is a sidecar beside the brain's other runtime artifacts (never in the graph snapshot or medulla). Read-only: never writes, safe under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "system_blocks_seed_import",
+                "description": "Human View v2 F0a WRITE verb. Imports a ratified `m1nd-system-block-seed-v0` seed into this brain's live store, producing a fresh store at `store_version` 1. Supply the seed inline as `seed_json` OR as `seed_path` (a REPO-RELATIVE path — absolute paths, `~`, and `..` are refused, the same anti-absolute law the seed's own member paths obey). The seed is fully validated before anything is written (schema, repo-relative paths, receipt scope binding, and the anti-poison evidence contract). If a store already exists this refuses honestly (`already_present`) unless `force:true`, which overwrites and reports it in `warning` (the prior live state is lost). Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "seed_json": { "type": "string", "description": "Inline seed JSON (m1nd-system-block-seed-v0). Mutually exclusive with seed_path." },
+                        "seed_path": { "type": "string", "description": "Repo-relative path to a seed file (e.g. docs/system-blocks/<repo>.seed.v0.json). Absolute/~/.. are refused. Mutually exclusive with seed_json." },
+                        "force": { "type": "boolean", "default": false, "description": "Overwrite an existing store instead of refusing with already_present. The prior live state is lost." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "system_blocks_ratify",
+                "description": "Human View v2 F0a WRITE verb. Ratifies blocks in the live store: each targeted block flips state `candidate -> ratified` and membership_source `proposed -> ratified`, the skeleton records the ratification (method `verb`, the given `ratifier`, the current time), and `store_version` is bumped by one. `block_ids` names the blocks to ratify; omit it to ratify EVERY block. Optimistic-concurrency (PRD §3.1): pass the `expected_store_version` you read from a snapshot — if the store moved since, the call is REJECTED with a version `conflict` and NOTHING is applied (reload the snapshot and retry). An unknown block_id is a hard error, never a silent skip. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "Blocks to ratify. Omit to ratify every block. An unknown id is a hard error." },
+                        "ratifier": { "type": "string", "description": "Who ratified — stamped into the skeleton's ratification record." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "ratifier"]
+                }
+            },
+            {
+                "name": "receipt_import",
+                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at). Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_id": { "type": "string", "description": "The block this receipt is evidence for." },
+                        "receipt": { "type": "object", "description": "The receipt (m1nd-system-block receipt shape): type, emitter, scope {block_id, boundary_version, contract_version, resolution_hash}, evidence {artifact_hash + evidence_refs required for every type; command/cwd/exit_status/started_at/ended_at additionally required for type=test}, validity." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "block_id", "receipt"]
+                }
             }
         ]
     })
@@ -2639,6 +2695,13 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // attach must refuse it (HUMAN-VIEW-V2-F0-TECH §6/§12: the render path reads
     // a persisted artifact; it never calls this verb).
     "runtime_overlay",
+    // Human View v2 F0a SystemBlock store WRITES (Slice 2): each persists the
+    // sidecar store to disk (seed import, ratify, receipt attach), so a read-only
+    // attach must refuse them. `system_blocks_snapshot` is deliberately ABSENT —
+    // it is a pure read (like xray_ledger), so it stays ambiently legal.
+    "system_blocks_seed_import",
+    "system_blocks_ratify",
+    "receipt_import",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4164,6 +4227,26 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayLedgerInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_ledger(state, input)
+        }
+        "system_blocks_snapshot" => {
+            let input: crate::system_blocks_handlers::SnapshotInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_snapshot(state, input)
+        }
+        "system_blocks_seed_import" => {
+            let input: crate::system_blocks_handlers::SeedImportInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_seed_import(state, input)
+        }
+        "system_blocks_ratify" => {
+            let input: crate::system_blocks_handlers::RatifyInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_ratify(state, input)
+        }
+        "receipt_import" => {
+            let input: crate::system_blocks_handlers::ReceiptImportInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_receipt_import(state, input)
         }
         "impact" => {
             let input: ImpactInput =
@@ -5699,6 +5782,10 @@ mod tests {
             "daemon_start",
             "auto_ingest_start",
             "runtime_overlay",
+            // Human View v2 F0a SystemBlock store writes (Slice 2).
+            "system_blocks_seed_import",
+            "system_blocks_ratify",
+            "receipt_import",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -5721,6 +5808,8 @@ mod tests {
             "scan",
             "trace",
             "edit_preview",
+            // The SystemBlock store READ is a pure read — never denied.
+            "system_blocks_snapshot",
         ] {
             assert!(!read_only_denied(t, &empty), "{t} should be allowed");
         }
@@ -5739,6 +5828,49 @@ mod tests {
         ));
         // persist with no action defaults to status (allowed).
         assert!(!read_only_denied("persist", &empty));
+    }
+
+    #[test]
+    fn system_blocks_verbs_are_wired_end_to_end() {
+        let (_temp, mut state) = build_state();
+        // Fresh brain: snapshot is an honest "no skeleton".
+        let snap = super::dispatch_tool(
+            &mut state,
+            "system_blocks_snapshot",
+            &serde_json::json!({"agent_id": "t"}),
+        )
+        .expect("snapshot ok");
+        assert_eq!(snap["present"], false);
+
+        // Import the real seed inline -> twelve blocks at store_version 1.
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        let imp = super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": seed}),
+        )
+        .expect("seed_import ok");
+        assert_eq!(imp["store_version"], 1);
+        assert_eq!(imp["block_count"], 12);
+
+        // Snapshot now reports the twelve blocks and the live store.
+        let snap2 = super::dispatch_tool(
+            &mut state,
+            "system_blocks_snapshot",
+            &serde_json::json!({"agent_id": "t"}),
+        )
+        .expect("snapshot ok");
+        assert_eq!(snap2["present"], true);
+        assert_eq!(snap2["block_count"], 12);
+
+        // A ratify with a stale expected version surfaces a conflict through dispatch.
+        let err = super::dispatch_tool(
+            &mut state,
+            "system_blocks_ratify",
+            &serde_json::json!({"agent_id": "t", "expected_store_version": 99, "ratifier": "owner"}),
+        )
+        .expect_err("stale ratify must conflict");
+        assert!(err.to_string().contains("conflict"), "unexpected: {err}");
     }
 
     #[test]
