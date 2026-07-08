@@ -661,4 +661,36 @@ mod tests {
         assert_eq!(receipt.scope.contract_version, 1);
         assert_eq!(receipt.scope.resolution_hash, "sha256:core");
     }
+
+    /// F0b fixture law (HUMAN-VIEW-V2-F0-TECH s10): the REAL candidate seed for
+    /// this repo must parse, roundtrip stably, keep stable block ids, and leak
+    /// nothing personal. This is the seed the owner ratifies.
+    #[test]
+    fn real_m1nd_seed_parses_roundtrips_and_leaks_nothing() {
+        let raw = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        let seed = load_seed(raw).expect("the real candidate seed must parse");
+        assert_eq!(seed.schema, SYSTEM_BLOCK_SEED_SCHEMA);
+        assert_eq!(
+            seed.blocks.len(),
+            12,
+            "the candidate skeleton is twelve blocks"
+        );
+        // Stable, unique block ids.
+        let mut ids: Vec<&str> = seed.blocks.iter().map(|b| b.block_id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 12, "block ids are unique");
+        assert!(
+            ids.iter().all(|i| i.starts_with("sb_m1nd_")),
+            "ids carry the repo prefix"
+        );
+        // Roundtrip stability: export -> load reproduces the same value.
+        let exported = export_seed(&seed);
+        let reloaded = load_seed(&exported).expect("reload");
+        assert_eq!(seed, reloaded, "load(export(seed)) is value-stable");
+        // No-leak: nothing personal, no absolute paths anywhere in the raw file.
+        for needle in ["/Users/", "/home/", "C:\\", "~/"] {
+            assert!(!raw.contains(needle), "seed must not carry {needle}");
+        }
+    }
 }

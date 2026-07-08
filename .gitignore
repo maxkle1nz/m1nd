@@ -14,6 +14,8 @@ m1nd-ui/node_modules/
 # m1nd-ui/dist is intentionally tracked because the embedded UI is compiled into m1nd-mcp via rust-embed
 
 *.json
+# The versioned SystemBlock seeds are the one JSON family that SHOULD be tracked
+!docs/system-blocks/*.json
 !package.json
 !tsconfig.json
 !postcss.config.js
