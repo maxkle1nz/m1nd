@@ -342,12 +342,16 @@ export default function App() {
   const [viewedBrain, setViewedBrain] = useState<ViewedBrain>(BOUND_VIEW);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
+  // The Build Map snapshot does NOT depend on the graph: an 'empty' owner (no
+  // graph yet) can still hold a ratified skeleton — the first-run case the
+  // front door exists for. Only a DOWN backend blocks the read.
+  const backendReachable = status !== 'down';
   const self = useSelf(backendUp);
   const brains = useBrains(backendUp);
   const restSelector = useRestBrainSelector(backendUp);
   // The Build Map read (HUMAN-VIEW-V2 F1) — decides the front door and feeds the
   // 'map' surface. Read-only; gated on the backend being up.
-  const buildMap = useBuildMap(backendUp);
+  const buildMap = useBuildMap(backendReachable);
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
@@ -381,12 +385,15 @@ export default function App() {
   // otherwise the tree (the Hall is one ESC away, the map fallback protects
   // first-run). INV-12: a returning user never meets the Threshold.
   useEffect(() => {
-    if (surface != null || brainCount == null) return;
+    if (surface != null) return;
     if (buildMap.status === 'loading') return; // still deciding — wait, don't flash
     if (buildMap.present) {
+      // The skeleton alone decides the front door — even on an 'empty' owner
+      // (no graph yet), where the brains fetch never resolves.
       setSurface('map');
       return;
     }
+    if (brainCount == null) return; // no skeleton: fall back to the prior doctrine
     setSurface(brainCount <= 0 ? 'threshold' : 'tree');
   }, [surface, brainCount, buildMap.status, buildMap.present]);
 
@@ -488,7 +495,7 @@ export default function App() {
           ) : surface === 'map' ? (
             // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living
             // Tree is one click away (the deterministic surface is never killed).
-            <BuildMapView onOpenTree={() => setSurface('tree')} enabled={backendUp} />
+            <BuildMapView onOpenTree={() => setSurface('tree')} enabled={backendReachable} />
           ) : (
             <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}
