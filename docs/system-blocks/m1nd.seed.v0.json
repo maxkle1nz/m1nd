@@ -1,0 +1,1309 @@
+{
+  "schema": "m1nd-system-block-seed-v0",
+  "repo": {
+    "repo_id": "m1nd",
+    "root": ".",
+    "source_commit": "518b44e"
+  },
+  "skeleton": {
+    "skeleton_id": "sk_m1nd_seed_2026_07",
+    "version": 1,
+    "state": "ratified",
+    "ratification": {
+      "method": "pr_merge",
+      "ratifier": "owner-delegated:orchestrator-review-2026-07-07",
+      "ratified_at": "2026-07-08T09:39:25Z",
+      "commit": "pending-merge"
+    }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_m1nd_core_graph_kernel",
+      "name": "Core Graph Kernel",
+      "purpose": "Stores and traverses the code graph: CSR storage, activation, topology, query.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-core/src/lib.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/types.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/graph.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/query.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/activation.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/plasticity.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/topology.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/seed.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/builder.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/resonance.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/xlr.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/domain.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/error.rs",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Served Owner & Brain Routing",
+            "type": "graph_api"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_core_evidence_engines",
+      "name": "Core Evidence & Risk Engines",
+      "purpose": "Trust, calibration, tremor, temporal, snapshots, semantics and the analysis engine family.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-core/src/calibration.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/trust.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/tremor.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/temporal.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/git_history.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/runtime_overlay.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/flow.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/taint.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/twins.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/refactor.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/layer.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/counterfactual.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/epidemic.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/snapshot.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/snapshot_bin.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/semantic.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/embed.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/embed_cache.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-core/src/antibody.rs",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Retrieval & Analysis Verbs",
+            "type": "evidence_api"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_ingest",
+      "name": "Ingest & Document Canonicalization",
+      "purpose": "Reads repos and documents into graph nodes: extractors, canonicalization, the write path.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-ingest/src/**",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Core Graph Kernel",
+            "type": "graph_write_path"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_served_owner",
+      "name": "Served Owner & Brain Routing",
+      "purpose": "The served process: transport, sessions, reception, per-project brains and routing.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-mcp/src/main.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/cli.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/server.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/http_server.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/http_types.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/mcp_http.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/attach_client.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/session.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/instance_registry.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/project_brains.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/scope.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/protocol/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/util.rs",
+          "role": "shared"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Retrieval & Analysis Verbs",
+            "type": "dispatch"
+          },
+          {
+            "to": "Memory, Soul, Mailbox & Delegation",
+            "type": "dispatch"
+          },
+          {
+            "to": "Editing, Safety, X-RAY & Locks",
+            "type": "dispatch"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_retrieval_verbs",
+      "name": "Retrieval & Analysis Verbs",
+      "purpose": "Seek, search, impact, layers, audit, report and the answer-shaping surface.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-mcp/src/tools.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/search_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/layer_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/audit_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/report_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/help_guidance.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/result_shaping.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/trust_envelope.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/personality.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/perspective_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/perspective/**",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Core Graph Kernel",
+            "type": "reads"
+          },
+          {
+            "to": "Core Evidence & Risk Engines",
+            "type": "reads"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_memory_delegation",
+      "name": "Memory, Soul, Mailbox & Delegation",
+      "purpose": "Durable memory, medulla, soul receipts, field mailbox, delegation packets and missions.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-mcp/src/boot_memory_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/light_author_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/promote_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/soul_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/delegation_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/mailbox.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/mission_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/daemon_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/medulla_migration.rs",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Core Graph Kernel",
+            "type": "reads_writes_memory_nodes"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_editing_safety",
+      "name": "Editing, Safety, X-RAY & Locks",
+      "purpose": "Surgical edits, X-RAY conformance, locks, persistence and the SystemBlock contract.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-mcp/src/surgical_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/xray_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/lock_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/auto_ingest.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/engine_ops.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/universal_docs.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/persist_handlers.rs",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-mcp/src/system_blocks.rs",
+          "role": "primary"
+        },
+        {
+          "path": "xray.manifest.json",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Core Graph Kernel",
+            "type": "tag_and_persist_writes"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "runtime",
+            "stales_on": []
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_ui_shell",
+      "name": "Human UI Shell, Hall & Living Tree",
+      "purpose": "The human-facing app shell and its surfaces: Hall, Living Tree, canvas, soft components.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-ui/src/App.tsx",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/main.tsx",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/index.css",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/components/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/lib/**",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "UI API, State & Fixtures",
+            "type": "renders_from"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_ui_api_state",
+      "name": "UI API, State & Fixtures",
+      "purpose": "The UI's data layer: api client, hooks, stores, captured fixtures and the test suite.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "m1nd-ui/src/api/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/hooks/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/stores/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/__fixtures__/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/types.ts",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/vite-env.d.ts",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-ui/src/**/*.test.ts",
+          "role": "test"
+        },
+        {
+          "path": "m1nd-ui/src/**/*.test.tsx",
+          "role": "test"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Served Owner & Brain Routing",
+            "type": "http_api"
+          }
+        ],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "structural",
+            "stales_on": [
+              "member_change",
+              "repaint"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "handoff",
+            "stales_on": []
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_distribution",
+      "name": "Distribution, Host Packs & Installer",
+      "purpose": "How m1nd reaches machines: the npm wrapper, skills packs, install surfaces and i18n.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "npm/**",
+          "role": "primary"
+        },
+        {
+          "path": "skills/**",
+          "role": "primary"
+        },
+        {
+          "path": "package.json",
+          "role": "primary"
+        },
+        {
+          "path": "server.json",
+          "role": "primary"
+        },
+        {
+          "path": "llms-install.md",
+          "role": "primary"
+        },
+        {
+          "path": "i18n/**",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [
+          {
+            "to": "Served Owner & Brain Routing",
+            "type": "installs_and_serves"
+          }
+        ],
+        "external": [
+          {
+            "class": "package_registry",
+            "type": "publish_target"
+          }
+        ]
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          },
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_docs_contracts",
+      "name": "Docs & Product Contracts",
+      "purpose": "The written truth: PATHOS, PRDs, the UML atlas, guides and the repo's public contracts.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": "docs/**",
+          "role": "primary"
+        },
+        {
+          "path": "README.md",
+          "role": "primary"
+        },
+        {
+          "path": "CONTRIBUTING.md",
+          "role": "primary"
+        },
+        {
+          "path": "EXAMPLES.md",
+          "role": "primary"
+        },
+        {
+          "path": "SECURITY.md",
+          "role": "primary"
+        },
+        {
+          "path": "AGENTS.md",
+          "role": "primary"
+        },
+        {
+          "path": "CHANGELOG.md",
+          "role": "primary"
+        },
+        {
+          "path": "LICENSE",
+          "role": "primary"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "handoff",
+            "stales_on": []
+          },
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_m1nd_ci_scripts_demo",
+      "name": "CI, Scripts, Demo & OpenClaw",
+      "purpose": "Pipelines, release tooling, proofs harnesses, the demo crate and the openclaw crate.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        {
+          "path": ".github/**",
+          "role": "primary"
+        },
+        {
+          "path": "scripts/**",
+          "role": "primary"
+        },
+        {
+          "path": "tests/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-demo/**",
+          "role": "primary"
+        },
+        {
+          "path": "m1nd-openclaw/**",
+          "role": "primary"
+        },
+        {
+          "path": "Cargo.toml",
+          "role": "primary"
+        },
+        {
+          "path": "Cargo.lock",
+          "role": "primary"
+        },
+        {
+          "path": "cliff.toml",
+          "role": "primary"
+        },
+        {
+          "path": "scratchpad/**",
+          "role": "generated"
+        }
+      ],
+      "sockets": {
+        "inputs": [],
+        "outputs": [],
+        "external": []
+      },
+      "receipt_contract": {
+        "version": 1,
+        "required": [
+          {
+            "type": "spec",
+            "stales_on": [
+              "contract_change"
+            ]
+          }
+        ],
+        "optional": [
+          {
+            "type": "test",
+            "stales_on": [
+              "member_change"
+            ]
+          },
+          {
+            "type": "review",
+            "stales_on": [
+              "member_change"
+            ]
+          }
+        ],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-08T09:39:25Z"
+      },
+      "receipts": [],
+      "layout": {
+        "x": null,
+        "y": null,
+        "locked": false,
+        "algorithm_seed": null,
+        "version": 1
+      },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": {
+    "visible": true,
+    "default_action": "leave_unmapped_until_ratified"
+  }
+}

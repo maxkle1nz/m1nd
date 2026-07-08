@@ -33,6 +33,7 @@ pub mod promote_handlers;
 // anchored claims with verification states + the freshness receipt.
 pub mod soul_handlers;
 pub mod surgical_handlers;
+pub mod system_blocks;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;
