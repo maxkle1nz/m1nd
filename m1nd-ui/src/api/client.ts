@@ -8,6 +8,7 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
+import type { SystemBlocksSnapshot } from '../lib/buildMap';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -128,4 +129,17 @@ export const api = {
    * the bound brain's box. The read is scoped to THIS box only (INV-17).
    */
   mailbox: (brain?: string | null) => apiFetch<MailboxResponse>(withBrain('/api/mailbox', brain)),
+
+  /**
+   * The Build Map's read (HUMAN-VIEW-V2 F1). The `system_blocks_snapshot` verb
+   * serves the ratified SystemBlock store (or an honest `present:false`) — a pure
+   * READ, safe under a read-only attach. Bare tool route (`/api/tools/{tool}`),
+   * agent_id 'gui', unwrapping the `{result}` envelope, like `api.tool`. §4A.9:
+   * `brain` scopes the read to a hosted brain (absent = the bound graph).
+   */
+  systemBlocksSnapshot: (brain?: string | null) =>
+    apiFetch<{ result: SystemBlocksSnapshot }>(
+      withBrain('/api/tools/system_blocks_snapshot', brain),
+      { method: 'POST', body: JSON.stringify({ agent_id: 'gui' }) },
+    ).then((r) => r.result),
 };
