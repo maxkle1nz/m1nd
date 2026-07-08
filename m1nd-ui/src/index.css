@@ -91,6 +91,18 @@
   /* Matte contact shadow (no colored halos, no emission) */
   --shadow-contact: 0 1px 2px rgb(43 40 54 / 0.08);
   --shadow-card: 0 1px 3px rgb(43 40 54 / 0.1);
+
+  /*
+   * Human View v2 — Build Map ARTKIT tokens (HUMAN-VIEW-V2-SCREENS §0/§10).
+   * Only the four the SOFT PROOF palette did not already carry; the block STATES
+   * reuse the verdict/state families above (coabitação):
+   *   evidence-backed → --verdict-act · needs-evidence → --verdict-reverify
+   *   broken/drifting → --state-failure · unknown/unpainted → --state-unverified
+   */
+  --socket-blue: #3d6f8e;   /* ARTKIT socket-blue — wires/sockets + runtime axis */
+  --stale-lilac: #8a7ba8;   /* ARTKIT stale-lilac — candidate/ratification accent */
+  --warm-paper: #fcfaf6;    /* ARTKIT warm-paper — block card fill */
+  --hairline: #d8d1c6;      /* ARTKIT hairline — neutral card/no-socket border */
 }
 
 html, body, #root {

@@ -48,6 +48,7 @@ import {
   FileCode,
   SquareFunction,
   Box,
+  Boxes,
   FileText,
   type LucideIcon,
 } from 'lucide-react';
@@ -61,6 +62,7 @@ export const ICON = {
   // Graph / structure
   graph: Waypoints, // nodes ("2,089 nodes"), receipt fingerprint
   edges: Spline, // edges ("7,323 edges"), map legend
+  blocks: Boxes, // the Build Map surface + a SystemBlock (Human View v2, §0)
   // Freshness / memory / calibration
   freshness: History, // G1 caption, freshness banner, stale post-it back
   memory: Tag, // post-it chips, memory counts, G3 — the specimen-tag motif
