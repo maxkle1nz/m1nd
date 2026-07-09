@@ -973,6 +973,25 @@ impl SessionState {
         self.project_root_display().map(|root| basename_of(&root))
     }
 
+    /// The display name ONLY when it comes from a REAL code root (resolver cases
+    /// 1-2: an ingest root or a repo workspace) — `None` on the plumbing
+    /// fallbacks (cases 3-4), where the "display" is a runtime dir. Guards that
+    /// arm on brain identity (the mission_post brain guard) use THIS, so a bare
+    /// session never refuses over plumbing.
+    pub fn code_root_display_name(&self) -> Option<String> {
+        for root in &self.ingest_roots {
+            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
+                return Some(basename_of(root));
+            }
+        }
+        if let Some(ws) = self.workspace_root.as_deref() {
+            if !is_memory_sidecar(ws) && std::path::Path::new(ws).join(".git").exists() {
+                return Some(basename_of(ws));
+            }
+        }
+        None
+    }
+
     /// True when THIS store is the medulla — the owner's own memory-of-doctrine
     /// store, not a per-project brain (MEDULLA-PRD §4.1: the tier IS the directory).
     ///
