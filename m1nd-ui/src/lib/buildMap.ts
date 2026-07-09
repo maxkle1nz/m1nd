@@ -127,6 +127,14 @@ export interface SystemBlock {
   receipts: Receipt[];
   layout: Layout;
   unmapped_residue: string[];
+  /** Slice 3 reconcile baseline — the sha256 of the block's effective resolved
+   *  membership. `undefined` until the first reconcile writes the honest baseline;
+   *  its PRESENCE is how the UI knows a block has ever been reconciled. Optional so
+   *  a pre-Slice-3 store (which omits it) still parses (retrocompat honesta). */
+  membership_fingerprint?: string;
+  /** Slice 3 reconcile cache — the ordered effective membership the fingerprint was
+   *  taken over. Optional + omitted-when-empty, mirroring the Rust serde. */
+  resolved_members?: string[];
 }
 
 export interface Skeleton {
@@ -152,6 +160,16 @@ export interface SystemBlockStore {
   skeleton: Skeleton;
   blocks: SystemBlock[];
   unmapped_policy: UnmappedPolicy;
+  /** Slice 3 reconcile output — the REAL unmapped: repo files claimed by NO block
+   *  (F7). Materialized capped (UNMAPPED_FILES_CAP=500 on the owner); the honest
+   *  full count is `unmapped_total`. Optional + omitted-when-empty, mirroring the
+   *  Rust serde — a pre-Slice-3 store parses byte-clean. */
+  unmapped_files?: string[];
+  /** The honest TOTAL of unmapped files, even when `unmapped_files` was capped.
+   *  Omitted (undefined) while zero on the wire — a reconciled store with zero
+   *  unmapped is told apart from a never-reconciled one by block fingerprints, not
+   *  by this field (see `rollupStore`). */
+  unmapped_total?: number;
 }
 
 /** The `system_blocks_snapshot` envelope. `present:false` carries `honest`. */
@@ -161,6 +179,51 @@ export interface SystemBlocksSnapshot {
   block_count?: number;
   store?: SystemBlockStore;
   honest?: string;
+}
+
+// ---------------------------------------------------------------------------
+// The `system_blocks_reconcile` report (Slice 3). Transcribed 1:1 from the Rust
+// `ReconcileReport` + `BlockReconcile` (m1nd-mcp/src/system_blocks.rs) as the
+// `handle_system_blocks_reconcile` handler serializes it — the handler MERGES
+// `store_version` + `file_count` onto the report before it goes over the wire.
+// Fields the Rust side skips-when-empty (`added`/`removed`/`missing`/
+// `bumped_block_ids`) or skips-when-none (`note`) are optional here.
+// ---------------------------------------------------------------------------
+
+export type ReconcileOutcome = 'baseline' | 'bumped' | 'unchanged';
+
+export interface BlockReconcile {
+  block_id: string;
+  outcome: ReconcileOutcome;
+  /** The block's `boundary_version` AFTER this pass. */
+  boundary_version: number;
+  /** How many real files the block now resolves to. */
+  resolved_count: number;
+  /** Files that entered the block's resolved set (only on `bumped`). */
+  added?: string[];
+  /** Files that left the block's resolved set (only on `bumped`). */
+  removed?: string[];
+  /** Declared EXACT members absent from the file list ("declared but gone"). */
+  missing?: string[];
+}
+
+export interface ReconcileReport {
+  /** True iff this reconcile changed persisted state (baseline write, boundary
+   *  bump, or a change in the unmapped set). A no-op reconcile is `false`. */
+  dirty: boolean;
+  blocks: BlockReconcile[];
+  /** Ids of blocks whose `boundary_version` bumped this pass (skip-empty). */
+  bumped_block_ids?: string[];
+  /** The honest TOTAL count of files claimed by no block (never capped). */
+  unmapped_total: number;
+  /** How many unmapped paths were materialized into the store (≤ the cap). */
+  unmapped_materialized: number;
+  /** The honest staleness note — present iff at least one boundary bumped. */
+  note?: string;
+  /** Merged onto the report by the handler: the store version AFTER the pass. */
+  store_version: number;
+  /** Merged onto the report by the handler: how many files were reconciled. */
+  file_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,20 +251,42 @@ export function isFailingReceipt(receipt: Receipt): boolean {
   return typeof receipt.evidence.exit_status === 'number' && receipt.evidence.exit_status !== 0;
 }
 
+/** The reason a receipt is stale, in the backend's evaluation order. Mirrors the
+ *  Rust `receipt_stale_reason` (system_blocks.rs) 1:1: `block` | `boundary` |
+ *  `contract` | `expired`. */
+export type StaleReason = 'block' | 'boundary' | 'contract' | 'expired';
+export type ReceiptFreshness = { fresh: true } | { fresh: false; reason: StaleReason };
+
 /**
- * Earned-fresh (PRD §3.1/§5, MVP): a receipt counts for a block only when its
- * scope binds to the block's CURRENT (block_id, boundary_version, contract_version)
- * — never counted for a version it did not see — AND it is not expired
- * (`expires_on` in the future or null) AND it is not a failing receipt.
+ * receiptFreshness (Slice 3) — per-receipt fresh/stale{reason} for DISPLAY, pure
+ * and testable. A receipt is FRESH iff its scope still binds to the block's CURRENT
+ * `(block_id, boundary_version, contract_version)` AND it has not expired — exactly
+ * the `receipt_recompute` truth the owner computes (m1nd-mcp/src/system_blocks.rs).
+ * This is the freshness AXIS only; a failing receipt is a separate BROKEN axis (see
+ * `isFailingReceipt`), never conflated with staleness.
  */
-export function isEarnedFresh(receipt: Receipt, block: SystemBlock, now: number): boolean {
-  if (receipt.scope.block_id !== block.block_id) return false;
-  if (receipt.scope.boundary_version !== block.boundary_version) return false;
-  if (receipt.scope.contract_version !== block.contract_version) return false;
+export function receiptFreshness(
+  receipt: Receipt,
+  block: SystemBlock,
+  now: number = Date.now(),
+): ReceiptFreshness {
+  if (receipt.scope.block_id !== block.block_id) return { fresh: false, reason: 'block' };
+  if (receipt.scope.boundary_version !== block.boundary_version) return { fresh: false, reason: 'boundary' };
+  if (receipt.scope.contract_version !== block.contract_version) return { fresh: false, reason: 'contract' };
   if (receipt.validity.expires_on != null) {
     const exp = Date.parse(receipt.validity.expires_on);
-    if (Number.isFinite(exp) && exp <= now) return false;
+    if (Number.isFinite(exp) && exp <= now) return { fresh: false, reason: 'expired' };
   }
+  return { fresh: true };
+}
+
+/**
+ * Earned-fresh (PRD §3.1/§5, MVP): a receipt counts for a block only when it is
+ * fresh by scope + expiry ([`receiptFreshness`]) AND it is not a failing receipt.
+ * The freshness half is shared with the display path so the two can never drift.
+ */
+export function isEarnedFresh(receipt: Receipt, block: SystemBlock, now: number): boolean {
+  if (!receiptFreshness(receipt, block, now).fresh) return false;
   if (isFailingReceipt(receipt)) return false;
   return true;
 }
@@ -224,6 +309,11 @@ export interface BlockRollup {
   candidate: boolean;
   /** Honest reasons the block is broken (failing receipt, broken socket). */
   brokenReasons: string[];
+  /** Slice 3: the block has been reconciled (a `membership_fingerprint` baseline
+   *  exists) AND carries at least one receipt earned against an OLDER boundary
+   *  (`scope.boundary_version < block.boundary_version`) — its evidence predates
+   *  the current membership. Drives the card's `⚠ boundary vN` badge. */
+  boundaryStale: boolean;
 }
 
 /**
@@ -271,6 +361,16 @@ export function rollupBlock(
   else if (M === N) state = 'evidence-backed';
   else state = 'needs-evidence';
 
+  // Boundary-moved evidence (Slice 3): only for a reconciled block (fingerprint
+  // present), and only when a receipt was earned against an OLDER boundary — the
+  // exact `stale_scope` the reconcile bump creates. A never-reconciled block never
+  // shows the badge (absence is neutral).
+  const boundaryStale =
+    block.membership_fingerprint != null &&
+    block.receipts.some(
+      (r) => r.scope.block_id === block.block_id && r.scope.boundary_version < block.boundary_version,
+    );
+
   return {
     blockId: block.block_id,
     state,
@@ -281,6 +381,7 @@ export function rollupBlock(
     wired,
     candidate,
     brokenReasons,
+    boundaryStale,
   };
 }
 
@@ -297,10 +398,22 @@ export interface StateCounts {
 export interface MapRollup {
   rollups: Map<string, BlockRollup>;
   counts: StateCounts;
-  /** Aggregate unmapped residue across blocks (F7 — always visible, even at 0). */
+  /** Aggregate declared unmapped residue across blocks (the seed's own field —
+   *  kept for continuity; the tray now shows the reconcile truth below). */
   unmappedCount: number;
   /** The whole skeleton is a candidate (first-run, F6) — every card dashed + banner. */
   candidate: boolean;
+  /** Slice 3: has this store EVER been reconciled? True iff any block carries a
+   *  `membership_fingerprint` baseline. This is what tells "reconciled with zero
+   *  unmapped" (an honest `0 files`) apart from "never reconciled" (neutral
+   *  absence) — `unmapped_total` is omitted-when-zero on the wire, so it cannot. */
+  reconciled: boolean;
+  /** The REAL unmapped total from the reconcile (`store.unmapped_total`), 0 when
+   *  absent. Meaningful only when `reconciled`. */
+  unmappedTotal: number;
+  /** The materialized unmapped sample (`store.unmapped_files`, capped on the owner)
+   *  — the honest list the tray expands. Its length ≤ `unmappedTotal`. */
+  unmappedFiles: string[];
 }
 
 /** Roll the whole store up: per-block rollups + System Health counts + the
@@ -329,7 +442,13 @@ export function rollupStore(
   }
   const unmappedCount = store.blocks.reduce((n, b) => n + b.unmapped_residue.length, 0);
   const candidate = store.skeleton.state !== 'ratified';
-  return { rollups, counts, unmappedCount, candidate };
+  // The reconcile truth (Slice 3): a store is reconciled once any block has a
+  // fingerprint baseline. The unmapped total/files come straight from the store's
+  // reconcile output (undefined on a pre-Slice-3 store → 0/[], the neutral day-1).
+  const reconciled = store.blocks.some((b) => b.membership_fingerprint != null);
+  const unmappedTotal = store.unmapped_total ?? 0;
+  const unmappedFiles = store.unmapped_files ?? [];
+  return { rollups, counts, unmappedCount, candidate, reconciled, unmappedTotal, unmappedFiles };
 }
 
 // ---------------------------------------------------------------------------
@@ -409,4 +528,80 @@ export function membershipByRole(block: SystemBlock): Array<{ role: MembershipRo
     counts.set(e.role, (counts.get(e.role) ?? 0) + 1);
   }
   return order.map((role) => ({ role, count: counts.get(role) ?? 0 }));
+}
+
+// ---------------------------------------------------------------------------
+// The reconcile gesture's view-model (Slice 3, F3b) — pure + testable, so the
+// BuildMapView wire stays thin and the honest copy has a unit-tested home.
+// ---------------------------------------------------------------------------
+
+/** The one-line human summary of a reconcile report (the toast body):
+ *  "2 boundaries moved · 5 unmapped · store v7". */
+export function reconcileSummary(report: ReconcileReport): string {
+  const moved = report.bumped_block_ids?.length ?? 0;
+  const boundaries = `${moved} ${moved === 1 ? 'boundary' : 'boundaries'} moved`;
+  return `${boundaries} · ${report.unmapped_total} unmapped · store v${report.store_version}`;
+}
+
+export type ReconcileToastKind = 'ok' | 'conflict' | 'readonly' | 'error';
+export interface ReconcileToast {
+  kind: ReconcileToastKind;
+  text: string;
+}
+
+/** Best-effort human string from an unknown error — the `ApiError.detail` the
+ *  owner emits, else `.message`, else the stringified error. No `ApiError` import:
+ *  duck-typed so this stays dependency-free and testable. */
+function errorText(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const o = err as { detail?: unknown; message?: unknown };
+    if (typeof o.detail === 'string' && o.detail.length > 0) return o.detail;
+    if (typeof o.message === 'string' && o.message.length > 0) return o.message;
+  }
+  return String(err);
+}
+
+/**
+ * Classify a failed reconcile into an honest toast (F3b §D). The two named cases
+ * are grounded in the owner's real error strings:
+ *  - OCC conflict — "store version conflict: expected N, actual M …" (system_blocks.rs
+ *    `SeedError::Conflict`) → reload, never a silent retry;
+ *  - read-only owner — "m1nd is attached read-only (--read-only); mutation tool … is
+ *    disabled …" (server.rs) → informative, the button stays.
+ * Anything else surfaces the owner's message verbatim (never swallowed).
+ */
+export function reconcileErrorToast(err: unknown, expectedVersion: number): ReconcileToast {
+  const s = errorText(err);
+  if (/conflict/i.test(s)) {
+    const m = s.match(/actual\s+(\d+)/i);
+    const actual = m ? m[1] : '?';
+    return {
+      kind: 'conflict',
+      text: `the store moved (expected v${expectedVersion}, actual v${actual}) — reloading`,
+    };
+  }
+  if (/read[-\s]?only/i.test(s)) {
+    return { kind: 'readonly', text: 'this owner is read-only — reconcile from a writable session' };
+  }
+  return { kind: 'error', text: s };
+}
+
+/**
+ * Run one reconcile and reduce it to a toast + a reload decision (F3b §D). Pure
+ * over its injected `reconcileFn`, so the conflict/read-only/success flows are
+ * unit-testable with a mocked client (no DOM, no network). A conflict reloads (the
+ * store moved); success reloads (the map re-renders on the new truth); a read-only
+ * or error refusal does NOT reload — nothing changed.
+ */
+export async function runReconcile(
+  reconcileFn: (expectedVersion: number) => Promise<ReconcileReport>,
+  expectedVersion: number,
+): Promise<{ toast: ReconcileToast; shouldReload: boolean }> {
+  try {
+    const report = await reconcileFn(expectedVersion);
+    return { toast: { kind: 'ok', text: reconcileSummary(report) }, shouldReload: true };
+  } catch (err) {
+    const toast = reconcileErrorToast(err, expectedVersion);
+    return { toast, shouldReload: toast.kind === 'conflict' };
+  }
 }
