@@ -1,18 +1,41 @@
 /*
- * PacketCompose — Ask agent / Copy Packet (HUMAN-VIEW-V2-SCREENS §5, PRD F12–F13).
+ * PacketCompose — Ask agent / Copy Packet (HUMAN-VIEW-V2-SCREENS §5, PRD F12–F13,
+ * F2.5 §4). The panel that turns a block (or block + sub-path) into a MissionPacket.
+ * The message field, the INCLUDE toggles, the live PREVIEW (exactly what is
+ * copied/posted), and the MODE selector.
  *
- * The panel that turns a block (or block + sub-path) into a MissionPacket. The
- * message field, the INCLUDE toggles, the live PREVIEW (exactly what is copied),
- * and the MODE selector. In this slice ONLY `clipboard` is live — a READ-ONLY
- * compositor: it renders Markdown with `composePacket` (a pure function) and calls
- * `navigator.clipboard.writeText`. ZERO engine call, ZERO delegate registry write
- * (F0-TECH §9); the panel DECLARES this. `direct`/`spawn` are disabled radios
- * pointing at F2.5. Copy law holds: no "proven/done/correct".
+ * Two modes are live in F2.5b:
+ *   - `clipboard` — the unchanged READ-ONLY compositor: renders Markdown with
+ *     `composePacket` (pure) and writes it to the clipboard. ZERO engine call.
+ *   - `direct` (§4a) — composes the packet + `mission_post`s the seq-1 `judging`
+ *     letter (packet_ref = sha256 of the composed markdown) + copies the packet for
+ *     the human to paste into the agent. F2.5a exposes NO common-letter post path
+ *     (the mailbox has no recipient field; the only box-writer is `mission_post`),
+ *     so the MVP delivers the packet via the clipboard and DECLARES it: "delivery is
+ *     not execution." The letter is state (§1c), the paste is the delivery.
+ *
+ * `spawn` stays DISABLED (runnerd is F2.5c) with the amendment's honest note. Mode
+ * availability is policy-gated (§4d): a read-only owner → clipboard only. Copy law
+ * holds: no "proven/done/correct".
  */
 import { useState } from 'react';
 import type { BlockRollup, SystemBlock } from '../../lib/buildMap';
 import { composePacket, DEFAULT_TOGGLES, type PacketToggles } from '../../lib/packet';
+import {
+  sendDirectPacket,
+  type Capability,
+  type MissionLetter,
+  type PostOutcome,
+} from '../../lib/missions';
+import { api, ApiError } from '../../api/client';
 import { Icon } from '../../lib/icons/registry';
+
+/** Mode availability policy (§4d) — a read-only owner posts nothing; a runnerd is
+ *  never present in F2.5b (spawn is F2.5c). Disabled states always say why. */
+export interface ComposePolicy {
+  readOnly?: boolean;
+  runnerdAvailable?: boolean;
+}
 
 export interface PacketComposeProps {
   block: SystemBlock;
@@ -21,9 +44,19 @@ export interface PacketComposeProps {
   /** Optional sub-path scope (block + a member path). */
   subPath?: string | null;
   onClose: () => void;
-  /** For tests/SSR: seed the message + toggles deterministically. */
+  /** §4A.9 — the brain the map is viewing; routes the `mission_post` write through
+   *  the `?brain=` selector so `direct` posts into the box the human is viewing. */
+  brainRoot?: string | null;
+  /** §4d — mode availability policy. Absent → writable owner, no runnerd. */
+  policy?: ComposePolicy;
+  /** The intended lane for the seq-1 letter (§1). Default `build-runner` (§5b). */
+  capability?: Capability;
+  /** Test/SSR seam: the mission-post writer (default `api.missionPost`). */
+  postMission?: (letter: MissionLetter) => Promise<PostOutcome>;
+  /** For tests/SSR: seed the message + toggles + mode deterministically. */
   initialMessage?: string;
   initialToggles?: PacketToggles;
+  initialMode?: 'clipboard' | 'direct';
 }
 
 interface ToggleRowProps {
@@ -54,18 +87,38 @@ function ToggleRow({ label, checked, onChange, role, disabled, hint }: ToggleRow
   );
 }
 
+/** The brain reference the seq-1 letter carries (§1f: a repo_id reference, NEVER an
+ *  absolute path). Prefer the repoId; fall back to the block_id's repo token. */
+function brainRefFor(repoId: string | null, block: SystemBlock): string {
+  return repoId ?? block.block_id.match(/^sb_([^_]+)_/)?.[1] ?? 'brain';
+}
+
 export default function PacketCompose({
   block,
   rollup,
   repoId,
   subPath = null,
   onClose,
+  brainRoot = null,
+  policy,
+  capability,
+  postMission,
   initialMessage = '',
   initialToggles,
+  initialMode = 'clipboard',
 }: PacketComposeProps) {
   const [message, setMessage] = useState(initialMessage);
   const [toggles, setToggles] = useState<PacketToggles>(initialToggles ?? DEFAULT_TOGGLES);
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<'clipboard' | 'direct'>(initialMode);
+  const [sending, setSending] = useState(false);
+  const [directResult, setDirectResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const readOnly = policy?.readOnly ?? false;
+  const runnerd = policy?.runnerdAvailable ?? false;
+  const directEnabled = !readOnly;
+  // A read-only owner can never be in `direct` — fall back to clipboard (§4d).
+  const activeMode = mode === 'direct' && directEnabled ? 'direct' : 'clipboard';
 
   const markdown = composePacket({ block, rollup, repoId, message, subPath, toggles });
   const set = (key: keyof PacketToggles) => (v: boolean) => setToggles((t) => ({ ...t, [key]: v }));
@@ -82,6 +135,38 @@ export default function PacketCompose({
     }
   };
 
+  // `direct` (§4a): post the seq-1 letter, then copy the packet for the human to
+  // paste (the honest MVP delivery). An error (`stale_head`, read-only deny,
+  // network) surfaces verbatim — never a silent retry (§4d).
+  const sendDirect = async () => {
+    if (sending) return;
+    setSending(true);
+    setDirectResult(null);
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    const poster = postMission ?? ((letter: MissionLetter) => api.missionPost(letter, brainRoot));
+    try {
+      const res = await sendDirectPacket(
+        { markdown, blockId: block.block_id, brainRef: brainRefFor(repoId, block), capability },
+        {
+          postMission: poster,
+          writeClipboard: clip?.writeText ? (t) => clip.writeText(t) : undefined,
+        },
+      );
+      setDirectResult({
+        ok: true,
+        message: res.clipboardCopied
+          ? 'packet copied — paste it into the agent; the mission letter is posted'
+          : 'the mission letter is posted — copy the packet to paste it into the agent',
+      });
+    } catch (err) {
+      const detail =
+        err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'the post was refused';
+      setDirectResult({ ok: false, message: detail });
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <>
       <div className="fixed inset-0 bg-ink/30 z-40" onClick={onClose} aria-hidden />
@@ -89,6 +174,7 @@ export default function PacketCompose({
         className="fixed top-[8%] left-1/2 -translate-x-1/2 z-50 w-full max-w-3xl mx-4 max-h-[84vh] flex flex-col rounded-lg border border-hairline bg-warm-paper shadow-card"
         data-role="packet-compose"
         data-block-packet={block.block_id}
+        data-mode={activeMode}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-ink/10">
@@ -137,31 +223,56 @@ export default function PacketCompose({
                 checked={toggles.screenshot}
                 role="toggle-screenshot"
                 disabled
-                hint="screenshot capture + redaction arrives with spawn (F2.5)"
+                hint="screenshot capture + redaction arrives with spawn (F2.5c)"
               />
             </div>
 
             <div className="space-y-1.5">
               <div className="text-[10px] uppercase tracking-wide text-ink-soft">Mode</div>
               <label className="flex items-center gap-2 text-xs text-ink cursor-pointer">
-                <input type="radio" name="packet-mode" data-role="mode-clipboard" checked readOnly className="accent-socket-blue" />
+                <input
+                  type="radio"
+                  name="packet-mode"
+                  data-role="mode-clipboard"
+                  checked={activeMode === 'clipboard'}
+                  onChange={() => setMode('clipboard')}
+                  className="accent-socket-blue"
+                />
                 clipboard — paste anywhere (universal)
               </label>
-              <label className="flex items-center gap-2 text-xs text-ink-soft opacity-70" title="direct delivery arrives in F2.5">
-                <input type="radio" name="packet-mode" data-role="mode-direct" disabled className="accent-socket-blue" />
-                direct — deliver to an agent inbox <span className="text-[10px]">F2.5</span>
+              <label
+                className={`flex items-center gap-2 text-xs ${directEnabled ? 'text-ink cursor-pointer' : 'text-ink-soft opacity-70'}`}
+                title={directEnabled ? 'post the mission letter + copy the packet to paste' : 'this owner is read-only — direct posts a letter (a write)'}
+              >
+                <input
+                  type="radio"
+                  name="packet-mode"
+                  data-role="mode-direct"
+                  checked={activeMode === 'direct'}
+                  disabled={!directEnabled}
+                  onChange={() => setMode('direct')}
+                  className="accent-socket-blue"
+                />
+                direct — deliver to an agent inbox
+                {!directEnabled && <span className="text-[10px]">read-only</span>}
               </label>
-              <label className="flex items-center gap-2 text-xs text-ink-soft opacity-70" title="spawn via a runner arrives in F2.5">
+              <label
+                className="flex items-center gap-2 text-xs text-ink-soft opacity-70"
+                title={runnerd ? 'spawn via a runner' : 'no runner daemon connected'}
+              >
                 <input type="radio" name="packet-mode" data-role="mode-spawn" disabled className="accent-socket-blue" />
-                spawn — launch via a runner <span className="text-[10px]">F2.5</span>
+                spawn — launch via a runner{' '}
+                <span className="text-[10px]" data-role="spawn-note">
+                  {runnerd ? 'F2.5c' : 'no runner daemon connected'}
+                </span>
               </label>
             </div>
           </div>
 
-          {/* Right: the exact preview + copy + the read-only declaration. */}
+          {/* Right: the exact preview + the mode's action + the honest declaration. */}
           <div className="p-4 overflow-hidden flex flex-col min-h-0">
             <div className="text-[10px] uppercase tracking-wide text-ink-soft mb-1">
-              Packet preview (exactly what is copied)
+              Packet preview (exactly what is {activeMode === 'direct' ? 'posted & copied' : 'copied'})
             </div>
             <pre
               data-role="packet-preview"
@@ -169,25 +280,58 @@ export default function PacketCompose({
             >
               {markdown}
             </pre>
-            <div className="mt-3 flex items-center gap-3">
-              <button
-                type="button"
-                data-role="copy-packet"
-                onClick={copyPacket}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
-              >
-                <Icon name="receipt" size={14} decorative />
-                Copy packet (Markdown)
-              </button>
-              {copied && (
-                <span data-role="packet-copied" className="text-[11px] text-verdict-act">
-                  packet copied — paste it into any agent
-                </span>
-              )}
-            </div>
-            <p className="mt-2 text-[10px] text-ink-soft" data-role="clipboard-note">
-              clipboard mode: no side effects — nothing is written to the engine.
-            </p>
+
+            {activeMode === 'direct' ? (
+              <>
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    data-role="send-direct"
+                    onClick={sendDirect}
+                    disabled={sending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
+                  >
+                    <Icon name="inbox" size={14} decorative />
+                    {sending ? 'Sending…' : 'Send to agent inbox'}
+                  </button>
+                  {directResult && (
+                    <span
+                      data-role="direct-result"
+                      data-ok={directResult.ok ? 'true' : 'false'}
+                      className={`text-[11px] break-words ${directResult.ok ? 'text-verdict-act' : 'text-state-failure'}`}
+                    >
+                      {directResult.message}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-[10px] text-ink-soft" data-role="direct-note">
+                  direct: posted to the agent’s inbox — delivery is not execution. The packet is copied for you to
+                  paste into the agent; the mission letter is posted to the box.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    data-role="copy-packet"
+                    onClick={copyPacket}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
+                  >
+                    <Icon name="receipt" size={14} decorative />
+                    Copy packet (Markdown)
+                  </button>
+                  {copied && (
+                    <span data-role="packet-copied" className="text-[11px] text-verdict-act">
+                      packet copied — paste it into any agent
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-[10px] text-ink-soft" data-role="clipboard-note">
+                  clipboard mode: no side effects — nothing is written to the engine.
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>

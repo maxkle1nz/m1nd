@@ -131,13 +131,16 @@ test('the packet panel previews the composed Markdown and declares no side effec
   assert.match(t, /no side effects — nothing is written to the engine/);
 });
 
-test('only clipboard mode is live; direct and spawn are disabled (F2.5)', () => {
+test('clipboard is the default live mode; direct is un-disabled (F2.5b); spawn stays disabled (F2.5c)', () => {
   const out = renderToStaticMarkup(packet());
   assert.match(out, /data-role="mode-clipboard"[^>]*checked/);
-  assert.match(out, /data-role="mode-direct"[^>]*disabled=""/);
+  // F2.5b un-disables direct — the radio is now selectable (no disabled attr).
+  assert.doesNotMatch(out, /data-role="mode-direct"[^>]*disabled=""/);
+  // spawn waits for runnerd (F2.5c) — still disabled, with the amendment's note.
   assert.match(out, /data-role="mode-spawn"[^>]*disabled=""/);
+  assert.match(text(packet()), /no runner daemon connected/);
   assert.match(out, /data-role="copy-packet"/);
-  // screenshot toggle is present but OFF + disabled (F2.5 — capture + redaction).
+  // screenshot toggle is present but OFF + disabled (capture + redaction is F2.5c).
   assert.match(out, /data-role="toggle-screenshot"[^>]*disabled=""/);
 });
 

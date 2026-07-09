@@ -21,6 +21,8 @@ export interface ShowCodeProps {
   block: SystemBlock;
   rollup: BlockRollup;
   repoId: string | null;
+  /** §4A.9 — the brain whose repo the viewer reads (null = bound). */
+  brainRoot?: string | null;
   onClose: () => void;
   /** Open the packet compositor scoped to this block (Copy context / Ask agent). */
   onAskAgent: (subPath?: string | null) => void;
@@ -57,10 +59,10 @@ function isGlobPath(path: string): boolean {
 }
 
 /** The read-only file viewer (uses `/api/file`; idle/loading placeholder in SSR). */
-function Viewer({ path }: { path: string | null }) {
+function Viewer({ path, brainRoot = null }: { path: string | null; brainRoot?: string | null }) {
   const glob = path != null && isGlobPath(path);
   // Never fire a doomed fetch for a glob — keep the hook idle and say so honestly.
-  const file = useFileView(glob ? null : path);
+  const file = useFileView(glob ? null : path, brainRoot);
   if (!path) {
     return (
       <div className="flex-1 flex items-center justify-center text-xs text-ink-soft" data-role="viewer-idle">
@@ -143,6 +145,7 @@ export default function ShowCode({
   block,
   rollup,
   repoId,
+  brainRoot = null,
   onClose,
   onAskAgent,
   initialTab = 'files',
@@ -270,7 +273,7 @@ export default function ShowCode({
                   </div>
                 ))}
               </div>
-              <Viewer path={selectedPath} />
+              <Viewer path={selectedPath} brainRoot={brainRoot} />
               <HealthPanel block={block} rollup={rollup} />
             </>
           )}

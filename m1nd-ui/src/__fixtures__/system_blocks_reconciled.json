@@ -1,0 +1,123 @@
+{
+  "present": true,
+  "store_version": 7,
+  "block_count": 2,
+  "store": {
+    "schema": "m1nd-system-block-store-v0",
+    "store_version": 7,
+    "skeleton": {
+      "skeleton_id": "sk_m1nd_seed_2026_07",
+      "version": 1,
+      "state": "ratified",
+      "ratification": {
+        "method": "pr_merge",
+        "ratifier": "owner-delegated:orchestrator-review-2026-07-07",
+        "ratified_at": "2026-07-08T09:39:25Z",
+        "commit": "pending-merge"
+      }
+    },
+    "blocks": [
+      {
+        "block_id": "sb_m1nd_core_graph_kernel",
+        "name": "Core Graph Kernel",
+        "purpose": "Stores and traverses the code graph: CSR storage, activation, topology, query.",
+        "kind": "scanned",
+        "state": "ratified",
+        "boundary_version": 2,
+        "contract_version": 1,
+        "membership_source": "ratified",
+        "membership": [
+          { "path": "m1nd-core/src/lib.rs", "role": "primary" },
+          { "path": "m1nd-core/src/graph.rs", "role": "primary" },
+          { "path": "m1nd-core/src/query.rs", "role": "primary" }
+        ],
+        "sockets": { "inputs": [], "outputs": [], "external": [] },
+        "receipt_contract": {
+          "version": 1,
+          "required": [
+            { "type": "spec", "stales_on": ["contract_change"] },
+            { "type": "structural", "stales_on": ["member_change", "repaint"] },
+            { "type": "test", "stales_on": ["member_change"] }
+          ],
+          "optional": [{ "type": "review", "stales_on": ["member_change"] }],
+          "waived": [],
+          "declared_by": "owner",
+          "declared_at": "2026-07-08T09:39:25Z"
+        },
+        "receipts": [
+          {
+            "type": "test",
+            "emitter": { "kind": "ci", "id": "ci-run-41" },
+            "scope": {
+              "block_id": "sb_m1nd_core_graph_kernel",
+              "boundary_version": 1,
+              "contract_version": 1,
+              "resolution_hash": "sha256:oldres"
+            },
+            "evidence": {
+              "command": "cargo test -p m1nd-core",
+              "cwd": ".",
+              "exit_status": 0,
+              "started_at": "2026-07-05T00:00:00Z",
+              "ended_at": "2026-07-05T00:01:00Z",
+              "artifact_hash": "sha256:testart",
+              "evidence_refs": ["artifacts/test-41.txt"]
+            },
+            "validity": { "expires_on": null, "stales_on": [] }
+          },
+          {
+            "type": "structural",
+            "emitter": { "kind": "ci", "id": "ci-run-52" },
+            "scope": {
+              "block_id": "sb_m1nd_core_graph_kernel",
+              "boundary_version": 2,
+              "contract_version": 1,
+              "resolution_hash": "sha256:newres"
+            },
+            "evidence": {
+              "artifact_hash": "sha256:structart",
+              "evidence_refs": ["artifacts/struct-52.json"]
+            },
+            "validity": { "expires_on": null, "stales_on": [] }
+          }
+        ],
+        "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+        "unmapped_residue": [],
+        "membership_fingerprint": "sha256:fp_kernel_boundary2",
+        "resolved_members": ["m1nd-core/src/graph.rs", "m1nd-core/src/lib.rs", "m1nd-core/src/query.rs"]
+      },
+      {
+        "block_id": "sb_m1nd_ingest",
+        "name": "Ingest & Document Canonicalization",
+        "purpose": "Reads repos and documents into graph nodes: extractors, canonicalization, the write path.",
+        "kind": "scanned",
+        "state": "ratified",
+        "boundary_version": 1,
+        "contract_version": 1,
+        "membership_source": "ratified",
+        "membership": [{ "path": "m1nd-ingest/src/**", "role": "primary" }],
+        "sockets": { "inputs": [], "outputs": [], "external": [] },
+        "receipt_contract": {
+          "version": 1,
+          "required": [
+            { "type": "spec", "stales_on": ["contract_change"] },
+            { "type": "structural", "stales_on": ["member_change", "repaint"] },
+            { "type": "test", "stales_on": ["member_change"] }
+          ],
+          "optional": [],
+          "waived": [],
+          "declared_by": "owner",
+          "declared_at": "2026-07-08T09:39:25Z"
+        },
+        "receipts": [],
+        "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+        "unmapped_residue": [],
+        "membership_fingerprint": "sha256:fp_ingest_baseline",
+        "resolved_members": ["m1nd-ingest/src/lib.rs"]
+      }
+    ],
+    "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" },
+    "unmapped_files": ["scratchpad/tmp_probe.rs", "notes/scratch.md", "experiments/spike.py"],
+    "unmapped_total": 7
+  }
+}

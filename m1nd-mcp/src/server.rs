@@ -2651,6 +2651,71 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "expected_store_version", "block_id", "receipt"]
                 }
+            },
+            {
+                "name": "system_blocks_reconcile",
+                "description": "Human View v2 F0a WRITE verb (Slice 3) — the architectural git status. Resolves every block's declared membership (exact paths + globs like `src/**`) against the REAL repo file list, then makes the skeleton react without lying: (1) each block's effective member set becomes a deterministic fingerprint — the first reconcile records it as the honest baseline (no bump); (2) a block whose resolved set later CHANGES gets its `boundary_version` bumped, which by the existing rollup law makes every receipt earned against the older boundary stale by scope (no new staleness code); (3) files claimed by NO block are surfaced as the real unmapped (never hidden), materialized capped with an honest `unmapped_total`. The file list defaults to git (`git ls-files`, tracked + untracked, honoring .gitignore) at the bound workspace root, with a filesystem-walk fallback; pass `file_list` to inject one explicitly. The whole reconcile is ONE atomic OCC mutation: on any change `store_version` bumps once; a no-op reconcile changes nothing (idempotent). Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "file_list": { "type": "array", "items": { "type": "string" }, "description": "Optional explicit repo-relative file list to reconcile against. Omit to read the working set from the bound workspace root (git, else a filesystem walk)." }
+                    },
+                    "required": ["agent_id", "expected_store_version"]
+                }
+            },
+            {
+                "name": "receipt_recompute",
+                "description": "Human View v2 F0a READ verb (Slice 3). Re-evaluates each receipt's freshness against its block's CURRENT `(block_id, boundary_version, contract_version)` and its `expires_on`, returning per-receipt `fresh` or `stale` with the first failing `reason` (`block` | `boundary` | `contract` | `expired`), plus fresh/stale counts. A pure read: receipts are NEVER deleted (history is history) — the report is the truth. Pass `block_id` to recompute a single block, or omit it for every block. Read-only: safe under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "block_id": { "type": "string", "description": "Recompute only this block. Omit to recompute every block." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "system_blocks_archive",
+                "description": "Human View v2 F0a WRITE verb (Slice 3). Archives blocks (flip state to `archived`, remembering each block's prior state so a restore is honest) or restores them (return to that REAL prior state — never a fabricated one). Archived blocks are excluded from active rollup counts; the backend only MARKS the state and never deletes data. `mode` is `\"archive\"` or `\"restore\"`; `block_ids` names one or more blocks (an unknown id is a hard error; an already-in-target-state block is a silent no-op). Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "The blocks to archive or restore. An unknown id is a hard error." },
+                        "mode": { "type": "string", "enum": ["archive", "restore"], "description": "archive = retire (remembering the prior state); restore = return to the real prior state." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "block_ids", "mode"]
+                }
+            },
+            {
+                "name": "system_blocks_delete",
+                "description": "Human View v2 F0a WRITE verb (Slice 3). Removes a block from the store FOR REAL, reporting how many receipts died with it. `force:true` is MANDATORY — without it the call refuses honestly and suggests archive (which keeps the history). An unknown block_id is a hard error. Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_id": { "type": "string", "description": "The block to remove." },
+                        "force": { "type": "boolean", "default": false, "description": "Mandatory guard. Without force:true the delete is refused (archive is suggested). With it, the block and all its receipts are permanently removed." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "block_id"]
+                }
+            },
+            {
+                "name": "mission_post",
+                "description": "Human View v2 F2.5a WRITE verb. Appends one mission letter (schema `m1nd-mission-letter-v0`) to the bound brain's mailbox box as a `kind=mission` line, after the §1 contract gates all pass. Gates, in order: (1) schema + `mission_id` shape (`msn_<12hex>`) + `mission_seq>=1` + the §1f no-absolute-path guard on `brain_ref`; (2) per-phase field gating — `executing` carries NO verdict, `merge_wait` REQUIRES a gate, and the §1d LANDED LAW: `landed` REQUIRES `receipt.imported==true` with a real `store_version` (a zero-exit gate WITHOUT an imported receipt is `merge_wait`, never `landed`); (3) a `receipt_candidate`, when present, is complete (`artifact_hash`+`evidence_refs`); (4) the §1e HEAD CAS — the mission's letters form a content-hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id; a letter that does not extend the current head is REJECTED with `stale_head` and NOTHING is appended. An identical replay dedups by content id (idempotent). The letter is STATE, not evidence — it NEVER changes a block's color (that is `receipt_import`'s job alone). Returns the appended letter's `letter_id` (set it as the next letter's `prev_letter_id`). Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "The emitting agent id — stamped into the mailbox line (part of the content id, so an identical replay from the same agent dedups)." },
+                        "letter": { "type": "object", "description": "The mission letter (m1nd-mission-letter-v0): schema, mission_id (msn_<12hex>), mission_seq, prev_letter_id (the prior letter's content id, or null for seq 1), block_id, brain_ref (a reference string — NEVER an absolute path), seat (oracle|hand), runner_id, capability (build-runner|naming-runner|loop-runner|hand-runner|review-runner), phase (judging|executing|gate|review|merge_wait|landed|failed), and the phase-gated fields verdict/gate/receipt_candidate/receipt, plus packet_ref, tokens_total, started_at, updated_at." }
+                    },
+                    "required": ["agent_id", "letter"]
+                }
             }
         ]
     })
@@ -2702,6 +2767,18 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "system_blocks_seed_import",
     "system_blocks_ratify",
     "receipt_import",
+    // Slice 3 WRITES: reconcile persists fingerprints/boundary bumps/unmapped;
+    // archive flips block state; delete removes a block — all mutate the store on
+    // disk. `receipt_recompute` is deliberately ABSENT — it is a pure read (history
+    // is never mutated), so it stays ambiently legal like `system_blocks_snapshot`.
+    "system_blocks_reconcile",
+    "system_blocks_archive",
+    "system_blocks_delete",
+    // HUMAN VIEW v2 F2.5a: mission_post appends a mission letter to the box on
+    // disk (a mailbox write), so a read-only attach must refuse it. The
+    // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
+    // is not gated here (§6-F2.5a: the safety laws land first).
+    "mission_post",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4248,6 +4325,32 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::system_blocks_handlers::handle_receipt_import(state, input)
         }
+        "system_blocks_reconcile" => {
+            let input: crate::system_blocks_handlers::ReconcileInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_reconcile(state, input)
+        }
+        "receipt_recompute" => {
+            let input: crate::system_blocks_handlers::ReceiptRecomputeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_receipt_recompute(state, input)
+        }
+        "system_blocks_archive" => {
+            let input: crate::system_blocks_handlers::ArchiveInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_archive(state, input)
+        }
+        "system_blocks_delete" => {
+            let input: crate::system_blocks_handlers::DeleteInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_delete(state, input)
+        }
+        // HUMAN VIEW v2 F2.5a — the mission-letter write verb (§2c).
+        "mission_post" => {
+            let input: crate::mission_letter_handlers::MissionPostInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::mission_letter_handlers::handle_mission_post(state, input)
+        }
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5786,6 +5889,12 @@ mod tests {
             "system_blocks_seed_import",
             "system_blocks_ratify",
             "receipt_import",
+            // Slice 3 SystemBlock store writes.
+            "system_blocks_reconcile",
+            "system_blocks_archive",
+            "system_blocks_delete",
+            // F2.5a: the mission-letter write verb.
+            "mission_post",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -5808,8 +5917,9 @@ mod tests {
             "scan",
             "trace",
             "edit_preview",
-            // The SystemBlock store READ is a pure read — never denied.
+            // The SystemBlock store READs are pure reads — never denied.
             "system_blocks_snapshot",
+            "receipt_recompute",
         ] {
             assert!(!read_only_denied(t, &empty), "{t} should be allowed");
         }
@@ -5871,6 +5981,90 @@ mod tests {
         )
         .expect_err("stale ratify must conflict");
         assert!(err.to_string().contains("conflict"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn mission_post_is_wired_end_to_end_with_head_cas() {
+        let (_temp, mut state) = build_state();
+
+        // A helper to build a mission-letter JSON value at a given seq/phase.
+        let letter = |seq: u64, phase: &str, prev: Option<&str>| {
+            let mut m = serde_json::json!({
+                "schema": "m1nd-mission-letter-v0",
+                "mission_id": "msn_0123456789ab",
+                "mission_seq": seq,
+                "block_id": "sb_x",
+                "brain_ref": "repo-a",
+                "seat": "hand",
+                "capability": "build-runner",
+                "phase": phase,
+                "started_at": "2026-07-09T00:00:00Z",
+                "updated_at": "2026-07-09T00:00:00Z"
+            });
+            if let Some(p) = prev {
+                m["prev_letter_id"] = serde_json::json!(p);
+            }
+            m
+        };
+
+        // seq 1 (judging) posts cleanly and returns a letter_id.
+        let out1 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(1, "judging", None)}),
+        )
+        .expect("seq 1 posts");
+        let id1 = out1["letter_id"].as_str().expect("letter_id").to_string();
+        assert_eq!(out1["mission_seq"], 1);
+        assert_eq!(out1["deduped"], false);
+
+        // seq 2 chained on seq 1's id posts cleanly.
+        let out2 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some(&id1))}),
+        )
+        .expect("seq 2 extends the head");
+        assert_eq!(out2["mission_seq"], 2);
+
+        // seq 2 with the WRONG prev → stale_head surfaces through dispatch, nothing appended.
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some("deadbeefdead"))}),
+        )
+        .expect_err("a stale head must be refused");
+        assert!(err.to_string().contains("stale_head"), "unexpected: {err}");
+
+        // The §1d landed law surfaces too: landed without an imported receipt.
+        let err2 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(3, "landed", Some(&id1))}),
+        )
+        .expect_err("gate-zero cannot land");
+        assert!(err2.to_string().contains("landed"), "unexpected: {err2}");
+    }
+
+    #[test]
+    fn mission_post_is_refused_read_only() {
+        let (_temp, mut state) = build_state_read_only();
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": {
+                "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab",
+                "mission_seq": 1, "block_id": "sb_x", "brain_ref": "repo-a", "seat": "hand",
+                "capability": "build-runner", "phase": "judging",
+                "started_at": "t", "updated_at": "t"
+            }}),
+        )
+        .expect_err("mission_post must be refused in read-only");
+        assert!(
+            err.to_string().contains("attached read-only")
+                && err.to_string().contains("mission_post"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]

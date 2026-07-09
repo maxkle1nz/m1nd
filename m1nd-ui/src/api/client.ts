@@ -8,7 +8,8 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
-import type { SystemBlocksSnapshot } from '../lib/buildMap';
+import type { ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
+import type { MissionLetter, MissionsResponse, PostOutcome } from '../lib/missions';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -142,6 +143,30 @@ export const api = {
   mailbox: (brain?: string | null) => apiFetch<MailboxResponse>(withBrain('/api/mailbox', brain)),
 
   /**
+   * The mission tray's read (HUMAN-VIEW-V2 F2.5 §2b) — `GET /api/mailbox?kind=mission`
+   * returns the per-mission heads (the §1e hash chain) + honest superseded counts +
+   * the `served_brain` echo. A pre-F2.5a owner ignores `kind` and returns the
+   * field-report shape (no `missions`); the tray reads that as "needs an updated
+   * owner". `brain` scopes the read to a hosted brain (absent = the bound graph).
+   */
+  missionHeads: (brain?: string | null) =>
+    apiFetch<MissionsResponse>(withBrain('/api/mailbox?kind=mission', brain)),
+
+  /**
+   * The tray's compose write (HUMAN-VIEW-V2 F2.5 §2c) — `mission_post` appends one
+   * mission letter to the bound brain's box after the §1 contract gates pass (schema
+   * + phase gating incl. the §1d landed-law + the §1e head CAS). A stale head returns
+   * `stale_head` and nothing is appended; an identical replay dedups. WRITE verb —
+   * refused under a read-only attach. Bare tool route, agent_id 'gui', unwrapping the
+   * `{result}` envelope like the reconcile write. `brain` scopes it to a hosted brain.
+   */
+  missionPost: (letter: MissionLetter, brain?: string | null) =>
+    apiFetch<{ result: PostOutcome }>(withBrain('/api/tools/mission_post', brain), {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: 'gui', letter }),
+    }).then((r) => r.result),
+
+  /**
    * The Build Map's read (HUMAN-VIEW-V2 F1). The `system_blocks_snapshot` verb
    * serves the ratified SystemBlock store (or an honest `present:false`) — a pure
    * READ, safe under a read-only attach. Bare tool route (`/api/tools/{tool}`),
@@ -152,6 +177,24 @@ export const api = {
     apiFetch<{ result: SystemBlocksSnapshot }>(
       withBrain('/api/tools/system_blocks_snapshot', brain),
       { method: 'POST', body: JSON.stringify({ agent_id: 'gui' }) },
+    ).then((r) => r.result),
+
+  /**
+   * The Build Map's reconcile gesture (HUMAN-VIEW-V2 F3b) — the `system_blocks_reconcile`
+   * WRITE verb (Slice 3). Resolves every block's membership against the real file
+   * list, bumps moved boundaries, and surfaces the real unmapped. OCC-keyed on the
+   * `expected_store_version` the caller read: a stale version rejects with a
+   * `conflict` (nothing applied); under a read-only attach the verb is refused. Bare
+   * tool route, agent_id 'gui', unwrapping the `{result}` envelope like the snapshot
+   * read. §4A.9: `brain` scopes the write to a hosted brain (absent = the bound graph).
+   */
+  systemBlocksReconcile: (expectedStoreVersion: number, brain?: string | null) =>
+    apiFetch<{ result: ReconcileReport }>(
+      withBrain('/api/tools/system_blocks_reconcile', brain),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: 'gui', expected_store_version: expectedStoreVersion }),
+      },
     ).then((r) => r.result),
 
   /**
