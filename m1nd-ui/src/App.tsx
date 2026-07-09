@@ -101,6 +101,7 @@ function TopBar({
   self,
   viewedBrain,
   onOpenHall,
+  onOpenMap,
 }: {
   status: BackendStatus;
   self: InstanceSelfResponse | null;
@@ -110,6 +111,9 @@ function TopBar({
    *  brain's name (§4A.5 law). */
   viewedBrain: ViewedBrain;
   onOpenHall: () => void;
+  /** Open the Build Map for the viewed brain — the missing tree/hall→map door
+   *  (the F1 gap became blocking once the map went brain-aware). */
+  onOpenMap?: () => void;
 }) {
   const dot =
     status === 'ok'
@@ -132,6 +136,17 @@ function TopBar({
           style={{ backgroundColor: dot }}
           title={`status: ${status}`}
         />
+        {onOpenMap && (
+          <button
+            type="button"
+            data-role="open-map"
+            onClick={onOpenMap}
+            title="Open the Build Map for the viewed brain"
+            className="ml-2 px-2 py-0.5 text-xs text-ink-soft border border-ink/10 rounded hover:shadow-contact transition-shadow"
+          >
+            Build Map
+          </button>
+        )}
       </div>
       <BrainChip
         displayName={chipName}
@@ -479,6 +494,7 @@ export default function App() {
           self={self}
           viewedBrain={viewedBrain}
           onOpenHall={() => surface !== 'threshold' && setSurface('hall')}
+          onOpenMap={surface !== 'threshold' && surface !== 'map' ? () => setSurface('map') : undefined}
         />
         <div className="flex flex-1 overflow-hidden">
           {surface === 'threshold' ? (
