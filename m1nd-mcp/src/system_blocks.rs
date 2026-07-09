@@ -55,6 +55,52 @@ pub struct SystemBlock {
     /// of fabricating one. `Some` only while archived.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_archive_state: Option<SystemBlockState>,
+    /// F0c-a candidate scores (HUMAN-VIEW-V2-F0C-TECH §1/§3). Present ONLY on a block
+    /// a `skeleton_candidate` scan proposed — it carries the component confidence
+    /// (`graph_cohesion`, `directory_support`, `coverage_ratio`, …) and `named_by`,
+    /// so a provisional heuristic label never masquerades as a final one. `None` on
+    /// every ratified/hand-authored block. `serde(default, skip_serializing_if)` so
+    /// the real seed and every era-prior store parse and roundtrip byte-stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_meta: Option<CandidateMeta>,
+}
+
+/// F0c-a candidate confidence — COMPONENTS, not a single vibe score (objection 8).
+/// Attached to a proposed block so the review UI can sort low-support blocks first
+/// and mark provisional names. Every field is honest: `graph_cohesion` is `None`
+/// (never faked) when the block saw fewer than the declared edge floor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateMeta {
+    /// Who named the block: the naming-runner, or the offline heuristic.
+    pub named_by: NamedBy,
+    /// True while the label is a provisional heuristic — the UI renders it muted
+    /// ("unnamed — needs you") and it cannot be ratified without an owner touch (§5).
+    pub needs_owner_naming: bool,
+    /// Fraction of the block's edges that stay INSIDE the block (internal / touching).
+    /// `None` when `edge_sample_size` is below the declared floor — a docs/no-edge
+    /// block does not fabricate cohesion (§3b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_cohesion: Option<f64>,
+    /// How many edges touched the block — the honest denominator behind
+    /// `graph_cohesion` (and the reason it may be `None`).
+    pub edge_sample_size: usize,
+    /// How directory-aligned the block is: members-under-its-dir / repo-files-under-its-dir.
+    pub directory_support: f64,
+    /// Members backed by a real graph node / total members (a docs file with no node
+    /// lowers this honestly).
+    pub coverage_ratio: f64,
+    /// How many members carry `role:"shared"` (a multi-owner seam surfaced, §2a).
+    pub shared_member_count: usize,
+}
+
+/// Who named a candidate block (§3a). The naming-runner is opt-in (F2.5c); the
+/// heuristic always works offline and marks the label provisional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NamedBy {
+    Runner,
+    Heuristic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -437,6 +483,13 @@ pub enum SeedError {
     DeleteRequiresForce {
         block_id: String,
     },
+    /// A `skeleton_candidate` transaction (F0c-a §1) was called with an
+    /// `expected_store_version` that does not match the store's presence: a store
+    /// exists but no OCC key was given (would clobber), or a key was given with no
+    /// store to key against. Nothing is applied.
+    InvalidCandidateTransaction {
+        detail: String,
+    },
 }
 
 impl fmt::Display for SeedError {
@@ -500,6 +553,9 @@ impl fmt::Display for SeedError {
                 f,
                 "refusing to delete block `{block_id}` without force:true — a delete drops the block and all its receipts permanently; archive it instead (system_blocks_archive) to keep the history, or pass force:true to really delete (nothing was applied)"
             ),
+            SeedError::InvalidCandidateTransaction { detail } => {
+                write!(f, "invalid skeleton_candidate transaction: {detail} (nothing was applied)")
+            }
         }
     }
 }
@@ -781,6 +837,42 @@ pub struct SystemBlockStore {
     /// pre-Slice-3 store is byte-identical.
     #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub unmapped_total: usize,
+    /// F0c-a side-by-side candidate (HUMAN-VIEW-V2-F0C-TECH §4a). On a `ratified`
+    /// skeleton, a `skeleton_candidate` scan writes ONLY this — the live blocks, their
+    /// receipts, fingerprints and reconcile state are untouched, mechanically. The
+    /// Edit-Names-&-Boundaries flow diffs it later (promotion is out of F0c). Boxed so
+    /// the common no-revision store stays small; `serde(default, skip_serializing_if)`
+    /// so an era-prior store parses and roundtrips byte-stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_revision: Option<Box<SeedFile>>,
+}
+
+/// What the F0c-a `skeleton_candidate` transaction did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkeletonCandidateTransactionState {
+    CreatedCandidateStore,
+    ReplacedCandidateStore,
+    WroteCandidateRevision,
+}
+
+impl SkeletonCandidateTransactionState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkeletonCandidateTransactionState::CreatedCandidateStore => "created_candidate_store",
+            SkeletonCandidateTransactionState::ReplacedCandidateStore => "replaced_candidate_store",
+            SkeletonCandidateTransactionState::WroteCandidateRevision => "wrote_candidate_revision",
+        }
+    }
+}
+
+/// F0c-a transaction summary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SkeletonCandidateSummary {
+    pub transaction_state: SkeletonCandidateTransactionState,
+    pub store_version: u64,
+    pub block_count: usize,
+    pub candidate_revision_written: bool,
 }
 
 /// What a ratify transaction changed.
@@ -817,6 +909,8 @@ impl SystemBlockStore {
             // Reconcile output — empty until the first `reconcile_store` pass.
             unmapped_files: Vec::new(),
             unmapped_total: 0,
+            // No pending candidate revision on a freshly imported/created store.
+            candidate_revision: None,
         }
     }
 
@@ -1022,6 +1116,104 @@ pub fn import_receipt_in_dir(
     store.import_receipt(expected_store_version, block_id, receipt)?;
     store.save(dir)?;
     Ok(store)
+}
+
+/// Clear every field a candidate did not earn itself (F0c-a §4b/§4c). This is
+/// applied even to internally generated candidates so future callers cannot
+/// accidentally smuggle live receipts/fingerprints into a proposed skeleton.
+fn sanitize_candidate_seed(mut seed: SeedFile) -> Result<SeedFile, SeedError> {
+    seed.skeleton.state = SeedSkeletonState::Candidate;
+    seed.skeleton.ratification = SeedRatification {
+        method: String::new(),
+        ratifier: String::new(),
+        ratified_at: String::new(),
+        commit: String::new(),
+    };
+    for block in &mut seed.blocks {
+        block.state = SystemBlockState::Candidate;
+        block.membership_source = MembershipSource::Proposed;
+        block.receipts.clear();
+        block.membership_fingerprint = None;
+        block.resolved_members.clear();
+        block.pre_archive_state = None;
+        block.unmapped_residue.clear();
+    }
+    validate_seed(&seed)?;
+    Ok(seed)
+}
+
+/// The pure-ish F0c-a store transaction wrapper: load -> state-machine -> atomic
+/// save. It deliberately DOES NOT use seed-import semantics (`force`/version
+/// reset/operator import). Accepted mutations bump the existing OCC counter by one,
+/// while a first absent-store candidate creates v1.
+pub fn skeleton_candidate_in_dir(
+    dir: &Path,
+    candidate_seed: SeedFile,
+    expected_store_version: Option<u64>,
+) -> Result<(SystemBlockStore, SkeletonCandidateSummary), SeedError> {
+    let candidate_seed = sanitize_candidate_seed(candidate_seed)?;
+    let current = SystemBlockStore::load(dir)?;
+    match (current, expected_store_version) {
+        (None, None) => {
+            let store = SystemBlockStore::from_seed(candidate_seed);
+            store.save(dir)?;
+            let summary = SkeletonCandidateSummary {
+                transaction_state: SkeletonCandidateTransactionState::CreatedCandidateStore,
+                store_version: store.store_version,
+                block_count: store.blocks.len(),
+                candidate_revision_written: false,
+            };
+            Ok((store, summary))
+        }
+        (None, Some(_)) => Err(SeedError::InvalidCandidateTransaction {
+            detail: "store is absent; expected_store_version must be null to create candidate v1"
+                .to_string(),
+        }),
+        (Some(_), None) => Err(SeedError::InvalidCandidateTransaction {
+            detail: "store already exists; expected_store_version is required for OCC".to_string(),
+        }),
+        (Some(mut store), Some(expected)) => {
+            if expected != store.store_version {
+                return Err(SeedError::Conflict {
+                    expected,
+                    actual: store.store_version,
+                });
+            }
+            match store.skeleton.state {
+                SeedSkeletonState::Candidate => {
+                    let next_version = store.store_version.saturating_add(1);
+                    let mut replacement = SystemBlockStore::from_seed(candidate_seed);
+                    replacement.store_version = next_version;
+                    // Herança-zero at store level: no reconcile cache and no pending revision.
+                    replacement.unmapped_files.clear();
+                    replacement.unmapped_total = 0;
+                    replacement.candidate_revision = None;
+                    replacement.save(dir)?;
+                    let summary = SkeletonCandidateSummary {
+                        transaction_state:
+                            SkeletonCandidateTransactionState::ReplacedCandidateStore,
+                        store_version: replacement.store_version,
+                        block_count: replacement.blocks.len(),
+                        candidate_revision_written: false,
+                    };
+                    Ok((replacement, summary))
+                }
+                SeedSkeletonState::Ratified => {
+                    store.candidate_revision = Some(Box::new(candidate_seed));
+                    store.store_version = store.store_version.saturating_add(1);
+                    store.save(dir)?;
+                    let summary = SkeletonCandidateSummary {
+                        transaction_state:
+                            SkeletonCandidateTransactionState::WroteCandidateRevision,
+                        store_version: store.store_version,
+                        block_count: store.blocks.len(),
+                        candidate_revision_written: true,
+                    };
+                    Ok((store, summary))
+                }
+            }
+        }
+    }
 }
 
 // ===========================================================================
@@ -1755,6 +1947,80 @@ mod tests {
     }
 
     #[test]
+    fn f0c_candidate_fields_are_retrocompatible_and_omitted_when_absent() {
+        let seed = load_seed(fixture_seed()).expect("fixture parses");
+        assert!(seed.blocks.iter().all(|b| b.candidate_meta.is_none()));
+        let exported = export_seed(&seed);
+        assert!(
+            !exported.contains("candidate_meta"),
+            "absent block candidate metadata must not serialize"
+        );
+
+        let mut store = SystemBlockStore::from_seed(seed);
+        assert!(store.candidate_revision.is_none());
+        let store_json = serde_json::to_string_pretty(&store).expect("store serializes");
+        assert!(
+            !store_json.contains("candidate_revision"),
+            "absent candidate revision must not serialize"
+        );
+        let reparsed: SystemBlockStore = serde_json::from_str(&store_json).expect("store reloads");
+        assert_eq!(reparsed, store);
+
+        store.blocks[0].candidate_meta = Some(CandidateMeta {
+            named_by: NamedBy::Heuristic,
+            needs_owner_naming: true,
+            graph_cohesion: None,
+            edge_sample_size: 0,
+            directory_support: 1.0,
+            coverage_ratio: 1.0,
+            shared_member_count: 0,
+        });
+        let with_meta = serde_json::to_string(&store).expect("with meta serializes");
+        assert!(with_meta.contains("candidate_meta"));
+        assert!(with_meta.contains("needs_owner_naming"));
+    }
+
+    #[test]
+    fn f0c_slice2_store_without_candidate_fields_loads_clean() {
+        let slice2 = r#"{
+  "schema": "m1nd-system-block-store-v0",
+  "store_version": 7,
+  "skeleton": {
+    "skeleton_id": "sk_old",
+    "version": 1,
+    "state": "ratified",
+    "ratification": { "method": "pr_merge", "ratifier": "owner", "ratified_at": "2026-07-01T00:00:00Z", "commit": "old" }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_old",
+      "name": "Old",
+      "purpose": "A block written before F0c.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 3,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [{ "path": "src/old.rs", "role": "primary" }],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": { "version": 1, "required": [], "optional": [], "waived": [], "declared_by": null, "declared_at": null },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" }
+}"#;
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(SystemBlockStore::path_in(dir.path()), slice2).expect("write old store");
+        let store = SystemBlockStore::load(dir.path())
+            .expect("pre-F0c store loads")
+            .expect("present");
+        assert!(store.candidate_revision.is_none());
+        assert!(store.blocks[0].candidate_meta.is_none());
+    }
+
+    #[test]
     fn seed_roundtrip_is_stable() {
         let seed = load_seed(fixture_seed()).expect("fixture parses");
         let exported = export_seed(&seed);
@@ -2047,6 +2313,140 @@ mod tests {
         assert!(ev.get("exit_status").is_none(), "exit_status omitted");
         assert_eq!(ev["artifact_hash"], "sha256:art");
         assert_eq!(ev["evidence_refs"][0], "artifacts/x.txt");
+    }
+
+    #[test]
+    fn skeleton_candidate_transaction_creates_replaces_and_writes_revision_with_zero_inheritance() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let candidate = load_seed(fixture_seed()).expect("candidate seed");
+
+        let (created, create_summary) =
+            skeleton_candidate_in_dir(dir.path(), candidate.clone(), None)
+                .expect("absent store creates candidate v1");
+        assert_eq!(
+            create_summary.transaction_state,
+            SkeletonCandidateTransactionState::CreatedCandidateStore
+        );
+        assert_eq!(created.store_version, 1);
+        assert_eq!(created.skeleton.state, SeedSkeletonState::Candidate);
+
+        // Contaminate the candidate store with reconcile/cache/receipt state; replace must clear it.
+        let mut contaminated = created.clone();
+        contaminated.unmapped_files = vec!["old/unmapped.rs".to_string()];
+        contaminated.unmapped_total = 1;
+        contaminated.candidate_revision = Some(Box::new(candidate.clone()));
+        contaminated.blocks[0].receipts.push(mk_receipt(
+            ReceiptType::Spec,
+            "sb_core",
+            1,
+            1,
+            anchor_only_evidence(),
+        ));
+        contaminated.blocks[0].membership_fingerprint = Some("sha256:old".to_string());
+        contaminated.blocks[0].resolved_members = vec!["src/old.rs".to_string()];
+        contaminated.blocks[0].pre_archive_state = Some(SystemBlockState::Candidate);
+        contaminated.save(dir.path()).expect("save contaminated");
+
+        let (replaced, replace_summary) =
+            skeleton_candidate_in_dir(dir.path(), candidate.clone(), Some(1))
+                .expect("candidate store replaces wholesale");
+        assert_eq!(
+            replace_summary.transaction_state,
+            SkeletonCandidateTransactionState::ReplacedCandidateStore
+        );
+        assert_eq!(replaced.store_version, 2);
+        assert!(replaced.candidate_revision.is_none());
+        assert!(replaced.unmapped_files.is_empty());
+        assert_eq!(replaced.unmapped_total, 0);
+        assert!(replaced.blocks.iter().all(|b| b.receipts.is_empty()));
+        assert!(replaced
+            .blocks
+            .iter()
+            .all(|b| b.membership_fingerprint.is_none()));
+        assert!(replaced
+            .blocks
+            .iter()
+            .all(|b| b.resolved_members.is_empty()));
+        assert!(replaced
+            .blocks
+            .iter()
+            .all(|b| b.pre_archive_state.is_none()));
+
+        // Ratified live store keeps receipts/fingerprints; candidate_revision carries none of them.
+        let ratified_dir = tempfile::tempdir().expect("ratified tempdir");
+        let mut live =
+            SystemBlockStore::from_seed(load_seed(fixture_seed()).expect("fixture seed"));
+        live.skeleton.state = SeedSkeletonState::Ratified;
+        live.blocks[0].state = SystemBlockState::Ratified;
+        live.blocks[0].membership_source = MembershipSource::Ratified;
+        live.blocks[0].receipts.push(mk_receipt(
+            ReceiptType::Spec,
+            "sb_core",
+            1,
+            1,
+            anchor_only_evidence(),
+        ));
+        let live_receipts_before = live.blocks[0].receipts.len();
+        live.blocks[0].membership_fingerprint = Some("sha256:live".to_string());
+        live.blocks[0].resolved_members = vec!["src/core.rs".to_string()];
+        live.unmapped_files = vec!["live/unmapped.rs".to_string()];
+        live.unmapped_total = 1;
+        live.save(ratified_dir.path()).expect("save live ratified");
+
+        let (after, revision_summary) =
+            skeleton_candidate_in_dir(ratified_dir.path(), candidate, Some(1))
+                .expect("ratified store gets side revision only");
+        assert_eq!(
+            revision_summary.transaction_state,
+            SkeletonCandidateTransactionState::WroteCandidateRevision
+        );
+        assert_eq!(after.store_version, 2);
+        assert_eq!(
+            after.blocks[0].receipts.len(),
+            live_receipts_before,
+            "live receipts remain"
+        );
+        assert_eq!(
+            after.blocks[0].membership_fingerprint.as_deref(),
+            Some("sha256:live")
+        );
+        assert_eq!(after.unmapped_total, 1, "live reconcile cache remains");
+        let revision = after
+            .candidate_revision
+            .as_ref()
+            .expect("candidate revision written");
+        assert!(revision.blocks.iter().all(|b| b.receipts.is_empty()));
+        assert!(revision
+            .blocks
+            .iter()
+            .all(|b| b.membership_fingerprint.is_none()));
+        assert!(revision
+            .blocks
+            .iter()
+            .all(|b| b.resolved_members.is_empty()));
+    }
+
+    #[test]
+    fn skeleton_candidate_transaction_refuses_invalid_combinations_and_conflict() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let candidate = load_seed(fixture_seed()).expect("candidate seed");
+        let err = skeleton_candidate_in_dir(dir.path(), candidate.clone(), Some(1))
+            .expect_err("absent+expected is invalid");
+        assert!(matches!(err, SeedError::InvalidCandidateTransaction { .. }));
+
+        let _ = skeleton_candidate_in_dir(dir.path(), candidate.clone(), None).expect("create");
+        let err = skeleton_candidate_in_dir(dir.path(), candidate.clone(), None)
+            .expect_err("present+none invalid");
+        assert!(matches!(err, SeedError::InvalidCandidateTransaction { .. }));
+        let err = skeleton_candidate_in_dir(dir.path(), candidate, Some(99))
+            .expect_err("stale OCC conflicts");
+        assert!(matches!(
+            err,
+            SeedError::Conflict {
+                expected: 99,
+                actual: 1
+            }
+        ));
     }
 
     // --- B) the sidecar store: roundtrip, empty-dir None, atomic save -------

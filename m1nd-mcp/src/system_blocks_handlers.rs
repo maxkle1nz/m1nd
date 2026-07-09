@@ -27,10 +27,11 @@ use serde_json::{json, Value};
 use m1nd_core::error::{M1ndError, M1ndResult};
 
 use crate::session::SessionState;
+use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonScanOptions};
 use crate::system_blocks::{
     self, archive_in_dir, delete_in_dir, import_receipt_in_dir, import_seed_into_dir,
-    ratify_in_dir, recompute_in_dir, reconcile_in_dir, ArchiveMode, Receipt, SeedError,
-    SystemBlockStore,
+    ratify_in_dir, recompute_in_dir, reconcile_in_dir, skeleton_candidate_in_dir, ArchiveMode,
+    Receipt, SeedError, SystemBlockStore,
 };
 use crate::util::now_ms;
 
@@ -158,6 +159,108 @@ fn read_repo_relative_seed(state: &SessionState, tool: &str, rel: &str) -> M1ndR
         tool: tool.to_string(),
         detail: format!("cannot read seed_path '{rel}': {e}"),
     })
+}
+
+// ---------------------------------------------------------------------------
+// skeleton_candidate (WRITE) — F0c-a scan -> candidate store/revision
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct SkeletonCandidateInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The store_version the caller read. `None` is valid only when no store exists.
+    #[serde(default)]
+    pub expected_store_version: Option<u64>,
+    /// UI review queue hint. The backend emits every block; this is echoed only.
+    #[serde(default)]
+    pub review_limit: Option<usize>,
+    /// `auto` declares the runner hook but F0c-a intentionally falls back to
+    /// heuristic naming; `heuristic` skips the hook explicitly.
+    #[serde(default)]
+    pub naming: Option<String>,
+}
+
+/// `skeleton_candidate` (WRITE). Scans the bound repo graph + file list into a
+/// candidate seed, then applies the F0c-a transaction state machine: absent store
+/// creates v1; candidate store is replaced wholesale with heranca-zero; ratified
+/// store receives only `candidate_revision`.
+pub fn handle_skeleton_candidate(
+    state: &mut SessionState,
+    input: SkeletonCandidateInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "skeleton_candidate";
+    let naming = CandidateNamingMode::parse(input.naming.as_deref()).map_err(|detail| {
+        M1ndError::InvalidParams {
+            tool: TOOL.to_string(),
+            detail,
+        }
+    })?;
+    let root = state
+        .workspace_root
+        .as_ref()
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: TOOL.to_string(),
+            detail: "no workspace root is bound to this brain — skeleton_candidate needs a repo file list".to_string(),
+        })?
+        .clone();
+    let file_list =
+        system_blocks::repo_file_list(Path::new(&root)).map_err(|e| seed_err(TOOL, e))?;
+    let source_commit = git_head_commit(Path::new(&root)).unwrap_or_default();
+    let repo_id = Path::new(&root)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repo")
+        .to_string();
+    let scan_input = {
+        let graph = state.graph.read();
+        skeleton_scan::scan_input_from_graph(
+            &graph,
+            repo_id,
+            ".".to_string(),
+            source_commit,
+            file_list,
+        )
+    };
+    let scan = skeleton_scan::scan_skeleton(
+        scan_input,
+        SkeletonScanOptions {
+            naming,
+            ..SkeletonScanOptions::default()
+        },
+    );
+    let dir = store_dir(state);
+    let (store, summary) =
+        skeleton_candidate_in_dir(&dir, scan.seed.clone(), input.expected_store_version)
+            .map_err(|e| seed_err(TOOL, e))?;
+
+    Ok(json!({
+        "present": true,
+        "store_version": store.store_version,
+        "transaction_state": summary.transaction_state.as_str(),
+        "candidate_revision_written": summary.candidate_revision_written,
+        "block_count": scan.seed.blocks.len(),
+        "review_limit": input.review_limit.unwrap_or(16),
+        "candidate_seed": scan.seed,
+        "report": scan.report,
+    }))
+}
+
+fn git_head_commit(root: &Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 // ---------------------------------------------------------------------------
