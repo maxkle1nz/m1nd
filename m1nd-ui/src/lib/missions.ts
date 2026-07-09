@@ -419,3 +419,79 @@ export async function sendDirectPacket(
   }
   return { letter, outcome, clipboardCopied };
 }
+
+// ---------------------------------------------------------------------------
+// Spawn mode (§4b, F2.5c) — the runner daemon liveness + the owner→runnerd proxy.
+// ---------------------------------------------------------------------------
+
+/** One live runner from `GET /api/runnerd/status` (runnerd_owner.rs `status_json`).
+ *  Liveness only (§5a) — a port + last_seen, never a capability. */
+export interface LiveRunner {
+  runner_id: string;
+  port: number;
+  last_seen_ms: number;
+}
+
+/** The `GET /api/runnerd/status` payload (§5a read). Empty `runners` = no daemon has
+ *  announced (the compose keeps spawn disabled with the amendment's honest note). */
+export interface RunnerdStatus {
+  runners: LiveRunner[];
+  count: number;
+}
+
+/** The `mission_spawn` proxy input (§4b). The owner adds the secret + the workspace
+ *  routing; the browser sends only these fields (it never holds the shared secret). */
+export interface SpawnInput {
+  runnerId: string;
+  packetMarkdown: string;
+  blockId: string;
+  brainRef: string;
+}
+
+/** The `mission_spawn` proxy result (§4b) — the daemon's acceptance, relayed. */
+export interface SpawnOutcome {
+  mission_id: string;
+  accepted: boolean;
+  runner_id?: string | null;
+}
+
+/** Whether any runner is live (the spawn radio un-disables only then, §4b). */
+export function runnerdAvailable(status: RunnerdStatus | null | undefined): boolean {
+  return !!status && Array.isArray(status.runners) && status.runners.length > 0;
+}
+
+/** The seam `sendSpawnPacket` writes through — injected so the flow is provable
+ *  without a network (the repo's `sendDirectPacket` pattern). */
+export interface SpawnSendDeps {
+  /** POST the owner's `mission_spawn` proxy (default `api.missionSpawn`). May throw
+   *  the daemon's honest refusal (`unpinned_runner`, `workspace_not_allowed`, no
+   *  runner) — the caller surfaces it verbatim, never a silent retry. */
+  spawnMission: (input: SpawnInput) => Promise<SpawnOutcome>;
+}
+
+/** What `spawn` needs to launch a mission (§4b). */
+export interface SpawnSendArgs {
+  markdown: string;
+  blockId: string;
+  brainRef: string;
+  runnerId: string;
+}
+
+/**
+ * `spawn` mode (§4b): hand the composed packet to a pinned, live runner via the
+ * owner's `mission_spawn` proxy. Unlike `direct`, there is NO client-composed letter
+ * and NO clipboard — the runner daemon opens the mission chain (`judging → executing
+ * → merge_wait|failed`) and NEVER lands (§1d). The result carries the `mission_id`
+ * the toast shows ("mission started — watch the tray").
+ */
+export async function sendSpawnPacket(
+  args: SpawnSendArgs,
+  deps: SpawnSendDeps,
+): Promise<SpawnOutcome> {
+  return deps.spawnMission({
+    runnerId: args.runnerId,
+    packetMarkdown: args.markdown,
+    blockId: args.blockId,
+    brainRef: args.brainRef,
+  });
+}

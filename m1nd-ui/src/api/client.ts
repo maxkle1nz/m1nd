@@ -9,7 +9,14 @@ import type {
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
 import type { ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
-import type { MissionLetter, MissionsResponse, PostOutcome } from '../lib/missions';
+import type {
+  MissionLetter,
+  MissionsResponse,
+  PostOutcome,
+  RunnerdStatus,
+  SpawnInput,
+  SpawnOutcome,
+} from '../lib/missions';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -164,6 +171,35 @@ export const api = {
     apiFetch<{ result: PostOutcome }>(withBrain('/api/tools/mission_post', brain), {
       method: 'POST',
       body: JSON.stringify({ agent_id: 'gui', letter }),
+    }).then((r) => r.result),
+
+  /**
+   * The runner-daemon liveness read (HUMAN-VIEW-V2 F2.5c §5a) — `GET /api/runnerd/status`
+   * lists every announced runner (`runner_id`, port, last_seen). A pure read (no
+   * secret): the compose panel uses it to un-disable the spawn radio and list the
+   * pinned-live runners. Empty `runners` = no daemon connected. NOT `?brain=`-scoped
+   * (the registry is owner-process-global liveness, not per-brain).
+   */
+  runnerdStatus: () => apiFetch<RunnerdStatus>('/api/runnerd/status'),
+
+  /**
+   * The compose panel's spawn write (HUMAN-VIEW-V2 F2.5c §4b) — `mission_spawn` is
+   * the OWNER→runner-daemon PROXY. The browser holds no shared secret, so the spawn
+   * travels through the owner: it resolves the live runner + the secret + the
+   * workspace, then forwards the packet to the daemon's `/run`. Returns
+   * `{mission_id, accepted}` or the daemon's honest refusal. WRITE verb — refused
+   * under a read-only attach. `brain` scopes the workspace/routing to a hosted brain.
+   */
+  missionSpawn: (input: SpawnInput, brain?: string | null) =>
+    apiFetch<{ result: SpawnOutcome }>(withBrain('/api/tools/mission_spawn', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        runner_id: input.runnerId,
+        packet_markdown: input.packetMarkdown,
+        block_id: input.blockId,
+        brain_ref: input.brainRef,
+      }),
     }).then((r) => r.result),
 
   /**
