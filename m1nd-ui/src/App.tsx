@@ -495,7 +495,11 @@ export default function App() {
           ) : surface === 'map' ? (
             // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living
             // Tree is one click away (the deterministic surface is never killed).
-            <BuildMapView onOpenTree={() => setSurface('tree')} enabled={backendReachable} />
+            <BuildMapView
+              onOpenTree={() => setSurface('tree')}
+              enabled={backendReachable}
+              brainRoot={viewedBrain.root}
+            />
           ) : (
             <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}

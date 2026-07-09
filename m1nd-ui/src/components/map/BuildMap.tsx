@@ -37,6 +37,9 @@ export interface BuildMapProps {
   snapshot: SystemBlocksSnapshot;
   /** The rollup (PRD §5). Required when the snapshot is present. */
   rollup: MapRollup | null;
+  /** §4A.9 — the brain this map reads (null = bound). Rides into the Show Code
+   *  viewer so file reads resolve against the SAME brain the map shows. */
+  brainRoot?: string | null;
   /** Seed the selected block (used by the surface + by tests to open the panel). */
   initialSelectedId?: string | null;
   onOpenTree?: () => void;
@@ -106,6 +109,7 @@ function CandidateBanner() {
 export default function BuildMap({
   snapshot,
   rollup,
+  brainRoot = null,
   initialSelectedId = null,
   onOpenTree,
   onReconcile,
@@ -244,6 +248,7 @@ export default function BuildMap({
           block={modalBlock}
           rollup={modalRollup}
           repoId={repoId}
+          brainRoot={brainRoot}
           onClose={() => setModal(null)}
           onAskAgent={(subPath) =>
             setModal({ kind: 'packet', blockId: modalBlock.block_id, subPath: subPath ?? null })

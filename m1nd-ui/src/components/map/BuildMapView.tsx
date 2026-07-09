@@ -16,10 +16,15 @@ export interface BuildMapViewProps {
    *  is never killed). */
   onOpenTree?: () => void;
   enabled?: boolean;
+  /** §4A.9 — the brain this map reads. `null`/absent = the bound brain (F1
+   *  behavior, byte-compatible); a hosted project root routes every read AND the
+   *  reconcile write through the `?brain=` selector, so a multi-brain owner shows
+   *  the skeleton of the brain the human is actually viewing. */
+  brainRoot?: string | null;
 }
 
-export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapViewProps) {
-  const { status, snapshot, rollup, error, reload } = useBuildMap(enabled);
+export default function BuildMapView({ onOpenTree, enabled = true, brainRoot = null }: BuildMapViewProps) {
+  const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot);
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
 
@@ -35,7 +40,7 @@ export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapVie
     setReconciling(true);
     try {
       const { toast: t, shouldReload } = await runReconcile(
-        (expected) => api.systemBlocksReconcile(expected),
+        (expected) => api.systemBlocksReconcile(expected, brainRoot),
         version,
       );
       setToast(t);
@@ -43,7 +48,7 @@ export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapVie
     } finally {
       setReconciling(false);
     }
-  }, [reconciling, snapshot, reload]);
+  }, [reconciling, snapshot, reload, brainRoot]);
 
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -79,6 +84,7 @@ export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapVie
     <BuildMap
       snapshot={snapshot ?? { present: false }}
       rollup={rollup}
+      brainRoot={brainRoot}
       onOpenTree={onOpenTree}
       onReconcile={handleReconcile}
       reconciling={reconciling}
