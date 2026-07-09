@@ -247,12 +247,18 @@ impl LetterCtx {
 /// Build the COMPLETE receipt candidate a `merge_wait` carries (§5c). Its `type` +
 /// `evidence` reuse the receipt taxonomy so import is a direct hand-off; the scope
 /// comes from a FRESH owner snapshot; the evidence anchor is the REAL gate-log hash.
-/// `cwd`/`stdout_excerpt` stay `None` — a host path never enters the letter (§1f).
+/// `cwd` is "." (the isolated worktree, never a host path, §1f); `started_at`/
+/// `ended_at` are the gate's real wall-clock window — a `test` receipt is
+/// un-importable without them.
+#[allow(clippy::too_many_arguments)]
 fn build_candidate(
     block_id: &str,
     scope: (u32, u32),
     gate_argv: &[String],
     gate_hash: &str,
+    started_at: &str,
+    ended_at: &str,
+    gate_log: &str,
     mission_id: &str,
 ) -> ReceiptCandidate {
     ReceiptCandidate {
@@ -264,15 +270,26 @@ fn build_candidate(
         },
         evidence: ReceiptEvidence {
             command: Some(gate_argv.join(" ")),
-            cwd: None,
+            // The workspace is the isolated worktree by design; "." is the honest
+            // repo-relative cwd (a host path never enters the letter, §1f) — but it
+            // is PRESENT, so a `test` receipt's execution identity is complete.
+            cwd: Some(".".to_string()),
             exit_status: Some(0),
-            started_at: None,
-            ended_at: None,
+            started_at: Some(started_at.to_string()),
+            ended_at: Some(ended_at.to_string()),
             artifact_hash: gate_hash.to_string(),
-            stdout_excerpt: None,
+            stdout_excerpt: Some(last_lines(gate_log, 12)),
             evidence_refs: vec![format!("gate://{mission_id}")],
         },
     }
+}
+
+/// The trailing `n` lines of the gate log — an honest excerpt for the receipt
+/// (the full log is what the hash covers; this is the human-readable tail).
+fn last_lines(log: &str, n: usize) -> String {
+    let lines: Vec<&str> = log.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
 }
 
 // ===========================================================================
@@ -581,7 +598,13 @@ pub async fn run_mission<C: OwnerClient>(
     let _ = std::fs::remove_file(&packet_path);
 
     // --- the gate + the candidate (§5c) ---------------------------------------
+    // The gate's real wall-clock window — a `test` receipt's execution identity
+    // (cwd/started_at/ended_at) is MANDATORY at import, so the runner records it
+    // here rather than leaving it None (the bug that made the first spawned
+    // candidate un-importable). The window is the runner's own honest clock.
+    let gate_started = now_iso8601();
     let gate = run_argv(&worktree, &runner.gate_command, runner.timeout_secs).await;
+    let gate_ended = now_iso8601();
     let gate_hash = format!("sha256:{}", sha256_hex(gate.log.as_bytes()));
     let gate_cmdline = runner.gate_command.join(" ");
 
@@ -603,6 +626,9 @@ pub async fn run_mission<C: OwnerClient>(
             scope,
             &runner.gate_command,
             &gate_hash,
+            &gate_started,
+            &gate_ended,
+            &gate.log,
             mission_id,
         );
         let _ = post(
@@ -902,7 +928,21 @@ mod tests {
             !cand.evidence.evidence_refs.is_empty(),
             "evidence is pointable"
         );
-        assert_eq!(cand.evidence.cwd, None, "no host path in the letter (§1f)");
+        // Execution identity is COMPLETE — a `test` receipt is un-importable
+        // without it (the bug this fixes); cwd is the honest "." of the isolated
+        // worktree, never a host path (§1f).
+        assert_eq!(
+            cand.evidence.cwd.as_deref(),
+            Some("."),
+            "cwd present, no host path (§1f)"
+        );
+        assert!(cand.evidence.started_at.is_some(), "started_at present");
+        assert!(cand.evidence.ended_at.is_some(), "ended_at present");
+        assert!(!cand.evidence.artifact_hash.is_empty(), "hash present");
+        assert!(
+            !cand.evidence.started_at.as_deref().unwrap().contains('/'),
+            "timestamp is not a path"
+        );
 
         // The letter validates against the owner contract (would be accepted).
         assert!(
