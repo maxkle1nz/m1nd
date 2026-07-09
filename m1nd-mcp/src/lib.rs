@@ -24,6 +24,11 @@ pub mod lock_handlers;
 pub mod mailbox;
 pub mod medulla_migration;
 pub mod mission_handlers;
+// HUMAN VIEW v2 F2.5a — the mission-letter contract + laws, its owner-runtime-local
+// side record, and the `mission_post` verb handler.
+pub mod mission_letter;
+pub mod mission_letter_handlers;
+pub mod mission_local;
 pub mod persist_handlers;
 pub mod perspective;
 pub mod perspective_handlers;

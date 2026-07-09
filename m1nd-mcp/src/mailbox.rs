@@ -59,7 +59,7 @@ use sha2::{Digest, Sha256};
 /// One field-report letter, parsed from a spool/box JSONL line. The `id` is
 /// derived from the raw line bytes (never stored in the file) — stable and
 /// machine-independent, so git-traveled letters dedup across machines.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Letter {
     /// `sha256(raw line bytes)[0..12]` — the content identity (derived, §9.2).
     /// `default` so it parses from a raw line that never stored an id; the parser
@@ -99,6 +99,21 @@ pub struct Letter {
     /// carry these; they flip the referenced letters to `fired_clay`.
     #[serde(default)]
     pub answers: Vec<String>,
+    /// The letter KIND (HUMAN-VIEW-V2-F2.5a §2a). Absent/`None` = a field-report
+    /// note (today's behavior, byte-compatible with every existing line); a mission
+    /// letter files under `Some("mission")` and carries a `mission` payload. Serde
+    /// `default` + skip-when-none so EVERY existing line parses and re-serializes
+    /// without a `kind` key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The mission-letter payload (§1), present only on `kind == "mission"` lines.
+    /// Skip-when-none so a field report is byte-identical with or without this
+    /// field in the struct. A mission letter shares the mailbox JSONL but is NOT a
+    /// field report — the field-report views ([`read_box`], [`inbox_sweep`]) drop
+    /// it via [`is_field_report`] so it never inflates the caixinha counts; the
+    /// mission read (`kind=mission`) is served from [`crate::mission_letter`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission: Option<crate::mission_letter::MissionLetter>,
     /// The exact raw JSONL line the id was hashed over — kept so distribution
     /// re-serializes the letter byte-identically (the archive's own bytes travel).
     #[serde(skip)]
@@ -519,6 +534,35 @@ fn append_letter(box_path: &Path, letter: &Letter) -> M1ndResult<()> {
     Ok(())
 }
 
+/// Append a raw JSONL line to a box with content-id dedup (§2c). Returns the
+/// line's content id (`sha256[0..12]`) and whether it was newly appended (false =
+/// the identical line was already present, an idempotent no-op). The mission-post
+/// path (HUMAN-VIEW-V2-F2.5a §2) reuses this so posting is idempotent on replay.
+pub fn append_raw_line_deduped(box_path: &Path, line: &str) -> M1ndResult<(String, bool)> {
+    let id = letter_id(line);
+    if box_ids(box_path)?.contains(&id) {
+        return Ok((id, false));
+    }
+    // Reuse the same raw-append as field-report distribution — the archive's own
+    // bytes travel; the id was hashed over exactly these bytes.
+    let letter = Letter {
+        raw: line.trim_end_matches(['\n', '\r']).to_string(),
+        ..Default::default()
+    };
+    append_letter(box_path, &letter)?;
+    Ok((id, true))
+}
+
+/// Whether a parsed letter is a FIELD REPORT (not a mission letter). Mission
+/// letters (`kind == "mission"`, §2a) share the mailbox JSONL but are a distinct
+/// stream: the field-report views ([`read_box`], [`inbox_sweep`]) drop them so
+/// they never inflate the caixinha fate counts. A letter with no `kind` (every
+/// existing line) is a field report — so this is a no-op on all pre-mission data
+/// (§2b "today's behavior byte-for-byte").
+fn is_field_report(letter: &Letter) -> bool {
+    letter.kind.as_deref() != Some(crate::mission_letter::KIND_MISSION)
+}
+
 /// One letter's distribution outcome, for the receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FiledLetter {
@@ -773,6 +817,9 @@ pub fn inbox_sweep(
     // reachable box (may carry git-traveled letters the spool never saw).
     let mut by_id: BTreeMap<String, Letter> = BTreeMap::new();
     for l in read_letters(spool_path)? {
+        if !is_field_report(&l) {
+            continue; // mission letters are not field-report triage
+        }
         by_id.entry(l.id.clone()).or_insert(l);
     }
     let mut unreachable = Vec::new();
@@ -782,6 +829,9 @@ pub fn inbox_sweep(
             continue;
         }
         for l in read_letters(&kb.path)? {
+            if !is_field_report(&l) {
+                continue;
+            }
             by_id.entry(l.id.clone()).or_insert(l);
         }
     }
@@ -845,7 +895,13 @@ pub struct MailboxView {
 /// fates + counts (§9.2). The read is scoped to THIS box's letters only — never a
 /// re-fold of the spool (MED-INV-1 / INV-17).
 pub fn read_box(box_path: &Path, foreign_tools: &BTreeSet<String>) -> M1ndResult<MailboxView> {
-    let letters = read_letters(box_path)?;
+    // Field-report view: mission letters (§2a) share the JSONL but are a distinct
+    // stream — drop them so they never inflate the caixinha counts. A no-op on all
+    // pre-mission data (§2b byte-for-byte).
+    let letters: Vec<Letter> = read_letters(box_path)?
+        .into_iter()
+        .filter(is_field_report)
+        .collect();
     let viewed = view_letters(&letters, foreign_tools);
     let mut counts = BoxCounts::default();
     for l in &viewed {
@@ -1821,5 +1877,83 @@ mod tests {
             boxes.iter().filter(|b| b.label == "repo-alpha").count() >= 1,
             "the ambiguous roots remain visible as named boxes"
         );
+    }
+
+    // --- F2.5a §2a: adding `kind`/`mission` is byte-compatible ----------------
+    //
+    // An OLD letter line (the real current format, no `kind`) must parse unchanged
+    // and its serialization must NOT grow a `kind`/`mission` key — the retrocompat
+    // the mission-letter extension promises (skip-when-none).
+
+    #[test]
+    fn old_letter_line_is_byte_compatible_after_the_mission_extension() {
+        // A real field-report line in TODAY's format.
+        let old = r#"{"ts":"2026-07-09T00:00:00Z","agent":"probe","repo":"repo-a","brain":"","tool":"seek","class":"bug","what":"the bug","expected":"","snippet":"","answers":[]}"#;
+        let parsed = parse_letter(old).expect("old line parses");
+
+        // The two new fields are absent (a field report, not a mission letter).
+        assert!(parsed.kind.is_none(), "no kind on an old letter");
+        assert!(
+            parsed.mission.is_none(),
+            "no mission payload on an old letter"
+        );
+        // The archive-travel mechanism: raw is preserved byte-identically.
+        assert_eq!(parsed.raw, old, "raw bytes travel unchanged");
+
+        // Re-serializing the parsed letter emits NO kind/mission key (skip-when-none)
+        // — the struct extension changed nothing for existing data.
+        let reserialized = serde_json::to_string(&parsed).unwrap();
+        assert!(
+            !reserialized.contains("\"kind\""),
+            "no kind key leaks into an old letter: {reserialized}"
+        );
+        assert!(
+            !reserialized.contains("\"mission\""),
+            "no mission key leaks into an old letter: {reserialized}"
+        );
+        // And the serde roundtrip is stable (parse → serialize → parse is a fixpoint).
+        let reparsed = parse_letter(&reserialized).expect("reserialized parses");
+        assert_eq!(reparsed.ts, parsed.ts);
+        assert_eq!(reparsed.what, parsed.what);
+        assert!(reparsed.kind.is_none() && reparsed.mission.is_none());
+    }
+
+    // --- F2.5a §2a: a mission letter coexists without polluting the caixinha ---
+    //
+    // A `kind == "mission"` line in the SAME box must NOT inflate the field-report
+    // fate counts (the D3 face count / caixinha) — the field-report views drop it.
+
+    #[test]
+    fn a_mission_letter_in_the_box_does_not_inflate_field_report_counts() {
+        let s = Scratch::new("mission-coexist");
+        let box_path = s.path("inbox.jsonl");
+        // One real field report + one mission-kind line in the same JSONL.
+        let field = line(
+            serde_json::json!({"ts":"t1","agent":"a","repo":"repo-a","tool":"seek","class":"bug","what":"a real open report"}),
+        );
+        let mission = line(serde_json::json!({
+            "ts":"t2","agent":"a","kind":"mission",
+            "mission":{
+                "schema":"m1nd-mission-letter-v0","mission_id":"msn_0123456789ab",
+                "mission_seq":1,"block_id":"sb_x","brain_ref":"repo-a","seat":"hand",
+                "capability":"build-runner","phase":"judging",
+                "started_at":"t2","updated_at":"t2"
+            }
+        }));
+        std::fs::write(&box_path, [field, mission].join("\n") + "\n").unwrap();
+
+        let view = read_box(&box_path, &BTreeSet::new()).unwrap();
+        // Only the field report is counted — the mission letter is invisible here.
+        assert_eq!(
+            view.letters.len(),
+            1,
+            "the mission letter is filtered from the caixinha"
+        );
+        assert_eq!(
+            view.counts.open(),
+            1,
+            "the mission letter does not inflate the open count"
+        );
+        assert_eq!(view.letters[0].what, "a real open report");
     }
 }

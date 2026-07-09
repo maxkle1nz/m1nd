@@ -1,0 +1,112 @@
+{
+  "served_brain": { "project_root": "/repo/m1nd", "display_name": "m1nd" },
+  "missions": [
+    {
+      "mission_id": "msn_00000000a001",
+      "head_letter_id": "aaaa11110002",
+      "head": {
+        "schema": "m1nd-mission-letter-v0",
+        "mission_id": "msn_00000000a001",
+        "mission_seq": 2,
+        "prev_letter_id": "aaaa11110001",
+        "block_id": "sb_m1nd_core_graph_kernel",
+        "brain_ref": "m1nd",
+        "seat": "hand",
+        "runner_id": "runner-build-1",
+        "capability": "build-runner",
+        "phase": "executing",
+        "packet_ref": "sha256:execpacket",
+        "tokens_total": 1200,
+        "started_at": "2026-07-09T10:00:00Z",
+        "updated_at": "2026-07-09T10:03:00Z"
+      },
+      "superseded_count": 1
+    },
+    {
+      "mission_id": "msn_00000000b002",
+      "head_letter_id": "bbbb22220003",
+      "head": {
+        "schema": "m1nd-mission-letter-v0",
+        "mission_id": "msn_00000000b002",
+        "mission_seq": 3,
+        "prev_letter_id": "bbbb22220002",
+        "block_id": "sb_m1nd_mailbox",
+        "brain_ref": "m1nd",
+        "seat": "hand",
+        "runner_id": "runner-build-1",
+        "capability": "build-runner",
+        "phase": "merge_wait",
+        "gate": {
+          "command": "cargo test -p m1nd-mcp",
+          "exit_status": 0,
+          "artifact_hash": "sha256:gatelogb"
+        },
+        "receipt_candidate": {
+          "block_id": "sb_m1nd_mailbox",
+          "type": "test",
+          "scope": { "boundary_version": 1, "contract_version": 1 },
+          "evidence": {
+            "command": "cargo test -p m1nd-mcp",
+            "exit_status": 0,
+            "artifact_hash": "sha256:candloglb",
+            "evidence_refs": ["artifact://run/2"]
+          }
+        },
+        "packet_ref": "sha256:mergepacket",
+        "tokens_total": 4300,
+        "started_at": "2026-07-09T09:30:00Z",
+        "updated_at": "2026-07-09T09:58:00Z"
+      },
+      "superseded_count": 2
+    },
+    {
+      "mission_id": "msn_00000000c003",
+      "head_letter_id": "cccc33330004",
+      "head": {
+        "schema": "m1nd-mission-letter-v0",
+        "mission_id": "msn_00000000c003",
+        "mission_seq": 4,
+        "prev_letter_id": "cccc33330003",
+        "block_id": "sb_m1nd_system_blocks",
+        "brain_ref": "m1nd",
+        "seat": "hand",
+        "runner_id": "runner-build-1",
+        "capability": "build-runner",
+        "phase": "landed",
+        "verdict": { "decision": "APPROVE", "gist": "the reconcile engine holds the OCC line" },
+        "gate": {
+          "command": "cargo test -p m1nd-mcp system_blocks",
+          "exit_status": 0,
+          "artifact_hash": "sha256:gatelogc"
+        },
+        "receipt": { "imported": true, "store_version": 9 },
+        "packet_ref": "sha256:landedpacket",
+        "tokens_total": 8800,
+        "started_at": "2026-07-09T08:00:00Z",
+        "updated_at": "2026-07-09T09:00:00Z"
+      },
+      "superseded_count": 3
+    },
+    {
+      "mission_id": "msn_00000000d004",
+      "head_letter_id": "dddd44440002",
+      "head": {
+        "schema": "m1nd-mission-letter-v0",
+        "mission_id": "msn_00000000d004",
+        "mission_seq": 2,
+        "prev_letter_id": "dddd44440001",
+        "block_id": "sb_m1nd_ingest",
+        "brain_ref": "m1nd",
+        "seat": "hand",
+        "runner_id": "runner-naming-1",
+        "capability": "naming-runner",
+        "phase": "failed",
+        "packet_ref": "sha256:failpacket",
+        "tokens_total": 500,
+        "started_at": "2026-07-09T06:55:00Z",
+        "updated_at": "2026-07-09T07:00:00Z"
+      },
+      "superseded_count": 1
+    }
+  ]
+}
