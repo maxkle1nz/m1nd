@@ -2651,6 +2651,59 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "expected_store_version", "block_id", "receipt"]
                 }
+            },
+            {
+                "name": "system_blocks_reconcile",
+                "description": "Human View v2 F0a WRITE verb (Slice 3) — the architectural git status. Resolves every block's declared membership (exact paths + globs like `src/**`) against the REAL repo file list, then makes the skeleton react without lying: (1) each block's effective member set becomes a deterministic fingerprint — the first reconcile records it as the honest baseline (no bump); (2) a block whose resolved set later CHANGES gets its `boundary_version` bumped, which by the existing rollup law makes every receipt earned against the older boundary stale by scope (no new staleness code); (3) files claimed by NO block are surfaced as the real unmapped (never hidden), materialized capped with an honest `unmapped_total`. The file list defaults to git (`git ls-files`, tracked + untracked, honoring .gitignore) at the bound workspace root, with a filesystem-walk fallback; pass `file_list` to inject one explicitly. The whole reconcile is ONE atomic OCC mutation: on any change `store_version` bumps once; a no-op reconcile changes nothing (idempotent). Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "file_list": { "type": "array", "items": { "type": "string" }, "description": "Optional explicit repo-relative file list to reconcile against. Omit to read the working set from the bound workspace root (git, else a filesystem walk)." }
+                    },
+                    "required": ["agent_id", "expected_store_version"]
+                }
+            },
+            {
+                "name": "receipt_recompute",
+                "description": "Human View v2 F0a READ verb (Slice 3). Re-evaluates each receipt's freshness against its block's CURRENT `(block_id, boundary_version, contract_version)` and its `expires_on`, returning per-receipt `fresh` or `stale` with the first failing `reason` (`block` | `boundary` | `contract` | `expired`), plus fresh/stale counts. A pure read: receipts are NEVER deleted (history is history) — the report is the truth. Pass `block_id` to recompute a single block, or omit it for every block. Read-only: safe under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "block_id": { "type": "string", "description": "Recompute only this block. Omit to recompute every block." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "system_blocks_archive",
+                "description": "Human View v2 F0a WRITE verb (Slice 3). Archives blocks (flip state to `archived`, remembering each block's prior state so a restore is honest) or restores them (return to that REAL prior state — never a fabricated one). Archived blocks are excluded from active rollup counts; the backend only MARKS the state and never deletes data. `mode` is `\"archive\"` or `\"restore\"`; `block_ids` names one or more blocks (an unknown id is a hard error; an already-in-target-state block is a silent no-op). Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "The blocks to archive or restore. An unknown id is a hard error." },
+                        "mode": { "type": "string", "enum": ["archive", "restore"], "description": "archive = retire (remembering the prior state); restore = return to the real prior state." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "block_ids", "mode"]
+                }
+            },
+            {
+                "name": "system_blocks_delete",
+                "description": "Human View v2 F0a WRITE verb (Slice 3). Removes a block from the store FOR REAL, reporting how many receipts died with it. `force:true` is MANDATORY — without it the call refuses honestly and suggests archive (which keeps the history). An unknown block_id is a hard error. Optimistic-concurrency: a stale `expected_store_version` rejects with a `conflict` and nothing is applied. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "block_id": { "type": "string", "description": "The block to remove." },
+                        "force": { "type": "boolean", "default": false, "description": "Mandatory guard. Without force:true the delete is refused (archive is suggested). With it, the block and all its receipts are permanently removed." }
+                    },
+                    "required": ["agent_id", "expected_store_version", "block_id"]
+                }
             }
         ]
     })
@@ -2702,6 +2755,13 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "system_blocks_seed_import",
     "system_blocks_ratify",
     "receipt_import",
+    // Slice 3 WRITES: reconcile persists fingerprints/boundary bumps/unmapped;
+    // archive flips block state; delete removes a block — all mutate the store on
+    // disk. `receipt_recompute` is deliberately ABSENT — it is a pure read (history
+    // is never mutated), so it stays ambiently legal like `system_blocks_snapshot`.
+    "system_blocks_reconcile",
+    "system_blocks_archive",
+    "system_blocks_delete",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4248,6 +4308,26 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::system_blocks_handlers::handle_receipt_import(state, input)
         }
+        "system_blocks_reconcile" => {
+            let input: crate::system_blocks_handlers::ReconcileInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_reconcile(state, input)
+        }
+        "receipt_recompute" => {
+            let input: crate::system_blocks_handlers::ReceiptRecomputeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_receipt_recompute(state, input)
+        }
+        "system_blocks_archive" => {
+            let input: crate::system_blocks_handlers::ArchiveInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_archive(state, input)
+        }
+        "system_blocks_delete" => {
+            let input: crate::system_blocks_handlers::DeleteInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_system_blocks_delete(state, input)
+        }
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5786,6 +5866,10 @@ mod tests {
             "system_blocks_seed_import",
             "system_blocks_ratify",
             "receipt_import",
+            // Slice 3 SystemBlock store writes.
+            "system_blocks_reconcile",
+            "system_blocks_archive",
+            "system_blocks_delete",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -5808,8 +5892,9 @@ mod tests {
             "scan",
             "trace",
             "edit_preview",
-            // The SystemBlock store READ is a pure read — never denied.
+            // The SystemBlock store READs are pure reads — never denied.
             "system_blocks_snapshot",
+            "receipt_recompute",
         ] {
             assert!(!read_only_denied(t, &empty), "{t} should be allowed");
         }
