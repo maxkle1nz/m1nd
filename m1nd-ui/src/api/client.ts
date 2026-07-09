@@ -8,11 +8,12 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
-import type { ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
+import type { Receipt, ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
 import type {
   MissionLetter,
   MissionsResponse,
   PostOutcome,
+  ReceiptImportOutcome,
   RunnerdStatus,
   SpawnInput,
   SpawnOutcome,
@@ -199,6 +200,30 @@ export const api = {
         packet_markdown: input.packetMarkdown,
         block_id: input.blockId,
         brain_ref: input.brainRef,
+      }),
+    }).then((r) => r.result),
+
+  /**
+   * The human landing's receipt import (HUMAN-VIEW-V2 F2.5d §6) — `receipt_import` is
+   * the anti-poison WRITE that attaches the gate's evidence to a block after the OCC +
+   * scope + evidence-contract gates pass, bumping `store_version`. The tray hands it the
+   * candidate's scope versions (NEVER re-dated) with the fresh `expected_store_version`;
+   * a `stale_scope` (the boundary moved) or a `conflict` refuses and nothing is applied.
+   * WRITE verb — refused under a read-only attach. Bare tool route, agent_id 'gui',
+   * unwrapping the `{result}` envelope like `missionPost`. `brain` scopes the write to
+   * a hosted brain (absent = the bound graph).
+   */
+  receiptImport: (
+    input: { expectedStoreVersion: number; blockId: string; receipt: Receipt },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: ReceiptImportOutcome }>(withBrain('/api/tools/receipt_import', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        expected_store_version: input.expectedStoreVersion,
+        block_id: input.blockId,
+        receipt: input.receipt,
       }),
     }).then((r) => r.result),
 

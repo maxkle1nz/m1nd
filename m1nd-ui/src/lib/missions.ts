@@ -19,6 +19,7 @@
  * The seven phase names are rendered VERBATIM; the §1d landed-law is encoded so the
  * UI can never render a green gate as a landing.
  */
+import type { Receipt, SystemBlocksSnapshot } from './buildMap';
 
 /** The frozen schema tag (mission_letter.rs `MISSION_LETTER_SCHEMA`). */
 export const MISSION_LETTER_SCHEMA = 'm1nd-mission-letter-v0';
@@ -199,12 +200,22 @@ export function blockLabelFromId(blockId: string, brainRef?: string): string {
  * green (exit 0) but whose receipt is NOT imported is exactly "gate green — receipt
  * not landed", never a landing. Returns that honest line, or null when it does not
  * apply (so the card only flies it when the law is live).
+ *
+ * §6-F2.5d — candidate-aware: a green gate WITH a `receipt_candidate` still reads
+ * "receipt not landed" (the law holds until the human lands it, and the card offers
+ * the one-click import beside this line); a green gate WITHOUT a candidate has
+ * nothing to import — the honest state is "gate green — no candidate attached", never
+ * a button that would fabricate a receipt.
  */
 export function mergeWaitStatusLine(letter: MissionLetter): string | null {
   if (letter.phase !== 'merge_wait') return null;
   const receiptLanded = letter.receipt?.imported === true && (letter.receipt?.store_version ?? 0) >= 1;
   if (receiptLanded) return null;
-  if (letter.gate && letter.gate.exit_status === 0) return 'gate green — receipt not landed';
+  if (letter.gate && letter.gate.exit_status === 0) {
+    return letter.receipt_candidate
+      ? 'gate green — receipt not landed'
+      : 'gate green — no candidate attached';
+  }
   return 'receipt not landed';
 }
 
@@ -494,4 +505,221 @@ export async function sendSpawnPacket(
     blockId: args.blockId,
     brainRef: args.brainRef,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The human landing (§6-F2.5d) — the tray's one-click receipt import.
+// ---------------------------------------------------------------------------
+
+/** The `receipt_import` outcome the owner returns (system_blocks_handlers.rs
+ *  `handle_receipt_import`) — the new `store_version` + the block's receipt count. */
+export interface ReceiptImportOutcome {
+  store_version: number;
+  block_id: string;
+  receipt_count: number;
+}
+
+/** The seams `landCandidate` writes through — injected so the whole human-landing
+ *  flow is provable DOM-free (the repo's `runReconcile`/`sendDirectPacket` pattern). */
+export interface LandDeps {
+  /** A FRESH `system_blocks_snapshot` (default `api.systemBlocksSnapshot`) — read at
+   *  land time so `expected_store_version` and the block's CURRENT resolution are
+   *  never stale. */
+  snapshot: () => Promise<SystemBlocksSnapshot>;
+  /** The anti-poison `receipt_import` (default `api.receiptImport`). Throws the
+   *  owner's honest refusal (`stale_scope`, `conflict`, read-only) verbatim — never a
+   *  silent retry, never a scope rewrite. */
+  importReceipt: (input: {
+    expectedStoreVersion: number;
+    blockId: string;
+    receipt: Receipt;
+  }) => Promise<ReceiptImportOutcome>;
+  /** Post the `landed` letter (default `api.missionPost`) once the import confirmed. */
+  postMission: (letter: MissionLetter) => Promise<PostOutcome>;
+  /** ISO clock for `updated_at`, injectable for a deterministic test. */
+  now?: () => string;
+}
+
+/** The honest toast a land attempt reduces to (the `ReconcileToast` sibling, §6-F2.5d). */
+export type LandToastKind = 'ok' | 'stale' | 'conflict' | 'readonly' | 'error' | 'no_candidate';
+export interface LandToast {
+  kind: LandToastKind;
+  text: string;
+}
+
+/** The outcome of a human-landing attempt. `landed` is true ONLY when the receipt
+ *  imported AND the `landed` letter posted. `shouldReload` refreshes the tray (a
+ *  success re-renders the head; a conflict — or a post-failure after the store already
+ *  bumped — reloads on the fresh truth; a `stale_scope` leaves the `merge_wait` card
+ *  as-is: nothing landed, the human must re-run the gate). */
+export interface LandOutcome {
+  landed: boolean;
+  toast: LandToast;
+  shouldReload: boolean;
+  /** The `landed` letter that was (or would have been) posted — for assertion/debug. */
+  letter?: MissionLetter;
+}
+
+/** Best-effort human string from an unknown thrown error — the `ApiError.detail` the
+ *  owner emits, else `.message`, else the stringified error. Duck-typed so the heart
+ *  stays dependency-free (mirrors buildMap's private `errorText`). */
+function landErrorText(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const o = err as { detail?: unknown; message?: unknown };
+    if (typeof o.detail === 'string' && o.detail.length > 0) return o.detail;
+    if (typeof o.message === 'string' && o.message.length > 0) return o.message;
+  }
+  return String(err);
+}
+
+/**
+ * Classify a failed receipt import into an honest toast (§6-F2.5d), grounded in the
+ * owner's REAL error strings (system_blocks.rs `SeedError`):
+ *  - `stale_scope` — the boundary moved since the gate ran; the evidence is stale and
+ *    must be RE-EARNED. This is the anti-poison law working — NEVER "update the scope
+ *    to pass". No reload (nothing changed; the human must re-run the gate).
+ *  - OCC `conflict` — the store moved between our snapshot read and the import; reload
+ *    the tray so the next attempt keys off the fresh version (the F3b pattern).
+ *  - read-only owner — land from a writable session.
+ * Anything else surfaces the owner's message verbatim (never swallowed).
+ */
+export function landErrorToast(err: unknown): { toast: LandToast; shouldReload: boolean } {
+  const s = landErrorText(err);
+  if (/stale_scope/i.test(s)) {
+    return {
+      toast: { kind: 'stale', text: 'the boundary moved since the gate ran — re-run the gate' },
+      shouldReload: false,
+    };
+  }
+  if (/conflict/i.test(s)) {
+    return {
+      toast: { kind: 'conflict', text: 'the store moved — reloading, then re-run the import' },
+      shouldReload: true,
+    };
+  }
+  if (/read[-\s]?only/i.test(s)) {
+    return {
+      toast: { kind: 'readonly', text: 'this owner is read-only — land from a writable session' },
+      shouldReload: false,
+    };
+  }
+  return { toast: { kind: 'error', text: s }, shouldReload: false };
+}
+
+/**
+ * The human landing (§6-F2.5d): turn a `merge_wait` head's `receipt_candidate` into a
+ * confirmed `landed` letter in ONE explicit human gesture. Pure over its injected
+ * seams (the `runReconcile` pattern), so the happy path and every honest refusal are
+ * unit-proven with a mocked client — no DOM, no network.
+ *
+ * The flow (spec §6-F2.5d B):
+ *  1. Read a FRESH snapshot → the `expected_store_version` + the block's CURRENT
+ *     resolution (`membership_fingerprint`).
+ *  2. Assemble the COMPLETE receipt from the candidate: the candidate's TYPE + EVIDENCE
+ *     + the candidate's SCOPE VERSIONS (`boundary_version`/`contract_version`). The
+ *     evidence was earned against THAT boundary, so the scope is NEVER re-dated to the
+ *     fresh snapshot to force a pass — a moved boundary MUST re-earn (step 3). Only the
+ *     `block_id` + `resolution_hash` bind at import time (mission_letter.rs §F2.5d); the
+ *     emitter is the named human-tray gesture, the validity stales on boundary/member.
+ *  3. `receipt_import` with the fresh `expected_store_version`. A `stale_scope` (the
+ *     boundary moved since the gate) → honest toast, NOTHING landed (the law working). A
+ *     `conflict` → reload. Never a silent retry, never a scope rewrite.
+ *  4. On success, post the `landed` letter (§1d: `receipt.imported == true` with the
+ *     real `store_version`): seq = head.seq + 1, prev = head_letter_id (§1e chain),
+ *     inheriting the head's identity + gate (so the §3f provenance chain stays whole).
+ */
+export async function landCandidate(head: MissionHead, deps: LandDeps): Promise<LandOutcome> {
+  const letter = head.head;
+  const candidate = letter.receipt_candidate;
+  if (!candidate) {
+    // No candidate attached — the tray never offers the button here; a defensive guard
+    // so a stale click can never fabricate a receipt (§1d honesty). No engine call.
+    return {
+      landed: false,
+      toast: { kind: 'no_candidate', text: 'gate green — no candidate attached' },
+      shouldReload: false,
+    };
+  }
+
+  // 1. Fresh snapshot → expected_store_version + the block's current resolution.
+  let snap: SystemBlocksSnapshot;
+  try {
+    snap = await deps.snapshot();
+  } catch (err) {
+    return { landed: false, ...landErrorToast(err) };
+  }
+  const storeVersion = snap.store?.store_version ?? snap.store_version;
+  const block = snap.store?.blocks.find((b) => b.block_id === candidate.block_id);
+  if (!snap.present || storeVersion == null || !block) {
+    return {
+      landed: false,
+      toast: { kind: 'error', text: 'the block is not in the current store — re-run the gate' },
+      shouldReload: false,
+    };
+  }
+
+  // 2. Assemble the complete receipt. The scope's version anchors come from the
+  //    CANDIDATE (never re-dated); only block_id + resolution_hash bind at import time.
+  const receipt: Receipt = {
+    type: candidate.type,
+    emitter: { kind: 'verb', id: 'human-tray-landing' },
+    scope: {
+      block_id: candidate.block_id,
+      boundary_version: candidate.scope.boundary_version,
+      contract_version: candidate.scope.contract_version,
+      resolution_hash: block.membership_fingerprint ?? '',
+    },
+    evidence: candidate.evidence,
+    validity: { expires_on: null, stales_on: ['boundary_change', 'member_change'] },
+  };
+
+  // 3. Import — the anti-poison gate. A stale scope / conflict is the LAW working.
+  let outcome: ReceiptImportOutcome;
+  try {
+    outcome = await deps.importReceipt({
+      expectedStoreVersion: storeVersion,
+      blockId: candidate.block_id,
+      receipt,
+    });
+  } catch (err) {
+    return { landed: false, ...landErrorToast(err) };
+  }
+
+  // 4. Post the landed letter (§1d/§1e). Inherit the head's identity + gate; the
+  //    receipt anchor names the store_version the import produced.
+  const nowIso = deps.now?.() ?? new Date().toISOString();
+  const landedLetter: MissionLetter = {
+    schema: MISSION_LETTER_SCHEMA,
+    mission_id: letter.mission_id,
+    mission_seq: letter.mission_seq + 1,
+    prev_letter_id: head.head_letter_id,
+    block_id: letter.block_id,
+    brain_ref: letter.brain_ref,
+    seat: letter.seat,
+    ...(letter.runner_id ? { runner_id: letter.runner_id } : {}),
+    capability: letter.capability,
+    phase: 'landed',
+    ...(letter.gate ? { gate: letter.gate } : {}),
+    receipt: { imported: true, store_version: outcome.store_version },
+    ...(letter.packet_ref ? { packet_ref: letter.packet_ref } : {}),
+    tokens_total: letter.tokens_total,
+    started_at: letter.started_at,
+    updated_at: nowIso,
+  };
+
+  try {
+    await deps.postMission(landedLetter);
+  } catch (err) {
+    // The import DID land (the store bumped) but the letter post failed — reload on the
+    // fresh truth and surface the honest reason; never claim a landing we could not post.
+    const { toast } = landErrorToast(err);
+    return { landed: false, toast, shouldReload: true, letter: landedLetter };
+  }
+
+  return {
+    landed: true,
+    toast: { kind: 'ok', text: `receipt landed — store v${outcome.store_version}` },
+    shouldReload: true,
+    letter: landedLetter,
+  };
 }
