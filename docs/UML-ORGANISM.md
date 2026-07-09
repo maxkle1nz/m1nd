@@ -81,7 +81,7 @@ These cross every system; no sheet may invent a fifth word for any of them.
 - **Delegation + mailbox extend the spine from one agent to a tree.** `delegate` composes the retrieval half of a child's spec from the same graph the spine reads; `debrief` grades the real diff back into `learn`; field letters distribute into per-project boxes the same cwd-routing the calls use.
 - **The medulla law (pull, never push).** A brain's default beat = its own store + the medulla, nothing else; crossing happens only through the audited `promote` (verified-only, evidence re-anchored). *Realized fully only on the HTTP transport today — see ledger.*
 
-## 4. The twenty sheets
+## 4. The twenty-one sheets
 
 | Sheet | System | Diagrams | Honest one-liner |
 |---|---|---|---|
@@ -105,6 +105,7 @@ These cross every system; no sheet may invent a fifth word for any of them.
 | [auto-ingest-daemon](uml/auto-ingest-daemon.md) | Watcher, tick, code daemon, alerts | class·seq·state | Idle `serve()` clock now pumps the drain — an idle session drains its queue (hardening wave 4) |
 | [cli-operator](uml/cli-operator.md) | npm CLI, restart --binary, release parity | flow·seq·state | macOS reload trio (codesign/kickstart/kill) has zero tests — ledger |
 | [host-integration](uml/host-integration.md) | 22-host matrix, shim, hosts apply, ambient wave | flow·seq | Pre-orient half real; the whole ambient/R12 wave is PRD-only — ledger |
+| [visual-os-workspace](uml/visual-os-workspace.md) | Tiled layouts, resizable split panes, terminal shelf, status bar | class·seq·state | Split-pane canvas resize observer lag and overlay modal priority precedence — gaps |
 
 ## 5. The consolidated gap ledger — every open debt, ranked
 
