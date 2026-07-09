@@ -6,10 +6,18 @@
  * human, the letter and ledger untouched). The provenance-open set is ephemeral.
  * Renders the pure MissionTray. Mounted in the App shell OUTSIDE the surface switch,
  * so it is fixed on every surface.
+ *
+ * §6-F2.5d — the human landing: this owner runs `landCandidate` (fresh snapshot →
+ * `receipt_import` → the `landed` letter), all `?brain=`-scoped to the viewed brain,
+ * then toasts the honest outcome and reloads the heads so the card flips to `landed`.
+ * The click is guarded against re-entrancy per mission (the store is never double-hit).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ViewedBrain } from '../../lib/viewedBrain';
 import { useMissions } from '../../hooks/useMissions';
+import { api } from '../../api/client';
+import { landCandidate, type MissionHead } from '../../lib/missions';
+import { useToastStore } from '../../stores/toastStore';
 import MissionTray from './MissionTray';
 
 const EXPANDED_KEY = 'm1nd:mission-tray:expanded';
@@ -43,7 +51,11 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
   const [expanded, setExpanded] = useState<boolean>(readExpanded);
   const [dismissed, setDismissed] = useState<Set<string>>(readDismissed);
   const [provenance, setProvenance] = useState<Set<string>>(new Set());
-  const { missions, status, error } = useMissions(enabled, viewedBrain.root, expanded);
+  const { missions, status, error, reload } = useMissions(enabled, viewedBrain.root, expanded);
+  const addToast = useToastStore((s) => s.addToast);
+  // Re-entrancy guard: a mission being landed cannot be double-clicked into a second
+  // `receipt_import` (the store would bump twice). A ref, not state — no re-render.
+  const landingIds = useRef<Set<string>>(new Set());
 
   // Persist the expand state so the tray remembers how the human left it.
   useEffect(() => {
@@ -78,6 +90,30 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
     });
   }, []);
 
+  // §6-F2.5d — run the human landing for one head, scoped to the viewed brain: a fresh
+  // snapshot → `receipt_import` → the `landed` letter. The honest outcome becomes a
+  // toast (a success is `success`, a refusal `info`); a success/conflict reloads the
+  // heads so the card flips to `landed` (or re-keys off the fresh store).
+  const brainRoot = viewedBrain.root;
+  const onImportReceipt = useCallback(
+    async (head: MissionHead) => {
+      if (landingIds.current.has(head.mission_id)) return;
+      landingIds.current.add(head.mission_id);
+      try {
+        const result = await landCandidate(head, {
+          snapshot: () => api.systemBlocksSnapshot(brainRoot),
+          importReceipt: (input) => api.receiptImport(input, brainRoot),
+          postMission: (letter) => api.missionPost(letter, brainRoot),
+        });
+        addToast(result.toast.text, undefined, result.landed ? 'success' : 'info');
+        if (result.shouldReload) reload();
+      } finally {
+        landingIds.current.delete(head.mission_id);
+      }
+    },
+    [brainRoot, reload, addToast],
+  );
+
   return (
     <MissionTray
       missions={missions}
@@ -90,6 +126,7 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
       provenanceIds={provenance}
       onToggleProvenance={onToggleProvenance}
       onOpenBlock={onOpenBlock}
+      onImportReceipt={onImportReceipt}
     />
   );
 }

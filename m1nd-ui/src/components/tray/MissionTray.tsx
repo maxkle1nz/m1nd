@@ -30,6 +30,9 @@ export interface MissionTrayProps {
   provenanceIds?: Set<string>;
   onToggleProvenance?: (missionId: string) => void;
   onOpenBlock: (blockId: string) => void;
+  /** §6-F2.5d — the human-landing gesture, threaded to each `merge_wait` card that
+   *  carries a candidate. Absent → the cards render read-only (no import button). */
+  onImportReceipt?: (head: MissionHead) => void;
   /** Injectable clock for a deterministic elapsed under test. */
   now?: number;
 }
@@ -45,6 +48,7 @@ export default function MissionTray({
   provenanceIds,
   onToggleProvenance,
   onOpenBlock,
+  onImportReceipt,
   now,
 }: MissionTrayProps) {
   const dismissed = dismissedIds ?? new Set<string>();
@@ -143,6 +147,7 @@ export default function MissionTray({
               onDismiss={onDismiss}
               provenanceOpen={provenanceIds?.has(head.mission_id) ?? false}
               onToggleProvenance={onToggleProvenance}
+              onImportReceipt={onImportReceipt}
               now={now}
             />
           ))

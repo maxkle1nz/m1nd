@@ -8,8 +8,16 @@
  * never render a green gate as a landing. A `failed` card carries the dismiss ✕
  * (§3c, presentation-only). A `landed` card expands to its provenance chain (§3f).
  *
+ * §6-F2.5d — the human landing: a `merge_wait` card WITH a `receipt_candidate` offers
+ * "Import this receipt" — one click opens a compact confirm that shows EXACTLY what
+ * will be imported (block, type, the truncated artifact hash, the evidence refs) so the
+ * gesture is explicit, never silent; confirming hands the head up to `onImportReceipt`
+ * (the Live layer runs `landCandidate` + toasts + reloads). WITHOUT a candidate the card
+ * flies the honest "gate green — no candidate attached" and offers no button.
+ *
  * Copy law: no "done/proven/correct". Tokens are all sanctioned non-violet families.
  */
+import { useState } from 'react';
 import type { MissionHead, Phase } from '../../lib/missions';
 import {
   blockLabelFromId,
@@ -29,8 +37,21 @@ export interface MissionCardProps {
   /** §3f — a `landed` card's provenance chain is showing. */
   provenanceOpen?: boolean;
   onToggleProvenance?: (missionId: string) => void;
+  /** §6-F2.5d — the human-landing gesture. Present → a `merge_wait` card with a
+   *  `receipt_candidate` offers "Import this receipt"; confirming calls this with the
+   *  head. Absent (e.g. a pure SSR render, or a read-only owner) → no button. */
+  onImportReceipt?: (head: MissionHead) => void;
+  /** SSR/test seam: open the import confirm at mount (like PacketCompose's `initialMode`),
+   *  so the confirm's honest detail is provable with a static render. */
+  initialConfirmOpen?: boolean;
   /** Injectable clock for a deterministic elapsed under test. */
   now?: number;
+}
+
+/** Truncate a long anchor hash for the confirm (`sha256:<12>…<6>`); short hashes pass
+ *  through verbatim. Display-only — the full hash rides the receipt, never mangled. */
+function truncateHash(hash: string): string {
+  return hash.length > 24 ? `${hash.slice(0, 16)}…${hash.slice(-6)}` : hash;
 }
 
 /** Phase → accent (left rule + phase chip). All sanctioned non-violet tokens:
@@ -52,6 +73,8 @@ export default function MissionCard({
   onDismiss,
   provenanceOpen = false,
   onToggleProvenance,
+  onImportReceipt,
+  initialConfirmOpen = false,
   now,
 }: MissionCardProps) {
   const letter = head.head;
@@ -63,6 +86,12 @@ export default function MissionCard({
   const receipt = receiptAnchorLabel(letter);
   const isLanded = letter.phase === 'landed';
   const isFailed = letter.phase === 'failed';
+
+  // §6-F2.5d — the landing affordance is live only on a `merge_wait` card that carries
+  // a `receipt_candidate` AND has a handler wired (a pure SSR render offers no button).
+  const candidate = letter.receipt_candidate;
+  const canImport = letter.phase === 'merge_wait' && !!candidate && !!onImportReceipt;
+  const [confirmOpen, setConfirmOpen] = useState(initialConfirmOpen);
 
   // The seat line: `hand · build-runner[ · runner-build-1]` (runner_id only when present).
   const seatLine = [letter.seat, letter.capability, letter.runner_id ?? undefined]
@@ -133,6 +162,74 @@ export default function MissionCard({
       {mergeLine && (
         <div data-role="mission-landed-law" className="mt-1 text-[11px] text-verdict-reverify">
           {mergeLine}
+        </div>
+      )}
+
+      {/* §6-F2.5d — the human landing. With a candidate: the one-click import + a
+          compact confirm that shows EXACTLY what will be imported (the gesture is
+          explicit, never silent). The confirm→import is still the human's gesture. */}
+      {canImport && candidate && !confirmOpen && (
+        <button
+          type="button"
+          data-role="import-receipt"
+          onClick={() => setConfirmOpen(true)}
+          className="mt-1.5 inline-flex items-center gap-1 rounded border border-verdict-act/40 bg-verdict-act-tint/40 px-2 py-1 text-[11px] text-verdict-act hover:bg-verdict-act-tint/60"
+        >
+          Import this receipt
+        </button>
+      )}
+      {canImport && candidate && confirmOpen && (
+        <div
+          data-role="import-confirm"
+          className="mt-1.5 rounded border border-hairline bg-porcelain px-2 py-1.5 space-y-1"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-ink-soft">Import this receipt?</div>
+          <dl className="font-mono text-[10px] text-ink-soft space-y-0.5">
+            <div className="flex gap-1">
+              <dt className="text-ink shrink-0">block</dt>
+              <dd className="break-all">{blockLabelFromId(candidate.block_id, letter.brain_ref)}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-ink shrink-0">type</dt>
+              <dd data-role="import-type" className="break-all">{candidate.type}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-ink shrink-0">artifact</dt>
+              <dd data-role="import-artifact" className="break-all">
+                {truncateHash(candidate.evidence.artifact_hash)}
+              </dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-ink shrink-0">evidence</dt>
+              <dd data-role="import-evidence" className="break-all">
+                {candidate.evidence.evidence_refs.join(', ') || '—'}
+              </dd>
+            </div>
+          </dl>
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              data-role="import-confirm-go"
+              onClick={() => {
+                setConfirmOpen(false);
+                onImportReceipt?.(head);
+              }}
+              className="rounded border border-verdict-act/40 bg-verdict-act-tint/40 px-2 py-0.5 text-[11px] text-verdict-act hover:bg-verdict-act-tint/60"
+            >
+              Import
+            </button>
+            <button
+              type="button"
+              data-role="import-cancel"
+              onClick={() => setConfirmOpen(false)}
+              className="text-[11px] text-ink-soft hover:text-ink"
+            >
+              cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-ink-soft leading-snug">
+            the scope stays the candidate’s boundary — a moved boundary re-runs the gate, never a rewrite.
+          </p>
         </div>
       )}
 
