@@ -1,9 +1,13 @@
 /*
- * BuildMapView — the 'map' surface (HUMAN-VIEW-V2 F1). Wires useBuildMap and maps
- * its status onto the screens: loading (§1.3), error + Retry (§1.3), and the map
- * or the honest empty screen (delegated to BuildMap). The whole surface is a
- * read-only projection — the front door of the product.
+ * BuildMapView — the 'map' surface (HUMAN-VIEW-V2 F1/F3b). Wires useBuildMap and
+ * maps its status onto the screens: loading (§1.3), error + Retry (§1.3), and the
+ * map or the honest empty screen (delegated to BuildMap). The surface is read-only
+ * BY DEFAULT; the ONE write it offers is the reconcile gesture (F3b §D) — it owns
+ * the write call, the honest toast, and the reload that re-renders the new truth.
  */
+import { useCallback, useState } from 'react';
+import { api } from '../../api/client';
+import { runReconcile, type ReconcileToast } from '../../lib/buildMap';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import BuildMap from './BuildMap';
 
@@ -16,6 +20,32 @@ export interface BuildMapViewProps {
 
 export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapViewProps) {
   const { status, snapshot, rollup, error, reload } = useBuildMap(enabled);
+  const [reconciling, setReconciling] = useState(false);
+  const [toast, setToast] = useState<ReconcileToast | null>(null);
+
+  // The reconcile gesture (F3b §D): OCC-key on the store_version we read, run the
+  // write, and reduce it to a toast + reload decision (the pure `runReconcile`).
+  // Success and conflict reload the snapshot (the map re-renders on the new truth);
+  // a read-only/error refusal informs without a silent retry. Guarded against a
+  // double-run while one is in flight.
+  const handleReconcile = useCallback(async () => {
+    if (reconciling) return;
+    const version = snapshot?.store?.store_version ?? snapshot?.store_version;
+    if (version == null) return;
+    setReconciling(true);
+    try {
+      const { toast: t, shouldReload } = await runReconcile(
+        (expected) => api.systemBlocksReconcile(expected),
+        version,
+      );
+      setToast(t);
+      if (shouldReload) reload();
+    } finally {
+      setReconciling(false);
+    }
+  }, [reconciling, snapshot, reload]);
+
+  const dismissToast = useCallback(() => setToast(null), []);
 
   if (status === 'loading') {
     return (
@@ -45,5 +75,15 @@ export default function BuildMapView({ onOpenTree, enabled = true }: BuildMapVie
   }
 
   // ready | empty — BuildMap renders the canvas or the honest empty screen.
-  return <BuildMap snapshot={snapshot ?? { present: false }} rollup={rollup} onOpenTree={onOpenTree} />;
+  return (
+    <BuildMap
+      snapshot={snapshot ?? { present: false }}
+      rollup={rollup}
+      onOpenTree={onOpenTree}
+      onReconcile={handleReconcile}
+      reconciling={reconciling}
+      reconcileToast={toast}
+      onDismissToast={dismissToast}
+    />
+  );
 }

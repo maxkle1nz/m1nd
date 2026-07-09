@@ -8,14 +8,27 @@
  * is present even at 0 files). The Living Tree stays one click away (PRD: the
  * deterministic surface is never killed).
  */
+import { useState } from 'react';
 import type { StateCounts } from '../../lib/buildMap';
 import { Icon } from '../../lib/icons/registry';
 
+/** The reconcile truth the Unmapped tray renders (F3b §B). `reconciled:false` is the
+ *  neutral "never reconciled" absence — never a false zero. */
+export interface UnmappedReport {
+  reconciled: boolean;
+  total: number;
+  files: string[];
+}
+
 export interface SystemHealthSidebarProps {
   counts: StateCounts;
-  unmappedCount: number;
+  /** The real unmapped from the reconcile (Slice 3) — replaces the declared residue. */
+  unmapped: UnmappedReport;
   lastScan?: string | null;
   onOpenTree?: () => void;
+  /** Test seam (mirrors BuildMap's `initialSelectedId`): force the tray open so the
+   *  expanded list renders under `renderToStaticMarkup` (no click in SSR). */
+  initialUnmappedExpanded?: boolean;
 }
 
 /** One counted state row: a dot + a word + the number (colorblind-redundant). */
@@ -31,7 +44,13 @@ function StateRow({ dot, label, count, role }: { dot: string; label: string; cou
   );
 }
 
-export default function SystemHealthSidebar({ counts, unmappedCount, onOpenTree }: SystemHealthSidebarProps) {
+export default function SystemHealthSidebar({
+  counts,
+  unmapped,
+  onOpenTree,
+  initialUnmappedExpanded = false,
+}: SystemHealthSidebarProps) {
+  const [expanded, setExpanded] = useState(initialUnmappedExpanded);
   return (
     <aside className="w-52 shrink-0 border-r border-ink/10 bg-porcelain flex flex-col overflow-y-auto" data-role="system-health">
       {/* Surface identity + nav (the Living Tree is one click away). */}
@@ -69,13 +88,59 @@ export default function SystemHealthSidebar({ counts, unmappedCount, onOpenTree 
         </div>
       </div>
 
-      {/* The permanent Unmapped tray (F7). */}
+      {/* The permanent Unmapped tray (F7 — never hidden, present even at 0). Shows
+          the REAL reconcile unmapped (`unmapped_total`), not the declared residue.
+          A never-reconciled store says so honestly (neutral absence, not a false 0);
+          a reconciled store's count is clickable to expand the materialized list. */}
       <div className="px-4 py-3 border-t border-ink/10 mt-auto" data-role="unmapped-tray">
         <div className="text-[10px] uppercase tracking-wide text-ink-soft">Unmapped</div>
-        <div className="text-xs text-ink mt-1 font-mono">
-          <span className="tabular-nums">{unmappedCount}</span> {unmappedCount === 1 ? 'file' : 'files'}
-        </div>
-        <p className="text-[10px] text-ink-soft mt-1">files claimed by no block — the map never pretends full coverage.</p>
+        {!unmapped.reconciled ? (
+          <>
+            <div className="text-xs text-ink-soft mt-1 font-mono" data-role="unmapped-unreconciled">
+              not reconciled yet — run reconcile
+            </div>
+            <p className="text-[10px] text-ink-soft mt-1">
+              the real unmapped is unknown until the map is reconciled against the repo.
+            </p>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              data-role="unmapped-toggle"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+              disabled={unmapped.total === 0}
+              className="mt-1 w-full flex items-center justify-between text-xs text-ink font-mono hover:text-ink disabled:cursor-default group"
+              title={unmapped.total === 0 ? 'nothing unmapped' : expanded ? 'collapse the list' : 'show the files'}
+            >
+              <span>
+                <span className="tabular-nums" data-role="unmapped-count">{unmapped.total}</span>{' '}
+                {unmapped.total === 1 ? 'file' : 'files'}
+              </span>
+              {unmapped.total > 0 && (
+                <span className="text-ink-soft text-[10px]">{expanded ? '▾' : '▸'}</span>
+              )}
+            </button>
+            {expanded && unmapped.total > 0 && (
+              <div className="mt-1.5" data-role="unmapped-list">
+                <ul className="max-h-40 overflow-y-auto space-y-0.5 border border-ink/10 rounded bg-bone/40 p-1.5">
+                  {unmapped.files.map((f) => (
+                    <li key={f} className="text-[10px] font-mono text-ink-soft break-all">
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                {unmapped.files.length < unmapped.total && (
+                  <p className="text-[10px] text-ink-soft mt-1" data-role="unmapped-cap">
+                    showing {unmapped.files.length} of {unmapped.total} — the cap is honest, the count is true.
+                  </p>
+                )}
+              </div>
+            )}
+            <p className="text-[10px] text-ink-soft mt-1">files claimed by no block — the map never pretends full coverage.</p>
+          </>
+        )}
       </div>
     </aside>
   );
