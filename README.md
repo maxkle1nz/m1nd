@@ -278,6 +278,21 @@ Any number of bridges point at the one owner and share its single live graph, so
 
 The owner is not single-repo anymore: a session rooted in a repo the owner's graph does not cover gets an honest `reception` block instead of wrong answers, and ONE call — `ingest` with `project_root=<your repo>` — creates a per-project brain inside the same owner (own graph, own persistence), binds the session to it, and returns its `north` packet; from then on every call from that repo routes to its own brain automatically, while the owner's original graph stays untouched.
 
+## How this repo is built
+
+*Read the log with a raised eyebrow — then read this. The history you are looking at IS the product demo.*
+
+m1nd started as an advanced experiment in working with AI agents. The agents building it kept hitting the same walls every agent hits — context lost between sessions, confident claims with no evidence behind them, two hands overwriting each other, green checkmarks that meant nothing. The framework you are reading about was not designed on a whiteboard: **it emerged as the agents built tools to fix their own pain, inside this repo, and then those tools became the product.** m1nd is the map and the memory; its sibling **h4nd** is the write side — missions, runners, receipts. This repo is their first customer.
+
+So the commit history looks the way it looks because it is produced the way the product prescribes:
+
+- **A human ratifies; agents execute under proof.** Every substantial change starts as a spec confronted by an independent oracle model before a line is written; the owner ratifies the spec — and the mandatory objections are recorded in the spec documents themselves (see `docs/HUMAN-VIEW-V2-F25-TECH.md`, `docs/HUMAN-VIEW-V2-F0C-TECH.md`: each opens with its oracle verdict).
+- **Every agent hand works in an isolated worktree**, and its work is verified independently — tests it wrote are demonstrated failing first, the reviewer never being the author.
+- **A green gate is a candidate, not a conclusion.** Evidence lands as typed, scope-versioned receipts, and the final landing gesture is human — the same laws the engine enforces for its users (`letter_cannot_color_the_store`, `gate_zero_cannot_land` are real test names in this tree).
+- **Each merge is an act of landing.** The commits are authored by the maintainer because the maintainer ratifies and answers for every line; the method that produced the lines is documented, not hidden — the living state is in [`docs/PATHOS.md`](docs/PATHOS.md).
+
+The skeptic's question — "no human writes this much this fast" — is correct. No human does. **A human directing a proof-bound system of agents does**, and the artifact you are browsing is the standing evidence that the system works.
+
 ## The material: honesty
 
 *The whole shell is built from one material — m1nd would rather tell your agent "don't trust this" than let it guess.*
