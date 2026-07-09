@@ -979,14 +979,25 @@ impl SessionState {
     /// arm on brain identity (the mission_post brain guard) use THIS, so a bare
     /// session never refuses over plumbing.
     pub fn code_root_display_name(&self) -> Option<String> {
+        self.code_root_path().map(|root| basename_of(&root))
+    }
+
+    /// The PATH of the real code root (the same cases 1-2 as
+    /// [`code_root_display_name`]): a non-sidecar ingest root, else a workspace
+    /// that is a .git repo. `None` on plumbing — a hosted brain's raw
+    /// `workspace_root` is its STORE dir (where memory sidecars live), so the
+    /// repo-file-list surfaces (reconcile, skeleton_candidate) MUST use this,
+    /// never `workspace_root` directly: the first virgin-repo scan listed the
+    /// brain's `.light.md` memories as the repo because of exactly that.
+    pub fn code_root_path(&self) -> Option<String> {
         for root in &self.ingest_roots {
             if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
-                return Some(basename_of(root));
+                return Some(root.clone());
             }
         }
         if let Some(ws) = self.workspace_root.as_deref() {
             if !is_memory_sidecar(ws) && std::path::Path::new(ws).join(".git").exists() {
-                return Some(basename_of(ws));
+                return Some(ws.to_string());
             }
         }
         None
