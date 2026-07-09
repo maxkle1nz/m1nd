@@ -115,3 +115,35 @@ test('§4A.9: systemBlocksReconcile carries ?brain= when a hosted brain is viewe
   assert.match(calls[0].url, /\/api\/tools\/system_blocks_reconcile\?brain=/);
   assert.ok(calls[0].url.includes(ENCODED));
 });
+
+// ── F2.5d: the human landing's receipt_import write verb ──────────────────────
+
+const RECEIPT = {
+  type: 'test' as const,
+  emitter: { kind: 'verb' as const, id: 'human-tray-landing' },
+  scope: { block_id: 'sb_m1nd_mailbox', boundary_version: 1, contract_version: 1, resolution_hash: 'sha256:fp' },
+  evidence: { artifact_hash: 'sha256:log', evidence_refs: ['artifact://run/2'] },
+  validity: { expires_on: null, stales_on: ['boundary_change', 'member_change'] },
+};
+
+test('receiptImport POSTs the bare receipt_import route with agent_id + OCC key + the receipt, unwrapping {result}', async () => {
+  const outcome = { store_version: 10, block_id: 'sb_m1nd_mailbox', receipt_count: 1 };
+  const calls = spyFetchBodies({ result: outcome });
+  const got = await api.receiptImport({ expectedStoreVersion: 9, blockId: 'sb_m1nd_mailbox', receipt: RECEIPT });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/tools\/receipt_import$/, 'the bare tool route');
+  assert.equal(calls[0].init?.method, 'POST');
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.equal(sent.agent_id, 'gui', 'the GUI agent id');
+  assert.equal(sent.expected_store_version, 9, 'the OCC key from the fresh snapshot');
+  assert.equal(sent.block_id, 'sb_m1nd_mailbox');
+  assert.deepEqual(sent.receipt, RECEIPT, 'the assembled receipt rides verbatim');
+  assert.deepEqual(got, outcome, 'the {result} envelope is unwrapped to the outcome');
+});
+
+test('§4A.9: receiptImport carries ?brain= when a hosted brain is viewed', async () => {
+  const calls = spyFetchBodies({ result: {} });
+  await api.receiptImport({ expectedStoreVersion: 1, blockId: 'sb_x', receipt: RECEIPT }, CHERRY);
+  assert.match(calls[0].url, /\/api\/tools\/receipt_import\?brain=/);
+  assert.ok(calls[0].url.includes(ENCODED));
+});

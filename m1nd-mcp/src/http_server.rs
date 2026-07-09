@@ -9,7 +9,7 @@
 
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{header, StatusCode, Uri},
+    http::{header, HeaderMap, StatusCode, Uri},
     response::{sse, IntoResponse, Sse},
     routing::{get, post},
     Json, Router,
@@ -299,6 +299,10 @@ pub struct AppState {
     /// hop-2 caller root. The bound `session` above stays exactly the dev/single
     /// graph it always was; project brains live BESIDE it, never inside it.
     pub project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
+    /// F2.5c (§5a): the in-memory runnerd LIVENESS registry — `runner_id → (port,
+    /// last_seen)`, fed by `POST /api/runnerd/announce`, read by `/api/runnerd/status`
+    /// and the `mission_spawn` proxy. Liveness only; it grants no capability.
+    pub runnerd: Arc<crate::runnerd_owner::RunnerdRegistry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +349,7 @@ pub fn spawn_background(
         registry_dir: Some(registry_root),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
+        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
     });
     {
         let session = app_state.session.lock();
@@ -503,6 +508,7 @@ pub async fn run(
         registry_dir: config.registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
+        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
     });
     {
         let session = app_state.session.lock();
@@ -791,6 +797,12 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         // box triage sweep is CLI/REST-only, OFF the MCP surface (§C6.2).
         .route("/api/mailbox", get(handle_mailbox))
         .route("/api/inbox_sweep", get(handle_inbox_sweep))
+        // HUMAN-VIEW-V2-F2.5c §5a — the runner daemon's LIVENESS surface. `announce`
+        // is a shared-secret-guarded write to the in-memory registry (liveness only,
+        // never a capability grant); `status` is a pure read the UI uses to un-disable
+        // the spawn radio and list the pinned-live runners.
+        .route("/api/runnerd/announce", post(handle_runnerd_announce))
+        .route("/api/runnerd/status", get(handle_runnerd_status))
         .route("/api/events", get(handle_sse))
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
@@ -1517,6 +1529,102 @@ fn graph_response(
     }
 }
 
+/// Strip the optional `m1nd.`/`m1nd_` prefix from a tool name (mirrors the
+/// dispatch-side normalization in `server::read_only_denied`), so `mission_spawn`,
+/// `m1nd.mission_spawn` and `m1nd_mission_spawn` all resolve to the bare id.
+fn bare_tool_name(tool_name: &str) -> &str {
+    tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name)
+}
+
+/// `mission_spawn` (§4b) — the owner→runnerd proxy. Refuses under a read-only attach
+/// (it is a WRITE that launches a mission), resolves the live runner + the shared
+/// secret + the workspace project_root, then FORWARDS the compose's spawn request to
+/// the daemon's loopback `/run` with the secret in the `x-runnerd-secret` header (the
+/// browser never sees it). The daemon's acceptance (`{mission_id, accepted}`) or its
+/// honest refusal is relayed verbatim. The owner itself spawns nothing (§5d).
+async fn handle_mission_spawn(
+    state: &Arc<AppState>,
+    served_echo: &serde_json::Value,
+    body: serde_json::Value,
+) -> axum::response::Response {
+    // Read-only attach: the proxy is a write (it starts a mission), so refuse it
+    // exactly as the dispatch gate refuses `mission_post` (§2c / the deny-list).
+    let read_only = state.session.lock().read_only;
+    if read_only {
+        let e = m1nd_core::error::M1ndError::InvalidParams {
+            tool: "mission_spawn".to_string(),
+            detail: "m1nd is attached read-only (--read-only); mission_spawn launches a mission (a write) and is disabled. Detach or run a read-write instance to spawn."
+                .to_string(),
+        };
+        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+    }
+
+    let input: crate::runnerd_owner::SpawnInput = match serde_json::from_value(body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = m1nd_core::error::M1ndError::InvalidParams {
+                tool: "mission_spawn".to_string(),
+                detail: format!("invalid mission_spawn input: {e}"),
+            };
+            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response();
+        }
+    };
+
+    // The workspace/routing project_root comes from the RESOLVED `?brain=` echo, not
+    // from the browser body (the owner decides which repo a runner may touch, §5a).
+    let workspace_root = served_echo
+        .get("project_root")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let (runtime_root, _base) = owner_runtime_and_base(state);
+
+    let target = match crate::runnerd_owner::resolve_spawn_target(
+        &state.runnerd,
+        &runtime_root,
+        &input,
+        workspace_root.as_deref(),
+    ) {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response(),
+    };
+
+    // Forward to the daemon's loopback `/run` with the secret out-of-band (header).
+    let client = reqwest::Client::new();
+    let sent = client
+        .post(&target.url)
+        .header(crate::runnerd_owner::RUNNERD_SECRET_HEADER, &target.secret)
+        .json(&target.body)
+        .send()
+        .await;
+
+    let result = match sent {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let val = resp
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_else(|_| serde_json::json!({}));
+            crate::runnerd_owner::map_runnerd_response(status, &val)
+        }
+        Err(e) => Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "mission_spawn".to_string(),
+            detail: format!(
+                "could not reach the runner daemon at {}: {e} (is m1nd-runnerd still up?)",
+                target.url
+            ),
+        }),
+    };
+
+    match result {
+        // The `{result}` envelope the UI client unwraps (like mission_post).
+        Ok(inner) => (StatusCode::OK, Json(serde_json::json!({ "result": inner }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response(),
+    }
+}
+
 async fn handle_tool_call(
     State(state): State<Arc<AppState>>,
     Path(tool_name): Path<String>,
@@ -1531,6 +1639,17 @@ async fn handle_tool_call(
         Ok(pair) => pair,
         Err(e) => return graph_response(Err(e)),
     };
+
+    // F2.5c (§4b): `mission_spawn` is the OWNER→runnerd PROXY, not a graph verb. It
+    // is intercepted HERE — before the blocking dispatch — because it needs
+    // owner-process state (the announce registry + the shared secret) and an async
+    // HTTP forward to the daemon, neither of which the sync `dispatch_tool` sees. The
+    // browser never holds the secret (the amendment's signed decision); the owner
+    // reads it and signs the forward. `mission_spawn` is on the read-only deny-list.
+    if bare_tool_name(&tool_name) == "mission_spawn" {
+        return handle_mission_spawn(&state, &served_echo, body).await;
+    }
+
     // §4A.9.6: brain-scope the mutation event. When the caller selected a brain,
     // stamp its root on the `graph_changed` relay so a viewer only refetches for
     // ITS brain (a bound/absent call leaves it None → the honest over-refetch on
@@ -2216,6 +2335,57 @@ async fn handle_inbox_sweep(State(state): State<Arc<AppState>>) -> impl IntoResp
     .expect("spawn_blocking panicked");
 
     graph_response(result)
+}
+
+// ---------------------------------------------------------------------------
+// F2.5c (§5a) — the runner daemon liveness surface (announce + status).
+// ---------------------------------------------------------------------------
+
+/// `POST /api/runnerd/announce` (§5a) — a booting runner daemon proves LIVENESS.
+/// The request carries `{runner_ids, port, boot_challenge}` and the shared secret
+/// in the `x-runnerd-secret` header; the owner authenticates it against the on-disk
+/// `<runtime_root>/runnerd.secret` and, on success, registers each runner id live
+/// at `port` + echoes the challenge. A missing/wrong secret is a BARE 401 (§5a:
+/// refuse without leaking why). Loopback is the ambient guard: the whole server
+/// binds `127.0.0.1` unless `--allow-remote` (with a loud warning), and the secret
+/// is the real gate — the same-UID threat is declared out of scope (§5d).
+///
+/// Announce NEVER creates or widens a capability (§5a) — the registry holds only
+/// liveness; the pins live in the daemon's own `runners.toml`.
+async fn handle_runnerd_announce(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(input): Json<crate::runnerd_owner::AnnounceInput>,
+) -> impl IntoResponse {
+    let provided = headers
+        .get(crate::runnerd_owner::RUNNERD_SECRET_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let (runtime_root, _base) = owner_runtime_and_base(&state);
+    let outcome = crate::runnerd_owner::apply_announce(
+        &state.runnerd,
+        &runtime_root,
+        provided.as_deref(),
+        &input,
+        now_ms(),
+    );
+    match outcome {
+        // Bare 401 — no detail body (§5a: never leak why the secret was refused).
+        crate::runnerd_owner::AnnounceOutcome::Unauthorized => {
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+        crate::runnerd_owner::AnnounceOutcome::Registered(body) => {
+            (StatusCode::OK, Json(body)).into_response()
+        }
+    }
+}
+
+/// `GET /api/runnerd/status` (§5a read) — the live runner registry: every
+/// announced `runner_id` with its port + last_seen. A pure read (no secret): it
+/// exposes only liveness, which the compose UI reads to un-disable the spawn radio
+/// and list the pinned-live runners. Empty when no daemon has announced.
+async fn handle_runnerd_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    (StatusCode::OK, Json(state.runnerd.status_json()))
 }
 
 /// Build the browser-facing `graph_changed` SSE event from a broadcast event, or

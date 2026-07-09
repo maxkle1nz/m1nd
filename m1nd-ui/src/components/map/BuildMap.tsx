@@ -20,6 +20,7 @@ import {
   type SystemBlocksSnapshot,
 } from '../../lib/buildMap';
 import { Icon } from '../../lib/icons/registry';
+import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import BlockCard from './BlockCard';
 import BlockPanel from './BlockPanel';
 import PacketCompose from './PacketCompose';
@@ -121,6 +122,9 @@ export default function BuildMap({
   const store = snapshot.present ? snapshot.store ?? null : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [modal, setModal] = useState<MapModal>(null);
+  // F2.5c §4b — poll the runner-daemon liveness only while the compose panel is open,
+  // so the spawn radio un-disables when a runner is registered.
+  const runnerd = useRunnerdStatus(modal?.kind === 'packet');
 
   // F2.5 §3b — when the mission tray asks to open a block while the map is already
   // mounted, `initialSelectedId` changes: follow it so the tray click lands the
@@ -269,6 +273,8 @@ export default function BuildMap({
           repoId={repoId}
           subPath={modal.subPath}
           brainRoot={brainRoot}
+          liveRunners={runnerd.runners}
+          policy={{ runnerdAvailable: runnerd.available }}
           onClose={() => setModal(null)}
         />
       )}
