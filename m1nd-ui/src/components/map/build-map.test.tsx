@@ -63,11 +63,14 @@ test('the panel opens with the auditable denominator: Receipts 0/3 · not earned
   assert.doesNotMatch(out, /data-role="ask-agent"[^>]*disabled=""/, 'Ask agent is active in F2');
 });
 
-test('the Unmapped tray is present even at zero (F7 — never pretend full coverage)', () => {
+test('the Unmapped tray is present even before reconcile (F7 — never pretend full coverage)', () => {
   const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
   assert.match(out, /data-role="unmapped-tray"/);
+  // The real seed has never been reconciled (no block carries a fingerprint), so the
+  // tray tells the honest truth — a neutral absence, NOT a false "0 files" (F3b §B).
   const trayText = visibleText(<BuildMap snapshot={snapshot} rollup={rollup} />);
-  assert.match(trayText, /0 files/);
+  assert.match(trayText, /not reconciled yet — run reconcile/);
+  assert.doesNotMatch(trayText, /0 files/, 'a never-reconciled store never fakes a zero');
 });
 
 test('the System Health counts render needs=12, others 0; runtime says "no signal"', () => {

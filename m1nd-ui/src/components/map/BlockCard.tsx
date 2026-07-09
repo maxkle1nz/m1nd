@@ -95,6 +95,20 @@ export default function BlockCard({ block, rollup, domainTag, selected, onSelect
         {memberCount} members · v{block.boundary_version} · {ratifyWord}
       </div>
 
+      {/* Boundary-moved badge (F3b §C): the block was reconciled and carries evidence
+          earned against an older boundary — discreet amber warn, never an alarm. */}
+      {rollup.boundaryStale && (
+        <div className="mt-1">
+          <span
+            data-role="boundary-badge"
+            className="inline-flex items-center gap-1 text-[10px] font-mono text-verdict-reverify border border-verdict-reverify/40 bg-verdict-reverify-tint/40 rounded px-1.5 py-0.5"
+            title="the boundary moved — some receipts predate the current membership"
+          >
+            ⚠ boundary v{block.boundary_version}
+          </span>
+        </div>
+      )}
+
       <div className="flex-1" />
 
       {/* Footer: receipts M/N · state, and the proof ring (vN). */}

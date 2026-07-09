@@ -5,6 +5,13 @@
  * read-only: the render never calls a mutating verb (the runtime overlay is NOT
  * touched here — F0-TECH §6). A graph-snapshot failure is best-effort: members
  * stay neutral ("not scanned yet"), never blanking the map. Mirrors useTreeData.
+ *
+ * §4A.9 (multi-brain owner): `brainRoot` routes BOTH reads to a hosted project
+ * brain via the `?brain=` selector — on a multi-brain owner the BOUND brain is not
+ * necessarily the one holding the skeleton, so a bound-only read leaves the map
+ * blind. `null` = the bound brain (no selector — byte-compatible with F1). The
+ * fetch heart is extracted as `loadBuildMap` so the routing is provable DOM-free
+ * (the repo's liveRefreshCore pattern for hook tests).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
@@ -29,7 +36,7 @@ export interface BuildMapData {
   reload: () => void;
 }
 
-type MemberState = 'broken' | 'erosion' | 'ok';
+export type MemberState = 'broken' | 'erosion' | 'ok';
 
 /**
  * Read repo-relative path → xray state from the graph snapshot's persisted
@@ -60,7 +67,55 @@ export function memberStatesFrom(snap: GraphSnapshot | null): Map<string, Member
   return m;
 }
 
-export function useBuildMap(enabled: boolean = true, refreshKey = 0): BuildMapData {
+/** The sinks `loadBuildMap` writes through — the hook's setters, injectable so the
+ *  fetch heart is testable without a DOM (a test passes recorders). */
+export interface BuildMapSinks {
+  isMounted: () => boolean;
+  setSnapshot: (snap: SystemBlocksSnapshot) => void;
+  setMemberStates: (m: Map<string, MemberState>) => void;
+  setStatus: (s: BuildMapStatus) => void;
+  setError: (e: string) => void;
+}
+
+/**
+ * The Build Map's fetch heart, extracted from the hook effect (behavior-identical:
+ * same setter interleave, so the map still paints on the store BEFORE the graph
+ * snapshot resolves). `brainRoot` rides both doors as the `?brain=` selector
+ * (§4A.9) — `/api/tools/system_blocks_snapshot` and `/api/graph/snapshot` both
+ * accept it on the owner; `null` leaves the URLs untouched (the bound brain).
+ * A graph-snapshot failure keeps members neutral, never blanking the map.
+ */
+export async function loadBuildMap(brainRoot: string | null, sinks: BuildMapSinks): Promise<void> {
+  try {
+    const snap = await api.systemBlocksSnapshot(brainRoot);
+    if (!sinks.isMounted()) return;
+    sinks.setSnapshot(snap);
+    if (!snap?.present || !snap.store) {
+      sinks.setMemberStates(new Map());
+      sinks.setStatus('empty');
+      return;
+    }
+    sinks.setStatus('ready');
+    // Best-effort xray tags for member states; a failure leaves members
+    // neutral (the honest day-1 truth), never blanks the map.
+    try {
+      const graph = await api.graphSnapshot(brainRoot);
+      if (sinks.isMounted()) sinks.setMemberStates(memberStatesFrom(graph));
+    } catch {
+      if (sinks.isMounted()) sinks.setMemberStates(new Map());
+    }
+  } catch (err) {
+    if (!sinks.isMounted()) return;
+    sinks.setError(err instanceof Error ? err.message : 'failed to load the build map');
+    sinks.setStatus('error');
+  }
+}
+
+export function useBuildMap(
+  enabled: boolean = true,
+  brainRoot: string | null = null,
+  refreshKey = 0,
+): BuildMapData {
   const [status, setStatus] = useState<BuildMapStatus>('loading');
   const [snapshot, setSnapshot] = useState<SystemBlocksSnapshot | null>(null);
   const [memberStates, setMemberStates] = useState<Map<string, MemberState>>(new Map());
@@ -73,35 +128,17 @@ export function useBuildMap(enabled: boolean = true, refreshKey = 0): BuildMapDa
     let mounted = true;
     setStatus('loading');
     setError(null);
-    (async () => {
-      try {
-        const snap = await api.systemBlocksSnapshot();
-        if (!mounted) return;
-        setSnapshot(snap);
-        if (!snap?.present || !snap.store) {
-          setMemberStates(new Map());
-          setStatus('empty');
-          return;
-        }
-        setStatus('ready');
-        // Best-effort xray tags for member states; a failure leaves members
-        // neutral (the honest day-1 truth), never blanks the map.
-        try {
-          const graph = await api.graphSnapshot();
-          if (mounted) setMemberStates(memberStatesFrom(graph));
-        } catch {
-          if (mounted) setMemberStates(new Map());
-        }
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : 'failed to load the build map');
-        setStatus('error');
-      }
-    })();
+    void loadBuildMap(brainRoot, {
+      isMounted: () => mounted,
+      setSnapshot,
+      setMemberStates,
+      setStatus,
+      setError,
+    });
     return () => {
       mounted = false;
     };
-  }, [enabled, tick, refreshKey]);
+  }, [enabled, brainRoot, tick, refreshKey]);
 
   const store = snapshot?.present ? snapshot.store ?? null : null;
   const rollup = useMemo(() => (store ? rollupStore(store, memberStates) : null), [store, memberStates]);

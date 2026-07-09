@@ -8,7 +8,7 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
-import type { SystemBlocksSnapshot } from '../lib/buildMap';
+import type { ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -152,6 +152,24 @@ export const api = {
     apiFetch<{ result: SystemBlocksSnapshot }>(
       withBrain('/api/tools/system_blocks_snapshot', brain),
       { method: 'POST', body: JSON.stringify({ agent_id: 'gui' }) },
+    ).then((r) => r.result),
+
+  /**
+   * The Build Map's reconcile gesture (HUMAN-VIEW-V2 F3b) — the `system_blocks_reconcile`
+   * WRITE verb (Slice 3). Resolves every block's membership against the real file
+   * list, bumps moved boundaries, and surfaces the real unmapped. OCC-keyed on the
+   * `expected_store_version` the caller read: a stale version rejects with a
+   * `conflict` (nothing applied); under a read-only attach the verb is refused. Bare
+   * tool route, agent_id 'gui', unwrapping the `{result}` envelope like the snapshot
+   * read. §4A.9: `brain` scopes the write to a hosted brain (absent = the bound graph).
+   */
+  systemBlocksReconcile: (expectedStoreVersion: number, brain?: string | null) =>
+    apiFetch<{ result: ReconcileReport }>(
+      withBrain('/api/tools/system_blocks_reconcile', brain),
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: 'gui', expected_store_version: expectedStoreVersion }),
+      },
     ).then((r) => r.result),
 
   /**

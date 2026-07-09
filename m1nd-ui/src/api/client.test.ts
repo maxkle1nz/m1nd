@@ -82,3 +82,36 @@ test('§4A.9: an empty/whitespace brain is treated as absent (bound)', async () 
   await api.tool('trust', {}, '   ');
   assert.doesNotMatch(urls[0], /[?&]brain=/, 'a blank selector is the bound graph');
 });
+
+// ── F3b: the reconcile write verb ─────────────────────────────────────────────
+
+/** Like spyFetch, but also records the POST bodies so we can assert the OCC key. */
+function spyFetchBodies(body: unknown) {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fake = mock.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, statusText: 'OK', json: async () => body } as unknown as Response;
+  });
+  globalThis.fetch = fake as unknown as typeof fetch;
+  return calls;
+}
+
+test('systemBlocksReconcile POSTs the bare tool route with agent_id + the OCC key, unwrapping {result}', async () => {
+  const report = { dirty: true, blocks: [], unmapped_total: 5, unmapped_materialized: 5, store_version: 8, file_count: 100 };
+  const calls = spyFetchBodies({ result: report });
+  const got = await api.systemBlocksReconcile(7);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/tools\/system_blocks_reconcile$/, 'the bare tool route');
+  assert.equal(calls[0].init?.method, 'POST');
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.equal(sent.agent_id, 'gui', 'the GUI agent id');
+  assert.equal(sent.expected_store_version, 7, 'the OCC key it read from the snapshot');
+  assert.deepEqual(got, report, 'the {result} envelope is unwrapped to the report');
+});
+
+test('§4A.9: systemBlocksReconcile carries ?brain= when a hosted brain is viewed', async () => {
+  const calls = spyFetchBodies({ result: {} });
+  await api.systemBlocksReconcile(1, CHERRY);
+  assert.match(calls[0].url, /\/api\/tools\/system_blocks_reconcile\?brain=/);
+  assert.ok(calls[0].url.includes(ENCODED));
+});

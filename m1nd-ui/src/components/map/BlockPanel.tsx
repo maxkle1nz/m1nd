@@ -9,9 +9,21 @@
  * with a tooltip naming F2 — an affordance without a surface is never a live but
  * dead button (INV-11). Copy law holds: no "proven/done/correct".
  */
-import type { BlockRollup, SystemBlock } from '../../lib/buildMap';
-import { STATE_LABEL, domainTag as toDomainTag, membershipByRole } from '../../lib/buildMap';
+import type { BlockRollup, Receipt, SystemBlock } from '../../lib/buildMap';
+import { STATE_LABEL, domainTag as toDomainTag, membershipByRole, receiptFreshness } from '../../lib/buildMap';
 import { Icon } from '../../lib/icons/registry';
+
+/** The honest per-receipt freshness marker (F3b §C). A boundary-stale receipt names
+ *  both versions ("boundary v1 < v2") so the drift is legible; other stale reasons
+ *  read plainly; fresh is a calm "fresh". Copy law: never "proven/done/correct". */
+function freshnessLabel(receipt: Receipt, block: SystemBlock): { stale: boolean; text: string } {
+  const f = receiptFreshness(receipt, block);
+  if (f.fresh) return { stale: false, text: 'fresh' };
+  if (f.reason === 'boundary') {
+    return { stale: true, text: `— stale (boundary v${receipt.scope.boundary_version} < v${block.boundary_version})` };
+  }
+  return { stale: true, text: `— stale (${f.reason})` };
+}
 
 export interface BlockPanelProps {
   block: SystemBlock;
@@ -88,6 +100,35 @@ export default function BlockPanel({ block, rollup, repoId, onShowCode, onAskAge
         <p className="text-[10px] text-ink-soft mt-1.5">
           optional (never counted): {block.receipt_contract.optional.map((o) => o.type).join(' · ')}
         </p>
+      )}
+
+      {/* The evidence itself (F3b §C) — the actual receipts, each with its honest
+          freshness. When the boundary moved, a note above the list says so, and each
+          receipt earned against an older boundary is marked stale with the reason. */}
+      {block.receipts.length > 0 && (
+        <div className="mt-2.5" data-role="evidence">
+          {rollup.boundaryStale && (
+            <p className="text-[10px] text-verdict-reverify mb-1" data-role="boundary-stale-note">
+              boundary changed — evidence below predates the current membership
+            </p>
+          )}
+          <ul className="space-y-0.5">
+            {block.receipts.map((r, i) => {
+              const f = freshnessLabel(r, block);
+              return (
+                <li
+                  key={i}
+                  data-role="evidence-receipt"
+                  data-stale={f.stale}
+                  className="text-[11px] font-mono flex items-center justify-between gap-2"
+                >
+                  <span className="text-ink">{r.type}</span>
+                  <span className={f.stale ? 'text-verdict-reverify' : 'text-verdict-act'}>{f.text}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <div className="my-3 border-t border-ink/10" />
