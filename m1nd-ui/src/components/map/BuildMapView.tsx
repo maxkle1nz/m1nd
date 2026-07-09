@@ -21,9 +21,17 @@ export interface BuildMapViewProps {
    *  reconcile write through the `?brain=` selector, so a multi-brain owner shows
    *  the skeleton of the brain the human is actually viewing. */
   brainRoot?: string | null;
+  /** F2.5 §3b — the block a mission-tray card asked to open. Seeds (and re-seeds)
+   *  the map's selection so the human lands on the named block. */
+  selectedBlockId?: string | null;
 }
 
-export default function BuildMapView({ onOpenTree, enabled = true, brainRoot = null }: BuildMapViewProps) {
+export default function BuildMapView({
+  onOpenTree,
+  enabled = true,
+  brainRoot = null,
+  selectedBlockId = null,
+}: BuildMapViewProps) {
   const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot);
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
@@ -85,6 +93,7 @@ export default function BuildMapView({ onOpenTree, enabled = true, brainRoot = n
       snapshot={snapshot ?? { present: false }}
       rollup={rollup}
       brainRoot={brainRoot}
+      initialSelectedId={selectedBlockId}
       onOpenTree={onOpenTree}
       onReconcile={handleReconcile}
       reconciling={reconciling}

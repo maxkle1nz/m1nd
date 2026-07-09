@@ -15,6 +15,7 @@ import BrainChip from './components/hall/BrainChip';
 import ThresholdCard from './components/hall/ThresholdCard';
 import OrientationBeats from './components/hall/OrientationBeats';
 import BrainPalette from './components/hall/BrainPalette';
+import MissionTrayLive from './components/tray/MissionTrayLive';
 import { useToastStore } from './stores/toastStore';
 import ToastContainer from './components/ToastContainer';
 import { useSSE } from './hooks/useSSE';
@@ -355,6 +356,9 @@ export default function App() {
   // The brain the tree is viewing (§4A.9). Bound by default (byte-compatible);
   // Open on a hosted card sets it and switches to the tree.
   const [viewedBrain, setViewedBrain] = useState<ViewedBrain>(BOUND_VIEW);
+  // The block a mission-tray card asked to open on the map (F2.5 §3b). Seeds the
+  // Build Map's selection so a tray click lands the human on the named block.
+  const [mapTargetBlock, setMapTargetBlock] = useState<string | null>(null);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
   // The Build Map snapshot does NOT depend on the graph: an 'empty' owner (no
@@ -391,6 +395,14 @@ export default function App() {
     },
     [],
   );
+
+  // A mission-tray card asked to open its block (F2.5 §3b): seed the map's selection
+  // and switch to the map surface (the tray is fixed on every surface, so this works
+  // from tree/hall/map alike).
+  const onOpenBlock = useCallback((blockId: string) => {
+    setMapTargetBlock(blockId);
+    setSurface('map');
+  }, []);
 
   // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine).
   // HUMAN-VIEW-V2 front door: the Build Map LEADS when a ratified skeleton is
@@ -515,11 +527,22 @@ export default function App() {
               onOpenTree={() => setSurface('tree')}
               enabled={backendReachable}
               brainRoot={viewedBrain.root}
+              selectedBlockId={mapTargetBlock}
             />
           ) : (
             <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}
         </div>
+
+        {/* The MISSION TRAY (F2.5 §3) — fixed on every working surface, outside the
+            surface switch. Not on the Threshold (no brain yet → no missions to track). */}
+        {surface != null && surface !== 'threshold' && (
+          <MissionTrayLive
+            viewedBrain={viewedBrain}
+            enabled={backendReachable}
+            onOpenBlock={onOpenBlock}
+          />
+        )}
 
         {/* The 3-beat orientation (§4A.2) — only after a fresh bootstrap, never returns. */}
         {orienting && surface === 'tree' && typeof window !== 'undefined' && (

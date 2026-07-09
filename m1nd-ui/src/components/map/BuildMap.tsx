@@ -9,7 +9,7 @@
  * Read-only by construction: no engine write renders this. It manages only local
  * selection; every datum is a projection of the ratified skeleton.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   canvasSize,
   domainTag,
@@ -121,6 +121,13 @@ export default function BuildMap({
   const store = snapshot.present ? snapshot.store ?? null : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [modal, setModal] = useState<MapModal>(null);
+
+  // F2.5 §3b — when the mission tray asks to open a block while the map is already
+  // mounted, `initialSelectedId` changes: follow it so the tray click lands the
+  // selection. (No-op in SSR — effects don't run under renderToStaticMarkup.)
+  useEffect(() => {
+    if (initialSelectedId != null) setSelectedId(initialSelectedId);
+  }, [initialSelectedId]);
 
   if (!store || !rollup) {
     return <BuildMapEmpty honest={snapshot.honest ?? null} />;
@@ -261,6 +268,7 @@ export default function BuildMap({
           rollup={modalRollup}
           repoId={repoId}
           subPath={modal.subPath}
+          brainRoot={brainRoot}
           onClose={() => setModal(null)}
         />
       )}
