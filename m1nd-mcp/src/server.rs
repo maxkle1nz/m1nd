@@ -6020,6 +6020,57 @@ mod tests {
     }
 
     #[test]
+    fn mission_post_refuses_a_brain_ref_that_is_not_the_bound_brain() {
+        // The brain guard: a session bound to a real code root refuses a letter
+        // naming a DIFFERENT brain_ref — the silent mis-route becomes an honest
+        // refusal. A matching ref posts; the medulla fallback (no root) stays
+        // permissive (covered by the end-to-end test above, whose state has no
+        // bound root).
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("project-a");
+        std::fs::create_dir_all(repo.join(".git")).expect("repo dir with .git");
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+
+        let letter = serde_json::json!({
+            "schema": "m1nd-mission-letter-v0",
+            "mission_id": "msn_0123456789ab",
+            "mission_seq": 1,
+            "block_id": "sb_x",
+            "brain_ref": "some-other-brain",
+            "seat": "hand",
+            "capability": "build-runner",
+            "phase": "judging",
+            "packet_ref": "sha256:abc",
+            "tokens_total": 0,
+            "started_at": "2026-07-09T00:00:00Z",
+            "updated_at": "2026-07-09T00:00:00Z",
+        });
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": letter}),
+        )
+        .expect_err("a mismatched brain_ref must refuse");
+        let msg = err.to_string();
+        assert!(msg.contains("brain_mismatch"), "got: {msg}");
+        assert!(
+            msg.contains("project-a"),
+            "the refusal names the bound brain: {msg}"
+        );
+
+        // The same letter naming the BOUND brain posts cleanly.
+        let mut ok_letter = letter;
+        ok_letter["brain_ref"] = serde_json::json!("project-a");
+        let out = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": ok_letter}),
+        )
+        .expect("a matching brain_ref posts");
+        assert_eq!(out["mission_seq"], 1);
+    }
+
+    #[test]
     fn mission_post_is_wired_end_to_end_with_head_cas() {
         let (_temp, mut state) = build_state();
 

@@ -58,6 +58,27 @@ fn mission_err(err: MissionLetterError) -> M1ndError {
 /// line — reusing the mailbox append/dedup. A stale head returns `stale_head` and
 /// nothing is appended; an identical replay dedups (idempotent).
 pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) -> M1ndResult<Value> {
+    // The brain guard (field-hardening, proposed by the first external hand agent
+    // after living the trap): a letter whose `brain_ref` does not name the brain
+    // THIS session is bound to would land silently in the WRONG box — the exact
+    // mis-route that hit both the hand agent and the tray on day one. Refuse
+    // honestly instead. `brain_ref` matches the bound brain's display name (the
+    // §4A.9 echo identity). A medulla-bound session (no code root) has no display
+    // and accepts any ref — the memory-only box is an explicit fallback, not a
+    // mis-route.
+    if let Some(bound) = state.code_root_display_name() {
+        if input.letter.brain_ref != bound {
+            return Err(M1ndError::InvalidParams {
+                tool: "mission_post".to_string(),
+                detail: format!(
+                    "brain_mismatch: the letter names brain_ref '{}' but this session is bound \
+                     to '{}' — bind to the right brain (ingest project_root=<its root>) or fix \
+                     the letter; nothing was appended",
+                    input.letter.brain_ref, bound
+                ),
+            });
+        }
+    }
     let box_path = mission_box_path(state);
     let outcome = mission_letter::post_mission_letter(&box_path, &input.agent_id, &input.letter)
         .map_err(mission_err)?;
