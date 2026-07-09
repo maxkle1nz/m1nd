@@ -37,6 +37,24 @@ pub struct SystemBlock {
     pub receipts: Vec<Receipt>,
     pub layout: Layout,
     pub unmapped_residue: Vec<String>,
+    /// Slice 3 reconcile state — the sha256 of this block's effective resolved
+    /// membership (the ordered set of real files it claims). `None` until the first
+    /// reconcile writes the honest baseline (no bump). A later reconcile whose
+    /// fingerprint differs from a present one bumps `boundary_version` (the boundary
+    /// moved). `serde(default)` so a Slice-1/2 seed or store loads clean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_fingerprint: Option<String>,
+    /// Slice 3 reconcile cache — the ordered effective membership the fingerprint
+    /// was taken over. The `added`/`removed` diff of the next reconcile is computed
+    /// against this (the resolution cache foreseen by F0-TECH §2). Never part of the
+    /// seed's byte-stable roundtrip (skipped when empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_members: Vec<String>,
+    /// Slice 3 archive state — the block's state BEFORE it was archived, so a
+    /// restore returns it to its real prior state (`ratified`/`candidate`) instead
+    /// of fabricating one. `Some` only while archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_archive_state: Option<SystemBlockState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -414,6 +432,11 @@ pub enum SeedError {
         receipt_type: String,
         missing: String,
     },
+    /// A delete was attempted without `force:true` (F0a §8). Deleting drops the block
+    /// and all its receipts permanently — the honest refusal points at archive.
+    DeleteRequiresForce {
+        block_id: String,
+    },
 }
 
 impl fmt::Display for SeedError {
@@ -472,6 +495,10 @@ impl fmt::Display for SeedError {
             } => write!(
                 f,
                 "receipt evidence incomplete for a `{receipt_type}` receipt: missing {missing}"
+            ),
+            SeedError::DeleteRequiresForce { block_id } => write!(
+                f,
+                "refusing to delete block `{block_id}` without force:true — a delete drops the block and all its receipts permanently; archive it instead (system_blocks_archive) to keep the history, or pass force:true to really delete (nothing was applied)"
             ),
         }
     }
@@ -711,6 +738,10 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn is_zero_usize(value: &usize) -> bool {
+    *value == 0
+}
+
 // ===========================================================================
 // Slice 2 — the live sidecar store (`m1nd-system-block-store-v0`).
 //
@@ -739,6 +770,17 @@ pub struct SystemBlockStore {
     pub skeleton: SeedSkeleton,
     pub blocks: Vec<SystemBlock>,
     pub unmapped_policy: UnmappedPolicy,
+    /// Slice 3 reconcile output — the REAL unmapped: repo files claimed by NO block
+    /// (F7: unmapped is never hidden). Materialized capped at [`UNMAPPED_FILES_CAP`]
+    /// so the store stays bounded; the honest full count lives in `unmapped_total`.
+    /// `serde(default)` + skip-empty so a Slice-1/2 store loads and roundtrips clean.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unmapped_files: Vec<String>,
+    /// The honest TOTAL number of unmapped files, even when `unmapped_files` was
+    /// capped. Zero until the first reconcile; skipped from JSON while zero so a
+    /// pre-Slice-3 store is byte-identical.
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub unmapped_total: usize,
 }
 
 /// What a ratify transaction changed.
@@ -772,6 +814,9 @@ impl SystemBlockStore {
             skeleton: seed.skeleton,
             blocks: seed.blocks,
             unmapped_policy: seed.unmapped_policy,
+            // Reconcile output — empty until the first `reconcile_store` pass.
+            unmapped_files: Vec::new(),
+            unmapped_total: 0,
         }
     }
 
@@ -977,6 +1022,644 @@ pub fn import_receipt_in_dir(
     store.import_receipt(expected_store_version, block_id, receipt)?;
     store.save(dir)?;
     Ok(store)
+}
+
+// ===========================================================================
+// Slice 3 — the reconciliation engine (the "architectural git status").
+//
+// The skeleton reacts to files entering/leaving the repo WITHOUT lying:
+// - each block's declared membership (exact paths + globs) is resolved against a
+//   real file list into an effective member set and a deterministic fingerprint
+//   (HUMAN-VIEW-V2-F0-TECH §2);
+// - when a block's resolved set changes, its `boundary_version` bumps — which, by
+//   the EXISTING rollup law (PRD §5) and the EXISTING `stale_scope` gate
+//   (import_receipt), makes every receipt earned against the older boundary stale
+//   BY SCOPE, with no new staleness code (see `reconcile_boundary_bump_...` tests);
+// - files claimed by NO block are surfaced as the real unmapped (PRD F7);
+// - archive/delete let the owner retire a block honestly (§8).
+// The engine (`reconcile_store`, `receipt_recompute`) is PURE — the file list is
+// injected; the OCC/persistence wrappers (`*_in_dir`) own version + disk.
+// ===========================================================================
+
+use std::collections::BTreeSet;
+
+/// How many unmapped paths the store MATERIALIZES. Unmapped is never hidden (F7),
+/// but the store stays bounded — `unmapped_total` always carries the honest full
+/// count even when the stored sample is capped at this limit.
+pub const UNMAPPED_FILES_CAP: usize = 500;
+
+/// Whether a membership `path` is a glob pattern (claims a SET of files) rather than
+/// an exact path. Mirrors the metacharacters `glob::Pattern` recognizes.
+fn is_glob_pattern(path: &str) -> bool {
+    path.contains(['*', '?', '['])
+}
+
+/// The deterministic fingerprint of a block's resolved membership: `sha256:` + the
+/// hex digest of the SORTED, newline-joined member set. Two reconciles that resolve
+/// the identical set of real files produce the identical fingerprint; any add or
+/// remove flips it. (`sha2` is already a direct dependency — see mailbox.rs.)
+fn membership_fingerprint(sorted_members: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for m in sorted_members {
+        hasher.update(m.as_bytes());
+        hasher.update(b"\n");
+    }
+    format!("sha256:{:x}", hasher.finalize())
+}
+
+/// Resolve a block's EFFECTIVE membership against a real file list. Exact-path
+/// members that exist join the resolved set; exact-path members that are ABSENT are
+/// reported `missing`; glob members expand to every matching path (matched on the
+/// full repo-relative path with `glob::Pattern`'s default options, where `*`/`**`
+/// cross `/` — the "claim this subtree" semantics the seed globs intend). Returns
+/// `(resolved, missing)`, both sorted + deduped (via `BTreeSet`) for determinism.
+fn resolve_block_membership(
+    block: &SystemBlock,
+    file_list: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut resolved: BTreeSet<String> = BTreeSet::new();
+    let mut missing: BTreeSet<String> = BTreeSet::new();
+    for entry in &block.membership {
+        if is_glob_pattern(&entry.path) {
+            // A malformed pattern claims nothing (it also cannot match a literal).
+            if let Ok(pat) = glob::Pattern::new(&entry.path) {
+                for f in file_list {
+                    if pat.matches(f) {
+                        resolved.insert(f.clone());
+                    }
+                }
+            }
+        } else if file_list.iter().any(|f| f == &entry.path) {
+            resolved.insert(entry.path.clone());
+        } else {
+            missing.insert(entry.path.clone());
+        }
+    }
+    (
+        resolved.into_iter().collect(),
+        missing.into_iter().collect(),
+    )
+}
+
+/// A block's outcome in one reconcile pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReconcileOutcome {
+    /// First reconcile of this block — the ratified boundary fingerprint is recorded
+    /// (no `boundary_version` bump). The ratified fronteira IS this set (honest
+    /// baseline).
+    Baseline,
+    /// The resolved membership changed vs the recorded fingerprint — `boundary_version`
+    /// was bumped by one.
+    Bumped,
+    /// The resolved membership is byte-identical to the recorded fingerprint.
+    Unchanged,
+}
+
+/// Per-block reconcile detail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BlockReconcile {
+    pub block_id: String,
+    pub outcome: ReconcileOutcome,
+    /// The block's `boundary_version` AFTER this pass.
+    pub boundary_version: u32,
+    /// How many real files the block now resolves to.
+    pub resolved_count: usize,
+    /// Files that entered the block's resolved set (only on `Bumped`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub added: Vec<String>,
+    /// Files that left the block's resolved set (only on `Bumped`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<String>,
+    /// Declared EXACT members that are absent from the file list (an honest
+    /// "declared but gone", reported on any outcome).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
+}
+
+/// The whole-store reconcile report (ESCOPO A). Serializable so a verb can embed it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReconcileReport {
+    /// True iff this reconcile changed PERSISTED state — a baseline fingerprint
+    /// write, a boundary bump, or a change in the unmapped set. A no-op reconcile is
+    /// `false` and costs NO `store_version` bump: reconcile is idempotent.
+    pub dirty: bool,
+    /// Every block's outcome, in store order.
+    pub blocks: Vec<BlockReconcile>,
+    /// Convenience: the ids of blocks whose `boundary_version` bumped this pass.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bumped_block_ids: Vec<String>,
+    /// The honest TOTAL count of files claimed by no block (never capped).
+    pub unmapped_total: usize,
+    /// How many unmapped paths were materialized into the store (≤ the cap).
+    pub unmapped_materialized: usize,
+    /// The honest staleness note — present iff at least one boundary bumped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// The pure reconciliation engine (ESCOPO A). Deterministic over `(store,
+/// file_list)`; performs NO I/O and does NOT touch `store_version` or OCC (the verb
+/// wrapper owns those). For each block it resolves the effective membership, records
+/// the fingerprint (baseline) or bumps `boundary_version` (change), refreshes the
+/// `resolved_members` cache, and accumulates the real unmapped into the store. The
+/// returned [`ReconcileReport`] carries `dirty` so the OCC wrapper knows whether to
+/// bump + persist.
+pub fn reconcile_store(store: &mut SystemBlockStore, file_list: &[String]) -> ReconcileReport {
+    let mut blocks_report = Vec::with_capacity(store.blocks.len());
+    let mut bumped_block_ids = Vec::new();
+    let mut claimed: BTreeSet<String> = BTreeSet::new();
+    let mut dirty = false;
+    let mut any_bump = false;
+
+    for block in store.blocks.iter_mut() {
+        let (resolved, missing) = resolve_block_membership(block, file_list);
+        for r in &resolved {
+            claimed.insert(r.clone());
+        }
+        let new_fp = membership_fingerprint(&resolved);
+
+        let (outcome, added, removed) = match &block.membership_fingerprint {
+            None => {
+                // Baseline: record the ratified fronteira; no boundary bump.
+                block.membership_fingerprint = Some(new_fp);
+                block.resolved_members = resolved.clone();
+                dirty = true;
+                (ReconcileOutcome::Baseline, Vec::new(), Vec::new())
+            }
+            Some(prev_fp) if prev_fp == &new_fp => {
+                (ReconcileOutcome::Unchanged, Vec::new(), Vec::new())
+            }
+            Some(_) => {
+                // The fronteira moved — diff against the cache, then bump + refresh.
+                let old: BTreeSet<&String> = block.resolved_members.iter().collect();
+                let new: BTreeSet<&String> = resolved.iter().collect();
+                let added: Vec<String> = new.difference(&old).map(|s| (*s).clone()).collect();
+                let removed: Vec<String> = old.difference(&new).map(|s| (*s).clone()).collect();
+                block.boundary_version = block.boundary_version.saturating_add(1);
+                block.membership_fingerprint = Some(new_fp);
+                block.resolved_members = resolved.clone();
+                bumped_block_ids.push(block.block_id.clone());
+                dirty = true;
+                any_bump = true;
+                (ReconcileOutcome::Bumped, added, removed)
+            }
+        };
+
+        blocks_report.push(BlockReconcile {
+            block_id: block.block_id.clone(),
+            outcome,
+            boundary_version: block.boundary_version,
+            resolved_count: resolved.len(),
+            added,
+            removed,
+            missing,
+        });
+    }
+
+    // The REAL unmapped: files claimed by NO block (F7 — never hidden). Sorted +
+    // deduped for a deterministic store; the total is honest even when capped.
+    let unmapped: Vec<String> = file_list
+        .iter()
+        .filter(|f| !claimed.contains(*f))
+        .cloned()
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    let unmapped_total = unmapped.len();
+    let materialized: Vec<String> = unmapped.into_iter().take(UNMAPPED_FILES_CAP).collect();
+    if store.unmapped_files != materialized || store.unmapped_total != unmapped_total {
+        dirty = true;
+    }
+    store.unmapped_files = materialized;
+    store.unmapped_total = unmapped_total;
+
+    let note = if any_bump {
+        Some(
+            "receipts previously earned against older boundaries are now stale by scope"
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
+    ReconcileReport {
+        dirty,
+        blocks: blocks_report,
+        bumped_block_ids,
+        unmapped_total,
+        unmapped_materialized: store.unmapped_files.len(),
+        note,
+    }
+}
+
+/// Archive/restore mode for [`SystemBlockStore::set_archive`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveMode {
+    Archive,
+    Restore,
+}
+
+impl ArchiveMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            ArchiveMode::Archive => "archive",
+            ArchiveMode::Restore => "restore",
+        }
+    }
+}
+
+/// What an archive/restore transaction changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArchiveSummary {
+    pub mode: String,
+    /// Blocks whose state actually flipped (already-in-target-state blocks are a
+    /// silent idempotent no-op, not listed).
+    pub changed_block_ids: Vec<String>,
+    pub store_version: u64,
+}
+
+/// What a delete transaction removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeleteSummary {
+    pub deleted_block_id: String,
+    /// How many receipts died with the block (the honest cost of a delete).
+    pub receipts_removed: usize,
+    pub store_version: u64,
+}
+
+/// Per-receipt freshness in a [`RecomputeReport`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReceiptStatus {
+    pub block_id: String,
+    pub receipt_index: usize,
+    pub receipt_type: String,
+    pub fresh: bool,
+    /// When stale, the FIRST failing reason: `block` | `boundary` | `contract` |
+    /// `expired`. Absent when fresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// The receipt-recompute report (ESCOPO C.2) — a pure READ; history is never
+/// deleted, the report IS the truth.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecomputeReport {
+    pub block_count: usize,
+    pub receipt_count: usize,
+    pub fresh_count: usize,
+    pub stale_count: usize,
+    pub receipts: Vec<ReceiptStatus>,
+}
+
+/// The first reason a receipt is stale against its block + `now`, or `None` if
+/// fresh. A receipt is FRESH iff its scope still binds to the block's CURRENT
+/// `(block_id, boundary_version, contract_version)` AND it has not expired.
+fn receipt_stale_reason(block: &SystemBlock, receipt: &Receipt, now: &str) -> Option<String> {
+    if receipt.scope.block_id != block.block_id {
+        return Some("block".to_string());
+    }
+    if receipt.scope.boundary_version != block.boundary_version {
+        return Some("boundary".to_string());
+    }
+    if receipt.scope.contract_version != block.contract_version {
+        return Some("contract".to_string());
+    }
+    if let Some(expires_on) = &receipt.validity.expires_on {
+        // RFC3339 UTC stamps (fixed-width, `Z`) compare lexicographically. Best-effort
+        // for a non-canonical stamp — a same-shape compare is correct.
+        if expires_on.as_str() < now {
+            return Some("expired".to_string());
+        }
+    }
+    None
+}
+
+/// Recompute receipt freshness (ESCOPO C.2). PURE READ — never mutates; the report
+/// IS the truth (`stale` is derived, not materialized: history stays intact). A
+/// named `block_id` that is absent is a hard [`SeedError::BlockNotFound`] (no silent
+/// skip); `None` recomputes every block.
+pub fn receipt_recompute(
+    store: &SystemBlockStore,
+    block_id: Option<&str>,
+    now: &str,
+) -> Result<RecomputeReport, SeedError> {
+    if let Some(id) = block_id {
+        if !store.blocks.iter().any(|b| b.block_id.as_str() == id) {
+            return Err(SeedError::BlockNotFound {
+                block_id: id.to_string(),
+            });
+        }
+    }
+    let mut receipts = Vec::new();
+    let mut block_count = 0usize;
+    for block in &store.blocks {
+        if let Some(id) = block_id {
+            if block.block_id.as_str() != id {
+                continue;
+            }
+        }
+        block_count += 1;
+        for (i, r) in block.receipts.iter().enumerate() {
+            let reason = receipt_stale_reason(block, r, now);
+            receipts.push(ReceiptStatus {
+                block_id: block.block_id.clone(),
+                receipt_index: i,
+                receipt_type: receipt_type_str(r.type_).to_string(),
+                fresh: reason.is_none(),
+                reason,
+            });
+        }
+    }
+    let receipt_count = receipts.len();
+    let fresh_count = receipts.iter().filter(|s| s.fresh).count();
+    Ok(RecomputeReport {
+        block_count,
+        receipt_count,
+        fresh_count,
+        stale_count: receipt_count - fresh_count,
+        receipts,
+    })
+}
+
+impl SystemBlockStore {
+    /// Reconcile the store against a real file list (ESCOPO C.1). OCC-checked (PRD
+    /// §3.1): a stale `expected` is rejected with [`SeedError::Conflict`] and NOTHING
+    /// is mutated. The WHOLE reconcile is one atomic mutation — on any change,
+    /// `store_version` is bumped exactly ONCE; a no-op reconcile leaves the version
+    /// intact (idempotent).
+    pub fn reconcile(
+        &mut self,
+        expected_store_version: u64,
+        file_list: &[String],
+    ) -> Result<ReconcileReport, SeedError> {
+        if expected_store_version != self.store_version {
+            return Err(SeedError::Conflict {
+                expected: expected_store_version,
+                actual: self.store_version,
+            });
+        }
+        let report = reconcile_store(self, file_list);
+        if report.dirty {
+            self.store_version += 1;
+        }
+        Ok(report)
+    }
+
+    /// Archive or restore blocks (ESCOPO C.3). OCC-checked; an unknown id fails
+    /// BEFORE any mutation ([`SeedError::BlockNotFound`]). Archive records the block's
+    /// prior state in `pre_archive_state` then flips it to `Archived`; restore returns
+    /// it to that REAL prior state (falling back to `Restored` only if none was
+    /// recorded). Already-in-target-state blocks are a silent idempotent no-op. Only a
+    /// real change bumps `store_version`.
+    pub fn set_archive(
+        &mut self,
+        expected_store_version: u64,
+        block_ids: &[String],
+        mode: ArchiveMode,
+    ) -> Result<ArchiveSummary, SeedError> {
+        if expected_store_version != self.store_version {
+            return Err(SeedError::Conflict {
+                expected: expected_store_version,
+                actual: self.store_version,
+            });
+        }
+        for id in block_ids {
+            if !self
+                .blocks
+                .iter()
+                .any(|b| b.block_id.as_str() == id.as_str())
+            {
+                return Err(SeedError::BlockNotFound {
+                    block_id: id.clone(),
+                });
+            }
+        }
+        let mut changed = Vec::new();
+        for block in self.blocks.iter_mut() {
+            if !block_ids
+                .iter()
+                .any(|id| id.as_str() == block.block_id.as_str())
+            {
+                continue;
+            }
+            match mode {
+                ArchiveMode::Archive => {
+                    if block.state != SystemBlockState::Archived {
+                        block.pre_archive_state = Some(block.state);
+                        block.state = SystemBlockState::Archived;
+                        changed.push(block.block_id.clone());
+                    }
+                }
+                ArchiveMode::Restore => {
+                    if block.state == SystemBlockState::Archived {
+                        block.state = block
+                            .pre_archive_state
+                            .take()
+                            .unwrap_or(SystemBlockState::Restored);
+                        changed.push(block.block_id.clone());
+                    }
+                }
+            }
+        }
+        if !changed.is_empty() {
+            self.store_version += 1;
+        }
+        Ok(ArchiveSummary {
+            mode: mode.as_str().to_string(),
+            changed_block_ids: changed,
+            store_version: self.store_version,
+        })
+    }
+
+    /// Delete a block from the store FOR REAL (ESCOPO C.4). OCC-checked. `force` is
+    /// mandatory — without it the block exists but the call refuses with
+    /// [`SeedError::DeleteRequiresForce`] (suggesting archive). With `force`, the block
+    /// and all its receipts are removed and `store_version` bumps. An unknown id is a
+    /// hard [`SeedError::BlockNotFound`].
+    pub fn delete_block(
+        &mut self,
+        expected_store_version: u64,
+        block_id: &str,
+        force: bool,
+    ) -> Result<DeleteSummary, SeedError> {
+        if expected_store_version != self.store_version {
+            return Err(SeedError::Conflict {
+                expected: expected_store_version,
+                actual: self.store_version,
+            });
+        }
+        let idx = self
+            .blocks
+            .iter()
+            .position(|b| b.block_id.as_str() == block_id)
+            .ok_or_else(|| SeedError::BlockNotFound {
+                block_id: block_id.to_string(),
+            })?;
+        if !force {
+            return Err(SeedError::DeleteRequiresForce {
+                block_id: block_id.to_string(),
+            });
+        }
+        let removed = self.blocks.remove(idx);
+        let receipts_removed = removed.receipts.len();
+        self.store_version += 1;
+        Ok(DeleteSummary {
+            deleted_block_id: block_id.to_string(),
+            receipts_removed,
+            store_version: self.store_version,
+        })
+    }
+
+    /// The honest "active" block count — blocks NOT archived. The backend only MARKS
+    /// archived state (never deletes data); the UI rollup excludes archived blocks
+    /// from active counts by filtering on exactly this (PRD §5 / F0-TECH §8).
+    pub fn active_block_count(&self) -> usize {
+        self.blocks
+            .iter()
+            .filter(|b| b.state != SystemBlockState::Archived)
+            .count()
+    }
+}
+
+/// Reconcile against the store in a brain dir: load -> [`SystemBlockStore::reconcile`]
+/// -> save. Saved ONLY when the reconcile changed something (idempotent no-op leaves
+/// the disk byte-for-byte intact); an OCC conflict likewise leaves it untouched. A
+/// missing store is a hard [`SeedError::NoStore`].
+pub fn reconcile_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    file_list: &[String],
+) -> Result<(SystemBlockStore, ReconcileReport), SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    let report = store.reconcile(expected_store_version, file_list)?;
+    if report.dirty {
+        store.save(dir)?;
+    }
+    Ok((store, report))
+}
+
+/// Archive/restore against the store in a brain dir: load ->
+/// [`SystemBlockStore::set_archive`] -> save (only on a real change). A missing store
+/// is a hard [`SeedError::NoStore`]; a conflict / unknown id leaves the disk intact.
+pub fn archive_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    block_ids: &[String],
+    mode: ArchiveMode,
+) -> Result<(SystemBlockStore, ArchiveSummary), SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    let summary = store.set_archive(expected_store_version, block_ids, mode)?;
+    if !summary.changed_block_ids.is_empty() {
+        store.save(dir)?;
+    }
+    Ok((store, summary))
+}
+
+/// Delete against the store in a brain dir: load -> [`SystemBlockStore::delete_block`]
+/// -> save. Saved only on success (a `force`-less refusal or conflict returns before
+/// the save, leaving the disk intact). A missing store is a hard
+/// [`SeedError::NoStore`].
+pub fn delete_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    block_id: &str,
+    force: bool,
+) -> Result<(SystemBlockStore, DeleteSummary), SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    let summary = store.delete_block(expected_store_version, block_id, force)?;
+    store.save(dir)?;
+    Ok((store, summary))
+}
+
+/// Recompute receipt freshness against the store in a brain dir (ESCOPO C.2). A pure
+/// READ: load -> [`receipt_recompute`], never saves. A missing store is a hard
+/// [`SeedError::NoStore`].
+pub fn recompute_in_dir(
+    dir: &Path,
+    block_id: Option<&str>,
+    now: &str,
+) -> Result<RecomputeReport, SeedError> {
+    let store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    receipt_recompute(&store, block_id, now)
+}
+
+/// The repo file list (ESCOPO B) — the source of truth a reconcile resolves against.
+/// Prefers git (`git ls-files -z --cached --others --exclude-standard`): tracked +
+/// untracked files, honoring `.gitignore`, paths repo-relative with `/`. If git is
+/// unavailable or `root` is not a repo, falls back to a filesystem walk that skips
+/// `.git/`, `target/`, `node_modules/`, and hidden directories (a minimal sane deny;
+/// git is the canonical source, so the fallback is best-effort). The result is sorted
+/// + deduped for a deterministic reconcile.
+pub fn repo_file_list(root: &Path) -> Result<Vec<String>, SeedError> {
+    if let Some(list) = git_file_list(root) {
+        return Ok(list);
+    }
+    walk_file_list(root)
+}
+
+/// Ask git for the working set. `-z` (NUL-separated) sidesteps path quoting. Returns
+/// `None` (so the caller falls back) when git is missing or `root` is not a repo.
+fn git_file_list(root: &Path) -> Option<Vec<String>> {
+    let output = std::process::Command::new("git")
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mut list: Vec<String> = output
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).replace('\\', "/"))
+        .collect();
+    list.sort();
+    list.dedup();
+    Some(list)
+}
+
+/// The no-git fallback: a depth-first filesystem walk under `root`, skipping noise
+/// dirs (`.git`, `target`, `node_modules`) and hidden dirs. Paths are repo-relative
+/// with `/`.
+fn walk_file_list(root: &Path) -> Result<Vec<String>, SeedError> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if file_type.is_dir() {
+                if name.starts_with('.') || name == "target" || name == "node_modules" {
+                    continue;
+                }
+                stack.push(entry.path());
+            } else if file_type.is_file() {
+                if let Ok(rel) = entry.path().strip_prefix(root) {
+                    out.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1607,5 +2290,624 @@ mod tests {
         let store =
             import_receipt_in_dir(dir.path(), 1, "sb_core", r).expect("full test receipt lands");
         assert_eq!(store.store_version, 2);
+    }
+
+    // =======================================================================
+    // Slice 3 — the reconciliation engine, git file source, and the verbs.
+    // =======================================================================
+
+    /// A two-block seed with GLOB membership: `sb_glob` claims `src/**` (+ an
+    /// optional exact `README.md`), `sb_other` claims `other/**`. Both ratified at
+    /// boundary 1 / contract 1 — the fixture for glob resolution + boundary bumps.
+    fn glob_fixture_seed() -> &'static str {
+        r#"{
+  "schema": "m1nd-system-block-seed-v0",
+  "repo": { "repo_id": "repo_g", "root": ".", "source_commit": "g" },
+  "skeleton": {
+    "skeleton_id": "sk_g",
+    "version": 1,
+    "state": "ratified",
+    "ratification": { "method": "pr_merge", "ratifier": "owner", "ratified_at": "2026-07-09T00:00:00Z", "commit": "g" }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_glob",
+      "name": "Glob",
+      "purpose": "A glob-membership block.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        { "path": "src/**", "role": "primary" },
+        { "path": "README.md", "role": "docs", "optional": true }
+      ],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": { "version": 1, "required": [], "optional": [], "waived": [], "declared_by": null, "declared_at": null },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    },
+    {
+      "block_id": "sb_other",
+      "name": "Other",
+      "purpose": "Another glob-membership block.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [{ "path": "other/**", "role": "primary" }],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": { "version": 1, "required": [], "optional": [], "waived": [], "declared_by": null, "declared_at": null },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" }
+}"#
+    }
+
+    fn glob_store() -> SystemBlockStore {
+        SystemBlockStore::from_seed(load_seed(glob_fixture_seed()).expect("glob fixture parses"))
+    }
+
+    fn files(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    // --- glob resolution + missing exact detection -------------------------
+
+    #[test]
+    fn glob_resolves_new_file_and_exact_missing_is_detected() {
+        let store = glob_store();
+        let block = &store.blocks[0]; // sb_glob: src/** + README.md(optional exact)
+        let (resolved, missing) = resolve_block_membership(
+            block,
+            &files(&["src/a.rs", "src/deep/b.rs", "unrelated.txt"]),
+        );
+        // The glob `src/**` claims both src files (crossing `/`), never `unrelated.txt`.
+        assert_eq!(
+            resolved,
+            vec!["src/a.rs".to_string(), "src/deep/b.rs".to_string()]
+        );
+        // The exact `README.md` is absent from the list -> missing.
+        assert_eq!(missing, vec!["README.md".to_string()]);
+    }
+
+    #[test]
+    fn glob_double_star_matches_nested_test_pattern() {
+        // The seed uses patterns like `m1nd-ui/src/**/*.test.ts`; prove the crate
+        // matches a nested tail on the full repo-relative path.
+        let pat = glob::Pattern::new("m1nd-ui/src/**/*.test.ts").expect("compiles");
+        assert!(pat.matches("m1nd-ui/src/lib/foo.test.ts"));
+        assert!(!pat.matches("m1nd-ui/src/lib/foo.ts"));
+    }
+
+    // --- baseline: first reconcile records fingerprint WITHOUT a bump; a second
+    //     no-change reconcile is idempotent (zero boundary bumps, no version churn).
+
+    #[test]
+    fn reconcile_baseline_records_fingerprint_without_bump_and_is_idempotent() {
+        let mut store = glob_store();
+        assert!(store.blocks[0].membership_fingerprint.is_none());
+        let file_list = files(&["src/a.rs", "other/x.rs"]);
+
+        let r1 = reconcile_store(&mut store, &file_list);
+        assert!(r1.dirty, "the baseline write is a real change");
+        assert!(
+            r1.bumped_block_ids.is_empty(),
+            "baseline never bumps a boundary"
+        );
+        for b in &r1.blocks {
+            assert_eq!(b.outcome, ReconcileOutcome::Baseline);
+        }
+        assert_eq!(
+            store.blocks[0].boundary_version, 1,
+            "boundary unchanged at baseline"
+        );
+        assert!(
+            store.blocks[0].membership_fingerprint.is_some(),
+            "fingerprint recorded"
+        );
+        assert_eq!(
+            store.blocks[0].resolved_members,
+            vec!["src/a.rs".to_string()]
+        );
+
+        // Second reconcile, identical files -> idempotent: nothing dirty, no bumps.
+        let r2 = reconcile_store(&mut store, &file_list);
+        assert!(!r2.dirty, "an unchanged reconcile is a no-op");
+        assert!(r2.bumped_block_ids.is_empty());
+        for b in &r2.blocks {
+            assert_eq!(b.outcome, ReconcileOutcome::Unchanged);
+        }
+        assert_eq!(store.blocks[0].boundary_version, 1);
+    }
+
+    // --- boundary bump: adding a file inside a glob bumps ONLY that block --------
+
+    #[test]
+    fn reconcile_boundary_bump_touches_only_the_changed_block() {
+        let mut store = glob_store();
+        reconcile_store(&mut store, &files(&["src/a.rs", "other/x.rs"])); // baseline
+
+        // Add src/b.rs (inside sb_glob's `src/**`); sb_other's files are unchanged.
+        let report = reconcile_store(&mut store, &files(&["src/a.rs", "src/b.rs", "other/x.rs"]));
+        assert!(report.dirty);
+        assert_eq!(report.bumped_block_ids, vec!["sb_glob".to_string()]);
+        let glob_b = report
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_glob")
+            .unwrap();
+        let other_b = report
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_other")
+            .unwrap();
+        assert_eq!(glob_b.outcome, ReconcileOutcome::Bumped);
+        assert_eq!(glob_b.added, vec!["src/b.rs".to_string()]);
+        assert!(glob_b.removed.is_empty());
+        assert_eq!(glob_b.boundary_version, 2, "the changed block bumped");
+        assert_eq!(other_b.outcome, ReconcileOutcome::Unchanged);
+        assert_eq!(
+            other_b.boundary_version, 1,
+            "the untouched block did NOT bump"
+        );
+        assert_eq!(store.blocks[0].boundary_version, 2);
+        assert_eq!(store.blocks[1].boundary_version, 1);
+        assert!(
+            report.note.is_some(),
+            "a bump carries the honest staleness note"
+        );
+    }
+
+    // --- THE ANTI-LIE CHAIN (the most important test) ---------------------------
+    //  earned-fresh receipt -> new file enters the glob -> reconcile -> boundary+1
+    //  -> recompute shows the receipt stale(boundary) AND a fresh import of the OLD
+    //  scope is rejected (stale_scope). No new staleness code — the bump cascades
+    //  through the EXISTING rollup + import_receipt gate.
+
+    #[test]
+    fn reconcile_boundary_bump_stales_earned_receipt_end_to_end() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        glob_store().save(dir.path()).expect("seed the store");
+        // store_version starts at 1.
+
+        // Baseline reconcile against the ratified file set.
+        let (store, _r) = reconcile_in_dir(dir.path(), 1, &files(&["src/a.rs"])).expect("baseline");
+        assert_eq!(store.blocks[0].boundary_version, 1);
+        let v = store.store_version; // bumped once by the baseline write
+
+        // Earn a FRESH test receipt scoped to sb_glob @ boundary 1 / contract 1.
+        let earned = mk_receipt(ReceiptType::Test, "sb_glob", 1, 1, full_exec_evidence());
+        let store = import_receipt_in_dir(dir.path(), v, "sb_glob", earned).expect("earn receipt");
+        let v = store.store_version;
+
+        // Recompute now: the receipt is FRESH (scope still binds to boundary 1).
+        let before = recompute_in_dir(dir.path(), Some("sb_glob"), "2999-01-01T00:00:00Z")
+            .expect("recompute");
+        assert_eq!(before.receipt_count, 1);
+        assert_eq!(
+            before.fresh_count, 1,
+            "earned receipt is fresh before the boundary moves"
+        );
+        assert!(before.receipts[0].reason.is_none());
+
+        // A NEW file enters the glob -> reconcile -> sb_glob boundary bumps 1 -> 2.
+        let (store, report) =
+            reconcile_in_dir(dir.path(), v, &files(&["src/a.rs", "src/b.rs"])).expect("reconcile");
+        assert_eq!(report.bumped_block_ids, vec!["sb_glob".to_string()]);
+        assert_eq!(store.blocks[0].boundary_version, 2);
+        let v = store.store_version;
+
+        // Recompute: the SAME earned receipt is now STALE by boundary — the bump
+        // cascaded, with zero receipt-specific staleness code.
+        let after = recompute_in_dir(dir.path(), Some("sb_glob"), "2999-01-01T00:00:00Z")
+            .expect("recompute");
+        assert_eq!(
+            after.stale_count, 1,
+            "the earned receipt is now stale by scope"
+        );
+        assert_eq!(after.receipts[0].reason.as_deref(), Some("boundary"));
+
+        // And importing a fresh receipt carrying the OLD scope (boundary 1) is
+        // rejected — the EXISTING anti-poison gate refuses evidence for a version the
+        // block no longer is.
+        let stale_scoped = mk_receipt(ReceiptType::Test, "sb_glob", 1, 1, full_exec_evidence());
+        let err = import_receipt_in_dir(dir.path(), v, "sb_glob", stale_scoped)
+            .expect_err("an old-scope receipt must be refused after the bump");
+        assert!(matches!(err, SeedError::ReceiptStaleScope { .. }));
+    }
+
+    #[test]
+    fn recompute_flags_expired_receipt() {
+        // A receipt whose scope binds but whose `expires_on` is in the past is stale.
+        let mut store = glob_store();
+        let mut r = mk_receipt(ReceiptType::Spec, "sb_glob", 1, 1, anchor_only_evidence());
+        r.validity.expires_on = Some("2000-01-01T00:00:00Z".to_string());
+        store.blocks[0].receipts.push(r);
+        let report =
+            receipt_recompute(&store, Some("sb_glob"), "2026-07-09T00:00:00Z").expect("recompute");
+        assert_eq!(report.receipts[0].reason.as_deref(), Some("expired"));
+    }
+
+    #[test]
+    fn recompute_unknown_block_is_a_hard_error() {
+        let store = glob_store();
+        assert!(matches!(
+            receipt_recompute(&store, Some("sb_ghost"), "2026-07-09T00:00:00Z"),
+            Err(SeedError::BlockNotFound { .. })
+        ));
+    }
+
+    // --- unmapped real: files outside every boundary surface; cap is honest ------
+
+    #[test]
+    fn reconcile_surfaces_real_unmapped_files() {
+        let mut store = glob_store();
+        // `loose.txt` and `docs/x.md` are claimed by NO block.
+        let report = reconcile_store(
+            &mut store,
+            &files(&["src/a.rs", "other/x.rs", "loose.txt", "docs/x.md"]),
+        );
+        assert_eq!(report.unmapped_total, 2);
+        assert_eq!(
+            store.unmapped_files,
+            vec!["docs/x.md".to_string(), "loose.txt".to_string()]
+        );
+        assert_eq!(store.unmapped_total, 2);
+    }
+
+    #[test]
+    fn reconcile_unmapped_cap_is_honest() {
+        let mut store = glob_store();
+        // More unmapped files than the cap: total is honest, materialized is capped.
+        let mut paths: Vec<String> = (0..UNMAPPED_FILES_CAP + 25)
+            .map(|i| format!("loose/f{i:04}.txt"))
+            .collect();
+        paths.push("src/a.rs".to_string()); // one mapped file, to prove filtering
+        let list: Vec<String> = paths;
+        let report = reconcile_store(&mut store, &list);
+        assert_eq!(
+            report.unmapped_total,
+            UNMAPPED_FILES_CAP + 25,
+            "honest total"
+        );
+        assert_eq!(
+            store.unmapped_files.len(),
+            UNMAPPED_FILES_CAP,
+            "materialized capped"
+        );
+        assert_eq!(report.unmapped_materialized, UNMAPPED_FILES_CAP);
+    }
+
+    // --- OCC: a stale reconcile is rejected; the store is byte-intact ------------
+
+    #[test]
+    fn reconcile_occ_conflict_leaves_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        glob_store().save(dir.path()).expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        let err = reconcile_in_dir(dir.path(), 99, &files(&["src/a.rs"]))
+            .expect_err("stale expected must conflict");
+        assert!(matches!(
+            err,
+            SeedError::Conflict {
+                expected: 99,
+                actual: 1
+            }
+        ));
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            after, before,
+            "a rejected reconcile must not touch the store"
+        );
+    }
+
+    #[test]
+    fn reconcile_missing_store_is_no_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(matches!(
+            reconcile_in_dir(dir.path(), 1, &files(&["src/a.rs"])),
+            Err(SeedError::NoStore)
+        ));
+    }
+
+    // --- archive / restore: flips + the rollup-exclusion mark; unknown/OCC -------
+
+    #[test]
+    fn archive_then_restore_flips_state_and_marks_rollup_exclusion() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save"); // sb_core ratified, sb_api candidate
+        assert_eq!(
+            SystemBlockStore::load(dir.path())
+                .unwrap()
+                .unwrap()
+                .active_block_count(),
+            2
+        );
+
+        // Archive sb_core: state -> archived, prior state remembered, active count drops.
+        let (store, summary) = archive_in_dir(
+            dir.path(),
+            1,
+            &["sb_core".to_string()],
+            ArchiveMode::Archive,
+        )
+        .expect("archive");
+        assert_eq!(summary.changed_block_ids, vec!["sb_core".to_string()]);
+        assert_eq!(summary.store_version, 2);
+        let core = store
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_core")
+            .unwrap();
+        assert_eq!(core.state, SystemBlockState::Archived);
+        assert_eq!(core.pre_archive_state, Some(SystemBlockState::Ratified));
+        assert_eq!(
+            store.active_block_count(),
+            1,
+            "archived block excluded from active count"
+        );
+
+        // Restore: returns to the REAL prior state (ratified), not a fabricated one.
+        let (store, summary) = archive_in_dir(
+            dir.path(),
+            2,
+            &["sb_core".to_string()],
+            ArchiveMode::Restore,
+        )
+        .expect("restore");
+        assert_eq!(summary.store_version, 3);
+        let core = store
+            .blocks
+            .iter()
+            .find(|b| b.block_id == "sb_core")
+            .unwrap();
+        assert_eq!(
+            core.state,
+            SystemBlockState::Ratified,
+            "restored to the true prior state"
+        );
+        assert_eq!(
+            core.pre_archive_state, None,
+            "prior state cleared on restore"
+        );
+        assert_eq!(store.active_block_count(), 2);
+    }
+
+    #[test]
+    fn archive_unknown_block_and_occ_conflict() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        assert!(matches!(
+            archive_in_dir(
+                dir.path(),
+                1,
+                &["sb_ghost".to_string()],
+                ArchiveMode::Archive
+            ),
+            Err(SeedError::BlockNotFound { .. })
+        ));
+        assert!(matches!(
+            archive_in_dir(
+                dir.path(),
+                99,
+                &["sb_core".to_string()],
+                ArchiveMode::Archive
+            ),
+            Err(SeedError::Conflict { .. })
+        ));
+    }
+
+    // --- delete: force-less refusal (intact); force removes + counts receipts ----
+
+    #[test]
+    fn delete_without_force_is_refused_and_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        let err = delete_in_dir(dir.path(), 1, "sb_core", false)
+            .expect_err("a force-less delete is refused");
+        assert!(matches!(err, SeedError::DeleteRequiresForce { .. }));
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(after, before, "a refused delete must not touch the store");
+    }
+
+    #[test]
+    fn delete_with_force_removes_block_and_reports_dead_receipts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        // sb_core carries one receipt in the fixture.
+        let (store, summary) = delete_in_dir(dir.path(), 1, "sb_core", true).expect("force delete");
+        assert_eq!(summary.deleted_block_id, "sb_core");
+        assert_eq!(
+            summary.receipts_removed, 1,
+            "the block's receipt died with it"
+        );
+        assert_eq!(summary.store_version, 2);
+        assert!(
+            store.blocks.iter().all(|b| b.block_id != "sb_core"),
+            "block is gone"
+        );
+        assert_eq!(store.blocks.len(), 1);
+    }
+
+    #[test]
+    fn delete_unknown_and_occ_conflict() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        store_from_fixture().save(dir.path()).expect("save");
+        assert!(matches!(
+            delete_in_dir(dir.path(), 1, "sb_ghost", true),
+            Err(SeedError::BlockNotFound { .. })
+        ));
+        assert!(matches!(
+            delete_in_dir(dir.path(), 99, "sb_core", true),
+            Err(SeedError::Conflict { .. })
+        ));
+    }
+
+    // --- ESCOPO B: git as the file source, with the no-git fallback --------------
+
+    fn run_git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        assert!(ok, "git {args:?} failed");
+    }
+
+    #[test]
+    fn repo_file_list_from_git_includes_untracked_excludes_gitignored() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        run_git(dir.path(), &["init", "-q"]);
+        std::fs::write(dir.path().join("tracked.rs"), "//\n").expect("write tracked");
+        run_git(dir.path(), &["add", "tracked.rs"]);
+        run_git(
+            dir.path(),
+            &[
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "init",
+            ],
+        );
+        // Untracked (not ignored) -> included; gitignored -> excluded.
+        std::fs::write(dir.path().join("untracked.rs"), "//\n").expect("write untracked");
+        std::fs::write(dir.path().join(".gitignore"), "ignored.rs\n").expect("write gitignore");
+        std::fs::write(dir.path().join("ignored.rs"), "//\n").expect("write ignored");
+
+        let list = repo_file_list(dir.path()).expect("git file list");
+        assert!(
+            list.contains(&"tracked.rs".to_string()),
+            "tracked present: {list:?}"
+        );
+        assert!(
+            list.contains(&"untracked.rs".to_string()),
+            "untracked present: {list:?}"
+        );
+        assert!(
+            !list.contains(&"ignored.rs".to_string()),
+            "gitignored excluded: {list:?}"
+        );
+    }
+
+    #[test]
+    fn repo_file_list_falls_back_to_walk_without_git() {
+        // A plain tempdir (not a git repo) -> git ls-files fails -> filesystem walk.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.rs"), "//\n").expect("write a");
+        std::fs::create_dir_all(dir.path().join("sub")).expect("mk sub");
+        std::fs::write(dir.path().join("sub/b.rs"), "//\n").expect("write b");
+        // `target/` is on the fallback deny-list.
+        std::fs::create_dir_all(dir.path().join("target")).expect("mk target");
+        std::fs::write(dir.path().join("target/c.rs"), "//\n").expect("write c");
+
+        let list = repo_file_list(dir.path()).expect("walk file list");
+        assert!(list.contains(&"a.rs".to_string()), "a.rs present: {list:?}");
+        assert!(
+            list.contains(&"sub/b.rs".to_string()),
+            "nested file present: {list:?}"
+        );
+        assert!(
+            !list.iter().any(|p| p.starts_with("target/")),
+            "target/ is skipped by the fallback walk: {list:?}"
+        );
+    }
+
+    // --- retro-compat: a Slice-2 store (no Slice-3 fields) loads clean -----------
+
+    #[test]
+    fn slice2_store_without_slice3_fields_loads_clean() {
+        // A store exactly as Slice 2 would have written it: no membership_fingerprint,
+        // no resolved_members, no pre_archive_state, no unmapped_files/total.
+        let slice2 = r#"{
+  "schema": "m1nd-system-block-store-v0",
+  "store_version": 7,
+  "skeleton": {
+    "skeleton_id": "sk_old",
+    "version": 1,
+    "state": "ratified",
+    "ratification": { "method": "pr_merge", "ratifier": "owner", "ratified_at": "2026-07-01T00:00:00Z", "commit": "old" }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_old",
+      "name": "Old",
+      "purpose": "A block written before Slice 3.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 3,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [{ "path": "src/old.rs", "role": "primary" }],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": { "version": 1, "required": [], "optional": [], "waived": [], "declared_by": null, "declared_at": null },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" }
+}"#;
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(SystemBlockStore::path_in(dir.path()), slice2).expect("write slice2 store");
+        let store = SystemBlockStore::load(dir.path())
+            .expect("a pre-Slice-3 store loads")
+            .expect("present");
+        assert_eq!(store.store_version, 7);
+        assert!(
+            store.blocks[0].membership_fingerprint.is_none(),
+            "fingerprint defaults to None"
+        );
+        assert!(
+            store.blocks[0].resolved_members.is_empty(),
+            "resolved_members defaults empty"
+        );
+        assert!(
+            store.blocks[0].pre_archive_state.is_none(),
+            "pre_archive_state defaults None"
+        );
+        assert!(
+            store.unmapped_files.is_empty(),
+            "unmapped_files defaults empty"
+        );
+        assert_eq!(store.unmapped_total, 0, "unmapped_total defaults 0");
+
+        // And it reconciles cleanly on top (baseline over its real member).
+        let report = reconcile_store(&mut store.clone(), &files(&["src/old.rs"]));
+        assert!(report.dirty);
+    }
+
+    #[test]
+    fn fresh_store_json_omits_slice3_fields_for_byte_stability() {
+        // A never-reconciled store serializes WITHOUT any Slice-3 keys, so it stays
+        // byte-identical to a Slice-2 store (skip_serializing_if defaults).
+        let store = glob_store();
+        let json = serde_json::to_value(&store).expect("serialize");
+        assert!(
+            json.get("unmapped_files").is_none(),
+            "no unmapped_files when empty"
+        );
+        assert!(
+            json.get("unmapped_total").is_none(),
+            "no unmapped_total when zero"
+        );
+        assert!(
+            json["blocks"][0].get("membership_fingerprint").is_none(),
+            "no fingerprint before the first reconcile"
+        );
+        assert!(json["blocks"][0].get("resolved_members").is_none());
+        assert!(json["blocks"][0].get("pre_archive_state").is_none());
     }
 }
