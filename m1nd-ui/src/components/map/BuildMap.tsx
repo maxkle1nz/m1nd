@@ -53,6 +53,18 @@ export interface BuildMapProps {
   reconcileToast?: ReconcileToast | null;
   /** Dismiss the toast. */
   onDismissToast?: () => void;
+  /** F0c §5 — the scan gesture. When provided, the empty state's SECOND button
+   *  ("Scan this repo") wires the `skeleton_candidate` verb; the owner (BuildMapView)
+   *  runs the write, owns the honest scan toast, and reloads into candidate dress. */
+  onScan?: () => void;
+  /** A scan is in flight — the button shows "Scanning…" and locks. */
+  scanning?: boolean;
+  /** The last scan's honest toast (shown in the empty state, where the scan lives). */
+  scanToast?: ReconcileToast | null;
+  /** Dismiss the scan toast. */
+  onDismissScanToast?: () => void;
+  /** F0c §5 — open the Review-&-ratify walk (the candidate banner's button). */
+  onReview?: () => void;
   /** Test seam: force the Unmapped tray open (SSR has no click). */
   initialUnmappedExpanded?: boolean;
 }
@@ -66,10 +78,25 @@ const TOAST_CLASSES: Record<ReconcileToast['kind'], string> = {
   error: 'border-state-failure/50 bg-state-failure-tint/40 text-ink',
 };
 
-/** §1.3 EMPTY — no skeleton bound for this repo. The honest backend copy, and an
- *  Import CTA that is DISABLED with a note pointing at the write verb (F1 is
- *  read-only; the map never fakes a mutation). */
-function BuildMapEmpty({ honest }: { honest: string | null }) {
+/** §1.3 EMPTY — no skeleton bound for this repo. The honest backend copy, the
+ *  primary "Scan this repo" gesture (F0c §5 — the engine proposes a candidate map
+ *  the human ratifies), and the Import CTA that stays DISABLED with a note pointing
+ *  at the write verb (importing an authored seed is a CLI/verb job — the map never
+ *  fakes that mutation). The scan itself is a real write: the button runs it and the
+ *  owner surfaces the honest toast (read-only / conflict / error) right here. */
+function BuildMapEmpty({
+  honest,
+  onScan,
+  scanning = false,
+  scanToast = null,
+  onDismissScanToast,
+}: {
+  honest: string | null;
+  onScan?: () => void;
+  scanning?: boolean;
+  scanToast?: ReconcileToast | null;
+  onDismissScanToast?: () => void;
+}) {
   return (
     <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-empty">
       <div className="max-w-sm text-center space-y-3 px-6">
@@ -77,6 +104,50 @@ function BuildMapEmpty({ honest }: { honest: string | null }) {
         <p className="text-xs text-ink-soft font-mono">
           {honest ?? 'no skeleton yet — import a seed or run a scan'}
         </p>
+
+        {/* The primary gesture — scan the repo into a candidate map (F0c §5). */}
+        {onScan && (
+          <div>
+            <button
+              type="button"
+              data-role="scan-repo"
+              onClick={onScan}
+              disabled={scanning}
+              title="Scan this repo's graph into a proposed map you can review and ratify"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-ink bg-bone border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
+            >
+              <Icon name="search" size={14} decorative />
+              {scanning ? 'Scanning…' : 'Scan this repo'}
+            </button>
+            <p className="text-[10px] text-ink-soft mt-1">
+              the engine proposes blocks; you ratify them — auto-clustering only ever produces a candidate
+            </p>
+          </div>
+        )}
+
+        {/* The scan's honest outcome (read-only / conflict / error), shown in place. */}
+        {scanToast && (
+          <div
+            data-role="scan-toast"
+            data-toast-kind={scanToast.kind}
+            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs text-left ${TOAST_CLASSES[scanToast.kind]}`}
+          >
+            <span className="font-mono">{scanToast.text}</span>
+            {onDismissScanToast && (
+              <button
+                type="button"
+                data-role="scan-toast-dismiss"
+                onClick={onDismissScanToast}
+                title="dismiss"
+                className="text-ink-soft hover:text-ink shrink-0 leading-none"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="pt-1 border-t border-ink/10" />
         <button
           type="button"
           data-role="import-seed"
@@ -87,22 +158,38 @@ function BuildMapEmpty({ honest }: { honest: string | null }) {
           Import seed
         </button>
         <p className="text-[10px] text-ink-soft">
-          import a seed via the <span className="font-mono">system_blocks_seed_import</span> verb
+          or import an authored seed via the <span className="font-mono">system_blocks_seed_import</span> verb
         </p>
       </div>
     </div>
   );
 }
 
-/** §1.2 first-run banner — a candidate skeleton, nothing ratified yet. */
-function CandidateBanner() {
+/** §1.2 first-run banner — a candidate skeleton, nothing ratified yet. Its button
+ *  is "Review & ratify" (F0c §5, objection 10): the walk reviews each provisional
+ *  name before any ratify — a blanket gesture over guesses is never offered. */
+function CandidateBanner({ onReview }: { onReview?: () => void }) {
   return (
     <div
       data-role="candidate-banner"
-      className="mx-4 mt-4 rounded-lg border border-stale-lilac/50 bg-stale-lilac/10 px-4 py-2.5 text-xs text-ink"
+      className="mx-4 mt-4 rounded-lg border border-stale-lilac/50 bg-stale-lilac/10 px-4 py-2.5 text-xs text-ink flex items-center justify-between gap-3"
     >
-      <span className="font-semibold text-stale-lilac">Candidate skeleton ready</span> — nothing on this map is
-      ratified yet. Names are guesses until you ratify them.
+      <div>
+        <span className="font-semibold text-stale-lilac">Candidate skeleton ready</span> — nothing on this map is
+        ratified yet. Names are guesses until you ratify them.
+      </div>
+      {onReview && (
+        <button
+          type="button"
+          data-role="review-ratify-open"
+          onClick={onReview}
+          title="Walk the proposed blocks, accept each name, then ratify"
+          className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-stale-lilac border border-stale-lilac/50 bg-stale-lilac/10 rounded hover:shadow-contact transition-shadow"
+        >
+          <Icon name="blocks" size={14} decorative />
+          Review &amp; ratify
+        </button>
+      )}
     </div>
   );
 }
@@ -117,6 +204,11 @@ export default function BuildMap({
   reconciling = false,
   reconcileToast = null,
   onDismissToast,
+  onScan,
+  scanning = false,
+  scanToast = null,
+  onDismissScanToast,
+  onReview,
   initialUnmappedExpanded = false,
 }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
@@ -134,7 +226,15 @@ export default function BuildMap({
   }, [initialSelectedId]);
 
   if (!store || !rollup) {
-    return <BuildMapEmpty honest={snapshot.honest ?? null} />;
+    return (
+      <BuildMapEmpty
+        honest={snapshot.honest ?? null}
+        onScan={onScan}
+        scanning={scanning}
+        scanToast={scanToast}
+        onDismissScanToast={onDismissScanToast}
+      />
+    );
   }
 
   const repoId = repoIdFromSkeletonId(store.skeleton.skeleton_id);
@@ -208,7 +308,7 @@ export default function BuildMap({
           </div>
         )}
 
-        {rollup.candidate && <CandidateBanner />}
+        {rollup.candidate && <CandidateBanner onReview={onReview} />}
 
         {/* Pan = overflow scroll (F1: no semantic zoom). Cards are absolutely
             placed on the deterministic grid; wires sit behind them. */}

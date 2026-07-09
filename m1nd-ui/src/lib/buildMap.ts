@@ -34,6 +34,9 @@ export type SystemBlockStateName =
   | 'restored';
 export type MembershipSource = 'ratified' | 'proposed' | 'manual';
 export type SkeletonStateName = 'candidate' | 'ratified';
+/** Who named a candidate block (F0c §3a). The naming-runner is opt-in (F2.5c); the
+ *  heuristic always works offline and marks the label provisional. */
+export type NamedBy = 'runner' | 'heuristic';
 
 export interface MembershipEntry {
   path: string;
@@ -112,6 +115,30 @@ export interface Layout {
   version: number;
 }
 
+/** F0c candidate confidence — COMPONENTS, not a single vibe score (objection 8).
+ *  Transcribed 1:1 from the Rust `CandidateMeta` (m1nd-mcp/src/system_blocks.rs) as
+ *  the `skeleton_candidate` scan serializes it onto each proposed block. Present ONLY
+ *  on a candidate block; `undefined` on every ratified/hand-authored block. Every
+ *  field is honest: `graph_cohesion` is `undefined` (never faked) when the block saw
+ *  fewer than the declared edge floor (a docs/no-edge block). */
+export interface CandidateMeta {
+  named_by: NamedBy;
+  /** True while the label is a provisional heuristic — the card renders it muted
+   *  ("unnamed — needs you") and it cannot be ratified without an owner touch (§5). */
+  needs_owner_naming: boolean;
+  /** Fraction of the block's edges that stay INSIDE it. `undefined` when
+   *  `edge_sample_size` is below the floor — a docs block does not fabricate it. */
+  graph_cohesion?: number;
+  /** How many edges touched the block — the honest denominator behind cohesion. */
+  edge_sample_size: number;
+  /** How directory-aligned the block is: members-under-its-dir / repo-files-under-its-dir. */
+  directory_support: number;
+  /** Members backed by a real graph node / total members. */
+  coverage_ratio: number;
+  /** How many members carry `role:"shared"` (a multi-owner seam surfaced, §2a). */
+  shared_member_count: number;
+}
+
 export interface SystemBlock {
   block_id: string;
   name: string;
@@ -135,6 +162,10 @@ export interface SystemBlock {
   /** Slice 3 reconcile cache — the ordered effective membership the fingerprint was
    *  taken over. Optional + omitted-when-empty, mirroring the Rust serde. */
   resolved_members?: string[];
+  /** F0c candidate scores — present ONLY on a block a `skeleton_candidate` scan
+   *  proposed; `undefined` on every ratified/hand-authored block (the Rust serde
+   *  skips it when `None`), so a pre-F0c store parses byte-clean. */
+  candidate_meta?: CandidateMeta;
 }
 
 export interface Skeleton {
@@ -602,6 +633,272 @@ export async function runReconcile(
     return { toast: { kind: 'ok', text: reconcileSummary(report) }, shouldReload: true };
   } catch (err) {
     const toast = reconcileErrorToast(err, expectedVersion);
+    return { toast, shouldReload: toast.kind === 'conflict' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// F0c — the scan (`skeleton_candidate`) + the Review-&-ratify walk. Types are
+// transcribed 1:1 from the Rust `handle_skeleton_candidate` result + the
+// `skeleton_scan::SkeletonScanReport` (m1nd-mcp/src/skeleton_scan.rs) and the
+// `system_blocks_ratify` result (m1nd-mcp/src/system_blocks_handlers.rs). The
+// gesture is REVIEW, not blanket ratify (amendment §5, objection 10): the owner
+// accepts each provisional name; "Ratify all" unlocks ONLY when every candidate
+// block is owner-accepted AND no shared-member seam is unresolved.
+// ---------------------------------------------------------------------------
+
+/** A member claimed by more than one block (the PRD §6 seam surface). */
+export interface MultiOwnerSeam {
+  path: string;
+  communities: number[];
+  block_ids: string[];
+}
+
+/** Per-block line of the scan report (mirrors the Rust `CandidateBlockReport`). */
+export interface CandidateBlockReport {
+  block_id: string;
+  name: string;
+  member_count: number;
+  membership_count: number;
+  dominant_directory: string;
+  candidate_meta: CandidateMeta;
+}
+
+/** The naming stage's honest note (runner vs offline heuristic). */
+export interface NamingReport {
+  requested: string;
+  applied: string;
+  runner_available: boolean;
+  note: string;
+}
+
+/** The `skeleton_candidate` scan report — the honest census behind the candidate
+ *  map. `multi_owner_seams`/`unmapped` are omitted-when-empty on the wire. */
+export interface SkeletonScanReport {
+  algorithm: string;
+  repo_file_count: number;
+  graph_node_count: number;
+  graph_edge_count: number;
+  block_count: number;
+  claimed_file_count: number;
+  coverage_ratio: number;
+  graph_cohesion_edge_floor: number;
+  multi_owner_seams?: MultiOwnerSeam[];
+  unmapped_total: number;
+  unmapped?: string[];
+  blocks: CandidateBlockReport[];
+  naming: NamingReport;
+}
+
+/** Which transaction the scan applied (amendment §1). */
+export type SkeletonCandidateTransactionState =
+  | 'created_candidate_store'
+  | 'replaced_candidate_store'
+  | 'wrote_candidate_revision';
+
+/** The `skeleton_candidate` result envelope. `candidate_seed` is the full written
+ *  seed; the map re-reads the truth via `system_blocks_snapshot`, so it is not
+ *  rendered directly (typed `unknown` — the report + version drive the toast). */
+export interface SkeletonCandidateResult {
+  present: boolean;
+  store_version: number;
+  transaction_state: SkeletonCandidateTransactionState;
+  candidate_revision_written: boolean;
+  block_count: number;
+  review_limit: number;
+  candidate_seed: unknown;
+  report: SkeletonScanReport;
+}
+
+/** The `system_blocks_ratify` result envelope. */
+export interface RatifyResult {
+  store_version: number;
+  ratified_block_ids: string[];
+  skeleton_state: string;
+  ratifier: string;
+  ratified_at: string;
+}
+
+/** The shared honest write toast (scan / ratify reuse the reconcile toast shape —
+ *  a tinted one-line message, same four kinds). */
+export type WriteToastKind = ReconcileToastKind;
+export type WriteToast = ReconcileToast;
+
+/** A candidate block's confidence, summarized for the chip AND broken into its
+ *  honest components for the tooltip (§3b/§5 — the store keeps components; the UI
+ *  may summarize, but never fabricates cohesion). `graph_cohesion` stays `null`
+ *  when the backend saw fewer than the edge floor. `summaryPct` is a plain mean of
+ *  the PRESENT components — a UI ordering/label aid, never a persisted score. */
+export interface CandidateConfidence {
+  summaryPct: number;
+  components: Array<{ key: 'graph_cohesion' | 'directory_support' | 'coverage_ratio'; label: string; pct: number | null }>;
+  sharedMemberCount: number;
+  edgeSampleSize: number;
+  namedBy: NamedBy;
+  needsOwnerNaming: boolean;
+}
+
+const PCT = (fraction: number) => Math.round(fraction * 100);
+
+/** Summarize a block's `CandidateMeta` for display. The summary is the mean of the
+ *  PRESENT components only (a docs block with no cohesion is not dragged to 0). */
+export function candidateConfidence(meta: CandidateMeta): CandidateConfidence {
+  const components: CandidateConfidence['components'] = [
+    { key: 'graph_cohesion', label: 'cohesion', pct: meta.graph_cohesion == null ? null : PCT(meta.graph_cohesion) },
+    { key: 'directory_support', label: 'directory', pct: PCT(meta.directory_support) },
+    { key: 'coverage_ratio', label: 'coverage', pct: PCT(meta.coverage_ratio) },
+  ];
+  const present = components.map((c) => c.pct).filter((p): p is number => p != null);
+  const summaryPct = present.length > 0 ? Math.round(present.reduce((a, b) => a + b, 0) / present.length) : 0;
+  return {
+    summaryPct,
+    components,
+    sharedMemberCount: meta.shared_member_count,
+    edgeSampleSize: meta.edge_sample_size,
+    namedBy: meta.named_by,
+    needsOwnerNaming: meta.needs_owner_naming,
+  };
+}
+
+/** A block's support score in [0,1] for the review queue's low-support-first sort
+ *  (§3b). The mean of its present confidence components; a block with no
+ *  `candidate_meta` (never in a candidate store) sorts last. */
+export function blockSupport(block: SystemBlock): number {
+  const meta = block.candidate_meta;
+  if (!meta) return Number.POSITIVE_INFINITY;
+  return candidateConfidence(meta).summaryPct / 100;
+}
+
+/** A candidate block whose name is still a provisional heuristic — it cannot be
+ *  ratified without an owner touch (§5). */
+export function blockNeedsNaming(block: SystemBlock): boolean {
+  return block.candidate_meta?.needs_owner_naming === true;
+}
+
+/** A candidate block carrying an UNRESOLVED multi-owner seam (a `role:"shared"`
+ *  member). F0c-b ships no seam-resolution gesture (the full Edit-Names-&-Boundaries
+ *  editor is a later slice), so any shared member is unresolved and blocks the
+ *  blanket ratify. */
+export function blockHasUnresolvedSeam(block: SystemBlock): boolean {
+  return (block.candidate_meta?.shared_member_count ?? 0) > 0;
+}
+
+/** How many candidate blocks still carry an unresolved seam (the §5 blanket gate). */
+export function unresolvedSeamCount(store: SystemBlockStore): number {
+  return store.blocks.filter((b) => b.state === 'candidate' && blockHasUnresolvedSeam(b)).length;
+}
+
+export interface ReviewQueue {
+  /** Every candidate (un-ratified) block, lowest-support first (block_id tie-break). */
+  ordered: SystemBlock[];
+  /** The honest total (never capped). */
+  total: number;
+  /** The review-queue page bound (default 16) — bounds the UI queue, NEVER the seed. */
+  limit: number;
+}
+
+/** Build the review queue (§5/§7): the candidate blocks ordered lowest-support
+ *  first, with the honest total and the `review_limit` page bound. `review_limit`
+ *  bounds only the UI queue — the scan emitted every block; the queue pages beyond
+ *  the limit with the true count. Pure + deterministic (stable block_id tie-break). */
+export function reviewQueue(store: SystemBlockStore, reviewLimit = 16): ReviewQueue {
+  const candidates = store.blocks.filter((b) => b.state === 'candidate');
+  const ordered = [...candidates].sort((a, b) => {
+    const sa = blockSupport(a);
+    const sb = blockSupport(b);
+    if (sa !== sb) return sa - sb;
+    return a.block_id.localeCompare(b.block_id);
+  });
+  return { ordered, total: ordered.length, limit: Math.max(1, reviewLimit) };
+}
+
+/** The honest reason the blanket "Ratify all" is not offered yet, or `null` when it
+ *  is ready (§5): every candidate block owner-accepted AND no unresolved seam. */
+export function ratifyAllGateReason(
+  store: SystemBlockStore,
+  acceptedIds: ReadonlySet<string>,
+): string | null {
+  const candidates = store.blocks.filter((b) => b.state === 'candidate');
+  if (candidates.length === 0) return 'nothing to ratify — no candidate blocks';
+  const unaccepted = candidates.filter((b) => !acceptedIds.has(b.block_id)).length;
+  if (unaccepted > 0) {
+    return `accept ${unaccepted} more name${unaccepted === 1 ? '' : 's'} before ratifying all`;
+  }
+  const seams = unresolvedSeamCount(store);
+  if (seams > 0) {
+    return `${seams} unresolved seam${seams === 1 ? '' : 's'} — resolve in Edit Names & Boundaries (a later slice)`;
+  }
+  return null;
+}
+
+/** True iff the blanket "Ratify all → v1" gesture may be offered (§5). */
+export function canRatifyAll(store: SystemBlockStore, acceptedIds: ReadonlySet<string>): boolean {
+  return ratifyAllGateReason(store, acceptedIds) == null;
+}
+
+/** The scan's one-line honest summary (the ok toast body). */
+export function scanSummary(res: SkeletonCandidateResult): string {
+  const r = res.report;
+  return `proposed ${r.block_count} block${r.block_count === 1 ? '' : 's'} from ${r.repo_file_count} files · ${r.unmapped_total} unmapped · store v${res.store_version}`;
+}
+
+/** The ratify's one-line honest summary (the ok toast body). */
+export function ratifySummary(res: RatifyResult): string {
+  const n = res.ratified_block_ids.length;
+  return `ratified ${n} block${n === 1 ? '' : 's'} → store v${res.store_version}`;
+}
+
+/** Classify a failed scan/ratify into an honest toast, sharing the reconcile
+ *  error grammar: an OCC `conflict` (the store moved) reloads; a read-only owner
+ *  informs (the gesture stays); anything else surfaces the owner's message verbatim.
+ *  `action` names the gesture in the read-only copy ("scan"/"ratify"). */
+export function writeErrorToast(err: unknown, expectedVersion: number | null, action: string): WriteToast {
+  const s = errorText(err);
+  if (/conflict/i.test(s)) {
+    const m = s.match(/actual\s+(\d+)/i);
+    const actual = m ? m[1] : '?';
+    const expected = expectedVersion == null ? '?' : String(expectedVersion);
+    return { kind: 'conflict', text: `the store moved (expected v${expected}, actual v${actual}) — reloading` };
+  }
+  if (/read[-\s]?only/i.test(s)) {
+    return { kind: 'readonly', text: `this owner is read-only — ${action} from a writable session` };
+  }
+  return { kind: 'error', text: s };
+}
+
+/**
+ * Run one scan and reduce it to a toast + a reload decision — pure over its injected
+ * `scanFn`, so the success/conflict/read-only flows are unit-testable with a mocked
+ * client (mirrors `runReconcile`). Success reloads (the map re-renders in candidate
+ * dress); a conflict reloads (the store moved); a read-only/error refusal does NOT.
+ */
+export async function runScan(
+  scanFn: () => Promise<SkeletonCandidateResult>,
+  expectedVersion: number | null,
+): Promise<{ toast: WriteToast; shouldReload: boolean }> {
+  try {
+    const res = await scanFn();
+    return { toast: { kind: 'ok', text: scanSummary(res) }, shouldReload: true };
+  } catch (err) {
+    const toast = writeErrorToast(err, expectedVersion, 'scan');
+    return { toast, shouldReload: toast.kind === 'conflict' };
+  }
+}
+
+/**
+ * Run the blanket ratify and reduce it to a toast + a reload decision — pure over
+ * its injected `ratifyFn`. Success reloads (the map re-renders ratified); a conflict
+ * reloads; a read-only/error refusal informs without a reload.
+ */
+export async function runRatify(
+  ratifyFn: () => Promise<RatifyResult>,
+  expectedVersion: number,
+): Promise<{ toast: WriteToast; shouldReload: boolean }> {
+  try {
+    const res = await ratifyFn();
+    return { toast: { kind: 'ok', text: ratifySummary(res) }, shouldReload: true };
+  } catch (err) {
+    const toast = writeErrorToast(err, expectedVersion, 'ratify');
     return { toast, shouldReload: toast.kind === 'conflict' };
   }
 }

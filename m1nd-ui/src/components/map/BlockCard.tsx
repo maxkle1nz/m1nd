@@ -10,7 +10,7 @@
  * selects; nothing here mutates.
  */
 import type { BlockRollup, BlockState, SystemBlock } from '../../lib/buildMap';
-import { STATE_LABEL } from '../../lib/buildMap';
+import { STATE_LABEL, candidateConfidence, blockNeedsNaming } from '../../lib/buildMap';
 
 /** State → the (reused) SOFT PROOF token classes. Coabitação decision: the Build
  *  Map borrows the verdict/state families rather than minting new hues. */
@@ -61,6 +61,13 @@ export default function BlockCard({ block, rollup, domainTag, selected, onSelect
       ? sc.border
       : 'border-hairline';
   const ratifyWord = block.state === 'ratified' ? 'ratified' : 'candidate';
+  const needsNaming = blockNeedsNaming(block);
+  const conf = block.candidate_meta ? candidateConfidence(block.candidate_meta) : null;
+  const confTitle = conf
+    ? `confidence components — ${conf.components
+        .map((c) => `${c.label} ${c.pct == null ? '—' : `${c.pct}%`}`)
+        .join(' · ')} · ${conf.sharedMemberCount} shared · named by ${conf.namedBy}`
+    : undefined;
 
   return (
     <button
@@ -87,13 +94,43 @@ export default function BlockCard({ block, rollup, domainTag, selected, onSelect
         <span className={`text-[11px] font-semibold tracking-wide uppercase ${sc.text}`}>{domainTag}</span>
       </div>
 
-      {/* Block name — the human name (ratified, never auto-asserted). */}
-      <div className="text-[13px] font-semibold text-ink leading-tight mt-0.5">{block.name}</div>
+      {/* Block name — the human name (ratified, never auto-asserted). A candidate
+          whose heuristic label still needs the owner is rendered muted + honest
+          ("unnamed, needs you"), so a provisional guess never reads as final (§5). */}
+      {needsNaming ? (
+        <div
+          className="text-[13px] font-semibold text-stale-lilac leading-tight mt-0.5"
+          data-role="provisional-name"
+        >
+          {block.name} <span className="font-normal italic">— unnamed, needs you</span>
+        </div>
+      ) : (
+        <div className="text-[13px] font-semibold text-ink leading-tight mt-0.5">{block.name}</div>
+      )}
 
       {/* Mono metadata line. */}
       <div className="text-[11px] font-mono text-ink-soft mt-1">
         {memberCount} members · v{block.boundary_version} · {ratifyWord}
       </div>
+
+      {/* Candidate confidence chip (§3b/§5) — a summary on the face, the COMPONENT
+          scores in the tooltip; a seam is flagged. Only on a proposed block. */}
+      {conf && (
+        <div className="mt-1">
+          <span
+            data-role="confidence-chip"
+            title={confTitle}
+            className="inline-flex items-center gap-1 text-[10px] font-mono text-stale-lilac border border-stale-lilac/40 bg-stale-lilac/10 rounded px-1.5 py-0.5"
+          >
+            conf {conf.summaryPct}%
+            {conf.sharedMemberCount > 0 && (
+              <span className="text-verdict-reverify" data-role="chip-seam">
+                · ⚠ {conf.sharedMemberCount} seam
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Boundary-moved badge (F3b §C): the block was reconciled and carries evidence
           earned against an older boundary — discreet amber warn, never an alarm. */}

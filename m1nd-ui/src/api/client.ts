@@ -8,7 +8,13 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
-import type { Receipt, ReconcileReport, SystemBlocksSnapshot } from '../lib/buildMap';
+import type {
+  Receipt,
+  ReconcileReport,
+  RatifyResult,
+  SkeletonCandidateResult,
+  SystemBlocksSnapshot,
+} from '../lib/buildMap';
 import type {
   MissionLetter,
   MissionsResponse,
@@ -257,6 +263,55 @@ export const api = {
         body: JSON.stringify({ agent_id: 'gui', expected_store_version: expectedStoreVersion }),
       },
     ).then((r) => r.result),
+
+  /**
+   * The Build Map's scan gesture (HUMAN-VIEW-V2 F0c §5) — the `skeleton_candidate`
+   * WRITE verb. Scans the bound repo's graph + file list into a CANDIDATE map the
+   * human ratifies (auto-clustering only ever produces a candidate — the Ratification
+   * law). OCC-keyed on `expected_store_version`: `null` on the first scan (no store
+   * yet); the read version on a re-scan (a candidate store is replaced wholesale with
+   * zero inheritance; a ratified store receives only a side-by-side candidate_revision).
+   * `naming:"auto"` tries the naming-runner then falls back to marked heuristics.
+   * WRITE verb — refused under a read-only attach (the honest toast says so). Bare tool
+   * route, agent_id 'gui', unwrapping the `{result}` envelope. §4A.9: `brain` scopes it.
+   */
+  skeletonCandidate: (
+    input: { expectedStoreVersion: number | null; reviewLimit?: number; naming?: 'auto' | 'heuristic' },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: SkeletonCandidateResult }>(withBrain('/api/tools/skeleton_candidate', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        expected_store_version: input.expectedStoreVersion,
+        ...(input.reviewLimit != null ? { review_limit: input.reviewLimit } : {}),
+        naming: input.naming ?? 'auto',
+      }),
+    }).then((r) => r.result),
+
+  /**
+   * The Review-&-ratify walk's blanket ratify (HUMAN-VIEW-V2 F0c §5) — the
+   * `system_blocks_ratify` WRITE verb. Flips every candidate block `candidate ->
+   * ratified` (and membership `proposed -> ratified`), stamps the skeleton's
+   * ratification, and bumps `store_version`. Omit `blockIds` to ratify EVERY block
+   * (the reviewed blanket gesture); `ratifier` is stamped into the record. OCC-keyed
+   * on `expected_store_version` — a stale version rejects with a `conflict` and
+   * NOTHING is applied. WRITE verb — refused under a read-only attach. Bare tool
+   * route, agent_id 'gui', unwrapping the `{result}` envelope. §4A.9: `brain` scopes it.
+   */
+  systemBlocksRatify: (
+    input: { expectedStoreVersion: number; ratifier: string; blockIds?: string[] },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: RatifyResult }>(withBrain('/api/tools/system_blocks_ratify', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        expected_store_version: input.expectedStoreVersion,
+        ratifier: input.ratifier,
+        ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
+      }),
+    }).then((r) => r.result),
 
   /**
    * The Show Code viewer's read (HUMAN-VIEW-V2 F2). Fetches a member file's

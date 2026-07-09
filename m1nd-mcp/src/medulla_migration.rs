@@ -925,11 +925,16 @@ mod tests {
     /// scratch tests exercise the migration logic without racing the machine's real
     /// served owner (which really does listen on 1338 in this environment).
     fn closed_port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("bind ephemeral")
-            .local_addr()
-            .unwrap()
-            .port()
+        match std::net::TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener.local_addr().unwrap().port(),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!(
+                    "SKIP closed_port bind probe: loopback bind is unavailable in this sandbox: {err}"
+                );
+                9
+            }
+            Err(err) => panic!("bind ephemeral: {err}"),
+        }
     }
 
     /// Build a migration over a scratch store with the owner-alive guard pointed at
@@ -1617,7 +1622,16 @@ mod tests {
 
         // Bind an ephemeral port to stand in for a live served owner, and point the
         // migration's guard at it.
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stand-in owner");
+        let listener = match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!(
+                    "SKIP owner-alive listener proof: loopback bind is unavailable in this sandbox: {err}"
+                );
+                return;
+            }
+            Err(err) => panic!("bind stand-in owner: {err}"),
+        };
         let port = listener.local_addr().unwrap().port();
 
         let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo")

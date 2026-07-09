@@ -2611,6 +2611,20 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
+                "name": "skeleton_candidate",
+                "description": "Human View v2 F0c-a WRITE verb. Scans the bound repo graph and git-backed file list into a proposed candidate skeleton. Transaction law: absent store + expected_store_version:null creates a candidate store v1; candidate store + OCC replaces wholesale with heranca-zero (no receipts, fingerprints, resolved members, unmapped cache, or candidate_revision inheritance); ratified store + OCC writes only store.candidate_revision and leaves live blocks untouched. The emitted seed is complete; review_limit only bounds later UI review. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": ["integer", "null"], "description": "OCC key. Null/absent is valid only when no SystemBlock store exists yet." },
+                        "review_limit": { "type": "integer", "default": 16, "description": "Review queue hint for UI paging only; the backend emits every candidate block." },
+                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "F0c-a backend declares the runner hook but uses heuristic provisional naming; runner naming is F0c-b/F2.5c." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "system_blocks_seed_import",
                 "description": "Human View v2 F0a WRITE verb. Imports a ratified `m1nd-system-block-seed-v0` seed into this brain's live store, producing a fresh store at `store_version` 1. Supply the seed inline as `seed_json` OR as `seed_path` (a REPO-RELATIVE path — absolute paths, `~`, and `..` are refused, the same anti-absolute law the seed's own member paths obey). The seed is fully validated before anything is written (schema, repo-relative paths, receipt scope binding, and the anti-poison evidence contract). If a store already exists this refuses honestly (`already_present`) unless `force:true`, which overwrites and reports it in `warning` (the prior live state is lost). Mutation — refused under a read-only attach.",
                 "inputSchema": {
@@ -2779,6 +2793,7 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // sidecar store to disk (seed import, ratify, receipt attach), so a read-only
     // attach must refuse them. `system_blocks_snapshot` is deliberately ABSENT —
     // it is a pure read (like xray_ledger), so it stays ambiently legal.
+    "skeleton_candidate",
     "system_blocks_seed_import",
     "system_blocks_ratify",
     "receipt_import",
@@ -4332,6 +4347,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::system_blocks_handlers::handle_system_blocks_snapshot(state, input)
         }
+        "skeleton_candidate" => {
+            let input: crate::system_blocks_handlers::SkeletonCandidateInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_skeleton_candidate(state, input)
+        }
         "system_blocks_seed_import" => {
             let input: crate::system_blocks_handlers::SeedImportInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5866,6 +5886,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..McpConfig::default()
         };
@@ -5881,6 +5902,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..McpConfig::default()
         };
@@ -5895,6 +5917,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             read_only: true,
             ..McpConfig::default()
@@ -5919,7 +5942,8 @@ mod tests {
             "daemon_start",
             "auto_ingest_start",
             "runtime_overlay",
-            // Human View v2 F0a SystemBlock store writes (Slice 2).
+            // Human View v2 F0a/F0c SystemBlock store writes.
+            "skeleton_candidate",
             "system_blocks_seed_import",
             "system_blocks_ratify",
             "receipt_import",
@@ -6379,6 +6403,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..McpConfig::default()
         };
@@ -8994,6 +9019,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             read_only: true,
             ..McpConfig::default()

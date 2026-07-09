@@ -39,6 +39,7 @@ pub mod runnerd_owner;
 pub mod promote_handlers;
 // ORGANISM R16 — the SOUL (`soul_check` / `soul_read`): PATHOS parsed into
 // anchored claims with verification states + the freshness receipt.
+pub mod skeleton_scan;
 pub mod soul_handlers;
 pub mod surgical_handlers;
 pub mod system_blocks;

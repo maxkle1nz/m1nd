@@ -7,9 +7,16 @@
  */
 import { useCallback, useState } from 'react';
 import { api } from '../../api/client';
-import { runReconcile, type ReconcileToast } from '../../lib/buildMap';
+import {
+  repoIdFromSkeletonId,
+  runReconcile,
+  runRatify,
+  runScan,
+  type ReconcileToast,
+} from '../../lib/buildMap';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import BuildMap from './BuildMap';
+import ReviewRatify from './ReviewRatify';
 
 export interface BuildMapViewProps {
   /** Open the Living Tree (kept one click away — PRD: the deterministic surface
@@ -35,6 +42,16 @@ export default function BuildMapView({
   const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot);
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
+  // F0c §5 — the scan gesture (empty state) and the Review-&-ratify walk. The write
+  // owner runs `skeleton_candidate` / `system_blocks_ratify`, owns the honest toasts,
+  // and reloads. The accept set is owned here so the blanket ratify is a real write
+  // gated on the owner having reviewed each provisional name.
+  const [scanning, setScanning] = useState(false);
+  const [scanToast, setScanToast] = useState<ReconcileToast | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [acceptedIds, setAcceptedIds] = useState<ReadonlySet<string>>(new Set());
+  const [ratifying, setRatifying] = useState(false);
+  const [ratifyToast, setRatifyToast] = useState<ReconcileToast | null>(null);
 
   // The reconcile gesture (F3b §D): OCC-key on the store_version we read, run the
   // write, and reduce it to a toast + reload decision (the pure `runReconcile`).
@@ -59,6 +76,72 @@ export default function BuildMapView({
   }, [reconciling, snapshot, reload, brainRoot]);
 
   const dismissToast = useCallback(() => setToast(null), []);
+
+  // The scan gesture (F0c §5): OCC-key on the store_version we read (null on the
+  // first scan — no store yet), run `skeleton_candidate` with naming:"auto", and
+  // reduce it to a toast + reload (the pure `runScan`). Success reloads into the
+  // candidate dress; a fresh candidate supersedes any prior acceptances.
+  const handleScan = useCallback(async () => {
+    if (scanning) return;
+    const version = snapshot?.store?.store_version ?? snapshot?.store_version ?? null;
+    setScanning(true);
+    try {
+      const { toast: t, shouldReload } = await runScan(
+        () => api.skeletonCandidate({ expectedStoreVersion: version, naming: 'auto' }, brainRoot),
+        version,
+      );
+      setScanToast(t);
+      if (shouldReload) {
+        setAcceptedIds(new Set());
+        reload();
+      }
+    } finally {
+      setScanning(false);
+    }
+  }, [scanning, snapshot, reload, brainRoot]);
+
+  const dismissScanToast = useCallback(() => setScanToast(null), []);
+
+  // Toggle a block's owner-acceptance (the §5 owner touch — local review state).
+  const handleAccept = useCallback((blockId: string) => {
+    setAcceptedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(blockId)) next.delete(blockId);
+      else next.add(blockId);
+      return next;
+    });
+  }, []);
+
+  // The blanket ratify (F0c §5): OCC-key on the store_version we read, run
+  // `system_blocks_ratify` (block_ids omitted = every block), and reduce it to a
+  // toast + reload. Success reloads the ratified map, closes the walk, and clears the
+  // accept set; a conflict reloads (the store moved); a read-only/error keeps the walk.
+  const handleRatifyAll = useCallback(async () => {
+    if (ratifying) return;
+    const version = snapshot?.store?.store_version ?? snapshot?.store_version;
+    if (version == null) return;
+    setRatifying(true);
+    try {
+      const { toast: t, shouldReload } = await runRatify(
+        () => api.systemBlocksRatify({ expectedStoreVersion: version, ratifier: 'gui' }, brainRoot),
+        version,
+      );
+      setRatifyToast(t);
+      if (shouldReload) {
+        if (t.kind === 'ok') {
+          setReviewOpen(false);
+          setAcceptedIds(new Set());
+        }
+        reload();
+      }
+    } finally {
+      setRatifying(false);
+    }
+  }, [ratifying, snapshot, reload, brainRoot]);
+
+  const dismissRatifyToast = useCallback(() => setRatifyToast(null), []);
+  const openReview = useCallback(() => setReviewOpen(true), []);
+  const closeReview = useCallback(() => setReviewOpen(false), []);
 
   if (status === 'loading') {
     return (
@@ -87,18 +170,41 @@ export default function BuildMapView({
     );
   }
 
-  // ready | empty — BuildMap renders the canvas or the honest empty screen.
+  // ready | empty — BuildMap renders the canvas or the honest empty screen; the
+  // Review-&-ratify walk (F0c §5) mounts as an overlay when the human opens it on a
+  // candidate store (the owner holds the accept set + runs the ratify write).
+  const store = snapshot?.present ? snapshot.store ?? null : null;
   return (
-    <BuildMap
-      snapshot={snapshot ?? { present: false }}
-      rollup={rollup}
-      brainRoot={brainRoot}
-      initialSelectedId={selectedBlockId}
-      onOpenTree={onOpenTree}
-      onReconcile={handleReconcile}
-      reconciling={reconciling}
-      reconcileToast={toast}
-      onDismissToast={dismissToast}
-    />
+    <>
+      <BuildMap
+        snapshot={snapshot ?? { present: false }}
+        rollup={rollup}
+        brainRoot={brainRoot}
+        initialSelectedId={selectedBlockId}
+        onOpenTree={onOpenTree}
+        onReconcile={handleReconcile}
+        reconciling={reconciling}
+        reconcileToast={toast}
+        onDismissToast={dismissToast}
+        onScan={handleScan}
+        scanning={scanning}
+        scanToast={scanToast}
+        onDismissScanToast={dismissScanToast}
+        onReview={openReview}
+      />
+      {reviewOpen && store && (
+        <ReviewRatify
+          store={store}
+          repoId={repoIdFromSkeletonId(store.skeleton.skeleton_id)}
+          acceptedIds={acceptedIds}
+          onAccept={handleAccept}
+          onRatifyAll={handleRatifyAll}
+          ratifying={ratifying}
+          ratifyToast={ratifyToast}
+          onDismissToast={dismissRatifyToast}
+          onClose={closeReview}
+        />
+      )}
+    </>
   );
 }
