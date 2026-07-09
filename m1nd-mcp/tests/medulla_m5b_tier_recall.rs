@@ -84,6 +84,7 @@ fn mk_owner_with_cap(runtime: &Path, cap: usize) -> Owner {
             registry_dir: Some(runtime.join("registry")),
             mcp_sessions: new_mcp_session_registry(),
             project_brains,
+            runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
         }),
     }
 }

@@ -2716,6 +2716,21 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "letter"]
                 }
+            },
+            {
+                "name": "mission_spawn",
+                "description": "Human View v2 F2.5c WRITE verb (§4b) — HTTP-ONLY. The owner→runner-daemon PROXY that launches a spawn mission. The browser holds no shared secret, so the spawn travels THROUGH the owner: this verb resolves the live runner (from the announce registry), reads the owner-local `runnerd.secret`, resolves the workspace project_root from the `?brain=` selector, and FORWARDS `{runner_id, packet_markdown, block_id, brain_ref, brain}` to the runner daemon's loopback `/run` with the secret in the `x-runnerd-secret` header. The daemon opens the mission chain (judging→executing→merge_wait|failed) and NEVER lands (the landed-law: import is a human act). Returns `{mission_id, accepted:true, runner_id}` on acceptance, or the daemon's honest refusal (`unpinned_runner`, `workspace_not_allowed`, …) verbatim. Served only by `POST /api/tools/mission_spawn` on the owner — the sync MCP dispatch refuses it with a redirect. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "The calling agent id (the UI passes 'gui')." },
+                        "runner_id": { "type": "string", "description": "The pinned, LIVE runner id to spawn on (must appear in GET /api/runnerd/status)." },
+                        "packet_markdown": { "type": "string", "description": "The composed MissionPacket markdown handed to the runner." },
+                        "block_id": { "type": "string", "description": "The SystemBlock the mission extends (sb_...)." },
+                        "brain_ref": { "type": "string", "description": "The brain's reference string for the letter (a display name / repo_id — NEVER an absolute path)." }
+                    },
+                    "required": ["agent_id", "runner_id", "packet_markdown", "block_id", "brain_ref"]
+                }
             }
         ]
     })
@@ -2779,6 +2794,13 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
     // is not gated here (§6-F2.5a: the safety laws land first).
     "mission_post",
+    // HUMAN VIEW v2 F2.5c: mission_spawn PROXIES a spawn to the runner daemon — it
+    // launches a mission (a write), so a read-only attach must refuse it. It is an
+    // HTTP-only proxy handled in `http_server::handle_mission_spawn` (it needs the
+    // owner's announce registry + the shared secret + an async forward); the
+    // dispatch arm here only surfaces an honest "http-only" message to an MCP-stdio
+    // caller. Listing it keeps the read-only law + the tool surface consistent.
+    "mission_spawn",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4351,6 +4373,18 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::mission_letter_handlers::handle_mission_post(state, input)
         }
+        // HUMAN VIEW v2 F2.5c — mission_spawn (§4b) is an OWNER→runnerd PROXY that
+        // needs owner-process state (the announce registry + the shared secret) and
+        // an async HTTP forward; it is served ONLY by the HTTP route
+        // (`http_server::handle_mission_spawn`), never through this sync dispatch. An
+        // MCP-stdio caller reaching here gets an honest redirect, never a silent
+        // failure or a fake spawn.
+        "mission_spawn" => Err(M1ndError::InvalidParams {
+            tool: "mission_spawn".to_string(),
+            detail:
+                "mission_spawn is an HTTP-only proxy verb — call it via `POST /api/tools/mission_spawn` on the owner (it forwards to the runner daemon with the shared secret the browser never holds)"
+                    .to_string(),
+        }),
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5895,6 +5929,8 @@ mod tests {
             "system_blocks_delete",
             // F2.5a: the mission-letter write verb.
             "mission_post",
+            // F2.5c: the mission_spawn proxy (a write — it launches a mission).
+            "mission_spawn",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -6063,6 +6099,26 @@ mod tests {
         assert!(
             err.to_string().contains("attached read-only")
                 && err.to_string().contains("mission_post"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn mission_spawn_dispatch_is_http_only_redirect() {
+        // The sync MCP dispatch never runs the proxy (it needs owner-process state +
+        // an async forward); an MCP-stdio caller gets an honest redirect, not a fake
+        // spawn. The real proxy is the HTTP route (http_server::handle_mission_spawn).
+        let (_temp, mut state) = build_state();
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_spawn",
+            &serde_json::json!({"agent_id": "gui", "runner_id": "build-1",
+                "packet_markdown": "# p", "block_id": "sb_x", "brain_ref": "repo-a"}),
+        )
+        .expect_err("mission_spawn is HTTP-only over MCP dispatch");
+        assert!(
+            err.to_string().contains("HTTP-only")
+                && err.to_string().contains("/api/tools/mission_spawn"),
             "unexpected: {err}"
         );
     }

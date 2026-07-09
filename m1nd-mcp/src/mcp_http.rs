@@ -1891,6 +1891,7 @@ mod tests {
             registry_dir: None,
             mcp_sessions: new_mcp_session_registry(),
             project_brains,
+            runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
         })
     }
 

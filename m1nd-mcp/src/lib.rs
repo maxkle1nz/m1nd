@@ -32,6 +32,9 @@ pub mod mission_local;
 pub mod persist_handlers;
 pub mod perspective;
 pub mod perspective_handlers;
+// HUMAN VIEW v2 F2.5c — the owner's runnerd surface (announce liveness registry +
+// the mission_spawn proxy that keeps the shared secret owner-side).
+pub mod runnerd_owner;
 // MEDULLA M6 — the `promote` verb (project-private claim → medulla, audited).
 pub mod promote_handlers;
 // ORGANISM R16 — the SOUL (`soul_check` / `soul_read`): PATHOS parsed into

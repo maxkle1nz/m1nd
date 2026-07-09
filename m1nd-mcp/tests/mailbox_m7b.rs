@@ -103,6 +103,7 @@ fn mk_owner(base: &Path) -> Owner {
             registry_dir: Some(runtime.join("registry")),
             mcp_sessions: new_mcp_session_registry(),
             project_brains,
+            runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
         }),
         runtime,
     }
