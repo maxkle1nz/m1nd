@@ -20,8 +20,16 @@ import {
 } from '../../lib/buildMap';
 import BlockCard from './BlockCard';
 import BlockPanel from './BlockPanel';
+import PacketCompose from './PacketCompose';
+import ShowCode from './ShowCode';
 import SystemHealthSidebar from './SystemHealthSidebar';
 import Wires from './Wires';
+
+/** The open F2 surface (Show Code modal or Copy Packet panel), scoped to a block. */
+type MapModal =
+  | { kind: 'showcode'; blockId: string }
+  | { kind: 'packet'; blockId: string; subPath: string | null }
+  | null;
 
 export interface BuildMapProps {
   snapshot: SystemBlocksSnapshot;
@@ -76,6 +84,7 @@ function CandidateBanner() {
 export default function BuildMap({ snapshot, rollup, initialSelectedId = null, onOpenTree }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
+  const [modal, setModal] = useState<MapModal>(null);
 
   if (!store || !rollup) {
     return <BuildMapEmpty honest={snapshot.honest ?? null} />;
@@ -86,6 +95,8 @@ export default function BuildMap({ snapshot, rollup, initialSelectedId = null, o
   const size = canvasSize(store.blocks.length);
   const selectedBlock = store.blocks.find((b) => b.block_id === selectedId) ?? null;
   const selectedRollup = selectedBlock ? rollup.rollups.get(selectedBlock.block_id) ?? null : null;
+  const modalBlock = modal ? store.blocks.find((b) => b.block_id === modal.blockId) ?? null : null;
+  const modalRollup = modalBlock ? rollup.rollups.get(modalBlock.block_id) ?? null : null;
 
   return (
     <div className="flex-1 flex overflow-hidden bg-porcelain" data-surface="map">
@@ -134,7 +145,13 @@ export default function BuildMap({ snapshot, rollup, initialSelectedId = null, o
 
       {/* The selected block's panel, or a calm hint. */}
       {selectedBlock && selectedRollup ? (
-        <BlockPanel block={selectedBlock} rollup={selectedRollup} repoId={repoId} />
+        <BlockPanel
+          block={selectedBlock}
+          rollup={selectedRollup}
+          repoId={repoId}
+          onShowCode={() => setModal({ kind: 'showcode', blockId: selectedBlock.block_id })}
+          onAskAgent={() => setModal({ kind: 'packet', blockId: selectedBlock.block_id, subPath: null })}
+        />
       ) : (
         <aside
           data-role="block-panel-empty"
@@ -142,6 +159,28 @@ export default function BuildMap({ snapshot, rollup, initialSelectedId = null, o
         >
           Select a block to see its receipts, membership and sockets.
         </aside>
+      )}
+
+      {/* F2 — Show Code modal / Copy Packet panel (read-only surfaces). */}
+      {modal?.kind === 'showcode' && modalBlock && modalRollup && (
+        <ShowCode
+          block={modalBlock}
+          rollup={modalRollup}
+          repoId={repoId}
+          onClose={() => setModal(null)}
+          onAskAgent={(subPath) =>
+            setModal({ kind: 'packet', blockId: modalBlock.block_id, subPath: subPath ?? null })
+          }
+        />
+      )}
+      {modal?.kind === 'packet' && modalBlock && modalRollup && (
+        <PacketCompose
+          block={modalBlock}
+          rollup={modalRollup}
+          repoId={repoId}
+          subPath={modal.subPath}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );

@@ -56,9 +56,11 @@ test('the panel opens with the auditable denominator: Receipts 0/3 · not earned
   const text = visibleText(<BuildMap snapshot={snapshot} rollup={rollup} initialSelectedId={firstId} />);
   assert.match(text, /Receipts 0\/3/, 'block 0 declares spec+structural+test = 3 required');
   assert.match(text, /not earned yet/, 'each required receipt is honestly not earned yet');
-  // Show Code / Ask agent are honest F2 placeholders — disabled, never dead.
-  assert.match(out, /data-role="show-code"[^>]*disabled/);
-  assert.match(out, /data-role="ask-agent"[^>]*disabled/);
+  // Show Code / Ask agent are now LIVE (F2) — present and no longer disabled.
+  assert.match(out, /data-role="show-code"/);
+  assert.match(out, /data-role="ask-agent"/);
+  assert.doesNotMatch(out, /data-role="show-code"[^>]*disabled=""/, 'Show Code is active in F2');
+  assert.doesNotMatch(out, /data-role="ask-agent"[^>]*disabled=""/, 'Ask agent is active in F2');
 });
 
 test('the Unmapped tray is present even at zero (F7 — never pretend full coverage)', () => {

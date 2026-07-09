@@ -46,6 +46,17 @@ export class ApiError extends Error {
   }
 }
 
+/** The `/api/file` read (HUMAN-VIEW-V2 F2 Show Code viewer). Content is capped at
+ *  `max_bytes` on the owner; `truncated` says so honestly and `bytes` is the true
+ *  on-disk size. Repo-relative paths only — the owner refuses absolute/escape. */
+export interface FileViewResponse {
+  path: string;
+  content: string;
+  bytes: number;
+  truncated: boolean;
+  max_bytes: number;
+}
+
 /**
  * Append the §4A.9 `?brain=<project_root>` selector to a path when a brain root is
  * given. Absent/empty → the path is untouched (the bound graph, byte-compatible —
@@ -142,4 +153,16 @@ export const api = {
       withBrain('/api/tools/system_blocks_snapshot', brain),
       { method: 'POST', body: JSON.stringify({ agent_id: 'gui' }) },
     ).then((r) => r.result),
+
+  /**
+   * The Show Code viewer's read (HUMAN-VIEW-V2 F2). Fetches a member file's
+   * content (read-only) under the brain's workspace root — a pure GET, safe under
+   * a read-only attach. The owner enforces the repo-relative law + a byte cap; an
+   * absolute/escape path 400s, a missing file 404s. §4A.9: `brain` scopes the read
+   * to a hosted brain (absent = the bound graph).
+   */
+  fileView: (path: string, brain?: string | null) =>
+    apiFetch<FileViewResponse>(
+      withBrain(`/api/file?path=${encodeURIComponent(path)}`, brain),
+    ),
 };

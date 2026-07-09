@@ -17,6 +17,10 @@ export interface BlockPanelProps {
   block: SystemBlock;
   rollup: BlockRollup;
   repoId: string | null;
+  /** Open the Show Code modal for this block (F2). */
+  onShowCode?: () => void;
+  /** Open the packet compositor for this block (F2). */
+  onAskAgent?: () => void;
 }
 
 function SocketList({ label, sockets }: { label: string; sockets: Array<{ to?: string; type?: string; alias?: string; class?: string }> }) {
@@ -41,7 +45,7 @@ function SocketList({ label, sockets }: { label: string; sockets: Array<{ to?: s
   );
 }
 
-export default function BlockPanel({ block, rollup, repoId }: BlockPanelProps) {
+export default function BlockPanel({ block, rollup, repoId, onShowCode, onAskAgent }: BlockPanelProps) {
   const tag = toDomainTag(block.block_id, repoId);
   const roles = membershipByRole(block);
 
@@ -110,27 +114,29 @@ export default function BlockPanel({ block, rollup, repoId }: BlockPanelProps) {
         {block.block_id} · boundary v{block.boundary_version} · contract v{block.contract_version}
       </div>
 
-      {/* Honest F2 placeholders — disabled with a tooltip naming the phase. */}
+      {/* F2 — Show Code + Ask agent are live (they open read-only surfaces). */}
       <div className="mt-3 space-y-1.5">
         <button
           type="button"
           data-role="show-code"
-          disabled
-          title="Show Code arrives in F2"
-          className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded opacity-60 cursor-not-allowed"
+          onClick={onShowCode}
+          disabled={!onShowCode}
+          title="Show the block's files, receipts and connections"
+          className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Icon name="blocks" size={14} decorative />
-          Show code <span className="ml-auto text-[10px] text-ink-soft">F2</span>
+          Show code
         </button>
         <button
           type="button"
           data-role="ask-agent"
-          disabled
-          title="Ask agent arrives in F2"
-          className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded opacity-60 cursor-not-allowed"
+          onClick={onAskAgent}
+          disabled={!onAskAgent}
+          title="Compose a packet to point an agent at this block"
+          className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Icon name="agents" size={14} decorative />
-          Ask agent <span className="ml-auto text-[10px] text-ink-soft">F2</span>
+          Ask agent
         </button>
       </div>
     </aside>
