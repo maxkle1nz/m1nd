@@ -2704,6 +2704,18 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "expected_store_version", "block_id"]
                 }
+            },
+            {
+                "name": "mission_post",
+                "description": "Human View v2 F2.5a WRITE verb. Appends one mission letter (schema `m1nd-mission-letter-v0`) to the bound brain's mailbox box as a `kind=mission` line, after the §1 contract gates all pass. Gates, in order: (1) schema + `mission_id` shape (`msn_<12hex>`) + `mission_seq>=1` + the §1f no-absolute-path guard on `brain_ref`; (2) per-phase field gating — `executing` carries NO verdict, `merge_wait` REQUIRES a gate, and the §1d LANDED LAW: `landed` REQUIRES `receipt.imported==true` with a real `store_version` (a zero-exit gate WITHOUT an imported receipt is `merge_wait`, never `landed`); (3) a `receipt_candidate`, when present, is complete (`artifact_hash`+`evidence_refs`); (4) the §1e HEAD CAS — the mission's letters form a content-hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id; a letter that does not extend the current head is REJECTED with `stale_head` and NOTHING is appended. An identical replay dedups by content id (idempotent). The letter is STATE, not evidence — it NEVER changes a block's color (that is `receipt_import`'s job alone). Returns the appended letter's `letter_id` (set it as the next letter's `prev_letter_id`). Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "The emitting agent id — stamped into the mailbox line (part of the content id, so an identical replay from the same agent dedups)." },
+                        "letter": { "type": "object", "description": "The mission letter (m1nd-mission-letter-v0): schema, mission_id (msn_<12hex>), mission_seq, prev_letter_id (the prior letter's content id, or null for seq 1), block_id, brain_ref (a reference string — NEVER an absolute path), seat (oracle|hand), runner_id, capability (build-runner|naming-runner|loop-runner|hand-runner|review-runner), phase (judging|executing|gate|review|merge_wait|landed|failed), and the phase-gated fields verdict/gate/receipt_candidate/receipt, plus packet_ref, tokens_total, started_at, updated_at." }
+                    },
+                    "required": ["agent_id", "letter"]
+                }
             }
         ]
     })
@@ -2762,6 +2774,11 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "system_blocks_reconcile",
     "system_blocks_archive",
     "system_blocks_delete",
+    // HUMAN VIEW v2 F2.5a: mission_post appends a mission letter to the box on
+    // disk (a mailbox write), so a read-only attach must refuse it. The
+    // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
+    // is not gated here (§6-F2.5a: the safety laws land first).
+    "mission_post",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4328,6 +4345,12 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::system_blocks_handlers::handle_system_blocks_delete(state, input)
         }
+        // HUMAN VIEW v2 F2.5a — the mission-letter write verb (§2c).
+        "mission_post" => {
+            let input: crate::mission_letter_handlers::MissionPostInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::mission_letter_handlers::handle_mission_post(state, input)
+        }
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5870,6 +5893,8 @@ mod tests {
             "system_blocks_reconcile",
             "system_blocks_archive",
             "system_blocks_delete",
+            // F2.5a: the mission-letter write verb.
+            "mission_post",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -5956,6 +5981,90 @@ mod tests {
         )
         .expect_err("stale ratify must conflict");
         assert!(err.to_string().contains("conflict"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn mission_post_is_wired_end_to_end_with_head_cas() {
+        let (_temp, mut state) = build_state();
+
+        // A helper to build a mission-letter JSON value at a given seq/phase.
+        let letter = |seq: u64, phase: &str, prev: Option<&str>| {
+            let mut m = serde_json::json!({
+                "schema": "m1nd-mission-letter-v0",
+                "mission_id": "msn_0123456789ab",
+                "mission_seq": seq,
+                "block_id": "sb_x",
+                "brain_ref": "repo-a",
+                "seat": "hand",
+                "capability": "build-runner",
+                "phase": phase,
+                "started_at": "2026-07-09T00:00:00Z",
+                "updated_at": "2026-07-09T00:00:00Z"
+            });
+            if let Some(p) = prev {
+                m["prev_letter_id"] = serde_json::json!(p);
+            }
+            m
+        };
+
+        // seq 1 (judging) posts cleanly and returns a letter_id.
+        let out1 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(1, "judging", None)}),
+        )
+        .expect("seq 1 posts");
+        let id1 = out1["letter_id"].as_str().expect("letter_id").to_string();
+        assert_eq!(out1["mission_seq"], 1);
+        assert_eq!(out1["deduped"], false);
+
+        // seq 2 chained on seq 1's id posts cleanly.
+        let out2 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some(&id1))}),
+        )
+        .expect("seq 2 extends the head");
+        assert_eq!(out2["mission_seq"], 2);
+
+        // seq 2 with the WRONG prev → stale_head surfaces through dispatch, nothing appended.
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some("deadbeefdead"))}),
+        )
+        .expect_err("a stale head must be refused");
+        assert!(err.to_string().contains("stale_head"), "unexpected: {err}");
+
+        // The §1d landed law surfaces too: landed without an imported receipt.
+        let err2 = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand-a", "letter": letter(3, "landed", Some(&id1))}),
+        )
+        .expect_err("gate-zero cannot land");
+        assert!(err2.to_string().contains("landed"), "unexpected: {err2}");
+    }
+
+    #[test]
+    fn mission_post_is_refused_read_only() {
+        let (_temp, mut state) = build_state_read_only();
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": {
+                "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab",
+                "mission_seq": 1, "block_id": "sb_x", "brain_ref": "repo-a", "seat": "hand",
+                "capability": "build-runner", "phase": "judging",
+                "started_at": "t", "updated_at": "t"
+            }}),
+        )
+        .expect_err("mission_post must be refused in read-only");
+        assert!(
+            err.to_string().contains("attached read-only")
+                && err.to_string().contains("mission_post"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]

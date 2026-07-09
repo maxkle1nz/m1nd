@@ -1402,6 +1402,15 @@ pub struct BrainQuery {
     pub brain: Option<String>,
 }
 
+/// The `/api/mailbox` query (HUMAN-VIEW-V2-F2.5a §2b): the shared `?brain=`
+/// selector plus an optional `?kind=mission`. Absent `kind` = today's field-report
+/// caixinha, byte-for-byte; `kind=mission` returns per-mission heads instead.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct MailboxQuery {
+    pub brain: Option<String>,
+    pub kind: Option<String>,
+}
+
 /// The `served_brain` echo shape (§4A.9.4): the resolution `instances_listing`
 /// already computes, attached to every `/api/graph/*` response so the client can
 /// ASSERT what it got against what it asked for and drop mismatches (INV-15).
@@ -2095,63 +2104,66 @@ fn owner_runtime_and_base(state: &Arc<AppState>) -> (std::path::PathBuf, String)
 /// the spool (MED-INV-1 / INV-17).
 async fn handle_mailbox(
     State(state): State<Arc<AppState>>,
-    Query(brain): Query<BrainQuery>,
+    Query(q): Query<MailboxQuery>,
 ) -> impl IntoResponse {
     let state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
         let foreign = foreign_tool_markers();
-        let (runtime_root, worktree_base) = owner_runtime_and_base(&state);
+        let (runtime_root, _worktree_base) = owner_runtime_and_base(&state);
 
-        // The medulla box is addressed by the literal `medulla` selector.
-        let is_medulla = brain
+        // Resolve (served_brain, box_path) ONCE — the same box the field-report and
+        // mission-head views both read, and the same box `mission_post` writes.
+        //
+        // The medulla box is addressed by the literal `medulla` selector; otherwise
+        // the §4A.9 selector resolves the brain (registered roots only) and its box
+        // is that repo's repo-side file (a memory-only brain → the medulla box).
+        let is_medulla = q
             .brain
             .as_deref()
             .map(|b| b.trim().eq_ignore_ascii_case("medulla"))
             .unwrap_or(false);
+        let (served_brain, box_path) = if is_medulla {
+            (
+                served_brain_json(Some("medulla".into()), Some("medulla".into())),
+                crate::mailbox::medulla_box_path(&runtime_root),
+            )
+        } else {
+            let (session, served_brain) = resolve_brain(&state, q.brain.as_deref())?;
+            let repo_root = {
+                let s = session.lock();
+                s.project_root_display()
+            };
+            let box_path = match repo_root {
+                Some(root) => std::path::Path::new(&root).join(crate::mailbox::BOX_REL_PATH),
+                None => crate::mailbox::medulla_box_path(&runtime_root),
+            };
+            (served_brain, box_path)
+        };
 
-        if is_medulla {
-            let box_path = crate::mailbox::medulla_box_path(&runtime_root);
-            let view = crate::mailbox::read_box(&box_path, &foreign)?;
+        // F2.5a §2b: `kind=mission` returns per-mission heads (the §1e chain) +
+        // honest superseded counts. Absent `kind` = today's caixinha byte-for-byte.
+        let is_mission = q
+            .kind
+            .as_deref()
+            .map(|k| {
+                k.trim()
+                    .eq_ignore_ascii_case(crate::mission_letter::KIND_MISSION)
+            })
+            .unwrap_or(false);
+        if is_mission {
+            let letters = crate::mailbox::read_letters(&box_path)?;
+            let heads: Vec<crate::mission_letter::MissionHead> =
+                crate::mission_letter::heads_by_mission(&letters)
+                    .into_values()
+                    .collect();
             return Ok::<_, m1nd_core::error::M1ndError>(serde_json::json!({
-                "served_brain": served_brain_json(Some("medulla".into()), Some("medulla".into())),
-                "letters": view.letters,
-                "counts": {
-                    "wet_ink": view.counts.wet_ink,
-                    "in_flight": view.counts.in_flight,
-                    "fired_clay": view.counts.fired_clay,
-                    "external": view.counts.external,
-                    "open": view.counts.open(),
-                },
+                "served_brain": served_brain,
+                "missions": heads,
             }));
         }
 
-        // Otherwise the §4A.9 selector resolves the brain (registered roots only)
-        // and gives its served_brain echo; the box is that repo's repo-side file.
-        let (session, served_brain) = resolve_brain(&state, brain.brain.as_deref())?;
-        let repo_root = {
-            let s = session.lock();
-            s.project_root_display()
-        };
-        let Some(repo_root) = repo_root else {
-            // A brain with no code root (memory-only) → its box is the medulla box.
-            let box_path = crate::mailbox::medulla_box_path(&runtime_root);
-            let view = crate::mailbox::read_box(&box_path, &foreign)?;
-            return Ok(serde_json::json!({
-                "served_brain": served_brain,
-                "letters": view.letters,
-                "counts": {
-                    "wet_ink": view.counts.wet_ink,
-                    "in_flight": view.counts.in_flight,
-                    "fired_clay": view.counts.fired_clay,
-                    "external": view.counts.external,
-                    "open": view.counts.open(),
-                },
-            }));
-        };
-        let _ = worktree_base;
-        let box_path = std::path::Path::new(&repo_root).join(crate::mailbox::BOX_REL_PATH);
         let view = crate::mailbox::read_box(&box_path, &foreign)?;
-        Ok(serde_json::json!({
+        Ok::<_, m1nd_core::error::M1ndError>(serde_json::json!({
             "served_brain": served_brain,
             "letters": view.letters,
             "counts": {
