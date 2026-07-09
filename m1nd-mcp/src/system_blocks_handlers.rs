@@ -1,19 +1,23 @@
-//! Human View v2 F0a — the SystemBlock store MCP verbs (Slice 2).
+//! Human View v2 F0a — the SystemBlock store MCP verbs (Slices 2 + 3).
 //!
-//! Four verbs that serve the per-project-brain sidecar store defined in
+//! The verbs that serve the per-project-brain sidecar store defined in
 //! [`crate::system_blocks`]:
 //! - `system_blocks_snapshot` (READ) — the whole store, or an honest "no skeleton"
 //! - `system_blocks_seed_import` (WRITE) — seed -> fresh store (`store_version = 1`)
 //! - `system_blocks_ratify` (WRITE) — flip candidate blocks to ratified (OCC)
 //! - `receipt_import` (WRITE) — attach anti-poison-checked evidence (OCC)
+//! - `system_blocks_reconcile` (WRITE, Slice 3) — resolve membership vs the real
+//!   file list, bump moved boundaries, surface the real unmapped (OCC)
+//! - `receipt_recompute` (READ, Slice 3) — per-receipt fresh/stale, history intact
+//! - `system_blocks_archive` (WRITE, Slice 3) — retire/restore a block (OCC)
+//! - `system_blocks_delete` (WRITE, Slice 3) — permanently remove a block (OCC)
 //!
 //! Every WRITE is OCC-keyed on the `store_version` the caller read (PRD §3.1); a
-//! stale write is rejected and nothing is applied. The three writers live in the
-//! read-only-attach deny-list (`server::READ_ONLY_DENIED_TOOLS`); the snapshot
-//! read is allowed. The store lives in the brain's runtime dir (`runtime_root`),
-//! alongside the brain's other runtime artifacts (F0-TECH §1) — no new root is
-//! invented. `receipt_recompute` (the expiry/staleness pass) is F0a slice 3, not
-//! here.
+//! stale write is rejected and nothing is applied. The writers live in the
+//! read-only-attach deny-list (`server::READ_ONLY_DENIED_TOOLS`); the snapshot and
+//! recompute reads are allowed. The store lives in the brain's runtime dir
+//! (`runtime_root`), alongside the brain's other runtime artifacts (F0-TECH §1) —
+//! no new root is invented.
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +28,8 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 
 use crate::session::SessionState;
 use crate::system_blocks::{
-    self, import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, Receipt, SeedError,
+    self, archive_in_dir, delete_in_dir, import_receipt_in_dir, import_seed_into_dir,
+    ratify_in_dir, recompute_in_dir, reconcile_in_dir, ArchiveMode, Receipt, SeedError,
     SystemBlockStore,
 };
 use crate::util::now_ms;
@@ -241,6 +246,186 @@ pub fn handle_receipt_import(
         "store_version": store.store_version,
         "block_id": input.block_id,
         "receipt_count": receipt_count,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// system_blocks_reconcile (WRITE) — the architectural git status (Slice 3)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ReconcileInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The `store_version` the caller read (OCC key, PRD §3.1).
+    pub expected_store_version: u64,
+    /// An explicit repo-relative file list to reconcile against. When absent, the
+    /// list is read from the brain's bound workspace root (git, else a walk).
+    #[serde(default)]
+    pub file_list: Option<Vec<String>>,
+}
+
+/// `system_blocks_reconcile` (WRITE). Resolves every block's membership (exact +
+/// globs) against the real file list, records baseline fingerprints, bumps the
+/// `boundary_version` of blocks whose resolved set moved (which makes their
+/// previously-earned receipts stale by scope), and surfaces the real unmapped. The
+/// whole reconcile is one atomic OCC mutation: on any change `store_version` bumps
+/// once; a no-op reconcile changes nothing.
+pub fn handle_system_blocks_reconcile(
+    state: &mut SessionState,
+    input: ReconcileInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "system_blocks_reconcile";
+    let dir = store_dir(state);
+    let file_list = match input.file_list {
+        Some(list) => list,
+        None => {
+            let root = state
+                .workspace_root
+                .as_ref()
+                .ok_or_else(|| M1ndError::InvalidParams {
+                    tool: TOOL.to_string(),
+                    detail: "no workspace root is bound to this brain — pass file_list explicitly"
+                        .to_string(),
+                })?;
+            system_blocks::repo_file_list(Path::new(root)).map_err(|e| seed_err(TOOL, e))?
+        }
+    };
+    let (store, report) = reconcile_in_dir(&dir, input.expected_store_version, &file_list)
+        .map_err(|e| seed_err(TOOL, e))?;
+    let mut out = serde_json::to_value(&report).map_err(M1ndError::Serde)?;
+    out["store_version"] = json!(store.store_version);
+    out["file_count"] = json!(file_list.len());
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// receipt_recompute (READ) — receipt freshness pass (Slice 3)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ReceiptRecomputeInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// Recompute only this block; omit to recompute every block.
+    #[serde(default)]
+    pub block_id: Option<String>,
+}
+
+/// `receipt_recompute` (READ). Re-evaluates each receipt against its block's CURRENT
+/// `(block_id, boundary_version, contract_version)` and `expires_on`, returning
+/// per-receipt `fresh` / `stale{reason}`. A pure read — receipts are never deleted
+/// (history is history); the report IS the truth. Safe under a read-only attach.
+pub fn handle_receipt_recompute(
+    state: &mut SessionState,
+    input: ReceiptRecomputeInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "receipt_recompute";
+    let dir = store_dir(state);
+    let now = now_iso8601();
+    let report =
+        recompute_in_dir(&dir, input.block_id.as_deref(), &now).map_err(|e| seed_err(TOOL, e))?;
+    let mut out = serde_json::to_value(&report).map_err(M1ndError::Serde)?;
+    out["evaluated_at"] = json!(now);
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// system_blocks_archive (WRITE) — retire/restore a block (Slice 3)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The `store_version` the caller read (OCC key, PRD §3.1).
+    pub expected_store_version: u64,
+    /// The blocks to archive or restore.
+    pub block_ids: Vec<String>,
+    /// `"archive"` (retire, remembering the prior state) or `"restore"` (return to
+    /// the real prior state).
+    pub mode: String,
+}
+
+/// `system_blocks_archive` (WRITE). Archives blocks (flip to `archived`, remembering
+/// the prior state so a restore is honest) or restores them (return to that prior
+/// state). Archived blocks are excluded from active rollup counts — the backend only
+/// MARKS the state, it never deletes data. OCC-checked.
+pub fn handle_system_blocks_archive(
+    state: &mut SessionState,
+    input: ArchiveInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "system_blocks_archive";
+    let mode = match input.mode.as_str() {
+        "archive" => ArchiveMode::Archive,
+        "restore" => ArchiveMode::Restore,
+        other => {
+            return Err(M1ndError::InvalidParams {
+                tool: TOOL.to_string(),
+                detail: format!("mode must be \"archive\" or \"restore\", got \"{other}\""),
+            })
+        }
+    };
+    if input.block_ids.is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: TOOL.to_string(),
+            detail: "block_ids must name at least one block".to_string(),
+        });
+    }
+    let dir = store_dir(state);
+    let (_store, summary) =
+        archive_in_dir(&dir, input.expected_store_version, &input.block_ids, mode)
+            .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "store_version": summary.store_version,
+        "mode": summary.mode,
+        "changed_block_ids": summary.changed_block_ids,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// system_blocks_delete (WRITE) — permanently remove a block (Slice 3)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The `store_version` the caller read (OCC key, PRD §3.1).
+    pub expected_store_version: u64,
+    /// The block to remove.
+    pub block_id: String,
+    /// Mandatory guard: a delete drops the block and all its receipts permanently.
+    /// Without it the call refuses and suggests archive.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// `system_blocks_delete` (WRITE). Removes a block from the store FOR REAL and
+/// reports how many receipts died with it. `force:true` is mandatory — without it
+/// the call refuses honestly and suggests archive (which keeps the history).
+/// OCC-checked.
+pub fn handle_system_blocks_delete(
+    state: &mut SessionState,
+    input: DeleteInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "system_blocks_delete";
+    let dir = store_dir(state);
+    let (_store, summary) = delete_in_dir(
+        &dir,
+        input.expected_store_version,
+        &input.block_id,
+        input.force,
+    )
+    .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "store_version": summary.store_version,
+        "deleted_block_id": summary.deleted_block_id,
+        "receipts_removed": summary.receipts_removed,
+        "warning": format!(
+            "block '{}' and its {} receipt(s) were permanently deleted",
+            summary.deleted_block_id, summary.receipts_removed
+        ),
     }))
 }
 
