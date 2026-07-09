@@ -782,6 +782,10 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         .route("/api/graph/stats", get(handle_graph_stats))
         .route("/api/graph/subgraph", get(handle_subgraph))
         .route("/api/graph/snapshot", get(handle_graph_snapshot))
+        // HUMAN-VIEW-V2 F2 Show Code viewer — a PURE READ of a repo-relative member
+        // file under the selected brain's workspace root (anti-escape + byte cap).
+        // Read-only: it never mutates, so it rides the same read surface as graph/*.
+        .route("/api/file", get(handle_file_view))
         // MEDULLA-PRD §9.2 (slice M7b) — the mailbox read surface. `?brain=` reuses
         // the §4A.9 selector (registered roots only, served_brain echo); the cross-
         // box triage sweep is CLI/REST-only, OFF the MCP surface (§C6.2).
@@ -1965,6 +1969,86 @@ async fn handle_graph_snapshot(
     .expect("spawn_blocking panicked");
 
     graph_response(result)
+}
+
+/// The `?path=<repo-relative>[&brain=<root>]` query for the Show Code viewer.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct FileViewQuery {
+    /// Repo-relative path of the member file to view (read-only).
+    pub path: String,
+    /// The §4A.9 brain selector (absent = the bound brain).
+    pub brain: Option<String>,
+}
+
+/// `GET /api/file?path=<repo-relative>[&brain=<root>]` (HUMAN-VIEW-V2 F2 Show Code).
+/// A PURE READ: returns a member file's content under the selected brain's
+/// workspace root, enforcing the seed's anti-absolute/anti-escape law + a byte cap
+/// with honest truncation (`crate::system_blocks::read_repo_relative_file`). Never
+/// mutates — safe under a read-only attach, so it is NOT in the write deny-list.
+/// Path validation/escape → 400; a missing file or an unknown `?brain=` → 404.
+async fn handle_file_view(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<FileViewQuery>,
+) -> impl IntoResponse {
+    let state = state.clone();
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<serde_json::Value, (StatusCode, m1nd_core::error::M1ndError)> {
+            // §4A.9: route to the named brain (bound when absent); an unknown root
+            // 404s honestly (the same grade the graph routes give it).
+            let (session, served_brain) = resolve_brain(&state, q.brain.as_deref())
+                .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+            let root = {
+                let s = session.lock();
+                s.workspace_root.clone()
+            }
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    m1nd_core::error::M1ndError::InvalidParams {
+                        tool: "file_view".into(),
+                        detail: "no workspace root is bound to this brain".into(),
+                    },
+                )
+            })?;
+            match crate::system_blocks::read_repo_relative_file(
+                std::path::Path::new(&root),
+                &q.path,
+                crate::system_blocks::FILE_VIEW_MAX_BYTES,
+            ) {
+                Ok(read) => Ok(serde_json::json!({
+                    "path": q.path,
+                    "content": read.content,
+                    "bytes": read.bytes,
+                    "truncated": read.truncated,
+                    "max_bytes": crate::system_blocks::FILE_VIEW_MAX_BYTES,
+                    "served_brain": served_brain,
+                })),
+                // Absolute/escape refusals are a client error (400); a missing or
+                // unreadable file is a 404 — the file the human asked for isn't there.
+                Err(e @ crate::system_blocks::SeedError::AbsolutePath { .. }) => Err((
+                    StatusCode::BAD_REQUEST,
+                    m1nd_core::error::M1ndError::InvalidParams {
+                        tool: "file_view".into(),
+                        detail: e.to_string(),
+                    },
+                )),
+                Err(e) => Err((
+                    StatusCode::NOT_FOUND,
+                    m1nd_core::error::M1ndError::InvalidParams {
+                        tool: "file_view".into(),
+                        detail: e.to_string(),
+                    },
+                )),
+            }
+        },
+    )
+    .await
+    .expect("spawn_blocking panicked");
+
+    match outcome {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err((code, e)) => (code, Json(tool_error_payload(&e))).into_response(),
+    }
 }
 
 /// The set of tool markers judged `external` (about a tool that is NOT m1nd) for
