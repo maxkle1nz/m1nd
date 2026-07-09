@@ -625,6 +625,72 @@ fn has_windows_drive_absolute_prefix(path: &str) -> bool {
         && (bytes[2] == b'/' || bytes[2] == b'\\')
 }
 
+/// The read-only file-content cap for the F2 Show Code viewer (HUMAN-VIEW-V2 §B).
+/// A larger file is returned truncated with an honest `truncated` flag — the viewer
+/// never presents a partial file as if it were whole.
+pub const FILE_VIEW_MAX_BYTES: usize = 256 * 1024;
+
+/// A read-only file read for the Show Code viewer (HUMAN-VIEW-V2 F2/F8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoFileRead {
+    /// The file content, UTF-8 (lossy so a non-UTF-8 member still renders), capped
+    /// at the caller's `max_bytes`.
+    pub content: String,
+    /// The file's true on-disk size in bytes — the honest denominator for
+    /// `truncated` (the viewer can say "showing 256KB of 1.2MB").
+    pub bytes: u64,
+    /// True when the file was longer than `max_bytes` and `content` is a prefix.
+    pub truncated: bool,
+}
+
+/// Read a repo-relative member file under `root`, READ-ONLY, for the Show Code
+/// viewer (HUMAN-VIEW-V2 §B). Reuses the seed's anti-absolute/anti-escape law
+/// ([`validate_repo_relative_path`]) and adds a defense-in-depth root-containment
+/// check: canonicalize both sides and refuse anything resolving OUTSIDE the repo
+/// (a symlink can never leak a file from beyond the root). Content is capped at
+/// `max_bytes` with an honest `truncated` flag and a bounded read (a huge file
+/// never loads whole into memory). A pure read — never mutates, so it is safe under
+/// a read-only attach and stays OFF the write deny-list.
+pub fn read_repo_relative_file(
+    root: &Path,
+    rel: &str,
+    max_bytes: usize,
+) -> Result<RepoFileRead, SeedError> {
+    use std::io::Read;
+    // (1) The same repo-relative law the seed paths obey (absolute/`~`/drive/`..`).
+    validate_repo_relative_path(rel)?;
+    // (2) Resolve real paths and refuse anything that escapes the repo root — the
+    //     symlink defense the lexical check alone cannot give.
+    let canon_root = root.canonicalize().map_err(SeedError::Io)?;
+    let canon_full = canon_root.join(rel).canonicalize().map_err(SeedError::Io)?;
+    if !canon_full.starts_with(&canon_root) {
+        return Err(SeedError::AbsolutePath {
+            path: rel.to_string(),
+        });
+    }
+    // (3) Only regular files — a directory or device is not a viewable member.
+    let meta = std::fs::metadata(&canon_full).map_err(SeedError::Io)?;
+    if !meta.is_file() {
+        return Err(SeedError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        )));
+    }
+    // (4) Bounded read: take at most `max_bytes`, keep the true size for honesty.
+    let bytes = meta.len();
+    let mut buf = Vec::new();
+    std::fs::File::open(&canon_full)
+        .map_err(SeedError::Io)?
+        .take(max_bytes as u64)
+        .read_to_end(&mut buf)
+        .map_err(SeedError::Io)?;
+    Ok(RepoFileRead {
+        content: String::from_utf8_lossy(&buf).into_owned(),
+        bytes,
+        truncated: bytes > max_bytes as u64,
+    })
+}
+
 fn classify_json_error(err: serde_json::Error) -> SeedError {
     if err.is_data() {
         if let Some(field) = missing_field_name(&err.to_string()) {
@@ -1033,6 +1099,65 @@ mod tests {
         let raw = fixture_seed().replace("\"cwd\": \".\"", "\"cwd\": \"/tmp/evidence\"");
         let err = load_seed(&raw).expect_err("absolute cwd rejected");
         assert!(matches!(err, SeedError::AbsolutePath { .. }));
+    }
+
+    // ── read_repo_relative_file (F2 Show Code viewer, §B) — mirrors the seed's own
+    //    anti-absolute/anti-escape law, plus symlink containment + honest cap. ──────
+
+    #[test]
+    fn read_repo_file_returns_content_for_a_valid_member() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("src")).expect("mk src");
+        std::fs::write(dir.path().join("src/lib.rs"), "fn main() {}\n").expect("write member");
+        let read = read_repo_relative_file(dir.path(), "src/lib.rs", FILE_VIEW_MAX_BYTES)
+            .expect("a valid member reads");
+        assert_eq!(read.content, "fn main() {}\n");
+        assert!(!read.truncated);
+        assert_eq!(read.bytes, 13);
+    }
+
+    #[test]
+    fn read_repo_file_rejects_absolute_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = read_repo_relative_file(dir.path(), "/etc/passwd", FILE_VIEW_MAX_BYTES)
+            .expect_err("an absolute path is refused");
+        assert!(matches!(err, SeedError::AbsolutePath { .. }));
+    }
+
+    #[test]
+    fn read_repo_file_rejects_parent_escape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = read_repo_relative_file(dir.path(), "../outside.rs", FILE_VIEW_MAX_BYTES)
+            .expect_err("a `..` escape is refused");
+        assert!(matches!(err, SeedError::AbsolutePath { .. }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_repo_file_refuses_symlink_escaping_the_repo() {
+        // A symlink INSIDE the repo pointing OUTSIDE it must never leak the target.
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        std::fs::write(outside.path().join("secret.txt"), "top secret\n").expect("write secret");
+        let repo = tempfile::tempdir().expect("repo tempdir");
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            repo.path().join("link.txt"),
+        )
+        .expect("mk symlink");
+        let err = read_repo_relative_file(repo.path(), "link.txt", FILE_VIEW_MAX_BYTES)
+            .expect_err("a symlink escaping the repo is refused");
+        assert!(matches!(err, SeedError::AbsolutePath { .. }));
+    }
+
+    #[test]
+    fn read_repo_file_truncates_honestly_at_the_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("big.txt"), "a".repeat(10)).expect("write big");
+        let read =
+            read_repo_relative_file(dir.path(), "big.txt", 4).expect("an oversized file truncates");
+        assert!(read.truncated, "flagged truncated");
+        assert_eq!(read.content.len(), 4, "content is capped at max_bytes");
+        assert_eq!(read.bytes, 10, "the true on-disk size is reported honestly");
     }
 
     #[test]
