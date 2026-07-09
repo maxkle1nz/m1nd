@@ -32,6 +32,25 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-05, checkpoint 10 — the design era closes, the construction era opens)
 
+> **2026-07-09 — F2.5 pre-work: the write-mode runner connected and proven (external hand-runner exercise).**
+> The full receipt cycle ran live against an ephemeral owner (`--serve --port 1399 --runtime-dir mktemp`,
+> production `:1338` untouched): seed import (12 blocks, store v1) → the block's REAL gate
+> (`cargo test -p m1nd-core`, 25 suites / 257 passed / 0 failed) → `receipt_import` under OCC → store v2
+> with the receipt attached (`emitter {kind: runnerd}`, full-log sha256, honest excerpt). Both guards
+> exercised on purpose: stale `expected_store_version` → `Conflict` (nothing applied); wrong boundary in
+> scope → `stale_scope`. **Transport recon for the mission tray:** there is no letter-post verb today —
+> letters are born by appending to the spool; `GET /api/inbox_sweep` distributes (append-with-dedup) into
+> per-repo `.m1nd/inbox.jsonl` + the medulla box for KNOWN roots only; `GET /api/mailbox?brain=` reads with
+> fates and refuses unknown brains (consent law). Mission letters CAN ride the existing rail (free-form
+> `class` + the `answers[]` reply graph = state updates and fates for free), but the F2.5 spec should bless
+> a direct post verb into the target brain's box instead of squatting the field-report spool. **Field
+> finding (filed as a `friction` letter in the spool):** `spool_path_for_runtime` falls back to
+> `<home>/.m1nd/field-reports.jsonl` when the runtime dir lacks a `.m1nd` component — an ephemeral owner
+> sweeping READS the production spool (verified read-only this time: no known roots ⇒ no box writes) and
+> would write real per-repo boxes if any root were known; spools must be runtime-scoped. Adopted doctrine
+> for every future receipt: read the snapshot immediately before the import (the boundary may bump between
+> the gate and the stamp; the reconciliation slice was still an open PR at exercise time).
+
 ### The design era CLOSED — six PRDs on `main`, one organism
 The blueprints are complete and, as of this checkpoint, reconciled into a single constitution.
 Each PRD, one line:
