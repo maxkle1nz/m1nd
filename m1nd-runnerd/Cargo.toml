@@ -1,0 +1,38 @@
+[package]
+name = "m1nd-runnerd"
+version = "1.4.0"
+edition = "2021"
+description = "The m1nd runner daemon (F2.5c): the ONLY spawner. Executes pinned spawn missions in an isolated git worktree, runs the gate, and emits mission letters on the chain — never `landed`."
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
+publish = false
+
+[dependencies]
+# Reuse the OWNER's frozen mission-letter contract (§1) + the owner-runtime-local
+# side record (§1f) + the shared-secret filename — `default-features = false` keeps
+# axum/reqwest/embed OUT of this dependency edge (we bring our own below); the
+# runnerd is a CLIENT of the owner's contract, so the wire types must be the owner's.
+m1nd-mcp = { path = "../m1nd-mcp", version = "1.4.0", default-features = false }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "signal"] }
+axum = "0.8"
+# Loopback HTTP client to the owner (announce + mission_post + snapshot). Mirrors
+# m1nd-mcp's reqwest edge so the crate is already in the build graph.
+reqwest = { version = "0.13", features = ["json"] }
+clap = { version = "4", features = ["derive"] }
+# runners.toml — the pinned-capability config (§5a).
+toml = "0.8"
+# The gate log hash (§5c) — the SAME sha256 the mailbox/receipt taxonomy uses.
+sha2 = "0.10"
+# The per-boot shared secret bytes (§5a). Already in the lockfile transitively.
+rand = "0.9"
+
+[[bin]]
+name = "m1nd-runnerd"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

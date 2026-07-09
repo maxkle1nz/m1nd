@@ -1,0 +1,33 @@
+# m1nd-runnerd — pinned runners (HUMAN-VIEW-V2-F2.5c §5a). EXAMPLE ONLY.
+#
+# Copy this to `runners.toml` in the runtime root shared with the owner
+# (the same `--runtime-dir`) and replace the placeholders with your OWN
+# local agent CLIs and repo roots. The real `runners.toml` (and the
+# generated `runnerd.secret`) are gitignored — they are operator-private.
+#
+# Capabilities are PINNED here and nowhere else: announce proves a daemon is
+# live, it never grants or widens a capability. MVP capabilities are
+# `build-runner` (the code lane) and `naming-runner` (the cheap/fast lane);
+# loop/hand/review-runner are out of the MVP.
+#
+# `command` MUST contain the `{packet_file}` token — the daemon writes the
+# MissionPacket into the isolated worktree and splices its path in here.
+# `gate_command` runs after the agent exits; its full log is hashed and, on a
+# zero exit, carried as the receipt candidate the human imports from the tray.
+# `workspace_allowlist` is absolute repo roots the runner may run in.
+
+[[runner]]
+id = "build-runner-local"
+capability = "build-runner"
+command = ["your-agent-cli", "--packet", "{packet_file}"]
+gate_command = ["your-gate-command", "--all"]
+workspace_allowlist = ["/absolute/path/to/your/repo"]
+# Optional per-mission kill timeout in seconds (default 1800 = 30 min).
+timeout_secs = 1800
+
+[[runner]]
+id = "naming-runner-local"
+capability = "naming-runner"
+command = ["your-naming-cli", "{packet_file}"]
+gate_command = ["your-naming-gate"]
+workspace_allowlist = ["/absolute/path/to/your/repo"]

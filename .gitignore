@@ -1,5 +1,10 @@
 target/
 
+# m1nd-runnerd (F2.5c §5a): the operator-private runner config + the shared secret
+# are NEVER versioned. Only runners.example.toml (neutral placeholders) is tracked.
+runners.toml
+runnerd.secret
+
 # Vendored model blobs for the OPTIONAL `embed` feature (model2vec static embeddings).
 # The ~129MB safetensors blob must NOT be committed directly — finalize via Git LFS
 # (see model2vec embedder docs). Code loads from this path at runtime when --features embed is on.
