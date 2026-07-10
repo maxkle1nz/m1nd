@@ -16,6 +16,12 @@ import type {
   SystemBlocksSnapshot,
 } from '../lib/buildMap';
 import type {
+  CandidateEditResult,
+  CandidateLeaseResult,
+  CandidateNamingResult,
+  EditOpInput,
+} from '../lib/candidateEdit';
+import type {
   MissionLetter,
   MissionsResponse,
   PostOutcome,
@@ -310,6 +316,78 @@ export const api = {
         expected_store_version: input.expectedStoreVersion,
         ratifier: input.ratifier,
         ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
+      }),
+    }).then((r) => r.result),
+
+  /**
+   * Edit Names & Boundaries' gesture write (HUMAN-VIEW-V2 F11-a/§4b) — the
+   * `candidate_edit` WRITE verb: ONE typed batch (rename/merge/split/move_member/
+   * resolve_seam/assign_unmapped) under one OCC transaction with preflight-on-a-
+   * clone: the first invalid op aborts the whole batch with its index and NOTHING
+   * is applied; success persists once and bumps `store_version` once. A ratified
+   * skeleton refuses every op (`skeleton_not_candidate`). `by` defaults to the
+   * owner seat (the GUI) — a rename stamps `named_by:owner` and clears
+   * `needs_owner_naming` (the o6 provenance the ratify gate reads). WRITE verb —
+   * refused under a read-only attach. §4A.9: `brain` scopes it.
+   */
+  candidateEdit: (
+    input: { expectedStoreVersion: number; ops: EditOpInput[]; by?: 'owner' | 'runner' },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: CandidateEditResult }>(withBrain('/api/tools/candidate_edit', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        expected_store_version: input.expectedStoreVersion,
+        ops: input.ops,
+        ...(input.by != null ? { by: input.by } : {}),
+      }),
+    }).then((r) => r.result),
+
+  /**
+   * The screen's "Name with runner" write (HUMAN-VIEW-V2 F11-c §2b) — the
+   * `candidate_naming` HTTP-ONLY route (like `mission_spawn`, the browser never
+   * holds the shared secret; the owner builds the packets, calls the daemon's
+   * /name, sanitizes, and applies through `candidate_edit` under the RUNNER seat).
+   * `blockIds` absent = every block still needing a name. The result is honest:
+   * partial is normal ({named, fell_back}); no live naming-runner returns
+   * `refusal` and touches nothing; a stale OCC key conflicts BEFORE any runner is
+   * invoked. WRITE — refused under a read-only attach. §4A.9: `brain` scopes it.
+   */
+  candidateNaming: (
+    input: { expectedStoreVersion: number; blockIds?: string[] },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: CandidateNamingResult }>(
+      withBrain('/api/tools/candidate_naming', brain),
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          agent_id: 'gui',
+          expected_store_version: input.expectedStoreVersion,
+          ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
+        }),
+      },
+    ).then((r) => r.result),
+
+  /**
+   * The advisory curation lease verb (HUMAN-VIEW-V2 F11-a o4) — `candidate_lease`
+   * {acquire|refresh|release}. ADVISORY by law: it never blocks the owner, never
+   * bumps `store_version`, and an expired lease is reclaimable by anyone. The
+   * screen reads the lease from the store snapshot (`curating_by`/`curating_until`)
+   * — this verb is the agent-side gesture, surfaced for parity. WRITE — refused
+   * under a read-only attach. §4A.9: `brain` scopes it.
+   */
+  candidateLease: (
+    input: { action: 'acquire' | 'refresh' | 'release'; agentId?: string; ttlSecs?: number },
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: CandidateLeaseResult }>(withBrain('/api/tools/candidate_lease', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: input.agentId ?? 'gui',
+        action: input.action,
+        ...(input.ttlSecs != null ? { ttl_secs: input.ttlSecs } : {}),
       }),
     }).then((r) => r.result),
 

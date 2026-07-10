@@ -34,9 +34,10 @@ export type SystemBlockStateName =
   | 'restored';
 export type MembershipSource = 'ratified' | 'proposed' | 'manual';
 export type SkeletonStateName = 'candidate' | 'ratified';
-/** Who named a candidate block (F0c §3a). The naming-runner is opt-in (F2.5c); the
- *  heuristic always works offline and marks the label provisional. */
-export type NamedBy = 'runner' | 'heuristic';
+/** Who named a candidate block (F0c §3a / F11 o6). The naming-runner is opt-in;
+ *  the heuristic always works offline and marks the label provisional; `owner` is
+ *  the strongest label — a human touch through Edit Names & Boundaries. */
+export type NamedBy = 'owner' | 'runner' | 'heuristic';
 
 export interface MembershipEntry {
   path: string;
@@ -201,6 +202,13 @@ export interface SystemBlockStore {
    *  unmapped is told apart from a never-reconciled one by block fingerprints, not
    *  by this field (see `rollupStore`). */
   unmapped_total?: number;
+  /** F11-a advisory curation lease (o4): the agent currently curating this
+   *  candidate. NEVER blocks the owner — the screen only surfaces a banner.
+   *  Omitted on the wire while free (serde skip), like the Rust store. */
+  curating_by?: string;
+  /** When the advisory lease EXPIRES (RFC3339 UTC). An expired lease renders no
+   *  banner — it is reclaimable, never a dead-agent trap. */
+  curating_until?: string;
 }
 
 /** The `system_blocks_snapshot` envelope. `present:false` carries `honest`. */
