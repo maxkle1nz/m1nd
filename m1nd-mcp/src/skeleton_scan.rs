@@ -144,6 +144,11 @@ pub struct NamingReport {
 pub struct SkeletonScanOutput {
     pub seed: SeedFile,
     pub report: SkeletonScanReport,
+    /// F11-b: one naming packet per emitted block (member paths + dominant kinds +
+    /// top symbols, NEVER file bodies) — what the handler sends to a live
+    /// naming-runner. Internal to the scan→naming pipeline; not part of the verb's
+    /// JSON output.
+    pub naming_packets: Vec<crate::naming_runner::BlockNamingPacket>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -331,8 +336,26 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
 
     let socket_pairs = aggregate_sockets(&input, &path_to_blocks);
 
+    // F11-b: symbol names per member file — for the naming packets. One pass over
+    // the nodes; a symbol is the external-id tail after `file::<path>::` (a pure
+    // file node has no tail and contributes no symbol). No file bodies, ever.
+    let mut symbols_by_path: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for node in &input.nodes {
+        if let Some(rest) = node.external_id.strip_prefix("file::") {
+            if let Some((path, tail)) = rest.split_once("::") {
+                if !path.trim().is_empty() && !tail.trim().is_empty() {
+                    symbols_by_path
+                        .entry(path.replace('\\', "/"))
+                        .or_default()
+                        .insert(tail.to_string());
+                }
+            }
+        }
+    }
+
     let mut blocks = Vec::new();
     let mut block_reports = Vec::new();
+    let mut naming_packets = Vec::new();
     let mut claimed_files = BTreeSet::new();
     for key in groups.keys().cloned().collect::<Vec<_>>() {
         let group = groups.get(&key).expect("group exists");
@@ -397,6 +420,31 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
             pre_archive_state: None,
             candidate_meta: Some(meta.clone()),
         };
+        // F11-b: the block's naming packet — capped member paths (the honest total
+        // rides beside them), dominant kinds, and top symbols under its files.
+        let top_symbols: Vec<String> = group
+            .members
+            .keys()
+            .filter_map(|path| symbols_by_path.get(path))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .take(crate::naming_runner::PACKET_SYMBOLS_CAP)
+            .collect();
+        naming_packets.push(crate::naming_runner::BlockNamingPacket {
+            block_id: block_id.clone(),
+            member_count: group.members.len(),
+            member_paths: group
+                .members
+                .keys()
+                .take(crate::naming_runner::PACKET_MEMBER_PATHS_CAP)
+                .cloned()
+                .collect(),
+            dominant_kinds: dominant_kinds_for_group(group, &input.nodes),
+            top_symbols,
+            dominant_directory: dominant_directory.clone(),
+        });
         block_reports.push(CandidateBlockReport {
             block_id,
             name,
@@ -475,7 +523,11 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
         naming,
     };
 
-    SkeletonScanOutput { seed, report }
+    SkeletonScanOutput {
+        seed,
+        report,
+        naming_packets,
+    }
 }
 
 pub fn scan_input_from_graph(

@@ -337,10 +337,23 @@ pub fn spawn_background(
     };
 
     // AppState
-    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
-        runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-        Some(registry_root.clone()),
-    ));
+    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+    // F11-b: thread the naming facts (the announce registry + the OWNER runtime
+    // root, where runnerd.secret lives) into the bound session and every project
+    // brain this owner boots, so a `skeleton_candidate` scan can reach the live
+    // naming-runner from ANY hosted brain.
+    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
+        registry: runnerd.clone(),
+        owner_runtime_root: runtime_root.clone(),
+    };
+    session.lock().runnerd_naming = Some(naming_handle.clone());
+    let project_brains = Arc::new(
+        crate::project_brains::ProjectBrainRegistry::new(
+            runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            Some(registry_root.clone()),
+        )
+        .with_runnerd_naming(naming_handle),
+    );
     let app_state = Arc::new(AppState {
         session,
         tool_schemas_cache,
@@ -349,7 +362,7 @@ pub fn spawn_background(
         registry_dir: Some(registry_root),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+        runnerd,
     });
     {
         let session = app_state.session.lock();
@@ -496,10 +509,21 @@ pub async fn run(
     let event_log_path = event_log.map(std::path::PathBuf::from);
 
     // 6. Build shared AppState
-    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
-        owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-        config.registry_dir.clone(),
-    ));
+    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+    // F11-b: thread the naming facts into the bound session + every project brain
+    // (see the background-server construction above for the law).
+    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
+        registry: runnerd.clone(),
+        owner_runtime_root: owner_runtime_root.clone(),
+    };
+    session.lock().runnerd_naming = Some(naming_handle.clone());
+    let project_brains = Arc::new(
+        crate::project_brains::ProjectBrainRegistry::new(
+            owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            config.registry_dir.clone(),
+        )
+        .with_runnerd_naming(naming_handle),
+    );
     let app_state = Arc::new(AppState {
         session: session.clone(),
         tool_schemas_cache,
@@ -508,7 +532,7 @@ pub async fn run(
         registry_dir: config.registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+        runnerd,
     });
     {
         let session = app_state.session.lock();

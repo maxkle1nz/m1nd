@@ -82,6 +82,11 @@ pub struct ProjectBrainRegistry {
     /// Monotonic LRU clock — bumped on every touch so the newest touch always has
     /// the highest stamp and the eviction victim is `min(last_used)`.
     tick: AtomicU64,
+    /// F11-b: the owner-process naming facts, stamped into every project brain
+    /// this registry boots (a hosted brain's scan must reach the SAME announced
+    /// runnerd + owner secret the bound session does). `None` when the owner has
+    /// no announce surface — scans then fall back to heuristic naming.
+    runnerd_naming: Option<crate::runnerd_owner::NamingRunnerHandle>,
 }
 
 impl ProjectBrainRegistry {
@@ -106,7 +111,15 @@ impl ProjectBrainRegistry {
             registry_dir,
             capacity: capacity.max(1),
             tick: AtomicU64::new(0),
+            runnerd_naming: None,
         }
+    }
+
+    /// Thread the owner-process naming facts (F11-b) into every project brain this
+    /// registry boots. Builder-style, called once at HTTP-owner construction.
+    pub fn with_runnerd_naming(mut self, handle: crate::runnerd_owner::NamingRunnerHandle) -> Self {
+        self.runnerd_naming = Some(handle);
+        self
     }
 
     /// Next monotonic LRU stamp.
@@ -212,6 +225,10 @@ impl ProjectBrainRegistry {
         // path gets the same value re-set by `finalize_ingest` right after.
         state.workspace_root = Some(key.to_string());
         state.workspace_root_source = Some("project_brain_manifest".into());
+        // F11-b: a hosted brain's scan reaches the same announced runnerd + owner
+        // secret the bound session does (its OWN runtime root is its store dir,
+        // never the secret's home).
+        state.runnerd_naming = self.runnerd_naming.clone();
         // Stamp the registry entry so the shared phonebook can tell this brain
         // from the bound dev graph (best-effort: a failed stamp never blocks the
         // brain — the entry just stays kind-less like a legacy one).

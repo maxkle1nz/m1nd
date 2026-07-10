@@ -79,6 +79,18 @@ impl RunnerdRegistry {
         self.runners.lock().get(runner_id).map(|e| e.port)
     }
 
+    /// The DISTINCT loopback ports of every announced daemon (sorted, deduped).
+    /// The F11-b naming path tries each in order: announce carries no capability
+    /// (§5a), so the owner cannot know which announced id is a naming-runner — it
+    /// asks each daemon's `/name` and lets the daemon resolve its own pin.
+    pub fn live_ports(&self) -> Vec<u16> {
+        let g = self.runners.lock();
+        let mut ports: Vec<u16> = g.values().map(|e| e.port).collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
     /// The `GET /api/runnerd/status` body (§5a read): every live runner with its
     /// port + last_seen, deterministically ordered (BTreeMap). The UI reads this to
     /// UN-disable the spawn radio and list the pinned-live runner ids.
@@ -99,6 +111,19 @@ impl RunnerdRegistry {
             "count": g.len(),
         })
     }
+}
+
+/// The owner-process facts the F11-b naming path needs, threaded into every
+/// [`crate::session::SessionState`] the HTTP owner dispatches into (the bound dev
+/// session AND every hosted project brain): the announce registry (which daemons
+/// are live) and the OWNER runtime root (where `runnerd.secret` lives — a project
+/// brain's own runtime root is its store dir, never the secret's home). A stdio
+/// owner has no announce surface, so its sessions carry `None` and the scan falls
+/// back to heuristic naming exactly as before.
+#[derive(Debug, Clone)]
+pub struct NamingRunnerHandle {
+    pub registry: std::sync::Arc<RunnerdRegistry>,
+    pub owner_runtime_root: PathBuf,
 }
 
 /// The path of the shared secret file inside an owner runtime root.

@@ -424,6 +424,68 @@ fn parse_name_response(raw: &[u8]) -> Result<Vec<NameCallResult>, String> {
         .map_err(|e| format!("invalid results from the runner daemon: {e}"))
 }
 
+// ===========================================================================
+// The scan-path orchestration (§2a) — try each announced daemon, apply results.
+// ===========================================================================
+
+/// What the scan-path naming attempt did — the handler folds this into the scan's
+/// `NamingReport` honestly.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScanNamingOutcome {
+    /// Blocks now runner-named.
+    pub named: Vec<String>,
+    /// Blocks that kept their heuristic label, with the honest per-block reason.
+    pub fallback: Vec<(String, String)>,
+    /// Set when NO announced daemon completed the call (transport failure or an
+    /// honest refusal like `no_naming_runner`) — every block stays heuristic.
+    pub transport_error: Option<String>,
+}
+
+/// The owner-side wait budget for one whole `/name` batch: headroom over the
+/// daemon's default 20s-per-block at parallelism 4, capped under the tool
+/// dispatch timeout so a slow runner degrades to the honest heuristic fallback
+/// instead of killing the scan.
+fn scan_naming_timeout(block_count: usize) -> Duration {
+    let waves = block_count.div_ceil(4).max(1) as u64;
+    Duration::from_secs((10 + 25 * waves).min(90))
+}
+
+/// Run the whole §2a scan-path naming attempt: try each announced daemon port in
+/// order (announce carries no capability, so the daemon resolves its own naming
+/// pin — a daemon without one refuses honestly and the next port is tried), and
+/// apply the first completed call's results to the seed + report. Partial results
+/// are applied per block; a total transport failure returns the honest error and
+/// touches nothing.
+pub fn run_scan_naming(
+    handle: &crate::runnerd_owner::NamingRunnerHandle,
+    secret: &str,
+    packets: &[BlockNamingPacket],
+    seed: &mut SeedFile,
+    report_blocks: &mut [CandidateBlockReport],
+) -> ScanNamingOutcome {
+    let ports = handle.registry.live_ports();
+    let timeout = scan_naming_timeout(packets.len());
+    let mut last_err = "no announced runner daemon".to_string();
+    for port in ports {
+        match call_name_endpoint(port, secret, packets, timeout) {
+            Ok(results) => {
+                let applied = apply_naming_results(seed, report_blocks, &results);
+                return ScanNamingOutcome {
+                    named: applied.named,
+                    fallback: applied.fallback,
+                    transport_error: None,
+                };
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    ScanNamingOutcome {
+        named: Vec::new(),
+        fallback: Vec::new(),
+        transport_error: Some(last_err),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

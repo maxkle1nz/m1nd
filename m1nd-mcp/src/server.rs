@@ -2612,14 +2612,14 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "skeleton_candidate",
-                "description": "Human View v2 F0c-a WRITE verb. Scans the bound repo graph and git-backed file list into a proposed candidate skeleton. Transaction law: absent store + expected_store_version:null creates a candidate store v1; candidate store + OCC replaces wholesale with heranca-zero (no receipts, fingerprints, resolved members, unmapped cache, or candidate_revision inheritance); ratified store + OCC writes only store.candidate_revision and leaves live blocks untouched. The emitted seed is complete; review_limit only bounds later UI review. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0c-a WRITE verb. Scans the bound repo graph and git-backed file list into a proposed candidate skeleton. Transaction law: absent store + expected_store_version:null creates a candidate store v1; candidate store + OCC replaces wholesale with heranca-zero (no receipts, fingerprints, resolved members, unmapped cache, or candidate_revision inheritance); ratified store + OCC writes only store.candidate_revision and leaves live blocks untouched. The emitted seed is complete; review_limit only bounds later UI review. F11-b zero-touch: with naming:auto and a LIVE announced naming-runner, blocks arrive runner-named (named_by:runner, needs_owner_naming:false — ratifiable without an individual touch); the report's naming block says honestly what was applied (runner / runner_partial / heuristic). Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": ["integer", "null"], "description": "OCC key. Null/absent is valid only when no SystemBlock store exists yet." },
                         "review_limit": { "type": "integer", "default": 16, "description": "Review queue hint for UI paging only; the backend emits every candidate block." },
-                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "F0c-a backend declares the runner hook but uses heuristic provisional naming; runner naming is F0c-b/F2.5c." }
+                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "auto (default) calls the pinned live naming-runner via the announced runner daemon (F11-b): one packet per block (member paths + dominant kinds + top symbols, no file bodies), per-block timeout, hostile-output sanitization (o5), per-block heuristic fallback — partial is normal; with no live runnerd the scan is exactly the offline heuristic behavior. heuristic skips the runner entirely." }
                     },
                     "required": ["agent_id"]
                 }
