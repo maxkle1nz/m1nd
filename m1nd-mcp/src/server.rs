@@ -816,7 +816,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "project_root": {
                             "type": "string",
-                            "description": "ONE-CALL BOOTSTRAP (Two-Tier interim): set to your repo root when this owner's graph does not cover your repo (reception said caller_root_mismatch). Creates a per-project brain inside the served owner, ingests your repo into it, binds this session to it, and returns its north packet — one call, then every call from your root routes to YOUR brain automatically. Served-owner HTTP/attach only; inert on a plain stdio server. The owner's bound graph is never replaced."
+                            "description": "ONE-CALL BOOTSTRAP (Two-Tier interim): set to your repo root when this owner's graph does not cover your repo (reception said caller_root_mismatch). Creates a per-project brain inside the served owner, ingests your repo into it, binds this session to it, and returns its north packet — one call, then every call from your root routes to YOUR brain automatically. Honored on BOTH served-owner doors through the same guarded bootstrap: the MCP wire and the REST POST /api/tools/ingest route (which returns the same bootstrap packet; a refusal is an HTTP 400). Inert on a plain stdio server. The owner's bound graph is never replaced."
                         },
                         "allow_overlap": {
                             "type": "boolean",
