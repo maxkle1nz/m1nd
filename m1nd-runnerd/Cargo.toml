@@ -17,7 +17,7 @@ m1nd-mcp = { path = "../m1nd-mcp", version = "1.4.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "signal", "io-util"] }
 axum = "0.8"
 # Loopback HTTP client to the owner (announce + mission_post + snapshot). Mirrors
 # m1nd-mcp's reqwest edge so the crate is already in the build graph.

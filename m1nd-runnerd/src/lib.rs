@@ -11,4 +11,7 @@
 
 pub mod config;
 pub mod mission;
+// F11-b — the synchronous `/name` naming lane (per-block runner calls; never a
+// mission, never a store write; the daemon is transport + timeout + sanitize).
+pub mod naming;
 pub mod owner;
