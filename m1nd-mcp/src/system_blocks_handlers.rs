@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use m1nd_core::error::{M1ndError, M1ndResult};
 
 use crate::session::SessionState;
-use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonScanOptions};
+use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonCoherence, SkeletonScanOptions};
 use crate::system_blocks::{
     self, archive_in_dir, candidate_edit_in_dir, candidate_lease_in_dir, delete_in_dir,
     import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, reconcile_in_dir,
@@ -73,14 +73,40 @@ pub fn handle_system_blocks_snapshot(
 ) -> M1ndResult<Value> {
     let dir = store_dir(state);
     match SystemBlockStore::load(&dir).map_err(|e| seed_err("system_blocks_snapshot", e))? {
-        Some(store) => Ok(json!({
-            "present": true,
-            "store_version": store.store_version,
-            "block_count": store.blocks.len(),
-            "store": store,
-        })),
+        Some(store) => {
+            let block_ids = store
+                .blocks
+                .iter()
+                .map(|block| block.block_id.clone())
+                .collect::<Vec<_>>();
+            let skeleton_coherence = skeleton_scan::skeleton_coherence(
+                state.project_root_display().as_deref(),
+                Some((&store.skeleton.skeleton_id, &block_ids)),
+            )
+            .map(|coherence| match coherence {
+                SkeletonCoherence::Ok => json!({ "status": "ok" }),
+                SkeletonCoherence::Mismatch {
+                    expected_slug,
+                    found_slug,
+                } => json!({
+                    "status": "mismatch",
+                    "expected_slug": expected_slug,
+                    "found_slug": found_slug,
+                }),
+            })
+            .unwrap_or(Value::Null);
+
+            Ok(json!({
+                "present": true,
+                "store_version": store.store_version,
+                "block_count": store.blocks.len(),
+                "skeleton_coherence": skeleton_coherence,
+                "store": store,
+            }))
+        }
         None => Ok(json!({
             "present": false,
+            "skeleton_coherence": Value::Null,
             "honest": "no skeleton yet — import a seed or run a scan",
         })),
     }

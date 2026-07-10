@@ -1,0 +1,21 @@
+# l00p mission config — skeleton coherence vital sign (2026-07-10)
+models:
+  heavy:
+    model: gpt-5.6-sol
+    reasoning_effort: xhigh
+  light:
+    model: gpt-5.6-sol
+    reasoning_effort: xhigh
+
+gate:
+  test_cmd: "export CARGO_TARGET_DIR=$HOME/.m1nd-build-cache/target && cargo test -p m1nd-mcp --lib && cargo clippy -p m1nd-mcp --all-targets -- -D warnings && cargo fmt --check"
+
+scope:
+  - "m1nd-mcp/src/**"
+  - "docs/**"
+
+budget:
+  max_iterations: 12
+  max_minutes: 90
+
+command_timeout_s: 1500

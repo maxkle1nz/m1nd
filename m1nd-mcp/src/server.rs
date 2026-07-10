@@ -3889,6 +3889,28 @@ fn handle_north(
         );
     }
 
+    // Skeleton coherence is a vital sign, never a gate. Reuse the snapshot read
+    // surface and fail open if its sidecar cannot be read so `north` itself never
+    // becomes unavailable because of this signal.
+    if let Ok(snapshot) = crate::system_blocks_handlers::handle_system_blocks_snapshot(
+        state,
+        crate::system_blocks_handlers::SnapshotInput {
+            agent_id: Some(agent_id.clone()),
+        },
+    ) {
+        if snapshot["skeleton_coherence"]["status"] == "mismatch" {
+            let expected_slug = snapshot["skeleton_coherence"]["expected_slug"]
+                .as_str()
+                .unwrap_or("unknown");
+            let found_slug = snapshot["skeleton_coherence"]["found_slug"]
+                .as_str()
+                .unwrap_or("unknown");
+            honest_gaps.push(format!(
+                "Skeleton coherence sickness: serving brain expects slug `{expected_slug}`, but the SystemBlock store carries `{found_slug}` — signal only; reads and writes remain available."
+            ));
+        }
+    }
+
     // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root
     // mismatch this carries the honest front-desk block; on match/unknown it is
     // null (absent-ish). Computed here, after every prior `state` borrow has
