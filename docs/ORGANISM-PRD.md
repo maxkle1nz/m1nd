@@ -735,7 +735,7 @@ can finally carry the packet it is doctrine-bound to deliver → R12; every sate
 soul headline) enters under the one-line rule. *(R0 ∥ R1 — both small, both live defects, both
 pre-medulla.)*
 
-**R2 — M5a: storage split + `Origin-Brain` + migration + brainless-root refusal** (MEDULLA §11).
+**R2 — M5a: storage split + `Origin-Brain` + migration + brainless-root refusal** (MEDULLA §11). [SHIPPED 2026-07-05]
 **[SHIPPED 2026-07-05]** *What:* the tier IS the directory — `Origin-Brain` stamped on every
 `memorize` (`SessionState::origin_brain()` → project root, or `medulla` for the owner store;
 rendered in `render_light_markdown`); the brainless-root refusal at the top of
@@ -762,7 +762,7 @@ state mutated after a brain's last persist is isolated in
 flush). *Unblocks:* R3's `all-brains` half and any onboarding past brain #4. **Hard pre-condition —
 R3's `all-brains` does not ship without it, and its fan-out must warm-boot through this same gate.**
 
-**R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (MEDULLA §11; gated by R15).
+**R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (MEDULLA §11; gated by R15). [SHIPPED 2026-07-05]
 **[SHIPPED 2026-07-05.]** *What landed:* pull-only tier recall at the routing seam — a routed
 brain X's default beat composes exactly X's own store + the medulla; `tier` (`project` |
 `medulla` | `project+medulla` (default) | `all-brains`) selects which stores the memory beat of
@@ -800,11 +800,11 @@ frontmatter marker, not yet wired into the trust envelope's verdict. *Unblocks:*
 is real → R16 has ground to stand on.
 
 **R5 — Windows CI honesty triage (F25; parallel, small, anytime — early, because honesty debt
-compounds).** *What:* fix the teardown + `display_name` separator, or demote Windows from
+compounds). [SHIPPED 2026-07-05]** *What:* fix the teardown + `display_name` separator, or demote Windows from
 "blocking" in the written proof story until it blocks again. *Proves:* a gate described as
 blocking blocks. *Owner:* the CI family.
 
-**R6 — Delegation Slices 1–2: `delegate` (project-tier packet) then `debrief`** (§O.12.10).
+**R6 — Delegation Slices 1–2: `delegate` (project-tier packet) then `debrief`** (§O.12.10). [SHIPPED 2026-07-05]
 **[SHIPPED 2026-07-05 · R6.]** *What landed:* `delegate` composes a read-only
 `m1nd-delegation-packet-v0` in north's class — the mother's binding (the named brain), the selected
 project-tier memory slice as explicit cargo, ranked anchors, a delegate-time staleness header, known
