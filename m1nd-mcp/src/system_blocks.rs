@@ -1526,8 +1526,9 @@ use std::collections::BTreeSet;
 pub const UNMAPPED_FILES_CAP: usize = 500;
 
 /// Whether a membership `path` is a glob pattern (claims a SET of files) rather than
-/// an exact path. Mirrors the metacharacters `glob::Pattern` recognizes.
-fn is_glob_pattern(path: &str) -> bool {
+/// an exact path. Mirrors the metacharacters `glob::Pattern` recognizes. `pub(crate)`
+/// so the F11-c store-block packet builder matches members the same way.
+pub(crate) fn is_glob_pattern(path: &str) -> bool {
     path.contains(['*', '?', '['])
 }
 

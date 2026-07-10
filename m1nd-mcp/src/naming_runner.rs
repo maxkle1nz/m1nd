@@ -486,6 +486,150 @@ pub fn run_scan_naming(
     }
 }
 
+// ===========================================================================
+// The candidate_naming route core (F11-c §2b — the in-screen "Name with runner").
+// ===========================================================================
+
+/// What a `candidate_naming` call did — the wire result the screen reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CandidateNamingOutcome {
+    /// The store version AFTER the call (bumped once iff any rename applied).
+    pub store_version: u64,
+    /// Blocks now runner-named (through `candidate_edit`, runner seat).
+    pub named: Vec<String>,
+    /// Blocks that kept their label, with the honest per-block reason.
+    pub fell_back: Vec<(String, String)>,
+    /// The honest whole-call refusal when NO naming call could run (no daemon, no
+    /// naming runner pinned, transport failure) — the screen disables/tells why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
+}
+
+/// Select the blocks a `candidate_naming` call targets: explicit ids (each must
+/// exist — no silent skip), or absent → every block still carrying an untouched
+/// provisional name (`needs_owner_naming == true`).
+pub fn select_naming_targets<'a>(
+    store: &'a crate::system_blocks::SystemBlockStore,
+    block_ids: Option<&[String]>,
+) -> Result<Vec<&'a crate::system_blocks::SystemBlock>, crate::system_blocks::SeedError> {
+    match block_ids {
+        Some(ids) => ids
+            .iter()
+            .map(|id| {
+                store
+                    .blocks
+                    .iter()
+                    .find(|b| b.block_id.as_str() == id.as_str())
+                    .ok_or_else(|| crate::system_blocks::SeedError::BlockNotFound {
+                        block_id: id.clone(),
+                    })
+            })
+            .collect(),
+        None => Ok(store
+            .blocks
+            .iter()
+            .filter(|b| {
+                b.candidate_meta
+                    .as_ref()
+                    .is_some_and(|m| m.needs_owner_naming)
+            })
+            .collect()),
+    }
+}
+
+/// The whole `candidate_naming` transaction (F11-c §2b): call the announced
+/// daemon's `/name` with the given packets, compile the sanitized results into
+/// `candidate_edit` rename ops, and apply them UNDER THE GIVEN OCC KEY with the
+/// RUNNER seat — provenance and OCC hold; the store is never rewritten from
+/// outside the verb. Honest outcomes:
+/// - stale `expected_store_version` → [`SeedError::Conflict`] BEFORE any network
+///   call (nothing ran, nothing applied);
+/// - no daemon / no naming runner / transport failure → `Ok` with `refusal`
+///   (every block keeps its label; the screen says why);
+/// - partial results → the ok blocks land in ONE `candidate_edit` batch; the rest
+///   ride `fell_back` with their reasons;
+/// - zero ok results → no write at all (`store_version` unchanged).
+pub fn name_candidate_blocks(
+    handle: &crate::runnerd_owner::NamingRunnerHandle,
+    dir: &std::path::Path,
+    expected_store_version: u64,
+    packets: &[BlockNamingPacket],
+) -> Result<CandidateNamingOutcome, crate::system_blocks::SeedError> {
+    use crate::system_blocks::{SeedError, SystemBlockStore};
+
+    let store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    // OCC pre-check: a stale caller conflicts BEFORE any runner is invoked.
+    if expected_store_version != store.store_version {
+        return Err(SeedError::Conflict {
+            expected: expected_store_version,
+            actual: store.store_version,
+        });
+    }
+    let unchanged = |refusal: Option<String>, fell_back: Vec<(String, String)>| {
+        Ok(CandidateNamingOutcome {
+            store_version: store.store_version,
+            named: Vec::new(),
+            fell_back,
+            refusal,
+        })
+    };
+    if packets.is_empty() {
+        // Nothing needs naming — an honest no-op, never an error.
+        return unchanged(None, Vec::new());
+    }
+    let Some(secret) = crate::runnerd_owner::read_secret(&handle.owner_runtime_root) else {
+        return unchanged(
+            Some(
+                "no_naming_runner: no runner daemon has booted here (no shared secret on disk)"
+                    .to_string(),
+            ),
+            Vec::new(),
+        );
+    };
+    let ports = handle.registry.live_ports();
+    if ports.is_empty() {
+        return unchanged(
+            Some("no_naming_runner: no runner daemon announced — start m1nd-runnerd with a pinned naming-runner".to_string()),
+            Vec::new(),
+        );
+    }
+
+    let timeout = scan_naming_timeout(packets.len());
+    let mut last_err = String::new();
+    for port in ports {
+        match call_name_endpoint(port, &secret, packets, timeout) {
+            Ok(results) => {
+                let (ops, fell_back) = rename_ops_from_results(&results);
+                if ops.is_empty() {
+                    // Every block fell back — nothing to write, versions untouched.
+                    return unchanged(None, fell_back);
+                }
+                let named: Vec<String> = ops
+                    .iter()
+                    .filter_map(|op| match op {
+                        EditOp::Rename { block_id, .. } => Some(block_id.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                let new_store = crate::system_blocks::candidate_edit_in_dir(
+                    dir,
+                    expected_store_version,
+                    &ops,
+                    crate::candidate_edit::EditSeat::Runner,
+                )?;
+                return Ok(CandidateNamingOutcome {
+                    store_version: new_store.store_version,
+                    named,
+                    fell_back,
+                    refusal: None,
+                });
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    unchanged(Some(format!("no_naming_runner: {last_err}")), Vec::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -906,5 +1050,143 @@ mod tests {
         let err = call_name_endpoint(1, "s", &[], Duration::from_millis(300))
             .expect_err("dead port errs");
         assert!(err.contains("failed"), "got '{err}'");
+    }
+
+    // --- F11-c: the candidate_naming route core (mirrors the F11-b tests) ------
+
+    use crate::runnerd_owner::{secret_path, NamingRunnerHandle, RunnerdRegistry};
+    use crate::system_blocks::SeedError;
+
+    /// A tempdir store + an owner runtime root with the shared secret + a registry.
+    fn naming_fixture(
+        blocks: Vec<SystemBlock>,
+    ) -> (tempfile::TempDir, std::path::PathBuf, NamingRunnerHandle) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store_dir = temp.path().join("brain");
+        std::fs::create_dir_all(&store_dir).expect("store dir");
+        SystemBlockStore::from_seed(seed_of(blocks))
+            .save(&store_dir)
+            .expect("save");
+        let owner_rt = temp.path().join("owner-rt");
+        std::fs::create_dir_all(&owner_rt).expect("owner rt");
+        std::fs::write(secret_path(&owner_rt), "route-secret").expect("secret");
+        let handle = NamingRunnerHandle {
+            registry: std::sync::Arc::new(RunnerdRegistry::default()),
+            owner_runtime_root: owner_rt,
+        };
+        (temp, store_dir, handle)
+    }
+
+    fn packet_for(block_id: &str) -> BlockNamingPacket {
+        BlockNamingPacket {
+            block_id: block_id.to_string(),
+            member_count: 1,
+            member_paths: vec![format!("src/{block_id}.rs")],
+            dominant_kinds: vec!["functions".to_string()],
+            top_symbols: Vec::new(),
+            dominant_directory: "src".to_string(),
+        }
+    }
+
+    #[test]
+    fn candidate_naming_names_targets_via_candidate_edit() {
+        let (_temp, dir, handle) =
+            naming_fixture(vec![heuristic_block("sb_a"), heuristic_block("sb_b")]);
+        // A fake daemon that names sb_a and fails sb_b — partial is normal.
+        let body = serde_json::to_string(&json!({
+            "runner_id": "namer-1",
+            "results": [
+                {"block_id": "sb_a", "ok": true, "name": "Auth", "purpose": "Owns login."},
+                {"block_id": "sb_b", "ok": false, "error": "timed out"},
+            ]
+        }))
+        .unwrap();
+        let (port, _daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "route-secret");
+        handle.registry.register(&["namer-1".to_string()], port, 1);
+
+        let outcome =
+            name_candidate_blocks(&handle, &dir, 1, &[packet_for("sb_a"), packet_for("sb_b")])
+                .expect("the naming call lands");
+        assert_eq!(outcome.named, vec!["sb_a".to_string()]);
+        assert_eq!(outcome.fell_back.len(), 1);
+        assert_eq!(
+            outcome.store_version, 2,
+            "one candidate_edit batch, one bump"
+        );
+        assert!(outcome.refusal.is_none());
+
+        // The PERSISTED store carries the runner provenance through candidate_edit.
+        let store = SystemBlockStore::load(&dir).unwrap().unwrap();
+        let a = store.blocks.iter().find(|b| b.block_id == "sb_a").unwrap();
+        assert_eq!(a.name, "Auth");
+        let meta = a.candidate_meta.as_ref().unwrap();
+        assert_eq!(meta.named_by, NamedBy::Runner);
+        assert!(!meta.needs_owner_naming);
+        let b = store.blocks.iter().find(|b| b.block_id == "sb_b").unwrap();
+        assert!(
+            b.candidate_meta.as_ref().unwrap().needs_owner_naming,
+            "the failed block keeps its provisional label"
+        );
+    }
+
+    #[test]
+    fn candidate_naming_refuses_honestly_without_runnerd() {
+        let (_temp, dir, handle) = naming_fixture(vec![heuristic_block("sb_a")]);
+        // No daemon announced (empty registry) → the honest refusal, nothing touched.
+        let before = std::fs::read(dir.join("system_blocks.json")).expect("read before");
+        let outcome = name_candidate_blocks(&handle, &dir, 1, &[packet_for("sb_a")])
+            .expect("a refusal is a result, not an exception");
+        assert!(outcome.named.is_empty());
+        assert_eq!(outcome.store_version, 1, "no version churn");
+        let refusal = outcome.refusal.expect("carries the honest refusal");
+        assert!(refusal.contains("no_naming_runner"), "got '{refusal}'");
+        let after = std::fs::read(dir.join("system_blocks.json")).expect("read after");
+        assert_eq!(before, after, "the store is byte-identical");
+    }
+
+    #[test]
+    fn candidate_naming_occ_conflict_before_any_network_call() {
+        let (_temp, dir, handle) = naming_fixture(vec![heuristic_block("sb_a")]);
+        // NO daemon is registered and none is contacted: the stale OCC key must
+        // conflict FIRST (a runner is never invoked for a stale view).
+        let before = std::fs::read(dir.join("system_blocks.json")).expect("read before");
+        let err = name_candidate_blocks(&handle, &dir, 99, &[packet_for("sb_a")])
+            .expect_err("a stale OCC key conflicts");
+        assert!(matches!(
+            err,
+            SeedError::Conflict {
+                expected: 99,
+                actual: 1
+            }
+        ));
+        let after = std::fs::read(dir.join("system_blocks.json")).expect("read after");
+        assert_eq!(before, after, "nothing was applied");
+    }
+
+    #[test]
+    fn select_naming_targets_picks_needs_naming_and_validates_ids() {
+        let mut named = heuristic_block("sb_named");
+        named.candidate_meta.as_mut().unwrap().needs_owner_naming = false;
+        let store = SystemBlockStore::from_seed(seed_of(vec![
+            heuristic_block("sb_a"),
+            named,
+            heuristic_block("sb_b"),
+        ]));
+
+        // Absent ids → only the blocks still needing a name.
+        let targets = select_naming_targets(&store, None).expect("selects");
+        let ids: Vec<&str> = targets.iter().map(|b| b.block_id.as_str()).collect();
+        assert_eq!(ids, vec!["sb_a", "sb_b"]);
+
+        // Explicit ids resolve (even already-named ones — a re-name is legal).
+        let targets =
+            select_naming_targets(&store, Some(&["sb_named".to_string()])).expect("explicit");
+        assert_eq!(targets[0].block_id, "sb_named");
+
+        // An unknown id is a hard error, never a silent skip.
+        assert!(matches!(
+            select_naming_targets(&store, Some(&["sb_ghost".to_string()])),
+            Err(SeedError::BlockNotFound { .. })
+        ));
     }
 }

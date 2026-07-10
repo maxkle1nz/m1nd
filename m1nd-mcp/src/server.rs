@@ -2767,6 +2767,19 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
+                "name": "candidate_naming",
+                "description": "Human View v2 F11-c WRITE verb — the in-screen 'Name with runner' path (§2b). The OWNER builds the naming packets for the requested candidate blocks (the same member-paths + dominant-kinds + top-symbols shape the scan sends, never file bodies), calls the announced runner daemon's /name (the shared secret stays owner-side — the browser never holds it), sanitizes the hostile output (o5), and applies the accepted names through ONE candidate_edit batch under the given OCC key with the RUNNER seat — provenance (named_by:runner, needs_owner_naming:false) and OCC hold; the store is never rewritten outside the verb. block_ids absent = every block still needing a name. Returns {store_version, named, fell_back, refusal?}: partial is normal; with no live naming-runner the call returns the honest no_naming_runner refusal and touches nothing. HTTP-ONLY (like mission_spawn): it needs owner-process state (the announce registry + the secret) — the sync MCP dispatch refuses with a redirect to POST /api/tools/candidate_naming. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the call with a conflict BEFORE any runner is invoked; nothing is applied." },
+                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "The blocks to name. Omit to name every block still carrying an untouched provisional name (needs_owner_naming). An unknown id is a hard error." }
+                    },
+                    "required": ["agent_id", "expected_store_version"]
+                }
+            },
+            {
                 "name": "mission_post",
                 "description": "Human View v2 F2.5a WRITE verb. Appends one mission letter (schema `m1nd-mission-letter-v0`) to the bound brain's mailbox box as a `kind=mission` line, after the §1 contract gates all pass. Gates, in order: (1) schema + `mission_id` shape (`msn_<12hex>`) + `mission_seq>=1` + the §1f no-absolute-path guard on `brain_ref`; (2) per-phase field gating — `executing` carries NO verdict, `merge_wait` REQUIRES a gate, and the §1d LANDED LAW: `landed` REQUIRES `receipt.imported==true` with a real `store_version` (a zero-exit gate WITHOUT an imported receipt is `merge_wait`, never `landed`); (3) a `receipt_candidate`, when present, is complete (`artifact_hash`+`evidence_refs`); (4) the §1e HEAD CAS — the mission's letters form a content-hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id; a letter that does not extend the current head is REJECTED with `stale_head` and NOTHING is appended. An identical replay dedups by content id (idempotent). The letter is STATE, not evidence — it NEVER changes a block's color (that is `receipt_import`'s job alone). Returns the appended letter's `letter_id` (set it as the next letter's `prev_letter_id`). Mutation — refused under a read-only attach.",
                 "inputSchema": {
@@ -2857,6 +2870,10 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // must refuse them.
     "candidate_edit",
     "candidate_lease",
+    // HUMAN VIEW v2 F11-c: candidate_naming applies runner names through a
+    // candidate_edit batch (a store write). HTTP-only (like mission_spawn), but the
+    // read-only law + the tool surface stay consistent here.
+    "candidate_naming",
     // HUMAN VIEW v2 F2.5a: mission_post appends a mission letter to the box on
     // disk (a mailbox write), so a read-only attach must refuse it. The
     // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
@@ -4468,6 +4485,16 @@ fn dispatch_core_tool(
                 "mission_spawn is an HTTP-only proxy verb — call it via `POST /api/tools/mission_spawn` on the owner (it forwards to the runner daemon with the shared secret the browser never holds)"
                     .to_string(),
         }),
+        // HUMAN VIEW v2 F11-c — candidate_naming (§2b) is likewise HTTP-only: it
+        // needs the owner-process announce registry + the shared secret + the
+        // /name forward, none of which this sync dispatch sees. An MCP-stdio
+        // caller gets an honest redirect, never a silent failure.
+        "candidate_naming" => Err(M1ndError::InvalidParams {
+            tool: "candidate_naming".to_string(),
+            detail:
+                "candidate_naming is an HTTP-only verb — call it via `POST /api/tools/candidate_naming` on the owner (it calls the runner daemon's /name with the shared secret the browser never holds, then applies the names through candidate_edit)"
+                    .to_string(),
+        }),
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -6017,6 +6044,8 @@ mod tests {
             // F11-a: the candidate_edit batch verb + the advisory lease verb.
             "candidate_edit",
             "candidate_lease",
+            // F11-c: the Name-with-runner route (a candidate_edit write inside).
+            "candidate_naming",
             // F2.5a: the mission-letter write verb.
             "mission_post",
             // F2.5c: the mission_spawn proxy (a write — it launches a mission).
@@ -6360,6 +6389,25 @@ mod tests {
         assert!(
             err.to_string().contains("HTTP-only")
                 && err.to_string().contains("/api/tools/mission_spawn"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn candidate_naming_dispatch_is_http_only_redirect() {
+        // F11-c mirrors the mission_spawn law: the sync MCP dispatch never runs the
+        // naming route (it needs the announce registry + the shared secret + the
+        // /name forward); an MCP-stdio caller gets an honest redirect.
+        let (_temp, mut state) = build_state();
+        let err = super::dispatch_tool(
+            &mut state,
+            "candidate_naming",
+            &serde_json::json!({"agent_id": "gui", "expected_store_version": 1}),
+        )
+        .expect_err("candidate_naming is HTTP-only over MCP dispatch");
+        assert!(
+            err.to_string().contains("HTTP-only")
+                && err.to_string().contains("/api/tools/candidate_naming"),
             "unexpected: {err}"
         );
     }

@@ -589,6 +589,91 @@ pub fn scan_input_from_graph(
     }
 }
 
+/// F11-c: just the graph's node view (external ids + kinds) — what the
+/// `candidate_naming` route needs to build packets for STORE blocks without the
+/// full scan input (no file list, no Louvain, no edges).
+pub(crate) fn graph_nodes_for_naming(graph: &Graph) -> Vec<SkeletonGraphNode> {
+    let n = graph.num_nodes() as usize;
+    let node_to_ext = node_to_external_ids(graph);
+    (0..n)
+        .map(|i| SkeletonGraphNode {
+            external_id: node_to_ext.get(i).cloned().unwrap_or_default(),
+            kind: graph.nodes.node_type[i],
+        })
+        .collect()
+}
+
+/// F11-c: a naming packet for a STORE block (the `candidate_naming` route) — the
+/// same packet shape the scan emits (§2a: member paths + dominant kinds + top
+/// symbols, never file bodies), built from the block's stored membership. Member
+/// paths prefer the reconcile cache (`resolved_members`, real files) and fall back
+/// to the declared membership (which may carry globs — still honest naming
+/// context). Graph nodes are matched against exact members or glob members.
+pub(crate) fn naming_packet_for_store_block(
+    block: &SystemBlock,
+    nodes: &[SkeletonGraphNode],
+) -> crate::naming_runner::BlockNamingPacket {
+    let member_paths_full: Vec<String> = if block.resolved_members.is_empty() {
+        block.membership.iter().map(|e| e.path.clone()).collect()
+    } else {
+        block.resolved_members.clone()
+    };
+    let exact: BTreeSet<&str> = member_paths_full
+        .iter()
+        .filter(|p| !crate::system_blocks::is_glob_pattern(p))
+        .map(|p| p.as_str())
+        .collect();
+    let globs: Vec<glob::Pattern> = member_paths_full
+        .iter()
+        .filter(|p| crate::system_blocks::is_glob_pattern(p))
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+
+    let mut kind_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut symbols: BTreeSet<String> = BTreeSet::new();
+    for node in nodes {
+        let Some(rest) = node.external_id.strip_prefix("file::") else {
+            continue;
+        };
+        let (path, tail) = match rest.split_once("::") {
+            Some((p, t)) => (p.replace('\\', "/"), Some(t)),
+            None => (rest.replace('\\', "/"), None),
+        };
+        let claimed = exact.contains(path.as_str()) || globs.iter().any(|pat| pat.matches(&path));
+        if !claimed {
+            continue;
+        }
+        *kind_counts.entry(node_type_label(node.kind)).or_default() += 1;
+        if let Some(t) = tail {
+            if !t.trim().is_empty() {
+                symbols.insert(t.to_string());
+            }
+        }
+    }
+    let mut kind_pairs: Vec<_> = kind_counts.into_iter().collect();
+    kind_pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+    crate::naming_runner::BlockNamingPacket {
+        block_id: block.block_id.clone(),
+        member_count: member_paths_full.len(),
+        member_paths: member_paths_full
+            .iter()
+            .take(crate::naming_runner::PACKET_MEMBER_PATHS_CAP)
+            .cloned()
+            .collect(),
+        dominant_kinds: kind_pairs
+            .into_iter()
+            .take(3)
+            .map(|(kind, _)| kind.to_string())
+            .collect(),
+        top_symbols: symbols
+            .into_iter()
+            .take(crate::naming_runner::PACKET_SYMBOLS_CAP)
+            .collect(),
+        dominant_directory: dominant_directory(member_paths_full.iter()),
+    }
+}
+
 fn assignments_from_result(result: CommunityResult) -> Vec<Option<u32>> {
     result
         .assignments
