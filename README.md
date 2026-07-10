@@ -87,6 +87,7 @@ Ready to wire it for real (skills + MCP config, every host)? → [Quick Start](#
 
 - **If you build with agents** — nothing new to learn: install once, keep talking to your agent. It stops guessing, starts remembering, and says "I don't know" when that is the truth.
 - **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), conformally calibrated verdicts, and memory anchored to code nodes with provenance. Nothing leaves your machine.
+- **If you run a team of agents** — one served owner hosts a brain per repo (two-tier routing with honest reception), and every repo gets a HUMAN-RATIFIED block map: the scan proposes it, a naming runner names it at birth, agents may curate it through one OCC-guarded verb — and only a human ever signs it. The map then guards missions: a letter naming a block the skeleton doesn't hold is refused, and a brain wearing a foreign skeleton says so out loud.
 
 Agents on real codebases do not fail because they cannot search — they fail because they have no operating model. Each session rebuilds context from scratch, edits without knowing the blast radius, and cannot tell an empty result that means "nothing exists" from one that means "wrong repo". m1nd gives the agent a durable model of the codebase — a causal graph with spreading activation and Hebbian plasticity — and wraps the agent's whole loop around it. Features are not a catalog here; they are the stations of that shell:
 
