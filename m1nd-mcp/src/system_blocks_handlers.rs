@@ -29,9 +29,10 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use crate::session::SessionState;
 use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonScanOptions};
 use crate::system_blocks::{
-    self, archive_in_dir, delete_in_dir, import_receipt_in_dir, import_seed_into_dir,
-    ratify_in_dir, recompute_in_dir, reconcile_in_dir, skeleton_candidate_in_dir, ArchiveMode,
-    Receipt, SeedError, SystemBlockStore,
+    self, archive_in_dir, candidate_edit_in_dir, candidate_lease_in_dir, delete_in_dir,
+    import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, reconcile_in_dir,
+    skeleton_candidate_in_dir, ArchiveMode, LeaseAction, Receipt, SeedError, SystemBlockStore,
+    DEFAULT_LEASE_TTL_SECS,
 };
 use crate::util::now_ms;
 
@@ -529,6 +530,99 @@ pub fn handle_system_blocks_delete(
             "block '{}' and its {} receipt(s) were permanently deleted",
             summary.deleted_block_id, summary.receipts_removed
         ),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// candidate_edit (WRITE) — F11-a typed batch edit on a candidate skeleton
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateEditInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The `store_version` the caller read (OCC key, PRD §3.1).
+    pub expected_store_version: u64,
+    /// The typed edit ops (rename/merge/split/move_member/resolve_seam/assign_unmapped).
+    pub ops: Vec<crate::candidate_edit::EditOp>,
+    /// The authoring seat for provenance (§1c): `"owner"` (the GUI, default) stamps
+    /// `named_by:owner`; `"runner"` (an agent seat) stamps `named_by:runner`.
+    #[serde(default)]
+    pub by: Option<String>,
+}
+
+/// `candidate_edit` (WRITE, F11-a). Applies a typed batch of edits to the CANDIDATE
+/// skeleton under one OCC transaction with preflight-on-a-clone (o1): the whole batch
+/// is validated against a working copy and only a total success persists (once) and
+/// bumps `store_version` (once). A `ratified` skeleton refuses every op
+/// (`skeleton_not_candidate`, §1a); a failing op returns its index honestly.
+pub fn handle_candidate_edit(
+    state: &mut SessionState,
+    input: CandidateEditInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "candidate_edit";
+    let seat = crate::candidate_edit::EditSeat::parse(input.by.as_deref()).map_err(|detail| {
+        M1ndError::InvalidParams {
+            tool: TOOL.to_string(),
+            detail,
+        }
+    })?;
+    let dir = store_dir(state);
+    let store = candidate_edit_in_dir(&dir, input.expected_store_version, &input.ops, seat)
+        .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "store_version": store.store_version,
+        "block_count": store.blocks.len(),
+        "ops_applied": input.ops.len(),
+        "store": store,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// candidate_lease (WRITE) — F11-a advisory curation lease (o4)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateLeaseInput {
+    /// The agent identity that holds/refreshes/releases the lease — REQUIRED (the
+    /// lease is keyed on it; the owner is the single serialization point, o4).
+    pub agent_id: String,
+    /// `"acquire"` | `"refresh"` | `"release"`.
+    pub action: String,
+    /// The lease lifetime in seconds; omit for the default. Used by acquire/refresh.
+    #[serde(default)]
+    pub ttl_secs: Option<u64>,
+}
+
+/// `candidate_lease` (WRITE, F11-a). The advisory curation lease (o4): `acquire` is an
+/// atomic compare-and-set (granted iff the lease is free, expired, or already this
+/// agent's), `refresh` extends the owner-held TTL, and `release` clears it — an
+/// expired lease is reclaimable by anyone (no dead-agent trap). It is ADVISORY:
+/// `candidate_edit` never requires a held lease, and the lease never bumps
+/// `store_version`, so it can never block the owner or invalidate a pending edit.
+pub fn handle_candidate_lease(
+    state: &mut SessionState,
+    input: CandidateLeaseInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "candidate_lease";
+    let action = LeaseAction::parse(&input.action).map_err(|detail| M1ndError::InvalidParams {
+        tool: TOOL.to_string(),
+        detail,
+    })?;
+    let ttl = input.ttl_secs.unwrap_or(DEFAULT_LEASE_TTL_SECS);
+    let ms = now_ms();
+    let now_iso = iso8601_from_ms(ms);
+    let until_iso = iso8601_from_ms(ms.saturating_add(ttl.saturating_mul(1000)));
+    let dir = store_dir(state);
+    let (store, summary) =
+        candidate_lease_in_dir(&dir, action, &input.agent_id, &now_iso, &until_iso)
+            .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "state": summary.state,
+        "curating_by": summary.curating_by,
+        "curating_until": summary.curating_until,
+        // The lease is advisory bookkeeping — it never bumps the OCC counter.
+        "store_version": store.store_version,
     }))
 }
 
