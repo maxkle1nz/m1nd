@@ -44,7 +44,7 @@ classDiagram
 
     class route_and_run {
         <<mcp_http.rs:659, 4-step precedence>>
-        +1_bootstrap : ingest+project_root
+        +1_bootstrap : ingest+project_root (overlap-guarded)
         +2_promote
         +3_sticky_bound_project_root
         +4_caller_root_match -> go sticky
@@ -115,7 +115,7 @@ sequenceDiagram
     P->>P: validate session (unknown -> 404 -32001)
     P->>RR: route_and_run
     alt (1) ingest + project_root
-        RR->>BRAIN: run_bootstrap (create/warm-resolve, ingest, bind sticky)
+        RR->>BRAIN: run_bootstrap (overlap-guard the mint, create/warm-resolve, ingest, bind sticky)
     else (2) promote
         RR->>BRAIN: run_promote (cross-store write to medulla)
     else (3) sticky bound_project_root set
@@ -205,6 +205,7 @@ stateDiagram-v2
 - **GC never deletes an entry it cannot prove dead**: LivePids conservative (unsupported platform / failed refresh -> every pid treated live); corrupt files skipped, never removed (verified: gc_dead_leases at :412).
 - **Eviction persists before dropping**; the bound dev graph is never in the map and never a victim.
 - **Bootstrap never shadows the bound graph**: a project_root the bound graph already covers is refused with one honest error (run_bootstrap L578-588).
+- **Bootstrap refuses an OVERLAPPING project brain unless `allow_overlap:true`**: before minting a NEW project brain, the mint path classifies the root against every existing project brain (warm map ∪ on-disk roster, via `existing_brain_roots`) into one of three overlap classes — **child** (the new root is INSIDE an existing brain's root), **parent** (an existing brain's root is INSIDE the new root — the mother-folder trap that re-ingests the child repo from above), or **worktree** (the new root is a git worktree, `.git` a gitdir file under `<main>/.git/worktrees/`, whose main repo already has a brain) — and returns one honest `overlap_<class>` error that names the conflicting root and the two ways forward: (a) bind to the existing brain (`ingest project_root=<existing>`), or (b) pass `allow_overlap:true` to mint a separate brain anyway. The exact same root is warm-reuse, never an overlap (it never reaches the guard). This stops one repo growing two brains by accident — double auto-ingest cost + memories fragmented across stores (project_brains.rs `detect_root_overlap` + the bootstrap None-arm; `allow_overlap` is a routing directive stripped before the inner ingest, like `project_root`).
 - **covering_brain returns a rebind target only when EXACTLY ONE roster brain is ancestry-related** (0=unknown, >1=ambiguous -> plain reception); an exact match is skipped (silent bind, not rebind).
 
 ## Gaps

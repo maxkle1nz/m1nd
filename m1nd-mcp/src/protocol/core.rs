@@ -193,6 +193,11 @@ pub struct IngestInput {
     /// stdio exactly as before).
     #[serde(default)]
     pub project_root: Option<String>,
+    // NOTE: the bootstrap escape hatch `allow_overlap` is intentionally NOT a field
+    // here. It is a routing directive consumed at the served-owner layer
+    // (`project_brains::bootstrap` reads it from the raw arguments and strips it,
+    // exactly like `project_root`), never by the ingest adapter — so it never
+    // deserializes into this struct. See the `ingest` tool schema in `server.rs`.
 }
 
 /// Input for m1nd.resonate (resonance analysis).
