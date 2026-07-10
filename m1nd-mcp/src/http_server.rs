@@ -1772,6 +1772,70 @@ async fn handle_candidate_naming(
     }
 }
 
+/// The REST arm of the one-call bootstrap: this route's own blocking + timeout +
+/// error grammar around the seam-shared `mcp_http::run_bootstrap_core` (guard →
+/// guarded mint → ingest → orient — see the interception comment in
+/// [`handle_tool_call`]). REST has no wire session to sticky-bind, so the
+/// packet's `routing` line states THIS seam's law: address the brain with
+/// `?brain=<root>` (wire callers from that root still route automatically).
+/// Errors keep the generic tool-route shape — the overlap guard's
+/// `overlap_<class>` refusal (`M1ndError::InvalidParams`) comes out as HTTP 400
+/// `invalid_params` carrying the guard's full teaching message.
+async fn handle_rest_bootstrap(
+    state: &Arc<AppState>,
+    project_root: String,
+    body: serde_json::Value,
+) -> axum::response::Response {
+    let app = state.clone();
+    let root = project_root.clone();
+    let result = tokio::time::timeout(
+        Duration::from_secs(TOOL_TIMEOUT_SECS),
+        tokio::task::spawn_blocking(move || {
+            crate::mcp_http::run_bootstrap_core(&app, &root, &body)
+        }),
+    )
+    .await;
+    match result {
+        Err(_elapsed) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(timeout_error_payload(TOOL_TIMEOUT_SECS)),
+        )
+            .into_response(),
+        Ok(joined) => match joined.expect("spawn_blocking panicked") {
+            Ok((key, mut packet)) => {
+                if let Some(obj) = packet.as_object_mut() {
+                    obj.insert(
+                        "routing".into(),
+                        serde_json::Value::String(format!(
+                            "REST calls address this brain with the ?brain={key} selector; MCP \
+                             wire calls whose resolved caller root is this repo route to it \
+                             automatically"
+                        )),
+                    );
+                }
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "result": packet })),
+                )
+                    .into_response()
+            }
+            Err(e) => {
+                // Same class→status mapping as the generic dispatch arm below, so a
+                // refusal reads the same no matter which ingest shape produced it.
+                let (status, error_type) = match &e {
+                    m1nd_core::error::M1ndError::InvalidParams { .. } => {
+                        (StatusCode::BAD_REQUEST, "invalid_params")
+                    }
+                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+                };
+                let mut payload = tool_error_payload(&e);
+                payload["error"] = serde_json::json!(error_type);
+                (status, Json(payload)).into_response()
+            }
+        },
+    }
+}
+
 async fn handle_tool_call(
     State(state): State<Arc<AppState>>,
     Path(tool_name): Path<String>,
@@ -1803,6 +1867,26 @@ async fn handle_tool_call(
     // brain (its store, its graph), so "Name with runner" works on any hosted brain.
     if bare_tool_name(&tool_name) == "candidate_naming" {
         return handle_candidate_naming(&state, &target_session, body).await;
+    }
+
+    // Two-Tier one-call bootstrap — REST-seam parity (field hole 2026-07-10):
+    // `ingest` whose body carries a non-empty `project_root` is a BOOTSTRAP
+    // DIRECTIVE, not a plain graph ingest. The JSON-RPC seam has always routed it
+    // through the guarded bootstrap; this route used to IGNORE the field and
+    // dispatch the ingest on the RESOLVED brain — the BOUND graph when `?brain=`
+    // is absent — so a bootstrap-shaped call through the REST door REPLACED the
+    // owner's bound graph. Intercepted HERE — like the two proxies above — and
+    // routed through the SAME seam-shared core the wire uses
+    // (`mcp_http::run_bootstrap_core`), so the bound-shadow guard and the overlap
+    // guard (`overlap_<class>` refusal, `allow_overlap` escape) fire identically
+    // on both seams. The directive takes precedence over the `?brain=` selector,
+    // exactly as it precedes per-session routing on the wire; WITHOUT
+    // `project_root` the route is untouched (re-ingesting the resolved brain via
+    // `?brain=` stays legitimate).
+    if bare_tool_name(&tool_name) == "ingest" {
+        if let Some(project_root) = crate::mcp_http::bootstrap_directive(&body) {
+            return handle_rest_bootstrap(&state, project_root, body).await;
+        }
     }
 
     // §4A.9.6: brain-scope the mutation event. When the caller selected a brain,
@@ -2862,5 +2946,348 @@ mod tests {
                 e.event_type
             );
         }
+    }
+
+    // ------------------------------------------------------------------
+    // REST one-call bootstrap parity (field hole 2026-07-10). The JSON-RPC seam
+    // routed `ingest`+`project_root` through the guarded bootstrap, but THIS
+    // route ignored the directive and dispatched the ingest on the resolved
+    // brain — the BOUND graph when `?brain=` is absent — so a bootstrap-shaped
+    // call through the REST door REPLACED the owner's bound graph (live smoke:
+    // a parent-folder project_root clobbered the bound ingest_roots). These
+    // tests drive the REAL `handle_tool_call` handler: the refusal, the mint
+    // parity, the untouched-bound law, the escape hatch, and the no-directive
+    // dispatch that must never regress.
+    // ------------------------------------------------------------------
+
+    /// A tiny but non-empty repo so a real ingest produces > 0 nodes.
+    fn write_repo(root: &std::path::Path, name: &str) {
+        std::fs::create_dir_all(root.join("src")).expect("mk src");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\n"),
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!("pub fn {name}_probe() -> i64 {{ 1 }}\n"),
+        )
+        .expect("lib.rs");
+    }
+
+    /// A real AppState around a real SessionState + project-brain registry — the
+    /// same altitude the wire-seam tests build, driven through the REAL
+    /// `handle_tool_call` handler below.
+    fn rest_owner(runtime: &std::path::Path) -> Arc<AppState> {
+        std::fs::create_dir_all(runtime).expect("mk runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.to_path_buf()),
+            ..Default::default()
+        };
+        let session = crate::server::McpServer::new(config)
+            .expect("boot owner")
+            .into_session_state();
+        let (event_tx, _rx) = broadcast::channel::<SseEvent>(64);
+        let tool_schemas_cache = tool_schemas()
+            .get("tools")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+            runtime.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            None,
+        ));
+        Arc::new(AppState {
+            session: Arc::new(Mutex::new(session)),
+            tool_schemas_cache,
+            event_tx,
+            event_log_path: None,
+            registry_dir: None,
+            mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
+            project_brains,
+            runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+        })
+    }
+
+    /// Drive the REAL REST `ingest` route; return (status, parsed JSON payload).
+    async fn call_ingest(
+        app: &Arc<AppState>,
+        brain: Option<String>,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let resp = handle_tool_call(
+            State(app.clone()),
+            Path("ingest".to_string()),
+            Query(BrainQuery { brain }),
+            Json(body),
+        )
+        .await
+        .into_response();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let payload =
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, payload)
+    }
+
+    fn bound_node_count(app: &Arc<AppState>) -> u32 {
+        app.session.lock().graph.read().num_nodes()
+    }
+
+    /// Ingest the bound repo through the REST route (no directive) — the shared
+    /// setup of the battery; the no-regression pin has its own test below.
+    async fn ingest_bound(app: &Arc<AppState>, bound: &std::path::Path) -> u32 {
+        let (status, payload) = call_ingest(
+            app,
+            None,
+            serde_json::json!({"path": bound.to_string_lossy(), "agent_id": "setup"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "bound ingest must pass: {payload}");
+        assert!(
+            payload["result"]["node_count"].as_u64().unwrap_or(0) > 0,
+            "bound ingest must count nodes: {payload}"
+        );
+        bound_node_count(app)
+    }
+
+    /// (1) THE TEST THAT WOULD HAVE CAUGHT THE HOLE. A REST ingest whose
+    /// project_root is the PARENT of a repo with an existing project brain must
+    /// be REFUSED with the guard's overlap_parent message — and the owner's
+    /// bound graph must be EXACTLY as it was (pre-fix, this call dispatched a
+    /// plain ingest into the bound graph and replaced its ingest_roots).
+    #[tokio::test]
+    async fn rest_ingest_parent_project_root_refuses_and_leaves_bound_untouched() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("bound-repo");
+        write_repo(&bound, "boundrepo");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        let n0 = ingest_bound(&app, &bound).await;
+
+        // An existing project brain for `<tmp>/ws/repo`; the caller opens at the
+        // PARENT `<tmp>/ws` (the mother-folder trap).
+        let parent = tmp.path().join("ws");
+        let child = parent.join("repo");
+        std::fs::create_dir_all(&child).expect("mk child");
+        let child_key = app
+            .project_brains
+            .ensure_registered(&child.to_string_lossy())
+            .expect("register child brain");
+
+        let (status, payload) = call_ingest(
+            &app,
+            None,
+            serde_json::json!({
+                "path": parent.to_string_lossy(),
+                "project_root": parent.to_string_lossy(),
+                "agent_id": "smoke"
+            }),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "an overlapping REST bootstrap must be an honest 400, got: {payload}"
+        );
+        assert_eq!(payload["error"], "invalid_params", "class: {payload}");
+        let msg = payload["message"].as_str().unwrap_or_default();
+        assert!(
+            msg.contains("overlap_parent"),
+            "the refusal must name the parent class: {msg}"
+        );
+        assert!(
+            msg.contains(&child_key),
+            "the refusal must name the conflicting child root: {msg}"
+        );
+        assert!(
+            msg.contains("allow_overlap"),
+            "the refusal must teach the escape hatch: {msg}"
+        );
+
+        // THE INCIDENT PIN: the bound graph is EXACTLY as it was — same node
+        // count, still covering its own repo, never the parent.
+        assert_eq!(
+            bound_node_count(&app),
+            n0,
+            "the refused REST bootstrap must not touch the bound graph"
+        );
+        {
+            let session = app.session.lock();
+            assert!(
+                session.covers_root(&bound.to_string_lossy()),
+                "the bound graph must still cover its own repo"
+            );
+            assert!(
+                !session.covers_root(&parent.to_string_lossy()),
+                "the parent root must never have entered the bound ingest_roots"
+            );
+        }
+        assert!(
+            !app.project_brains.knows(&parent.to_string_lossy()),
+            "no parent brain may exist after the refusal"
+        );
+    }
+
+    /// (2) PARITY: a disjoint project_root through the REST door mints a real
+    /// project brain — the same envelope the JSON-RPC seam returns — and the
+    /// bound graph stays isolated. Afterwards, a plain re-ingest of that brain
+    /// via `?brain=` (NO project_root) still dispatches normally — the
+    /// legitimate re-ingest path must not regress.
+    #[tokio::test]
+    async fn rest_ingest_disjoint_project_root_bootstraps_a_brain() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("bound-repo");
+        write_repo(&bound, "boundrepo");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        let n0 = ingest_bound(&app, &bound).await;
+
+        let repo = tmp.path().join("project-y");
+        write_repo(&repo, "projecty");
+        let (status, payload) = call_ingest(
+            &app,
+            None,
+            serde_json::json!({
+                "path": repo.to_string_lossy(),
+                "project_root": repo.to_string_lossy(),
+                "agent_id": "boot"
+            }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a disjoint bootstrap must pass: {payload}"
+        );
+        let packet = &payload["result"];
+        assert_eq!(
+            packet["schema"], "m1nd-project-brain-bootstrap-v0",
+            "REST bootstrap must return the SAME envelope the wire seam does: {payload}"
+        );
+        assert!(
+            packet["ingest"]["node_count"].as_u64().unwrap_or(0) > 0,
+            "the bootstrap must carry the project ingest counts: {payload}"
+        );
+        assert_eq!(
+            packet["north"]["schema"], "m1nd-north-packet-v0",
+            "the bootstrap must orient the caller in the same response: {payload}"
+        );
+        assert!(
+            app.project_brains.knows(&repo.to_string_lossy()),
+            "the registry must know the new brain"
+        );
+        assert_eq!(
+            bound_node_count(&app),
+            n0,
+            "the bound graph must be untouched by a REST bootstrap"
+        );
+
+        // Legitimate re-ingest of the hosted brain via ?brain= (no directive):
+        // the classic dispatch, NOT a bootstrap — must stay exactly as before.
+        let key =
+            crate::project_brains::ProjectBrainRegistry::canonical_key(&repo.to_string_lossy());
+        let (status, payload) = call_ingest(
+            &app,
+            Some(key),
+            serde_json::json!({"path": repo.to_string_lossy(), "agent_id": "re"}),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "?brain= re-ingest must pass: {payload}"
+        );
+        assert!(
+            payload["result"]["node_count"].as_u64().unwrap_or(0) > 0,
+            "the ?brain= re-ingest is a plain ingest result: {payload}"
+        );
+        assert!(
+            payload["result"]["schema"] != "m1nd-project-brain-bootstrap-v0",
+            "a directive-less re-ingest must NOT wear the bootstrap envelope: {payload}"
+        );
+    }
+
+    /// (3) NO DIRECTIVE, NO CHANGE: a REST ingest WITHOUT project_root keeps the
+    /// classic dispatch on the resolved brain (bound when `?brain=` is absent) —
+    /// no bootstrap envelope, no project brain minted.
+    #[tokio::test]
+    async fn rest_ingest_without_project_root_dispatches_on_resolved_brain() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("bound-repo");
+        write_repo(&bound, "boundrepo");
+        let app = rest_owner(&tmp.path().join("runtime"));
+
+        let (status, payload) = call_ingest(
+            &app,
+            None,
+            serde_json::json!({"path": bound.to_string_lossy(), "agent_id": "dev"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "plain ingest must pass: {payload}");
+        assert!(
+            payload["result"]["node_count"].as_u64().unwrap_or(0) > 0,
+            "plain ingest must answer with the classic ingest result: {payload}"
+        );
+        assert!(
+            payload["result"]["schema"] != "m1nd-project-brain-bootstrap-v0",
+            "a directive-less ingest must never wear the bootstrap envelope: {payload}"
+        );
+        assert!(
+            app.session.lock().covers_root(&bound.to_string_lossy()),
+            "the classic ingest must land on the BOUND graph"
+        );
+        assert_eq!(
+            app.project_brains.warm_len(),
+            0,
+            "no project brain may be minted without the directive"
+        );
+    }
+
+    /// (4) THE ESCAPE HATCH ON THIS SEAM: allow_overlap:true through the REST
+    /// door mints over a detected overlap, exactly like the wire.
+    #[tokio::test]
+    async fn rest_ingest_allow_overlap_true_mints_anyway() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("bound-repo");
+        write_repo(&bound, "boundrepo");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        ingest_bound(&app, &bound).await;
+
+        let parent = tmp.path().join("ws");
+        write_repo(&parent, "wsparent");
+        let child = parent.join("repo");
+        std::fs::create_dir_all(&child).expect("mk child");
+        app.project_brains
+            .ensure_registered(&child.to_string_lossy())
+            .expect("register child brain");
+
+        let (status, payload) = call_ingest(
+            &app,
+            None,
+            serde_json::json!({
+                "path": parent.to_string_lossy(),
+                "project_root": parent.to_string_lossy(),
+                "allow_overlap": true,
+                "agent_id": "deliberate"
+            }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "allow_overlap:true must mint through the REST door: {payload}"
+        );
+        assert_eq!(
+            payload["result"]["schema"], "m1nd-project-brain-bootstrap-v0",
+            "the deliberate mint wears the bootstrap envelope: {payload}"
+        );
+        assert_eq!(payload["result"]["reused_existing_brain"], false);
+        assert!(
+            app.project_brains.knows(&parent.to_string_lossy()),
+            "the deliberate overlap brain must exist"
+        );
     }
 }

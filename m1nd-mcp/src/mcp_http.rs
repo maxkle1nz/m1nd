@@ -375,12 +375,18 @@ fn bootstrap_project_root(request: &JsonRpcRequest) -> Option<String> {
     if bare_tool_name(name) != "ingest" {
         return None;
     }
-    let root = request
-        .params
-        .get("arguments")?
-        .get("project_root")?
-        .as_str()?
-        .trim();
+    bootstrap_directive(request.params.get("arguments")?)
+}
+
+/// The one-call bootstrap DIRECTIVE carried in a set of `ingest` ARGUMENTS —
+/// `Some(root)` when `project_root` is a non-empty string. THE one definition of
+/// "this ingest is a bootstrap", shared by both entry seams (the JSON-RPC frame
+/// above and the REST `/api/tools/ingest` route in `http_server`), so the two
+/// doors can never drift on what counts as a bootstrap (the 2026-07-10 field
+/// hole: the REST route had NO definition and treated a bootstrap-shaped ingest
+/// as a plain graph ingest against the resolved/bound brain).
+pub(crate) fn bootstrap_directive(arguments: &serde_json::Value) -> Option<String> {
+    let root = arguments.get("project_root")?.as_str()?.trim();
     if root.is_empty() {
         None
     } else {
@@ -552,11 +558,91 @@ fn tool_error_response(id: serde_json::Value, message: String) -> JsonRpcRespons
     }
 }
 
-/// The one-call bootstrap (TWO-TIER-BRAIN interim; the reception option made
-/// real): create (or warm-resolve) the per-project brain for `project_root`,
-/// ingest the caller's repo into it, bind THIS wire session to it (sticky), and
-/// return the new brain's north packet in the SAME response — total friction =
-/// one call. The owner's bound graph is never touched.
+/// SEAM-SHARED core of the one-call bootstrap (TWO-TIER-BRAIN interim): the
+/// bound-shadow guard, the guarded mint + ingest (`ProjectBrainRegistry::
+/// bootstrap`, which carries the overlap guard and its `allow_overlap` escape),
+/// and the same-response `north` orientation, composed into the bootstrap
+/// packet. BOTH entry doors route through here — the JSON-RPC frame
+/// ([`run_bootstrap`]) and the REST `/api/tools/ingest` route
+/// (`http_server::handle_rest_bootstrap`) — so a guard added at the mint fires
+/// identically no matter which door the ingest came in. This is the fix for the
+/// 2026-07-10 field hole: the REST route bypassed this path entirely and
+/// dispatched a bootstrap-shaped ingest into the RESOLVED brain — the BOUND
+/// graph when `?brain=` was absent — replacing the owner's ingest_roots.
+///
+/// Returns `(canonical_key, packet)`. The packet carries everything EXCEPT the
+/// seam-specific `routing` line — each seam states its own routing law honestly
+/// (the wire binds its session sticky; REST addresses the brain via `?brain=`).
+/// Errors keep their [`M1ndError`](m1nd_core::error::M1ndError) class so each
+/// seam renders them in its own grammar — in particular the overlap guard's
+/// `overlap_<class>` refusal stays `InvalidParams`, which the REST route maps
+/// onto an honest HTTP 400 carrying the full message. Sync + CPU-bound (ingest,
+/// engine build): callers run it inside `spawn_blocking`.
+pub(crate) fn run_bootstrap_core(
+    app: &AppState,
+    project_root: &str,
+    arguments: &serde_json::Value,
+) -> m1nd_core::error::M1ndResult<(String, serde_json::Value)> {
+    // Guard: a root the BOUND brain already covers needs no project brain — and
+    // silently shadowing the dev graph would be worse than refusing. One honest
+    // error, one next action.
+    let bound_covers = { app.session.lock().covers_root(project_root) };
+    if bound_covers {
+        return Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "ingest".into(),
+            detail: format!(
+                "project_root {project_root} is already covered by this owner's bound graph — \
+                 you are home; call verbs directly (bootstrap refused so the bound brain is \
+                 never shadowed by a duplicate)"
+            ),
+        });
+    }
+
+    let (brain, ingest_result, reused) = app.project_brains.bootstrap(project_root, arguments)?;
+    let key = crate::project_brains::ProjectBrainRegistry::canonical_key(project_root);
+
+    // Orient in the same response — north-grade, from the NEW brain.
+    let agent_id = arguments
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bootstrap")
+        .to_string();
+    let north = {
+        let mut state = brain.lock();
+        state.caller_root = Some(key.clone());
+        crate::server::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": agent_id,
+                "task": format!(
+                    "first orientation of the {key} project brain right after its one-call bootstrap"
+                ),
+            }),
+        )
+        .unwrap_or_else(|e| {
+            serde_json::json!({
+                "error": format!("north after bootstrap failed: {e}"),
+            })
+        })
+    };
+
+    let packet = serde_json::json!({
+        "schema": "m1nd-project-brain-bootstrap-v0",
+        "project_root": key,
+        "store_dir": app.project_brains.store_dir_for(&key),
+        "reused_existing_brain": reused,
+        "ingest": ingest_result,
+        "north": north,
+    });
+    Ok((key, packet))
+}
+
+/// The one-call bootstrap, JSON-RPC seam (TWO-TIER-BRAIN interim; the reception
+/// option made real): run the seam-shared [`run_bootstrap_core`] (guard → mint →
+/// ingest → orient), bind THIS wire session to the brain (sticky), and return
+/// the packet in the SAME response — total friction = one call. The owner's
+/// bound graph is never touched.
 ///
 /// Runs inside the caller's `spawn_blocking` context (ingest + engine build are
 /// CPU-bound).
@@ -572,71 +658,30 @@ fn run_bootstrap(
         .cloned()
         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
-    // Guard: a root the BOUND brain already covers needs no project brain — and
-    // silently shadowing the dev graph would be worse than refusing. One honest
-    // error, one next action.
-    let bound_covers = { app.session.lock().covers_root(project_root) };
-    if bound_covers {
-        return tool_error_response(
-            request.id.clone(),
-            format!(
-                "project_root {project_root} is already covered by this owner's bound graph — \
-                 you are home; call verbs directly (bootstrap refused so the bound brain is \
-                 never shadowed by a duplicate)"
-            ),
-        );
-    }
-
-    match app.project_brains.bootstrap(project_root, &arguments) {
+    match run_bootstrap_core(app, project_root, &arguments) {
         Err(e) => tool_error_response(
             request.id.clone(),
             format!("one-call bootstrap of {project_root} failed: {e}"),
         ),
-        Ok((brain, ingest_result, reused)) => {
-            let key = crate::project_brains::ProjectBrainRegistry::canonical_key(project_root);
-
+        Ok((key, mut packet)) => {
             // Sticky: this wire session now belongs to the new brain (§9.5.2).
             if let Some(sid) = session_id {
                 if let Some(s) = app.mcp_sessions.lock().get_mut(sid) {
                     s.bound_project_root = Some(key.clone());
                 }
             }
-
-            // Orient in the same response — north-grade, from the NEW brain.
-            let agent_id = arguments
-                .get("agent_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("bootstrap")
-                .to_string();
-            let north = {
-                let mut state = brain.lock();
-                state.caller_root = Some(key.clone());
-                crate::server::dispatch_tool(
-                    &mut state,
-                    "north",
-                    &serde_json::json!({
-                        "agent_id": agent_id,
-                        "task": format!(
-                            "first orientation of the {key} project brain right after its one-call bootstrap"
-                        ),
-                    }),
-                )
-                .unwrap_or_else(|e| {
-                    serde_json::json!({
-                        "error": format!("north after bootstrap failed: {e}"),
-                    })
-                })
-            };
-
-            let packet = serde_json::json!({
-                "schema": "m1nd-project-brain-bootstrap-v0",
-                "project_root": key,
-                "store_dir": app.project_brains.store_dir_for(&key),
-                "reused_existing_brain": reused,
-                "ingest": ingest_result,
-                "north": north,
-                "routing": "this wire session is now bound to your project brain; any call — this session or a brand NEW session — whose resolved caller root is this repo routes here automatically, silent on match (TT-INV-12)",
-            });
+            // THIS seam's routing law (the REST seam states its own).
+            if let Some(obj) = packet.as_object_mut() {
+                obj.insert(
+                    "routing".into(),
+                    serde_json::Value::String(
+                        "this wire session is now bound to your project brain; any call — this \
+                         session or a brand NEW session — whose resolved caller root is this repo \
+                         routes here automatically, silent on match (TT-INV-12)"
+                            .into(),
+                    ),
+                );
+            }
             tool_result_response(request.id.clone(), &packet)
         }
     }
