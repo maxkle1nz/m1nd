@@ -1922,6 +1922,11 @@ async fn handle_tool_call(
             // resolution already validated the root, so this is the same brain the
             // graph routes would serve for this selector.
             let mut session = target_session.lock();
+            let caller_root = session.caller_root.clone();
+            if brain.brain.is_some() && crate::server::skeleton_write_needs_root_gate(&tool, &body)
+            {
+                session.caller_root = session.workspace_root.clone();
+            }
             if tool == "apply_batch" {
                 session.apply_batch_progress_sink = Some(apply_batch_progress_sink(
                     progress_event_tx.clone(),
@@ -1934,6 +1939,7 @@ async fn handle_tool_call(
                 session.track_agent(agent_id);
             }
             let result = dispatch_tool(&mut session, &tool, &body);
+            session.caller_root = caller_root;
             session.apply_batch_progress_sink = None;
             result
         }),
@@ -3033,6 +3039,29 @@ mod tests {
         (status, payload)
     }
 
+    async fn call_tool(
+        app: &Arc<AppState>,
+        tool: &str,
+        brain: Option<String>,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let resp = handle_tool_call(
+            State(app.clone()),
+            Path(tool.to_string()),
+            Query(BrainQuery { brain }),
+            Json(body),
+        )
+        .await
+        .into_response();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let payload =
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, payload)
+    }
+
     fn bound_node_count(app: &Arc<AppState>) -> u32 {
         app.session.lock().graph.read().num_nodes()
     }
@@ -3052,6 +3081,41 @@ mod tests {
             "bound ingest must count nodes: {payload}"
         );
         bound_node_count(app)
+    }
+
+    #[tokio::test]
+    async fn explicit_rest_brain_selector_bypasses_implicit_root_write_gate() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("m1nd");
+        let caller = tmp.path().join("repo-beta");
+        write_repo(&bound, "m1nd");
+        std::fs::create_dir_all(&caller).expect("caller root");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        ingest_bound(&app, &bound).await;
+        app.session.lock().caller_root = Some(caller.to_string_lossy().to_string());
+
+        let (status, payload) = call_tool(
+            &app,
+            "system_blocks_seed_import",
+            Some(bound.to_string_lossy().to_string()),
+            serde_json::json!({
+                "agent_id": "t",
+                "seed_json": include_str!("../../docs/system-blocks/m1nd.seed.v0.json")
+            }),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "explicit selector must proceed: {payload}"
+        );
+        assert_ne!(payload["result"]["refused"], "brainless_root");
+        assert_eq!(
+            app.session.lock().caller_root.as_deref(),
+            Some(caller.to_string_lossy().as_ref()),
+            "request-scoped selector bypass must restore caller_root"
+        );
     }
 
     /// (1) THE TEST THAT WOULD HAVE CAUGHT THE HOLE. A REST ingest whose
