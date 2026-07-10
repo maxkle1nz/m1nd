@@ -204,6 +204,13 @@ pub struct MissionLetter {
     pub tokens_total: u64,
     pub started_at: String,
     pub updated_at: String,
+    /// `true` marks a legitimately-synthetic letter (a smoke test / warm-pool
+    /// probe) whose `block_id` is NOT expected to exist in the store — the
+    /// mission_post block guard skips validation for it. Default `false`: a real
+    /// letter must name a real block (the field-hardening the hand agent proposed
+    /// after mission_post silently accepted a non-existent block).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub synthetic: bool,
 }
 
 // ===========================================================================
@@ -756,6 +763,7 @@ mod tests {
             tokens_total: 0,
             started_at: "2026-07-09T00:00:00Z".to_string(),
             updated_at: "2026-07-09T00:00:00Z".to_string(),
+            synthetic: false,
         }
     }
 

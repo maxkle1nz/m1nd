@@ -79,6 +79,38 @@ pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) ->
             });
         }
     }
+    // The block guard (field-hardening, proposed by the hand agent after
+    // mission_post silently accepted a letter naming a block that did not exist):
+    // a real letter must name a real block in this brain's store. A legitimately
+    // synthetic letter (a smoke/warm-pool probe) sets `synthetic: true` and skips
+    // this — the escape hatch is explicit, never a silent pass. A brain with no
+    // store yet (no skeleton) cannot validate, so it accepts (the honest "no
+    // skeleton to check against" state, same spirit as the medulla brain_ref case).
+    if !input.letter.synthetic {
+        let store_dir = crate::system_blocks_handlers::store_dir(state);
+        if let Some(store) =
+            crate::system_blocks::SystemBlockStore::load(&store_dir).map_err(|e| {
+                M1ndError::InvalidParams {
+                    tool: "mission_post".to_string(),
+                    detail: format!("could not read the system-block store: {e}"),
+                }
+            })?
+        {
+            let known = store
+                .blocks
+                .iter()
+                .any(|b| b.block_id == input.letter.block_id);
+            if !known {
+                return Err(M1ndError::InvalidParams {
+                    tool: "mission_post".to_string(),
+                    detail: format!(
+                        "unknown_block: the letter names block_id '{}' which no block in                          this brain's skeleton holds — name a real block, or set                          synthetic:true for a smoke probe; nothing was appended",
+                        input.letter.block_id
+                    ),
+                });
+            }
+        }
+    }
     let box_path = mission_box_path(state);
     let outcome = mission_letter::post_mission_letter(&box_path, &input.agent_id, &input.letter)
         .map_err(mission_err)?;
