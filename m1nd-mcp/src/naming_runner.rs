@@ -47,10 +47,19 @@ pub const PACKET_MEMBER_PATHS_CAP: usize = 40;
 /// How many top symbols a naming packet materializes.
 pub const PACKET_SYMBOLS_CAP: usize = 12;
 
+/// The instruction serialized into every naming packet (§2c: the response is ONE
+/// JSON line, schema-gated and sanitized on both sides).
+pub const PACKET_INSTRUCTION: &str = "Name this code block from the data in this JSON. Reply with EXACTLY one line of JSON and nothing else: {\"name\":\"...\",\"purpose\":\"...\"} — name is a short human module name (max 40 chars), purpose is one plain-text line (max 120 chars). No markdown, no URLs, no paths, no extra keys, no surrounding text.";
+
 /// One block's naming packet (§2a): what the runner sees — member list + dominant
 /// kinds + top symbols, NO file bodies. Built by the scan from data it already has.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BlockNamingPacket {
+    /// The task instruction, serialized INTO every packet so a generic LLM-backed
+    /// runner works out of the box — field-proven necessary: a real CLI runner
+    /// receiving bare data (no task, no format) wandered past its timeout on
+    /// every live call. A non-LLM runner may ignore it.
+    pub instruction: String,
     pub block_id: String,
     /// The honest total member count (the list below may be capped).
     pub member_count: usize,
@@ -1010,6 +1019,7 @@ mod tests {
         let (port, daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "s3cr3t");
 
         let packets = vec![BlockNamingPacket {
+            instruction: PACKET_INSTRUCTION.to_string(),
             block_id: "sb_a".to_string(),
             member_count: 1,
             member_paths: vec!["src/a.rs".to_string()],
@@ -1083,6 +1093,7 @@ mod tests {
 
     fn packet_for(block_id: &str) -> BlockNamingPacket {
         BlockNamingPacket {
+            instruction: PACKET_INSTRUCTION.to_string(),
             block_id: block_id.to_string(),
             member_count: 1,
             member_paths: vec![format!("src/{block_id}.rs")],

@@ -433,6 +433,7 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
             .take(crate::naming_runner::PACKET_SYMBOLS_CAP)
             .collect();
         naming_packets.push(crate::naming_runner::BlockNamingPacket {
+            instruction: crate::naming_runner::PACKET_INSTRUCTION.to_string(),
             block_id: block_id.clone(),
             member_count: group.members.len(),
             member_paths: group
@@ -654,6 +655,7 @@ pub(crate) fn naming_packet_for_store_block(
     kind_pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
 
     crate::naming_runner::BlockNamingPacket {
+        instruction: crate::naming_runner::PACKET_INSTRUCTION.to_string(),
         block_id: block.block_id.clone(),
         member_count: member_paths_full.len(),
         member_paths: member_paths_full
