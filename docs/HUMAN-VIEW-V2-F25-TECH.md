@@ -25,6 +25,7 @@ The write mode's unit of state is a **mission letter**: a JSON document describi
   "receipt_candidate": { "block_id": "sb_...", "type": "test", "scope": {"boundary_version": 1, "contract_version": 1}, "evidence": {"artifact_hash": "sha256:...", "evidence_refs": ["..."]} },
   "receipt": { "imported": true, "store_version": 9 },
   "packet_ref": "sha256:<hash of the MissionPacket markdown that opened the mission>",
+  "synthetic": false,
   "tokens_total": 0,
   "started_at": "<ISO-8601>",
   "updated_at": "<ISO-8601>"
@@ -37,6 +38,7 @@ Signed decisions:
 - **(1c) The letter is state, not evidence.** A mission letter NEVER changes a block's color. Color changes only through `receipt_import` with a valid scope — the existing anti-poison law, unchanged.
 - **(1d) The `landed` law (oracle objection 3):** `landed` is RESERVED for "the receipt is confirmed in the SystemBlockStore" — the emitter may only write it after a successful `receipt_import` (and the tray renders the store_version it names). A zero-exit gate WITHOUT an imported receipt is `merge_wait` ("gate green — receipt not landed"), never `landed`. No surface may render gate-zero as evidence.
 - **(1e) Ordering is causal, not clock-based (oracle objection 1):** mission state is NOT "max updated_at". Each mission's letters form a hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id. The current state is the head of the longest valid chain; a letter whose `prev_letter_id` does not match the current head is REJECTED at post time (`stale_head`, CAS semantics — PRD §3.1 extended to the letter stream). Append-only storage is preserved; the CAS guards the head pointer, not the log.
+- **(1g) A real letter names a real block (field-hardening, proposed by the first hand agent):** `mission_post` refuses a letter whose `block_id` exists in no block of the bound brain's skeleton (`unknown_block`). A legitimately synthetic letter — a smoke test or warm-pool probe — sets `synthetic: true` (serde-default `false`, byte-compatible) and skips the guard: the escape hatch is explicit, never a silent pass. A brain with no store yet accepts (nothing to validate against).
 - **(1f) No absolute paths in the contract (oracle objection 7):** `brain_ref` replaces `brain_root`; the `worktree` field is REMOVED from the public schema. Worktree paths and other host-local detail live in an owner-runtime-local side record keyed by `mission_id` (never versionable, never served raw off-loopback); the tray fetches them only for local display.
 
 ## 2. Transport — the mailbox, extended honestly

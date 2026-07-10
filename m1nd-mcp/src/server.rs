@@ -6044,6 +6044,60 @@ mod tests {
     }
 
     #[test]
+    fn mission_post_refuses_an_unknown_block_unless_synthetic() {
+        // The block guard: a real letter naming a block no skeleton holds is
+        // refused; the same letter with synthetic:true (a smoke probe) posts.
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("m1nd");
+        std::fs::create_dir_all(&repo).expect("repo");
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+
+        // Seed the real 12-block skeleton (holds sb_m1nd_ingest, no sb_ghost).
+        let real_seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": real_seed}),
+        )
+        .expect("seed imports");
+
+        let letter = |block: &str, synthetic: bool| {
+            serde_json::json!({
+                "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab", "mission_seq": 1,
+                "block_id": block, "brain_ref": "m1nd", "seat": "hand", "capability": "build-runner",
+                "phase": "judging", "packet_ref": "sha256:x", "tokens_total": 0, "synthetic": synthetic,
+                "started_at": "2026-07-10T00:00:00Z", "updated_at": "2026-07-10T00:00:00Z",
+            })
+        };
+
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": letter("sb_ghost", false)}),
+        )
+        .expect_err("an unknown block is refused");
+        assert!(err.to_string().contains("unknown_block"), "got: {err}");
+
+        super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": letter("sb_ghost", true)}),
+        )
+        .expect("a synthetic probe posts despite the ghost block");
+
+        let mut real = letter("sb_m1nd_ingest", false);
+        real["mission_id"] = serde_json::json!("msn_abcdef012345");
+        super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": real}),
+        )
+        .expect("a real block posts");
+        let _ = &temp;
+    }
+
+    #[test]
     fn mission_post_refuses_a_brain_ref_that_is_not_the_bound_brain() {
         // The brain guard: a session bound to a real code root refuses a letter
         // naming a DIFFERENT brain_ref — the silent mis-route becomes an honest

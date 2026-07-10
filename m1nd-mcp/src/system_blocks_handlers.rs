@@ -49,7 +49,7 @@ fn seed_err(tool: &str, err: SeedError) -> M1ndError {
 /// The brain runtime dir the sidecar store lives in (F0-TECH §1). This is the SAME
 /// dir the brain persists its other artifacts to (graph snapshot, plasticity,
 /// antibodies) — never a freshly invented root.
-fn store_dir(state: &SessionState) -> PathBuf {
+pub(crate) fn store_dir(state: &SessionState) -> PathBuf {
     state.runtime_root.clone()
 }
 

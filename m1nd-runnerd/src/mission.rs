@@ -197,6 +197,8 @@ impl LetterCtx {
             tokens_total: 0,
             started_at: self.started_at.clone(),
             updated_at: now_iso8601(),
+            // A runnerd letter always names the real block its packet targets.
+            synthetic: false,
         }
     }
 
