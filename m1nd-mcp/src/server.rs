@@ -4274,6 +4274,33 @@ pub fn dispatch_tool(
         });
     }
 
+    if skeleton_write_needs_root_gate(&normalized, params) {
+        if let (Some(caller_root), Some(brain_root)) =
+            (state.caller_root.clone(), state.workspace_root.clone())
+        {
+            if !state.covers_root(&caller_root) {
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "schema": "m1nd-system-block-write-v0",
+                    "refused": "brainless_root",
+                    "caller_root": caller_root,
+                    "brain_root": brain_root,
+                    "reason": format!(
+                        "this session's caller root '{caller_root}' does not resolve to the brain being written at '{brain_root}' — implicit routing would write the wrong brain"
+                    ),
+                    "fix": {
+                        "call": format!(
+                            "ingest project_root={caller_root} first — one call creates and binds your brain"
+                        ),
+                        "explicit_rest_selector": format!(
+                            "for a deliberate cross-brain write, use the explicit REST ?brain={brain_root} selector"
+                        ),
+                    },
+                }));
+            }
+        }
+    }
+
     // Extract agent_id for tracking
     let agent_id = params
         .get("agent_id")
@@ -4417,6 +4444,20 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
     }
 
     result
+}
+
+pub(crate) fn skeleton_write_needs_root_gate(tool_name: &str, params: &serde_json::Value) -> bool {
+    match tool_name {
+        "system_blocks_seed_import"
+        | "skeleton_candidate"
+        | "candidate_edit"
+        | "system_blocks_ratify"
+        | "system_blocks_reconcile"
+        | "system_blocks_archive"
+        | "system_blocks_delete" => true,
+        "candidate_lease" => params.get("action").and_then(|v| v.as_str()) == Some("acquire"),
+        _ => false,
+    }
 }
 
 /// Dispatch core + superpowers tools (35 tools).
@@ -6148,6 +6189,85 @@ mod tests {
         ));
         // persist with no action defaults to status (allowed).
         assert!(!read_only_denied("persist", &empty));
+    }
+
+    #[test]
+    fn skeleton_write_root_gate_covers_only_the_requested_mutations() {
+        let empty = serde_json::json!({});
+        for tool in [
+            "system_blocks_seed_import",
+            "skeleton_candidate",
+            "candidate_edit",
+            "system_blocks_ratify",
+            "system_blocks_reconcile",
+            "system_blocks_archive",
+            "system_blocks_delete",
+        ] {
+            assert!(super::skeleton_write_needs_root_gate(tool, &empty));
+        }
+        assert!(super::skeleton_write_needs_root_gate(
+            "candidate_lease",
+            &serde_json::json!({"action": "acquire"})
+        ));
+        assert!(!super::skeleton_write_needs_root_gate(
+            "candidate_lease",
+            &serde_json::json!({"action": "release"})
+        ));
+        assert!(!super::skeleton_write_needs_root_gate("memorize", &empty));
+        assert!(!super::skeleton_write_needs_root_gate(
+            "system_blocks_snapshot",
+            &empty
+        ));
+    }
+
+    #[test]
+    fn skeleton_write_refuses_foreign_caller_root_and_names_both_roots() {
+        let (temp, mut state) = build_state();
+        let brain_root = temp.path().join("repo-alpha");
+        let caller_root = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&brain_root).expect("brain root");
+        std::fs::create_dir_all(&caller_root).expect("caller root");
+        state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+        state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+
+        let result = super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": "{}"}),
+        )
+        .expect("root mismatch is an honest refusal");
+
+        assert_eq!(result["refused"], "brainless_root");
+        assert_eq!(
+            result["caller_root"],
+            caller_root.to_string_lossy().as_ref()
+        );
+        assert_eq!(result["brain_root"], brain_root.to_string_lossy().as_ref());
+        let rendered = result.to_string();
+        assert!(rendered.contains("ingest project_root="));
+        assert!(rendered.contains("one call creates and binds your brain"));
+        assert!(rendered.contains("explicit REST ?brain="));
+    }
+
+    #[test]
+    fn skeleton_write_matching_or_absent_caller_root_reaches_handler() {
+        for caller_matches in [true, false] {
+            let (temp, mut state) = build_state();
+            let brain_root = temp.path().join("repo-alpha");
+            std::fs::create_dir_all(&brain_root).expect("brain root");
+            state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+            state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+            state.caller_root = caller_matches.then(|| brain_root.to_string_lossy().to_string());
+
+            let error = super::dispatch_tool(
+                &mut state,
+                "system_blocks_seed_import",
+                &serde_json::json!({"agent_id": "t", "seed_json": "{}"}),
+            )
+            .expect_err("invalid seed proves dispatch reached the handler");
+            assert!(!error.to_string().contains("brainless_root"));
+        }
     }
 
     #[test]
