@@ -12,6 +12,8 @@ pub mod session;
 pub mod tools;
 pub mod util;
 
+// Human View v2 F11-a — the candidate_edit engine (typed batch edits on a candidate).
+pub mod candidate_edit;
 // Perspective MCP — stateful navigation layer (12-PERSPECTIVE-SYNTHESIS)
 pub mod boot_memory_handlers;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
