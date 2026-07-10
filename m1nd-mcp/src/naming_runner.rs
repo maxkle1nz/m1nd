@@ -441,13 +441,17 @@ pub struct ScanNamingOutcome {
     pub transport_error: Option<String>,
 }
 
-/// The owner-side wait budget for one whole `/name` batch: headroom over the
-/// daemon's default 20s-per-block at parallelism 4, capped under the tool
+/// The owner-side wait budget for one whole `/name` batch, capped under the tool
 /// dispatch timeout so a slow runner degrades to the honest heuristic fallback
-/// instead of killing the scan.
+/// instead of killing the scan. Field-measured: a real CLI-backed naming runner
+/// takes ~50s per call (process startup dominates), and the daemon's per-block
+/// timeout is operator-configurable up to that scale — a 25s-per-wave budget cut
+/// live batches mid-read (EAGAIN at the exact budget) while the daemon was still
+/// legitimately working. One wave now gets the full sub-dispatch window; larger
+/// batches keep the same cap and surface the partial result honestly.
 fn scan_naming_timeout(block_count: usize) -> Duration {
     let waves = block_count.div_ceil(4).max(1) as u64;
-    Duration::from_secs((10 + 25 * waves).min(90))
+    Duration::from_secs((10 + 95 * waves).min(110))
 }
 
 /// Run the whole §2a scan-path naming attempt: try each announced daemon port in
