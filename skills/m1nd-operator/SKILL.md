@@ -43,6 +43,9 @@ measured high-signal pattern starts by never starting cold:
    served owner, ingests your repo, binds your session, and returns its north
    packet — thereafter every call from your root routes to YOUR brain
    automatically. Absent/null = your root matches the brain serving you.
+   Reception governs WRITES too, not only reads: a read under mismatch is a
+   warning, a WRITE under mismatch is prohibited (see Write-Mode Laws below) —
+   bootstrap first, then write.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).
@@ -76,6 +79,108 @@ Verdict semantics — trust the calibration:
 
 Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
 doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
+
+## Write-Mode Laws — reception governs writes, one repo means one brain
+
+The served owner hosts many per-project brains and routes each request to the
+brain that covers the caller's repo (`M1nd-Caller-Root` ↔ `covers_root`).
+Retrieval under a wrong binding is a recoverable annoyance; a WRITE under a wrong
+binding is corruption of shared state. A real incident set this law: a foreign
+repo's skeleton was written into a bound brain because the writer never checked
+which brain answered it. Two laws:
+
+- **Law 1 — no write under a reception mismatch.** When a response carries
+  `reception.match == "caller_root_mismatch"`, the brain serving you does NOT
+  cover your repo. Reads are a warning; **writes are prohibited by doctrine** —
+  `memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`
+  / `_ratify` / `_reconcile`, and `mission_post` would each land in the WRONG
+  brain. The single correct gesture BEFORE any write: `ingest
+  project_root=<your repo root>` — one call classifies the root (overlap-guarded,
+  Law 2), creates or warm-resolves your brain, ingests it, binds the session
+  sticky, and returns north in the same response. Then write. The `memorize`
+  refusal (a write from a root with no project brain is refused, never dropped
+  into the shared medulla, and hands you this exact bootstrap) is the one already
+  mechanical instance; the doctrine generalizes it to every write verb, and the
+  broader mechanical refusal is landing. If you ever catch a miswrite, that is
+  `class:"memory_misdelivery"` / `kind:"wrong_store_write"` in the field spool.
+- **Law 2 — no twin brains (the overlap guard, both seams, LIVE).** Before
+  minting a NEW project brain, the bootstrap classifies the root against every
+  existing brain (warm map ∪ on-disk roster) into one of three overlap classes
+  and refuses with a teaching error naming the conflict and two ways forward:
+  - `overlap_child` — the new root is INSIDE an existing brain's root.
+  - `overlap_parent` — an existing brain's root is INSIDE the new root (the
+    mother-folder trap that would re-ingest the child repo from above).
+  - `overlap_worktree` — the new root is a git worktree (`.git` is a gitdir file
+    under `<main>/.git/worktrees/`) whose main repo already has a brain.
+  The two ways forward: (a) bind to the existing brain (`ingest
+  project_root=<existing>`), or (b) pass `allow_overlap:true` to mint a separate
+  brain anyway — only when you know exactly why. The exact-same root is warm-reuse
+  (never an overlap). This holds on BOTH doors: the MCP wire (`ingest` with a
+  non-empty `project_root` is a bootstrap directive → `run_bootstrap`) and the
+  REST `POST /api/tools/ingest` route both call one seam-shared guarded core, so a
+  REST caller gets the same refusal as an HTTP 400. A burst worktree does NOT earn
+  its own brain — bind to the main repo's. (Separately, bootstrap never SHADOWS
+  the bound dev graph: a `project_root` the bound graph already covers is refused.)
+
+Not yet built (do not rely on it): `skeleton_coherence`, a vital sign that makes
+a brain flag loudly when it is wearing a skeleton from a foreign repo. Until it
+lands, Law 1 is the doctrine that prevents the miswrite.
+
+## The Candidate Map and Mission Letters (F11 + F2.5 write mode)
+
+The block map (the skeleton) and the mission layer are the two write surfaces
+beyond `memorize`. Both are candidate/human-gated by design.
+
+**The candidate map (F11).** `skeleton_candidate` scans a repo into a CANDIDATE
+block map; with `naming:"auto"` and a live naming-runner the map is born NAMED
+(the zero-touch default — read the map, stamp it). One verb edits it:
+
+```json
+candidate_edit {"agent_id":"...","expected_store_version":7,"ops":[
+  {"op":"rename","block_id":"sb_x","name":"Auth","purpose":"..."},
+  {"op":"merge","into":"sb_x","block_ids":["sb_y","sb_z"]},
+  {"op":"split","block_id":"sb_x","by":{"paths":[["a/**"],["b/**"]]}},
+  {"op":"move_member","path":"src/hook.ts","from":"sb_x","to":"sb_y"},
+  {"op":"resolve_seam","path":"src/shared.ts","resolution":"primary:sb_y"},
+  {"op":"assign_unmapped","path":"scripts/x.sh","block_id":"sb_x"}
+]}
+```
+
+Signed behavior: one ATOMIC OCC batch under `expected_store_version` validated
+preflight-on-a-clone (one invalid op → the whole batch persists NOTHING, its
+index named); it REFUSES on a ratified skeleton (`skeleton_not_candidate` —
+candidate-only). Provenance per touch: `named_by` is `runner` | `owner` |
+`heuristic`. `candidate_lease {acquire|release|refresh, agent_id, ttl_secs}` is
+ADVISORY — TTL-bounded, expired-is-reclaimable, and it NEVER blocks the owner (a
+dead agent must not trap the candidate). **Ratify is EXCLUSIVELY human.** No agent
+ratifies a skeleton, ever — and `system_blocks_ratify` REJECTS any block still on
+a raw untouched heuristic label (`needs_owner_naming`). The heavy case (a large
+monorepo candidate) has a one-gesture escape: a CURATION MISSION where a hand
+edits the whole candidate through the SAME `candidate_edit` verb — the human
+reviews the polished result and ratifies. The hand proposes; the human signs.
+`candidate_naming` is the screen's HTTP-only route, not an MCP loop verb.
+
+**The mission letter (F2.5).** A mission's live state is one
+`m1nd-mission-letter-v0`, posted with `mission_post` (WRITE, deny-listed on
+read-only owners):
+
+- `brain_ref` is the brain's DISPLAY NAME — the basename of its project root,
+  case-sensitive — never an absolute path, and never the skeleton id's slug. A
+  letter naming a different brain is refused (`brain_mismatch`); this killed the
+  reconnect-collapsed mis-route that silently posted into the bound brain's box.
+- `block_id` must name a real block in the DISPATCHING brain's skeleton, else
+  `unknown_block`. A whole-skeleton mission (e.g. the F11 curation dispatch)
+  anchors at the store's skeleton id, which validates like a block. A legitimately
+  synthetic letter (a smoke test or warm-pool probe) sets `synthetic:true` (the
+  declared escape) and skips the guard — never a silent pass.
+- A letter is STATE, not evidence: it NEVER changes a block's color; only
+  `receipt_import` does (the anti-poison law). `landed` is RESERVED for a
+  confirmed imported receipt — a green gate without an imported receipt is
+  `merge_wait` ("gate green — receipt not landed"), never `landed`.
+- Ordering is causal: each mission's letters form a hash chain (`mission_seq` +1,
+  `prev_letter_id`); a stale head is refused (`stale_head`, CAS on the head
+  pointer). Runnerd emits the `executing`→`merge_wait` letters but holds NO
+  `receipt_import` permission — the human lands from the tray.
 
 ## Scope Binding Taxonomy
 
@@ -440,6 +545,12 @@ one graph:
   header is the caller identity reception verifies (`M1nd-Caller-Root` ↔
   `covers_root`); a mismatch returns the degraded reception, not a fabricated
   orientation.
+- Runner daemon: `m1nd-runnerd` (its own port, `1339`, launchd) is the ONLY
+  spawner — the owner never spawns. It runs a mission packet in an isolated
+  worktree-per-mission and posts letters from `executing` onward, but holds NO
+  `receipt_import` permission (the human lands from the tray). Capabilities are
+  pinned owner-side (`runners.toml`); the announce proves liveness only and can
+  never grant or widen a capability.
 
 A freshly-landed verb appears ONLY after the owner is rebuilt and kickstarted —
 a live verb needs the served owner restarted (`m1nd restart --source
