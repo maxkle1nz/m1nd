@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skeleton Coherence Vital Sign — Design Spec (m1nd-mcp)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel-2:#1c2330; --ink:#e6edf3; --mut:#9aa7b4;
+    --line:#2a313c; --accent:#7ee787; --warn:#f0883e; --bad:#ff7b72; --ok:#7ee787;
+    --sil:#6e7681; --code-bg:#010409; --hl:#1f6feb;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 28px 120px}
+  header.top{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:28px}
+  .eyebrow{color:var(--mut);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px}
+  h1{font-size:30px;margin:0 0 6px;line-height:1.2;letter-spacing:-.01em}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:24px 0 8px;color:#dce3ea}
+  p{margin:10px 0}
+  code,pre,kbd{font-family:"SF Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+  code{background:var(--code-bg);border:1px solid var(--line);padding:1px 6px;border-radius:5px;font-size:12.5px;color:#79c0ff}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow:auto;font-size:12.7px;line-height:1.65}
+  pre code{background:none;border:0;padding:0;color:var(--ink);font-size:inherit}
+  .kw{color:#ff7b72}.ty{color:#79c0ff}.st{color:#a5d6ff}.cm{color:#6e7681;font-style:italic}.fn{color:#d2a8ff}
+  .lead{font-size:16px;color:#c9d4df;max-width:80ch}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .card h3{margin-top:0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .tag{display:inline-block;font-size:11px;letter-spacing:.04em;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .tag.ok{color:var(--ok);border-color:#2f6f3a;background:rgba(126,231,135,.07)}
+  .tag.bad{color:var(--bad);border-color:#7a3a3a;background:rgba(255,123,114,.07)}
+  .tag.warn{color:var(--warn);border-color:#7a5530;background:rgba(240,136,62,.08)}
+  .tag.sil{color:var(--sil)}
+  .tag.hl{color:var(--accent);border-color:#2f6f3a}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;border:1px solid var(--line);padding:9px 12px;vertical-align:top}
+  th{background:var(--panel-2);color:#c9d4df;font-weight:600}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
+  tr:nth-child(even) td{background:rgba(255,255,255,.014)}
+  .pillrow{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0}
+  /* flow diagram */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+  .node{flex:1 1 0;min-width:120px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 12px;font-size:12.5px}
+  .node b{display:block;color:#dce3ea;font-size:13px;margin-bottom:4px}
+  .node small{color:var(--mut)}
+  .node.ghost{background:transparent;border-style:dashed;color:var(--mut)}
+  .arrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:var(--mut);
+    font-size:18px;padding:0 6px;min-width:22px}
+  @media(max-width:760px){.flow{flex-direction:column}.arrow{transform:rotate(90deg);padding:6px 0}}
+  .verdict{font-weight:700}
+  .v-ok{color:var(--ok)}.v-bad{color:var(--bad)}.v-sil{color:var(--sil)}
+  .law{border-left:3px solid var(--warn);padding:6px 0 6px 14px;margin:14px 0;color:#e2c9a8}
+  .law.abs{border-left-color:var(--bad);color:#f3c7c3}
+  .ref{color:var(--mut);font-size:12px}
+  .ref code{color:#9aa7b4}
+  ul.clean{margin:8px 0;padding-left:20px}
+  ul.clean li{margin:5px 0}
+  .kbd{background:var(--code-bg);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12px}
+  footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+  .ascii{font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5;color:#c9d4df}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <p class="eyebrow">Vital Sign · Design Spec · m1nd-mcp (backend only)</p>
+    <h1>Skeleton Coherence Vital Sign</h1>
+    <p class="lead">A passive health signal that detects when a serving brain answers a request with a
+      <em>foreign</em> skeleton — a skeleton whose slug does not belong to that brain. Born from a real
+      incident where a brain bound to <code>~/m1nd</code> served <code>sk_traykeep_candidate</code> for
+      days with no alarm.</p>
+    <div class="pillrow">
+      <span class="tag hl">signal-only</span>
+      <span class="tag sil">never blocks a read</span>
+      <span class="tag sil">never blocks a write</span>
+      <span class="tag warn">backend only · m1nd-ui/ untouched</span>
+      <span class="tag">reuse, do not reinvent</span>
+    </div>
+  </header>
+
+  <!-- ===================== 1. THE CONTRACT ===================== -->
+  <h2>1 · The one-line contract</h2>
+  <div class="card">
+    <p style="margin:0"><b>Given</b> the serving brain's identity (<code>project_root</code> basename, or a
+      display name when present) <b>and</b> the store's skeleton (<code>skeleton_id</code> + block ids),
+      <b>return</b> one of three honest answers:</p>
+    <div class="pillrow">
+      <span class="tag ok"><b class="v-ok">Ok</b> — slugs agree (after sanitization)</span>
+      <span class="tag bad"><b class="v-bad">Mismatch{expected_slug, found_slug}</b> — foreign skeleton</span>
+      <span class="tag sil"><b class="v-sil">None / silent</b> — empty store, no signal</span>
+    </div>
+    <p class="law abs" style="margin-top:14px"><b>ABSOLUTE:</b> this is a <em>vital sign</em>, not a gate.
+      It MUST NOT cause any read or write to fail, be refused, or change behavior. It only <em>reports</em>.</p>
+  </div>
+
+  <!-- ===================== 2. THE INCIDENT ===================== -->
+  <h2>2 · The incident that made it necessary</h2>
+  <div class="card">
+    <p>A session bound to the root brain <code>~/m1nd</code> kept answering <code>system_blocks_snapshot</code>
+      with a store whose <code>skeleton_id</code> was <code>sk_traykeep_candidate</code> — a skeleton that
+      belonged to a <em>different</em> project (<code>traykeep</code>). For days nothing surfaced the
+      mismatch: the snapshot looked well-formed, the north packet read normally, no metric tripped.</p>
+    <p>The missing piece was a <b>coherence check</b> — the serving brain's identity vs. the served
+      skeleton's slug — surfaced where operators and agents already look: the snapshot result and the
+      orientation packet.</p>
+  </div>
+
+  <!-- ===================== 3. THE CHECK (reuse) ===================== -->
+  <h2>3 · The coherence check — reuse what already exists</h2>
+  <p>The engine already exists and is already <code>pub</code>. The maker's job is to <b>surface</b> it,
+    <em>not</em> to rewrite it. Verified present in the worktree:</p>
+
+  <pre><code><span class="cm">// m1nd-mcp/src/skeleton_scan.rs:154</span>
+<span class="kw">pub enum</span> <span class="ty">SkeletonCoherence</span> {
+    <span class="fn">Ok</span>,
+    <span class="ty">Mismatch</span> { expected_slug: <span class="ty">String</span>, found_slug: <span class="ty">String</span>, reason: <span class="ty">String</span> },
+}
+
+<span class="cm">// m1nd-mcp/src/skeleton_scan.rs:1473</span>
+<span class="kw">pub fn</span> <span class="fn">skeleton_coherence</span>(
+    project_root: <span class="ty">Option</span>&lt;&amp;<span class="ty">str</span>&gt;,
+    display_name:  <span class="ty">Option</span>&lt;&amp;<span class="ty">str</span>&gt;,
+    skeleton:      <span class="ty">Option</span>&lt;(&amp;<span class="ty">str</span>, &amp;[<span class="ty">String</span>])&gt;,   <span class="cm">// (skeleton_id, block_ids)</span>
+) -&gt; <span class="ty">Option</span>&lt;<span class="ty">SkeletonCoherence</span>&gt;</code></pre>
+
+  <h3>3.1 · Rules the engine already encodes (do not re-implement)</h3>
+  <ul class="clean">
+    <li><b>Identity source:</b> <code>display_name</code> wins when non-empty; else <code>basename_of(project_root)</code>
+      (<code>session.rs:519</code>). Empty store ⇒ the whole call returns <code>None</code> ⇒ <em>silent</em>.</li>
+    <li><b>Expected slug = the SAME sanitizer that mints ids.</b> Reuses the private <code>sanitize_slug</code>
+      (<code>skeleton_scan.rs:1512</code>): lowercase, non-alphanumeric → <code>_</code>, trim leading/trailing
+      <code>_</code>, empty → <code>"repo"</code>. This is exactly what builds <code>sk_&lt;slug&gt;_candidate</code>
+      at <code>skeleton_scan.rs:489</code> and <code>sb_&lt;slug&gt;_…</code> block ids.</li>
+    <li><b>Skeleton acceptance:</b> <code>skeleton_id == "sk_&lt;expected&gt;"</code> <em>or</em>
+      <code>skeleton_id.starts_with("sk_&lt;expected&gt;_")</code>. So <code>sk_m1nd_candidate</code> matches
+      expected <code>m1nd</code> — and <code>sk_traykeep_candidate</code> does <em>not</em> match expected <code>m1nd</code>.</li>
+    <li><b>Block acceptance:</b> every block id must start with <code>sb_&lt;expected_slug&gt;_</code>; the first
+      offender becomes the <code>reason</code>.</li>
+    <li><b>found_slug extraction:</b> strip <code>sk_</code> then <code>_candidate</code>; fall back to
+      <code>sanitize_slug(skeleton_id)</code>. So a <code>sk_traykeep_candidate</code> served by the
+      <code>m1nd</code> brain yields <code>Mismatch{expected_slug:"m1nd", found_slug:"traykeep"}</code>.</li>
+  </ul>
+
+  <div class="law"><b>Reuse-first (binding):</b> there is exactly one slug sanitizer that matters — the one
+    <code>skeleton_scan</code> uses to mint ids. The coherence engine already calls it. The surface code MUST
+    call <code>skeleton_coherence()</code> and MUST NOT invent a parallel sanitizer; otherwise a future drift
+    between mint-rule and check-rule silently re-opens the incident.</div>
+
+  <!-- ===================== 4. DATA FLOW ===================== -->
+  <h2>4 · Data flow — identity in, verdict out, surfaced twice</h2>
+  <div class="flow">
+    <div class="node"><b>Serving brain</b><small>project_root<br>display_name?</small></div>
+    <div class="arrow">›</div>
+    <div class="node"><b>Identity</b><small>display_name else basename_of(root)</small></div>
+    <div class="arrow">›</div>
+    <div class="node"><b>sanitize_slug</b><small>(reused) → expected_slug</small></div>
+    <div class="arrow">›</div>
+    <div class="node"><b>skeleton_coherence()</b><small>vs skeleton_id + sb_ ids</small></div>
+  </div>
+  <div class="flow">
+    <div class="node ghost"><b>None</b><small>empty store → no signal</small></div>
+    <div class="arrow">›</div>
+    <div class="node"><b>Option&lt;SkeletonCoherence&gt;</b><small>Ok · Mismatch · None</small></div>
+    <div class="arrow">⇲</div>
+    <div class="node"><b>Surface A</b><small>system_blocks_snapshot →<br><code>skeleton_coherence</code> field</small></div>
+    <div class="arrow">⇲</div>
+    <div class="node"><b>Surface B</b><small>north / orientation packet →<br>sickness line (on Mismatch)</small></div>
+  </div>
+
+  <!-- ===================== 5. SURFACE A ===================== -->
+  <h2>5 · Surface A — <code>system_blocks_snapshot</code> result</h2>
+  <p>Handler: <code>handle_system_blocks_snapshot</code> (<code>system_blocks_handlers.rs:70</code>).
+    It already returns a READ-only JSON and already loads the store — the coherence field is computed from
+    the <em>same</em> load, adding zero new I/O.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>Before</h3>
+<pre><code>{
+  "present": true,
+  "store_version": 1,
+  "block_count": 3,
+  "store": { … }
+}</code></pre>
+    </div>
+    <div>
+      <h3>After</h3>
+<pre><code>{
+  "present": true,
+  "store_version": 1,
+  "block_count": 3,
+  <span class="st">"skeleton_coherence"</span>: {
+    "status": <span class="st">"mismatch"</span>,
+    "expected_slug": <span class="st">"m1nd"</span>,
+    "found_slug": <span class="st">"traykeep"</span>,
+    "reason": <span class="st">"skeleton_id slug does not match …"</span>
+  },
+  "store": { … }
+}</code></pre>
+    </div>
+  </div>
+  <ul class="clean">
+    <li><b>Present + Ok:</b> <code>{"status":"ok"}</code>.</li>
+    <li><b>Present + Mismatch:</b> <code>{"status":"mismatch", expected_slug, found_slug, reason}</code> —
+      names <em>both</em> slugs so the operator sees who-served-whose-skeleton.</li>
+    <li><b>Absent store:</b> the field is omitted (or <code>null</code>) alongside the existing honest
+      <code>"no skeleton yet"</code> — silent, no false alarm.</li>
+    <li><b>Inputs at the call site:</b> identity from the serving brain's
+      <code>state.workspace_root</code> (basename) / display name; <code>skeleton_id</code> +
+      block ids from the loaded <code>SystemBlockStore</code>.</li>
+  </ul>
+
+  <!-- ===================== 6. SURFACE B ===================== -->
+  <h2>6 · Surface B — the sickness line in the north packet</h6>
+  <p>The orientation packet is composed in the <b>HTTP routing layer</b> (the caller of
+    <code>project_brains::bootstrap</code>, per <code>project_brains.rs:242</code>). When coherence is a
+    <code>Mismatch</code>, append one sickness line to the packet the agent reads on orientation:</p>
+<pre><code>{
+  "north": {
+    …
+    <span class="st">"skeleton_coherence"</span>: {
+      "status": <span class="st">"sick"</span>,
+      "expected_slug": <span class="st">"m1nd"</span>,
+      "found_slug": <span class="st">"traykeep"</span>,
+      "advice": <span class="st">"this brain is serving a foreign skeleton; rebind or re-ingest before trusting block scope"</span>
+    }
+  }
+}</code></pre>
+  <ul class="clean">
+    <li><b>Silent by default:</b> the line appears <em>only</em> on <code>Mismatch</code>. Ok and empty-store
+      add nothing — no noise on healthy brains.</li>
+    <li><b>Locate the site:</b> grep the routing layer for where the orientation/north packet JSON is
+      assembled right after <code>bootstrap()</code>; inject there. The packet is already built for every
+      orientation — this is one extra field, conditionally.</li>
+    <li><b>Never aborts orientation:</b> a sickness line is data, not an error. The packet still returns.</li>
+  </ul>
+
+  <!-- ===================== 7. RED BATTERY ===================== -->
+  <h2>7 · RED battery (straight from the incident)</h2>
+  <p>Four cases. Two are incident-specific and MUST be added as tests; two are covered by existing engine
+    tests and are listed for completeness.</p>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Serving brain identity</th><th class="mono">skeleton_id</th>
+      <th class="mono">block ids</th><th>Verdict</th><th>Why</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td>1</td><td><code>~/m1nd</code> → slug <code>m1nd</code></td>
+        <td class="mono">sk_traykeep_candidate</td>
+        <td class="mono">sb_traykeep_…</td>
+        <td><span class="verdict v-bad">Mismatch</span><br>
+          <code>{expected:"m1nd", found:"traykeep"}</code></td>
+        <td>The incident. expected <code>m1nd</code>; the served slug is <code>traykeep</code>. Both named.</td>
+      </tr>
+      <tr>
+        <td>2</td><td><code>~/m1nd</code> → slug <code>m1nd</code></td>
+        <td class="mono">sk_m1nd_candidate</td>
+        <td class="mono">sb_m1nd_…</td>
+        <td><span class="verdict v-ok">Ok</span></td>
+        <td>Own-root skeleton. Healthy baseline — no false alarm.</td>
+      </tr>
+      <tr>
+        <td>3</td><td>(no store)</td>
+        <td class="mono">—</td>
+        <td class="mono">—</td>
+        <td><span class="verdict v-sil">Silent (None)</span></td>
+        <td>Empty store = no signal. Snapshot says "no skeleton yet"; packet omits the line.</td>
+      </tr>
+      <tr>
+        <td>4</td><td><code>My-Repo</code> → slug <code>my_repo</code></td>
+        <td class="mono">sk_my_repo_candidate</td>
+        <td class="mono">sb_my_repo_…</td>
+        <td><span class="verdict v-ok">Ok</span></td>
+        <td>Sanitization is part of the rule: <code>My-Repo</code> → <code>my_repo</code>, and
+          <code>sk_my_repo_candidate</code> starts with <code>sk_my_repo_</code>. <b>No false positive.</b></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="ref">Existing engine tests already proving the spine: <code>skeleton_coherence_has_no_signal_without_a_skeleton</code>,
+    <code>skeleton_coherence_reuses_scan_slug_rules</code> (case 4 family),
+    <code>skeleton_coherence_reports_identity_and_block_mismatches</code> — all in <code>skeleton_scan.rs</code> test module.</p>
+
+  <!-- ===================== 8. FILE MAP ===================== -->
+  <h2>8 · File / location map for the maker</h2>
+  <table>
+    <thead><tr><th>File</th><th>Role</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">m1nd-mcp/src/skeleton_scan.rs</td>
+        <td>Engine: <code>SkeletonCoherence</code> enum (<span class="ref">:154</span>),
+            <code>skeleton_coherence()</code> (<span class="ref">:1473</span>),
+            <code>sanitize_slug</code> (<span class="ref">:1512</span>).</td>
+        <td><span class="tag ok">reuse</span> No new sanitizer. Add the two incident tests (cases 1 &amp; 4).</td></tr>
+      <tr><td class="mono">m1nd-mcp/src/system_blocks_handlers.rs</td>
+        <td><code>handle_system_blocks_snapshot</code> (<span class="ref">:70</span>).</td>
+        <td><span class="tag hl">wire</span> Compute coherence from the loaded store + brain identity; emit <code>skeleton_coherence</code>.</td></tr>
+      <tr><td class="mono">m1nd-mcp/src/* (routing)</td>
+        <td>Where the north/orientation packet is composed after <code>bootstrap()</code>.</td>
+        <td><span class="tag hl">wire</span> On <code>Mismatch</code>, append the sickness line. Silent otherwise.</td></tr>
+      <tr><td class="mono">docs/ (snapshot + north surface)</td>
+        <td>Agent-facing doc describing the snapshot fields &amp; the orientation packet.</td>
+        <td><span class="tag warn">doc gate</span> Document the new field + sickness line.</td></tr>
+      <tr><td class="mono">m1nd-ui/**</td>
+        <td>The served web UI.</td>
+        <td><span class="tag bad">FORBIDDEN</span> Do not touch. Backend signal only.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===================== 9. CHECKLIST ===================== -->
+  <h2>9 · Maker checklist &amp; proof</h2>
+  <ul class="clean">
+    <li>Surface A: <code>skeleton_coherence</code> present on <code>system_blocks_snapshot</code> for the
+      <code>present:true</code> arm; omitted/silent for the absent-store arm.</li>
+    <li>Surface B: sickness line in the north packet <em>only</em> on <code>Mismatch</code>; absent on Ok and empty.</li>
+    <li>Signal-only: no read or write path changes behavior based on coherence. (Assert in tests that a
+      mismatched brain still serves the snapshot and still orients.)</li>
+    <li>RED battery cases 1 &amp; 4 added as explicit tests; existing cases 2 &amp; 3 stay green.</li>
+    <li>Agent-facing doc updated (snapshot field + sickness line) — satisfies the Agent Docs Gate.</li>
+    <li>Local gate green: <code class="kbd">cargo test -p m1nd-mcp --lib</code> ·
+      <code class="kbd">cargo clippy -p m1nd-mcp --all-targets -- -D warnings</code> ·
+      <code class="kbd">cargo fmt --check</code>.</li>
+    <li>Commit as the repo's configured identity (<code>Max Kle1nz &lt;kleinz@cosmophonix.com&gt;</code>),
+      English, no AI mentions, <b>no push</b>.</li>
+  </ul>
+
+  <footer>
+    Design artifact for the <code>l00p</code> design-maker phase — Skeleton Coherence Vital Sign,
+    m1nd-mcp. Grounded against the live worktree (<code>skeleton_scan.rs</code>, <code>system_blocks_handlers.rs</code>,
+    <code>project_brains.rs</code>). Backend-only; <code>m1nd-ui/</code> is out of scope.
+  </footer>
+</div>
+</body>
+</html>

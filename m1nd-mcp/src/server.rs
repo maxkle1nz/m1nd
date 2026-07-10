@@ -48,6 +48,17 @@ your root routes to YOUR brain automatically, including brand-new sessions. Abse
 `reception` = your root matches the brain serving you (silent bind is legal only on a \
 match, TT-INV-12).
 
+**Reception governs WRITES, not just reads.** A read under `caller_root_mismatch` is a \
+warning; a WRITE under it is PROHIBITED by doctrine — `memorize`, `skeleton_candidate`, \
+`candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`, and `mission_post` would \
+each land in the WRONG brain (this is exactly how a foreign skeleton once overwrote a bound \
+brain). Run the one bootstrap `ingest project_root=<your repo root>` FIRST, then write. That \
+bootstrap is OVERLAP-GUARDED: minting a brain for a root that is the PARENT, CHILD, or WORKTREE \
+of an existing brain is refused (`overlap_parent`/`overlap_child`/`overlap_worktree`) with the \
+two ways forward — bind to the existing brain (`ingest project_root=<existing>`), or pass \
+`allow_overlap:true` only when you know exactly why. It holds on BOTH seams (the MCP wire and \
+REST `POST /api/tools/ingest`); a burst worktree does NOT get its own brain.
+
 ## 1. PRE-ORIENT — never start cold
 
 Call `north(task)` FIRST, before reading or editing anything. One round-trip returns: \
@@ -175,6 +186,23 @@ against code/git/runtime → update durable claims via `memorize` (with `soul_so
 the ONE write door) → prune stale NEVER silently (every removal named, git keeps the text) → \
 re-check → carry the receipt in the PR body. WHO VERIFIES THE CURATOR (§C8.4): its report must \
 pass `soul_check {verify_curator_report: <report>}` run by a DIFFERENT agent — grader ≠ author.
+
+## 6. THE WRITE SURFACE — the candidate map & missions (RATIFY IS HUMAN)
+
+Two write surfaces beyond `memorize`, both candidate/human-gated by design. THE CANDIDATE MAP: \
+`skeleton_candidate` scans a repo into a CANDIDATE block map (with `naming:\"auto\"` + a live \
+naming-runner it is born NAMED — the zero-touch default); `candidate_edit` is the ONE verb that \
+edits it — six typed ops (rename/merge/split/move_member/resolve_seam/assign_unmapped) in ONE \
+atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), and it REFUSES on a \
+ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
+blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever, and an \
+untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
+curation mission edits via `candidate_edit`), the human signs. THE MISSION LETTER: `mission_post` \
+records one mission's live state as `m1nd-mission-letter-v0` — `brain_ref` is the brain's DISPLAY \
+NAME (the basename of its root, never an absolute path; a wrong one is refused `brain_mismatch`), \
+`block_id` must name a real block in the bound skeleton (else `unknown_block`; a legitimate \
+smoke/probe letter sets `synthetic:true`), and a letter is STATE, never evidence: it never colors a \
+block — only `receipt_import` does — and `landed` is reserved for a confirmed imported receipt.
 
 ## SECONDARY VERBS (one line each)
 
@@ -3859,6 +3887,28 @@ fn handle_north(
         honest_gaps.push(
             "No L1GHT agent-memory claim surfaced for this task — only durable boot_memory facts are carried; `memorize` findings, if any, did not match.".into(),
         );
+    }
+
+    // Skeleton coherence is a vital sign, never a gate. Reuse the snapshot read
+    // surface and fail open if its sidecar cannot be read so `north` itself never
+    // becomes unavailable because of this signal.
+    if let Ok(snapshot) = crate::system_blocks_handlers::handle_system_blocks_snapshot(
+        state,
+        crate::system_blocks_handlers::SnapshotInput {
+            agent_id: Some(agent_id.clone()),
+        },
+    ) {
+        if snapshot["skeleton_coherence"]["status"] == "mismatch" {
+            let expected_slug = snapshot["skeleton_coherence"]["expected_slug"]
+                .as_str()
+                .unwrap_or("unknown");
+            let found_slug = snapshot["skeleton_coherence"]["found_slug"]
+                .as_str()
+                .unwrap_or("unknown");
+            honest_gaps.push(format!(
+                "Skeleton coherence sickness: serving brain expects slug `{expected_slug}`, but the SystemBlock store carries `{found_slug}` — signal only; reads and writes remain available."
+            ));
+        }
     }
 
     // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root

@@ -40,8 +40,14 @@ bind is legal only on a match) or when the caller root is unknown (direct-HTTP
 callers).
 
 `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`. Reach
-for those pieces directly only when you need just one. The
-`trust_selftest` / `session_handshake` / `recovery_playbook` trio is the
+for those pieces directly only when you need just one.
+
+When a SystemBlock store exists, `north` also carries its coherence vital sign
+through `honest_gaps`. A mismatch names both the serving brain's expected slug
+and the skeleton's found slug as a **signal only**; it never blocks reads or
+writes. No store means no coherence line.
+
+The `trust_selftest` / `session_handshake` / `recovery_playbook` trio is the
 degraded/recovery lane — use it when trust looks off, retrieval is blocked, or a
 binding is stale — not the default front door.
 

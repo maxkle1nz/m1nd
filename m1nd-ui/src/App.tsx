@@ -532,17 +532,21 @@ export default function App() {
           ) : (
             <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}
-        </div>
 
-        {/* The MISSION TRAY (F2.5 §3) — fixed on every working surface, outside the
-            surface switch. Not on the Threshold (no brain yet → no missions to track). */}
-        {surface != null && surface !== 'threshold' && (
-          <MissionTrayLive
-            viewedBrain={viewedBrain}
-            enabled={backendReachable}
-            onOpenBlock={onOpenBlock}
-          />
-        )}
+          {/* The MISSION TRAY (F2.5 §3) — on every working surface, outside the
+              surface switch but INSIDE the shell row: an in-flow right column, so
+              expanding it makes room instead of painting over the surface (the
+              fixed-overlay tray click-blocked the block panel / tree drawer —
+              field bug 2026-07-10). Not on the Threshold (no brain yet → no
+              missions to track). */}
+          {surface != null && surface !== 'threshold' && (
+            <MissionTrayLive
+              viewedBrain={viewedBrain}
+              enabled={backendReachable}
+              onOpenBlock={onOpenBlock}
+            />
+          )}
+        </div>
 
         {/* The 3-beat orientation (§4A.2) — only after a fresh bootstrap, never returns. */}
         {orienting && surface === 'tree' && typeof window !== 'undefined' && (
