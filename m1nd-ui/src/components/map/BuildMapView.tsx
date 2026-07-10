@@ -22,6 +22,8 @@ import {
   runCandidateNaming,
   type EditOpInput,
 } from '../../lib/candidateEdit';
+import { composeCurationPacket } from '../../lib/curation';
+import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import BuildMap from './BuildMap';
@@ -202,6 +204,56 @@ export default function BuildMapView({
   const openReview = useCallback(() => setReviewOpen(true), []);
   const closeReview = useCallback(() => setReviewOpen(false), []);
 
+  // F11-c §3a — "Send to an agent for curation": compose the curation packet
+  // (pure) and dispatch through the EXISTING direct path — a seq-1 `judging`
+  // letter (capability `hand-runner`, the honest lane intent) + the packet on
+  // the clipboard for the human to paste into the agent. Delivery is not
+  // execution; a curation SPAWN waits for the hand-runner capability (refused
+  // in the MVP, F2.5 §5e). The letter's block_id anchors the whole-skeleton
+  // mission to the skeleton id.
+  const [sendingCuration, setSendingCuration] = useState(false);
+  const [curationResult, setCurationResult] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
+  const handleSendCuration = useCallback(async () => {
+    if (sendingCuration) return;
+    const store = snapshot?.present ? snapshot.store ?? null : null;
+    if (!store) return;
+    const repoId = repoIdFromSkeletonId(store.skeleton.skeleton_id);
+    const markdown = composeCurationPacket({ store, repoId });
+    setSendingCuration(true);
+    setCurationResult(null);
+    try {
+      const res = await sendDirectPacket(
+        {
+          markdown,
+          blockId: store.skeleton.skeleton_id,
+          brainRef: repoId ?? 'brain',
+          seat: 'oracle',
+          capability: 'hand-runner',
+        },
+        {
+          postMission: (letter) => api.missionPost(letter, brainRoot),
+          writeClipboard:
+            typeof navigator !== 'undefined' && navigator.clipboard
+              ? (text) => navigator.clipboard.writeText(text)
+              : undefined,
+        },
+      );
+      setCurationResult({
+        ok: true,
+        message: `curation letter posted (${res.outcome.mission_id}, seq ${res.outcome.mission_seq})${
+          res.clipboardCopied ? ' — the packet is on your clipboard, paste it into your agent' : ''
+        }`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCurationResult({ ok: false, message });
+    } finally {
+      setSendingCuration(false);
+    }
+  }, [sendingCuration, snapshot, brainRoot]);
+
   if (status === 'loading') {
     return (
       <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-loading">
@@ -250,6 +302,9 @@ export default function BuildMapView({
         scanToast={scanToast}
         onDismissScanToast={dismissScanToast}
         onReview={openReview}
+        onSendCuration={handleSendCuration}
+        sendingCuration={sendingCuration}
+        curationResult={curationResult}
       />
       {reviewOpen && store && (
         <ReviewRatify

@@ -65,6 +65,14 @@ export interface BuildMapProps {
   onDismissScanToast?: () => void;
   /** F0c §5 — open the Review-&-ratify walk (the candidate banner's button). */
   onReview?: () => void;
+  /** F11-c §3a — dispatch the curation mission (the heavy-case escape hatch):
+   *  compose the curation packet + post the seq-1 letter through the EXISTING
+   *  direct path. The owner (BuildMapView) runs the write and owns the result. */
+  onSendCuration?: () => void;
+  /** A curation dispatch is in flight — the button locks. */
+  sendingCuration?: boolean;
+  /** The last curation dispatch's honest outcome (shown under the banner). */
+  curationResult?: { ok: boolean; message: string } | null;
   /** Test seam: force the Unmapped tray open (SSR has no click). */
   initialUnmappedExpanded?: boolean;
 }
@@ -168,27 +176,65 @@ function BuildMapEmpty({
 /** §1.2 first-run banner — a candidate skeleton, nothing ratified yet. Its button
  *  is "Review & ratify" (F0c §5, objection 10): the walk reviews each provisional
  *  name before any ratify — a blanket gesture over guesses is never offered. */
-function CandidateBanner({ onReview }: { onReview?: () => void }) {
+function CandidateBanner({
+  onReview,
+  onSendCuration,
+  sendingCuration = false,
+  curationResult = null,
+}: {
+  onReview?: () => void;
+  onSendCuration?: () => void;
+  sendingCuration?: boolean;
+  curationResult?: { ok: boolean; message: string } | null;
+}) {
   return (
     <div
       data-role="candidate-banner"
-      className="mx-4 mt-4 rounded-lg border border-stale-lilac/50 bg-stale-lilac/10 px-4 py-2.5 text-xs text-ink flex items-center justify-between gap-3"
+      className="mx-4 mt-4 rounded-lg border border-stale-lilac/50 bg-stale-lilac/10 px-4 py-2.5 text-xs text-ink space-y-1.5"
     >
-      <div>
-        <span className="font-semibold text-stale-lilac">Candidate skeleton ready</span> — nothing on this map is
-        ratified yet. Names are guesses until you ratify them.
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <span className="font-semibold text-stale-lilac">Candidate skeleton ready</span> — nothing on this map is
+          ratified yet. Names are guesses until you ratify them.
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* §3a — the heavy-case escape hatch: the hand curates, the human reviews
+              the RESULT. Direct path (a letter + the packet to paste): a curation
+              SPAWN waits for the hand-runner capability (refused in the MVP). */}
+          {onSendCuration && (
+            <button
+              type="button"
+              data-role="send-curation"
+              onClick={onSendCuration}
+              disabled={sendingCuration}
+              title="compose the curation packet + post the mission letter (direct path — the packet is copied for you to paste into your agent; the hand can never ratify)"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-ink border border-ink/15 bg-bone rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
+            >
+              {sendingCuration ? 'Dispatching…' : 'Send to an agent for curation'}
+            </button>
+          )}
+          {onReview && (
+            <button
+              type="button"
+              data-role="review-ratify-open"
+              onClick={onReview}
+              title="Open Edit Names & Boundaries — name, merge, split, resolve seams, then ratify"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-stale-lilac border border-stale-lilac/50 bg-stale-lilac/10 rounded hover:shadow-contact transition-shadow"
+            >
+              <Icon name="blocks" size={14} decorative />
+              Review &amp; ratify
+            </button>
+          )}
+        </div>
       </div>
-      {onReview && (
-        <button
-          type="button"
-          data-role="review-ratify-open"
-          onClick={onReview}
-          title="Walk the proposed blocks, accept each name, then ratify"
-          className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-stale-lilac border border-stale-lilac/50 bg-stale-lilac/10 rounded hover:shadow-contact transition-shadow"
+      {curationResult && (
+        <div
+          data-role="curation-result"
+          data-ok={curationResult.ok}
+          className={`text-[11px] font-mono ${curationResult.ok ? 'text-verdict-act' : 'text-state-failure'}`}
         >
-          <Icon name="blocks" size={14} decorative />
-          Review &amp; ratify
-        </button>
+          {curationResult.message}
+        </div>
       )}
     </div>
   );
@@ -209,6 +255,9 @@ export default function BuildMap({
   scanToast = null,
   onDismissScanToast,
   onReview,
+  onSendCuration,
+  sendingCuration = false,
+  curationResult = null,
   initialUnmappedExpanded = false,
 }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
@@ -308,7 +357,14 @@ export default function BuildMap({
           </div>
         )}
 
-        {rollup.candidate && <CandidateBanner onReview={onReview} />}
+        {rollup.candidate && (
+          <CandidateBanner
+            onReview={onReview}
+            onSendCuration={onSendCuration}
+            sendingCuration={sendingCuration}
+            curationResult={curationResult}
+          />
+        )}
 
         {/* Pan = overflow scroll (F1: no semantic zoom). Cards are absolutely
             placed on the deterministic grid; wires sit behind them. */}

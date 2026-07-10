@@ -1,0 +1,141 @@
+/*
+ * curation — the F11-c §3a curation-packet compositor + its direct-path dispatch
+ * (the heavy-case escape hatch of the friction law §0c). Pure + DOM-free: the
+ * compositor mirrors packet.test.ts; the dispatch proof drives the EXISTING
+ * `sendDirectPacket` with injected deps and asserts the CURATION shape — a seq-1
+ * `judging` letter, capability `hand-runner` (the honest lane intent; the spawn
+ * waits for the capability, refused in the MVP), block_id = the skeleton id.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { composeCurationPacket } from './curation';
+import { sendDirectPacket, type MissionLetter, type PostOutcome } from './missions';
+import type { CandidateMeta, SystemBlock, SystemBlockStore } from './buildMap';
+
+function meta(over: Partial<CandidateMeta> = {}): CandidateMeta {
+  return {
+    named_by: 'heuristic',
+    needs_owner_naming: false,
+    edge_sample_size: 40,
+    directory_support: 0.9,
+    coverage_ratio: 0.9,
+    shared_member_count: 0,
+    ...over,
+  };
+}
+
+function candBlock(id: string, name: string, m: CandidateMeta, paths: string[]): SystemBlock {
+  return {
+    block_id: id,
+    name,
+    purpose: `${name} purpose`,
+    kind: 'scanned',
+    state: 'candidate',
+    boundary_version: 1,
+    contract_version: 1,
+    membership_source: 'proposed',
+    membership: paths.map((path) => ({ path, role: 'primary' as const })),
+    sockets: { inputs: [], outputs: [], external: [] },
+    receipt_contract: { version: 1, required: [], optional: [], waived: [], declared_by: null, declared_at: null },
+    receipts: [],
+    layout: { x: null, y: null, locked: false, algorithm_seed: null, version: 1 },
+    unmapped_residue: [],
+    candidate_meta: m,
+  };
+}
+
+const store: SystemBlockStore = {
+  schema: 'm1nd-system-block-store-v0',
+  store_version: 7,
+  skeleton: {
+    skeleton_id: 'sk_demo_candidate',
+    version: 1,
+    state: 'candidate',
+    ratification: { method: '', ratifier: '', ratified_at: '', commit: '' },
+  },
+  blocks: [
+    candBlock('sb_auth', 'Auth', meta({ named_by: 'runner' }), ['auth/a.go', 'shared/hook.go']),
+    candBlock('sb_pay', 'Payments', meta({ named_by: 'runner' }), ['billing/b.go', 'shared/hook.go']),
+    candBlock('sb_prov', 'guess?', meta({ needs_owner_naming: true }), ['scripts/one.sh']),
+  ],
+  unmapped_policy: { visible: true, default_action: 'leave_unmapped_until_ratified' },
+  unmapped_files: ['ci/build.yml', 'assets/logo.svg'],
+  unmapped_total: 23,
+};
+
+// ── the compositor (§3a) ──────────────────────────────────────────────────────
+
+test('the curation packet carries the census, every block honestly, the residue, and the note', () => {
+  const md = composeCurationPacket({ store, repoId: 'demo', note: 'Merge the thin scripts block.' });
+  assert.match(md, /# Curation mission — candidate skeleton of demo/);
+  assert.match(md, /store v7 · skeleton `sk_demo_candidate` \(candidate v1\)/);
+  assert.match(md, /3 candidate blocks · 1 provisional name · 1 seam member · 23 unmapped files/);
+  // Per-block honesty: runner-named vs PROVISIONAL, seam members counted.
+  assert.match(md, /`sb_auth` \*\*Auth\*\* · 2 members · named by runner · 1 seam member/);
+  assert.match(md, /`sb_prov` \*\*guess\?\*\* · 1 member · PROVISIONAL — needs a name/);
+  // The residue sample + the owner's note, verbatim.
+  assert.match(md, /## Unmapped residue \(23 total — a sample\)/);
+  assert.match(md, /- `ci\/build\.yml`/);
+  assert.match(md, /Merge the thin scripts block\./);
+});
+
+test('the packet binds the hand to the two laws: candidate_edit-only under OCC, never ratify', () => {
+  const md = composeCurationPacket({ store, repoId: 'demo' });
+  assert.match(md, /Edit ONLY through the `candidate_edit` verb, under the OCC key/);
+  assert.match(md, /You can NEVER ratify \(the owner signs/);
+  assert.match(md, /named_by:"runner"/, 'honest provenance is part of the contract');
+  assert.match(md, /_\(none — use your judgment, honestly\)_/, 'an absent note is honest, never invented');
+});
+
+test('COPY LAW: the packet never claims proven/done/correct and carries no absolute paths', () => {
+  const md = composeCurationPacket({ store, repoId: 'demo', note: 'be careful' });
+  assert.doesNotMatch(md, /\bproven\b/i);
+  assert.doesNotMatch(md, /\bdone\b/i);
+  assert.doesNotMatch(md, /\bcorrect\b/i);
+  assert.doesNotMatch(md, /\/Users\//);
+  assert.doesNotMatch(md, /\/home\//);
+});
+
+// ── the dispatch (the EXISTING direct path — delivery is not execution) ───────
+
+test('the curation dispatch is a seq-1 judging letter with hand-runner intent + the packet on the clipboard', async () => {
+  const md = composeCurationPacket({ store, repoId: 'demo' });
+  const posted: MissionLetter[] = [];
+  const clipboard: string[] = [];
+  const outcome: PostOutcome = {
+    letter_id: 'lt_1',
+    mission_id: 'msn_0123456789ab',
+    mission_seq: 1,
+    deduped: false,
+  };
+  const res = await sendDirectPacket(
+    {
+      markdown: md,
+      blockId: store.skeleton.skeleton_id,
+      brainRef: 'demo',
+      seat: 'oracle',
+      capability: 'hand-runner',
+    },
+    {
+      postMission: async (letter) => {
+        posted.push(letter);
+        return outcome;
+      },
+      writeClipboard: (text) => {
+        clipboard.push(text);
+      },
+      hash: async () => 'abc123',
+      now: () => '2026-07-10T00:00:00Z',
+      newId: () => 'msn_0123456789ab',
+    },
+  );
+  assert.equal(posted.length, 1, 'the letter posts FIRST');
+  const letter = posted[0];
+  assert.equal(letter.mission_seq, 1);
+  assert.equal(letter.phase, 'judging');
+  assert.equal(letter.capability, 'hand-runner', 'the honest lane intent — the spawn waits for the capability');
+  assert.equal(letter.block_id, 'sk_demo_candidate', 'the whole-skeleton mission anchors to the skeleton id');
+  assert.equal(letter.packet_ref, 'sha256:abc123');
+  assert.equal(res.clipboardCopied, true);
+  assert.equal(clipboard[0], md, 'the delivery half: the exact packet rides the clipboard');
+});

@@ -165,6 +165,33 @@ test('objection 10: the candidate banner offers "Review & ratify", not a blanket
   assert.match(visible(<BuildMap snapshot={snap} rollup={rollup} onReview={noop} />), /Review & ratify/);
 });
 
+test('F11-c §3a: the banner offers the curation dispatch and surfaces its honest outcome', () => {
+  const store = candStore([mid]);
+  const snap: SystemBlocksSnapshot = { present: true, store_version: 2, block_count: 1, store };
+  const rollup = rollupStore(store);
+  const out = html(
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} />,
+  );
+  assert.match(out, /data-role="send-curation"/);
+  assert.doesNotMatch(out, /data-role="send-curation"[^>]*disabled=""/, 'a real gesture, not a dead button');
+  // In flight → locked; the outcome line renders under the banner, honestly tinted.
+  const busy = html(
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} sendingCuration />,
+  );
+  assert.match(busy, /data-role="send-curation"[^>]*disabled=""/);
+  const done = (
+    <BuildMap
+      snapshot={snap}
+      rollup={rollup}
+      onReview={noop}
+      onSendCuration={noop}
+      curationResult={{ ok: true, message: 'curation letter posted (msn_0123456789ab, seq 1)' }}
+    />
+  );
+  assert.match(html(done), /data-role="curation-result" data-ok="true"/);
+  assert.match(visible(done), /curation letter posted \(msn_0123456789ab, seq 1\)/);
+});
+
 // ── the Edit-Names-&-Boundaries screen (F11-c — evolved from the F0c walk) ────
 // The walk's contract EVOLVED with the F11 amendment (0b/o6): the owner touch is
 // a REAL rename through candidate_edit (no client-only accept flag), runner-named
