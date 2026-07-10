@@ -27,7 +27,10 @@ graph does NOT cover your current repo — do not trust retrieval for it; read
 `project_root=<your repo root>` creates a per-project brain inside the served
 owner, ingests your repo, binds your session, and returns its north packet —
 thereafter every call from your root routes to YOUR brain automatically.
-Absent/null `reception` = your root matches the brain serving you.
+Absent/null `reception` = your root matches the brain serving you. Reception
+governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
+under mismatch is PROHIBITED — see Write-Mode Laws below; bootstrap first, write
+after.
 
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:
@@ -167,6 +170,43 @@ this loop by default:
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
+
+## Write-Mode Laws — reception governs writes
+
+The served owner hosts many per-project brains and routes each request to the
+brain that covers the caller's repo. Retrieval under a wrong binding is
+recoverable; a WRITE under a wrong binding corrupts shared state. A real incident
+set these laws — a foreign repo's skeleton was written into a bound brain because
+the writer never checked which brain answered it.
+
+1. **No write under a reception mismatch.** When a response carries
+   `reception.match == "caller_root_mismatch"`, the brain serving you does NOT
+   cover your repo. Reads are a warning; **writes are prohibited** — `memorize`,
+   `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` / `_ratify`
+   / `_reconcile`, and `mission_post` would each land in the WRONG brain. The one
+   correct gesture BEFORE any write: `ingest project_root=<your repo root>` — one
+   call creates/resolves your brain, ingests it, binds the session, and returns
+   north. Then write. (The `memorize` refusal — a write from a root with no
+   project brain is refused, never silently dropped into the shared medulla, and
+   hands you this bootstrap — is the one already-mechanical instance.)
+2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or
+   WORKTREE of an existing brain is refused with a teaching error
+   (`overlap_parent` / `overlap_child` / `overlap_worktree`) naming the conflict
+   and two ways forward: bind to the existing brain (`ingest
+   project_root=<existing>`), or pass `allow_overlap:true` only when you know
+   exactly why. It holds on both seams (MCP wire and REST `POST
+   /api/tools/ingest`). A burst worktree does NOT earn its own brain — bind to the
+   main repo's.
+
+**The write surface, briefly.** The block map (skeleton) is edited by one atomic
+verb, `candidate_edit` (six typed ops under `expected_store_version`; refuses on a
+ratified skeleton — candidate-only); `candidate_lease` is advisory and never
+blocks. **Ratify is EXCLUSIVELY human — no agent ratifies a skeleton, ever.** A
+mission is a letter (`mission_post`): `brain_ref` is the brain's display name (the
+basename of its root, never an absolute path; a wrong one is `brain_mismatch`),
+`block_id` must name a real block (else `unknown_block`; a smoke/probe letter sets
+`synthetic:true`), and a letter is STATE, never evidence — it never colors a
+block, only `receipt_import` does.
 
 ## Mission Control (not the default loop)
 
