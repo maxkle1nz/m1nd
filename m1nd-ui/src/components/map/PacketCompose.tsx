@@ -22,7 +22,7 @@
  * "proven/done/correct".
  */
 import { useState } from 'react';
-import type { BlockRollup, SystemBlock } from '../../lib/buildMap';
+import { brainRefFor, type BlockRollup, type SystemBlock } from '../../lib/buildMap';
 import { composePacket, DEFAULT_TOGGLES, type PacketToggles } from '../../lib/packet';
 import {
   sendDirectPacket,
@@ -99,10 +99,13 @@ function ToggleRow({ label, checked, onChange, role, disabled, hint }: ToggleRow
   );
 }
 
-/** The brain reference the seq-1 letter carries (§1f: a repo_id reference, NEVER an
- *  absolute path). Prefer the repoId; fall back to the block_id's repo token. */
-function brainRefFor(repoId: string | null, block: SystemBlock): string {
-  return repoId ?? block.block_id.match(/^sb_([^_]+)_/)?.[1] ?? 'brain';
+/** The brain reference the seq-1 letter carries (§1f, NEVER an absolute path):
+ *  the brain's DISPLAY NAME — the basename of its project root, the identity the
+ *  owner's `mission_post` brain guard compares (`lib/buildMap.ts brainRefFor`).
+ *  A hosted map knows its root; the bound map falls back to the repoId slug,
+ *  then to the block_id's repo token (right whenever the basename IS the slug). */
+function letterBrainRef(brainRoot: string | null, repoId: string | null, block: SystemBlock): string {
+  return brainRefFor(brainRoot, repoId ?? block.block_id.match(/^sb_([^_]+)_/)?.[1] ?? null);
 }
 
 export default function PacketCompose({
@@ -173,7 +176,7 @@ export default function PacketCompose({
     const poster = postMission ?? ((letter: MissionLetter) => api.missionPost(letter, brainRoot));
     try {
       const res = await sendDirectPacket(
-        { markdown, blockId: block.block_id, brainRef: brainRefFor(repoId, block), capability },
+        { markdown, blockId: block.block_id, brainRef: letterBrainRef(brainRoot, repoId, block), capability },
         {
           postMission: poster,
           writeClipboard: clip?.writeText ? (t) => clip.writeText(t) : undefined,
@@ -205,7 +208,7 @@ export default function PacketCompose({
     const spawner = spawnMission ?? ((input: SpawnInput) => api.missionSpawn(input, brainRoot));
     try {
       const res = await sendSpawnPacket(
-        { markdown, blockId: block.block_id, brainRef: brainRefFor(repoId, block), runnerId: selectedRunner },
+        { markdown, blockId: block.block_id, brainRef: letterBrainRef(brainRoot, repoId, block), runnerId: selectedRunner },
         { spawnMission: spawner },
       );
       setSpawnResult({ ok: true, message: `mission started — watch the tray (${res.mission_id})` });

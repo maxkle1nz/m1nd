@@ -6197,6 +6197,150 @@ mod tests {
         let _ = &temp;
     }
 
+    /// THE CURATION-DISPATCH BATTERY (field bug 2026-07-10, seen twice in human
+    /// dogfood): the map's "Send to an agent for curation" letter was refused on a
+    /// HOSTED brain. Two composed causes: (1) the UI derived `brain_ref` from the
+    /// skeleton id — `null` on candidate-form ids (so the letter said "brain"), a
+    /// lowercase sanitized slug otherwise — while the brain guard compares the
+    /// DISPATCHING brain's display name (the basename of its project root,
+    /// case-sensitive); (2) behind it, the letter anchors `block_id` at the
+    /// skeleton id, which the block guard did not recognize. This drives the EXACT
+    /// letter the FIXED UI composes against a REAL hosted brain (registry
+    /// bootstrap + the real `skeleton_candidate` scan) and it must POST — and the
+    /// letter must PERSIST in THAT brain's repo-side box, never anywhere else
+    /// (the 2026-07-09 field report: letters "evaporated" after a reconnect
+    /// because the session collapsed to the bound brain and they mis-routed into
+    /// its box; the guard now refuses that shape honestly, and this pins the
+    /// happy path landing in the right box). The old wrong refs still refuse —
+    /// the guard is recognized-identity-only, never loosened.
+    #[test]
+    fn curation_letter_posts_to_a_hosted_brain_and_lands_in_its_box() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // A repo whose basename is NOT a lowercase slug — pinning that the
+        // display-name compare is exact (the sanitized slug "repo_b1" must fail).
+        let repo = tmp.path().join("Repo-B1");
+        std::fs::create_dir_all(repo.join("src")).expect("mk repo");
+        std::fs::write(
+            repo.join("Cargo.toml"),
+            "[package]\nname = \"repob1\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            repo.join("src/lib.rs"),
+            "pub fn repo_b1_probe() -> i64 { 1 }\n",
+        )
+        .expect("lib.rs");
+
+        // A REAL hosted brain, through the same registry bootstrap the routing
+        // seams use (its own SessionState: ingest_roots = the repo, runtime_root =
+        // its owner-side store dir).
+        let reg = crate::project_brains::ProjectBrainRegistry::with_capacity(
+            tmp.path().join("project-brains"),
+            None,
+            4,
+        );
+        let (brain, _ingest, _reused) = reg
+            .bootstrap(
+                &repo.to_string_lossy(),
+                &serde_json::json!({"agent_id": "t"}),
+            )
+            .expect("bootstrap the hosted brain");
+        let mut state = brain.lock();
+
+        // The store the dogfood had: the REAL candidate scan on the hosted brain
+        // (skeleton id in the candidate form the UI must recognize).
+        super::dispatch_tool(
+            &mut state,
+            "skeleton_candidate",
+            &serde_json::json!({"agent_id": "t", "naming": "heuristic"}),
+        )
+        .expect("the hosted brain scans a candidate skeleton");
+        let store = crate::system_blocks::SystemBlockStore::load(
+            &crate::system_blocks_handlers::store_dir(&state),
+        )
+        .expect("store loads")
+        .expect("store exists after the scan");
+        let skeleton_id = store.skeleton.skeleton_id.clone();
+        assert_eq!(
+            skeleton_id, "sk_repo_b1_candidate",
+            "the scan mints the candidate-form skeleton id (sanitized slug)"
+        );
+
+        // The EXACT letter the fixed UI composes (BuildMapView handleSendCuration →
+        // composeSeq1Letter): brain_ref = the brain's display name (basename of the
+        // project root), block_id = the skeleton id, seat oracle, hand-runner.
+        let ui_letter = |brain_ref: &str, block_id: &str, mission_id: &str| {
+            serde_json::json!({
+                "schema": "m1nd-mission-letter-v0",
+                "mission_id": mission_id,
+                "mission_seq": 1,
+                "block_id": block_id,
+                "brain_ref": brain_ref,
+                "seat": "oracle",
+                "capability": "hand-runner",
+                "phase": "judging",
+                "packet_ref": "sha256:cafef00dcafe",
+                "tokens_total": 0,
+                "started_at": "2026-07-10T00:00:00Z",
+                "updated_at": "2026-07-10T00:00:00Z",
+            })
+        };
+
+        // (1) THE TEST THAT WOULD HAVE CAUGHT THE BUG: the fixed letter posts.
+        let posted = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "gui", "letter": ui_letter("Repo-B1", &skeleton_id, "msn_0123456789ab")}),
+        )
+        .expect("the curation letter posts to the hosted brain it names");
+        assert_eq!(posted["mission_seq"], 1);
+        assert_eq!(posted["deduped"], false);
+
+        // (2) THE h4nd PIN: the letter PERSISTED in THIS brain's repo-side box —
+        // never in the owner-side store dir (the mis-route family: letters landing
+        // in another brain's box read as "evaporated" to the poster).
+        let hosted_box = repo.join(crate::mailbox::BOX_REL_PATH);
+        let box_text = std::fs::read_to_string(&hosted_box)
+            .expect("the hosted brain's repo-side box exists after the post");
+        assert!(
+            box_text.contains("msn_0123456789ab"),
+            "the letter lives in the hosted brain's own box: {box_text}"
+        );
+        let owner_side_box =
+            crate::mailbox::medulla_box_path(std::path::Path::new(&state.runtime_root));
+        assert!(
+            !owner_side_box.exists(),
+            "nothing may land in the owner-side store box for a code-rooted brain"
+        );
+
+        // (3) NO LOOSENING: both OLD UI-composed refs still refuse with the honest
+        // brain_mismatch — the null-repoId fallback ("brain") and the sanitized
+        // slug ("repo_b1", the case/sanitization drift).
+        for wrong_ref in ["brain", "repo_b1"] {
+            let err = super::dispatch_tool(
+                &mut state,
+                "mission_post",
+                &serde_json::json!({"agent_id": "gui", "letter": ui_letter(wrong_ref, &skeleton_id, "msn_00000000dead")}),
+            )
+            .expect_err("a wrong brain_ref must still refuse");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("brain_mismatch") && msg.contains("Repo-B1"),
+                "the refusal names the mismatch and the bound display: {msg}"
+            );
+        }
+
+        // (4) The skeleton anchor recognizes ONLY this store's skeleton id: a
+        // foreign skeleton id still refuses as unknown_block.
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "gui", "letter": ui_letter("Repo-B1", "sk_other_candidate", "msn_00000000beef")}),
+        )
+        .expect_err("a foreign skeleton id must refuse");
+        assert!(err.to_string().contains("unknown_block"), "got: {err}");
+    }
+
     #[test]
     fn candidate_edit_and_lease_are_wired_through_dispatch() {
         let (_temp, mut state) = build_state();

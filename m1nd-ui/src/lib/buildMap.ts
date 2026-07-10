@@ -539,10 +539,32 @@ export function blockIndexByName(store: SystemBlockStore): Map<string, number> {
 // Small derivations (pure, testable).
 // ---------------------------------------------------------------------------
 
-/** The repo id embedded in a skeleton id (`sk_<repo>_seed_<yyyy>_<mm>`). */
+/** The repo id embedded in a skeleton id — the seed-import form
+ *  (`sk_<repo>_seed_<yyyy>_<mm>`) AND the scan's candidate form
+ *  (`sk_<repo>_candidate`, skeleton_scan.rs). NOTE: this is the SANITIZED slug
+ *  (lowercase, `_`-separated), a display token — never the identity a mission
+ *  letter's `brain_ref` must carry (that is [`brainRefFor`]). */
 export function repoIdFromSkeletonId(skeletonId: string): string | null {
-  const m = skeletonId.match(/^sk_(.+?)_seed_/);
+  const m = skeletonId.match(/^sk_(.+?)_seed_/) ?? skeletonId.match(/^sk_(.+?)_candidate$/);
   return m ? m[1] : null;
+}
+
+/** The §1f `brain_ref` a mission letter must carry: the brain's display name —
+ *  the BASENAME of its project root, exactly the identity the owner's
+ *  `mission_post` brain guard compares against (mission_letter_handlers.rs;
+ *  case-sensitive, hyphens intact). A hosted map knows its root (the `?brain=`
+ *  selector); the bound map (root = null) falls back to the skeleton's embedded
+ *  repo id — right whenever the repo basename IS the slug (e.g. "m1nd"). Never
+ *  an absolute path (§1f). Field bug 2026-07-10: deriving the ref from the
+ *  skeleton id sent a sanitized slug (or "brain" on candidate-form ids) and the
+ *  hosted brain refused the curation letter with brain_mismatch. */
+export function brainRefFor(brainRoot: string | null | undefined, repoId: string | null): string {
+  const base = brainRoot
+    ?.trim()
+    .replace(/[\\/]+$/, '')
+    .split(/[\\/]/)
+    .pop();
+  return base || repoId || 'brain';
 }
 
 /**
