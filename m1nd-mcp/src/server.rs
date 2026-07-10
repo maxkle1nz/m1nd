@@ -817,6 +817,11 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "project_root": {
                             "type": "string",
                             "description": "ONE-CALL BOOTSTRAP (Two-Tier interim): set to your repo root when this owner's graph does not cover your repo (reception said caller_root_mismatch). Creates a per-project brain inside the served owner, ingests your repo into it, binds this session to it, and returns its north packet — one call, then every call from your root routes to YOUR brain automatically. Served-owner HTTP/attach only; inert on a plain stdio server. The owner's bound graph is never replaced."
+                        },
+                        "allow_overlap": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "ONE-CALL BOOTSTRAP escape hatch. By default a bootstrap REFUSES to mint a second brain for a project_root that OVERLAPS an existing project brain — a child/parent directory of one, or a git worktree of a repo that already has a brain — and returns an overlap_<class> error naming the conflicting root and telling you to bind to the existing brain instead (usually you just opened in the wrong directory: call ingest with project_root=<that existing root>). Set true ONLY when you truly want a SEPARATE brain for the overlapping root. Duplicated brains double auto-ingest cost and fragment memories."
                         }
                     },
                     "required": ["path", "agent_id"]

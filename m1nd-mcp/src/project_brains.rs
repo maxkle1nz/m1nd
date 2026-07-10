@@ -265,6 +265,30 @@ impl ProjectBrainRegistry {
         let brain = match existing {
             Some(brain) => brain,
             None => {
+                // OVERLAP GUARD (field friction 2026-07-10: two twin brains for one
+                // project — a session opened in a repo's PARENT folder minted a second
+                // brain that re-ingested the repo from above; a git worktree of a
+                // brained repo grew its own orphan brain). BEFORE minting a brand-new
+                // brain, refuse a root that OVERLAPS an existing project brain — a
+                // child/parent directory of one, or a git worktree of a repo that
+                // already has a brain — unless the caller explicitly opts in. One repo
+                // must not grow two brains by accident: that doubles auto-ingest cost
+                // and fragments memories across stores. The escape hatch is a routing
+                // directive like `project_root` (stripped before the inner ingest,
+                // below): `allow_overlap:true` skips the guard and mints anyway — the
+                // exact same root stays warm-reuse, never a refusal (that is the `Some`
+                // arm above, which the guard never reaches).
+                let allow_overlap = ingest_args
+                    .get("allow_overlap")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !allow_overlap {
+                    let existing_roots = self.existing_brain_roots();
+                    match detect_root_overlap(&key, &existing_roots) {
+                        RootOverlap::None => {}
+                        overlap => return Err(overlap_refusal(&key, &overlap)),
+                    }
+                }
                 let state = self.boot_store(&key)?;
                 // Birth record for warm-boots (inert data only). Counts stamped
                 // after ingest below so a DORMANT store still reports its size.
@@ -282,6 +306,9 @@ impl ProjectBrainRegistry {
         let mut args = ingest_args.clone();
         if let Some(map) = args.as_object_mut() {
             map.remove("project_root");
+            // `allow_overlap` is a routing directive for the mint decision, not an
+            // ingest adapter input — strip it exactly like `project_root`.
+            map.remove("allow_overlap");
             map.insert("path".into(), serde_json::Value::String(key.clone()));
         }
         let ingest_result = {
@@ -500,6 +527,21 @@ impl ProjectBrainRegistry {
         out
     }
 
+    /// Every project-brain root this owner knows RIGHT NOW — live in the warm map
+    /// UNION dormant on disk — as canonical keys. This is the overlap guard's
+    /// input: a would-be-new mint is classified against all of them. A warm brain
+    /// always has a manifest on disk (it is written before the map insert), so the
+    /// disk roster is a superset in practice; the union is defensive, not load-
+    /// bearing. Inert read only (map keys + roster manifests, never a warm-boot).
+    fn existing_brain_roots(&self) -> Vec<String> {
+        let mut set: std::collections::HashSet<String> =
+            self.brains.lock().keys().cloned().collect();
+        for (root, _facts, _dir) in self.disk_roster() {
+            set.insert(root);
+        }
+        set.into_iter().collect()
+    }
+
     /// RECONNECT-REBIND (§C5.4, ladder R13). Given a `caller_root` that neither
     /// matches the bound graph nor resolves to a brain of its own, ask the disk
     /// roster: is there exactly ONE known project brain related to this caller by
@@ -571,6 +613,165 @@ fn normalized_path_for_compare(path: &Path) -> String {
         .replace('\\', "/")
         .trim_end_matches('/')
         .to_string()
+}
+
+/// How a would-be-new project root OVERLAPS an existing project brain. The mint
+/// path refuses every non-[`RootOverlap::None`] class unless the caller passes
+/// `allow_overlap`, so one repo never grows two brains by accident (double auto-
+/// ingest cost + memories fragmented across stores). Comparison is always between
+/// canonical roots; the exact same root (`key == existing`) is NOT an overlap —
+/// that is the warm-reuse path, handled before the guard is ever consulted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootOverlap {
+    /// No existing brain overlaps this root — minting is safe.
+    None,
+    /// The new root is INSIDE an existing brain's root (a subdirectory of a repo
+    /// that already has its own brain). `existing` is that ancestor brain's root.
+    Child { existing: String },
+    /// An existing brain's root is INSIDE the new root (the new root is a PARENT
+    /// folder of a repo that already has a brain — the mother-folder trap that
+    /// re-ingests the child repo from above).
+    Parent { existing: String },
+    /// The new root is a git WORKTREE whose main repository already has a brain.
+    /// `existing` is the conflicting brain root (often the main repo itself);
+    /// `main_repo` is the shared repository the worktree checks out.
+    Worktree { existing: String, main_repo: String },
+}
+
+/// Classify whether minting a brain for `key` would OVERLAP any brain in
+/// `existing_roots` (every project-brain root this owner knows, live + on disk).
+/// A pure classification over canonical paths — the guardrail the mint path
+/// consults before it mints a second brain for a repo that already has one.
+///
+/// Order: direct containment (child/parent) is checked first against every
+/// existing root; a git-worktree relation — siblings that share ONE repo, which
+/// containment cannot see — is checked last. The only filesystem read is the
+/// worktree probe (`<key>/.git`); child/parent is pure string comparison. Inputs
+/// are canonicalized defensively so a caller need not pre-normalize.
+pub fn detect_root_overlap(key: &str, existing_roots: &[String]) -> RootOverlap {
+    let key = ProjectBrainRegistry::canonical_key(key);
+
+    // 1. Direct containment against every existing brain root.
+    for existing in existing_roots {
+        let existing = ProjectBrainRegistry::canonical_key(existing);
+        if existing == key {
+            continue; // the exact same root is warm-reuse, never an overlap
+        }
+        if is_strict_descendant(&key, &existing) {
+            return RootOverlap::Child { existing };
+        }
+        if is_strict_descendant(&existing, &key) {
+            return RootOverlap::Parent { existing };
+        }
+    }
+
+    // 2. Worktree: `<key>/.git` is a gitdir FILE → does its main repo have a brain?
+    if let Some(main_repo) = worktree_main_repo(&key) {
+        for existing in existing_roots {
+            let existing = ProjectBrainRegistry::canonical_key(existing);
+            let main_has_brain = existing == main_repo
+                || is_strict_descendant(&main_repo, &existing)
+                || is_strict_descendant(&existing, &main_repo);
+            if main_has_brain {
+                return RootOverlap::Worktree {
+                    existing,
+                    main_repo,
+                };
+            }
+        }
+    }
+
+    RootOverlap::None
+}
+
+/// True when `path` is STRICTLY inside `root` (a proper descendant): canonical,
+/// slash-normalized, trailing-slash-safe. Unlike [`path_starts_with_loosely`]
+/// this is FALSE for equal paths — the exact-root case is warm-reuse, handled by
+/// the caller, never an overlap.
+fn is_strict_descendant(path: &str, root: &str) -> bool {
+    let path = normalized_path_for_compare(Path::new(path));
+    let root = normalized_path_for_compare(Path::new(root));
+    if root.is_empty() || path == root {
+        return false;
+    }
+    path.starts_with(&format!("{root}/"))
+}
+
+/// If `key` is a git WORKTREE, return its MAIN repository root; else `None`. A
+/// worktree's `.git` is a FILE (`gitdir: <path>`), not a directory; when that
+/// gitdir sits under `<main>/.git/worktrees/<name>`, the main repo is the prefix
+/// before `/.git/worktrees/`. A relative gitdir is resolved against `key`, and
+/// the returned root is canonicalized so it compares equal to a stored brain key
+/// (macOS `/tmp` → `/private/tmp`, symlinks resolved). Inert read only.
+fn worktree_main_repo(key: &str) -> Option<String> {
+    let dot_git = Path::new(key).join(".git");
+    // A real repo has `.git` as a DIRECTORY; only a worktree (or submodule) points
+    // via a FILE. `symlink_metadata` so a symlinked `.git` is judged by the link.
+    if !std::fs::symlink_metadata(&dot_git).ok()?.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&dot_git).ok()?;
+    let target = content
+        .lines()
+        .next()?
+        .trim()
+        .strip_prefix("gitdir:")?
+        .trim()
+        .to_string();
+    let gitdir = if Path::new(&target).is_absolute() {
+        PathBuf::from(&target)
+    } else {
+        Path::new(key).join(&target)
+    };
+    const MARKER: &str = "/.git/worktrees/";
+    let gitdir = normalized_path_for_compare(&gitdir);
+    let idx = gitdir.find(MARKER)?;
+    Some(ProjectBrainRegistry::canonical_key(&gitdir[..idx]))
+}
+
+/// The honest refusal for an overlapping mint (returned as an `ingest`
+/// `InvalidParams` so it reaches the caller as a tool error). Names the class +
+/// the conflicting existing root, teaches the TWO ways forward, and states the
+/// cost. Mirrors the `synthetic:true` posture of `mission_post`: refuse by
+/// default, an explicit escape hatch, a message that points at the RIGHT call.
+fn overlap_refusal(key: &str, overlap: &RootOverlap) -> M1ndError {
+    let (class, existing, relation) = match overlap {
+        RootOverlap::Child { existing } => (
+            "child",
+            existing.as_str(),
+            format!("is INSIDE '{existing}', which already has its own project brain"),
+        ),
+        RootOverlap::Parent { existing } => (
+            "parent",
+            existing.as_str(),
+            format!("CONTAINS '{existing}', which already has its own project brain"),
+        ),
+        RootOverlap::Worktree { existing, main_repo } => (
+            "worktree",
+            existing.as_str(),
+            format!(
+                "is a git worktree of '{main_repo}', whose repository already has a project brain (rooted at '{existing}')"
+            ),
+        ),
+        RootOverlap::None => {
+            // Never built for None; stay total instead of panicking on a bad call.
+            return M1ndError::InvalidParams {
+                tool: "ingest".into(),
+                detail: "internal: overlap_refusal called with no overlap".into(),
+            };
+        }
+    };
+    M1ndError::InvalidParams {
+        tool: "ingest".into(),
+        detail: format!(
+            "overlap_{class}: project_root '{key}' {relation} — refused so this owner does not \
+             mint a second, duplicate brain for the same repo. Two ways forward: \
+             (a) bind to the existing brain: call ingest with project_root={existing} \
+             (the usual case — you opened in the wrong directory); \
+             (b) if you truly want a separate brain for this overlapping root, pass allow_overlap:true. \
+             Duplicated brains double auto-ingest cost and fragment memories."
+        ),
+    }
 }
 
 /// The real project root a store belongs to, read from its `project_brain.json`
@@ -809,5 +1010,352 @@ mod eviction_gate_tests {
             Some(key_a),
             "a caller deep inside one repo still resolves to that repo unambiguously"
         );
+    }
+}
+
+#[cfg(test)]
+mod overlap_guard_tests {
+    //! THE OVERLAP GUARD (field friction 2026-07-10: twin brains for one project).
+    //! A brain existed for a repo; a session opened in the repo's PARENT folder and
+    //! minted a SECOND brain that re-ingested the repo from above (double cost,
+    //! fragmented memories); separately a git WORKTREE of a brained repo grew its own
+    //! orphan brain. Law: before minting a NEW brain, the mint path refuses a root
+    //! that OVERLAPS an existing brain (child / parent / worktree) unless the caller
+    //! passes `allow_overlap:true`. The exact same root stays warm-reuse, never a
+    //! refusal. These cases are the field incident turned into a battery.
+    use super::*;
+    use serde_json::json;
+
+    /// A tiny but non-empty repo so a real bootstrap ingest produces > 0 nodes.
+    fn write_tiny_repo(root: &Path) {
+        std::fs::create_dir_all(root.join("src")).expect("mk src");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"tiny\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub fn tiny_probe() -> i64 { 1 }\n",
+        )
+        .expect("lib.rs");
+    }
+
+    fn reg_in(tmp: &Path) -> ProjectBrainRegistry {
+        ProjectBrainRegistry::with_capacity(tmp.join("project-brains"), None, 8)
+    }
+
+    /// The refusal must be an `ingest` InvalidParams that names the class, the
+    /// conflicting existing root, the bind-to-existing call, and the escape hatch.
+    fn assert_overlap_refusal(err: &M1ndError, class: &str, conflicting: &str) {
+        match err {
+            M1ndError::InvalidParams { tool, detail } => {
+                assert_eq!(tool, "ingest", "an overlap refusal is an ingest error");
+                assert!(
+                    detail.contains(&format!("overlap_{class}")),
+                    "refusal must name the '{class}' class: {detail}"
+                );
+                assert!(
+                    detail.contains(conflicting),
+                    "refusal must name the conflicting root '{conflicting}': {detail}"
+                );
+                assert!(
+                    detail.contains("project_root="),
+                    "refusal must teach the bind-to-existing call: {detail}"
+                );
+                assert!(
+                    detail.contains("allow_overlap"),
+                    "refusal must teach the allow_overlap escape hatch: {detail}"
+                );
+            }
+            other => panic!("expected an InvalidParams overlap refusal, got {other:?}"),
+        }
+    }
+
+    /// bootstrap and REQUIRE a refusal (avoids `expect_err`, which would need the Ok
+    /// tuple to be Debug — SessionState is not).
+    fn bootstrap_expecting_refusal(
+        reg: &ProjectBrainRegistry,
+        root: &Path,
+        args: &serde_json::Value,
+    ) -> M1ndError {
+        match reg.bootstrap(&root.to_string_lossy(), args) {
+            Ok(_) => panic!(
+                "expected an overlap refusal for {}, but it minted",
+                root.display()
+            ),
+            Err(e) => e,
+        }
+    }
+
+    // ---- (1)-(6): the field incident as a battery, through the real bootstrap ---
+
+    /// (1) THE CHERRY CASE. A brain exists for `<tmp>/a/b`; opening in the PARENT
+    /// `<tmp>/a` and bootstrapping is refused with the `parent` class, naming the
+    /// existing child root — before any second brain is minted.
+    #[test]
+    fn parent_overlap_refuses_naming_the_existing_child() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let child = tmp.path().join("a").join("b");
+        std::fs::create_dir_all(&child).expect("mk child");
+        let parent = tmp.path().join("a");
+
+        let reg = reg_in(tmp.path());
+        let child_key = reg
+            .ensure_registered(&child.to_string_lossy())
+            .expect("register the existing child brain");
+
+        let err = bootstrap_expecting_refusal(&reg, &parent, &json!({"agent_id": "t"}));
+        assert_overlap_refusal(&err, "parent", &child_key);
+        // Nothing minted: the parent has no brain and the warm map is untouched.
+        assert!(
+            !reg.knows(&parent.to_string_lossy()),
+            "the parent must NOT have been minted after a refusal"
+        );
+        assert_eq!(reg.warm_len(), 0, "no brain is warm after a refusal");
+    }
+
+    /// (2) A brain exists for `<tmp>/a`; opening in the CHILD `<tmp>/a/b` (a monorepo
+    /// subdir) and bootstrapping is refused with the `child` class.
+    #[test]
+    fn child_overlap_refuses() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let parent = tmp.path().join("a");
+        let child = parent.join("b");
+        std::fs::create_dir_all(&child).expect("mk child");
+
+        let reg = reg_in(tmp.path());
+        let parent_key = reg
+            .ensure_registered(&parent.to_string_lossy())
+            .expect("register the existing parent brain");
+
+        let err = bootstrap_expecting_refusal(&reg, &child, &json!({"agent_id": "t"}));
+        assert_overlap_refusal(&err, "child", &parent_key);
+    }
+
+    /// (3) A brain exists for a real git repo; opening in one of its git WORKTREES
+    /// and bootstrapping is refused with the `worktree` class. Real git; skipped only
+    /// where git is unavailable (the pure gitdir logic is proven separately below).
+    #[test]
+    fn worktree_overlap_refuses() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping worktree_overlap_refuses: git is not on PATH");
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let main = tmp.path().join("mainrepo");
+        std::fs::create_dir_all(&main).expect("mk main");
+        let git = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .expect("spawn git");
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&main, &["init", "-q"]);
+        git(&main, &["config", "user.email", "t@example.invalid"]);
+        git(&main, &["config", "user.name", "tester"]);
+        std::fs::write(main.join("f.txt"), "x").expect("seed file");
+        git(&main, &["add", "."]);
+        git(&main, &["commit", "-q", "-m", "init"]);
+        let wt = tmp.path().join("wt");
+        git(&main, &["worktree", "add", "-q", wt.to_str().unwrap()]);
+        assert!(
+            wt.join(".git").is_file(),
+            "precondition: a worktree's .git must be a gitdir FILE"
+        );
+
+        let reg = reg_in(tmp.path());
+        let main_key = reg
+            .ensure_registered(&main.to_string_lossy())
+            .expect("register the main-repo brain");
+
+        let err = bootstrap_expecting_refusal(&reg, &wt, &json!({"agent_id": "t"}));
+        assert_overlap_refusal(&err, "worktree", &main_key);
+    }
+
+    /// (4) THE ESCAPE HATCH. The Cherry case with `allow_overlap:true` mints anyway —
+    /// a real, separate brain for the overlapping parent root.
+    #[test]
+    fn allow_overlap_true_mints_anyway() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let child = tmp.path().join("a").join("b");
+        std::fs::create_dir_all(&child).expect("mk child");
+        let parent = tmp.path().join("a");
+        write_tiny_repo(&parent);
+
+        let reg = reg_in(tmp.path());
+        reg.ensure_registered(&child.to_string_lossy())
+            .expect("register the existing child brain");
+
+        let (_brain, _ingest, reused) = reg
+            .bootstrap(
+                &parent.to_string_lossy(),
+                &json!({"agent_id": "t", "allow_overlap": true}),
+            )
+            .expect("allow_overlap:true must mint over a detected overlap");
+        assert!(!reused, "an overlap mint is a NEW brain, not a warm reuse");
+        assert!(
+            reg.knows(&parent.to_string_lossy()),
+            "the parent brain must exist after an allow_overlap mint"
+        );
+    }
+
+    /// (5) NO REGRESSION on the common path: a disjoint root — no containment and no
+    /// worktree relation to any existing brain — mints normally.
+    #[test]
+    fn disjoint_root_mints_normally() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let existing = tmp.path().join("repo-x");
+        std::fs::create_dir_all(&existing).expect("mk repo-x");
+        let fresh = tmp.path().join("repo-y");
+        write_tiny_repo(&fresh);
+
+        let reg = reg_in(tmp.path());
+        reg.ensure_registered(&existing.to_string_lossy())
+            .expect("register an unrelated existing brain");
+
+        let (_brain, _ingest, reused) = reg
+            .bootstrap(&fresh.to_string_lossy(), &json!({"agent_id": "t"}))
+            .expect("a disjoint root must mint normally (no false positive)");
+        assert!(!reused, "a fresh disjoint root is a new brain");
+        assert!(
+            reg.knows(&fresh.to_string_lossy()),
+            "the disjoint brain must exist after minting"
+        );
+    }
+
+    /// (6) THE REGRESSION GUARD the overlap check must NEVER trip: bootstrapping the
+    /// EXACT SAME root twice is warm-reuse the second time, never a refusal.
+    #[test]
+    fn same_root_warm_reuse_never_refuses() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().join("repo");
+        write_tiny_repo(&root);
+        let reg = reg_in(tmp.path());
+
+        let (_b1, _i1, reused1) = reg
+            .bootstrap(&root.to_string_lossy(), &json!({"agent_id": "t"}))
+            .expect("first bootstrap mints the brain");
+        assert!(!reused1, "the first bootstrap is a fresh mint");
+
+        let (_b2, _i2, reused2) = reg
+            .bootstrap(&root.to_string_lossy(), &json!({"agent_id": "t"}))
+            .expect("bootstrapping the SAME root again must NOT be refused as an overlap");
+        assert!(
+            reused2,
+            "the second bootstrap of the same root is warm-reuse, never a refusal"
+        );
+    }
+
+    // ---- Pure detection unit tests (no ingest, no git binary) ------------------
+
+    /// child / parent / disjoint / exact-match, over canonical paths.
+    #[test]
+    fn detect_root_overlap_classifies_containment() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let a = tmp.path().join("a");
+        let b = a.join("b");
+        std::fs::create_dir_all(&b).expect("mk a/b");
+        let c = tmp.path().join("c");
+        std::fs::create_dir_all(&c).expect("mk c");
+        let a_key = ProjectBrainRegistry::canonical_key(&a.to_string_lossy());
+        let b_key = ProjectBrainRegistry::canonical_key(&b.to_string_lossy());
+        let c_key = ProjectBrainRegistry::canonical_key(&c.to_string_lossy());
+
+        // new root INSIDE an existing brain root → Child.
+        assert_eq!(
+            detect_root_overlap(&b_key, std::slice::from_ref(&a_key)),
+            RootOverlap::Child {
+                existing: a_key.clone()
+            }
+        );
+        // an existing brain root INSIDE the new root → Parent.
+        assert_eq!(
+            detect_root_overlap(&a_key, std::slice::from_ref(&b_key)),
+            RootOverlap::Parent {
+                existing: b_key.clone()
+            }
+        );
+        // disjoint sibling → None.
+        assert_eq!(
+            detect_root_overlap(&c_key, std::slice::from_ref(&a_key)),
+            RootOverlap::None
+        );
+        // the exact same root is warm-reuse, never an overlap.
+        assert_eq!(
+            detect_root_overlap(&a_key, std::slice::from_ref(&a_key)),
+            RootOverlap::None
+        );
+        // empty roster → None.
+        assert_eq!(detect_root_overlap(&a_key, &[]), RootOverlap::None);
+    }
+
+    /// gitdir resolution + worktree classification, with a FABRICATED `.git` file
+    /// (no git binary) — proves the worktree logic even where the real-git
+    /// integration case above is skipped.
+    #[test]
+    fn detect_root_overlap_resolves_a_fabricated_worktree() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let main = tmp.path().join("mainrepo");
+        std::fs::create_dir_all(&main).expect("mk main");
+        let wt = tmp.path().join("wt");
+        std::fs::create_dir_all(&wt).expect("mk wt");
+        let main_key = ProjectBrainRegistry::canonical_key(&main.to_string_lossy());
+        // A worktree's `.git` is a FILE pointing under `<main>/.git/worktrees/<name>`.
+        std::fs::write(
+            wt.join(".git"),
+            format!("gitdir: {main_key}/.git/worktrees/wt\n"),
+        )
+        .expect("write the fabricated gitdir file");
+        let wt_key = ProjectBrainRegistry::canonical_key(&wt.to_string_lossy());
+
+        // The pure resolver recovers the main repo from the gitdir file.
+        assert_eq!(worktree_main_repo(&wt_key), Some(main_key.clone()));
+        // A plain directory (no `.git` file) is not a worktree.
+        assert_eq!(worktree_main_repo(&main_key), None);
+
+        // With a brain for the main repo, the worktree is an overlap.
+        assert_eq!(
+            detect_root_overlap(&wt_key, std::slice::from_ref(&main_key)),
+            RootOverlap::Worktree {
+                existing: main_key.clone(),
+                main_repo: main_key.clone(),
+            }
+        );
+        // With NO brain for the main repo, the worktree is free to mint.
+        let unrelated =
+            ProjectBrainRegistry::canonical_key(&tmp.path().join("unrelated").to_string_lossy());
+        assert_eq!(
+            detect_root_overlap(&wt_key, std::slice::from_ref(&unrelated)),
+            RootOverlap::None
+        );
+    }
+
+    /// A relative gitdir (some git setups write `../`-relative worktree pointers) is
+    /// resolved against the worktree root before the main repo is extracted.
+    #[test]
+    fn worktree_main_repo_resolves_a_relative_gitdir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let main = tmp.path().join("mainrepo");
+        std::fs::create_dir_all(main.join(".git").join("worktrees").join("wt"))
+            .expect("mk main/.git/worktrees/wt");
+        let wt = tmp.path().join("wt");
+        std::fs::create_dir_all(&wt).expect("mk wt");
+        // Relative pointer from the worktree up to the main repo's gitdir.
+        std::fs::write(wt.join(".git"), "gitdir: ../mainrepo/.git/worktrees/wt\n")
+            .expect("write relative gitdir file");
+        let wt_key = ProjectBrainRegistry::canonical_key(&wt.to_string_lossy());
+        let main_key = ProjectBrainRegistry::canonical_key(&main.to_string_lossy());
+        assert_eq!(worktree_main_repo(&wt_key), Some(main_key));
     }
 }
