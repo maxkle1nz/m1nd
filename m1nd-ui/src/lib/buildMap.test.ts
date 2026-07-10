@@ -18,6 +18,7 @@ import {
   gridLayout,
   canvasSize,
   domainTag,
+  brainRefFor,
   repoIdFromSkeletonId,
   membershipByRole,
   COLS,
@@ -202,6 +203,28 @@ test('repoIdFromSkeletonId + domainTag derive a stable, compact tag from block_i
   for (const b of store.blocks) {
     assert.ok(domainTag(b.block_id, 'm1nd').length > 0, `${b.block_id} → a tag`);
   }
+});
+
+test('repoIdFromSkeletonId also parses the scan candidate form (sk_<slug>_candidate)', () => {
+  // The scan mints `sk_<slug>_candidate` (skeleton_scan.rs); before this the
+  // regex only knew the seed form, so a scanned store derived repoId = null
+  // (field bug 2026-07-10: the curation letter then said brain_ref "brain").
+  assert.equal(repoIdFromSkeletonId('sk_repo_b1_candidate'), 'repo_b1');
+  assert.equal(repoIdFromSkeletonId('sk_m1nd_seed_2026_06'), 'm1nd', 'the seed form is untouched');
+  assert.equal(repoIdFromSkeletonId('not_a_skeleton'), null);
+});
+
+test('brainRefFor derives the guard identity: basename of the brain root, with honest fallbacks', () => {
+  // Hosted map (the ?brain= root is known): the display name is the BASENAME of
+  // the project root — case and hyphens intact, exactly what the owner's
+  // mission_post brain guard compares (mission_letter_handlers.rs).
+  assert.equal(brainRefFor('/private/tmp/ws/Repo-B1', 'repo_b1'), 'Repo-B1');
+  assert.equal(brainRefFor('/private/tmp/ws/Repo-B1/', null), 'Repo-B1', 'trailing slash is trimmed');
+  // Bound map (root = null): fall back to the skeleton slug, then the honest last resort.
+  assert.equal(brainRefFor(null, 'm1nd'), 'm1nd');
+  assert.equal(brainRefFor(undefined, null), 'brain');
+  // Never an absolute path (§1f).
+  assert.doesNotMatch(brainRefFor('/a/b/c', null), /\//);
 });
 
 test('membershipByRole aggregates the seed roles', () => {

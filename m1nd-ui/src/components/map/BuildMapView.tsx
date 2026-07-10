@@ -11,6 +11,7 @@
 import { useCallback, useState } from 'react';
 import { api } from '../../api/client';
 import {
+  brainRefFor,
   repoIdFromSkeletonId,
   runReconcile,
   runRatify,
@@ -219,8 +220,13 @@ export default function BuildMapView({
     if (sendingCuration) return;
     const store = snapshot?.present ? snapshot.store ?? null : null;
     if (!store) return;
-    const repoId = repoIdFromSkeletonId(store.skeleton.skeleton_id);
-    const markdown = composeCurationPacket({ store, repoId });
+    // §1f: the letter's brain_ref is the brain's DISPLAY NAME (the basename of
+    // its project root — the identity the owner's brain guard compares), never
+    // the skeleton's sanitized slug. A hosted map derives it from `brainRoot`;
+    // the bound map falls back to the skeleton's repo id (field bug 2026-07-10:
+    // the slug/'brain' fallback was refused with brain_mismatch on hosted brains).
+    const brainRef = brainRefFor(brainRoot, repoIdFromSkeletonId(store.skeleton.skeleton_id));
+    const markdown = composeCurationPacket({ store, repoId: brainRef });
     setSendingCuration(true);
     setCurationResult(null);
     try {
@@ -228,7 +234,7 @@ export default function BuildMapView({
         {
           markdown,
           blockId: store.skeleton.skeleton_id,
-          brainRef: repoId ?? 'brain',
+          brainRef,
           seat: 'oracle',
           capability: 'hand-runner',
         },

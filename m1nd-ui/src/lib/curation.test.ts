@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { composeCurationPacket } from './curation';
+import { brainRefFor, repoIdFromSkeletonId } from './buildMap';
 import { sendDirectPacket, type MissionLetter, type PostOutcome } from './missions';
 import type { CandidateMeta, SystemBlock, SystemBlockStore } from './buildMap';
 
@@ -138,4 +139,47 @@ test('the curation dispatch is a seq-1 judging letter with hand-runner intent + 
   assert.equal(letter.packet_ref, 'sha256:abc123');
   assert.equal(res.clipboardCopied, true);
   assert.equal(clipboard[0], md, 'the delivery half: the exact packet rides the clipboard');
+});
+
+test('on a HOSTED brain the curation letter carries the canonical brain_ref: the basename of the brain root', async () => {
+  // The field bug (2026-07-10, twice in one dogfood): the map derived brain_ref
+  // from the skeleton id — null on the scan's candidate form (so the letter said
+  // "brain"), a lowercase sanitized slug otherwise — and the hosted brain's
+  // mission_post guard refused with brain_mismatch. The §1f canonical ref is the
+  // brain's DISPLAY NAME = the basename of its project root (case-sensitive),
+  // derived exactly as BuildMapView.handleSendCuration now does.
+  const hostedRoot = '/private/tmp/ws/Repo-B1';
+  const hostedStore = {
+    ...store,
+    skeleton: { ...store.skeleton, skeleton_id: 'sk_repo_b1_candidate' },
+  };
+  const brainRef = brainRefFor(hostedRoot, repoIdFromSkeletonId(hostedStore.skeleton.skeleton_id));
+  assert.equal(brainRef, 'Repo-B1', 'basename of the root, never the sanitized slug');
+
+  const md = composeCurationPacket({ store: hostedStore, repoId: brainRef });
+  assert.match(md, /# Curation mission — candidate skeleton of Repo-B1/);
+
+  const posted: MissionLetter[] = [];
+  await sendDirectPacket(
+    {
+      markdown: md,
+      blockId: hostedStore.skeleton.skeleton_id,
+      brainRef,
+      seat: 'oracle',
+      capability: 'hand-runner',
+    },
+    {
+      postMission: async (letter) => {
+        posted.push(letter);
+        return { letter_id: 'lt_2', mission_id: letter.mission_id, mission_seq: 1, deduped: false };
+      },
+      hash: async () => 'beef',
+      now: () => '2026-07-10T00:00:00Z',
+      newId: () => 'msn_0123456789ab',
+    },
+  );
+  const letter = posted[0];
+  assert.equal(letter.brain_ref, 'Repo-B1', 'the guard identity — basename, case intact (§1f)');
+  assert.equal(letter.block_id, 'sk_repo_b1_candidate', 'the skeleton-scoped anchor');
+  assert.doesNotMatch(letter.brain_ref, /\//, 'never an absolute path (§1f)');
 });

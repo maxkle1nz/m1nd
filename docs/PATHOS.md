@@ -40,6 +40,29 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-05, checkpoint 10 — the design era closes, the construction era opens)
 
+> **2026-07-10 — F11 shipped whole; the first HUMAN ratify in the product's history; the seam-fix series.**
+> The F11 amendment (candidate editing with minimum human friction) landed as ONE burst PR (#330: the
+> `candidate_edit` engine + `candidate_lease` + the naming-runner wire + the drawn Edit-Names-&-Boundaries
+> screen), followed the same day by the live-fire fixes only real usage reveals: #331 (the owner batch
+> budget was sized to a 20s runner while a real CLI runner measures ~50s/call; AND the naming packet
+> carried no task instruction — a generic LLM runner wandered to timeout until the instruction traveled
+> INSIDE the packet), #332 (ingest overlap guardrail: parent/child/worktree twin brains refused honestly
+> with an `allow_overlap` escape, born from a live twin-brain incident), #333 (the REST tool route
+> bypassed that guardrail — route parity through one shared `run_bootstrap_core`), and the curation-letter
+> fix (the UI composed `brain_ref` from the seed-form skeleton id only; the F25 §1f contract is
+> display-name = basename; plus the §1g block guard now recognizes the store's current skeleton id as the
+> whole-skeleton mission anchor). **The milestone:** the owner ratified the production monorepo's skeleton
+> through the real screen — 43 blocks, store v1→v46, 42 names stamped by hand + 1 by the live runner
+> (`named_by:"runner"` in production). **Honest telemetry from that first human run:** the batch
+> "Name with runner" was never invoked (0 daemon calls during the session) — the zero-touch lane exists
+> and is proven by machine, not yet exercised by a human; investigate reachability/latency of the batch
+> button. **New standing doctrine (owner, 2026-07-10):** a UI function is only REAL when driven in a real
+> browser by the agent itself — screenshot as proof; suites green ≠ use proven (four same-family holes
+> caught in one day only by live smoke). **Queue:** field-report triage (4 open: runtime-scoped spool,
+> receipt execution-identity, memorize bind-drop, inbox bare-name), traykeep revision-promotion ceremony
+> (ratified pre-o6 with provisional names), hand-runner capability (curation spawn), bound-map display-name
+> fallback (declared residual).
+
 > **2026-07-09 — F2.5 pre-work: the write-mode runner connected and proven (external hand-runner exercise).**
 > The full receipt cycle ran live against an ephemeral owner (`--serve --port 1399 --runtime-dir mktemp`,
 > production `:1338` untouched): seed import (12 blocks, store v1) → the block's REAL gate

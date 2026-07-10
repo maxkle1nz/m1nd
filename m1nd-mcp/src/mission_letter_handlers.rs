@@ -96,15 +96,22 @@ pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) ->
                 }
             })?
         {
+            // A SKELETON-scoped mission (the F11-c §3a curation dispatch) anchors
+            // its letter at the store's skeleton id — a REAL identity of this
+            // brain, so it validates like a block. Any OTHER skeleton/block id
+            // still refuses (this recognizes the one true anchor, it does not
+            // loosen the guard). Field bug 2026-07-10: the curation letter was
+            // refused as unknown_block because the guard predated the anchor.
             let known = store
                 .blocks
                 .iter()
-                .any(|b| b.block_id == input.letter.block_id);
+                .any(|b| b.block_id == input.letter.block_id)
+                || store.skeleton.skeleton_id == input.letter.block_id;
             if !known {
                 return Err(M1ndError::InvalidParams {
                     tool: "mission_post".to_string(),
                     detail: format!(
-                        "unknown_block: the letter names block_id '{}' which no block in                          this brain's skeleton holds — name a real block, or set                          synthetic:true for a smoke probe; nothing was appended",
+                        "unknown_block: the letter names block_id '{}' which no block in                          this brain's skeleton holds (and it is not this skeleton's own id) —                          name a real block, name the skeleton id for a skeleton-scoped                          mission, or set synthetic:true for a smoke probe; nothing was appended",
                         input.letter.block_id
                     ),
                 });
