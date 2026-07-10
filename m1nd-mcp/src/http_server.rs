@@ -337,10 +337,23 @@ pub fn spawn_background(
     };
 
     // AppState
-    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
-        runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-        Some(registry_root.clone()),
-    ));
+    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+    // F11-b: thread the naming facts (the announce registry + the OWNER runtime
+    // root, where runnerd.secret lives) into the bound session and every project
+    // brain this owner boots, so a `skeleton_candidate` scan can reach the live
+    // naming-runner from ANY hosted brain.
+    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
+        registry: runnerd.clone(),
+        owner_runtime_root: runtime_root.clone(),
+    };
+    session.lock().runnerd_naming = Some(naming_handle.clone());
+    let project_brains = Arc::new(
+        crate::project_brains::ProjectBrainRegistry::new(
+            runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            Some(registry_root.clone()),
+        )
+        .with_runnerd_naming(naming_handle),
+    );
     let app_state = Arc::new(AppState {
         session,
         tool_schemas_cache,
@@ -349,7 +362,7 @@ pub fn spawn_background(
         registry_dir: Some(registry_root),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+        runnerd,
     });
     {
         let session = app_state.session.lock();
@@ -496,10 +509,21 @@ pub async fn run(
     let event_log_path = event_log.map(std::path::PathBuf::from);
 
     // 6. Build shared AppState
-    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
-        owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-        config.registry_dir.clone(),
-    ));
+    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+    // F11-b: thread the naming facts into the bound session + every project brain
+    // (see the background-server construction above for the law).
+    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
+        registry: runnerd.clone(),
+        owner_runtime_root: owner_runtime_root.clone(),
+    };
+    session.lock().runnerd_naming = Some(naming_handle.clone());
+    let project_brains = Arc::new(
+        crate::project_brains::ProjectBrainRegistry::new(
+            owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            config.registry_dir.clone(),
+        )
+        .with_runnerd_naming(naming_handle),
+    );
     let app_state = Arc::new(AppState {
         session: session.clone(),
         tool_schemas_cache,
@@ -508,7 +532,7 @@ pub async fn run(
         registry_dir: config.registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+        runnerd,
     });
     {
         let session = app_state.session.lock();
@@ -1625,6 +1649,129 @@ async fn handle_mission_spawn(
     }
 }
 
+/// `POST /api/tools/candidate_naming` (F11-c §2b) — the in-screen "Name with
+/// runner" path, HTTP-only like `mission_spawn` (the browser never holds the
+/// shared secret; the owner reads it and signs the `/name` forward). Scoped to the
+/// RESOLVED brain: its store supplies the target blocks, its graph supplies the
+/// packet kinds/symbols. The heavy part (`name_candidate_blocks`: the blocking
+/// loopback call + the `candidate_edit` apply under the caller's OCC key, runner
+/// seat) runs on the blocking pool. Honest surfaces: read-only refuses; a stale
+/// OCC key conflicts BEFORE any runner is invoked; no live naming-runner returns
+/// the `no_naming_runner` refusal inside a 200 result (the screen disables the
+/// button with the why).
+async fn handle_candidate_naming(
+    state: &Arc<AppState>,
+    target_session: &Arc<Mutex<crate::session::SessionState>>,
+    body: serde_json::Value,
+) -> axum::response::Response {
+    const TOOL: &str = "candidate_naming";
+    let deny = |detail: String| m1nd_core::error::M1ndError::InvalidParams {
+        tool: TOOL.to_string(),
+        detail,
+    };
+
+    // Read-only attach: the naming apply is a write — refuse exactly like the
+    // dispatch gate would (the verb is on the deny-list).
+    if state.session.lock().read_only {
+        let e = deny(
+            "m1nd is attached read-only (--read-only); candidate_naming applies names through candidate_edit (a write) and is disabled. Detach or run a read-write instance."
+                .to_string(),
+        );
+        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CandidateNamingBody {
+        expected_store_version: u64,
+        #[serde(default)]
+        block_ids: Option<Vec<String>>,
+    }
+    let input: CandidateNamingBody = match serde_json::from_value(body) {
+        Ok(v) => v,
+        Err(e) => {
+            let e = deny(format!("invalid candidate_naming input: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+        }
+    };
+
+    // Under ONE session lock: the store dir, the naming handle, the current store
+    // version, and the packets (built from the store's blocks + the live graph).
+    let (dir, handle, store_version, packets) = {
+        let session = target_session.lock();
+        let dir = session.runtime_root.clone();
+        let handle = session.runnerd_naming.clone();
+        let store = match crate::system_blocks::SystemBlockStore::load(&dir) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                let e = deny(
+                    "no system-block store here yet — scan or import a seed before naming"
+                        .to_string(),
+                );
+                return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+            }
+            Err(err) => {
+                let e = deny(err.to_string());
+                return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+            }
+        };
+        let targets =
+            match crate::naming_runner::select_naming_targets(&store, input.block_ids.as_deref()) {
+                Ok(t) => t,
+                Err(err) => {
+                    let e = deny(err.to_string());
+                    return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+                }
+            };
+        let nodes = {
+            let graph = session.graph.read();
+            crate::skeleton_scan::graph_nodes_for_naming(&graph)
+        };
+        let packets: Vec<crate::naming_runner::BlockNamingPacket> = targets
+            .iter()
+            .map(|b| crate::skeleton_scan::naming_packet_for_store_block(b, &nodes))
+            .collect();
+        (dir, handle, store.store_version, packets)
+    };
+
+    // No announce surface on this owner → the honest refusal shape (never an
+    // exception: the screen reads it and says why the button is off).
+    let Some(handle) = handle else {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "result": {
+                "store_version": store_version,
+                "named": [],
+                "fell_back": [],
+                "refusal": "no_naming_runner: this owner has no runner-daemon announce surface",
+            }})),
+        )
+            .into_response();
+    };
+
+    // The blocking loopback call + the candidate_edit apply, off the async worker.
+    let expected = input.expected_store_version;
+    let joined = tokio::task::spawn_blocking(move || {
+        crate::naming_runner::name_candidate_blocks(&handle, &dir, expected, &packets)
+    })
+    .await;
+
+    match joined {
+        Ok(Ok(outcome)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "result": outcome })),
+        )
+            .into_response(),
+        Ok(Err(err)) => {
+            let e = deny(err.to_string());
+            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
+        }
+        Err(join_err) => {
+            let e = deny(format!("candidate_naming task failed: {join_err}"));
+            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
+        }
+    }
+}
+
 async fn handle_tool_call(
     State(state): State<Arc<AppState>>,
     Path(tool_name): Path<String>,
@@ -1648,6 +1795,14 @@ async fn handle_tool_call(
     // reads it and signs the forward. `mission_spawn` is on the read-only deny-list.
     if bare_tool_name(&tool_name) == "mission_spawn" {
         return handle_mission_spawn(&state, &served_echo, body).await;
+    }
+
+    // F11-c (§2b): `candidate_naming` is likewise HTTP-only — it needs the
+    // owner-process announce registry + the shared secret (never sent to the
+    // browser) + a blocking /name forward. Intercepted here, scoped to the RESOLVED
+    // brain (its store, its graph), so "Name with runner" works on any hosted brain.
+    if bare_tool_name(&tool_name) == "candidate_naming" {
+        return handle_candidate_naming(&state, &target_session, body).await;
     }
 
     // §4A.9.6: brain-scope the mutation event. When the caller selected a brain,

@@ -2612,14 +2612,14 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "skeleton_candidate",
-                "description": "Human View v2 F0c-a WRITE verb. Scans the bound repo graph and git-backed file list into a proposed candidate skeleton. Transaction law: absent store + expected_store_version:null creates a candidate store v1; candidate store + OCC replaces wholesale with heranca-zero (no receipts, fingerprints, resolved members, unmapped cache, or candidate_revision inheritance); ratified store + OCC writes only store.candidate_revision and leaves live blocks untouched. The emitted seed is complete; review_limit only bounds later UI review. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0c-a WRITE verb. Scans the bound repo graph and git-backed file list into a proposed candidate skeleton. Transaction law: absent store + expected_store_version:null creates a candidate store v1; candidate store + OCC replaces wholesale with heranca-zero (no receipts, fingerprints, resolved members, unmapped cache, or candidate_revision inheritance); ratified store + OCC writes only store.candidate_revision and leaves live blocks untouched. The emitted seed is complete; review_limit only bounds later UI review. F11-b zero-touch: with naming:auto and a LIVE announced naming-runner, blocks arrive runner-named (named_by:runner, needs_owner_naming:false — ratifiable without an individual touch); the report's naming block says honestly what was applied (runner / runner_partial / heuristic). Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": ["integer", "null"], "description": "OCC key. Null/absent is valid only when no SystemBlock store exists yet." },
                         "review_limit": { "type": "integer", "default": 16, "description": "Review queue hint for UI paging only; the backend emits every candidate block." },
-                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "F0c-a backend declares the runner hook but uses heuristic provisional naming; runner naming is F0c-b/F2.5c." }
+                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "auto (default) calls the pinned live naming-runner via the announced runner daemon (F11-b): one packet per block (member paths + dominant kinds + top symbols, no file bodies), per-block timeout, hostile-output sanitization (o5), per-block heuristic fallback — partial is normal; with no live runnerd the scan is exactly the offline heuristic behavior. heuristic skips the runner entirely." }
                     },
                     "required": ["agent_id"]
                 }
@@ -2720,6 +2720,66 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
+                "name": "candidate_edit",
+                "description": "Human View v2 F11-a WRITE verb. One typed batch of edits to a CANDIDATE skeleton under a single OCC transaction — never six loose verbs. Ops: rename (block_id, name?, purpose? — stamps provenance from the seat), merge (into, block_ids[] — unions membership with dedup, shared preserved, rewrites internal sockets to: the survivor, drops the absorbed), split (block_id, by.paths[[glob]] — partitions into N children with new stable ids by explicit, disjoint, total path groups), move_member (path, from, to), resolve_seam (path, resolution:\"both\"|\"primary:<block_id>\" — rewrites the member's role on ALL owners, 3+ supported), assign_unmapped (path, block_id). Atomicity is PREFLIGHT-ON-A-CLONE (o1): the whole batch AND every final invariant (no dangling socket, no empty block, no unresolved seam it created) is validated on a working copy before ANY persistence — the FIRST invalid op aborts with its index and NOTHING is applied; on full success the store is saved once and store_version bumps once. Merge canonicalization runs before any member op (o2): an op naming a block another op absorbs resolves to the survivor. Candidate-only (§1a): a ratified skeleton refuses every op (skeleton_not_candidate) — editing a signed boundary is a separate ceremony. Optimistic-concurrency: a stale expected_store_version rejects with a conflict; nothing is applied. The advisory lease is NEVER required. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
+                        "by": { "type": "string", "enum": ["owner", "runner"], "default": "owner", "description": "Authoring seat for rename provenance (§1c): owner (the GUI, default) stamps named_by:owner and clears needs_owner_naming; runner (an agent seat) stamps named_by:runner." },
+                        "ops": {
+                            "type": "array",
+                            "description": "The typed edit ops, applied as one atomic preflighted batch.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "op": { "type": "string", "enum": ["rename", "merge", "split", "move_member", "resolve_seam", "assign_unmapped"], "description": "The op tag." },
+                                    "block_id": { "type": "string", "description": "rename/split/assign_unmapped target block id." },
+                                    "name": { "type": "string", "description": "rename: the new name." },
+                                    "purpose": { "type": "string", "description": "rename: the new one-line purpose." },
+                                    "into": { "type": "string", "description": "merge: the surviving block id." },
+                                    "block_ids": { "type": "array", "items": { "type": "string" }, "description": "merge: the block ids absorbed into `into`." },
+                                    "by": { "type": "object", "description": "split: { paths: [[glob, ...], ...] } — the explicit, disjoint, total path groups (o3)." },
+                                    "path": { "type": "string", "description": "move_member/resolve_seam/assign_unmapped: the member path." },
+                                    "from": { "type": "string", "description": "move_member: the source block id." },
+                                    "to": { "type": "string", "description": "move_member: the destination block id." },
+                                    "resolution": { "type": "string", "description": "resolve_seam: \"both\" (keep on all owners as shared) or \"primary:<block_id>\" (that block owns it; removed from the others)." }
+                                },
+                                "required": ["op"]
+                            }
+                        }
+                    },
+                    "required": ["agent_id", "expected_store_version", "ops"]
+                }
+            },
+            {
+                "name": "candidate_lease",
+                "description": "Human View v2 F11-a WRITE verb — the ADVISORY curation lease (o4). A soft, non-blocking lease the F11 screen surfaces (\"a hand is curating candidate vN\"); it NEVER blocks the owner and NEVER bumps store_version, so it cannot invalidate a pending edit or trap the candidate behind a dead agent. `acquire` is an atomic compare-and-set on curating_by + expiry — granted iff the lease is free, expired, or already this agent's; `refresh` extends the TTL for the current holder only; `release` clears it for the current holder (a free release is an idempotent no-op). An expired lease (curating_until < now) is reclaimable by anyone. candidate_edit NEVER requires a held lease — the lease only warns. The owner process is the single serialization point. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "The agent holding/refreshing/releasing the lease. The lease is keyed on this identity." },
+                        "action": { "type": "string", "enum": ["acquire", "refresh", "release"], "description": "acquire (compare-and-set), refresh (extend, holder only), or release (clear, holder only)." },
+                        "ttl_secs": { "type": "integer", "description": "Lease lifetime in seconds for acquire/refresh; omit for the default (900s)." }
+                    },
+                    "required": ["agent_id", "action"]
+                }
+            },
+            {
+                "name": "candidate_naming",
+                "description": "Human View v2 F11-c WRITE verb — the in-screen 'Name with runner' path (§2b). The OWNER builds the naming packets for the requested candidate blocks (the same member-paths + dominant-kinds + top-symbols shape the scan sends, never file bodies), calls the announced runner daemon's /name (the shared secret stays owner-side — the browser never holds it), sanitizes the hostile output (o5), and applies the accepted names through ONE candidate_edit batch under the given OCC key with the RUNNER seat — provenance (named_by:runner, needs_owner_naming:false) and OCC hold; the store is never rewritten outside the verb. block_ids absent = every block still needing a name. Returns {store_version, named, fell_back, refusal?}: partial is normal; with no live naming-runner the call returns the honest no_naming_runner refusal and touches nothing. HTTP-ONLY (like mission_spawn): it needs owner-process state (the announce registry + the secret) — the sync MCP dispatch refuses with a redirect to POST /api/tools/candidate_naming. Mutation — refused under a read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the call with a conflict BEFORE any runner is invoked; nothing is applied." },
+                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "The blocks to name. Omit to name every block still carrying an untouched provisional name (needs_owner_naming). An unknown id is a hard error." }
+                    },
+                    "required": ["agent_id", "expected_store_version"]
+                }
+            },
+            {
                 "name": "mission_post",
                 "description": "Human View v2 F2.5a WRITE verb. Appends one mission letter (schema `m1nd-mission-letter-v0`) to the bound brain's mailbox box as a `kind=mission` line, after the §1 contract gates all pass. Gates, in order: (1) schema + `mission_id` shape (`msn_<12hex>`) + `mission_seq>=1` + the §1f no-absolute-path guard on `brain_ref`; (2) per-phase field gating — `executing` carries NO verdict, `merge_wait` REQUIRES a gate, and the §1d LANDED LAW: `landed` REQUIRES `receipt.imported==true` with a real `store_version` (a zero-exit gate WITHOUT an imported receipt is `merge_wait`, never `landed`); (3) a `receipt_candidate`, when present, is complete (`artifact_hash`+`evidence_refs`); (4) the §1e HEAD CAS — the mission's letters form a content-hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id; a letter that does not extend the current head is REJECTED with `stale_head` and NOTHING is appended. An identical replay dedups by content id (idempotent). The letter is STATE, not evidence — it NEVER changes a block's color (that is `receipt_import`'s job alone). Returns the appended letter's `letter_id` (set it as the next letter's `prev_letter_id`). Mutation — refused under a read-only attach.",
                 "inputSchema": {
@@ -2804,6 +2864,16 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "system_blocks_reconcile",
     "system_blocks_archive",
     "system_blocks_delete",
+    // HUMAN VIEW v2 F11-a: candidate_edit persists a preflighted batch of boundary
+    // edits (one store write + one version bump); candidate_lease persists the
+    // advisory curation lease. Both mutate the store on disk, so a read-only attach
+    // must refuse them.
+    "candidate_edit",
+    "candidate_lease",
+    // HUMAN VIEW v2 F11-c: candidate_naming applies runner names through a
+    // candidate_edit batch (a store write). HTTP-only (like mission_spawn), but the
+    // read-only law + the tool surface stay consistent here.
+    "candidate_naming",
     // HUMAN VIEW v2 F2.5a: mission_post appends a mission letter to the box on
     // disk (a mailbox write), so a read-only attach must refuse it. The
     // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
@@ -4387,6 +4457,16 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::system_blocks_handlers::handle_system_blocks_delete(state, input)
         }
+        "candidate_edit" => {
+            let input: crate::system_blocks_handlers::CandidateEditInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_candidate_edit(state, input)
+        }
+        "candidate_lease" => {
+            let input: crate::system_blocks_handlers::CandidateLeaseInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::system_blocks_handlers::handle_candidate_lease(state, input)
+        }
         // HUMAN VIEW v2 F2.5a — the mission-letter write verb (§2c).
         "mission_post" => {
             let input: crate::mission_letter_handlers::MissionPostInput =
@@ -4403,6 +4483,16 @@ fn dispatch_core_tool(
             tool: "mission_spawn".to_string(),
             detail:
                 "mission_spawn is an HTTP-only proxy verb — call it via `POST /api/tools/mission_spawn` on the owner (it forwards to the runner daemon with the shared secret the browser never holds)"
+                    .to_string(),
+        }),
+        // HUMAN VIEW v2 F11-c — candidate_naming (§2b) is likewise HTTP-only: it
+        // needs the owner-process announce registry + the shared secret + the
+        // /name forward, none of which this sync dispatch sees. An MCP-stdio
+        // caller gets an honest redirect, never a silent failure.
+        "candidate_naming" => Err(M1ndError::InvalidParams {
+            tool: "candidate_naming".to_string(),
+            detail:
+                "candidate_naming is an HTTP-only verb — call it via `POST /api/tools/candidate_naming` on the owner (it calls the runner daemon's /name with the shared secret the browser never holds, then applies the names through candidate_edit)"
                     .to_string(),
         }),
         "impact" => {
@@ -5951,6 +6041,11 @@ mod tests {
             "system_blocks_reconcile",
             "system_blocks_archive",
             "system_blocks_delete",
+            // F11-a: the candidate_edit batch verb + the advisory lease verb.
+            "candidate_edit",
+            "candidate_lease",
+            // F11-c: the Name-with-runner route (a candidate_edit write inside).
+            "candidate_naming",
             // F2.5a: the mission-letter write verb.
             "mission_post",
             // F2.5c: the mission_spawn proxy (a write — it launches a mission).
@@ -6095,6 +6190,52 @@ mod tests {
         )
         .expect("a real block posts");
         let _ = &temp;
+    }
+
+    #[test]
+    fn candidate_edit_and_lease_are_wired_through_dispatch() {
+        let (_temp, mut state) = build_state();
+        // Import the real (ratified) seed -> store_version 1.
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        let imp = super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": seed}),
+        )
+        .expect("seed_import ok");
+        assert_eq!(imp["store_version"], 1);
+
+        // candidate_edit routes through dispatch, the ops parse from tagged JSON, and
+        // the §1a candidate-only gate fires on the ratified skeleton.
+        let err = super::dispatch_tool(
+            &mut state,
+            "candidate_edit",
+            &serde_json::json!({
+                "agent_id": "t",
+                "expected_store_version": 1,
+                "ops": [{"op": "rename", "block_id": "sb_any", "name": "X"}]
+            }),
+        )
+        .expect_err("a ratified skeleton refuses candidate_edit");
+        assert!(
+            err.to_string().contains("skeleton_not_candidate"),
+            "unexpected: {err}"
+        );
+
+        // candidate_lease acquire is wired and returns the advisory lease state (the
+        // lease is independent of skeleton state and never bumps store_version).
+        let lease = super::dispatch_tool(
+            &mut state,
+            "candidate_lease",
+            &serde_json::json!({"agent_id": "agentA", "action": "acquire"}),
+        )
+        .expect("lease acquires");
+        assert_eq!(lease["state"], "acquired");
+        assert_eq!(lease["curating_by"], "agentA");
+        assert_eq!(
+            lease["store_version"], 1,
+            "the lease does not bump the OCC counter"
+        );
     }
 
     #[test]
@@ -6248,6 +6389,25 @@ mod tests {
         assert!(
             err.to_string().contains("HTTP-only")
                 && err.to_string().contains("/api/tools/mission_spawn"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn candidate_naming_dispatch_is_http_only_redirect() {
+        // F11-c mirrors the mission_spawn law: the sync MCP dispatch never runs the
+        // naming route (it needs the announce registry + the shared secret + the
+        // /name forward); an MCP-stdio caller gets an honest redirect.
+        let (_temp, mut state) = build_state();
+        let err = super::dispatch_tool(
+            &mut state,
+            "candidate_naming",
+            &serde_json::json!({"agent_id": "gui", "expected_store_version": 1}),
+        )
+        .expect_err("candidate_naming is HTTP-only over MCP dispatch");
+        assert!(
+            err.to_string().contains("HTTP-only")
+                && err.to_string().contains("/api/tools/candidate_naming"),
             "unexpected: {err}"
         );
     }

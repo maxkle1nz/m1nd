@@ -144,6 +144,11 @@ pub struct NamingReport {
 pub struct SkeletonScanOutput {
     pub seed: SeedFile,
     pub report: SkeletonScanReport,
+    /// F11-b: one naming packet per emitted block (member paths + dominant kinds +
+    /// top symbols, NEVER file bodies) — what the handler sends to a live
+    /// naming-runner. Internal to the scan→naming pipeline; not part of the verb's
+    /// JSON output.
+    pub naming_packets: Vec<crate::naming_runner::BlockNamingPacket>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -331,8 +336,26 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
 
     let socket_pairs = aggregate_sockets(&input, &path_to_blocks);
 
+    // F11-b: symbol names per member file — for the naming packets. One pass over
+    // the nodes; a symbol is the external-id tail after `file::<path>::` (a pure
+    // file node has no tail and contributes no symbol). No file bodies, ever.
+    let mut symbols_by_path: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for node in &input.nodes {
+        if let Some(rest) = node.external_id.strip_prefix("file::") {
+            if let Some((path, tail)) = rest.split_once("::") {
+                if !path.trim().is_empty() && !tail.trim().is_empty() {
+                    symbols_by_path
+                        .entry(path.replace('\\', "/"))
+                        .or_default()
+                        .insert(tail.to_string());
+                }
+            }
+        }
+    }
+
     let mut blocks = Vec::new();
     let mut block_reports = Vec::new();
+    let mut naming_packets = Vec::new();
     let mut claimed_files = BTreeSet::new();
     for key in groups.keys().cloned().collect::<Vec<_>>() {
         let group = groups.get(&key).expect("group exists");
@@ -397,6 +420,31 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
             pre_archive_state: None,
             candidate_meta: Some(meta.clone()),
         };
+        // F11-b: the block's naming packet — capped member paths (the honest total
+        // rides beside them), dominant kinds, and top symbols under its files.
+        let top_symbols: Vec<String> = group
+            .members
+            .keys()
+            .filter_map(|path| symbols_by_path.get(path))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .take(crate::naming_runner::PACKET_SYMBOLS_CAP)
+            .collect();
+        naming_packets.push(crate::naming_runner::BlockNamingPacket {
+            block_id: block_id.clone(),
+            member_count: group.members.len(),
+            member_paths: group
+                .members
+                .keys()
+                .take(crate::naming_runner::PACKET_MEMBER_PATHS_CAP)
+                .cloned()
+                .collect(),
+            dominant_kinds: dominant_kinds_for_group(group, &input.nodes),
+            top_symbols,
+            dominant_directory: dominant_directory.clone(),
+        });
         block_reports.push(CandidateBlockReport {
             block_id,
             name,
@@ -475,7 +523,11 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
         naming,
     };
 
-    SkeletonScanOutput { seed, report }
+    SkeletonScanOutput {
+        seed,
+        report,
+        naming_packets,
+    }
 }
 
 pub fn scan_input_from_graph(
@@ -534,6 +586,91 @@ pub fn scan_input_from_graph(
         nodes,
         assignments,
         edges,
+    }
+}
+
+/// F11-c: just the graph's node view (external ids + kinds) — what the
+/// `candidate_naming` route needs to build packets for STORE blocks without the
+/// full scan input (no file list, no Louvain, no edges).
+pub(crate) fn graph_nodes_for_naming(graph: &Graph) -> Vec<SkeletonGraphNode> {
+    let n = graph.num_nodes() as usize;
+    let node_to_ext = node_to_external_ids(graph);
+    (0..n)
+        .map(|i| SkeletonGraphNode {
+            external_id: node_to_ext.get(i).cloned().unwrap_or_default(),
+            kind: graph.nodes.node_type[i],
+        })
+        .collect()
+}
+
+/// F11-c: a naming packet for a STORE block (the `candidate_naming` route) — the
+/// same packet shape the scan emits (§2a: member paths + dominant kinds + top
+/// symbols, never file bodies), built from the block's stored membership. Member
+/// paths prefer the reconcile cache (`resolved_members`, real files) and fall back
+/// to the declared membership (which may carry globs — still honest naming
+/// context). Graph nodes are matched against exact members or glob members.
+pub(crate) fn naming_packet_for_store_block(
+    block: &SystemBlock,
+    nodes: &[SkeletonGraphNode],
+) -> crate::naming_runner::BlockNamingPacket {
+    let member_paths_full: Vec<String> = if block.resolved_members.is_empty() {
+        block.membership.iter().map(|e| e.path.clone()).collect()
+    } else {
+        block.resolved_members.clone()
+    };
+    let exact: BTreeSet<&str> = member_paths_full
+        .iter()
+        .filter(|p| !crate::system_blocks::is_glob_pattern(p))
+        .map(|p| p.as_str())
+        .collect();
+    let globs: Vec<glob::Pattern> = member_paths_full
+        .iter()
+        .filter(|p| crate::system_blocks::is_glob_pattern(p))
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+
+    let mut kind_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut symbols: BTreeSet<String> = BTreeSet::new();
+    for node in nodes {
+        let Some(rest) = node.external_id.strip_prefix("file::") else {
+            continue;
+        };
+        let (path, tail) = match rest.split_once("::") {
+            Some((p, t)) => (p.replace('\\', "/"), Some(t)),
+            None => (rest.replace('\\', "/"), None),
+        };
+        let claimed = exact.contains(path.as_str()) || globs.iter().any(|pat| pat.matches(&path));
+        if !claimed {
+            continue;
+        }
+        *kind_counts.entry(node_type_label(node.kind)).or_default() += 1;
+        if let Some(t) = tail {
+            if !t.trim().is_empty() {
+                symbols.insert(t.to_string());
+            }
+        }
+    }
+    let mut kind_pairs: Vec<_> = kind_counts.into_iter().collect();
+    kind_pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+    crate::naming_runner::BlockNamingPacket {
+        block_id: block.block_id.clone(),
+        member_count: member_paths_full.len(),
+        member_paths: member_paths_full
+            .iter()
+            .take(crate::naming_runner::PACKET_MEMBER_PATHS_CAP)
+            .cloned()
+            .collect(),
+        dominant_kinds: kind_pairs
+            .into_iter()
+            .take(3)
+            .map(|(kind, _)| kind.to_string())
+            .collect(),
+        top_symbols: symbols
+            .into_iter()
+            .take(crate::naming_runner::PACKET_SYMBOLS_CAP)
+            .collect(),
+        dominant_directory: dominant_directory(member_paths_full.iter()),
     }
 }
 
@@ -1225,7 +1362,7 @@ fn extension(path: &str) -> String {
         .unwrap_or_else(|| "no_ext".to_string())
 }
 
-fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
+pub(crate) fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for path in paths {
         *counts.entry(top_dir(path)).or_default() += 1;
@@ -1237,7 +1374,7 @@ fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-fn directory_support<'a>(paths: impl Iterator<Item = &'a String>) -> f64 {
+pub(crate) fn directory_support<'a>(paths: impl Iterator<Item = &'a String>) -> f64 {
     let mut total = 0usize;
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for path in paths {
@@ -1288,7 +1425,7 @@ fn humanize_path(path: &str) -> String {
 /// Human label for a directory module. Uses the leaf directory, but when that
 /// leaf is a generic source folder it borrows the parent for context, so a repo
 /// full of `src/` modules does not collapse into a wall of identical "Src".
-fn humanize_module(dir: &str) -> String {
+pub(crate) fn humanize_module(dir: &str) -> String {
     let parts: Vec<&str> = dir
         .split('/')
         .filter(|part| !part.is_empty() && *part != ".")

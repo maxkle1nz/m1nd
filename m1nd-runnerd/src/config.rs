@@ -21,6 +21,10 @@ pub const PACKET_FILE_TOKEN: &str = "{packet_file}";
 /// The default per-mission timeout (§5b/§B.4): 30 minutes.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 1800;
 
+/// The default per-BLOCK timeout for the F11-b `/name` naming lane: 20 seconds.
+/// Naming is the cheap/fast lane — a hung runner must not hold a batch hostage.
+pub const DEFAULT_NAMING_TIMEOUT_SECS: u64 = 20;
+
 /// The parsed `runners.toml` (§5a) — a list of pinned runners.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunnersConfig {
@@ -49,10 +53,19 @@ pub struct RunnerDef {
     /// Per-mission kill timeout in seconds (§5b, default 30 min).
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+    /// Per-BLOCK timeout for the F11-b `/name` naming lane in seconds (default 20).
+    /// Distinct from `timeout_secs` on purpose: naming is a synchronous per-block
+    /// call, never a 30-minute mission.
+    #[serde(default = "default_naming_timeout")]
+    pub naming_timeout_secs: u64,
 }
 
 fn default_timeout() -> u64 {
     DEFAULT_TIMEOUT_SECS
+}
+
+fn default_naming_timeout() -> u64 {
+    DEFAULT_NAMING_TIMEOUT_SECS
 }
 
 impl RunnerDef {
@@ -135,28 +148,36 @@ pub fn validate(cfg: &RunnersConfig) -> Result<(), ConfigError> {
         }
         seen.push(r.id.as_str());
 
-        if let Err(detail) = parse_capability(&r.capability) {
-            return Err(field("capability", &detail));
-        }
+        let capability = match parse_capability(&r.capability) {
+            Ok(c) => c,
+            Err(detail) => return Err(field("capability", &detail)),
+        };
+        // F11-b: a naming-runner serves the synchronous `/name` lane — no worktree,
+        // no gate, no mission — so the mission-lane requirements relax for it: the
+        // `{packet_file}` token is OPTIONAL (the packet arrives on stdin; the token,
+        // when present, is substituted with a temp packet file), and `gate_command`/
+        // `workspace_allowlist` are OPTIONAL (they gate `/run` missions, which a
+        // pure naming runner never serves — an empty allowlist refuses every `/run`).
+        let is_naming = capability == Capability::NamingRunner;
         if r.command.is_empty() {
             return Err(field(
                 "command",
                 "must name the agent CLI (at least one element)",
             ));
         }
-        if !r.command.iter().any(|a| a.contains(PACKET_FILE_TOKEN)) {
+        if !is_naming && !r.command.iter().any(|a| a.contains(PACKET_FILE_TOKEN)) {
             return Err(field(
                 "command",
                 "must contain the `{packet_file}` token — the daemon writes the packet into the worktree and splices its path here",
             ));
         }
-        if r.gate_command.is_empty() {
+        if !is_naming && r.gate_command.is_empty() {
             return Err(field(
                 "gate_command",
                 "must name the gate the daemon runs after the agent exits (§5c)",
             ));
         }
-        if r.workspace_allowlist.is_empty() {
+        if !is_naming && r.workspace_allowlist.is_empty() {
             return Err(field(
                 "workspace_allowlist",
                 "must list at least one absolute repo root this runner may run in (§5a)",
@@ -174,6 +195,9 @@ pub fn validate(cfg: &RunnersConfig) -> Result<(), ConfigError> {
         }
         if r.timeout_secs == 0 {
             return Err(field("timeout_secs", "must be greater than zero"));
+        }
+        if r.naming_timeout_secs == 0 {
+            return Err(field("naming_timeout_secs", "must be greater than zero"));
         }
     }
     Ok(())
@@ -349,6 +373,73 @@ workspace_allowlist = ["/abs"]
         assert!(matches!(
             parse(dup).unwrap_err(),
             ConfigError::DuplicateId(_)
+        ));
+    }
+
+    #[test]
+    fn naming_runner_relaxations_and_per_block_timeout() {
+        // F11-b: a MINIMAL naming runner — command only. The /name lane reads the
+        // packet from stdin (no {packet_file}), runs no gate, and touches no
+        // workspace, so those mission-lane fields are optional for this capability.
+        let minimal = r#"
+[[runner]]
+id = "namer-min"
+capability = "naming-runner"
+command = ["my-namer"]
+"#;
+        let cfg = parse(minimal).expect("a minimal naming runner is valid (F11-b)");
+        assert_eq!(
+            cfg.runners[0].naming_timeout_secs, DEFAULT_NAMING_TIMEOUT_SECS,
+            "the per-block naming timeout defaults to 20s"
+        );
+        assert!(cfg.runners[0].gate_command.is_empty());
+        assert!(cfg.runners[0].workspace_allowlist.is_empty());
+
+        // The relaxation NEVER reaches a build-runner: the mission-lane
+        // requirements (token/gate/allowlist) still bind it.
+        let build_no_token = r#"
+[[runner]]
+id = "b"
+capability = "build-runner"
+command = ["agent-cli"]
+gate_command = ["t"]
+workspace_allowlist = ["/abs"]
+"#;
+        assert!(
+            parse(build_no_token).is_err(),
+            "a build-runner still requires the packet_file token"
+        );
+
+        // A zero per-block naming timeout is refused honestly by field.
+        let zero = r#"
+[[runner]]
+id = "namer-zero"
+capability = "naming-runner"
+command = ["my-namer"]
+naming_timeout_secs = 0
+"#;
+        assert!(matches!(
+            parse(zero).unwrap_err(),
+            ConfigError::Field {
+                field: "naming_timeout_secs",
+                ..
+            }
+        ));
+
+        // A naming runner with an allowlist still has its entries validated.
+        let rel_allowlist = r#"
+[[runner]]
+id = "namer-rel"
+capability = "naming-runner"
+command = ["my-namer"]
+workspace_allowlist = ["not/absolute"]
+"#;
+        assert!(matches!(
+            parse(rel_allowlist).unwrap_err(),
+            ConfigError::Field {
+                field: "workspace_allowlist",
+                ..
+            }
         ));
     }
 

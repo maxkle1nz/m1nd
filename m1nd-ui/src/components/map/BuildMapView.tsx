@@ -1,9 +1,12 @@
 /*
- * BuildMapView — the 'map' surface (HUMAN-VIEW-V2 F1/F3b). Wires useBuildMap and
- * maps its status onto the screens: loading (§1.3), error + Retry (§1.3), and the
- * map or the honest empty screen (delegated to BuildMap). The surface is read-only
- * BY DEFAULT; the ONE write it offers is the reconcile gesture (F3b §D) — it owns
- * the write call, the honest toast, and the reload that re-renders the new truth.
+ * BuildMapView — the 'map' surface (HUMAN-VIEW-V2 F1/F3b/F0c/F11-c). Wires
+ * useBuildMap and maps its status onto the screens: loading (§1.3), error + Retry
+ * (§1.3), and the map or the honest empty screen (delegated to BuildMap). The
+ * surface is read-only BY DEFAULT; every write it offers is owned HERE — the
+ * reconcile gesture (F3b), the scan (F0c), and the F11 editor's gesture batches
+ * (`candidate_edit`), the Name-with-runner route (`candidate_naming`) and the
+ * ratify (all / selected). Each write is OCC-keyed on the store_version this
+ * surface read; success and conflicts reload (never a silent merge).
  */
 import { useCallback, useState } from 'react';
 import { api } from '../../api/client';
@@ -14,7 +17,15 @@ import {
   runScan,
   type ReconcileToast,
 } from '../../lib/buildMap';
+import {
+  runCandidateEdit,
+  runCandidateNaming,
+  type EditOpInput,
+} from '../../lib/candidateEdit';
+import { composeCurationPacket } from '../../lib/curation';
+import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
+import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import BuildMap from './BuildMap';
 import ReviewRatify from './ReviewRatify';
 
@@ -25,8 +36,8 @@ export interface BuildMapViewProps {
   enabled?: boolean;
   /** §4A.9 — the brain this map reads. `null`/absent = the bound brain (F1
    *  behavior, byte-compatible); a hosted project root routes every read AND the
-   *  reconcile write through the `?brain=` selector, so a multi-brain owner shows
-   *  the skeleton of the brain the human is actually viewing. */
+   *  writes through the `?brain=` selector, so a multi-brain owner shows the
+   *  skeleton of the brain the human is actually viewing. */
   brainRoot?: string | null;
   /** F2.5 §3b — the block a mission-tray card asked to open. Seeds (and re-seeds)
    *  the map's selection so the human lands on the named block. */
@@ -42,22 +53,21 @@ export default function BuildMapView({
   const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot);
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
-  // F0c §5 — the scan gesture (empty state) and the Review-&-ratify walk. The write
-  // owner runs `skeleton_candidate` / `system_blocks_ratify`, owns the honest toasts,
-  // and reloads. The accept set is owned here so the blanket ratify is a real write
-  // gated on the owner having reviewed each provisional name.
+  // F0c §5 — the scan gesture; F11-c — the editor. The write owner runs the
+  // verbs, owns the honest toasts, and reloads.
   const [scanning, setScanning] = useState(false);
   const [scanToast, setScanToast] = useState<ReconcileToast | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [acceptedIds, setAcceptedIds] = useState<ReadonlySet<string>>(new Set());
   const [ratifying, setRatifying] = useState(false);
   const [ratifyToast, setRatifyToast] = useState<ReconcileToast | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [naming, setNaming] = useState(false);
+  // §2b: the runner-daemon liveness read — polled only while the editor is open
+  // (the Name-with-runner button un-disables; a disabled button says why, §4d).
+  const runnerd = useRunnerdStatus(reviewOpen);
 
   // The reconcile gesture (F3b §D): OCC-key on the store_version we read, run the
   // write, and reduce it to a toast + reload decision (the pure `runReconcile`).
-  // Success and conflict reload the snapshot (the map re-renders on the new truth);
-  // a read-only/error refusal informs without a silent retry. Guarded against a
-  // double-run while one is in flight.
   const handleReconcile = useCallback(async () => {
     if (reconciling) return;
     const version = snapshot?.store?.store_version ?? snapshot?.store_version;
@@ -79,8 +89,7 @@ export default function BuildMapView({
 
   // The scan gesture (F0c §5): OCC-key on the store_version we read (null on the
   // first scan — no store yet), run `skeleton_candidate` with naming:"auto", and
-  // reduce it to a toast + reload (the pure `runScan`). Success reloads into the
-  // candidate dress; a fresh candidate supersedes any prior acceptances.
+  // reduce it to a toast + reload (the pure `runScan`).
   const handleScan = useCallback(async () => {
     if (scanning) return;
     const version = snapshot?.store?.store_version ?? snapshot?.store_version ?? null;
@@ -91,10 +100,7 @@ export default function BuildMapView({
         version,
       );
       setScanToast(t);
-      if (shouldReload) {
-        setAcceptedIds(new Set());
-        reload();
-      }
+      if (shouldReload) reload();
     } finally {
       setScanning(false);
     }
@@ -102,20 +108,53 @@ export default function BuildMapView({
 
   const dismissScanToast = useCallback(() => setScanToast(null), []);
 
-  // Toggle a block's owner-acceptance (the §5 owner touch — local review state).
-  const handleAccept = useCallback((blockId: string) => {
-    setAcceptedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(blockId)) next.delete(blockId);
-      else next.add(blockId);
-      return next;
-    });
-  }, []);
+  // F11-c §4b — ONE gesture batch through `candidate_edit`, OCC-keyed on the
+  // version this surface read. Success/conflict reload; a refusal informs.
+  const handleApplyOps = useCallback(
+    async (ops: EditOpInput[]) => {
+      if (applying || ops.length === 0) return;
+      const version = snapshot?.store?.store_version ?? snapshot?.store_version;
+      if (version == null) return;
+      setApplying(true);
+      try {
+        const { toast: t, shouldReload } = await runCandidateEdit(
+          () => api.candidateEdit({ expectedStoreVersion: version, ops }, brainRoot),
+          version,
+        );
+        setRatifyToast(t);
+        if (shouldReload) reload();
+      } finally {
+        setApplying(false);
+      }
+    },
+    [applying, snapshot, reload, brainRoot],
+  );
 
-  // The blanket ratify (F0c §5): OCC-key on the store_version we read, run
-  // `system_blocks_ratify` (block_ids omitted = every block), and reduce it to a
-  // toast + reload. Success reloads the ratified map, closes the walk, and clears the
-  // accept set; a conflict reloads (the store moved); a read-only/error keeps the walk.
+  // F11-c §2b — "Name with runner": absent ids = every provisional block. The
+  // route refuses honestly without a live naming-runner; partial is normal.
+  const handleNameWithRunner = useCallback(
+    async (blockIds?: string[]) => {
+      if (naming) return;
+      const version = snapshot?.store?.store_version ?? snapshot?.store_version;
+      if (version == null) return;
+      setNaming(true);
+      try {
+        const { toast: t, shouldReload } = await runCandidateNaming(
+          () => api.candidateNaming({ expectedStoreVersion: version, blockIds }, brainRoot),
+          version,
+        );
+        setRatifyToast(t);
+        if (shouldReload) reload();
+      } finally {
+        setNaming(false);
+      }
+    },
+    [naming, snapshot, reload, brainRoot],
+  );
+
+  // The blanket ratify (F0c §5 / F11): `system_blocks_ratify`, block_ids omitted.
+  // The o6 provenance gate is server law — an untouched heuristic block refuses
+  // honestly and the toast says so.
   const handleRatifyAll = useCallback(async () => {
     if (ratifying) return;
     const version = snapshot?.store?.store_version ?? snapshot?.store_version;
@@ -128,10 +167,7 @@ export default function BuildMapView({
       );
       setRatifyToast(t);
       if (shouldReload) {
-        if (t.kind === 'ok') {
-          setReviewOpen(false);
-          setAcceptedIds(new Set());
-        }
+        if (t.kind === 'ok') setReviewOpen(false);
         reload();
       }
     } finally {
@@ -139,9 +175,84 @@ export default function BuildMapView({
     }
   }, [ratifying, snapshot, reload, brainRoot]);
 
+  // F11-c: "Ratify selected only" — the same verb, scoped to one block id.
+  const handleRatifySelected = useCallback(
+    async (blockId: string) => {
+      if (ratifying) return;
+      const version = snapshot?.store?.store_version ?? snapshot?.store_version;
+      if (version == null) return;
+      setRatifying(true);
+      try {
+        const { toast: t, shouldReload } = await runRatify(
+          () =>
+            api.systemBlocksRatify(
+              { expectedStoreVersion: version, ratifier: 'gui', blockIds: [blockId] },
+              brainRoot,
+            ),
+          version,
+        );
+        setRatifyToast(t);
+        if (shouldReload) reload();
+      } finally {
+        setRatifying(false);
+      }
+    },
+    [ratifying, snapshot, reload, brainRoot],
+  );
+
   const dismissRatifyToast = useCallback(() => setRatifyToast(null), []);
   const openReview = useCallback(() => setReviewOpen(true), []);
   const closeReview = useCallback(() => setReviewOpen(false), []);
+
+  // F11-c §3a — "Send to an agent for curation": compose the curation packet
+  // (pure) and dispatch through the EXISTING direct path — a seq-1 `judging`
+  // letter (capability `hand-runner`, the honest lane intent) + the packet on
+  // the clipboard for the human to paste into the agent. Delivery is not
+  // execution; a curation SPAWN waits for the hand-runner capability (refused
+  // in the MVP, F2.5 §5e). The letter's block_id anchors the whole-skeleton
+  // mission to the skeleton id.
+  const [sendingCuration, setSendingCuration] = useState(false);
+  const [curationResult, setCurationResult] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
+  const handleSendCuration = useCallback(async () => {
+    if (sendingCuration) return;
+    const store = snapshot?.present ? snapshot.store ?? null : null;
+    if (!store) return;
+    const repoId = repoIdFromSkeletonId(store.skeleton.skeleton_id);
+    const markdown = composeCurationPacket({ store, repoId });
+    setSendingCuration(true);
+    setCurationResult(null);
+    try {
+      const res = await sendDirectPacket(
+        {
+          markdown,
+          blockId: store.skeleton.skeleton_id,
+          brainRef: repoId ?? 'brain',
+          seat: 'oracle',
+          capability: 'hand-runner',
+        },
+        {
+          postMission: (letter) => api.missionPost(letter, brainRoot),
+          writeClipboard:
+            typeof navigator !== 'undefined' && navigator.clipboard
+              ? (text) => navigator.clipboard.writeText(text)
+              : undefined,
+        },
+      );
+      setCurationResult({
+        ok: true,
+        message: `curation letter posted (${res.outcome.mission_id}, seq ${res.outcome.mission_seq})${
+          res.clipboardCopied ? ' — the packet is on your clipboard, paste it into your agent' : ''
+        }`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCurationResult({ ok: false, message });
+    } finally {
+      setSendingCuration(false);
+    }
+  }, [sendingCuration, snapshot, brainRoot]);
 
   if (status === 'loading') {
     return (
@@ -171,8 +282,8 @@ export default function BuildMapView({
   }
 
   // ready | empty — BuildMap renders the canvas or the honest empty screen; the
-  // Review-&-ratify walk (F0c §5) mounts as an overlay when the human opens it on a
-  // candidate store (the owner holds the accept set + runs the ratify write).
+  // Edit-Names-&-Boundaries screen (F11-c) mounts as an overlay on a candidate
+  // store (this owner posts the gesture batches + the ratify writes).
   const store = snapshot?.present ? snapshot.store ?? null : null;
   return (
     <>
@@ -191,14 +302,21 @@ export default function BuildMapView({
         scanToast={scanToast}
         onDismissScanToast={dismissScanToast}
         onReview={openReview}
+        onSendCuration={handleSendCuration}
+        sendingCuration={sendingCuration}
+        curationResult={curationResult}
       />
       {reviewOpen && store && (
         <ReviewRatify
           store={store}
           repoId={repoIdFromSkeletonId(store.skeleton.skeleton_id)}
-          acceptedIds={acceptedIds}
-          onAccept={handleAccept}
+          onApplyOps={handleApplyOps}
+          applying={applying}
+          onNameWithRunner={handleNameWithRunner}
+          naming={naming}
+          runnerAvailable={runnerd.available}
           onRatifyAll={handleRatifyAll}
+          onRatifySelected={handleRatifySelected}
           ratifying={ratifying}
           ratifyToast={ratifyToast}
           onDismissToast={dismissRatifyToast}

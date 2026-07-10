@@ -22,6 +22,7 @@ use clap::Parser;
 use m1nd_mcp::runnerd_owner::{secret_matches, RUNNERD_SECRET_HEADER};
 use m1nd_runnerd::config::{self, RunnersConfig};
 use m1nd_runnerd::mission::{self, EngineOpts, RunRequest};
+use m1nd_runnerd::naming::{self, NameRequest};
 use m1nd_runnerd::owner::HttpOwnerClient;
 
 /// The runner daemon CLI (§5). `--runtime-dir` MUST match the owner's — the shared
@@ -122,6 +123,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/run", post(handle_run))
+        .route("/name", post(handle_name))
         .with_state(state);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], cli.port));
@@ -132,7 +134,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("[m1nd-runnerd] serving /run on http://{addr}");
+    eprintln!("[m1nd-runnerd] serving /run + /name on http://{addr}");
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("[m1nd-runnerd] server error: {e}");
         std::process::exit(1);
@@ -229,4 +231,36 @@ async fn handle_run(
         })),
     )
         .into_response()
+}
+
+/// `POST /name` (F11-b §2a) — the SYNCHRONOUS naming lane. Unlike `/run` this is
+/// not a mission: no worktree, no gate, no letters, and the daemon never writes a
+/// store. The transport-free heart ([`naming::handle_name_request`]) authenticates
+/// the shared secret (401 bare), resolves the pinned naming-runner (403 with the
+/// honest keyword), runs the pinned command once per block (stdin = the packet,
+/// per-block timeout, bounded parallelism), and answers per-block results —
+/// partial is normal. The commands run in the runtime root (no repo is touched).
+async fn handle_name(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+    Json(req): Json<NameRequest>,
+) -> axum::response::Response {
+    let provided = headers
+        .get(RUNNERD_SECRET_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let (status, body) = naming::handle_name_request(
+        &state.config,
+        &state.secret,
+        provided,
+        &req,
+        &state.runtime_root,
+    )
+    .await;
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    if status == StatusCode::UNAUTHORIZED {
+        // The secret refusal is BARE, exactly like /run (§5a).
+        return status.into_response();
+    }
+    (status, Json(body)).into_response()
 }

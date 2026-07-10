@@ -165,61 +165,101 @@ test('objection 10: the candidate banner offers "Review & ratify", not a blanket
   assert.match(visible(<BuildMap snapshot={snap} rollup={rollup} onReview={noop} />), /Review & ratify/);
 });
 
-// ── the Review-&-ratify walk (§5) ─────────────────────────────────────────────
+test('F11-c §3a: the banner offers the curation dispatch and surfaces its honest outcome', () => {
+  const store = candStore([mid]);
+  const snap: SystemBlocksSnapshot = { present: true, store_version: 2, block_count: 1, store };
+  const rollup = rollupStore(store);
+  const out = html(
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} />,
+  );
+  assert.match(out, /data-role="send-curation"/);
+  assert.doesNotMatch(out, /data-role="send-curation"[^>]*disabled=""/, 'a real gesture, not a dead button');
+  // In flight → locked; the outcome line renders under the banner, honestly tinted.
+  const busy = html(
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} sendingCuration />,
+  );
+  assert.match(busy, /data-role="send-curation"[^>]*disabled=""/);
+  const done = (
+    <BuildMap
+      snapshot={snap}
+      rollup={rollup}
+      onReview={noop}
+      onSendCuration={noop}
+      curationResult={{ ok: true, message: 'curation letter posted (msn_0123456789ab, seq 1)' }}
+    />
+  );
+  assert.match(html(done), /data-role="curation-result" data-ok="true"/);
+  assert.match(visible(done), /curation letter posted \(msn_0123456789ab, seq 1\)/);
+});
+
+// ── the Edit-Names-&-Boundaries screen (F11-c — evolved from the F0c walk) ────
+// The walk's contract EVOLVED with the F11 amendment (0b/o6): the owner touch is
+// a REAL rename through candidate_edit (no client-only accept flag), runner-named
+// blocks need no touch, and the editor is live. These specs were healed to the
+// F11 contract, never re-explored.
 
 const store3 = candStore([high, low, mid]);
+const walk = (store: SystemBlockStore, extra: Record<string, unknown> = {}) => (
+  <ReviewRatify store={store} repoId="demo" onApplyOps={noop} onRatifyAll={noop} onClose={noop} {...extra} />
+);
 
-test('the walk lists candidate blocks LOWEST-SUPPORT first (§3b)', () => {
-  const out = html(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
+test('the list surfaces PROVISIONAL blocks first, then lowest support (§4c)', () => {
+  const out = html(walk(store3));
   const order = [...out.matchAll(/data-role="review-block" data-block-id="([^"]+)"/g)].map((m) => m[1]);
+  // sb_low is the one provisional (needs the owner) — it leads; the named rest
+  // follow lowest-support first.
   assert.deepEqual(order, ['sb_low', 'sb_mid', 'sb_high']);
 });
 
-test('the walk shows the provisional treatment + the component confidence per block', () => {
-  const out = html(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
+test('the list shows the provisional treatment + the component confidence per block', () => {
+  const out = html(walk(store3));
   assert.match(out, /data-role="provisional-name"/);
   assert.match(out, /data-role="confidence"/);
-  assert.match(visible(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />), /named by heuristic/);
+  assert.match(visible(walk(store3)), /named by heuristic/);
+  assert.match(visible(walk(store3)), /needs you/);
 });
 
-test('"Ratify all" is NOT offered while names are unaccepted — the honest gate reason shows instead', () => {
-  const out = html(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
-  assert.doesNotMatch(out, /data-role="ratify-all"/, 'no blanket gesture over unreviewed guesses');
+test('"Ratify all" is NOT offered while a block still needs a name — the honest gate shows (o6)', () => {
+  const out = html(walk(store3));
+  assert.doesNotMatch(out, /data-role="ratify-all"/, 'no blanket gesture over an untouched heuristic label');
   assert.match(out, /data-role="ratify-gate"/);
-  assert.match(visible(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />), /accept 3 more names/);
+  assert.match(visible(walk(store3)), /1 block still needs a name/);
 });
 
-test('"Ratify all → v1" appears ONLY when every block is accepted AND no seam is unresolved (§5)', () => {
-  const accepted = new Set(['sb_low', 'sb_mid', 'sb_high']);
-  const out = html(<ReviewRatify store={store3} repoId="demo" acceptedIds={accepted} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
+test('"Ratify all → v1" appears when every block is NAMED (runner-named needs no touch, 0b)', () => {
+  // mid/high are named (needs_owner_naming false) — no acceptance step exists.
+  const named = candStore([mid, high]);
+  const out = html(walk(named));
   assert.match(out, /data-role="ratify-all"/);
-  assert.match(visible(<ReviewRatify store={store3} repoId="demo" acceptedIds={accepted} onAccept={noop} onRatifyAll={noop} onClose={noop} />), /Ratify all 3 → v1/);
+  assert.match(visible(walk(named)), /Ratify all 2 → v1/);
 });
 
-test('an unresolved seam blocks "Ratify all" even when every name is accepted', () => {
-  const store = candStore([low, seam]);
-  const accepted = new Set(['sb_low', 'sb_seam']);
-  const out = html(<ReviewRatify store={store} repoId="demo" acceptedIds={accepted} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
+test('an unresolved seam blocks "Ratify all" even when every block is named', () => {
+  // A REAL membership seam: the scan marked the member `role:"shared"`.
+  const seamReal = candBlock('sb_seam', 'Seam', meta({ shared_member_count: 1 }));
+  seamReal.membership[0] = { ...seamReal.membership[0], role: 'shared' as const };
+  const store = candStore([mid, seamReal]);
+  const out = html(walk(store));
   assert.doesNotMatch(out, /data-role="ratify-all"/);
   assert.match(out, /data-role="seam-warning"/);
-  assert.match(visible(<ReviewRatify store={store} repoId="demo" acceptedIds={accepted} onAccept={noop} onRatifyAll={noop} onClose={noop} />), /unresolved seam/);
+  assert.match(visible(walk(store)), /unresolved seam/);
 });
 
-test('the accepted state is reflected + renaming/seam editing is honestly deferred (never faked)', () => {
-  const accepted = new Set(['sb_mid']);
-  const out = html(<ReviewRatify store={candStore([mid])} repoId="demo" acceptedIds={accepted} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
-  assert.match(out, /data-role="review-block" data-block-id="sb_mid" data-accepted="true"/);
-  assert.match(out, /data-role="edit-names"[^>]*disabled/, 'the full editor is a later slice — shown, never a dead-but-live button');
-  assert.match(out, /data-role="deferred-editor"/);
+test('the editor is LIVE: inline name inputs render and the accept gesture is a real rename op', () => {
+  const out = html(walk(candStore([low])));
+  assert.match(out, /data-role="name-input"/, 'names are inline-editable (screen §3)');
+  assert.match(out, /data-role="accept-block"/, 'the one-click owner adoption stays — now a real candidate_edit rename');
+  assert.doesNotMatch(out, /data-role="deferred-editor"/, 'the editor is no longer deferred — it IS this screen');
+  assert.doesNotMatch(out, /data-role="edit-names"/, 'no dead affordance survives the evolution');
 });
 
 test('the review_limit bounds the queue page with an honest overflow total (§7)', () => {
   const many = Array.from({ length: 6 }, (_, i) =>
     candBlock(`sb_${String(i).padStart(2, '0')}`, `B${i}`, meta({ directory_support: i / 6, coverage_ratio: i / 6 })),
   );
-  const out = html(<ReviewRatify store={candStore(many)} repoId="demo" reviewLimit={2} acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />);
+  const out = html(walk(candStore(many), { reviewLimit: 2 }));
   assert.match(out, /data-role="review-overflow"/);
-  assert.match(visible(<ReviewRatify store={candStore(many)} repoId="demo" reviewLimit={2} acceptedIds={new Set()} onAccept={noop} onRatifyAll={noop} onClose={noop} />), /showing 2 of 6/);
+  assert.match(visible(walk(candStore(many), { reviewLimit: 2 })), /showing 2 of 6/);
 });
 
 // ── the copy law (PRD §13) ────────────────────────────────────────────────────
@@ -227,7 +267,8 @@ test('the review_limit bounds the queue page with an honest overflow total (§7)
 test('COPY LAW holds across the scan/review surfaces (no proven/done/correct)', () => {
   const surfaces = [
     html(<BuildMap snapshot={emptySnap} rollup={null} onScan={noop} />),
-    html(<ReviewRatify store={store3} repoId="demo" acceptedIds={new Set(['sb_low', 'sb_mid', 'sb_high'])} onAccept={noop} onRatifyAll={noop} onClose={noop} />),
+    html(walk(store3)),
+    html(walk(candStore([mid, high]))),
   ].map((s) => s.replace(/<[^>]+>/g, ' '));
   for (const text of surfaces) {
     assert.doesNotMatch(text, /\bproven\b/i);

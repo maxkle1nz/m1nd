@@ -772,6 +772,7 @@ mod tests {
             gate_command: gate.into_iter().map(String::from).collect(),
             workspace_allowlist: vec![workspace.to_string()],
             timeout_secs: 60,
+            naming_timeout_secs: crate::config::DEFAULT_NAMING_TIMEOUT_SECS,
         }
     }
 

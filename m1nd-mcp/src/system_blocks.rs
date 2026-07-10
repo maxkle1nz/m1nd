@@ -95,10 +95,13 @@ pub struct CandidateMeta {
 }
 
 /// Who named a candidate block (§3a). The naming-runner is opt-in (F2.5c); the
-/// heuristic always works offline and marks the label provisional.
+/// heuristic always works offline and marks the label provisional; `Owner` is the
+/// strongest label — a human touch through the F11 screen (`candidate_edit rename`),
+/// which clears `needs_owner_naming` and passes the ratify provenance gate (o6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NamedBy {
+    Owner,
     Runner,
     Heuristic,
 }
@@ -490,6 +493,30 @@ pub enum SeedError {
     InvalidCandidateTransaction {
         detail: String,
     },
+    /// F11-a: an edit op was attempted on a `ratified` skeleton. Editing a signed
+    /// boundary is a different ceremony (the deferred revision-promotion flow); the
+    /// candidate verbs refuse it (§1a). Nothing is applied.
+    SkeletonNotCandidate,
+    /// F11-a: the preflight-on-a-clone batch (`candidate_edit`) failed at op
+    /// `op_index` (o1). The WHOLE batch is rejected and NOTHING is persisted — a
+    /// partial apply under OCC is less safe than none.
+    CandidateEdit {
+        op_index: usize,
+        reason: String,
+    },
+    /// F11-a ratify provenance gate (o6): a block still carries an untouched
+    /// heuristic name (`needs_owner_naming == true`) and cannot be ratified until a
+    /// human names it (or accepts the runner name). Nothing is applied.
+    NeedsOwnerNaming {
+        block_id: String,
+    },
+    /// F11-a advisory lease (o4): a `candidate_lease acquire`/`refresh`/`release`
+    /// was refused because a DIFFERENT agent holds a still-live lease. The lease is
+    /// advisory — this refuses only the lease bookkeeping, never an edit.
+    LeaseHeld {
+        held_by: String,
+        until: String,
+    },
 }
 
 impl fmt::Display for SeedError {
@@ -556,6 +583,22 @@ impl fmt::Display for SeedError {
             SeedError::InvalidCandidateTransaction { detail } => {
                 write!(f, "invalid skeleton_candidate transaction: {detail} (nothing was applied)")
             }
+            SeedError::SkeletonNotCandidate => write!(
+                f,
+                "skeleton_not_candidate: this skeleton is ratified — editing a signed boundary is a separate ceremony; the candidate verbs only edit a candidate skeleton (nothing was applied)"
+            ),
+            SeedError::CandidateEdit { op_index, reason } => write!(
+                f,
+                "candidate_edit rejected at op {op_index}: {reason} — the whole batch was preflighted on a clone and NOTHING was applied (o1)"
+            ),
+            SeedError::NeedsOwnerNaming { block_id } => write!(
+                f,
+                "needs_owner_naming: block '{block_id}' has an untouched heuristic name — name it (or accept the runner name) before ratifying"
+            ),
+            SeedError::LeaseHeld { held_by, until } => write!(
+                f,
+                "lease_held: the candidate curation lease is held by '{held_by}' until {until} — it is advisory (it never blocks an edit); wait for it to expire or coordinate (nothing was applied)"
+            ),
         }
     }
 }
@@ -845,6 +888,19 @@ pub struct SystemBlockStore {
     /// so an era-prior store parses and roundtrips byte-stable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_revision: Option<Box<SeedFile>>,
+    /// F11-a advisory curation lease (§4bis o4). The agent that currently holds the
+    /// soft lease on this candidate; the F11 screen surfaces it ("a hand is curating")
+    /// but it NEVER blocks the owner. `None` = free. Set/cleared only by
+    /// `candidate_lease`; `candidate_edit` never requires a held lease. `serde(default,
+    /// skip_serializing_if)` so an era-prior store (no lease) loads + roundtrips
+    /// byte-stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curating_by: Option<String>,
+    /// The RFC3339-UTC instant the current lease EXPIRES. An expired lease
+    /// (`curating_until < now`) is reclaimable by anyone — no dead-agent trap (o4).
+    /// `None` whenever `curating_by` is `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curating_until: Option<String>,
 }
 
 /// What the F0c-a `skeleton_candidate` transaction did.
@@ -911,6 +967,9 @@ impl SystemBlockStore {
             unmapped_total: 0,
             // No pending candidate revision on a freshly imported/created store.
             candidate_revision: None,
+            // A fresh store carries no advisory curation lease.
+            curating_by: None,
+            curating_until: None,
         }
     }
 
@@ -984,6 +1043,30 @@ impl SystemBlockStore {
                 ids.to_vec()
             }
         };
+        // The F11-a provenance gate (o6): a block still carrying an untouched
+        // heuristic name (`needs_owner_naming == true`) cannot be ratified until a
+        // human names it (or accepts the runner name). Runner-named + owner-named
+        // blocks (needs_owner_naming == false) ratify normally, so "Ratify all" over
+        // a fully runner-named map is legal — the friction law holds without weakening
+        // the Ratification law. Checked BEFORE any mutation so a gated batch touches
+        // nothing.
+        for id in &targets {
+            if let Some(block) = self
+                .blocks
+                .iter()
+                .find(|b| b.block_id.as_str() == id.as_str())
+            {
+                if block
+                    .candidate_meta
+                    .as_ref()
+                    .is_some_and(|m| m.needs_owner_naming)
+                {
+                    return Err(SeedError::NeedsOwnerNaming {
+                        block_id: id.clone(),
+                    });
+                }
+            }
+        }
         for block in self.blocks.iter_mut() {
             if !targets
                 .iter()
@@ -1118,6 +1201,208 @@ pub fn import_receipt_in_dir(
     Ok(store)
 }
 
+// ===========================================================================
+// F11-a — the `candidate_edit` transaction wrapper + the advisory `candidate_lease`.
+//
+// `candidate_edit` is preflight-on-a-clone (o1): the pure engine
+// ([`crate::candidate_edit::apply_edits`]) validates the WHOLE batch against a
+// working copy; on any failure the caller persists NOTHING. Only on full success
+// does this wrapper save once + bump `store_version` once. The lease is a soft,
+// ADVISORY serialization aid (o4): the owner is the single point of serialization,
+// so acquire is an atomic compare-and-set and an expired lease is reclaimable by
+// anyone (no dead-agent trap). The lease NEVER blocks an edit and never bumps
+// `store_version` — it is bookkeeping orthogonal to the OCC edit stream, so it can
+// never invalidate a pending edit's OCC key.
+// ===========================================================================
+
+/// The default advisory-lease TTL when a caller omits `ttl_secs` (15 minutes) — a
+/// live curation turn, short enough that a dead agent's lease self-heals soon.
+pub const DEFAULT_LEASE_TTL_SECS: u64 = 900;
+
+/// A `candidate_lease` action (o4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeaseAction {
+    /// Compare-and-set: grant iff the lease is free, expired, or already this agent's.
+    Acquire,
+    /// Extend the TTL — only for the agent that currently holds it.
+    Refresh,
+    /// Clear the lease — only for the agent that currently holds it (or a free no-op).
+    Release,
+}
+
+impl LeaseAction {
+    /// Parse the wire string. Unknown values are a caller error.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "acquire" => Ok(Self::Acquire),
+            "refresh" => Ok(Self::Refresh),
+            "release" => Ok(Self::Release),
+            other => Err(format!(
+                "action must be \"acquire\", \"refresh\", or \"release\", got \"{other}\""
+            )),
+        }
+    }
+}
+
+/// What a `candidate_lease` call did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LeaseSummary {
+    /// `acquired` | `refreshed` | `released` | `already_free`.
+    pub state: &'static str,
+    /// True iff the persisted lease fields actually changed (drives the save).
+    pub changed: bool,
+    /// The lease holder AFTER the call (`None` = free).
+    pub curating_by: Option<String>,
+    /// When the lease expires AFTER the call (`None` = free).
+    pub curating_until: Option<String>,
+}
+
+impl SystemBlockStore {
+    /// Whether a live (unexpired) lease is currently held. A lease with a missing or
+    /// past `curating_until` is NOT live — it is reclaimable (o4: no dead-agent trap).
+    /// Comparison is lexical over fixed-width RFC3339-UTC stamps (as elsewhere).
+    fn lease_is_live(&self, now_iso: &str) -> bool {
+        self.curating_by.is_some()
+            && self
+                .curating_until
+                .as_deref()
+                .is_some_and(|until| until > now_iso)
+    }
+
+    /// Apply an advisory-lease action (o4). Pure compare-and-set on the lease fields
+    /// against `now_iso`; `until_iso` is the caller-computed expiry (`now + ttl`).
+    /// NEVER bumps `store_version` — the lease is advisory bookkeeping, orthogonal to
+    /// the OCC edit stream, so it can never block the owner or invalidate a pending
+    /// edit's OCC key. A refuse (`LeaseHeld`) leaves the lease untouched.
+    pub fn apply_lease(
+        &mut self,
+        action: LeaseAction,
+        agent_id: &str,
+        now_iso: &str,
+        until_iso: &str,
+    ) -> Result<LeaseSummary, SeedError> {
+        let holder = self.curating_by.clone();
+        let live = self.lease_is_live(now_iso);
+        let mine = holder.as_deref() == Some(agent_id);
+        match action {
+            LeaseAction::Acquire => {
+                // Grant iff free, expired, or already ours (idempotent re-acquire).
+                if !live || mine {
+                    let changed = self.curating_by.as_deref() != Some(agent_id)
+                        || self.curating_until.as_deref() != Some(until_iso);
+                    self.curating_by = Some(agent_id.to_string());
+                    self.curating_until = Some(until_iso.to_string());
+                    Ok(self.lease_summary("acquired", changed))
+                } else {
+                    Err(SeedError::LeaseHeld {
+                        held_by: holder.unwrap_or_default(),
+                        until: self.curating_until.clone().unwrap_or_default(),
+                    })
+                }
+            }
+            LeaseAction::Refresh => {
+                // Only the recorded holder may extend; anyone else must acquire.
+                if mine {
+                    let changed = self.curating_until.as_deref() != Some(until_iso);
+                    self.curating_until = Some(until_iso.to_string());
+                    Ok(self.lease_summary("refreshed", changed))
+                } else {
+                    Err(SeedError::LeaseHeld {
+                        held_by: holder.unwrap_or_default(),
+                        until: self.curating_until.clone().unwrap_or_default(),
+                    })
+                }
+            }
+            LeaseAction::Release => {
+                if mine {
+                    self.curating_by = None;
+                    self.curating_until = None;
+                    Ok(self.lease_summary("released", true))
+                } else if holder.is_none() {
+                    // Already free — an idempotent no-op, never a refusal.
+                    Ok(self.lease_summary("already_free", false))
+                } else {
+                    Err(SeedError::LeaseHeld {
+                        held_by: holder.unwrap_or_default(),
+                        until: self.curating_until.clone().unwrap_or_default(),
+                    })
+                }
+            }
+        }
+    }
+
+    fn lease_summary(&self, state: &'static str, changed: bool) -> LeaseSummary {
+        LeaseSummary {
+            state,
+            changed,
+            curating_by: self.curating_by.clone(),
+            curating_until: self.curating_until.clone(),
+        }
+    }
+}
+
+/// Apply a `candidate_lease` action against the store in a brain dir: load ->
+/// [`SystemBlockStore::apply_lease`] -> save (only when the lease actually changed).
+/// A missing store is a hard [`SeedError::NoStore`]; a `LeaseHeld` refusal leaves the
+/// disk intact. Never bumps `store_version`.
+pub fn candidate_lease_in_dir(
+    dir: &Path,
+    action: LeaseAction,
+    agent_id: &str,
+    now_iso: &str,
+    until_iso: &str,
+) -> Result<(SystemBlockStore, LeaseSummary), SeedError> {
+    let mut store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    let summary = store.apply_lease(action, agent_id, now_iso, until_iso)?;
+    if summary.changed {
+        store.save(dir)?;
+    }
+    Ok((store, summary))
+}
+
+/// Apply a `candidate_edit` batch against the store in a brain dir (F11-a §B). The
+/// full transaction law, in order — nothing is persisted unless every gate passes:
+/// 1. OCC — `expected_store_version` matches, else [`SeedError::Conflict`];
+/// 2. candidate-only (§1a) — a `ratified` skeleton refuses every op with
+///    [`SeedError::SkeletonNotCandidate`];
+/// 3. preflight-on-a-clone (o1) — [`crate::candidate_edit::apply_edits`] validates
+///    the WHOLE batch against a working copy; the FIRST failure returns its op index
+///    ([`SeedError::CandidateEdit`]) and NOTHING is persisted.
+///
+/// On full success the edited store is saved ONCE and `store_version` is bumped
+/// ONCE. The advisory lease is never consulted — `candidate_edit` NEVER requires a
+/// held lease (a dead agent must not block the owner, o4).
+pub fn candidate_edit_in_dir(
+    dir: &Path,
+    expected_store_version: u64,
+    ops: &[crate::candidate_edit::EditOp],
+    seat: crate::candidate_edit::EditSeat,
+) -> Result<SystemBlockStore, SeedError> {
+    let store = SystemBlockStore::load(dir)?.ok_or(SeedError::NoStore)?;
+    if expected_store_version != store.store_version {
+        return Err(SeedError::Conflict {
+            expected: expected_store_version,
+            actual: store.store_version,
+        });
+    }
+    if store.skeleton.state == SeedSkeletonState::Ratified {
+        return Err(SeedError::SkeletonNotCandidate);
+    }
+    // Preflight-on-a-clone: the engine mutates a working copy and returns it only on
+    // total success. Any op or final-invariant failure aborts with its op index and
+    // leaves the on-disk store byte-for-byte intact.
+    let mut edited = crate::candidate_edit::apply_edits(&store, ops, seat).map_err(|e| {
+        SeedError::CandidateEdit {
+            op_index: e.op_index,
+            reason: e.reason,
+        }
+    })?;
+    // Full success -> one persist, one bump.
+    edited.store_version = store.store_version + 1;
+    edited.save(dir)?;
+    Ok(edited)
+}
+
 /// Clear every field a candidate did not earn itself (F0c-a §4b/§4c). This is
 /// applied even to internally generated candidates so future callers cannot
 /// accidentally smuggle live receipts/fingerprints into a proposed skeleton.
@@ -1241,8 +1526,9 @@ use std::collections::BTreeSet;
 pub const UNMAPPED_FILES_CAP: usize = 500;
 
 /// Whether a membership `path` is a glob pattern (claims a SET of files) rather than
-/// an exact path. Mirrors the metacharacters `glob::Pattern` recognizes.
-fn is_glob_pattern(path: &str) -> bool {
+/// an exact path. Mirrors the metacharacters `glob::Pattern` recognizes. `pub(crate)`
+/// so the F11-c store-block packet builder matches members the same way.
+pub(crate) fn is_glob_pattern(path: &str) -> bool {
     path.contains(['*', '?', '['])
 }
 
@@ -3309,5 +3595,414 @@ mod tests {
         );
         assert!(json["blocks"][0].get("resolved_members").is_none());
         assert!(json["blocks"][0].get("pre_archive_state").is_none());
+    }
+
+    // =======================================================================
+    // F11-a — candidate_edit transaction, the ratify provenance gate (o6), and
+    // the advisory curation lease (o4).
+    // =======================================================================
+
+    use crate::candidate_edit::{EditOp, EditSeat};
+
+    /// A candidate block with an exact-primary membership and a `named_by:heuristic`
+    /// meta (`needs_owner_naming` per the flag).
+    fn f11_block(
+        id: &str,
+        members: &[&str],
+        needs_owner_naming: bool,
+        named_by: NamedBy,
+    ) -> SystemBlock {
+        SystemBlock {
+            block_id: id.to_string(),
+            name: format!("Name {id}"),
+            purpose: "p".to_string(),
+            kind: SystemBlockKind::Scanned,
+            state: SystemBlockState::Candidate,
+            boundary_version: 1,
+            contract_version: 1,
+            membership_source: MembershipSource::Proposed,
+            membership: members
+                .iter()
+                .map(|p| MembershipEntry {
+                    path: p.to_string(),
+                    role: MembershipRole::Primary,
+                    optional: false,
+                })
+                .collect(),
+            sockets: Sockets {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                external: Vec::new(),
+            },
+            receipt_contract: ReceiptContract {
+                version: 1,
+                required: Vec::new(),
+                optional: Vec::new(),
+                waived: Vec::new(),
+                declared_by: None,
+                declared_at: None,
+            },
+            receipts: Vec::new(),
+            layout: Layout {
+                x: None,
+                y: None,
+                locked: false,
+                algorithm_seed: None,
+                version: 1,
+            },
+            unmapped_residue: Vec::new(),
+            membership_fingerprint: None,
+            resolved_members: Vec::new(),
+            pre_archive_state: None,
+            candidate_meta: Some(CandidateMeta {
+                named_by,
+                needs_owner_naming,
+                graph_cohesion: None,
+                edge_sample_size: 0,
+                directory_support: 1.0,
+                coverage_ratio: 1.0,
+                shared_member_count: 0,
+            }),
+        }
+    }
+
+    /// A candidate store (skeleton.state == candidate) with the given blocks, at v1.
+    fn f11_candidate_store(blocks: Vec<SystemBlock>) -> SystemBlockStore {
+        let mut store = store_from_fixture();
+        store.skeleton.state = SeedSkeletonState::Candidate;
+        store.blocks = blocks;
+        store
+    }
+
+    #[test]
+    fn candidate_edit_ratified_skeleton_refuses_every_edit_op() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut store =
+            f11_candidate_store(vec![f11_block("sb_a", &["a1"], true, NamedBy::Heuristic)]);
+        store.skeleton.state = SeedSkeletonState::Ratified; // a signed boundary
+        store.save(dir.path()).expect("save");
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("Auth".to_string()),
+            purpose: None,
+        }];
+        let err = candidate_edit_in_dir(dir.path(), 1, &ops, EditSeat::Owner)
+            .expect_err("a ratified skeleton refuses every op");
+        assert!(matches!(err, SeedError::SkeletonNotCandidate));
+        assert!(
+            err.to_string().contains("skeleton_not_candidate"),
+            "honest keyword: {err}"
+        );
+    }
+
+    #[test]
+    fn candidate_edit_preflight_abort_persists_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![
+            f11_block("sb_a", &["a1", "a2"], true, NamedBy::Heuristic),
+            f11_block("sb_b", &["b1"], true, NamedBy::Heuristic),
+        ])
+        .save(dir.path())
+        .expect("save");
+        // The exact bytes on disk before the failing batch.
+        let before = std::fs::read(SystemBlockStore::path_in(dir.path())).expect("read before");
+
+        // A batch whose FIRST op is valid but SECOND op is invalid (moves a member the
+        // source block does not have) — the whole batch must abort before any persist.
+        let ops = vec![
+            EditOp::Rename {
+                block_id: "sb_a".to_string(),
+                name: Some("Renamed".to_string()),
+                purpose: None,
+            },
+            EditOp::MoveMember {
+                path: "not-a-member".to_string(),
+                from: "sb_a".to_string(),
+                to: "sb_b".to_string(),
+            },
+        ];
+        let err = candidate_edit_in_dir(dir.path(), 1, &ops, EditSeat::Owner)
+            .expect_err("the batch aborts on the invalid middle op");
+        match err {
+            SeedError::CandidateEdit { op_index, .. } => {
+                assert_eq!(op_index, 1, "the second op is named as the offender");
+            }
+            other => panic!("expected CandidateEdit, got {other:?}"),
+        }
+        // The store on disk is BYTE-IDENTICAL — a partial apply persisted nothing (o1).
+        let after = std::fs::read(SystemBlockStore::path_in(dir.path())).expect("read after");
+        assert_eq!(before, after, "a preflight abort must persist nothing");
+    }
+
+    #[test]
+    fn candidate_edit_occ_conflict_leaves_store_intact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], false, NamedBy::Owner)])
+            .save(dir.path())
+            .expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("New".to_string()),
+            purpose: None,
+        }];
+        let err = candidate_edit_in_dir(dir.path(), 99, &ops, EditSeat::Owner)
+            .expect_err("a stale expected version conflicts");
+        assert!(matches!(
+            err,
+            SeedError::Conflict {
+                expected: 99,
+                actual: 1
+            }
+        ));
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(after, before, "a rejected edit must not touch the store");
+    }
+
+    #[test]
+    fn candidate_edit_success_persists_once_and_bumps_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], true, NamedBy::Heuristic)])
+            .save(dir.path())
+            .expect("save");
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("Auth".to_string()),
+            purpose: Some("The auth boundary.".to_string()),
+        }];
+        let store =
+            candidate_edit_in_dir(dir.path(), 1, &ops, EditSeat::Owner).expect("edit lands");
+        assert_eq!(store.store_version, 2, "one accepted batch bumps once");
+        // The on-disk store matches the returned one and carries the owner provenance.
+        let reloaded = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(reloaded, store, "persisted exactly the returned store");
+        let meta = reloaded.blocks[0].candidate_meta.as_ref().unwrap();
+        assert_eq!(meta.named_by, NamedBy::Owner);
+        assert!(!meta.needs_owner_naming);
+    }
+
+    // --- o6: the ratify provenance gate ------------------------------------
+
+    #[test]
+    fn ratify_refuses_an_untouched_heuristic_block() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], true, NamedBy::Heuristic)])
+            .save(dir.path())
+            .expect("save");
+        let before = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        let err = ratify_in_dir(dir.path(), 1, None, "owner", "2026-07-10T00:00:00Z")
+            .expect_err("an untouched heuristic block cannot be ratified");
+        match err {
+            SeedError::NeedsOwnerNaming { block_id } => assert_eq!(block_id, "sb_a"),
+            other => panic!("expected NeedsOwnerNaming, got {other:?}"),
+        }
+        assert!(
+            err_message(&SeedError::NeedsOwnerNaming {
+                block_id: "sb_a".to_string()
+            })
+            .contains("needs_owner_naming"),
+            "honest keyword"
+        );
+        // The gate is pre-mutation: nothing changed on disk.
+        let after = SystemBlockStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(after, before, "a gated ratify must not touch the store");
+    }
+
+    #[test]
+    fn ratify_allows_runner_named() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Runner-named (needs_owner_naming == false) ratifies without an individual touch.
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], false, NamedBy::Runner)])
+            .save(dir.path())
+            .expect("save");
+        let (store, summary) = ratify_in_dir(dir.path(), 1, None, "owner", "2026-07-10T00:00:00Z")
+            .expect("a runner-named block ratifies");
+        assert_eq!(summary.ratified_block_ids, vec!["sb_a".to_string()]);
+        assert_eq!(store.store_version, 2);
+        assert_eq!(store.blocks[0].state, SystemBlockState::Ratified);
+    }
+
+    #[test]
+    fn ratify_owner_named_block_passes_the_gate() {
+        // An owner touch (NamedBy::Owner, needs_owner_naming cleared) ratifies too.
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], false, NamedBy::Owner)])
+            .save(dir.path())
+            .expect("save");
+        let (store, _) =
+            ratify_in_dir(dir.path(), 1, None, "owner", "t").expect("owner-named ratifies");
+        assert_eq!(store.blocks[0].state, SystemBlockState::Ratified);
+    }
+
+    // --- o4: the advisory curation lease -----------------------------------
+
+    #[test]
+    fn lease_acquire_is_atomic_and_expired_is_reclaimable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], true, NamedBy::Heuristic)])
+            .save(dir.path())
+            .expect("save");
+
+        // Agent A acquires a lease valid 00:00 -> 00:15.
+        let (s1, sum1) = candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Acquire,
+            "agentA",
+            "2026-07-10T00:00:00Z",
+            "2026-07-10T00:15:00Z",
+        )
+        .expect("agent A acquires");
+        assert_eq!(sum1.state, "acquired");
+        assert_eq!(s1.curating_by.as_deref(), Some("agentA"));
+        assert_eq!(s1.store_version, 1, "the lease never bumps store_version");
+
+        // Agent B is refused while A's lease is LIVE (now 00:05 < until 00:15).
+        let err = candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Acquire,
+            "agentB",
+            "2026-07-10T00:05:00Z",
+            "2026-07-10T00:20:00Z",
+        )
+        .expect_err("a live lease is not stealable");
+        match err {
+            SeedError::LeaseHeld { held_by, .. } => assert_eq!(held_by, "agentA"),
+            other => panic!("expected LeaseHeld, got {other:?}"),
+        }
+
+        // After expiry (now 00:30 > until 00:15) the lease is reclaimable by anyone.
+        let (s3, sum3) = candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Acquire,
+            "agentB",
+            "2026-07-10T00:30:00Z",
+            "2026-07-10T00:45:00Z",
+        )
+        .expect("an expired lease is reclaimable — no dead-agent trap");
+        assert_eq!(sum3.state, "acquired");
+        assert_eq!(s3.curating_by.as_deref(), Some("agentB"));
+        assert_eq!(s3.store_version, 1, "still no version churn from the lease");
+
+        // The holder can release; a non-holder cannot.
+        let held = candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Release,
+            "agentA",
+            "2026-07-10T00:31:00Z",
+            "2026-07-10T00:31:00Z",
+        )
+        .expect_err("only the holder releases");
+        assert!(matches!(held, SeedError::LeaseHeld { .. }));
+        let (s5, sum5) = candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Release,
+            "agentB",
+            "2026-07-10T00:31:00Z",
+            "2026-07-10T00:31:00Z",
+        )
+        .expect("the holder releases");
+        assert_eq!(sum5.state, "released");
+        assert!(s5.curating_by.is_none(), "the lease is free again");
+    }
+
+    #[test]
+    fn lease_is_advisory_edit_never_requires_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        f11_candidate_store(vec![f11_block("sb_a", &["a1"], false, NamedBy::Owner)])
+            .save(dir.path())
+            .expect("save");
+        // Agent A holds a LIVE lease.
+        candidate_lease_in_dir(
+            dir.path(),
+            LeaseAction::Acquire,
+            "agentA",
+            "2026-07-10T00:00:00Z",
+            "2026-07-10T00:15:00Z",
+        )
+        .expect("agent A acquires");
+
+        // Agent B (NOT the lease holder) edits anyway — the lease is ADVISORY, so the
+        // edit succeeds and the owner is never blocked.
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("Edited By B".to_string()),
+            purpose: None,
+        }];
+        let store = candidate_edit_in_dir(dir.path(), 1, &ops, EditSeat::Owner)
+            .expect("the edit ignores the advisory lease");
+        assert_eq!(store.blocks[0].name, "Edited By B");
+        assert_eq!(store.store_version, 2);
+        // The edit preserves the advisory lease untouched (it only warns).
+        assert_eq!(store.curating_by.as_deref(), Some("agentA"));
+    }
+
+    #[test]
+    fn f11_lease_fields_are_retrocompatible_and_omitted_when_absent() {
+        // A fresh store serializes WITHOUT the lease keys (byte-stable vs an era-prior
+        // store).
+        let store = f11_candidate_store(vec![f11_block("sb_a", &["a1"], true, NamedBy::Heuristic)]);
+        let json = serde_json::to_value(&store).expect("serialize");
+        assert!(
+            json.get("curating_by").is_none(),
+            "no curating_by when free"
+        );
+        assert!(
+            json.get("curating_until").is_none(),
+            "no curating_until when free"
+        );
+
+        // A pre-F11 store JSON (no lease fields) loads clean with both defaulting None.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pre_f11 = r#"{
+  "schema": "m1nd-system-block-store-v0",
+  "store_version": 4,
+  "skeleton": {
+    "skeleton_id": "sk_old",
+    "version": 1,
+    "state": "candidate",
+    "ratification": { "method": "", "ratifier": "", "ratified_at": "", "commit": "" }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_old",
+      "name": "Old",
+      "purpose": "A block written before F11.",
+      "kind": "scanned",
+      "state": "candidate",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "proposed",
+      "membership": [{ "path": "src/old.rs", "role": "primary" }],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": { "version": 1, "required": [], "optional": [], "waived": [], "declared_by": null, "declared_at": null },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" }
+}"#;
+        std::fs::write(SystemBlockStore::path_in(dir.path()), pre_f11)
+            .expect("write pre-f11 store");
+        let loaded = SystemBlockStore::load(dir.path())
+            .expect("a pre-F11 store loads")
+            .expect("present");
+        assert!(loaded.curating_by.is_none(), "curating_by defaults None");
+        assert!(
+            loaded.curating_until.is_none(),
+            "curating_until defaults None"
+        );
+        // And it roundtrips byte-stable (the lease fields never appear).
+        assert!(
+            !serde_json::to_string(&loaded)
+                .unwrap()
+                .contains("curating_"),
+            "no lease keys are written for a free store"
+        );
+    }
+
+    /// Small helper: the Display string of a SeedError (used to assert honest keywords).
+    fn err_message(err: &SeedError) -> String {
+        err.to_string()
     }
 }

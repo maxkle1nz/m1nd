@@ -310,6 +310,12 @@ pub struct SessionState {
     pub caller_root: Option<String>,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
+    /// F11-b: the owner-process naming facts (the runnerd announce registry + the
+    /// OWNER runtime root where `runnerd.secret` lives), threaded in by the HTTP
+    /// owner at boot — into the bound session and every hosted project brain.
+    /// `None` on a stdio owner (no announce surface): `skeleton_candidate` with
+    /// `naming:"auto"` then falls back to heuristic naming exactly as before.
+    pub runnerd_naming: Option<crate::runnerd_owner::NamingRunnerHandle>,
     /// Registry + lease handle for this process instance.
     pub instance: InstanceHandle,
     /// Optional live sink for apply_batch progress emission.
@@ -1657,6 +1663,8 @@ impl SessionState {
             workspace_root_source: Some(workspace_root_source),
             caller_root: None,
             runtime_root: runtime_root.clone(),
+            // Threaded in by the HTTP owner at boot; None on stdio (no announce).
+            runnerd_naming: None,
             instance,
             apply_batch_progress_sink: None,
             // Superpowers: Antibody state

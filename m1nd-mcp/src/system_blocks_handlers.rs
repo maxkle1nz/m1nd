@@ -29,9 +29,10 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use crate::session::SessionState;
 use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonScanOptions};
 use crate::system_blocks::{
-    self, archive_in_dir, delete_in_dir, import_receipt_in_dir, import_seed_into_dir,
-    ratify_in_dir, recompute_in_dir, reconcile_in_dir, skeleton_candidate_in_dir, ArchiveMode,
-    Receipt, SeedError, SystemBlockStore,
+    self, archive_in_dir, candidate_edit_in_dir, candidate_lease_in_dir, delete_in_dir,
+    import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, reconcile_in_dir,
+    skeleton_candidate_in_dir, ArchiveMode, LeaseAction, Receipt, SeedError, SystemBlockStore,
+    DEFAULT_LEASE_TTL_SECS,
 };
 use crate::util::now_ms;
 
@@ -175,8 +176,11 @@ pub struct SkeletonCandidateInput {
     /// UI review queue hint. The backend emits every block; this is echoed only.
     #[serde(default)]
     pub review_limit: Option<usize>,
-    /// `auto` declares the runner hook but F0c-a intentionally falls back to
-    /// heuristic naming; `heuristic` skips the hook explicitly.
+    /// `auto` (default) calls the pinned live naming-runner through the announced
+    /// runnerd when one is live (F11-b §2a) — per-block packets, per-block
+    /// timeout, hostile-output sanitization (o5), per-block heuristic fallback;
+    /// with NO live runnerd it behaves exactly like the offline scan (all
+    /// heuristic). `heuristic` skips the runner explicitly.
     #[serde(default)]
     pub naming: Option<String>,
 }
@@ -222,13 +226,68 @@ pub fn handle_skeleton_candidate(
             file_list,
         )
     };
-    let scan = skeleton_scan::scan_skeleton(
+    let mut scan = skeleton_scan::scan_skeleton(
         scan_input,
         SkeletonScanOptions {
             naming,
             ..SkeletonScanOptions::default()
         },
     );
+    // F11-b §2a: with `naming:"auto"`, a LIVE announced runnerd, and the shared
+    // secret on disk, call the pinned naming-runner (one packet per block) and
+    // land `named_by:"runner"` / `needs_owner_naming:false` BEFORE the store
+    // transaction — runner absent/timeout/parse-fail falls back to the honest
+    // heuristic PER BLOCK (partial is normal). With NO announced runnerd this
+    // whole branch is skipped and the scan output stays byte-identical to the
+    // offline behavior (the F0c-a fallback note included).
+    if naming == CandidateNamingMode::Auto {
+        if let Some(handle) = state.runnerd_naming.clone() {
+            let secret = crate::runnerd_owner::read_secret(&handle.owner_runtime_root);
+            let live = !handle.registry.live_ports().is_empty();
+            if let (Some(secret), true, false) = (secret, live, scan.naming_packets.is_empty()) {
+                let outcome = crate::naming_runner::run_scan_naming(
+                    &handle,
+                    &secret,
+                    &scan.naming_packets,
+                    &mut scan.seed,
+                    &mut scan.report.blocks,
+                );
+                let total = scan.naming_packets.len();
+                let naming_report = &mut scan.report.naming;
+                match &outcome.transport_error {
+                    Some(err) => {
+                        // A daemon was announced but no call completed — every
+                        // block stays heuristic; say so, never silently.
+                        naming_report.applied = "heuristic".to_string();
+                        naming_report.runner_available = false;
+                        naming_report.note = format!(
+                            "naming-runner call failed: {err}; heuristic provisional names were used"
+                        );
+                    }
+                    None => {
+                        naming_report.runner_available = true;
+                        let named = outcome.named.len();
+                        if named == total {
+                            naming_report.applied = "runner".to_string();
+                            naming_report.note =
+                                format!("live naming-runner named {named}/{total} blocks");
+                        } else if named == 0 {
+                            naming_report.applied = "heuristic".to_string();
+                            naming_report.note = format!(
+                                "live naming-runner named 0/{total} blocks; heuristic provisional names were used"
+                            );
+                        } else {
+                            naming_report.applied = "runner_partial".to_string();
+                            naming_report.note = format!(
+                                "live naming-runner named {named}/{total} blocks; {} fell back to heuristic",
+                                total - named
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let dir = store_dir(state);
     let (store, summary) =
         skeleton_candidate_in_dir(&dir, scan.seed.clone(), input.expected_store_version)
@@ -533,6 +592,99 @@ pub fn handle_system_blocks_delete(
 }
 
 // ---------------------------------------------------------------------------
+// candidate_edit (WRITE) — F11-a typed batch edit on a candidate skeleton
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateEditInput {
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    /// The `store_version` the caller read (OCC key, PRD §3.1).
+    pub expected_store_version: u64,
+    /// The typed edit ops (rename/merge/split/move_member/resolve_seam/assign_unmapped).
+    pub ops: Vec<crate::candidate_edit::EditOp>,
+    /// The authoring seat for provenance (§1c): `"owner"` (the GUI, default) stamps
+    /// `named_by:owner`; `"runner"` (an agent seat) stamps `named_by:runner`.
+    #[serde(default)]
+    pub by: Option<String>,
+}
+
+/// `candidate_edit` (WRITE, F11-a). Applies a typed batch of edits to the CANDIDATE
+/// skeleton under one OCC transaction with preflight-on-a-clone (o1): the whole batch
+/// is validated against a working copy and only a total success persists (once) and
+/// bumps `store_version` (once). A `ratified` skeleton refuses every op
+/// (`skeleton_not_candidate`, §1a); a failing op returns its index honestly.
+pub fn handle_candidate_edit(
+    state: &mut SessionState,
+    input: CandidateEditInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "candidate_edit";
+    let seat = crate::candidate_edit::EditSeat::parse(input.by.as_deref()).map_err(|detail| {
+        M1ndError::InvalidParams {
+            tool: TOOL.to_string(),
+            detail,
+        }
+    })?;
+    let dir = store_dir(state);
+    let store = candidate_edit_in_dir(&dir, input.expected_store_version, &input.ops, seat)
+        .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "store_version": store.store_version,
+        "block_count": store.blocks.len(),
+        "ops_applied": input.ops.len(),
+        "store": store,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// candidate_lease (WRITE) — F11-a advisory curation lease (o4)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateLeaseInput {
+    /// The agent identity that holds/refreshes/releases the lease — REQUIRED (the
+    /// lease is keyed on it; the owner is the single serialization point, o4).
+    pub agent_id: String,
+    /// `"acquire"` | `"refresh"` | `"release"`.
+    pub action: String,
+    /// The lease lifetime in seconds; omit for the default. Used by acquire/refresh.
+    #[serde(default)]
+    pub ttl_secs: Option<u64>,
+}
+
+/// `candidate_lease` (WRITE, F11-a). The advisory curation lease (o4): `acquire` is an
+/// atomic compare-and-set (granted iff the lease is free, expired, or already this
+/// agent's), `refresh` extends the owner-held TTL, and `release` clears it — an
+/// expired lease is reclaimable by anyone (no dead-agent trap). It is ADVISORY:
+/// `candidate_edit` never requires a held lease, and the lease never bumps
+/// `store_version`, so it can never block the owner or invalidate a pending edit.
+pub fn handle_candidate_lease(
+    state: &mut SessionState,
+    input: CandidateLeaseInput,
+) -> M1ndResult<Value> {
+    const TOOL: &str = "candidate_lease";
+    let action = LeaseAction::parse(&input.action).map_err(|detail| M1ndError::InvalidParams {
+        tool: TOOL.to_string(),
+        detail,
+    })?;
+    let ttl = input.ttl_secs.unwrap_or(DEFAULT_LEASE_TTL_SECS);
+    let ms = now_ms();
+    let now_iso = iso8601_from_ms(ms);
+    let until_iso = iso8601_from_ms(ms.saturating_add(ttl.saturating_mul(1000)));
+    let dir = store_dir(state);
+    let (store, summary) =
+        candidate_lease_in_dir(&dir, action, &input.agent_id, &now_iso, &until_iso)
+            .map_err(|e| seed_err(TOOL, e))?;
+    Ok(json!({
+        "state": summary.state,
+        "curating_by": summary.curating_by,
+        "curating_until": summary.curating_until,
+        // The lease is advisory bookkeeping — it never bumps the OCC counter.
+        "store_version": store.store_version,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Timestamp — RFC3339 UTC, dependency-free (mirrors the repo's civil-date math)
 // ---------------------------------------------------------------------------
 
@@ -639,5 +791,207 @@ mod tests {
         let s = iso8601_from_ms(ms);
         assert!(s.starts_with("2026-07-09T"), "unexpected: {s}");
         assert!(s.ends_with('Z') && s.len() == 20, "rfc3339 shape: {s}");
+    }
+
+    // =======================================================================
+    // F11-b — the scan→naming-runner wiring.
+    // =======================================================================
+
+    /// Build a session over a scratch repo (one real file), exactly like the
+    /// code-root test above: the workspace is a store dir, the repo is the ingest
+    /// root, so the scan resolves the CODE root.
+    fn naming_test_state(
+        temp: &tempfile::TempDir,
+    ) -> (crate::session::SessionState, std::path::PathBuf) {
+        let repo = temp.path().join("real-repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo");
+        std::fs::write(repo.join("src/lib.rs"), "pub fn x() {}\n").expect("file");
+        let store_dir = temp.path().join("brain-store/agent-memory");
+        std::fs::create_dir_all(&store_dir).expect("store");
+
+        let config = crate::server::McpConfig {
+            graph_source: temp.path().join("g.json"),
+            plasticity_state: temp.path().join("p.json"),
+            runtime_dir: Some(temp.path().join("rt")),
+            ..crate::server::McpConfig::default()
+        };
+        let mut state = crate::session::SessionState::initialize(
+            m1nd_core::graph::Graph::new(),
+            &config,
+            m1nd_core::domain::DomainConfig::code(),
+        )
+        .expect("init");
+        state.workspace_root = Some(store_dir.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+        (state, repo)
+    }
+
+    /// F11-b regression: with NO announced runnerd the auto scan is byte-identical
+    /// to the offline behavior — every block heuristic + needing the owner, and
+    /// the F0c-a fallback note VERBATIM.
+    #[test]
+    fn skeleton_candidate_without_runnerd_stays_fully_heuristic() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, _repo) = naming_test_state(&temp);
+        assert!(
+            state.runnerd_naming.is_none(),
+            "a fresh session carries no naming handle"
+        );
+        let out = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: None, // auto
+            },
+        )
+        .expect("scan runs");
+        assert_eq!(out["report"]["naming"]["applied"], "heuristic");
+        assert_eq!(out["report"]["naming"]["runner_available"], false);
+        assert_eq!(
+            out["report"]["naming"]["note"],
+            "naming-runner hook is backend-declared but not invoked in F0c-a; heuristic provisional names were used",
+            "the offline fallback note is byte-identical to the pre-F11-b behavior"
+        );
+        for block in out["candidate_seed"]["blocks"].as_array().unwrap() {
+            assert_eq!(block["candidate_meta"]["named_by"], "heuristic");
+            assert_eq!(block["candidate_meta"]["needs_owner_naming"], true);
+        }
+    }
+
+    /// A canned fake runnerd `/name` daemon: accepts one connection, parses the
+    /// request's block ids, answers every block ok with a clean name. Never a
+    /// real runner, never an LLM.
+    fn spawn_fake_name_daemon(expect_secret: &'static str) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept");
+            let mut req = Vec::new();
+            let mut chunk = [0u8; 8192];
+            loop {
+                let n = sock.read(&mut chunk).expect("read");
+                req.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&req[..pos]).to_string();
+                    let want: usize = head
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.trim()
+                                .eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse().ok())?
+                        })
+                        .unwrap_or(0);
+                    if req.len() >= pos + 4 + want {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&req).to_string();
+            assert!(
+                text.contains(&format!("x-runnerd-secret: {expect_secret}")),
+                "the owner must sign the /name call: {text}"
+            );
+            let body_start = text.find("\r\n\r\n").map(|p| p + 4).unwrap_or(0);
+            let body: serde_json::Value =
+                serde_json::from_str(&text[body_start..]).expect("request body parses");
+            let results: Vec<serde_json::Value> = body["blocks"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .map(|b| {
+                    // The packet must carry paths, never file bodies.
+                    assert!(
+                        b["packet"]["member_paths"].is_array(),
+                        "packet carries member paths: {b}"
+                    );
+                    json!({
+                        "block_id": b["block_id"],
+                        "ok": true,
+                        "name": "Runner Named",
+                        "purpose": "Named by the live naming-runner.",
+                    })
+                })
+                .collect();
+            let payload =
+                serde_json::to_string(&json!({ "runner_id": "namer-1", "results": results }))
+                    .unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{payload}",
+                payload.len()
+            );
+            sock.write_all(response.as_bytes()).expect("write");
+        });
+        port
+    }
+
+    /// F11-b §2a end-to-end: an auto scan with a LIVE (fake) announced daemon
+    /// lands runner names in the emitted seed, in the report, AND in the persisted
+    /// store — needs_owner_naming false, so the o6 ratify gate opens without a
+    /// human touch per block.
+    #[test]
+    fn skeleton_candidate_with_live_fake_daemon_lands_runner_names() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, _repo) = naming_test_state(&temp);
+
+        // The owner runtime root carries the shared secret; the fake daemon is
+        // announced in the registry — the two facts the naming path needs.
+        let owner_rt = temp.path().join("owner-rt");
+        std::fs::create_dir_all(&owner_rt).expect("owner rt");
+        std::fs::write(
+            crate::runnerd_owner::secret_path(&owner_rt),
+            "fake-naming-secret",
+        )
+        .expect("secret");
+        let port = spawn_fake_name_daemon("fake-naming-secret");
+        let registry = std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+        registry.register(&["namer-1".to_string()], port, 1);
+        state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {
+            registry,
+            owner_runtime_root: owner_rt,
+        });
+
+        let out = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: None, // auto
+            },
+        )
+        .expect("scan + naming runs");
+
+        // The report says honestly that the runner named everything.
+        assert_eq!(out["report"]["naming"]["applied"], "runner");
+        assert_eq!(out["report"]["naming"]["runner_available"], true);
+        let blocks = out["candidate_seed"]["blocks"].as_array().unwrap();
+        assert!(!blocks.is_empty());
+        for block in blocks {
+            assert_eq!(block["name"], "Runner Named");
+            assert_eq!(block["candidate_meta"]["named_by"], "runner");
+            assert_eq!(
+                block["candidate_meta"]["needs_owner_naming"], false,
+                "runner-named blocks are ratifiable without an individual touch (0b)"
+            );
+        }
+        // The PERSISTED store carries the runner names (the scan applied them
+        // BEFORE the store transaction).
+        let store = SystemBlockStore::load(&store_dir(&state))
+            .expect("load")
+            .expect("present");
+        for block in &store.blocks {
+            assert_eq!(block.name, "Runner Named");
+            let meta = block.candidate_meta.as_ref().unwrap();
+            assert_eq!(meta.named_by, crate::system_blocks::NamedBy::Runner);
+            assert!(!meta.needs_owner_naming);
+        }
     }
 }

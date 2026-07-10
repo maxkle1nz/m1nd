@@ -10,11 +10,12 @@
 # `build-runner` (the code lane) and `naming-runner` (the cheap/fast lane);
 # loop/hand/review-runner are out of the MVP.
 #
-# `command` MUST contain the `{packet_file}` token — the daemon writes the
-# MissionPacket into the isolated worktree and splices its path in here.
-# `gate_command` runs after the agent exits; its full log is hashed and, on a
-# zero exit, carried as the receipt candidate the human imports from the tray.
-# `workspace_allowlist` is absolute repo roots the runner may run in.
+# For a BUILD runner (`/run` missions), `command` MUST contain the
+# `{packet_file}` token — the daemon writes the MissionPacket into the isolated
+# worktree and splices its path in here. `gate_command` runs after the agent
+# exits; its full log is hashed and, on a zero exit, carried as the receipt
+# candidate the human imports from the tray. `workspace_allowlist` is absolute
+# repo roots the runner may run in.
 
 [[runner]]
 id = "build-runner-local"
@@ -25,9 +26,27 @@ workspace_allowlist = ["/absolute/path/to/your/repo"]
 # Optional per-mission kill timeout in seconds (default 1800 = 30 min).
 timeout_secs = 1800
 
+# A NAMING runner (F11-b) serves the owner's synchronous `POST /name` lane —
+# NOT a mission: no worktree, no gate, no mission letters, and the daemon never
+# writes a store. THE CONTRACT: for each block, the daemon runs `command` once,
+# writes the naming packet (ONE JSON object: block_id, member paths, dominant
+# kinds, top symbols — never file bodies) to the process's STDIN, and expects
+# ONE JSON line back as the LAST non-empty line of stdout:
+#
+#   {"name":"<= 40 chars, plain text","purpose":"one line, <= 120 chars"}
+#
+# The output is treated as HOSTILE and sanitized owner-side AND daemon-side
+# (HTML/Markdown, URLs, emails, paths, control chars, and token/hash-like
+# strings are rejected); a violation, timeout, or parse failure falls that
+# block back to its heuristic label — partial batches are normal.
+# `{packet_file}` is OPTIONAL for a naming command: when present, the packet is
+# ALSO written to a temp file and the token substituted. `gate_command` and
+# `workspace_allowlist` are optional for this capability (they gate `/run`
+# missions, which a pure naming runner never serves). `naming_timeout_secs` is
+# the PER-BLOCK timeout (default 20).
+
 [[runner]]
 id = "naming-runner-local"
 capability = "naming-runner"
-command = ["your-naming-cli", "{packet_file}"]
-gate_command = ["your-naming-gate"]
-workspace_allowlist = ["/absolute/path/to/your/repo"]
+command = ["your-naming-cli"]
+naming_timeout_secs = 20
