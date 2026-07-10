@@ -47,10 +47,19 @@ pub const PACKET_MEMBER_PATHS_CAP: usize = 40;
 /// How many top symbols a naming packet materializes.
 pub const PACKET_SYMBOLS_CAP: usize = 12;
 
+/// The instruction serialized into every naming packet (§2c: the response is ONE
+/// JSON line, schema-gated and sanitized on both sides).
+pub const PACKET_INSTRUCTION: &str = "Name this code block from the data in this JSON. Reply with EXACTLY one line of JSON and nothing else: {\"name\":\"...\",\"purpose\":\"...\"} — name is a short human module name (max 40 chars), purpose is one plain-text line (max 120 chars). No markdown, no URLs, no paths, no extra keys, no surrounding text.";
+
 /// One block's naming packet (§2a): what the runner sees — member list + dominant
 /// kinds + top symbols, NO file bodies. Built by the scan from data it already has.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BlockNamingPacket {
+    /// The task instruction, serialized INTO every packet so a generic LLM-backed
+    /// runner works out of the box — field-proven necessary: a real CLI runner
+    /// receiving bare data (no task, no format) wandered past its timeout on
+    /// every live call. A non-LLM runner may ignore it.
+    pub instruction: String,
     pub block_id: String,
     /// The honest total member count (the list below may be capped).
     pub member_count: usize,
@@ -441,13 +450,17 @@ pub struct ScanNamingOutcome {
     pub transport_error: Option<String>,
 }
 
-/// The owner-side wait budget for one whole `/name` batch: headroom over the
-/// daemon's default 20s-per-block at parallelism 4, capped under the tool
+/// The owner-side wait budget for one whole `/name` batch, capped under the tool
 /// dispatch timeout so a slow runner degrades to the honest heuristic fallback
-/// instead of killing the scan.
+/// instead of killing the scan. Field-measured: a real CLI-backed naming runner
+/// takes ~50s per call (process startup dominates), and the daemon's per-block
+/// timeout is operator-configurable up to that scale — a 25s-per-wave budget cut
+/// live batches mid-read (EAGAIN at the exact budget) while the daemon was still
+/// legitimately working. One wave now gets the full sub-dispatch window; larger
+/// batches keep the same cap and surface the partial result honestly.
 fn scan_naming_timeout(block_count: usize) -> Duration {
     let waves = block_count.div_ceil(4).max(1) as u64;
-    Duration::from_secs((10 + 25 * waves).min(90))
+    Duration::from_secs((10 + 95 * waves).min(110))
 }
 
 /// Run the whole §2a scan-path naming attempt: try each announced daemon port in
@@ -1006,6 +1019,7 @@ mod tests {
         let (port, daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "s3cr3t");
 
         let packets = vec![BlockNamingPacket {
+            instruction: PACKET_INSTRUCTION.to_string(),
             block_id: "sb_a".to_string(),
             member_count: 1,
             member_paths: vec!["src/a.rs".to_string()],
@@ -1079,6 +1093,7 @@ mod tests {
 
     fn packet_for(block_id: &str) -> BlockNamingPacket {
         BlockNamingPacket {
+            instruction: PACKET_INSTRUCTION.to_string(),
             block_id: block_id.to_string(),
             member_count: 1,
             member_paths: vec![format!("src/{block_id}.rs")],
