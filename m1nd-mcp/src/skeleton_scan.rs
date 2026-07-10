@@ -151,6 +151,15 @@ pub struct SkeletonScanOutput {
     pub naming_packets: Vec<crate::naming_runner::BlockNamingPacket>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkeletonCoherence {
+    Ok,
+    Mismatch {
+        expected_slug: String,
+        found_slug: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum GroupKey {
     /// A directory module — the DIR-FIRST block anchor. `community` is `Some`
@@ -1460,6 +1469,42 @@ fn sanitize_repo_id(repo_id: &str) -> String {
     }
 }
 
+pub fn skeleton_coherence(
+    project_root: Option<&str>,
+    skeleton: Option<(&str, &[String])>,
+) -> Option<SkeletonCoherence> {
+    let (skeleton_id, block_ids) = skeleton?;
+    let expected_slug = sanitize_slug(&crate::session::basename_of(project_root?));
+    let expected_skeleton_id = format!("sk_{expected_slug}");
+    let expected_skeleton_prefix = format!("{expected_skeleton_id}_");
+    if skeleton_id != expected_skeleton_id && !skeleton_id.starts_with(&expected_skeleton_prefix) {
+        let found_slug = skeleton_id
+            .strip_prefix("sk_")
+            .and_then(|id| id.strip_suffix("_candidate"))
+            .map(str::to_owned)
+            .unwrap_or_else(|| sanitize_slug(skeleton_id));
+        return Some(SkeletonCoherence::Mismatch {
+            expected_slug,
+            found_slug,
+        });
+    }
+
+    let block_prefix = format!("sb_{expected_slug}_");
+    if let Some(block_id) = block_ids.iter().find(|id| !id.starts_with(&block_prefix)) {
+        let found_slug = block_id
+            .strip_prefix("sb_")
+            .and_then(|id| id.split('_').next())
+            .map(str::to_owned)
+            .unwrap_or_else(|| sanitize_slug(block_id));
+        return Some(SkeletonCoherence::Mismatch {
+            expected_slug,
+            found_slug,
+        });
+    }
+
+    Some(SkeletonCoherence::Ok)
+}
+
 fn sanitize_slug(value: &str) -> String {
     let mut out = String::new();
     let mut last_underscore = false;
@@ -1492,6 +1537,50 @@ mod tests {
     use super::*;
     use crate::system_blocks::{MembershipRole, SeedFile, SystemBlock};
     use glob::Pattern;
+
+    #[test]
+    fn skeleton_coherence_has_no_signal_without_a_skeleton() {
+        assert_eq!(skeleton_coherence(Some("/repo-alpha"), None), None);
+    }
+
+    #[test]
+    fn skeleton_coherence_reports_foreign_incident_slugs() {
+        let block_ids = vec!["sb_traykeep_src_01234567".to_string()];
+
+        assert_eq!(
+            skeleton_coherence(
+                Some("/work/m1nd"),
+                Some(("sk_traykeep_candidate", &block_ids)),
+            ),
+            Some(SkeletonCoherence::Mismatch {
+                expected_slug: "m1nd".to_string(),
+                found_slug: "traykeep".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn skeleton_coherence_accepts_own_root_skeleton() {
+        let block_ids = vec!["sb_m1nd_src_01234567".to_string()];
+
+        assert_eq!(
+            skeleton_coherence(Some("/work/m1nd"), Some(("sk_m1nd_candidate", &block_ids)),),
+            Some(SkeletonCoherence::Ok)
+        );
+    }
+
+    #[test]
+    fn skeleton_coherence_reuses_scan_slug_sanitization() {
+        let block_ids = vec!["sb_my_repo_src_01234567".to_string()];
+
+        assert_eq!(
+            skeleton_coherence(
+                Some("/work/My-Repo"),
+                Some(("sk_my_repo_candidate", &block_ids)),
+            ),
+            Some(SkeletonCoherence::Ok)
+        );
+    }
 
     fn options_force_community() -> SkeletonScanOptions {
         SkeletonScanOptions {

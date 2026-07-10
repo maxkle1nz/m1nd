@@ -111,7 +111,7 @@ First render seeds positions deterministically (`algorithm_seed`); the owner may
 
 ## 8. F0a API surface (named now, implemented then)
 
-`system_blocks_snapshot` (read) · `system_blocks_seed_import` · `system_blocks_ratify` · `skeleton_candidate` (F0c) · `receipt_import` · `receipt_recompute` (expiry/staleness pass). All mutations OCC-checked per PRD §3.1; archive/delete exists in the store **from F0a** (UML §9.11) — the UI may not ship a delete button before the store can refuse an unsafe one.
+`system_blocks_snapshot` (read) · `system_blocks_seed_import` · `system_blocks_ratify` · `skeleton_candidate` (F0c) · `receipt_import` · `receipt_recompute` (expiry/staleness pass). A present snapshot includes `skeleton_coherence`: `{ "status": "ok" }` when the serving project-root slug matches the `sk_<slug>_*` skeleton and every `sb_<slug>_*` block, or `{ "status": "mismatch", "expected_slug": "…", "found_slug": "…" }` when they diverge. This is a vital sign only: it never rejects a read or mutation, and an absent store emits no signal. All mutations are OCC-checked per PRD §3.1; archive/delete exists in the store **from F0a** (UML §9.11) — the UI may not ship a delete button before the store can refuse an unsafe one.
 
 ## 9. Packet hygiene
 
