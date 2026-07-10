@@ -1225,7 +1225,7 @@ fn extension(path: &str) -> String {
         .unwrap_or_else(|| "no_ext".to_string())
 }
 
-fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
+pub(crate) fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for path in paths {
         *counts.entry(top_dir(path)).or_default() += 1;
@@ -1237,7 +1237,7 @@ fn dominant_directory<'a>(paths: impl Iterator<Item = &'a String>) -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-fn directory_support<'a>(paths: impl Iterator<Item = &'a String>) -> f64 {
+pub(crate) fn directory_support<'a>(paths: impl Iterator<Item = &'a String>) -> f64 {
     let mut total = 0usize;
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for path in paths {
@@ -1288,7 +1288,7 @@ fn humanize_path(path: &str) -> String {
 /// Human label for a directory module. Uses the leaf directory, but when that
 /// leaf is a generic source folder it borrows the parent for context, so a repo
 /// full of `src/` modules does not collapse into a wall of identical "Src".
-fn humanize_module(dir: &str) -> String {
+pub(crate) fn humanize_module(dir: &str) -> String {
     let parts: Vec<&str> = dir
         .split('/')
         .filter(|part| !part.is_empty() && *part != ".")
