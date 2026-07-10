@@ -4,7 +4,7 @@
 //! Louvain assignment vector (when available), and the repo file list. The MCP
 //! handler owns graph locking, git file discovery, OCC, and persistence.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use m1nd_core::graph::Graph;
 use m1nd_core::topology::{CommunityDetector, CommunityResult};
@@ -21,6 +21,11 @@ use crate::system_blocks::{
 
 const GRAPH_COHESION_EDGE_FLOOR: usize = 5;
 const DEFAULT_TINY_FILE_THRESHOLD: usize = 30;
+/// The block anchor is a directory module: the smallest ancestor directory that
+/// aggregates at least this many files. Directories below the floor bubble up to
+/// their parent (never dropping a file) until they aggregate or reach the root.
+/// This is what keeps a sparse graph from fragmenting into one block per file.
+const DIRECTORY_MODULE_FLOOR: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateNamingMode {
@@ -45,6 +50,10 @@ pub struct SkeletonScanOptions {
     pub naming: CandidateNamingMode,
     pub tiny_file_threshold: usize,
     pub graph_cohesion_edge_floor: usize,
+    /// Minimum files a directory module must aggregate before it becomes a block
+    /// anchor (and the minimum community size that can split a module). Defaults
+    /// to [`DIRECTORY_MODULE_FLOOR`].
+    pub directory_module_floor: usize,
 }
 
 impl Default for SkeletonScanOptions {
@@ -53,6 +62,7 @@ impl Default for SkeletonScanOptions {
             naming: CandidateNamingMode::Auto,
             tiny_file_threshold: DEFAULT_TINY_FILE_THRESHOLD,
             graph_cohesion_edge_floor: GRAPH_COHESION_EDGE_FLOOR,
+            directory_module_floor: DIRECTORY_MODULE_FLOOR,
         }
     }
 }
@@ -138,39 +148,42 @@ pub struct SkeletonScanOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum GroupKey {
-    Community {
-        community: u32,
+    /// A directory module — the DIR-FIRST block anchor. `community` is `Some`
+    /// when Louvain refined the module into per-community sub-blocks, or when the
+    /// seam-merge promoted a set of sibling modules into a shared block; `None`
+    /// is an unrefined whole module.
+    Module {
         directory: String,
+        community: Option<u32>,
     },
+    /// No-edge fallback grouping: files bucketed by parent directory + extension.
     Directory {
         directory: String,
         extension: String,
-    },
-    TopDir {
-        directory: String,
     },
 }
 
 impl GroupKey {
     fn stable_label(&self) -> String {
         match self {
-            GroupKey::Community {
-                community,
+            GroupKey::Module {
                 directory,
-            } => format!("c{community}-{directory}"),
+                community: Some(community),
+            } => format!("mod-{directory}-c{community}"),
+            GroupKey::Module {
+                directory,
+                community: None,
+            } => format!("mod-{directory}"),
             GroupKey::Directory {
                 directory,
                 extension,
             } => format!("dir-{directory}-{extension}"),
-            GroupKey::TopDir { directory } => format!("top-{directory}"),
         }
     }
 
     fn display_dir(&self) -> &str {
         match self {
-            GroupKey::Community { directory, .. }
-            | GroupKey::Directory { directory, .. }
-            | GroupKey::TopDir { directory } => directory,
+            GroupKey::Module { directory, .. } | GroupKey::Directory { directory, .. } => directory,
         }
     }
 }
@@ -244,6 +257,7 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
         && top_dirs.contains("src")
         && has_trusted_edges
         && has_trusted_assignments;
+    let floor = options.directory_module_floor.max(1);
 
     let (algorithm, mut groups, seams) = if !has_trusted_edges || !has_trusted_assignments {
         (
@@ -251,17 +265,32 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
             directory_extension_groups(&repo_files),
             Vec::new(),
         )
-    } else if repo_files.len() < options.tiny_file_threshold && !single_src_code_repo {
-        (
-            "top_directory_tiny_repo".to_string(),
-            top_dir_groups(&repo_files),
-            Vec::new(),
-        )
     } else {
-        let (claims, seams) = collapse_file_claims(&input, &repo_files);
-        let mut groups = community_groups(&repo_files, &claims);
-        attach_unclaimed_by_directory(&repo_files, &claims, &mut groups);
-        ("community_collapse_ladder".to_string(), groups, seams)
+        // DIR-FIRST: every file first anchors to its directory module (the
+        // smallest ancestor dir aggregating >= floor files), so a degenerate
+        // Louvain can never fragment the map into one block per file.
+        let (claims, raw_seams) = collapse_file_claims(&input, &repo_files);
+        let file_module = directory_modules(&repo_files, floor);
+        if repo_files.len() < options.tiny_file_threshold && !single_src_code_repo {
+            // Tiny repo: directory modules only — Louvain is unreliable at this
+            // scale, so no community refine and no seam-merge.
+            (
+                "directory_module_tiny".to_string(),
+                dir_first_groups(&repo_files, &claims, &file_module, floor, false),
+                Vec::new(),
+            )
+        } else {
+            // Louvain REFINES each module (split only when >= 2 communities each
+            // clear the floor); then the seam-merge stitches sibling modules that
+            // share a dominant community.
+            let mut groups = dir_first_groups(&repo_files, &claims, &file_module, floor, true);
+            apply_costura(&mut groups, &claims);
+            (
+                "directory_module_louvain_refine".to_string(),
+                groups,
+                raw_seams,
+            )
+        }
     };
 
     groups.retain(|_, group| !group.members.is_empty());
@@ -286,22 +315,16 @@ pub fn scan_skeleton(input: SkeletonScanInput, options: SkeletonScanOptions) -> 
 
     let mut seams = seams
         .into_iter()
-        .map(|mut seam| {
-            seam.block_ids = seam
-                .communities
-                .iter()
-                .filter_map(|community| {
-                    groups.keys().find_map(|key| match key {
-                        GroupKey::Community { community: c, .. } if c == community => {
-                            block_id_by_key.get(key).cloned()
-                        }
-                        _ => None,
-                    })
-                })
-                .collect();
-            seam.block_ids.sort();
-            seam.block_ids.dedup();
-            seam
+        .filter_map(|mut seam| {
+            // Resolve the seam directly to the blocks that actually own the file.
+            // After DIR-FIRST refine a tie only stays a real seam when the file
+            // still lands in >= 2 candidate blocks; otherwise it was absorbed.
+            let ids = path_to_blocks.get(&seam.path).cloned().unwrap_or_default();
+            if ids.len() < 2 {
+                return None;
+            }
+            seam.block_ids = ids;
+            Some(seam)
         })
         .collect::<Vec<_>>();
     seams.sort_by(|a, b| a.path.cmp(&b.path));
@@ -625,126 +648,233 @@ fn collapse_file_claims(
     (claims, seams)
 }
 
-fn community_groups(
+/// DIR-FIRST anchor: map every file to its directory module — the smallest
+/// ancestor directory that aggregates at least `floor` files. A thin sub-tree
+/// bubbles its files up to the parent (never dropping one) until it aggregates
+/// or reaches its top-level directory. Bubble-up is clamped at the top level: a
+/// thin top-level directory keeps its own identity instead of dissolving into a
+/// mixed Root, so a module never straddles unrelated top-level directories.
+/// Files that live at the repo root (`"."`) form the legitimate Root module.
+/// Deepest-first, so a thin child folds into its parent before the parent is
+/// itself judged against the floor.
+fn directory_modules(repo_files: &[String], floor: usize) -> BTreeMap<String, String> {
+    let mut module: BTreeMap<String, String> = repo_files
+        .iter()
+        .map(|path| (path.clone(), parent_dir(path)))
+        .collect();
+    loop {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for dir in module.values() {
+            *counts.entry(dir.clone()).or_default() += 1;
+        }
+        let target = counts
+            .iter()
+            .filter(|(dir, count)| {
+                // Skip the root itself, and clamp at the top level: a top-level
+                // directory (parent is root) never bubbles into the mixed Root.
+                **count < floor && dir.as_str() != "." && parent_dir(dir) != "."
+            })
+            .max_by_key(|(dir, _)| dir_depth(dir))
+            .map(|(dir, _)| dir.clone());
+        let Some(target) = target else { break };
+        let parent = parent_dir(&target);
+        for dir in module.values_mut() {
+            if *dir == target {
+                *dir = parent.clone();
+            }
+        }
+    }
+    module
+}
+
+fn dir_depth(dir: &str) -> usize {
+    if dir == "." {
+        0
+    } else {
+        dir.matches('/').count() + 1
+    }
+}
+
+/// Build candidate groups from directory modules. When `refine` is set, a module
+/// holding >= 2 distinct communities that each clear `floor` is split into
+/// per-community sub-blocks (this preserves the dense kernel/evidence case);
+/// files whose community is small, absent, or off-module fold into the module's
+/// dominant community. Cross-community ties keep the existing shared+seam rule.
+fn dir_first_groups(
     repo_files: &[String],
     claims: &BTreeMap<String, FileClaim>,
+    file_module: &BTreeMap<String, String>,
+    floor: usize,
+    refine: bool,
 ) -> BTreeMap<GroupKey, CandidateGroup> {
-    let mut community_top_dirs: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
-    for (path, claim) in claims {
-        if let Some(c) = claim.primary {
-            community_top_dirs
-                .entry(c)
-                .or_default()
-                .insert(top_dir(path));
-        }
-        for c in &claim.shared {
-            community_top_dirs
-                .entry(*c)
-                .or_default()
-                .insert(top_dir(path));
-        }
+    let mut module_files: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for path in repo_files {
+        let module = file_module
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| parent_dir(path));
+        module_files.entry(module).or_default().push(path.clone());
     }
 
     let mut groups: BTreeMap<GroupKey, CandidateGroup> = BTreeMap::new();
-    for path in repo_files {
-        let Some(claim) = claims.get(path) else {
-            continue;
-        };
-        if let Some(community) = claim.primary {
-            let key = GroupKey::Community {
-                community,
-                directory: community_group_dir(path, community, &community_top_dirs),
-            };
-            groups
-                .entry(key.clone())
-                .or_insert_with(|| CandidateGroup::new(key.clone()))
-                .add(
-                    path,
-                    MembershipRole::Primary,
-                    claim.graph_backed,
-                    Some(community),
-                );
+    for (module, files) in &module_files {
+        let mut community_counts: BTreeMap<u32, usize> = BTreeMap::new();
+        for path in files {
+            if let Some(community) = claims.get(path).and_then(|claim| claim.primary) {
+                *community_counts.entry(community).or_default() += 1;
+            }
         }
-        for community in &claim.shared {
-            let key = GroupKey::Community {
-                community: *community,
-                directory: community_group_dir(path, *community, &community_top_dirs),
+        let big: BTreeSet<u32> = community_counts
+            .iter()
+            .filter(|(_, count)| **count >= floor)
+            .map(|(community, _)| *community)
+            .collect();
+        let split = refine && big.len() >= 2;
+        let dominant = community_counts
+            .iter()
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+            .map(|(community, _)| *community);
+
+        for path in files {
+            let claim = claims
+                .get(path)
+                .cloned()
+                .unwrap_or_else(FileClaim::unmapped);
+            if !split {
+                let key = GroupKey::Module {
+                    directory: module.clone(),
+                    community: None,
+                };
+                groups
+                    .entry(key.clone())
+                    .or_insert_with(|| CandidateGroup::new(key.clone()))
+                    .add(
+                        path,
+                        MembershipRole::Primary,
+                        claim.graph_backed,
+                        claim.primary,
+                    );
+                continue;
+            }
+
+            let mut homes: Vec<u32> = Vec::new();
+            if let Some(primary) = claim.primary {
+                if big.contains(&primary) {
+                    homes.push(primary);
+                }
+            } else {
+                for community in &claim.shared {
+                    if big.contains(community) && !homes.contains(community) {
+                        homes.push(*community);
+                    }
+                }
+            }
+            if homes.is_empty() {
+                // Small / absent / off-module community: fold into the dominant
+                // (guaranteed to clear the floor whenever a module splits).
+                if let Some(dom) = dominant {
+                    let key = GroupKey::Module {
+                        directory: module.clone(),
+                        community: Some(dom),
+                    };
+                    groups
+                        .entry(key.clone())
+                        .or_insert_with(|| CandidateGroup::new(key.clone()))
+                        .add(path, MembershipRole::Primary, claim.graph_backed, Some(dom));
+                }
+                continue;
+            }
+            let role = if homes.len() > 1 {
+                MembershipRole::Shared
+            } else {
+                MembershipRole::Primary
             };
-            groups
-                .entry(key.clone())
-                .or_insert_with(|| CandidateGroup::new(key.clone()))
-                .add(
-                    path,
-                    MembershipRole::Shared,
-                    claim.graph_backed,
-                    Some(*community),
-                );
+            for community in &homes {
+                let key = GroupKey::Module {
+                    directory: module.clone(),
+                    community: Some(*community),
+                };
+                groups
+                    .entry(key.clone())
+                    .or_insert_with(|| CandidateGroup::new(key.clone()))
+                    .add(path, role, claim.graph_backed, Some(*community));
+            }
         }
     }
     groups
 }
 
-fn community_group_dir(
-    path: &str,
-    community: u32,
-    community_top_dirs: &BTreeMap<u32, BTreeSet<String>>,
-) -> String {
-    let top = top_dir(path);
-    let dirs = community_top_dirs.get(&community);
-    match dirs {
-        Some(set) if set.len() > 1 => top,
-        Some(_) => top,
-        None => top,
-    }
-}
-
-fn attach_unclaimed_by_directory(
-    repo_files: &[String],
-    claims: &BTreeMap<String, FileClaim>,
+/// §2b seam-merge (costura): after refine, stitch sibling whole-modules (same
+/// parent directory) that agree on a majority "dominant community" into one
+/// block. Never merges across the repo root, so a block can never straddle
+/// unrelated top-level directories.
+fn apply_costura(
     groups: &mut BTreeMap<GroupKey, CandidateGroup>,
+    claims: &BTreeMap<String, FileClaim>,
 ) {
-    let mut parent_to_group: BTreeMap<String, BTreeSet<GroupKey>> = BTreeMap::new();
-    let mut top_to_group: BTreeMap<String, BTreeSet<GroupKey>> = BTreeMap::new();
+    let mut buckets: BTreeMap<(String, u32), Vec<GroupKey>> = BTreeMap::new();
     for (key, group) in groups.iter() {
-        for path in group.members.keys() {
-            parent_to_group
-                .entry(parent_dir(path))
-                .or_default()
-                .insert(key.clone());
-            top_to_group
-                .entry(top_dir(path))
-                .or_default()
-                .insert(key.clone());
-        }
-    }
-
-    for path in repo_files {
-        let Some(claim) = claims.get(path) else {
+        let GroupKey::Module {
+            directory,
+            community: None,
+        } = key
+        else {
             continue;
         };
-        if claim.primary.is_some() || !claim.shared.is_empty() {
+        let parent = parent_dir(directory);
+        if parent == "." {
             continue;
         }
-        let parent = parent_dir(path);
-        let top = top_dir(path);
-        let key = parent_to_group
-            .get(&parent)
-            .filter(|keys| keys.len() == 1)
-            .and_then(|keys| keys.iter().next().cloned())
-            .or_else(|| {
-                top_to_group
-                    .get(&top)
-                    .filter(|keys| keys.len() == 1)
-                    .and_then(|keys| keys.iter().next().cloned())
-            })
-            .unwrap_or_else(|| GroupKey::Directory {
-                directory: parent.clone(),
-                extension: extension(path),
-            });
-        groups
-            .entry(key.clone())
-            .or_insert_with(|| CandidateGroup::new(key.clone()))
-            .add(path, MembershipRole::Primary, false, None);
+        let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
+        let mut total = 0usize;
+        for path in group.members.keys() {
+            if let Some(community) = claims.get(path).and_then(|claim| claim.primary) {
+                *counts.entry(community).or_default() += 1;
+                total += 1;
+            }
+        }
+        let Some((dominant, best)) = counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        else {
+            continue;
+        };
+        // Require a genuine majority of the module's graph-backed files, so a
+        // scattered (degenerate-Louvain) module never triggers a merge.
+        if best * 2 <= total {
+            continue;
+        }
+        buckets
+            .entry((parent, dominant))
+            .or_default()
+            .push(key.clone());
+    }
+
+    for ((parent, dominant), keys) in buckets {
+        if keys.len() < 2 {
+            continue;
+        }
+        let merged_key = GroupKey::Module {
+            directory: parent,
+            community: Some(dominant),
+        };
+        let mut merged = groups
+            .remove(&merged_key)
+            .unwrap_or_else(|| CandidateGroup::new(merged_key.clone()));
+        for key in &keys {
+            if let Some(group) = groups.remove(key) {
+                for (path, role) in &group.members {
+                    let graph_backed = group.graph_members.contains(path);
+                    merged.add(
+                        path,
+                        *role,
+                        graph_backed,
+                        claims.get(path).and_then(|claim| claim.primary),
+                    );
+                }
+            }
+        }
+        groups.insert(merged_key, merged);
     }
 }
 
@@ -754,20 +884,6 @@ fn directory_extension_groups(repo_files: &[String]) -> BTreeMap<GroupKey, Candi
         let key = GroupKey::Directory {
             directory: parent_dir(path),
             extension: extension(path),
-        };
-        groups
-            .entry(key.clone())
-            .or_insert_with(|| CandidateGroup::new(key.clone()))
-            .add(path, MembershipRole::Primary, false, None);
-    }
-    groups
-}
-
-fn top_dir_groups(repo_files: &[String]) -> BTreeMap<GroupKey, CandidateGroup> {
-    let mut groups = BTreeMap::new();
-    for path in repo_files {
-        let key = GroupKey::TopDir {
-            directory: top_dir(path),
         };
         groups
             .entry(key.clone())
@@ -962,10 +1078,18 @@ fn heuristic_name_and_purpose(
     nodes: &[SkeletonGraphNode],
 ) -> (String, String) {
     let dir = key.display_dir();
-    let mut name = humanize_path(dir);
-    if let GroupKey::Community { community, .. } = key {
-        if name == "Root" || name == "Src" {
-            name = format!("{} Cluster", ordinal_name(*community));
+    let label = match key {
+        GroupKey::Module { .. } => humanize_module(dir),
+        GroupKey::Directory { .. } => humanize_path(dir),
+    };
+    let mut name = label.clone();
+    if let GroupKey::Module {
+        community: Some(community),
+        ..
+    } = key
+    {
+        if name == "Root" {
+            name = format!("Root {}", ordinal_name(*community));
         }
     }
     let samples: Vec<String> = group.members.keys().take(3).cloned().collect();
@@ -974,7 +1098,7 @@ fn heuristic_name_and_purpose(
         "Provisional map for {} file{} around {}. Dominant graph kinds: {}. Sample: {}.",
         group.members.len(),
         if group.members.len() == 1 { "" } else { "s" },
-        humanize_path(dir).to_lowercase(),
+        label.to_lowercase(),
         if dominant_kinds.is_empty() {
             "files".to_string()
         } else {
@@ -1161,6 +1285,29 @@ fn humanize_path(path: &str) -> String {
         .join(" ")
 }
 
+/// Human label for a directory module. Uses the leaf directory, but when that
+/// leaf is a generic source folder it borrows the parent for context, so a repo
+/// full of `src/` modules does not collapse into a wall of identical "Src".
+fn humanize_module(dir: &str) -> String {
+    let parts: Vec<&str> = dir
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if parts.is_empty() {
+        return "Root".to_string();
+    }
+    let generic = matches!(
+        parts[parts.len() - 1],
+        "src" | "lib" | "source" | "app" | "pkg" | "dist" | "build"
+    );
+    let take = if generic && parts.len() >= 2 { 2 } else { 1 };
+    parts[parts.len() - take..]
+        .iter()
+        .map(|part| humanize_path(part))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn ordinal_name(id: u32) -> String {
     format!("Community {id}")
 }
@@ -1204,12 +1351,15 @@ fn short_hash(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::system_blocks::{MembershipRole, SeedFile};
+    use crate::system_blocks::{MembershipRole, SeedFile, SystemBlock};
     use glob::Pattern;
 
     fn options_force_community() -> SkeletonScanOptions {
         SkeletonScanOptions {
             tiny_file_threshold: 0,
+            // Floor 1 so a 3-file `src` module still refines by community and the
+            // shared-file tie surfaces as a seam across two blocks.
+            directory_module_floor: 1,
             ..SkeletonScanOptions::default()
         }
     }
@@ -1242,24 +1392,27 @@ mod tests {
         }
     }
 
+    fn expand_membership(block: &SystemBlock, file_list: &[String]) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for member in &block.membership {
+            if member.path.contains('*') || member.path.contains('?') || member.path.contains('[') {
+                let pat = Pattern::new(&member.path).expect("valid glob emitted by scan");
+                for file in file_list {
+                    if pat.matches(file) {
+                        out.insert(file.clone());
+                    }
+                }
+            } else {
+                out.insert(member.path.clone());
+            }
+        }
+        out
+    }
+
     fn resolve_seed_members(seed: &SeedFile, file_list: &[String]) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for block in &seed.blocks {
-            for member in &block.membership {
-                if member.path.contains('*')
-                    || member.path.contains('?')
-                    || member.path.contains('[')
-                {
-                    let pat = Pattern::new(&member.path).expect("valid glob emitted by scan");
-                    for file in file_list {
-                        if pat.matches(file) {
-                            out.insert(file.clone());
-                        }
-                    }
-                } else {
-                    out.insert(member.path.clone());
-                }
-            }
+            out.extend(expand_membership(block, file_list));
         }
         out
     }
@@ -1317,21 +1470,38 @@ mod tests {
 
     #[test]
     fn single_src_repo_with_graph_uses_communities_not_one_top_dir() {
-        let mut input = base_input(vec!["src/a.rs", "src/b.rs", "src/c.rs"]);
+        // Dense single-`src` repo: two communities that each clear the default
+        // floor (3) must refine the `src` module into two blocks rather than
+        // collapse to one. Fixture grown from 3 -> 6 files because DIR-FIRST only
+        // splits a module on communities that clear the floor (the old fixture's
+        // 1-and-2 split would now — correctly — read as one human-scale block).
+        let mut input = base_input(vec![
+            "src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs", "src/e.rs", "src/f.rs",
+        ]);
         input.nodes = vec![
             node("file::src/a.rs", NodeType::File),
             node("file::src/b.rs", NodeType::File),
             node("file::src/c.rs", NodeType::File),
+            node("file::src/d.rs", NodeType::File),
+            node("file::src/e.rs", NodeType::File),
+            node("file::src/f.rs", NodeType::File),
         ];
-        input.assignments = vec![Some(0), Some(1), Some(1)];
-        input.edges = vec![edge(1, 2), edge(2, 1)];
+        input.assignments = vec![Some(0), Some(0), Some(0), Some(1), Some(1), Some(1)];
+        input.edges = vec![
+            edge(0, 1),
+            edge(1, 2),
+            edge(2, 0),
+            edge(3, 4),
+            edge(4, 5),
+            edge(5, 3),
+        ];
 
         let out = scan_skeleton(input, SkeletonScanOptions::default());
 
-        assert_eq!(out.report.algorithm, "community_collapse_ladder");
+        assert_eq!(out.report.algorithm, "directory_module_louvain_refine");
         assert!(
             out.seed.blocks.len() > 1,
-            "single src repo must not collapse to one block"
+            "single src repo must refine into communities, not one block"
         );
     }
 
@@ -1443,7 +1613,17 @@ mod tests {
             let tops: BTreeSet<_> = block
                 .membership
                 .iter()
-                .map(|m| top_dir(m.path.trim_end_matches("/**")))
+                .map(|m| {
+                    let path = m.path.trim_end_matches("/**");
+                    // A root-level file has no top directory; treat it as "." so
+                    // the legitimate DIR-FIRST Root module is not misread as a
+                    // block that crosses unrelated top dirs.
+                    if path.contains('/') {
+                        top_dir(path)
+                    } else {
+                        ".".to_string()
+                    }
+                })
                 .filter(|top| top != ".")
                 .collect();
             assert!(
@@ -1460,5 +1640,183 @@ mod tests {
             coverage,
             out.report.multi_owner_seams.len()
         );
+    }
+
+    #[test]
+    fn sparse_repo_yields_a_human_scale_map() {
+        // The proven live failure: a sparse repo whose Louvain degenerates into a
+        // near-unique community per file (a Tauri-shaped ~100-file repo) used to
+        // explode into ~89 one-file blocks. DIR-FIRST anchors every file to its
+        // directory module first, so the degenerate signal cannot fragment it.
+        let mut files: Vec<String> = Vec::new();
+        let push_dir = |files: &mut Vec<String>, dir: &str, n: usize| {
+            for i in 0..n {
+                files.push(format!("{dir}/f{i}.rs"));
+            }
+        };
+        push_dir(&mut files, "project-core/src", 14);
+        push_dir(&mut files, "project-app/src", 20);
+        push_dir(&mut files, "project-app/shell", 10);
+        push_dir(&mut files, "project-docs", 15);
+        push_dir(&mut files, "project-tasks", 18);
+        for i in 0..6 {
+            files.push(format!("root{i}.md"));
+        }
+
+        let mut input = base_input(files.iter().map(String::as_str).collect());
+        input.nodes = files
+            .iter()
+            .map(|path| node(&format!("file::{path}"), NodeType::File))
+            .collect();
+        // Each file in its own community — the degenerate Louvain we must survive.
+        input.assignments = (0..files.len() as u32).map(Some).collect();
+        // A few edges so the graph path (not the no-edge fallback) is taken.
+        input.edges = (1..files.len())
+            .step_by(7)
+            .map(|i| edge(i - 1, i))
+            .collect();
+
+        let out = scan_skeleton(
+            input,
+            SkeletonScanOptions {
+                tiny_file_threshold: 0,
+                ..SkeletonScanOptions::default()
+            },
+        );
+
+        let block_count = out.seed.blocks.len();
+        assert!(
+            (4..=12).contains(&block_count),
+            "expected a human-scale 4..=12 blocks, got {block_count}"
+        );
+
+        // >= 80% of blocks are human-scale (>= 3 members); a Root block may be
+        // the only smaller one.
+        let human_scale = out
+            .seed
+            .blocks
+            .iter()
+            .filter(|b| expand_membership(b, &files).len() >= 3)
+            .count();
+        assert!(
+            human_scale as f64 / block_count as f64 >= 0.80,
+            "only {human_scale}/{block_count} blocks are human-scale"
+        );
+
+        // No one-file block except a legitimate root file.
+        for b in &out.seed.blocks {
+            let members: Vec<String> = expand_membership(b, &files).into_iter().collect();
+            if members.len() == 1 {
+                assert!(
+                    !members[0].contains('/'),
+                    "one-file block {} is not a root file: {:?}",
+                    b.block_id,
+                    members
+                );
+            }
+        }
+
+        // Each cohesive directory recovers as exactly one block.
+        for dir in ["project-core/src", "project-docs", "project-tasks"] {
+            let owning: BTreeSet<_> = out
+                .seed
+                .blocks
+                .iter()
+                .filter(|b| {
+                    expand_membership(b, &files)
+                        .iter()
+                        .any(|p| p.starts_with(dir))
+                })
+                .map(|b| b.block_id.clone())
+                .collect();
+            assert_eq!(owning.len(), 1, "{dir} must recover as exactly one block");
+        }
+
+        // Nothing dropped.
+        assert_eq!(
+            resolve_seed_members(&out.seed, &files).len(),
+            files.len(),
+            "every file must be claimed"
+        );
+        assert_eq!(out.report.unmapped_total, 0, "no file may be discarded");
+    }
+
+    #[test]
+    fn costura_merges_sibling_modules_sharing_a_dominant_community() {
+        // §2b seam-merge: two sibling directories whose files all share one
+        // community must stitch into a single block instead of standing apart.
+        let files = vec![
+            "pkg/api/a.rs",
+            "pkg/api/b.rs",
+            "pkg/api/c.rs",
+            "pkg/web/d.rs",
+            "pkg/web/e.rs",
+            "pkg/web/f.rs",
+        ];
+        let mut input = base_input(files.clone());
+        input.nodes = files
+            .iter()
+            .map(|p| node(&format!("file::{p}"), NodeType::File))
+            .collect();
+        // Every file in community 7 -> each module has a 100% dominant community.
+        input.assignments = vec![Some(7); files.len()];
+        input.edges = vec![edge(0, 3), edge(3, 0)];
+
+        let out = scan_skeleton(
+            input,
+            SkeletonScanOptions {
+                tiny_file_threshold: 0,
+                ..SkeletonScanOptions::default()
+            },
+        );
+
+        assert_eq!(
+            out.seed.blocks.len(),
+            1,
+            "sibling modules with one dominant community must merge into one block"
+        );
+        let file_strings: Vec<String> = files.iter().map(|s| s.to_string()).collect();
+        let members = expand_membership(&out.seed.blocks[0], &file_strings);
+        assert_eq!(members.len(), 6, "merged block must own all six files");
+    }
+
+    #[test]
+    fn floor_bubble_folds_a_thin_directory_into_its_parent() {
+        // A directory below the floor bubbles its lone file up into the parent
+        // module rather than standing off as a one-file block.
+        let files = vec![
+            "mod-core/a.rs",
+            "mod-core/b.rs",
+            "mod-core/c.rs",
+            "mod-core/util/lonely.rs",
+        ];
+        let mut input = base_input(files.clone());
+        input.nodes = files
+            .iter()
+            .map(|p| node(&format!("file::{p}"), NodeType::File))
+            .collect();
+        input.assignments = vec![Some(3); files.len()];
+        input.edges = vec![edge(0, 3), edge(3, 0)];
+
+        let out = scan_skeleton(
+            input,
+            SkeletonScanOptions {
+                tiny_file_threshold: 0,
+                ..SkeletonScanOptions::default()
+            },
+        );
+
+        assert_eq!(
+            out.seed.blocks.len(),
+            1,
+            "thin child dir must fold into its parent, not split off"
+        );
+        let file_strings: Vec<String> = files.iter().map(|s| s.to_string()).collect();
+        let members = expand_membership(&out.seed.blocks[0], &file_strings);
+        assert!(
+            members.contains("mod-core/util/lonely.rs"),
+            "the bubbled-up file must ride along in the parent block"
+        );
+        assert_eq!(members.len(), 4);
     }
 }

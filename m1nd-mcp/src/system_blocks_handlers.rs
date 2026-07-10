@@ -197,13 +197,13 @@ pub fn handle_skeleton_candidate(
         }
     })?;
     let root = state
-        .workspace_root
-        .as_ref()
+        .code_root_path()
         .ok_or_else(|| M1ndError::InvalidParams {
             tool: TOOL.to_string(),
-            detail: "no workspace root is bound to this brain — skeleton_candidate needs a repo file list".to_string(),
-        })?
-        .clone();
+            detail: "no CODE root is bound to this brain — skeleton_candidate needs the repo \
+                 (a hosted brain's raw workspace is its store dir, never scanned)"
+                .to_string(),
+        })?;
     let file_list =
         system_blocks::repo_file_list(Path::new(&root)).map_err(|e| seed_err(TOOL, e))?;
     let source_commit = git_head_commit(Path::new(&root)).unwrap_or_default();
@@ -384,14 +384,14 @@ pub fn handle_system_blocks_reconcile(
         Some(list) => list,
         None => {
             let root = state
-                .workspace_root
-                .as_ref()
+                .code_root_path()
                 .ok_or_else(|| M1ndError::InvalidParams {
                     tool: TOOL.to_string(),
-                    detail: "no workspace root is bound to this brain — pass file_list explicitly"
+                    detail: "no CODE root is bound to this brain — pass file_list explicitly \
+                         (a hosted brain's raw workspace is its store dir, never scanned)"
                         .to_string(),
                 })?;
-            system_blocks::repo_file_list(Path::new(root)).map_err(|e| seed_err(TOOL, e))?
+            system_blocks::repo_file_list(Path::new(&root)).map_err(|e| seed_err(TOOL, e))?
         }
     };
     let (store, report) = reconcile_in_dir(&dir, input.expected_store_version, &file_list)
@@ -565,6 +565,70 @@ fn iso8601_from_ms(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn scan_and_reconcile_use_the_code_root_never_the_store_dir() {
+        // The first virgin-repo scan listed the brain's .light.md memories as the
+        // repo: a hosted brain's raw workspace_root is its STORE dir. The handlers
+        // must resolve the CODE root (a real ingest root) instead.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("real-repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo");
+        std::fs::write(repo.join("src/lib.rs"), "pub fn x() {}\n").expect("file");
+        let store_dir = temp.path().join("brain-store/agent-memory");
+        std::fs::create_dir_all(&store_dir).expect("store");
+        std::fs::write(store_dir.join("doctrine.light.md"), "memory\n").expect("mem");
+
+        let config = crate::server::McpConfig {
+            graph_source: temp.path().join("g.json"),
+            plasticity_state: temp.path().join("p.json"),
+            runtime_dir: Some(temp.path().join("rt")),
+            ..crate::server::McpConfig::default()
+        };
+        let mut state = crate::session::SessionState::initialize(
+            m1nd_core::graph::Graph::new(),
+            &config,
+            m1nd_core::domain::DomainConfig::code(),
+        )
+        .expect("init");
+        // The hosted-brain shape: workspace points at the STORE dir; the real repo
+        // is an ingest root.
+        state.workspace_root = Some(store_dir.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+
+        assert_eq!(
+            state.code_root_path().as_deref(),
+            Some(repo.to_string_lossy().as_ref()),
+            "the code root is the ingest root, never the store dir"
+        );
+
+        let out = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: None,
+            },
+        )
+        .expect("scan runs against the real repo");
+        let members: Vec<String> = out["candidate_seed"]["blocks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|b| b["membership"].as_array().cloned().into_iter().flatten())
+            .filter_map(|m| m["path"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            members.iter().all(|p| !p.contains(".light.md")),
+            "no memory sidecar file may enter a candidate: {members:?}"
+        );
+        assert!(
+            members.iter().any(|p| p.contains("lib.rs")),
+            "the real repo's files are the candidate: {members:?}"
+        );
+    }
+
     use super::*;
 
     #[test]
