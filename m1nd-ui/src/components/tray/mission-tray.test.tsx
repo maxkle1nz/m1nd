@@ -148,3 +148,35 @@ test('COPY LAW: the tray never says proven/done/correct', () => {
   assert.doesNotMatch(t, /\bdone\b/i);
   assert.doesNotMatch(t, /\bcorrect\b/i);
 });
+
+// ── Layout law (field bug 2026-07-10) ─────────────────────────────────────────
+// The tray is an IN-FLOW flex column of the shell row, never a fixed overlay: a
+// fixed tray painted over (and click-blocked) the map's block panel and the
+// tree's drawer, and its `/97` alpha compiled to NO background (transparent
+// text soup). Pinned here at the class boundary; the geometry is browser-proven.
+
+function rootClasses(out: string): string {
+  const m = out.match(/data-role="mission-tray"[^>]*class="([^"]*)"/);
+  assert.ok(m, 'the tray root carries a class list');
+  return m![1];
+}
+
+test('LAYOUT LAW: the expanded tray is in-flow (no fixed/z overlay) on solid ground', () => {
+  const cls = rootClasses(tray());
+  assert.doesNotMatch(cls, /\bfixed\b/, 'never position:fixed — it must make room, not paint over');
+  assert.doesNotMatch(cls, /\bz-\d/, 'no z-index war with the surface beside it');
+  assert.match(cls, /\bshrink-0\b/, 'a rigid flex column');
+  assert.match(cls, /\bw-80\b/, 'the ~320px card column');
+  assert.match(cls, /\bbg-porcelain\b/, 'solid ground');
+  assert.doesNotMatch(cls, /bg-porcelain\/\d+/, 'no alpha ground — /97 compiled to no background at all');
+});
+
+test('LAYOUT LAW: the collapsed strip is in-flow (no fixed/z overlay) on solid ground', () => {
+  const cls = rootClasses(tray({ expanded: false }));
+  assert.doesNotMatch(cls, /\bfixed\b/);
+  assert.doesNotMatch(cls, /\bz-\d/);
+  assert.match(cls, /\bshrink-0\b/);
+  assert.match(cls, /\bw-9\b/, 'the thin strip');
+  assert.match(cls, /\bbg-porcelain\b/);
+  assert.doesNotMatch(cls, /bg-porcelain\/\d+/);
+});

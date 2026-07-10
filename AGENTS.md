@@ -90,3 +90,32 @@ unless m1nd is served at a reachable address.
 
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
+
+## The two write laws — reception governs WRITES (read before any m1nd write)
+
+One owner (`:1338`) hosts many per-project brains and routes each request to the brain that
+covers the caller's repo. Two laws keep one agent's work out of another repo's brain. Ignore
+them and you corrupt shared state — a real incident: a foreign skeleton once overwrote a
+bound brain because the writer never checked which brain it was talking to.
+
+1. **No WRITE under a reception mismatch.** A m1nd response may carry a `reception` block;
+   `reception.match == "caller_root_mismatch"` means the brain currently serving you does
+   NOT cover your repo. A read under mismatch is a warning (don't trust retrieval for this
+   repo). A **write** under mismatch is prohibited by doctrine — every write verb
+   (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
+   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. The one correct
+   gesture BEFORE any write: `ingest project_root=<your repo root>` — a single call
+   creates/resolves YOUR brain, ingests it, binds the session, and returns its north in the
+   same response; from then on your root routes to your brain automatically. Then write.
+   (The mechanical write-refusal is landing; the doctrine holds now.)
+2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or WORKTREE of
+   an existing brain is refused with a teaching error (`overlap_parent` / `overlap_child` /
+   `overlap_worktree`) that names the conflict and the two ways forward: bind to the existing
+   brain (`ingest project_root=<existing>`), or pass `allow_overlap:true` only when you know
+   exactly why. It holds on BOTH doors — the MCP wire and REST `POST /api/tools/ingest` route
+   through one guarded core. A burst worktree does NOT get its own brain; bind to the main
+   repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
+
+Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
+a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no
+agent ratifies, ever.** The hand proposes; the human signs.

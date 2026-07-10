@@ -1,11 +1,13 @@
 /*
- * MissionTray — the fixed write-mode surface (HUMAN-VIEW-V2 F2.5 §3). A right-edge
- * tray, collapsible, present on EVERY surface (mounted in the App shell, outside the
- * surface switch). Collapsed: a thin vertical strip with per-phase counts. Expanded
- * (~320px): the mission cards, `failed` PINNED atop (§3c), read-only over letters
- * (§3e). This component is pure/presentational — the App wires `useMissions` + the
- * localStorage dismiss/expand state (MissionTrayLive) — so the honesty at the pixel
- * boundary is unit-provable with a captured-fixture SSR render.
+ * MissionTray — the persistent write-mode surface (HUMAN-VIEW-V2 F2.5 §3). A
+ * right-edge tray, collapsible, present on EVERY surface (mounted in the App shell,
+ * outside the surface switch, INSIDE the shell's flex row — an in-flow column, never
+ * a fixed overlay, so it can never paint over or click-block the surface beside it).
+ * Collapsed: a thin vertical strip with per-phase counts. Expanded (~320px): the
+ * mission cards, `failed` PINNED atop (§3c), read-only over letters (§3e). This
+ * component is pure/presentational — the App wires `useMissions` + the localStorage
+ * dismiss/expand state (MissionTrayLive) — so the honesty at the pixel boundary is
+ * unit-provable with a captured-fixture SSR render.
  *
  * Degraded states are honest, never a broken shell: a pre-F2.5a owner (no
  * `kind=mission` read) says "mission letters need an updated owner"; a read error
@@ -62,12 +64,15 @@ export default function MissionTray({
   );
 
   // Collapsed — the thin vertical strip with per-phase counts (§3a).
+  // Layout law: the tray is an IN-FLOW flex child of the shell row (never a fixed
+  // overlay) — sibling surfaces keep their full width and stay clickable; the tray
+  // can never paint over the block panel / tree drawer (field bug 2026-07-10).
   if (!expanded) {
     return (
       <div
         data-role="mission-tray"
         data-expanded="false"
-        className="fixed top-12 right-0 bottom-0 z-30 w-9 flex flex-col items-center border-l border-hairline bg-porcelain/95 py-2 gap-2"
+        className="w-9 shrink-0 flex flex-col items-center border-l border-hairline bg-porcelain py-2 gap-2"
       >
         <button
           type="button"
@@ -99,12 +104,14 @@ export default function MissionTray({
     );
   }
 
-  // Expanded — the mission cards (~320px).
+  // Expanded — the mission cards (~320px). Same layout law as the strip: in-flow,
+  // solid ground (the old `bg-porcelain/97` was not a real token — it compiled to
+  // NO background, so the tray painted transparent over the surface beneath).
   return (
     <div
       data-role="mission-tray"
       data-expanded="true"
-      className="fixed top-12 right-0 bottom-0 z-30 w-80 flex flex-col border-l border-hairline bg-porcelain/97 shadow-card"
+      className="w-80 shrink-0 flex flex-col border-l border-hairline bg-porcelain"
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-ink/10 shrink-0">
         <span className="text-sm font-semibold text-ink">Missions</span>

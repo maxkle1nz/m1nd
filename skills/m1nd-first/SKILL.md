@@ -45,8 +45,13 @@ this loop by default:
    `project_root=<your repo root>` creates a per-project brain inside the served
    owner, ingests your repo, binds your session, and returns its north packet —
    thereafter every call from your root routes to YOUR brain automatically.
-   Absent/null `reception` = your root matches the brain serving you. An empty
-   memory beat is NOT proof of an empty store: the packet carries
+   Reception governs WRITES, not just reads: a read under mismatch is a warning,
+   but a WRITE under mismatch is PROHIBITED by doctrine — any write verb
+   (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_*`,
+   `mission_post`) would land in the WRONG brain. That is exactly how a foreign
+   skeleton once overwrote a bound brain. Run the one bootstrap `ingest` FIRST,
+   then write. Absent/null `reception` = your root matches the brain serving you.
+   An empty memory beat is NOT proof of an empty store: the packet carries
    `memory_exists: N` (the on-disk claim count) plus an honest note when recall
    found no task-relevant match over a non-empty store — never conclude "no
    memory" without checking the stamp; widen the task text or `seek` the store
@@ -91,6 +96,41 @@ this loop by default:
 
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
+
+## The Write Surface — bootstrap, the map, and missions
+
+Retrieval is forgiving; writing is not. Four things to know before any write:
+
+1. **Write only into the brain that covers you** (the reception law, above). A
+   write under `caller_root_mismatch` corrupts the wrong store. The one-call
+   `ingest project_root=<your repo root>` bootstrap is the gate — it creates or
+   resolves your brain, binds the session, returns north; then write.
+2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or
+   WORKTREE of an existing brain is REFUSED with a teaching error
+   (`overlap_parent` / `overlap_child` / `overlap_worktree`) naming the conflict
+   and two ways forward: bind to the existing brain, or pass `allow_overlap:true`
+   only when you know exactly why. It holds on both seams (MCP wire and REST
+   `POST /api/tools/ingest`). A burst worktree does NOT earn its own brain — bind
+   to the main repo's. One repo, one brain, so memories don't fragment.
+3. **The candidate map is edited by one verb.** `skeleton_candidate` scans a repo
+   into a candidate block map (with `naming:"auto"` and a live naming-runner it is
+   born NAMED — the zero-touch default). `candidate_edit` is the single write verb
+   over it: six typed ops (`rename` / `merge` / `split` / `move_member` /
+   `resolve_seam` / `assign_unmapped`), one atomic OCC batch under
+   `expected_store_version` (one bad op persists NOTHING). It refuses on a ratified
+   skeleton (candidate-only); `candidate_lease` is advisory (TTL, reclaimable) and
+   NEVER blocks. **Ratify is EXCLUSIVELY human** — no agent ratifies a skeleton,
+   ever, and an untouched raw-heuristic block cannot be ratified. The hand
+   proposes; the human signs.
+4. **A mission is a letter.** `mission_post` records one mission's state as an
+   `m1nd-mission-letter-v0`; `brain_ref` is the brain's DISPLAY NAME (the basename
+   of its root, never an absolute path) and a letter naming another brain is
+   refused (`brain_mismatch`); `block_id` must name a real block in the bound
+   skeleton (or the skeleton id itself for a whole-skeleton mission), else
+   `unknown_block` — a genuinely synthetic smoke/probe letter sets
+   `synthetic:true` as the declared escape. A letter is STATE, never evidence: it
+   never colors a block; only `receipt_import` does, and `landed` is reserved for a
+   confirmed imported receipt.
 
 ## Scope Binding Taxonomy
 
