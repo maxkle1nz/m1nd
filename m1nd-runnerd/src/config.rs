@@ -25,6 +25,11 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 1800;
 /// Naming is the cheap/fast lane — a hung runner must not hold a batch hostage.
 pub const DEFAULT_NAMING_TIMEOUT_SECS: u64 = 20;
 
+/// The default per-mission timeout for the F12 `/curate` curation lane: 5 minutes.
+/// A curation is one synchronous propose call (a whole candidate to reason over) —
+/// longer than a single-block name, far shorter than a 30-minute build mission.
+pub const DEFAULT_CURATION_TIMEOUT_SECS: u64 = 300;
+
 /// The parsed `runners.toml` (§5a) — a list of pinned runners.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunnersConfig {
@@ -38,8 +43,9 @@ pub struct RunnersConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunnerDef {
     pub id: String,
-    /// `build-runner` | `naming-runner` (the MVP capabilities, §5b). The other three
-    /// (§5e) are declared out of MVP and refused here.
+    /// `build-runner` | `naming-runner` | `hand-runner` (the supported capabilities).
+    /// `hand-runner` serves the F12 `/curate` propose-apply lane (§2). The remaining
+    /// two (`loop-runner`/`review-runner`, §5e) are out of the MVP and refused here.
     pub capability: String,
     /// `["<operator's agent CLI>", …, "{packet_file}"]` — must include the token.
     pub command: Vec<String>,
@@ -58,6 +64,11 @@ pub struct RunnerDef {
     /// call, never a 30-minute mission.
     #[serde(default = "default_naming_timeout")]
     pub naming_timeout_secs: u64,
+    /// Per-mission timeout for the F12 `/curate` curation lane in seconds (default
+    /// 300). A curation is one synchronous propose call over a whole candidate —
+    /// bounded here so a hung hand-runner is killed, never a held mission.
+    #[serde(default = "default_curation_timeout")]
+    pub curation_timeout_secs: u64,
 }
 
 fn default_timeout() -> u64 {
@@ -66,6 +77,10 @@ fn default_timeout() -> u64 {
 
 fn default_naming_timeout() -> u64 {
     DEFAULT_NAMING_TIMEOUT_SECS
+}
+
+fn default_curation_timeout() -> u64 {
+    DEFAULT_CURATION_TIMEOUT_SECS
 }
 
 impl RunnerDef {
@@ -97,14 +112,19 @@ pub enum ConfigError {
     DuplicateId(String),
 }
 
-/// Map one of the MVP capability strings to the frozen [`Capability`] (§5b). Only
-/// `build-runner` and `naming-runner` are MVP; the other three (§5e) are refused.
+/// Map a supported capability string to the frozen [`Capability`]. `build-runner`
+/// (the `/run` code lane), `naming-runner` (the `/name` lane) and `hand-runner`
+/// (the F12 `/curate` propose-apply lane) are supported; `loop-runner` and
+/// `review-runner` (§5e) remain out of the MVP and are refused. This is the F12
+/// amendment: the `hand-runner` refusal is lifted for the curation shape ONLY —
+/// `loop`/`review` stay refused byte-identically.
 pub fn parse_capability(s: &str) -> Result<Capability, String> {
     match s.trim() {
         "build-runner" => Ok(Capability::BuildRunner),
         "naming-runner" => Ok(Capability::NamingRunner),
+        "hand-runner" => Ok(Capability::HandRunner),
         other => Err(format!(
-            "'{other}' is not an MVP capability — pin `build-runner` or `naming-runner` (loop/hand/review-runner are out of the MVP, §5e)"
+            "'{other}' is not a supported capability — pin `build-runner`, `naming-runner`, or `hand-runner` (loop/review-runner are out of the MVP, §5e)"
         )),
     }
 }
@@ -152,32 +172,37 @@ pub fn validate(cfg: &RunnersConfig) -> Result<(), ConfigError> {
             Ok(c) => c,
             Err(detail) => return Err(field("capability", &detail)),
         };
-        // F11-b: a naming-runner serves the synchronous `/name` lane — no worktree,
-        // no gate, no mission — so the mission-lane requirements relax for it: the
+        // The SYNCHRONOUS lanes — `naming-runner` (`/name`, F11-b) and `hand-runner`
+        // (`/curate`, F12) — never spawn a mission: no worktree, no gate, no mission
+        // letters, and the daemon never writes a store (it PROPOSES; the owner
+        // applies). So the mission-lane requirements relax for both: the
         // `{packet_file}` token is OPTIONAL (the packet arrives on stdin; the token,
         // when present, is substituted with a temp packet file), and `gate_command`/
-        // `workspace_allowlist` are OPTIONAL (they gate `/run` missions, which a
-        // pure naming runner never serves — an empty allowlist refuses every `/run`).
-        let is_naming = capability == Capability::NamingRunner;
+        // `workspace_allowlist` are OPTIONAL (they gate `/run` missions, which a pure
+        // synchronous runner never serves — an empty allowlist refuses every `/run`).
+        let is_synchronous = matches!(
+            capability,
+            Capability::NamingRunner | Capability::HandRunner
+        );
         if r.command.is_empty() {
             return Err(field(
                 "command",
                 "must name the agent CLI (at least one element)",
             ));
         }
-        if !is_naming && !r.command.iter().any(|a| a.contains(PACKET_FILE_TOKEN)) {
+        if !is_synchronous && !r.command.iter().any(|a| a.contains(PACKET_FILE_TOKEN)) {
             return Err(field(
                 "command",
                 "must contain the `{packet_file}` token — the daemon writes the packet into the worktree and splices its path here",
             ));
         }
-        if !is_naming && r.gate_command.is_empty() {
+        if !is_synchronous && r.gate_command.is_empty() {
             return Err(field(
                 "gate_command",
                 "must name the gate the daemon runs after the agent exits (§5c)",
             ));
         }
-        if !is_naming && r.workspace_allowlist.is_empty() {
+        if !is_synchronous && r.workspace_allowlist.is_empty() {
             return Err(field(
                 "workspace_allowlist",
                 "must list at least one absolute repo root this runner may run in (§5a)",
@@ -198,6 +223,9 @@ pub fn validate(cfg: &RunnersConfig) -> Result<(), ConfigError> {
         }
         if r.naming_timeout_secs == 0 {
             return Err(field("naming_timeout_secs", "must be greater than zero"));
+        }
+        if r.curation_timeout_secs == 0 {
+            return Err(field("curation_timeout_secs", "must be greater than zero"));
         }
     }
     Ok(())
@@ -441,6 +469,70 @@ workspace_allowlist = ["not/absolute"]
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn hand_runner_parses_with_the_synchronous_relaxations_and_curation_timeout() {
+        // F12: a hand-runner serves `/curate` — no worktree, no gate, no allowlist,
+        // packet on stdin. So a MINIMAL hand-runner (command only) is valid, exactly
+        // like a naming-runner, and its per-mission curation timeout defaults to 300.
+        let minimal = r#"
+[[runner]]
+id = "hand-1"
+capability = "hand-runner"
+command = ["my-hand-cli"]
+"#;
+        let cfg = parse(minimal).expect("a minimal hand-runner is valid (F12)");
+        assert_eq!(cfg.runners[0].parsed_capability(), Capability::HandRunner);
+        assert_eq!(
+            cfg.runners[0].curation_timeout_secs, DEFAULT_CURATION_TIMEOUT_SECS,
+            "the per-mission curation timeout defaults to 300s"
+        );
+        assert!(cfg.runners[0].gate_command.is_empty());
+        assert!(cfg.runners[0].workspace_allowlist.is_empty());
+
+        // A zero curation timeout is refused honestly by field.
+        let zero = r#"
+[[runner]]
+id = "hand-zero"
+capability = "hand-runner"
+command = ["my-hand-cli"]
+curation_timeout_secs = 0
+"#;
+        assert!(matches!(
+            parse(zero).unwrap_err(),
+            ConfigError::Field {
+                field: "curation_timeout_secs",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn loop_and_review_runners_stay_refused_byte_identically() {
+        // The F12 amendment lifts the refusal for `hand-runner` ONLY — `loop-runner`
+        // and `review-runner` remain out of the MVP (§5e), refused at the capability
+        // field with the pin law's message unchanged for the two.
+        for cap in ["loop-runner", "review-runner"] {
+            let toml = format!(
+                r#"
+[[runner]]
+id = "x"
+capability = "{cap}"
+command = ["c"]
+"#
+            );
+            match parse(&toml).expect_err("loop/review are out of the MVP") {
+                ConfigError::Field { field, detail, .. } => {
+                    assert_eq!(field, "capability");
+                    assert!(
+                        detail.contains("loop/review-runner are out of the MVP"),
+                        "the §5e refusal is intact: {detail}"
+                    );
+                }
+                other => panic!("expected a capability field error, got {other}"),
+            }
+        }
     }
 
     #[test]
