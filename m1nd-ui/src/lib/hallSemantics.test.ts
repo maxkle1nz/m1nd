@@ -27,8 +27,9 @@ import {
   brainFreshnessMs,
   restBrainSelectorSupported,
   canOpenBrainInPlace,
+  groupBrainCards,
 } from './hallSemantics';
-import type { InstanceListResponse, InstanceSelfResponse } from '../types';
+import type { InstanceListResponse, InstanceSelfResponse, InstanceRegistryEntry } from '../types';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
 const load = <T>(name: string): T => JSON.parse(readFileSync(join(FIX, name), 'utf8'));
@@ -81,14 +82,58 @@ test('resolvedBrainCounts: a project brain uses its OWN entry counts, others use
   assert.equal(bc.edgeCount, 99);
 });
 
-test('visibleConflicts: lock/runtime conflicts are filtered out for a project brain', () => {
+test('visibleConflicts: lock/runtime + the ambiguous duplicate_workspace are stripped', () => {
   // The fixture project entry has a stale_lock conflict → hidden for kind=project.
   assert.ok(project.conflicts.includes('stale_lock'));
   assert.deepEqual(visibleConflicts(project), []);
-  // A NON-lock conflict on a project brain would still show.
-  assert.deepEqual(visibleConflicts({ brain_kind: 'project', conflicts: ['duplicate_workspace'] }), ['duplicate_workspace']);
-  // A real owner keeps all its conflicts.
+  // duplicate_workspace is NO LONGER read raw here: the backend set it on every
+  // ephemeral-id duplicate (N identical cards). The Hall now DERIVES the genuine
+  // badge when it groups cards (groupBrainCards), so the ambiguous raw flag is
+  // stripped in BOTH classes — a project brain AND a real owner.
+  assert.deepEqual(visibleConflicts({ brain_kind: 'project', conflicts: ['duplicate_workspace'] }), []);
+  assert.deepEqual(visibleConflicts({ brain_kind: null, conflicts: ['duplicate_workspace'] }), []);
+  // A real owner keeps its OTHER (non-duplicate) conflicts.
   assert.deepEqual(visibleConflicts({ brain_kind: null, conflicts: ['stale_lock', 'shared_runtime'] }), ['stale_lock', 'shared_runtime']);
+});
+
+// ── Card grouping: one card per workspace (defense in depth; §4A.3) ───────────
+test('groupBrainCards: 2 distinct workspaces render 2 cards; identical strings collapse to 1', () => {
+  // The real fixture has a bound + a hosted project brain — DISTINCT workspace
+  // roots → two cards, neither a genuine duplicate.
+  const two = groupBrainCards(list.instances);
+  assert.equal(two.length, 2, 'two distinct workspaces → two cards');
+  assert.ok(two.every((c) => c.duplicateWorkspace === false), 'distinct roots are not duplicates');
+
+  // Three entries for the SAME workspace (the ephemeral-id field bug: identical
+  // workspace_root, different instance_ids) collapse to ONE card, silently.
+  const dup = (id: string): InstanceRegistryEntry => ({ ...project, instance_id: id });
+  const three = groupBrainCards([dup('inst_a'), dup('inst_b'), dup('inst_c')]);
+  assert.equal(three.length, 1, 'three identical-workspace entries → one card');
+  assert.equal(three[0].duplicateWorkspace, false, 'identical strings are NOT a genuine duplicate');
+});
+
+test('groupBrainCards: the FIRST (freshest) entry per workspace wins, order preserved', () => {
+  // Registry order IS recency (freshest-first) — the first entry per workspace is
+  // kept, never re-sorted (R4/INV-10).
+  const mk = (id: string, ws: string): InstanceRegistryEntry => ({ ...project, instance_id: id, workspace_root: ws });
+  const cards = groupBrainCards([
+    mk('inst_fresh', '/rt/a'),
+    mk('inst_stale', '/rt/a'),
+    mk('inst_other', '/rt/b'),
+  ]);
+  assert.equal(cards.length, 2, 'two workspaces → two cards');
+  assert.equal(cards[0].entry.instance_id, 'inst_fresh', 'the freshest (first) entry wins its card');
+  assert.deepEqual(cards.map((c) => c.entry.workspace_root), ['/rt/a', '/rt/b'], 'first-appearance order preserved');
+});
+
+test('groupBrainCards: the genuine duplicate badge fires only when DISTINCT roots collapse', () => {
+  // Two textually DIFFERENT workspace_root strings that canonicalize to the same
+  // place (here: a trailing slash) — the rare real "duplicate workspace" conflict.
+  const a: InstanceRegistryEntry = { ...project, instance_id: 'inst_a', workspace_root: '/rt/repo' };
+  const b: InstanceRegistryEntry = { ...project, instance_id: 'inst_b', workspace_root: '/rt/repo/' };
+  const cards = groupBrainCards([a, b]);
+  assert.equal(cards.length, 1, 'two roots for the same place → one card');
+  assert.equal(cards[0].duplicateWorkspace, true, 'distinct root strings → the genuine duplicate badge');
 });
 
 test('brainFreshnessMs: a project brain uses last_activity_ms, others the heartbeat', () => {

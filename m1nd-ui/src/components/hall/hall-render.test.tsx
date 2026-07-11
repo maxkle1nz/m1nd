@@ -382,6 +382,32 @@ test('project card carries NO lock/instance badge (locks are an owner concept)',
   assert.equal((out.match(/data-role="conflict-chip"/g) ?? []).length, 0, 'no conflict chips on the project card');
 });
 
+// ── The duplicate-workspace badge is GROUP-DERIVED, never the raw backend flag ──
+// The ephemeral-id field bug set `duplicate_workspace` on every warm-boot dup, so
+// the raw flag is ambiguous and stripped (visibleConflicts). The Hall's grouping
+// re-adds it via the `duplicateWorkspace` prop ONLY for a genuine collision.
+test('§4A.3: the raw backend duplicate_workspace conflict never renders a chip on its own', () => {
+  // Even a bound entry carrying the raw conflict shows NO duplicate chip — the
+  // grouping owns that signal now, not the ambiguous backend field.
+  const withRaw = { ...bound, conflicts: ['duplicate_workspace'] };
+  const out = html(<BrainCard entry={withRaw} isSelf selected={false} onSelect={noop} onOpen={noop} />);
+  assert.doesNotMatch(out, /duplicate workspace/i, 'the raw flag alone renders no chip');
+  assert.equal((out.match(/data-role="conflict-chip"/g) ?? []).length, 0, 'no chip from the raw flag');
+});
+
+test('§4A.3: the GENUINE duplicate-workspace badge shows when the group flags it', () => {
+  // A project brain (locks stripped) with the group-derived duplicateWorkspace
+  // flag renders exactly one calm "duplicate workspace" chip.
+  const out = html(
+    <BrainCard entry={project} isSelf={false} duplicateWorkspace selected={false} onSelect={noop} onOpen={noop} />,
+  );
+  assert.match(out, /duplicate workspace/i, 'the genuine badge renders');
+  assert.equal((out.match(/data-role="conflict-chip"/g) ?? []).length, 1, 'exactly the one genuine chip');
+  // A card without the flag wears none.
+  const clean = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.doesNotMatch(clean, /duplicate workspace/i, 'no flag → no chip');
+});
+
 test('project card wears a calm live dot, not a stale/failure dot from instance status', () => {
   // The fixture project entry has status:"stale" (an instance field) — it must
   // NOT drive the project card's dot to the stale band.
