@@ -410,7 +410,8 @@ pub struct ReceiptImportInput {
 
 /// `receipt_import` (WRITE). Attaches a receipt to a block after the anti-poison
 /// gates (OCC, block exists, scope binds to the block's CURRENT versions, evidence
-/// contract) all pass; bumps `store_version`.
+/// contract, captured execution-window coherence) all pass; bumps
+/// `store_version`.
 pub fn handle_receipt_import(
     state: &mut SessionState,
     input: ReceiptImportInput,

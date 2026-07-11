@@ -146,7 +146,9 @@ pub struct CandidateScope {
 /// `receipt_import` from the tray with one click. Runnerd holds NO import
 /// permission in the MVP; the candidate is a PROPOSAL, never an applied receipt.
 /// Its `type` and `evidence` reuse the SystemBlock receipt taxonomy so the import
-/// is a direct hand-off.
+/// is a direct hand-off. Runnerd's captured `started_at`/`ended_at` bytes are
+/// handed to `receipt_import` unchanged; import validates coherence rather than
+/// rewriting or re-dating the candidate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReceiptCandidate {

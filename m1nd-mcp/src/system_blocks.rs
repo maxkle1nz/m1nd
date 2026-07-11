@@ -481,6 +481,12 @@ pub enum SeedError {
         receipt_type: String,
         missing: String,
     },
+    /// Receipt execution timestamps are not a coherent captured-artifact
+    /// window. Nothing applied.
+    ReceiptTemporalIncoherence {
+        field: String,
+        reason: String,
+    },
     /// A delete was attempted without `force:true` (F0a §8). Deleting drops the block
     /// and all its receipts permanently — the honest refusal points at archive.
     DeleteRequiresForce {
@@ -575,6 +581,10 @@ impl fmt::Display for SeedError {
             } => write!(
                 f,
                 "receipt evidence incomplete for a `{receipt_type}` receipt: missing {missing}"
+            ),
+            SeedError::ReceiptTemporalIncoherence { field, reason } => write!(
+                f,
+                "receipt timestamp `{field}` is incoherent: {reason} — receipts must be composed from captured artifacts (nothing was applied)"
             ),
             SeedError::DeleteRequiresForce { block_id } => write!(
                 f,
@@ -1105,7 +1115,9 @@ impl SystemBlockStore {
     /// 3. the receipt's `scope` binds to THIS block's CURRENT `(block_id,
     ///    boundary_version, contract_version)` -> else [`SeedError::ReceiptStaleScope`]
     ///    (evidence is never counted for a version it did not see);
-    /// 4. the evidence obeys the anti-poison contract ([`validate_receipt_evidence`]).
+    /// 4. the evidence obeys the anti-poison contract ([`validate_receipt_evidence`]);
+    /// 5. captured execution timestamps are ordered, not future-dated at
+    ///    import, and span no more than 24 hours.
     ///
     /// On success the receipt is appended and `store_version` is bumped by one.
     pub fn import_receipt(
@@ -1113,6 +1125,21 @@ impl SystemBlockStore {
         expected_store_version: u64,
         block_id: &str,
         receipt: Receipt,
+    ) -> Result<(), SeedError> {
+        self.import_receipt_at(
+            expected_store_version,
+            block_id,
+            receipt,
+            crate::util::now_ms(),
+        )
+    }
+
+    fn import_receipt_at(
+        &mut self,
+        expected_store_version: u64,
+        block_id: &str,
+        receipt: Receipt,
+        imported_at_ms: u64,
     ) -> Result<(), SeedError> {
         if expected_store_version != self.store_version {
             return Err(SeedError::Conflict {
@@ -1140,10 +1167,112 @@ impl SystemBlockStore {
             });
         }
         validate_receipt_evidence(&receipt)?;
+        validate_receipt_window(&receipt, imported_at_ms)?;
         block.receipts.push(receipt);
         self.store_version += 1;
         Ok(())
     }
+}
+
+const MAX_RECEIPT_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
+
+fn validate_receipt_window(receipt: &Receipt, imported_at_ms: u64) -> Result<(), SeedError> {
+    let Some(started_at) = receipt.evidence.started_at.as_deref() else {
+        return Ok(());
+    };
+    let Some(ended_at) = receipt.evidence.ended_at.as_deref() else {
+        return Ok(());
+    };
+    let started_at_ms = parse_captured_timestamp("started_at", started_at)?;
+    let ended_at_ms = parse_captured_timestamp("ended_at", ended_at)?;
+
+    if started_at_ms >= ended_at_ms {
+        return Err(SeedError::ReceiptTemporalIncoherence {
+            field: "started_at".to_string(),
+            reason: "must be earlier than `ended_at`".to_string(),
+        });
+    }
+    if started_at_ms > imported_at_ms {
+        return Err(SeedError::ReceiptTemporalIncoherence {
+            field: "started_at".to_string(),
+            reason: "cannot be in the future relative to receipt import time".to_string(),
+        });
+    }
+    if ended_at_ms > imported_at_ms {
+        return Err(SeedError::ReceiptTemporalIncoherence {
+            field: "ended_at".to_string(),
+            reason: "cannot be in the future relative to receipt import time".to_string(),
+        });
+    }
+    if ended_at_ms - started_at_ms > MAX_RECEIPT_WINDOW_MS {
+        return Err(SeedError::ReceiptTemporalIncoherence {
+            field: "ended_at".to_string(),
+            reason: "execution window cannot exceed 24 hours from `started_at`".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn parse_captured_timestamp(field: &str, value: &str) -> Result<u64, SeedError> {
+    let bytes = value.as_bytes();
+    let invalid = || SeedError::ReceiptTemporalIncoherence {
+        field: field.to_string(),
+        reason: "must use the captured runner timestamp shape `YYYY-MM-DDTHH:MM:SSZ`".to_string(),
+    };
+    if bytes.len() != 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
+        return Err(invalid());
+    }
+    let number = |start: usize, end: usize| -> Result<i64, SeedError> {
+        std::str::from_utf8(&bytes[start..end])
+            .ok()
+            .and_then(|part| part.parse::<i64>().ok())
+            .ok_or_else(&invalid)
+    };
+    let year = number(0, 4)?;
+    let month = number(5, 7)?;
+    let day = number(8, 10)?;
+    let hour = number(11, 13)?;
+    let minute = number(14, 16)?;
+    let second = number(17, 19)?;
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return Err(invalid()),
+    };
+    if day < 1 || day > month_days || hour > 23 || minute > 59 || second > 59 {
+        return Err(invalid());
+    }
+    let days = days_from_civil(year, month, day);
+    if days < 0 {
+        return Err(invalid());
+    }
+    let seconds = days
+        .checked_mul(86_400)
+        .and_then(|base| base.checked_add(hour * 3_600 + minute * 60 + second))
+        .ok_or_else(&invalid)?;
+    u64::try_from(seconds)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1000))
+        .ok_or_else(invalid)
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = year - i64::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// Import a seed into a brain dir (F0a `system_blocks_seed_import`). Refuses an
@@ -2547,6 +2676,80 @@ mod tests {
         // enough. This is the review-note fix: execution fields are optional.
         let r = mk_receipt(ReceiptType::Spec, "sb_core", 1, 1, anchor_only_evidence());
         validate_receipt_evidence(&r).expect("spec receipt with anchor-only evidence is valid");
+    }
+
+    #[test]
+    fn fabricated_receipt_timestamp_shapes_are_refused() {
+        let imported_at = parse_captured_timestamp("imported_at", "2026-07-10T12:00:00Z")
+            .expect("fixed import time");
+        let cases = [
+            (
+                "2026-07-10T11:00:00Z",
+                "2026-07-10T11:00:00Z",
+                "started_at",
+                "earlier than `ended_at`",
+            ),
+            (
+                "2026-07-10T12:00:01Z",
+                "2026-07-10T12:00:02Z",
+                "started_at",
+                "future relative to receipt import time",
+            ),
+            (
+                "2026-07-09T11:59:58Z",
+                "2026-07-10T12:00:00Z",
+                "ended_at",
+                "cannot exceed 24 hours",
+            ),
+        ];
+
+        for (started_at, ended_at, field, teaching) in cases {
+            let mut store = store_from_fixture();
+            let mut evidence = full_exec_evidence();
+            evidence.started_at = Some(started_at.to_string());
+            evidence.ended_at = Some(ended_at.to_string());
+            let receipt = mk_receipt(ReceiptType::Test, "sb_core", 1, 1, evidence);
+            let before = serde_json::to_vec(&store).expect("store bytes");
+            let err = store
+                .import_receipt_at(1, "sb_core", receipt, imported_at)
+                .expect_err("fabricated execution window refused");
+            let detail = err.to_string();
+            assert!(detail.contains(field), "field named in refusal: {detail}");
+            assert!(detail.contains(teaching), "specific refusal: {detail}");
+            assert!(
+                detail.contains("composed from captured artifacts"),
+                "teaching present: {detail}"
+            );
+            assert_eq!(
+                serde_json::to_vec(&store).expect("store bytes after refusal"),
+                before,
+                "refusal leaves store byte-identical"
+            );
+        }
+    }
+
+    #[test]
+    fn genuine_runnerd_receipt_imports_byte_identically() {
+        let imported_at = parse_captured_timestamp("imported_at", "2026-07-10T12:00:00Z")
+            .expect("fixed import time");
+        let mut store = store_from_fixture();
+        let mut receipt = mk_receipt(ReceiptType::Test, "sb_core", 1, 1, full_exec_evidence());
+        receipt.emitter = ReceiptEmitter {
+            kind: ReceiptEmitterKind::Runnerd,
+            id: "runner-a".to_string(),
+        };
+        let expected = serde_json::to_vec(&receipt).expect("runnerd receipt bytes");
+
+        store
+            .import_receipt_at(1, "sb_core", receipt, imported_at)
+            .expect("captured runnerd window imports");
+
+        let imported = store.blocks[0].receipts.last().expect("receipt appended");
+        assert_eq!(
+            serde_json::to_vec(imported).expect("imported receipt bytes"),
+            expected,
+            "receipt_import preserves the runnerd-composed wire shape byte-identically"
+        );
     }
 
     #[test]
