@@ -1867,6 +1867,77 @@ mod tests {
         }
     }
 
+    // --- the 2026-07-06 field loop: a bare client name FILES into its box ---------
+    //
+    // After the roster fixes, a re-sweep still left ONE bare name Pending though a
+    // registered brain with that basename existed. The cause was case (a `ClientApp`
+    // letter vs a `clientapp` brain), cured by the case-folded routing key (f820373),
+    // atop the unique-basename roster match (c7986bb / #293). The isolated resolve_box
+    // tests never exercised the SWEEP path the field ran: a known-roots roster (the
+    // bound project PLUS a distinct client brain) built through `boxes_from_roots`,
+    // then `distribute`. This pins that whole path — a bare client-name letter,
+    // uniquely matching a registered brain, FILES INTO the client's box (never
+    // Pending), including when the letter's casing differs from the on-disk basename.
+    #[test]
+    fn bare_client_name_uniquely_matching_a_registered_brain_files_to_its_box() {
+        let s = Scratch::new("bare-client-files");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // The bound project (worktree_base) and a DISTINCT client brain under another
+        // parent — the roster shape `known_project_roots` builds (bound + disk_roster).
+        let bound = mk_repo(&s, "bound-project");
+        let client = mk_repo(&s, "place").join("clientapp");
+        std::fs::create_dir_all(&client).unwrap();
+
+        let roots = vec![
+            bound.to_string_lossy().to_string(),
+            client.to_string_lossy().to_string(),
+        ];
+        let (known, _boxes) = boxes_from_roots(&roots, "bound-project");
+
+        let spool = s.path("spool.jsonl");
+        write_spool(
+            &spool,
+            &[
+                // the bare client name, exact basename ...
+                line(serde_json::json!({
+                    "ts":"t1","agent":"a","repo":"clientapp","tool":"x","class":"bug","what":"exact"
+                })),
+                // ... and typed in a DIFFERENT case — both route to the same box.
+                line(serde_json::json!({
+                    "ts":"t2","agent":"a","repo":"ClientApp","tool":"x","class":"friction","what":"casevar"
+                })),
+            ],
+        );
+
+        let receipt = distribute(&spool, &runtime, "bound-project", &known).unwrap();
+        assert!(
+            receipt.pending.is_empty(),
+            "a bare name uniquely matching a registered brain must not stay pending: {:?}",
+            receipt.pending
+        );
+        assert_eq!(
+            receipt.to_project, 2,
+            "both bare client letters file project-side"
+        );
+        assert_eq!(receipt.to_medulla, 0);
+
+        // Both letters landed in the CLIENT box (its brain), addressed by a bare name
+        // — the exact field shape, now green.
+        let client_box = read_letters(&box_path_for_repo(&client)).unwrap();
+        assert_eq!(
+            client_box.len(),
+            2,
+            "both the exact and case-variant bare client letters file into the client's box"
+        );
+        // No client letter leaked into the bound project's box.
+        assert!(
+            read_letters(&box_path_for_repo(&bound)).unwrap().is_empty(),
+            "no client letter leaks into the bound project's box"
+        );
+    }
+
     #[test]
     fn casefold_ambiguous_basename_still_abstains_to_pending() {
         // The unique/abstain law survives folding: two brains whose basenames differ
