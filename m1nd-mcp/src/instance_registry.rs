@@ -241,10 +241,44 @@ impl InstanceHandle {
     /// can tell an owner-hosted per-project brain apart from the bound dev graph.
     /// The bound/dev owner never calls this, so its entry keeps `brain_kind:
     /// None`.
+    ///
+    /// STABLE-ID re-key (the "duplicate workspace" field bug): `acquire` mints an
+    /// EPHEMERAL instance id (pid + clock + a per-process nonce) that changes on
+    /// every boot. For a long-lived owner that is harmless (its dead-pid entry is
+    /// GC'd on restart), but a hosted brain warm-boots repeatedly WITHIN one live
+    /// owner (the eviction gate drops a brain's handle without `release`, so its
+    /// `instances/<id>.json` lingers under a still-live pid, and the next resolve
+    /// mints a NEW ephemeral id) — so the Hall listed one card PER boot. A brain
+    /// entry therefore takes a DETERMINISTIC id, `inst_<hash(workspace+runtime)>`,
+    /// stable across every warm-boot of the same store, so the boot UPSERTS the
+    /// SAME file instead of minting a duplicate. Attachers never reach here
+    /// (`ReadOnly` never calls `set_brain_kind`), so the N-attacher design keeps
+    /// its ephemeral, per-attacher ids untouched.
     pub fn set_brain_kind(&self, brain_kind: &str) -> M1ndResult<()> {
         let mut inner = self.inner.lock();
         inner.entry.brain_kind = Some(brain_kind.to_string());
-        persist_handle_inner(&inner)
+
+        let stable_id =
+            stable_brain_instance_id(&inner.entry.workspace_root, &inner.entry.runtime_root);
+        if inner.entry.instance_id != stable_id {
+            // Drop the ephemeral-id file this handle wrote at `acquire`; the brain
+            // is re-keyed onto its stable id (an atomic upsert-by-filename from
+            // here on — the warm-boot rewrites this one file, never a new one).
+            let ephemeral_path = inner.entry_path.clone();
+            inner.entry.instance_id = stable_id.clone();
+            inner.entry_path = inner
+                .registry_root
+                .join(INSTANCE_DIR_NAME)
+                .join(format!("{stable_id}.json"));
+            if ephemeral_path != inner.entry_path {
+                let _ = fs::remove_file(&ephemeral_path);
+            }
+        }
+        // Write the (re-keyed) entry + refresh the lease, THEN reconcile away any
+        // stale duplicates of THIS store left by earlier ephemeral-id boots.
+        persist_handle_inner(&inner)?;
+        reconcile_brain_duplicates(&inner);
+        Ok(())
     }
 
     pub fn mark_heartbeat(&self) -> M1ndResult<()> {
@@ -533,6 +567,56 @@ fn persist_handle_inner(inner: &InstanceHandleInner) -> M1ndResult<()> {
     Ok(())
 }
 
+/// Reconcile the `instances/` dir after a brain re-keys onto its stable id: drop
+/// every OTHER entry for the SAME `(workspace_root, runtime_root)` store — the
+/// duplicate cards earlier ephemeral-id boots minted for this exact brain. This
+/// is what lets the inheritance of pre-fix duplicates die on the next boot of
+/// each brain, instead of lingering forever under a still-live owner pid (which
+/// the dead-pid boot GC can never reap).
+///
+/// A live `read_only` attacher is NEVER a duplicate — N attachers coexist with
+/// one brain by design (a foreign process attached to the same store is not a
+/// twin), so it is preserved; everything else that shares this store's exact
+/// roots is a stale twin and is removed. Only same-store entries are candidates —
+/// a different brain (different roots) is never inspected. Best-effort: a
+/// corrupt/foreign entry that fails to parse is skipped, never force-deleted; the
+/// survivor's own (stable-id) entry is skipped by path. One process-table read is
+/// shared across the sweep via a single `LivePids` snapshot.
+fn reconcile_brain_duplicates(keep: &InstanceHandleInner) {
+    let dir = keep.registry_root.join(INSTANCE_DIR_NAME);
+    let read = match fs::read_dir(&dir) {
+        Ok(read) => read,
+        Err(_) => return,
+    };
+    let live = LivePids::snapshot();
+    for item in read.flatten() {
+        let path = item.path();
+        if path.extension().and_then(|v| v.to_str()) != Some("json") {
+            continue;
+        }
+        // Never remove the survivor's own (stable-id) entry.
+        if path == keep.entry_path {
+            continue;
+        }
+        let entry: InstanceRegistryEntry = match read_json(&path) {
+            Ok(entry) => entry,
+            Err(_) => continue, // corrupt/foreign → skip, never delete
+        };
+        // Only entries for the SAME store are candidates for removal.
+        if entry.workspace_root != keep.entry.workspace_root
+            || entry.runtime_root != keep.entry.runtime_root
+        {
+            continue;
+        }
+        // A live read_only attacher shares the store by design — not a duplicate.
+        if InstanceMode::from_str(&entry.mode) == InstanceMode::ReadOnly && live.is_live(entry.pid)
+        {
+            continue;
+        }
+        let _ = fs::remove_file(&path);
+    }
+}
+
 /// Monotonic per-process nonce so that two instances acquired in the same
 /// process for the same (workspace, runtime) within a single millisecond clock
 /// tick never collide on `instance_id`. The pid already disambiguates across
@@ -549,6 +633,21 @@ fn generate_instance_id(workspace_root: &Path, runtime_root: &Path, now_ms: u64)
     INSTANCE_SEQ
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         .hash(&mut hasher);
+    format!("inst_{:x}", hasher.finish())
+}
+
+/// Deterministic instance id for a BRAIN entry (project/medulla): a pure function
+/// of `(workspace_root, runtime_root)`, stable across every warm-boot of the same
+/// store so the boot UPSERTS one `instances/<id>.json` instead of minting a new
+/// file each time (the duplicate-card field bug — see [`InstanceHandle::set_brain_kind`]).
+/// Reuses the module's `DefaultHasher` string-hashing scheme (the same one
+/// [`generate_instance_id`]/[`fingerprint_path`] use — mother rule, one scheme),
+/// dropping only the pid/clock/seq nonce that makes `generate_instance_id`
+/// ephemeral by construction.
+fn stable_brain_instance_id(workspace_root: &str, runtime_root: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    workspace_root.hash(&mut hasher);
+    runtime_root.hash(&mut hasher);
     format!("inst_{:x}", hasher.finish())
 }
 
@@ -1209,5 +1308,216 @@ mod tests {
         }
         assert!(live_entry_path.exists());
         assert!(live_lease_path.exists());
+    }
+
+    // ── STABLE BRAIN ID + reconcile (the "duplicate workspace" field bug) ────────
+    // Field repro (reproduced twice on-screen 2026-07-11): clicking "Open brain"
+    // on a dormant project brain DUPLICATED its Hall card. Root cause: a brain
+    // warm-boot minted a NEW ephemeral `instances/<id>.json` each time (the
+    // eviction gate drops a brain's handle without `release`, so its entry lingers
+    // under the still-live owner pid, which the dead-pid GC can never reap). The
+    // fix: a brain entry (`set_brain_kind` project/medulla) takes a DETERMINISTIC
+    // id, so the warm-boot UPSERTS one file, and a reconcile sweeps the stale twins
+    // earlier ephemeral boots left behind.
+
+    /// How many `instances/*.json` entries the registry holds.
+    fn count_instance_files(registry: &Path) -> usize {
+        fs::read_dir(registry.join(INSTANCE_DIR_NAME))
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// The project-brain store shape: workspace_root == runtime_root == the store
+    /// dir (mirrors `project_brains::boot_store`, whose `runtime_dir` IS the store
+    /// and whose inferred workspace_root falls back to that same store dir).
+    fn brain_store(temp: &Path, name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let store = temp.join("project-brains").join(name);
+        fs::create_dir_all(&store).unwrap();
+        let graph = store.join("graph_snapshot.json");
+        let plasticity = store.join("plasticity_state.json");
+        (store, graph, plasticity)
+    }
+
+    /// A second warm-boot of the SAME brain re-registers onto the SAME stable id
+    /// and UPSERTS the one file — never a duplicate — and the second boot's content
+    /// wins (proving it rewrote, not stacked). This is the exact "open twice = one
+    /// card" proof at the registry layer.
+    #[test]
+    fn brain_reregister_upserts_one_stable_entry() {
+        let temp = tempdir().unwrap();
+        let registry = temp.path().join("registry");
+        let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
+
+        // Boot 1: acquire (ephemeral id) → stamp brain kind (re-key to stable).
+        let stable_id = {
+            let h1 = InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry))
+                .unwrap();
+            h1.set_brain_kind("project").unwrap();
+            let id = h1.summary().instance_id;
+            assert_eq!(
+                count_instance_files(&registry),
+                1,
+                "boot 1 writes one entry"
+            );
+            id
+            // h1 dropped WITHOUT release — its stable-id entry lingers on disk,
+            // exactly like an eviction-orphaned brain handle.
+        };
+
+        // Boot 2 (a warm-boot of the SAME store): a fresh handle, a distinguishable
+        // endpoint, then the brain-kind stamp that re-keys onto the SAME stable id.
+        let h2 =
+            InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
+        h2.set_running_endpoint("127.0.0.1".into(), 4321).unwrap();
+        h2.set_brain_kind("project").unwrap();
+
+        assert_eq!(
+            h2.summary().instance_id,
+            stable_id,
+            "the same store re-registers onto the SAME stable id across boots"
+        );
+        assert_eq!(
+            count_instance_files(&registry),
+            1,
+            "a warm-boot UPSERTS the one file — never a duplicate card"
+        );
+        // The single surviving entry carries boot 2's content (the upsert rewrote it).
+        let entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{stable_id}.json"));
+        let on_disk: InstanceRegistryEntry = read_json(&entry_path).unwrap();
+        assert_eq!(on_disk.instance_id, stable_id);
+        assert_eq!(on_disk.port, Some(4321), "boot 2's content won the upsert");
+        assert_eq!(on_disk.brain_kind.as_deref(), Some("project"));
+    }
+
+    /// A stale ephemeral twin of the SAME store — the inheritance an earlier
+    /// ephemeral-id boot left behind, still under a LIVE owner pid (the exact case
+    /// the dead-pid GC can never reap) — is reconciled away on the next brain
+    /// registration.
+    #[test]
+    fn brain_reregister_reconciles_stale_ephemeral_twin() {
+        let temp = tempdir().unwrap();
+        let registry = temp.path().join("registry");
+        let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
+
+        let brain =
+            InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
+        brain.set_brain_kind("project").unwrap();
+        let stable_id = brain.summary().instance_id;
+
+        // Plant a pre-fix duplicate: same (workspace_root, runtime_root), a DIFFERENT
+        // (ephemeral) id, mode read_write, under THIS live process pid — so only the
+        // reconcile (not the dead-pid GC) can ever remove it.
+        let mut twin = brain.summary();
+        twin.instance_id = "inst_stale_ephemeral_twin".into();
+        twin.pid = std::process::id();
+        let twin_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join("inst_stale_ephemeral_twin.json");
+        save_json_atomic(&twin_path, &twin).unwrap();
+        assert_eq!(count_instance_files(&registry), 2, "the twin is planted");
+
+        // Re-register the brain → the reconcile sweeps the same-store twin.
+        brain.set_brain_kind("project").unwrap();
+
+        assert_eq!(
+            count_instance_files(&registry),
+            1,
+            "the stale ephemeral twin is reconciled away on re-register"
+        );
+        assert!(!twin_path.exists(), "the twin entry file is gone");
+        assert!(
+            registry
+                .join(INSTANCE_DIR_NAME)
+                .join(format!("{stable_id}.json"))
+                .exists(),
+            "the brain's own stable entry survives the reconcile"
+        );
+    }
+
+    /// The reconcile NEVER removes a live read_only attacher of the same store — N
+    /// attachers coexist with one brain by design. Re-registering the brain leaves
+    /// the two attacher entries intact (1 brain + 2 attachers = 3 entries).
+    #[test]
+    fn set_brain_kind_preserves_live_readonly_attachers() {
+        let temp = tempdir().unwrap();
+        let registry = temp.path().join("registry");
+        let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
+
+        let brain =
+            InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
+        brain.set_brain_kind("project").unwrap();
+
+        // Two ReadOnly attachers to the SAME store (they never call set_brain_kind,
+        // so they keep their distinct ephemeral ids — the N-attacher design).
+        let _ro_a = InstanceHandle::acquire_with_mode(
+            &store,
+            &store,
+            &graph,
+            &plasticity,
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        let _ro_b = InstanceHandle::acquire_with_mode(
+            &store,
+            &store,
+            &graph,
+            &plasticity,
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        assert_eq!(count_instance_files(&registry), 3, "brain + 2 attachers");
+
+        // Re-register the brain → the reconcile must LEAVE the live attachers.
+        brain.set_brain_kind("project").unwrap();
+        assert_eq!(
+            count_instance_files(&registry),
+            3,
+            "live read_only attachers are never reconciled away (N-attacher design)"
+        );
+        let read_only = list_instances(Some(&registry))
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.mode == "read_only")
+            .count();
+        assert_eq!(read_only, 2, "both attacher entries still discoverable");
+    }
+
+    /// Two DIFFERENT brains (distinct stores) each get their own stable entry — the
+    /// reconcile of one store never touches another. Different workspaces → two
+    /// entries.
+    #[test]
+    fn distinct_stores_get_distinct_stable_brain_entries() {
+        let temp = tempdir().unwrap();
+        let registry = temp.path().join("registry");
+        let (store_a, graph_a, plasticity_a) = brain_store(temp.path(), "fingerprintA");
+        let (store_b, graph_b, plasticity_b) = brain_store(temp.path(), "fingerprintB");
+
+        let a =
+            InstanceHandle::acquire(&store_a, &store_a, &graph_a, &plasticity_a, Some(&registry))
+                .unwrap();
+        a.set_brain_kind("project").unwrap();
+        let b =
+            InstanceHandle::acquire(&store_b, &store_b, &graph_b, &plasticity_b, Some(&registry))
+                .unwrap();
+        b.set_brain_kind("project").unwrap();
+
+        assert_eq!(
+            count_instance_files(&registry),
+            2,
+            "two distinct stores keep two distinct entries"
+        );
+        assert_ne!(
+            a.summary().instance_id,
+            b.summary().instance_id,
+            "distinct stores hash to distinct stable ids"
+        );
     }
 }
