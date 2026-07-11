@@ -1772,6 +1772,137 @@ async fn handle_candidate_naming(
     }
 }
 
+/// `POST /api/tools/curation_spawn` (F12 §3) — the propose-apply curation lane,
+/// HTTP-only like `candidate_naming` and `mission_spawn` (the browser never holds the
+/// shared secret; the owner reads it and signs the `/curate` forward). Scoped to the
+/// RESOLVED brain: its store + graph compose the block-view packet the hand-runner
+/// reasons over, and the summary letter lands in ITS mission box. The heavy part
+/// (`curate_candidate`: the blocking loopback call + the `candidate_edit` apply under
+/// the caller's OCC key, runner seat, o5 + o1, + the lease + the mission letters)
+/// runs on the blocking pool. Honest surfaces: read-only refuses; a stale OCC key
+/// conflicts BEFORE any runner is invoked; no live hand-runner returns the
+/// `no_hand_runner` refusal inside a 200 result (the screen falls back to DIRECT).
+async fn handle_curation_spawn(
+    state: &Arc<AppState>,
+    target_session: &Arc<Mutex<crate::session::SessionState>>,
+    body: serde_json::Value,
+) -> axum::response::Response {
+    const TOOL: &str = "curation_spawn";
+    let deny = |detail: String| m1nd_core::error::M1ndError::InvalidParams {
+        tool: TOOL.to_string(),
+        detail,
+    };
+
+    // Read-only attach: the curation apply is a write — refuse exactly like the
+    // dispatch gate would (the verb is HTTP-only, so it self-gates here).
+    if state.session.lock().read_only {
+        let e = deny(
+            "m1nd is attached read-only (--read-only); curation_spawn applies a curation through candidate_edit (a write) and is disabled. Detach or run a read-write instance."
+                .to_string(),
+        );
+        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CurationSpawnBody {
+        expected_store_version: u64,
+    }
+    let input: CurationSpawnBody = match serde_json::from_value(body) {
+        Ok(v) => v,
+        Err(e) => {
+            let e = deny(format!("invalid curation_spawn input: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+        }
+    };
+
+    // Under ONE session lock: the store dir, the runnerd handle, the mission box, the
+    // brain reference, and the curation packet (built from the store's blocks + the
+    // live graph — the SAME view helpers the naming lane uses).
+    let (dir, handle, box_path, brain_ref, packet) = {
+        let session = target_session.lock();
+        let dir = session.runtime_root.clone();
+        let handle = session.runnerd_naming.clone();
+        let store = match crate::system_blocks::SystemBlockStore::load(&dir) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                let e = deny(
+                    "no system-block store here yet — scan or import a seed before curating"
+                        .to_string(),
+                );
+                return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+            }
+            Err(err) => {
+                let e = deny(err.to_string());
+                return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
+            }
+        };
+        // The mission box for THIS brain (mirror of mission_letter_handlers): the
+        // repo-side box when the brain has a code root, else the medulla box.
+        let box_path = match session.project_root_display() {
+            Some(root) => {
+                std::path::Path::new(&root).join(crate::mailbox::BOX_REL_PATH)
+            }
+            None => crate::mailbox::medulla_box_path(&session.runtime_root),
+        };
+        // The letters' brain_ref = the brain's display name (basename of its root —
+        // the §1f reference, never a path), falling back to the skeleton's repo id.
+        let brain_ref = session
+            .display_name()
+            .unwrap_or_else(|| store.skeleton.skeleton_id.clone());
+        let nodes = {
+            let graph = session.graph.read();
+            crate::skeleton_scan::graph_nodes_for_naming(&graph)
+        };
+        let packet = crate::curation_runner::compose_curation_packet(&store, &nodes);
+        (dir, handle, box_path, brain_ref, packet)
+    };
+
+    // No announce surface on this owner → the honest refusal shape (never an
+    // exception: the screen reads it and falls back to the DIRECT clipboard path).
+    let Some(handle) = handle else {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "result": {
+                "applied": false,
+                "ops_count": 0,
+                "store_version": packet.store_version,
+                "refusal": "no_hand_runner: this owner has no runner-daemon announce surface",
+            }})),
+        )
+            .into_response();
+    };
+
+    // The blocking loopback call + the candidate_edit apply + the letters, off the
+    // async worker.
+    let expected = input.expected_store_version;
+    let joined = tokio::task::spawn_blocking(move || {
+        crate::curation_runner::curate_candidate(
+            &handle,
+            &dir,
+            &box_path,
+            &brain_ref,
+            expected,
+            &packet,
+        )
+    })
+    .await;
+
+    match joined {
+        Ok(Ok(outcome)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "result": outcome })),
+        )
+            .into_response(),
+        Ok(Err(err)) => {
+            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response()
+        }
+        Err(join_err) => {
+            let e = deny(format!("curation_spawn task failed: {join_err}"));
+            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
+        }
+    }
+}
+
 /// The REST arm of the one-call bootstrap: this route's own blocking + timeout +
 /// error grammar around the seam-shared `mcp_http::run_bootstrap_core` (guard →
 /// guarded mint → ingest → orient — see the interception comment in
@@ -1867,6 +1998,15 @@ async fn handle_tool_call(
     // brain (its store, its graph), so "Name with runner" works on any hosted brain.
     if bare_tool_name(&tool_name) == "candidate_naming" {
         return handle_candidate_naming(&state, &target_session, body).await;
+    }
+
+    // F12 (§3): `curation_spawn` is likewise HTTP-only — it needs the owner-process
+    // announce registry + the shared secret (never sent to the browser) + a blocking
+    // /curate forward, then applies the hand's proposal through candidate_edit (runner
+    // seat, o5 + o1, OCC) and posts the mission letters. Intercepted here, scoped to
+    // the RESOLVED brain (its store, its graph, its mission box).
+    if bare_tool_name(&tool_name) == "curation_spawn" {
+        return handle_curation_spawn(&state, &target_session, body).await;
     }
 
     // Two-Tier one-call bootstrap — REST-seam parity (field hole 2026-07-10):
