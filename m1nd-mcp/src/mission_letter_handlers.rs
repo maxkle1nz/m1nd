@@ -33,8 +33,9 @@ pub struct MissionPostInput {
 
 /// The mailbox box for the bound brain — the SAME box the `kind=mission` read
 /// serves. Mirrors `http_server::handle_mailbox`: the repo-side box when the brain
-/// has a code root, else the medulla box (a memory-only brain).
-fn mission_box_path(state: &SessionState) -> PathBuf {
+/// has a code root, else the medulla box (a memory-only brain). `north` reuses it
+/// to ring the landing bell over the very box the tray and `mission_post` speak.
+pub(crate) fn mission_box_path(state: &SessionState) -> PathBuf {
     match state.project_root_display() {
         Some(root) => Path::new(&root).join(crate::mailbox::BOX_REL_PATH),
         None => crate::mailbox::medulla_box_path(&state.runtime_root),

@@ -32,6 +32,7 @@ classDiagram
         +reception: Option~Value~
         +needs: Option~String~
         +recovery_playbook: Option~Value~
+        +landing_bell: Option~Value~ (present iff merge_wait>0)
         +proof_state: "triaging"
         +non_claims: [4 disclaimers]
     }
@@ -208,6 +209,7 @@ stateDiagram-v2
 - **Marker fragments never occupy a slot**: is_marker_fragment (::tag:: id segment OR leading glyph) excludes annotation nodes from memory rows AND orient focus/anchors (server.rs:2739-2744, 3368-3371, 3057-3061).
 - **Repair travels with the diagnosis**: recovery_playbook rides the packet whenever binding is not full trust (server.rs:3244-3249; trust_selftest attaches only when !ok||suspicious tools.rs:3714-3732).
 - **Read-only safe**: north is NOT in read_only_denied; every composed handler routes through read-only-safe query paths (server.rs:3164-3166).
+- **Landing bell is a vital sign, never a gate**: north counts the missions whose CURRENT head letter is `merge_wait` (mission_letter::heads_by_mission over the bound brain's mailbox box — the same box the tray and mission_post speak, resolved by mission_letter_handlers::mission_box_path). Only when N>0 it pushes ONE honest_gaps line ("N mission(s) in merge_wait await the human landing — the tray is the door") and a structured `landing_bell:{merge_wait:N}` (absent, not null, when N==0 — no empty ornament). A head that later `landed`/`failed` moved off merge_wait and is never counted; historical letters never ring. The box read FAILS OPEN — an absent/unreadable box rings nothing and never takes the packet down (server.rs handle_north, right after the skeleton-coherence signal). Mirrors the skeleton_coherence mould.
 - **Budget law**: pack_to_budget always keeps >=1 item even on zero/overflow budget, boundary <=budget inclusive; dedupe_ranked's comparator is a TOTAL order (single scalar key, panic-fix) (result_shaping.rs:80-106, 15-65 — verified: dedupe_ranked at :15, pack_to_budget at :80).
 - **top_k clamped 1..=50, default 8**; task non-empty or InvalidParams (server.rs:3188-3199).
 - **Sufficiency is answer-free**: reports sufficient|gathering|saturated from a knee test on relevance strength + what was cut, never inspecting answer content (layers.rs:100-126).
