@@ -1028,11 +1028,34 @@ pub fn spool_path_for_runtime(owner_runtime_root: &Path) -> PathBuf {
             None => break,
         }
     }
-    // Fallback: <home>/.m1nd/field-reports.jsonl.
-    if let Some(home) = home_dir() {
-        return home.join(".m1nd").join("field-reports.jsonl");
-    }
     owner_runtime_root.join("field-reports.jsonl")
+}
+
+/// Fence project boxes for a non-canonical runtime beneath that runtime root.
+/// Canonical `.m1nd` runtimes return the original roots unchanged.
+pub fn project_roots_for_runtime(
+    owner_runtime_root: &Path,
+    project_roots: &[String],
+) -> M1ndResult<Vec<String>> {
+    let canonical = owner_runtime_root
+        .ancestors()
+        .any(|path| path.file_name().and_then(|name| name.to_str()) == Some(".m1nd"));
+    if canonical {
+        return Ok(project_roots.to_vec());
+    }
+
+    project_roots
+        .iter()
+        .map(|root| {
+            let digest = Sha256::digest(root.as_bytes());
+            let scoped = owner_runtime_root
+                .join("project-boxes")
+                .join(&format!("{digest:x}")[..12])
+                .join(project_basename(root));
+            std::fs::create_dir_all(&scoped)?;
+            Ok(scoped.to_string_lossy().to_string())
+        })
+        .collect()
 }
 
 /// The `doctor` mailbox block (MEDULLA-PRD §9.3): the confusion metric read as
@@ -1177,6 +1200,53 @@ mod tests {
 
     fn write_spool(path: &Path, lines: &[String]) {
         std::fs::write(path, lines.join("\n") + "\n").expect("write spool");
+    }
+
+    #[test]
+    fn ephemeral_runtime_fences_spool_and_project_boxes() {
+        let s = Scratch::new("runtime-scope");
+        let canonical_runtime = s.path("home/.m1nd/runtimes/domain");
+        let production_spool = s.path("home/.m1nd/field-reports.jsonl");
+        std::fs::create_dir_all(&canonical_runtime).unwrap();
+        std::fs::create_dir_all(production_spool.parent().unwrap()).unwrap();
+        std::fs::write(&production_spool, "production\n").unwrap();
+        assert_eq!(
+            spool_path_for_runtime(&canonical_runtime),
+            production_spool,
+            "canonical runtime keeps the historical shared spool path"
+        );
+
+        let runtime = s.path("ephemeral-runtime");
+        let repo = s.path("repo-a");
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::create_dir_all(&repo).unwrap();
+        let spool = spool_path_for_runtime(&runtime);
+        assert_eq!(spool, runtime.join("field-reports.jsonl"));
+        write_spool(
+            &spool,
+            &[line(serde_json::json!({
+                "ts": "t1",
+                "agent": "probe",
+                "repo": "repo-a",
+                "tool": "inbox_sweep",
+                "class": "friction",
+                "what": "runtime scoped"
+            }))],
+        );
+
+        let roots =
+            project_roots_for_runtime(&runtime, &[repo.to_string_lossy().to_string()]).unwrap();
+        let (known, _) = boxes_from_roots(&roots, "repo-a");
+        distribute(&spool, &runtime, "repo-a", &known).unwrap();
+
+        let scoped_repo = PathBuf::from(&roots[0]);
+        assert!(scoped_repo.starts_with(&runtime));
+        assert!(box_path_for_repo(&scoped_repo).is_file());
+        assert!(!box_path_for_repo(&repo).exists());
+        assert_eq!(
+            std::fs::read_to_string(&production_spool).unwrap(),
+            "production\n"
+        );
     }
 
     /// A known-repos map from neutral names to scratch dirs that EXIST.
@@ -1795,6 +1865,77 @@ mod tests {
                 "a case-variant bare name '{spelling}' must resolve to the unique brain"
             );
         }
+    }
+
+    // --- the 2026-07-06 field loop: a bare client name FILES into its box ---------
+    //
+    // After the roster fixes, a re-sweep still left ONE bare name Pending though a
+    // registered brain with that basename existed. The cause was case (a `ClientApp`
+    // letter vs a `clientapp` brain), cured by the case-folded routing key (f820373),
+    // atop the unique-basename roster match (c7986bb / #293). The isolated resolve_box
+    // tests never exercised the SWEEP path the field ran: a known-roots roster (the
+    // bound project PLUS a distinct client brain) built through `boxes_from_roots`,
+    // then `distribute`. This pins that whole path — a bare client-name letter,
+    // uniquely matching a registered brain, FILES INTO the client's box (never
+    // Pending), including when the letter's casing differs from the on-disk basename.
+    #[test]
+    fn bare_client_name_uniquely_matching_a_registered_brain_files_to_its_box() {
+        let s = Scratch::new("bare-client-files");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // The bound project (worktree_base) and a DISTINCT client brain under another
+        // parent — the roster shape `known_project_roots` builds (bound + disk_roster).
+        let bound = mk_repo(&s, "bound-project");
+        let client = mk_repo(&s, "place").join("clientapp");
+        std::fs::create_dir_all(&client).unwrap();
+
+        let roots = vec![
+            bound.to_string_lossy().to_string(),
+            client.to_string_lossy().to_string(),
+        ];
+        let (known, _boxes) = boxes_from_roots(&roots, "bound-project");
+
+        let spool = s.path("spool.jsonl");
+        write_spool(
+            &spool,
+            &[
+                // the bare client name, exact basename ...
+                line(serde_json::json!({
+                    "ts":"t1","agent":"a","repo":"clientapp","tool":"x","class":"bug","what":"exact"
+                })),
+                // ... and typed in a DIFFERENT case — both route to the same box.
+                line(serde_json::json!({
+                    "ts":"t2","agent":"a","repo":"ClientApp","tool":"x","class":"friction","what":"casevar"
+                })),
+            ],
+        );
+
+        let receipt = distribute(&spool, &runtime, "bound-project", &known).unwrap();
+        assert!(
+            receipt.pending.is_empty(),
+            "a bare name uniquely matching a registered brain must not stay pending: {:?}",
+            receipt.pending
+        );
+        assert_eq!(
+            receipt.to_project, 2,
+            "both bare client letters file project-side"
+        );
+        assert_eq!(receipt.to_medulla, 0);
+
+        // Both letters landed in the CLIENT box (its brain), addressed by a bare name
+        // — the exact field shape, now green.
+        let client_box = read_letters(&box_path_for_repo(&client)).unwrap();
+        assert_eq!(
+            client_box.len(),
+            2,
+            "both the exact and case-variant bare client letters file into the client's box"
+        );
+        // No client letter leaked into the bound project's box.
+        assert!(
+            read_letters(&box_path_for_repo(&bound)).unwrap().is_empty(),
+            "no client letter leaks into the bound project's box"
+        );
     }
 
     #[test]

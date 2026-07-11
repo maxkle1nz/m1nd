@@ -147,3 +147,41 @@ test('§4A.9: receiptImport carries ?brain= when a hosted brain is viewed', asyn
   assert.match(calls[0].url, /\/api\/tools\/receipt_import\?brain=/);
   assert.ok(calls[0].url.includes(ENCODED));
 });
+
+// ── F25 § ratify: the human-gesture origin token this screen stamps ────────────
+
+test('systemBlocksRatify stamps ratified_via:"human-ui" — the owner screen is the human origin', async () => {
+  const result = {
+    store_version: 6,
+    ratified_block_ids: ['sb_x'],
+    skeleton_state: 'ratified',
+    ratifier: 'gui',
+    ratified_at: 't',
+  };
+  const calls = spyFetchBodies({ result });
+  const got = await api.systemBlocksRatify({ expectedStoreVersion: 5, ratifier: 'gui' });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/tools\/system_blocks_ratify$/, 'the bare tool route');
+  assert.equal(calls[0].init?.method, 'POST');
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.equal(sent.agent_id, 'gui', 'the GUI agent id');
+  assert.equal(sent.expected_store_version, 5, 'the OCC key it read from the snapshot');
+  assert.equal(sent.ratifier, 'gui');
+  assert.equal(
+    sent.ratified_via,
+    'human-ui',
+    'the owner screen stamps the human-origin token the backend requires; an agent never does',
+  );
+  assert.equal('block_ids' in sent, false, 'a blanket ratify omits block_ids');
+  assert.deepEqual(got, result, 'the {result} envelope is unwrapped');
+});
+
+test('§4A.9: systemBlocksRatify carries block_ids + the human-origin token for a per-block ratify', async () => {
+  const calls = spyFetchBodies({ result: {} });
+  await api.systemBlocksRatify({ expectedStoreVersion: 2, ratifier: 'gui', blockIds: ['sb_a'] }, CHERRY);
+  assert.match(calls[0].url, /\/api\/tools\/system_blocks_ratify\?brain=/);
+  assert.ok(calls[0].url.includes(ENCODED));
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.deepEqual(sent.block_ids, ['sb_a']);
+  assert.equal(sent.ratified_via, 'human-ui', 'a per-block ratify is still the human gesture');
+});

@@ -56,6 +56,13 @@ A receipt without hard evidence is not a receipt. `receipt_import` REJECTS paylo
 }
 ```
 
+Execution timestamps are captured evidence, not caller-authored decoration.
+At import, `started_at` MUST be earlier than `ended_at`; neither timestamp may
+be later than the import instant; and the captured window MUST NOT exceed 24
+hours. A refusal names the incoherent field and leaves the store untouched.
+Receipt landing preserves the runnerd-composed timestamp bytes exactly — it
+never rewrites or re-dates a candidate to make it pass.
+
 Receipts bind to `(block_id, boundary_version, contract_version, resolution_hash)` — never counted for a version they did not see (PRD §3.1).
 
 **MVP emitters (honest map):**

@@ -195,8 +195,10 @@ naming-runner it is born NAMED — the zero-touch default); `candidate_edit` is 
 edits it — six typed ops (rename/merge/split/move_member/resolve_seam/assign_unmapped) in ONE \
 atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), and it REFUSES on a \
 ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
-blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever, and an \
-untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
+blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever (mechanically \
+enforced: `system_blocks_ratify` requires the `ratified_via:\"human-ui\"` origin token the owner's \
+screen stamps; an agent never composes it, so a bare ratify is refused `human_gesture_required`), \
+and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
 curation mission edits via `candidate_edit`), the human signs. THE MISSION LETTER: `mission_post` \
 records one mission's live state as `m1nd-mission-letter-v0` — `brain_ref` is the brain's DISPLAY \
 NAME (the basename of its root, never an absolute path; a wrong one is refused `brain_mismatch`), \
@@ -2673,21 +2675,22 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "system_blocks_ratify",
-                "description": "Human View v2 F0a WRITE verb. Ratifies blocks in the live store: each targeted block flips state `candidate -> ratified` and membership_source `proposed -> ratified`, the skeleton records the ratification (method `verb`, the given `ratifier`, the current time), and `store_version` is bumped by one. `block_ids` names the blocks to ratify; omit it to ratify EVERY block. Optimistic-concurrency (PRD §3.1): pass the `expected_store_version` you read from a snapshot — if the store moved since, the call is REJECTED with a version `conflict` and NOTHING is applied (reload the snapshot and retry). An unknown block_id is a hard error, never a silent skip. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0a WRITE verb. Ratifies blocks in the live store: each targeted block flips state `candidate -> ratified` and membership_source `proposed -> ratified`, the skeleton records the ratification (method `verb`, the given `ratifier`, the current time), and `store_version` is bumped by one. `block_ids` names the blocks to ratify; omit it to ratify EVERY block. Optimistic-concurrency (PRD §3.1): pass the `expected_store_version` you read from a snapshot — if the store moved since, the call is REJECTED with a version `conflict` and NOTHING is applied (reload the snapshot and retry). An unknown block_id is a hard error, never a silent skip. RATIFY IS THE HUMAN GESTURE: the call must carry `ratified_via:\"human-ui\"`, the origin token the owner's screen stamps — an agent never composes it, and a call without it is refused (`human_gesture_required`). Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
                         "block_ids": { "type": "array", "items": { "type": "string" }, "description": "Blocks to ratify. Omit to ratify every block. An unknown id is a hard error." },
-                        "ratifier": { "type": "string", "description": "Who ratified — stamped into the skeleton's ratification record." }
+                        "ratifier": { "type": "string", "description": "Who ratified — stamped into the skeleton's ratification record." },
+                        "ratified_via": { "type": "string", "description": "Origin token — must be \"human-ui\", stamped only by the owner's screen. Absent or any other value refuses the call: ratify is the human gesture, never an agent's write." }
                     },
-                    "required": ["agent_id", "expected_store_version", "ratifier"]
+                    "required": ["agent_id", "expected_store_version", "ratifier", "ratified_via"]
                 }
             },
             {
                 "name": "receipt_import",
-                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at). Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at); (5) a captured execution window must have `started_at < ended_at`, neither timestamp may be future-dated at import, and the window may not exceed 24 hours. Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -6304,13 +6307,56 @@ mod tests {
         assert_eq!(snap2["block_count"], 12);
 
         // A ratify with a stale expected version surfaces a conflict through dispatch.
+        // (Carries the human-origin token so it clears the origin gate and reaches OCC.)
         let err = super::dispatch_tool(
             &mut state,
             "system_blocks_ratify",
-            &serde_json::json!({"agent_id": "t", "expected_store_version": 99, "ratifier": "owner"}),
+            &serde_json::json!({"agent_id": "t", "expected_store_version": 99, "ratifier": "owner", "ratified_via": "human-ui"}),
         )
         .expect_err("stale ratify must conflict");
         assert!(err.to_string().contains("conflict"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn ratify_refuses_without_the_human_origin_and_reaches_the_store_with_it() {
+        // The mechanical mirror of "RATIFY IS HUMAN": a seat/agent call that does not
+        // carry the owner screen's `ratified_via:"human-ui"` is refused WITH the
+        // lesson and touches nothing (the cheap vector dies); the same call carrying
+        // the origin token ratifies. This is the guard the write-gate `?brain=`
+        // bypass previously left open (any local process could ratify via REST).
+        let (_temp, mut state) = build_state();
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        let imp = super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": seed}),
+        )
+        .expect("seed_import ok");
+        assert_eq!(imp["store_version"], 1);
+
+        // No origin token → soft refusal carrying the lesson, nothing ratified.
+        let refused = super::dispatch_tool(
+            &mut state,
+            "system_blocks_ratify",
+            &serde_json::json!({"agent_id": "runner", "expected_store_version": 1, "ratifier": "runner"}),
+        )
+        .expect("the origin gate is a soft refusal, not an error");
+        assert_eq!(refused["refused"], "human_gesture_required");
+        assert_eq!(
+            refused["lesson"],
+            "ratify is the human gesture — the owner's screen sends it; agents never do"
+        );
+
+        // The SAME call carrying the owner screen's origin token ratifies. Its OCC key
+        // is still 1 — proof the refusal above bumped nothing.
+        let ratified = super::dispatch_tool(
+            &mut state,
+            "system_blocks_ratify",
+            &serde_json::json!({"agent_id": "gui", "expected_store_version": 1, "ratifier": "gui", "ratified_via": "human-ui"}),
+        )
+        .expect("human-origin ratify applies");
+        assert_eq!(ratified["skeleton_state"], "ratified");
+        assert_eq!(ratified["store_version"], 2);
     }
 
     #[test]

@@ -304,6 +304,12 @@ export const api = {
    * on `expected_store_version` — a stale version rejects with a `conflict` and
    * NOTHING is applied. WRITE verb — refused under a read-only attach. Bare tool
    * route, agent_id 'gui', unwrapping the `{result}` envelope. §4A.9: `brain` scopes it.
+   *
+   * RATIFY IS THE HUMAN GESTURE: this screen is the owner's UI path, so it stamps the
+   * `ratified_via:'human-ui'` origin token the backend requires (HUMAN-VIEW-V2-F25-TECH
+   * § ratify). An agent/runner MCP client never composes it — a ratify without it is
+   * refused `human_gesture_required`. The token is forgeable on an unauthenticated
+   * loopback, so it closes the cheap reflex, not a same-UID process (§5d).
    */
   systemBlocksRatify: (
     input: { expectedStoreVersion: number; ratifier: string; blockIds?: string[] },
@@ -315,6 +321,7 @@ export const api = {
         agent_id: 'gui',
         expected_store_version: input.expectedStoreVersion,
         ratifier: input.ratifier,
+        ratified_via: 'human-ui',
         ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
       }),
     }).then((r) => r.result),
