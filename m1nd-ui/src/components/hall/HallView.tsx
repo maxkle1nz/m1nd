@@ -22,6 +22,7 @@ import {
   brainDisplayName,
   brainProjectPath,
   isProjectBrain,
+  groupBrainCards,
 } from '../../lib/hallSemantics';
 import { canonRootForCompare } from '../../lib/viewedBrain';
 import { useCardV2Data } from '../../hooks/useCardV2Data';
@@ -97,9 +98,14 @@ export default function HallView({
   useLiveRefresh({ onRefresh: onLive, enabled: true });
 
   const selfId = self?.instance.instance_id ?? null;
+  // Defense in depth (§4A.3): collapse duplicate registry entries to ONE card per
+  // workspace. The backend stable-id fix removes duplicates at the source; this
+  // guarantees the Hall never renders the "N identical cards" symptom regardless
+  // of what the owner reports (freshest per workspace wins; order preserved).
+  const cards = useMemo(() => groupBrainCards(instances), [instances]);
   const selected = useMemo(
-    () => instances.find((e) => e.instance_id === selectedId) ?? null,
-    [instances, selectedId],
+    () => cards.find((c) => c.entry.instance_id === selectedId)?.entry ?? null,
+    [cards, selectedId],
   );
 
   // Card-v2 GOLD/DEPTH for the OPEN/bound brain (§4A.3.1). On-demand only — the
@@ -185,19 +191,19 @@ export default function HallView({
         else onExit?.();
         return;
       }
-      if (instances.length === 0) return;
-      const idx = instances.findIndex((x) => x.instance_id === selectedId);
+      if (cards.length === 0) return;
+      const idx = cards.findIndex((x) => x.entry.instance_id === selectedId);
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        const next = instances[Math.min(idx + 1, instances.length - 1)] ?? instances[0];
-        setSelectedId(next.instance_id);
+        const next = cards[Math.min(idx + 1, cards.length - 1)] ?? cards[0];
+        setSelectedId(next.entry.instance_id);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        const prev = instances[Math.max(idx - 1, 0)] ?? instances[0];
-        setSelectedId(prev.instance_id);
+        const prev = cards[Math.max(idx - 1, 0)] ?? cards[0];
+        setSelectedId(prev.entry.instance_id);
       }
     },
-    [instances, selectedId, selected, onExit],
+    [cards, selectedId, selected, onExit],
   );
 
   return (
@@ -208,7 +214,7 @@ export default function HallView({
           <div>
             <h1 className="text-lg text-ink font-semibold">Your brains</h1>
             <p className="text-xs text-ink-soft mt-0.5">
-              Every map m1nd holds for you. {instances.length} {instances.length === 1 ? 'brain' : 'brains'}.
+              Every map m1nd holds for you. {cards.length} {cards.length === 1 ? 'brain' : 'brains'}.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -252,7 +258,8 @@ export default function HallView({
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {instances.map((entry) => {
+            {cards.map((group) => {
+              const entry = group.entry;
               const isSelf = entry.instance_id === selfId;
               // The viewing chip marks the ONE brain the tree is currently on
               // (§4A.8), now that per-brain Open (2H) lets it be a hosted brain.
@@ -272,6 +279,7 @@ export default function HallView({
                   knownEdgeCount={isSelf && self ? self.graph_state.edge_count : null}
                   selected={entry.instance_id === selectedId}
                   viewing={viewing}
+                  duplicateWorkspace={group.duplicateWorkspace}
                   // Card-v2 GOLD renders on the OPEN/bound brain only (§4A.3.1);
                   // hosted brains pass null → the fields are absent-honest.
                   gold={isSelf ? { g1: v2.g1, g2: v2.g2, g3: v2.g3, g4: v2.g4 } : null}
@@ -284,7 +292,7 @@ export default function HallView({
               );
             })}
           </div>
-          {instances.length === 0 && !error && (
+          {cards.length === 0 && !error && (
             <div className="rounded-xl border border-ink/10 bg-bone/50 px-6 py-10 text-center text-sm text-ink-soft">
               No brains yet — read your first repo to begin.
             </div>

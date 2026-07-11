@@ -48,6 +48,13 @@ export interface BrainCardProps {
    */
   viewing?: boolean;
   /**
+   * The GENUINE duplicate-workspace signal, derived by `groupBrainCards`: ≥2
+   * DISTINCT workspace_root strings collapsed onto this one card. Raises the calm
+   * "duplicate workspace" chip. The ephemeral-id duplicate bug (identical strings)
+   * collapses silently and never sets this — so the chip means a real conflict.
+   */
+  duplicateWorkspace?: boolean;
+  /**
    * Card-v2 GOLD fields (§4A.3.1) — rendered ONLY for the OPEN/bound brain (the
    * TODAY column). A hosted brain passes none and shows them absent-honest.
    */
@@ -71,6 +78,7 @@ export default function BrainCard({
   knownEdgeCount,
   selected,
   viewing = false,
+  duplicateWorkspace = false,
   gold = null,
   onReread,
   onCalibrate,
@@ -92,7 +100,12 @@ export default function BrainCard({
   const counts = resolvedBrainCounts(entry, { nodeCount: knownNodeCount, edgeCount: knownEdgeCount });
   const isProject = isProjectBrain(entry);
   const freshnessMs = brainFreshnessMs(entry);
-  const conflicts = visibleConflicts(entry);
+  // `visibleConflicts` strips the raw backend `duplicate_workspace` (ambiguous —
+  // the ephemeral-id bug set it on every dup). The Hall's grouping re-adds it ONLY
+  // when it is genuine (≥2 distinct roots collapsed onto this card).
+  const conflicts = duplicateWorkspace
+    ? [...visibleConflicts(entry), 'duplicate_workspace']
+    : visibleConflicts(entry);
   const name = brainDisplayName(entry);
   const projectPath = brainProjectPath(entry);
   // §4A.9: a hosted project brain opens IN THE TREE when the owner advertises the

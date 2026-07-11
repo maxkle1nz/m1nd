@@ -11,6 +11,8 @@
  * INV-10: every value here traces to an owner-reported field; absence is
  * absence, never an invented number.
  */
+import type { InstanceRegistryEntry } from '../types';
+import { canonRootForCompare } from './viewedBrain';
 
 // ── Liveness band (PRD §4A.3 card anatomy: the liveness dot) ──────────────────
 // sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard
@@ -265,8 +267,16 @@ export function brainFreshnessMs(entry: {
  * brain never wears a "stale lock" it cannot own.
  */
 export function visibleConflicts(entry: { brain_kind?: string | null; conflicts: string[] }): string[] {
-  if (!isProjectBrain(entry)) return entry.conflicts;
-  return entry.conflicts.filter((c) => !/lock|runtime/i.test(c));
+  // `duplicate_workspace` is NO LONGER read from the raw backend conflict. The
+  // server marks it whenever two entries merely SHARE a workspace_root — which the
+  // ephemeral-id duplicate bug tripped on every warm-boot (N identical cards, all
+  // wearing "duplicate workspace"). The Hall now DERIVES that signal itself when
+  // it groups cards (`groupBrainCards`), raising it ONLY when two DISTINCT root
+  // strings collapse to one card (the genuine, rare case). So it is stripped here.
+  const conflicts = entry.conflicts.filter((c) => !/duplicate.?workspace/i.test(c));
+  if (!isProjectBrain(entry)) return conflicts;
+  // Lock/instance conflicts are OWNER-process concepts — never a project brain's.
+  return conflicts.filter((c) => !/lock|runtime/i.test(c));
 }
 
 // ── Implementation class → the RECEIPT line (PRD §4A.8, INV-14) ───────────────
@@ -338,4 +348,58 @@ export function ownerLanding(input: {
   if (input.brainCount <= 0) return 'threshold';
   if (input.hasLocalHistory) return 'tree';
   return 'hall';
+}
+
+// ── Card grouping: one card per workspace (defense in depth; §4A.3) ───────────
+// The instance-registry stable-id fix stops a brain minting a duplicate entry per
+// warm-boot at the SOURCE. This is the Hall's second layer: even if duplicate
+// entries reach it (a pre-fix owner, a race), it renders ONE card per workspace,
+// so the "N identical cards" symptom can never surface. The genuine
+// "duplicate workspace" badge survives ONLY when two DISTINCT root strings
+// canonicalize to the same card — the rare real conflict.
+
+export interface HallBrainGroup {
+  /** The freshest entry for this workspace — the one card's data source. */
+  entry: InstanceRegistryEntry;
+  /**
+   * True ONLY when ≥2 DISTINCT `workspace_root` strings canonicalize to this one
+   * card — the genuine "duplicate workspace" conflict. Identical-string duplicates
+   * (the ephemeral-id field bug) collapse SILENTLY with this false.
+   */
+  duplicateWorkspace: boolean;
+}
+
+/**
+ * Collapse registry entries into one card per workspace. Entries are keyed by
+ * their canonicalized `workspace_root`; within a key the FRESHEST wins. The list
+ * arrives freshest-first (registry order IS recency — bound-first, then
+ * heartbeat-descending), so the FIRST entry seen per key is the freshest and is
+ * kept, never re-sorted (R4 / INV-10). Overall card order is preserved
+ * (first-appearance order of each workspace), so the bound brain stays on top.
+ *
+ * The genuine `duplicateWorkspace` flag is raised only when a group merged ≥2
+ * DISTINCT `workspace_root` strings — two textually different roots pointing at
+ * the same place — never for the identical-string duplicates the ephemeral-id bug
+ * produced. A blank/absent workspace_root falls back to the instance_id as its own
+ * key, so a rootless entry is never merged into another card.
+ */
+export function groupBrainCards(entries: InstanceRegistryEntry[]): HallBrainGroup[] {
+  const order: string[] = [];
+  const groups = new Map<string, { entry: InstanceRegistryEntry; roots: Set<string> }>();
+  for (const entry of entries) {
+    const key = canonRootForCompare(entry.workspace_root) ?? entry.instance_id;
+    const group = groups.get(key);
+    if (group) {
+      // A later (staler) entry for the same workspace: keep the incumbent (the
+      // freshest, already stored), only record its distinct root string.
+      group.roots.add(entry.workspace_root);
+    } else {
+      groups.set(key, { entry, roots: new Set([entry.workspace_root]) });
+      order.push(key);
+    }
+  }
+  return order.map((key) => {
+    const group = groups.get(key)!;
+    return { entry: group.entry, duplicateWorkspace: group.roots.size > 1 };
+  });
 }
