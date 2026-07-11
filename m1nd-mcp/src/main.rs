@@ -256,6 +256,13 @@ fn run_inbox_sweep(config: McpConfig, no_distribute: bool) {
         roots.push(facts.project_root);
     }
 
+    let roots = match m1nd_mcp::mailbox::project_roots_for_runtime(&runtime_root, &roots) {
+        Ok(roots) => roots,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][inbox_sweep] failed to scope project boxes: {e}");
+            std::process::exit(1);
+        }
+    };
     let (known, mut boxes) = m1nd_mcp::mailbox::boxes_from_roots(&roots, &worktree_base);
     boxes.push(m1nd_mcp::mailbox::KnownBox {
         label: "medulla".into(),

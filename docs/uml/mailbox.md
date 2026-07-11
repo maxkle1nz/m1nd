@@ -119,7 +119,7 @@ sequenceDiagram
     RS->>RS: boot SessionState (recover runtime_root + roster)
     RS->>BR: build known_repos (unique-basename only) + KnownBox list
     BR-->>RS: roster (+ push medulla box)
-    RS->>RS: derive spool path (spool_path_for_runtime), hardcode foreign tools
+    RS->>RS: derive runtime-scoped spool and fenced project-box roots
 
     alt not --no-distribute
         RS->>DI: distribute(spool, known_repos)

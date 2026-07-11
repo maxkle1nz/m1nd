@@ -2557,7 +2557,8 @@ async fn handle_inbox_sweep(State(state): State<Arc<AppState>>) -> impl IntoResp
         let (runtime_root, worktree_base) = owner_runtime_and_base(&state);
         let spool = crate::mailbox::spool_path_for_runtime(&runtime_root);
 
-        let roots = known_project_roots(&state);
+        let roots =
+            crate::mailbox::project_roots_for_runtime(&runtime_root, &known_project_roots(&state))?;
         let (_known, mut boxes) = crate::mailbox::boxes_from_roots(&roots, &worktree_base);
         // The medulla box is a known box too (always reachable — it is owner-local).
         boxes.push(crate::mailbox::KnownBox {
