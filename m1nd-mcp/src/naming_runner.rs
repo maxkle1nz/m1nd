@@ -131,6 +131,27 @@ pub fn sanitize_naming(raw_name: &str, raw_purpose: &str) -> Result<SanitizedNam
     Ok(SanitizedNaming { name, purpose })
 }
 
+/// The o5 gate applied to a `candidate_edit` RENAME (the write verb), reusing the
+/// per-field sanitizer VERBATIM — same classes, same `"field: class"` refusal. A
+/// rename carries name and/or purpose (at least one); each PRESENT field runs the
+/// identical o5 rules, so a RUNNER-seat rename is held to the exact bar the naming
+/// lane applies to raw model output. Returns the honest reason on the first
+/// violation, else `Ok(())`. Validation only — a value that PASSES is left for the
+/// caller to store as-is (the naming lane already emits single-line plain text, so a
+/// legitimate runner name passes and is kept byte-for-byte).
+pub(crate) fn sanitize_rename_fields(
+    name: Option<&str>,
+    purpose: Option<&str>,
+) -> Result<(), String> {
+    if let Some(n) = name {
+        sanitize_field("name", n, NAME_MAX_CHARS)?;
+    }
+    if let Some(p) = purpose {
+        sanitize_field("purpose", p, PURPOSE_MAX_CHARS)?;
+    }
+    Ok(())
+}
+
 fn sanitize_field(field: &str, raw: &str, max_chars: usize) -> Result<String, String> {
     // (1) Control chars first, on the RAW value — a newline/tab is a violation,
     //     never silently collapsed (the schema is single-line plain text).

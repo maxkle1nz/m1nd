@@ -18,6 +18,11 @@
 //! - **o3 splits are explicit path groups** — validated (non-empty, disjoint,
 //!   total) against the block's current membership; the split is reproducible from
 //!   the stored ops alone.
+//! - **o5 the naming sanitizer governs the RUNNER seat** — a runner rename is
+//!   untrusted LLM output, so every name/purpose it proposes passes the naming-lane
+//!   sanitizer ([`crate::naming_runner::sanitize_rename_fields`]) before it can touch
+//!   the store; a violation refuses the op (and, via o1, the whole batch). The owner
+//!   seat is the human at the screen and is not hard-sanitized.
 //! - **o6 provenance is a real state** — a rename stamps [`NamedBy::Owner`] (GUI seat)
 //!   or [`NamedBy::Runner`] (agent seat) and clears `needs_owner_naming`, which the
 //!   ratify gate enforces.
@@ -37,7 +42,9 @@ use crate::system_blocks::{
 /// union: `{"op":"rename", ...}` etc.
 // NB: `deny_unknown_fields` is intentionally omitted — serde does not support it on
 // internally-tagged enums (`tag = "op"`); an extra field on an op is ignored, which
-// is acceptable for this trusted MCP input.
+// is acceptable: the op STRUCTURE is trusted MCP input. The VALUES are not — a
+// runner-seat rename's name/purpose runs the o5 sanitizer (see `apply_rename`); only
+// the owner seat writes its keystrokes verbatim.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum EditOp {
@@ -729,6 +736,18 @@ fn apply_rename(
             ));
         }
     }
+    // o5 — a RUNNER seat is untrusted LLM output (the naming/curation hand), so every
+    // name/purpose it proposes runs the naming-lane sanitizer (reused verbatim) BEFORE
+    // it can touch the store; a violation refuses the op, and the o1 preflight makes
+    // that refusal atomic (the whole batch aborts, nothing persists). The refusal
+    // names the field + class in the o5 style. The OWNER seat is the human at the
+    // screen — they may write whatever they mean (even a name with `/`), so it is NOT
+    // hard-sanitized: o5 governs LLM input, not the owner's keystrokes.
+    if seat == EditSeat::Runner {
+        crate::naming_runner::sanitize_rename_fields(name.as_deref(), purpose.as_deref()).map_err(
+            |reason| EditError::at(op_index, format!("rename: block '{block_id}' — {reason}")),
+        )?;
+    }
     let block = find_block_mut(clone, &block_id)
         .ok_or_else(|| EditError::at(op_index, format!("rename: unknown block '{block_id}'")))?;
     if let Some(n) = name {
@@ -1344,6 +1363,93 @@ mod tests {
             !meta.needs_owner_naming,
             "a runner name also clears the gate"
         );
+    }
+
+    // --- o5: a RUNNER-seat rename is sanitized; the OWNER seat is not --------------
+    //
+    // A runner is untrusted LLM output. Every name/purpose it proposes through the
+    // candidate_edit verb runs the naming-lane o5 sanitizer; a hostile value refuses
+    // the op (and, via the o1 preflight, the whole batch), naming the field + class
+    // byte-compatibly with the naming lane. The owner seat is the human at the screen
+    // and is NOT hard-sanitized — the exact vector the o5 gate used to live only in
+    // the naming lane, now enforced on the write verb too.
+
+    #[test]
+    fn runner_rename_with_hostile_input_is_refused_naming_the_field_and_class() {
+        let store = store_of(vec![block("sb_a", "Provisional", vec![prim("a1")])]);
+        // A URL, a control char, a path traversal, a token-like blob — each is refused
+        // for a runner, the reason naming the field + the o5 class.
+        let cases: [(Option<&str>, Option<&str>, &str); 4] = [
+            (Some("See https://evil.example/x"), None, "name: URL"),
+            (Some("Auth\nInjected"), None, "name: control character"),
+            (Some("../../etc/passwd"), None, "name: path separator"),
+            (
+                None,
+                Some("rotate session ABCDEFGHIJKLMNOP0123456789"),
+                "purpose: token-like string",
+            ),
+        ];
+        for (name, purpose, expected) in cases {
+            let ops = vec![EditOp::Rename {
+                block_id: "sb_a".to_string(),
+                name: name.map(str::to_string),
+                purpose: purpose.map(str::to_string),
+            }];
+            let err = apply_edits(&store, &ops, EditSeat::Runner)
+                .expect_err("a hostile runner rename must be refused");
+            assert_eq!(err.op_index, 0, "the offending op index is named");
+            assert!(
+                err.reason.contains(expected),
+                "reason must name the field + o5 class ({expected}): {}",
+                err.reason
+            );
+        }
+    }
+
+    #[test]
+    fn owner_rename_is_not_hard_sanitized_where_the_runner_is_refused() {
+        // The SAME batch: the owner (a human typing a slash into a name) applies; the
+        // runner seat refuses it (`name: path separator`). o5 is for LLM input.
+        let store = store_of(vec![block("sb_a", "Provisional", vec![prim("a1")])]);
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("Payments / Billing".to_string()),
+            purpose: None,
+        }];
+        let err =
+            apply_edits(&store, &ops, EditSeat::Runner).expect_err("runner slash name is refused");
+        assert!(
+            err.reason.contains("name: path separator"),
+            "reason: {}",
+            err.reason
+        );
+        let out = apply_edits(&store, &ops, EditSeat::Owner).expect("owner rename applies");
+        assert_eq!(
+            find(&out, "sb_a").unwrap().name,
+            "Payments / Billing",
+            "the owner's keystrokes are stored verbatim"
+        );
+    }
+
+    #[test]
+    fn legitimate_runner_rename_passes_byte_identically() {
+        // The shape the naming lane emits — single-line plain text — passes o5 and is
+        // stored exactly as given (validation only, no rewrite).
+        let store = store_of(vec![block("sb_a", "Provisional", vec![prim("a1")])]);
+        let ops = vec![EditOp::Rename {
+            block_id: "sb_a".to_string(),
+            name: Some("Payment Gateway".to_string()),
+            purpose: Some("Charges, refunds, and settlement.".to_string()),
+        }];
+        let out =
+            apply_edits(&store, &ops, EditSeat::Runner).expect("a clean runner rename applies");
+        let a = find(&out, "sb_a").unwrap();
+        assert_eq!(
+            a.name, "Payment Gateway",
+            "a clean runner name is stored byte-for-byte"
+        );
+        assert_eq!(a.purpose, "Charges, refunds, and settlement.");
+        assert_eq!(a.candidate_meta.as_ref().unwrap().named_by, NamedBy::Runner);
     }
 
     // --- assign_unmapped moves a path from the unmapped set into a block ----------
