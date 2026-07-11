@@ -65,7 +65,9 @@ Call `north(task)` FIRST, before reading or editing anything. One round-trip ret
 binding trust (`trust_mode`; the repair travels with it when degraded), task context \
 (focus nodes + PageRank anchors), prior cross-session memory (each claim with its real \
 age + author — absent, never faked, when unknown), a sufficiency signal, one \
-`next_move`, and `honest_gaps` (what m1nd does NOT yet know). If it returns \
+`next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
+await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
+line, absent when none do). If it returns \
 `needs_ingest` (empty/unbound graph), `ingest` the repo, then `north` again. `north` \
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
@@ -556,7 +558,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -3917,13 +3919,38 @@ fn handle_north(
         }
     }
 
+    // The landing bell is a vital sign, never a gate. Reuse the mission-box read
+    // surface (the same box the tray and `mission_post` speak) and fail OPEN if the
+    // box cannot be read, so `north` itself never becomes unavailable over this
+    // signal. It counts the missions whose CURRENT head is `merge_wait`:
+    // `heads_by_mission` resolves each chain's tip, so a mission that later landed
+    // or failed has moved its head and never rings — only one still waiting on the
+    // human landing does. Deliberately NO tail cap: a `merge_wait` head can sit far
+    // back in the append-only box while newer letters for other missions push it
+    // down, so reading only the tail would risk a false silence (a waiting mission
+    // missed) — worse than the read the tray already pays on every poll.
+    let mut landing_bell: Option<serde_json::Value> = None;
+    let mission_box = crate::mission_letter_handlers::mission_box_path(state);
+    if let Ok(letters) = crate::mailbox::read_letters(&mission_box) {
+        let merge_wait = crate::mission_letter::heads_by_mission(&letters)
+            .into_values()
+            .filter(|h| h.head.phase == crate::mission_letter::Phase::MergeWait)
+            .count();
+        if merge_wait > 0 {
+            honest_gaps.push(format!(
+                "{merge_wait} mission(s) in merge_wait await the human landing — the tray is the door"
+            ));
+            landing_bell = Some(serde_json::json!({ "merge_wait": merge_wait }));
+        }
+    }
+
     // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root
     // mismatch this carries the honest front-desk block; on match/unknown it is
     // null (absent-ish). Computed here, after every prior `state` borrow has
     // returned, so it never conflicts with the earlier `&mut state` uses.
     let reception = state.reception_verdict();
 
-    Ok(serde_json::json!({
+    let mut packet = serde_json::json!({
         "schema": "m1nd-north-packet-v0",
         "task": task,
         "binding": binding,
@@ -3947,7 +3974,15 @@ fn handle_north(
             "north does not replace compiler, tests, or local file truth.",
             "an absent memory age means unknown authored time, never freshly authored."
         ],
-    }))
+    });
+    // The landing bell rides ONLY when it rings: a zero-`merge_wait` beat carries no
+    // decorative field (design point 1 — no empty ornament). Present iff N>0.
+    if let Some(bell) = landing_bell {
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("landing_bell".to_string(), bell);
+        }
+    }
+    Ok(packet)
 }
 
 /// Thin wrapper so the delegation layer can reuse `orient`'s composition
@@ -8587,6 +8622,160 @@ mod tests {
         let state = SessionState::initialize(graph, &config, DomainConfig::code())
             .expect("init populated session");
         (temp, state)
+    }
+
+    /// Build one valid mission letter for the landing-bell tests. `merge_wait`
+    /// carries the gate the §1 contract demands; `landed` carries an imported
+    /// receipt (the §1d landed law); every other phase carries neither.
+    fn bell_letter(
+        seq: u64,
+        prev: Option<String>,
+        phase: crate::mission_letter::Phase,
+    ) -> crate::mission_letter::MissionLetter {
+        use crate::mission_letter::{
+            Capability, GateEvidence, Phase, ReceiptAnchor, Seat, MISSION_LETTER_SCHEMA,
+        };
+        crate::mission_letter::MissionLetter {
+            schema: MISSION_LETTER_SCHEMA.to_string(),
+            mission_id: "msn_0123456789ab".to_string(),
+            mission_seq: seq,
+            prev_letter_id: prev,
+            block_id: "sb_alpha".to_string(),
+            brain_ref: "repo-a".to_string(),
+            seat: Seat::Hand,
+            runner_id: None,
+            capability: Capability::BuildRunner,
+            phase,
+            verdict: None,
+            gate: matches!(phase, Phase::MergeWait).then(|| GateEvidence {
+                command: "cargo test -p m1nd-mcp".to_string(),
+                exit_status: 0,
+                artifact_hash: "sha256:gatelog".to_string(),
+            }),
+            receipt_candidate: None,
+            receipt: matches!(phase, Phase::Landed).then(|| ReceiptAnchor {
+                imported: true,
+                store_version: 1,
+            }),
+            packet_ref: None,
+            tokens_total: 0,
+            started_at: "2026-07-11T00:00:00Z".to_string(),
+            updated_at: "2026-07-11T00:00:00Z".to_string(),
+            synthetic: false,
+        }
+    }
+
+    /// Append a mission-letter chain into the box `north` will read, through the
+    /// real post engine (a valid head CAS), so a test proves the true read path.
+    fn post_bell_chain(state: &SessionState, phases: &[crate::mission_letter::Phase]) {
+        let box_path = crate::mission_letter_handlers::mission_box_path(state);
+        if let Some(parent) = box_path.parent() {
+            std::fs::create_dir_all(parent).expect("box parent dir");
+        }
+        let mut prev: Option<String> = None;
+        for (i, phase) in phases.iter().enumerate() {
+            let letter = bell_letter((i + 1) as u64, prev.clone(), *phase);
+            let out = crate::mission_letter::post_mission_letter(&box_path, "hand", &letter)
+                .expect("post mission letter");
+            prev = Some(out.letter_id);
+        }
+    }
+
+    fn bell_north_call(state: &mut SessionState) -> serde_json::Value {
+        super::dispatch_tool(
+            state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed")
+    }
+
+    /// A mission whose current head is `merge_wait` rings the bell: the exact
+    /// honest line (with the real N) AND the structured `landing_bell` field.
+    #[test]
+    fn north_rings_landing_bell_for_merge_wait_head() {
+        use crate::mission_letter::Phase;
+        let (_temp, mut state) = build_state_populated(false);
+        post_bell_chain(&state, &[Phase::Judging, Phase::MergeWait]);
+
+        let out = bell_north_call(&mut state);
+
+        assert_eq!(
+            out["landing_bell"]["merge_wait"], 1,
+            "the structured bell must carry the real merge_wait count"
+        );
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter().any(|g| g.as_str()
+                == Some(
+                    "1 mission(s) in merge_wait await the human landing — the tray is the door"
+                )),
+            "north must carry the exact landing-bell line, got {gaps:?}"
+        );
+    }
+
+    /// Once the head leaves `merge_wait` (the human landed it) the bell goes
+    /// SILENT — a historical `merge_wait` letter is never counted.
+    #[test]
+    fn north_landing_bell_silent_when_head_landed() {
+        use crate::mission_letter::Phase;
+        let (_temp, mut state) = build_state_populated(false);
+        post_bell_chain(&state, &[Phase::Judging, Phase::MergeWait, Phase::Landed]);
+
+        let out = bell_north_call(&mut state);
+
+        assert!(
+            out.get("landing_bell").is_none(),
+            "a landed head must not ring — the field is absent, not null"
+        );
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            !gaps.iter().any(|g| g
+                .as_str()
+                .is_some_and(|s| s.contains("await the human landing"))),
+            "no landing-bell line once the head has landed, got {gaps:?}"
+        );
+    }
+
+    /// An empty/absent box — and equally a brain with no code workspace, whose box
+    /// is the owner medulla box that was never written — rings nothing.
+    #[test]
+    fn north_landing_bell_silent_on_absent_box() {
+        let (_temp, mut state) = build_state_populated(false);
+        // No mission letters written at all.
+        let out = bell_north_call(&mut state);
+        assert!(
+            out.get("landing_bell").is_none(),
+            "an absent box must not ring"
+        );
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+    }
+
+    /// An unreadable/corrupt box FAILS OPEN: `north` still composes a full packet,
+    /// simply without the bell — the signal never takes the packet down with it.
+    #[test]
+    fn north_landing_bell_fails_open_on_unreadable_box() {
+        let (_temp, mut state) = build_state_populated(false);
+        let box_path = crate::mission_letter_handlers::mission_box_path(&state);
+        if let Some(parent) = box_path.parent() {
+            std::fs::create_dir_all(parent).expect("box parent dir");
+        }
+        // Invalid UTF-8 → read_letters' read_to_string errors → the reader fails open.
+        std::fs::write(&box_path, [0xff, 0xfe, 0x00, 0x9f]).expect("write corrupt box");
+
+        let out = bell_north_call(&mut state);
+
+        assert_eq!(
+            out["schema"], "m1nd-north-packet-v0",
+            "north composes even over an unreadable box"
+        );
+        assert!(
+            out.get("landing_bell").is_none(),
+            "an unreadable box rings no bell (fail-open)"
+        );
     }
 
     #[test]
