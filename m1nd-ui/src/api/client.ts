@@ -19,6 +19,7 @@ import type {
   CandidateEditResult,
   CandidateLeaseResult,
   CandidateNamingResult,
+  CurationSpawnResult,
   EditOpInput,
 } from '../lib/candidateEdit';
 import type {
@@ -376,6 +377,28 @@ export const api = {
         }),
       },
     ).then((r) => r.result),
+
+  /**
+   * The candidate banner's propose-apply write (HUMAN-VIEW-V2 F12 §3) —
+   * `curation_spawn` is HTTP-ONLY (like `candidate_naming`/`mission_spawn`: the
+   * browser never holds the shared secret). The owner composes the block-view
+   * packet, calls the announced runner daemon's `/curate`, and applies the pinned
+   * hand-runner's proposal through `candidate_edit` under the RUNNER seat (o5
+   * sanitizes every rename, o1 preflights on a clone) at the given OCC key, then
+   * posts the summary letter. The result is honest: `applied` + `ops_count` +
+   * `report` on success; `refusal` (`no_hand_runner`/`proposal_malformed`/
+   * `batch_refused`) when nothing applied. A stale OCC key conflicts BEFORE any
+   * runner is invoked. WRITE — refused under a read-only attach. §4A.9: `brain`
+   * scopes it to the hosted brain being viewed.
+   */
+  curationSpawn: (input: { expectedStoreVersion: number }, brain?: string | null) =>
+    apiFetch<{ result: CurationSpawnResult }>(withBrain('/api/tools/curation_spawn', brain), {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'gui',
+        expected_store_version: input.expectedStoreVersion,
+      }),
+    }).then((r) => r.result),
 
   /**
    * The advisory curation lease verb (HUMAN-VIEW-V2 F11-a o4) — `candidate_lease`

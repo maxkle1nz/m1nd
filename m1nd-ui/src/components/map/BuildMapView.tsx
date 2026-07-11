@@ -23,7 +23,7 @@ import {
   runCandidateNaming,
   type EditOpInput,
 } from '../../lib/candidateEdit';
-import { composeCurationPacket } from '../../lib/curation';
+import { composeCurationPacket, dispatchCuration } from '../../lib/curation';
 import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
@@ -63,9 +63,12 @@ export default function BuildMapView({
   const [ratifyToast, setRatifyToast] = useState<ReconcileToast | null>(null);
   const [applying, setApplying] = useState(false);
   const [naming, setNaming] = useState(false);
-  // §2b: the runner-daemon liveness read — polled only while the editor is open
-  // (the Name-with-runner button un-disables; a disabled button says why, §4d).
-  const runnerd = useRunnerdStatus(reviewOpen);
+  // §2b/F12: the runner-daemon liveness read. Polled while the editor is open (the
+  // Name-with-runner button) OR while a candidate banner is shown (the curation
+  // button offers the SPAWN path only when a daemon is announced).
+  const candidatePresent =
+    snapshot?.present === true && snapshot.store?.skeleton?.state === 'candidate';
+  const runnerd = useRunnerdStatus(reviewOpen || (enabled && candidatePresent));
 
   // The reconcile gesture (F3b §D): OCC-key on the store_version we read, run the
   // write, and reduce it to a toast + reload decision (the pure `runReconcile`).
@@ -205,13 +208,13 @@ export default function BuildMapView({
   const openReview = useCallback(() => setReviewOpen(true), []);
   const closeReview = useCallback(() => setReviewOpen(false), []);
 
-  // F11-c §3a — "Send to an agent for curation": compose the curation packet
-  // (pure) and dispatch through the EXISTING direct path — a seq-1 `judging`
-  // letter (capability `hand-runner`, the honest lane intent) + the packet on
-  // the clipboard for the human to paste into the agent. Delivery is not
-  // execution; a curation SPAWN waits for the hand-runner capability (refused
-  // in the MVP, F2.5 §5e). The letter's block_id anchors the whole-skeleton
-  // mission to the skeleton id.
+  // F12 / F11-c §3a — "Send to curation": when a runner daemon is announced the
+  // button offers the propose-apply SPAWN (`curation_spawn`) — the owner composes
+  // the block views, calls the daemon's `/curate`, applies the hand's proposal
+  // (runner seat, o5 + OCC) and posts the summary; the human reviews the RESULT and
+  // ratifies. With NO runner announced it falls back to the DIRECT path — a seq-1
+  // `judging` letter + the packet on the clipboard for the human to paste. The hand
+  // can NEVER ratify, either way; the letter/mission anchors to the skeleton id.
   const [sendingCuration, setSendingCuration] = useState(false);
   const [curationResult, setCurationResult] = useState<{ ok: boolean; message: string } | null>(
     null,
@@ -220,45 +223,57 @@ export default function BuildMapView({
     if (sendingCuration) return;
     const store = snapshot?.present ? snapshot.store ?? null : null;
     if (!store) return;
-    // §1f: the letter's brain_ref is the brain's DISPLAY NAME (the basename of
-    // its project root — the identity the owner's brain guard compares), never
-    // the skeleton's sanitized slug. A hosted map derives it from `brainRoot`;
-    // the bound map falls back to the skeleton's repo id (field bug 2026-07-10:
-    // the slug/'brain' fallback was refused with brain_mismatch on hosted brains).
-    const brainRef = brainRefFor(brainRoot, repoIdFromSkeletonId(store.skeleton.skeleton_id));
-    const markdown = composeCurationPacket({ store, repoId: brainRef });
     setSendingCuration(true);
     setCurationResult(null);
     try {
-      const res = await sendDirectPacket(
+      const result = await dispatchCuration(
+        { runnerAvailable: runnerd.available, storeVersion: store.store_version },
         {
-          markdown,
-          blockId: store.skeleton.skeleton_id,
-          brainRef,
-          seat: 'oracle',
-          capability: 'hand-runner',
-        },
-        {
-          postMission: (letter) => api.missionPost(letter, brainRoot),
-          writeClipboard:
-            typeof navigator !== 'undefined' && navigator.clipboard
-              ? (text) => navigator.clipboard.writeText(text)
-              : undefined,
+          // F12 §3 — the propose-apply spawn (the owner applies the hand's proposal).
+          spawn: (expectedStoreVersion) => api.curationSpawn({ expectedStoreVersion }, brainRoot),
+          // DIRECT fallback. §1f: brain_ref is the brain's DISPLAY NAME (the basename
+          // of its project root — the identity the owner's brain guard compares),
+          // never the skeleton's sanitized slug.
+          direct: async () => {
+            const brainRef = brainRefFor(
+              brainRoot,
+              repoIdFromSkeletonId(store.skeleton.skeleton_id),
+            );
+            const markdown = composeCurationPacket({ store, repoId: brainRef });
+            const res = await sendDirectPacket(
+              {
+                markdown,
+                blockId: store.skeleton.skeleton_id,
+                brainRef,
+                seat: 'oracle',
+                capability: 'hand-runner',
+              },
+              {
+                postMission: (letter) => api.missionPost(letter, brainRoot),
+                writeClipboard:
+                  typeof navigator !== 'undefined' && navigator.clipboard
+                    ? (text) => navigator.clipboard.writeText(text)
+                    : undefined,
+              },
+            );
+            return {
+              mission_id: res.outcome.mission_id,
+              mission_seq: res.outcome.mission_seq,
+              clipboardCopied: res.clipboardCopied,
+            };
+          },
         },
       );
-      setCurationResult({
-        ok: true,
-        message: `curation letter posted (${res.outcome.mission_id}, seq ${res.outcome.mission_seq})${
-          res.clipboardCopied ? ' — the packet is on your clipboard, paste it into your agent' : ''
-        }`,
-      });
+      setCurationResult({ ok: result.ok, message: result.message });
+      // Only a SPAWN that applied changed the store — reload to show the curated map.
+      if (result.applied) reload();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setCurationResult({ ok: false, message });
     } finally {
       setSendingCuration(false);
     }
-  }, [sendingCuration, snapshot, brainRoot]);
+  }, [sendingCuration, snapshot, brainRoot, runnerd.available, reload]);
 
   if (status === 'loading') {
     return (
@@ -311,6 +326,7 @@ export default function BuildMapView({
         onSendCuration={handleSendCuration}
         sendingCuration={sendingCuration}
         curationResult={curationResult}
+        runnerAvailable={runnerd.available}
       />
       {reviewOpen && store && (
         <ReviewRatify

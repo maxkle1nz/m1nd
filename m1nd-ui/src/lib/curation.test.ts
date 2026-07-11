@@ -8,10 +8,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composeCurationPacket } from './curation';
+import { composeCurationPacket, dispatchCuration } from './curation';
 import { brainRefFor, repoIdFromSkeletonId } from './buildMap';
 import { sendDirectPacket, type MissionLetter, type PostOutcome } from './missions';
 import type { CandidateMeta, SystemBlock, SystemBlockStore } from './buildMap';
+import type { CurationSpawnResult } from './candidateEdit';
 
 function meta(over: Partial<CandidateMeta> = {}): CandidateMeta {
   return {
@@ -139,6 +140,81 @@ test('the curation dispatch is a seq-1 judging letter with hand-runner intent + 
   assert.equal(letter.packet_ref, 'sha256:abc123');
   assert.equal(res.clipboardCopied, true);
   assert.equal(clipboard[0], md, 'the delivery half: the exact packet rides the clipboard');
+});
+
+// ── the F12 dispatch decision (spawn when a runner is announced, else DIRECT) ──
+
+test('dispatchCuration SPAWNS when a runner is announced — the owner applies the proposal', async () => {
+  let spawnVersion: number | null = null;
+  let directCalled = false;
+  const spawnResult: CurationSpawnResult = {
+    applied: true,
+    ops_count: 2,
+    store_version: 8,
+    report: 'Merged the thin block and named it.',
+    mission_id: 'msn_0123456789ab',
+    mission_seq: 2,
+  };
+  const out = await dispatchCuration(
+    { runnerAvailable: true, storeVersion: 7 },
+    {
+      spawn: async (v) => {
+        spawnVersion = v;
+        return spawnResult;
+      },
+      direct: async () => {
+        directCalled = true;
+        return { mission_id: 'x', mission_seq: 1, clipboardCopied: false };
+      },
+    },
+  );
+  assert.equal(spawnVersion, 7, 'the spawn is OCC-keyed on the read version');
+  assert.equal(directCalled, false, 'the DIRECT path is never touched when a runner is live');
+  assert.equal(out.ok, true);
+  assert.equal(out.applied, true, 'a spawn success changed the store — the caller reloads');
+  assert.match(out.message, /curation applied — 2 ops, store v8 · Merged the thin block/);
+});
+
+test('dispatchCuration shows a SPAWN refusal verbatim — never a silent DIRECT', async () => {
+  let directCalled = false;
+  const out = await dispatchCuration(
+    { runnerAvailable: true, storeVersion: 7 },
+    {
+      spawn: async () => ({
+        applied: false,
+        ops_count: 0,
+        store_version: 7,
+        refusal: 'no_hand_runner: no runner daemon announced',
+      }),
+      direct: async () => {
+        directCalled = true;
+        return { mission_id: 'x', mission_seq: 1, clipboardCopied: false };
+      },
+    },
+  );
+  assert.equal(directCalled, false, 'a refusal is honest, not a fallback');
+  assert.equal(out.ok, false);
+  assert.equal(out.applied, false, 'nothing applied → no reload');
+  assert.match(out.message, /no_hand_runner: no runner daemon announced/);
+});
+
+test('dispatchCuration falls back to DIRECT when NO runner is announced (the fallback intact)', async () => {
+  let spawnCalled = false;
+  const out = await dispatchCuration(
+    { runnerAvailable: false, storeVersion: 7 },
+    {
+      spawn: async () => {
+        spawnCalled = true;
+        return { applied: false, ops_count: 0, store_version: 7 };
+      },
+      direct: async () => ({ mission_id: 'msn_0123456789ab', mission_seq: 1, clipboardCopied: true }),
+    },
+  );
+  assert.equal(spawnCalled, false, 'the SPAWN verb is never called without a runner');
+  assert.equal(out.ok, true);
+  assert.equal(out.applied, false, 'the DIRECT path posts a letter — the store is unchanged');
+  assert.match(out.message, /curation letter posted \(msn_0123456789ab, seq 1\)/);
+  assert.match(out.message, /the packet is on your clipboard/);
 });
 
 test('on a HOSTED brain the curation letter carries the canonical brain_ref: the basename of the brain root', async () => {
