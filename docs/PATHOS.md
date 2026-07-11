@@ -2,7 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-10 night (**checkpoint 16 — THE ORGANISM DEFENDED ITSELF: F11 shipped whole, the first HUMAN ratifies, the contamination cured with its vector proven, and the vital sign born**).
+> Last checkpoint: 2026-07-11 (**checkpoint 17 — THE HAND CURATES: F12 ratified+implemented, the first autonomously curated map human-ratified, the proof system hardened**).
+> Checkpoint 17, condensed: see the dated block in Current State (ARC-1 integrity + ARC-2 F12, both closed same-day).
+
+> Previous checkpoint: 2026-07-10 night (**checkpoint 16 — THE ORGANISM DEFENDED ITSELF: F11 shipped whole, the first HUMAN ratifies, the contamination cured with its vector proven, and the vital sign born**).
 > Checkpoint 16, condensed: **The day the product met its owner's finger and its own immune system.** F11 landed WHOLE as one burst (#330: `candidate_edit` batch-atomic engine + advisory `candidate_lease` + the runnerd `/name` lane + the drawn Edit-Names-&-Boundaries screen), and live fire the same day produced the fix series only real usage reveals: #331 (a real CLI naming-runner measures ~50s/call — the owner batch budget was cut mid-read at the exact old budget, AND the naming packet carried no task instruction, so a generic LLM wandered to timeout; the instruction now travels INSIDE every packet), #334 (the curation letter's `brain_ref` composed from a skeleton-id form that no longer exists + the §1g guard now recognizes the store's current skeleton id as the whole-skeleton mission anchor). **The milestone that matters: the FIRST TWO HUMAN RATIFIES in the product's history** — the production monorepo (43 blocks, store v1→v46, 42 names stamped by the owner's hand + 1 by the live runner) and the sparse repo born ZERO-TOUCH (scan → 4 blocks runner-named in 27s → "every block is named — nothing for the runner to do" → one stamp). **The immune system proved itself in real fire:** a pre-guardrail wound — the bound brain had been silently wearing a FOREIGN repo's skeleton for days (the session-start north served poisoned anchors and nobody noticed) — was caught by the very mission guard (#328/1g) born from the hand agent's field report; forensics PROVED the vector (reception is advisory: under `caller_root_mismatch` the router deliberately lets WRITES land on the bound brain — mcp_http routes "so its answers + writes are the brain's"), the true skeleton survived in a shadow project-brain and was TRANSPLANTED back (owner stopped, both sides backed up, snapshot proven), and the residual hole is named: write-verbs under mismatch still land wrong — the write-refusal (memorize's `brainless_root` pattern extended to skeleton verbs) is the queued next slice. **The guardrail arrived the same day** (#332 + #333 route parity through one `run_bootstrap_core`): minting a brain for a PARENT/CHILD/WORKTREE of an existing brain refuses with a teaching message; `allow_overlap:true` is the explicit escape — grown from a live twin-brain incident (a parent-folder session re-ingested a child repo whole; memories migrated by hand). **The vital sign was born** (#338): pure `skeleton_coherence` (the same sanitizer that mints `sk_`/`sb_` ids) surfaces ok|mismatch on the snapshot AND as the sickness line in the `north` packet — a vital sign, never a gate, failing open so north can never be taken down by it; the battery pins the real incident shape. **Era-coherence executed as law** (#337): ALL agent-facing surfaces were at era zero — the M1ND_INSTRUCTIONS initialize text now teaches the write law + "RATIFY IS HUMAN" section 6, the three skills + AGENTS.md carry the two write laws, and the user-scope mirrors (Claude skills, Codex AGENTS, Antigravity pack) were updated the same sweep. **Ambient hooks went live host-side** (a working prototype of R12's ambient wave): Claude SessionStart→north / PostToolUse→auto_ingest_tick / PreCompact+SessionEnd→persist, and a Codex notify wrapper — each PROVEN by planting a symbol and watching the graph eat it unasked (a trail_save variant was refuted in proof — an orphan hook session has an empty trail — and honestly replaced by persist). **Custody of the fusion passed to the orchestrator** (owner's order, the hand's handoff letter): the take is one hand command + the owner's bell; the three laws travel intact — the hand never writes truth into the map, nobody lands but the human, every engine may say NONE. Also: #335 stamped the lagging ladder marks (R2/R3/R5/R6 shipped); #336 fixed the mission tray (in-flow column, never a fixed overlay — numeric non-overlap proven in a live browser at two viewports); the UI editor + tray now carry LAYOUT LAW tests. Next: the write-refusal slice (skeleton verbs refuse under mismatch), the field-report triage (4 open: runtime-scoped spool, receipt execution-identity, memorize bind-drop, inbox bare-name), the shadow-brain fusion ceremony, `candidate_revision` promotion over a ratified skeleton (the pre-o6 sparse repo awaits it), the Routing Rules screen, and the take.
 
 > Previous checkpoint: 2026-07-10 (**checkpoint 15 — ANY REPO GETS A MAP: two real baptisms, and F11 ratified — editing with minimum human friction**).
@@ -41,7 +44,35 @@ into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: clim
 rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
 same bar, applied to building the organism outward.
 
-## Current State (2026-07-10, checkpoint 16 — the organism defends itself; dated blocks below are the era log)
+## Current State (2026-07-11, checkpoint 17 — the hand curates; dated blocks below are the era log)
+
+> **2026-07-11 — ARC-1 + ARC-2 closed: the proof system hardened, F12 ratified and implemented, and the FIRST AUTONOMOUS CURATION ratified by the owner.**
+> The integrity burst (#342) closed all four open field reports: the field spool is runtime-scoped
+> (an ephemeral owner can never read or write the production box again), receipts refuse temporal
+> incoherence at import (fabricated timestamps die with a lesson — both guards live-fire proven in
+> production), the bare-name roster miss was proven already-cured and pinned with an end-to-end
+> regression, and the shadow project-brain was FUSED (15 unique construction-era memories migrated
+> alive into the bound brain; full backup preserved). An askGOD verdict (CHANGE, high confidence)
+> reshaped Arc 2 before a line was written — its gravest finding: "no agent ratifies, ever" was
+> paper (`system_blocks_ratify` sat behind the `?brain=`-bypassable gate with a free-string
+> ratifier); the mechanical guard (`ratified_via:"human-ui"`) and verb-level o5 shipped as
+> prerequisites in the same burst. **F12 — the curation lane — was authored, owner-ratified
+> (#341) and implemented (#343) the same day:** the runnerd serves `/curate` in the image of
+> `/name`; the pinned hand-runner PROPOSES candidate_edit ops as data; the owner validates,
+> sanitizes (o5) and applies them itself, seat runner, under OCC, then posts the summary letter.
+> The agent never holds a write surface. **The arc gate was met exactly:** a fresh 35-block
+> candidate (the live-collaboration repo) was curated by a real hand-runner mission in ~80s — four
+> architectural merges, all 31 surviving blocks renamed in domain language, deliberate non-merges
+> JUSTIFIED in the report — and the owner ratified touching only the review screen and the ratify
+> button (the THIRD human ratify; the first over an autonomously curated map). The same hour gave
+> the counter-proof: a second mission's proposal referenced a hallucinated block id and the
+> preflight refused the WHOLE batch atomically, on screen, nothing persisted — propose-apply
+> contains a hallucinating hand mechanically. Ambient hooks run host-side on Claude (SessionStart
+> north / PostToolUse ingest-tick / PreCompact+SessionEnd persist) and Codex (notify wrapper),
+> each proven by planting a symbol and watching the graph eat it unasked. Next: the take (the
+> hand stands by; the owner's bell), R12-as-product (the Stop distiller), R11/R17 (the last
+> ladder rungs), the revision-promotion ceremony, and the total m1nd–h4nd symbiosis.
+
 
 > **2026-07-10 — F11 shipped whole; the first HUMAN ratify in the product's history; the seam-fix series.**
 > The F11 amendment (candidate editing with minimum human friction) landed as ONE burst PR (#330: the
