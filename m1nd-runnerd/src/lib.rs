@@ -10,6 +10,9 @@
 //! and the shared secret.
 
 pub mod config;
+// F12 — the synchronous `/curate` curation lane (one propose call; never a mission,
+// never a store write; the hand PROPOSES ops-as-data and the owner applies, §2/§3).
+pub mod curation;
 pub mod mission;
 // F11-b — the synchronous `/name` naming lane (per-block runner calls; never a
 // mission, never a store write; the daemon is transport + timeout + sanitize).

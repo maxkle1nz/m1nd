@@ -6,9 +6,10 @@
 # generated `runnerd.secret`) are gitignored — they are operator-private.
 #
 # Capabilities are PINNED here and nowhere else: announce proves a daemon is
-# live, it never grants or widens a capability. MVP capabilities are
-# `build-runner` (the code lane) and `naming-runner` (the cheap/fast lane);
-# loop/hand/review-runner are out of the MVP.
+# live, it never grants or widens a capability. The supported capabilities are
+# `build-runner` (the `/run` code lane), `naming-runner` (the `/name` cheap/fast
+# lane) and `hand-runner` (the F12 `/curate` propose-apply lane); loop/review-runner
+# are out of the MVP.
 #
 # For a BUILD runner (`/run` missions), `command` MUST contain the
 # `{packet_file}` token — the daemon writes the MissionPacket into the isolated
@@ -50,3 +51,31 @@ id = "naming-runner-local"
 capability = "naming-runner"
 command = ["your-naming-cli"]
 naming_timeout_secs = 20
+
+# A HAND runner (F12) serves the owner's synchronous `POST /curate` propose-apply
+# lane — NOT a mission: no worktree, no gate, no mission letters, and the daemon
+# never writes a store. THE CONTRACT: the daemon runs `command` ONCE, writes the
+# curation packet (ONE JSON object: instruction, skeleton_id, store_version, the
+# block VIEWS — ids/names/purposes/members/confidence/seams — and the unmapped
+# sample; never file bodies) to the process's STDIN, and expects ONE JSON document
+# on stdout:
+#
+#   {"schema":"m1nd-curation-proposal-v0","ops":[<candidate_edit ops>],"report":"…"}
+#
+# where each op is one of rename | merge | split | move_member | resolve_seam |
+# assign_unmapped (the exact wire shape is embedded in the packet's instruction).
+# The hand PROPOSES ops-as-data — it NEVER writes the store and can NEVER ratify;
+# the OWNER validates, sanitizes (o5) and applies the whole batch under OCC, then
+# the human reviews the result and ratifies. The proposal is treated as HOSTILE and
+# strong-parsed daemon-side AND owner-side; a malformed proposal or an o5 violation
+# applies NOTHING (all-or-nothing, never partial). `{packet_file}` is OPTIONAL (when
+# present the packet is ALSO written to a temp file and the token substituted);
+# `gate_command`/`workspace_allowlist` are optional for this capability.
+# `curation_timeout_secs` is the PER-MISSION timeout (default 300) — a curation is a
+# whole candidate to reason over, so give a real agent CLI room (e.g. 600).
+
+[[runner]]
+id = "hand-01"
+capability = "hand-runner"
+command = ["codex", "exec", "-m", "gpt-5.6-sol", "--config", "reasoning.effort=xhigh"]
+curation_timeout_secs = 600

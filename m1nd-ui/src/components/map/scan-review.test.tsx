@@ -192,6 +192,25 @@ test('F11-c §3a: the banner offers the curation dispatch and surfaces its hones
   assert.match(visible(done), /curation letter posted \(msn_0123456789ab, seq 1\)/);
 });
 
+test('F12: the curation button offers the SPAWN path only when a runner is announced', () => {
+  const store = candStore([mid]);
+  const snap: SystemBlocksSnapshot = { present: true, store_version: 2, block_count: 1, store };
+  const rollup = rollupStore(store);
+  // No runner announced (default) → the DIRECT affordance, unchanged copy.
+  const direct = (
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} />
+  );
+  assert.match(html(direct), /data-role="send-curation" data-mode="direct"/);
+  assert.match(visible(direct), /Send to an agent for curation/);
+  // A runner IS announced → the propose-apply SPAWN affordance ("Send to the hand-runner").
+  const spawn = (
+    <BuildMap snapshot={snap} rollup={rollup} onReview={noop} onSendCuration={noop} runnerAvailable />
+  );
+  assert.match(html(spawn), /data-role="send-curation" data-mode="spawn"/);
+  assert.match(visible(spawn), /Send to the hand-runner/);
+  assert.doesNotMatch(visible(spawn), /Send to an agent for curation/);
+});
+
 // ── the Edit-Names-&-Boundaries screen (F11-c — evolved from the F0c walk) ────
 // The walk's contract EVOLVED with the F11 amendment (0b/o6): the owner touch is
 // a REAL rename through candidate_edit (no client-only accept flag), runner-named

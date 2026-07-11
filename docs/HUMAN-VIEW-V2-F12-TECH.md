@@ -8,6 +8,15 @@
 
 ## 0. The one-line design
 
+> **IMPLEMENTED 2026-07-11.** The daemon `/curate` lane (`m1nd-runnerd::curation`) mirrors
+> `/name`; the owner verb is `curation_spawn` (HTTP-only, `m1nd-mcp::curation_runner` +
+> `http_server::handle_curation_spawn`); the F11-c "Send to an agent for curation" button
+> upgrades to "Send to the hand-runner" (a `curation_spawn` call) when a runner is announced,
+> with the DIRECT clipboard path as the no-runner fallback. The ARC-1 prerequisites (1a ratify
+> guard, 1b o5-on-the-runner-seat) shipped ahead of this amendment. Remaining for the owner: a
+> real end-to-end dogfood with a live pinned hand-runner (§5) — the code is proven against a
+> fake daemon; a real agent CLI run is the owner's arc gate.
+
 The runnerd gains a **`/curate` lane in the exact image of `/name`**: the owner sends the
 curation letter + packet to the daemon; the pinned hand-runner **PROPOSES a batch of
 `candidate_edit` ops as data**; the **OWNER validates, sanitizes (o5) and applies** them

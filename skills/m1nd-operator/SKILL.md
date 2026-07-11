@@ -159,6 +159,11 @@ monorepo candidate) has a one-gesture escape: a CURATION MISSION where a hand
 edits the whole candidate through the SAME `candidate_edit` verb — the human
 reviews the polished result and ratifies. The hand proposes; the human signs.
 `candidate_naming` is the screen's HTTP-only route, not an MCP loop verb.
+**Curation is PROPOSE-APPLY (F12):** the `curation_spawn` HTTP-only verb sends the
+candidate to a pinned live hand-runner (via the announced daemon's `/curate`); the
+hand PROPOSES a batch of `candidate_edit` ops as DATA, and the OWNER sanitizes (o5,
+seat `runner`) and applies them under OCC, then posts the summary letter. The hand
+never holds a write surface — not REST, not MCP, not a file — and can NEVER ratify.
 
 **The mission letter (F2.5).** A mission's live state is one
 `m1nd-mission-letter-v0`, posted with `mission_post` (WRITE, deny-listed on

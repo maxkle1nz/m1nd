@@ -351,6 +351,7 @@ mod tests {
             workspace_allowlist: Vec::new(),
             timeout_secs: crate::config::DEFAULT_TIMEOUT_SECS,
             naming_timeout_secs: 1,
+            curation_timeout_secs: crate::config::DEFAULT_CURATION_TIMEOUT_SECS,
         }
     }
 

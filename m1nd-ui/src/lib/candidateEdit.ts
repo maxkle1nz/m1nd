@@ -48,6 +48,22 @@ export interface CandidateNamingResult {
   refusal?: string;
 }
 
+/** The `curation_spawn` result (F12 §3) — the propose-apply outcome. `applied` is
+ *  true when the hand's batch landed (an empty proposal applies trivially);
+ *  `refusal` present = nothing applied (`no_hand_runner`, `proposal_malformed`,
+ *  `batch_refused`) and the screen shows why (a `no_hand_runner` falls back to
+ *  DIRECT). `report` is the hand's honest paragraph; `mission_id`/`mission_seq`
+ *  name the summary letter the tray watches. */
+export interface CurationSpawnResult {
+  applied: boolean;
+  ops_count: number;
+  store_version: number;
+  report?: string;
+  mission_id?: string;
+  mission_seq?: number;
+  refusal?: string;
+}
+
 /** The `candidate_lease` result (F11-a o4) — advisory, never blocking. */
 export interface CandidateLeaseResult {
   state: 'acquired' | 'refreshed' | 'released' | 'already_free';

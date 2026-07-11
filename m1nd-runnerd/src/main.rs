@@ -21,6 +21,7 @@ use clap::Parser;
 
 use m1nd_mcp::runnerd_owner::{secret_matches, RUNNERD_SECRET_HEADER};
 use m1nd_runnerd::config::{self, RunnersConfig};
+use m1nd_runnerd::curation::{self, CurateRequest};
 use m1nd_runnerd::mission::{self, EngineOpts, RunRequest};
 use m1nd_runnerd::naming::{self, NameRequest};
 use m1nd_runnerd::owner::HttpOwnerClient;
@@ -124,6 +125,7 @@ async fn main() {
     let app = Router::new()
         .route("/run", post(handle_run))
         .route("/name", post(handle_name))
+        .route("/curate", post(handle_curate))
         .with_state(state);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], cli.port));
@@ -134,7 +136,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("[m1nd-runnerd] serving /run + /name on http://{addr}");
+    eprintln!("[m1nd-runnerd] serving /run + /name + /curate on http://{addr}");
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("[m1nd-runnerd] server error: {e}");
         std::process::exit(1);
@@ -260,6 +262,39 @@ async fn handle_name(
     let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     if status == StatusCode::UNAUTHORIZED {
         // The secret refusal is BARE, exactly like /run (§5a).
+        return status.into_response();
+    }
+    (status, Json(body)).into_response()
+}
+
+/// `POST /curate` (F12 §2) — the SYNCHRONOUS curation lane, in the exact image of
+/// `/name`. Not a mission: no worktree, no gate, no letters, and the daemon never
+/// writes a store. The transport-free heart ([`curation::handle_curate_request`])
+/// authenticates the shared secret (401 bare), resolves the pinned hand-runner (403
+/// with the honest keyword), runs it ONCE with the curation packet on stdin under the
+/// per-mission timeout, and shape-validates the proposal it prints — a malformed
+/// proposal is an honest whole-mission failure, never a partial. The command runs in
+/// the runtime root (no repo is touched — the hand PROPOSES; the owner applies).
+async fn handle_curate(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+    Json(req): Json<CurateRequest>,
+) -> axum::response::Response {
+    let provided = headers
+        .get(RUNNERD_SECRET_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let (status, body) = curation::handle_curate_request(
+        &state.config,
+        &state.secret,
+        provided,
+        &req,
+        &state.runtime_root,
+    )
+    .await;
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    if status == StatusCode::UNAUTHORIZED {
+        // The secret refusal is BARE, exactly like /run and /name (§5a).
         return status.into_response();
     }
     (status, Json(body)).into_response()

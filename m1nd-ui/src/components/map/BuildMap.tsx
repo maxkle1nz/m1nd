@@ -73,6 +73,9 @@ export interface BuildMapProps {
   sendingCuration?: boolean;
   /** The last curation dispatch's honest outcome (shown under the banner). */
   curationResult?: { ok: boolean; message: string } | null;
+  /** F12 — true when a runner daemon is announced: the button offers the propose-
+   *  apply SPAWN (`curation_spawn`) instead of the DIRECT clipboard fallback. */
+  runnerAvailable?: boolean;
   /** Test seam: force the Unmapped tray open (SSR has no click). */
   initialUnmappedExpanded?: boolean;
 }
@@ -181,11 +184,13 @@ function CandidateBanner({
   onSendCuration,
   sendingCuration = false,
   curationResult = null,
+  runnerAvailable = false,
 }: {
   onReview?: () => void;
   onSendCuration?: () => void;
   sendingCuration?: boolean;
   curationResult?: { ok: boolean; message: string } | null;
+  runnerAvailable?: boolean;
 }) {
   return (
     <div
@@ -198,19 +203,30 @@ function CandidateBanner({
           ratified yet. Names are guesses until you ratify them.
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* §3a — the heavy-case escape hatch: the hand curates, the human reviews
-              the RESULT. Direct path (a letter + the packet to paste): a curation
-              SPAWN waits for the hand-runner capability (refused in the MVP). */}
+          {/* §3a/F12 — the heavy-case escape hatch: the hand curates, the human
+              reviews the RESULT. When a runner daemon is announced the button offers
+              the propose-apply SPAWN (curation_spawn: the owner applies the hand's
+              proposal under o5 + OCC); otherwise the DIRECT path (a letter + the
+              packet to paste). The hand can NEVER ratify, either way. */}
           {onSendCuration && (
             <button
               type="button"
               data-role="send-curation"
+              data-mode={runnerAvailable ? 'spawn' : 'direct'}
               onClick={onSendCuration}
               disabled={sendingCuration}
-              title="compose the curation packet + post the mission letter (direct path — the packet is copied for you to paste into your agent; the hand can never ratify)"
+              title={
+                runnerAvailable
+                  ? 'send the candidate to the pinned hand-runner — it proposes candidate_edit ops, the owner sanitizes and applies them under OCC, and you review the result (the hand can never ratify)'
+                  : 'compose the curation packet + post the mission letter (direct path — the packet is copied for you to paste into your agent; the hand can never ratify)'
+              }
               className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-ink border border-ink/15 bg-bone rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
             >
-              {sendingCuration ? 'Dispatching…' : 'Send to an agent for curation'}
+              {sendingCuration
+                ? 'Dispatching…'
+                : runnerAvailable
+                  ? 'Send to the hand-runner'
+                  : 'Send to an agent for curation'}
             </button>
           )}
           {onReview && (
@@ -258,6 +274,7 @@ export default function BuildMap({
   onSendCuration,
   sendingCuration = false,
   curationResult = null,
+  runnerAvailable = false,
   initialUnmappedExpanded = false,
 }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
@@ -363,6 +380,7 @@ export default function BuildMap({
             onSendCuration={onSendCuration}
             sendingCuration={sendingCuration}
             curationResult={curationResult}
+            runnerAvailable={runnerAvailable}
           />
         )}
 

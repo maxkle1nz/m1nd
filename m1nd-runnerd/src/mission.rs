@@ -773,6 +773,7 @@ mod tests {
             workspace_allowlist: vec![workspace.to_string()],
             timeout_secs: 60,
             naming_timeout_secs: crate::config::DEFAULT_NAMING_TIMEOUT_SECS,
+            curation_timeout_secs: crate::config::DEFAULT_CURATION_TIMEOUT_SECS,
         }
     }
 

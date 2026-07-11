@@ -199,7 +199,10 @@ blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, 
 enforced: `system_blocks_ratify` requires the `ratified_via:\"human-ui\"` origin token the owner's \
 screen stamps; an agent never composes it, so a bare ratify is refused `human_gesture_required`), \
 and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
-curation mission edits via `candidate_edit`), the human signs. THE MISSION LETTER: `mission_post` \
+curation mission edits via `candidate_edit`), the human signs. CURATION IS PROPOSE-APPLY (F12): the \
+`curation_spawn` verb sends the candidate to a pinned hand-runner that PROPOSES `candidate_edit` ops \
+as data; the OWNER sanitizes (o5, seat `runner`) and applies them under OCC — the hand never holds a \
+write surface, and it can NEVER ratify. THE MISSION LETTER: `mission_post` \
 records one mission's live state as `m1nd-mission-letter-v0` — `brain_ref` is the brain's DISPLAY \
 NAME (the basename of its root, never an absolute path; a wrong one is refused `brain_mismatch`), \
 `block_id` must name a real block in the bound skeleton (else `unknown_block`; a legitimate \

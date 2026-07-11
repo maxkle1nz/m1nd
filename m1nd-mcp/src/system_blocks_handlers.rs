@@ -752,7 +752,7 @@ fn now_iso8601() -> String {
 
 /// Format epoch-millis as `YYYY-MM-DDTHH:MM:SSZ` (UTC). Howard Hinnant's civil
 /// algorithm — the same day math the rest of the codebase already uses.
-fn iso8601_from_ms(ms: u64) -> String {
+pub(crate) fn iso8601_from_ms(ms: u64) -> String {
     let secs = (ms / 1000) as i64;
     let days = secs.div_euclid(86_400);
     let tod = secs.rem_euclid(86_400);
