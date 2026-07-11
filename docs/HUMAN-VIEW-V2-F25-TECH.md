@@ -85,3 +85,13 @@ Ground: the mailbox is the engine's letter surface (append-only JSONL, sha256 co
 ## 7. What this amendment does NOT decide
 
 The operator's concrete runner configuration (which local agent fills which capability) is private operator config, out of the repo. First-class marketplace runners stay future (PRD §7). Multi-brain tray aggregation is deferred — the tray reads the viewed brain, like the map. The Routing Rules screen is deferred per 5f and awaits its own slice.
+
+## 8. System-integrity hardening (ARC-1, post-ratification)
+
+Two write-surface laws an oracle verdict surfaced after ratification: doctrine that lacked a mechanical mirror. Each lands as its own RED-first slice.
+
+### § ratify — a mechanical mirror for "RATIFY IS HUMAN"
+
+- **The gap.** `system_blocks_ratify` sits in the skeleton write-gate (`skeleton_write_needs_root_gate`), but the explicit `?brain=` REST selector deliberately sets `caller_root = workspace_root` for skeleton writes (http_server dispatch) so the owner's screen can write the viewed brain — which also means the gate cleared for ANY local process reaching that REST route. The `ratifier` is a free string and no origin/seat check existed. "Ratify is the human gesture" was doctrine (M1ND_INSTRUCTIONS §6) with no enforcement: any local process could ratify via REST.
+- **The law.** Ratify passes only when the gesture is human. Mechanically: `handle_system_blocks_ratify` REQUIRES `ratified_via:"human-ui"` — the origin token the owner's Human View screen stamps (the `client.ts` api layer; the browser is the only composer of it). A runner/agent MCP client never composes it by contract, so a bare ratify is refused `human_gesture_required` and TOUCHES NOTHING, with the lesson *"ratify is the human gesture — the owner's screen sends it; agents never do."*
+- **Honesty about the token.** On an unauthenticated loopback the field is forgeable, so the guard is deliberately DOUBLE: (a) the mandatory field with a teaching refusal, and (b) a RED test pinning that a seat/agent call WITHOUT the field is refused. It kills the CHEAP vector — an agent that simply calls ratify — not a malicious same-UID process, which is out of the threat model exactly as §5d declares for same-UID local malware. The refusal is a soft `{ok:false, refused, lesson}` envelope (the write-surface refusal shape), never a silent pass.

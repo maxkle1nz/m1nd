@@ -363,7 +363,17 @@ pub struct RatifyInput {
     pub block_ids: Option<Vec<String>>,
     /// Who ratified (stamped into the skeleton's ratification record).
     pub ratifier: String,
+    /// The ORIGIN of the gesture (HUMAN-VIEW-V2-F25-TECH § ratify). Only the owner's
+    /// screen composes `"human-ui"`; a runner/agent MCP client never does. Absent or
+    /// any other value refuses the call — ratify is the human's signature, not an
+    /// agent's write.
+    #[serde(default)]
+    pub ratified_via: Option<String>,
 }
+
+/// The origin token the owner's Human View screen stamps on a ratify. The one value
+/// that passes the origin gate; every other (including absent) is refused.
+const RATIFY_HUMAN_ORIGIN: &str = "human-ui";
 
 /// `system_blocks_ratify` (WRITE). Flips the targeted blocks `candidate ->
 /// ratified` and their membership `proposed -> ratified`, stamps the skeleton's
@@ -373,6 +383,24 @@ pub fn handle_system_blocks_ratify(
     input: RatifyInput,
 ) -> M1ndResult<Value> {
     const TOOL: &str = "system_blocks_ratify";
+    // Origin gate: ratify is the HUMAN gesture (M1ND_INSTRUCTIONS §6, RATIFY IS
+    // HUMAN) — now with a mechanical mirror, not doctrine alone. The owner's screen
+    // stamps `ratified_via:"human-ui"`; a runner/agent MCP client never composes it.
+    // A call lacking it is refused WITH the lesson, so the write-gate's explicit
+    // `?brain=` bypass (any local process reaching the REST dispatch, http_server.rs
+    // ~1926) can no longer ratify by reflex. The field is forgeable on an
+    // unauthenticated loopback, so this closes the CHEAP vector (an agent that simply
+    // calls ratify), NOT a malicious same-UID process — the latter is out of the
+    // threat model exactly as F25-TECH §5d holds for same-UID malware.
+    if input.ratified_via.as_deref() != Some(RATIFY_HUMAN_ORIGIN) {
+        return Ok(json!({
+            "ok": false,
+            "schema": "m1nd-system-block-write-v0",
+            "refused": "human_gesture_required",
+            "tool": TOOL,
+            "lesson": "ratify is the human gesture — the owner's screen sends it; agents never do",
+        }));
+    }
     let dir = store_dir(state);
     let ratified_at = now_iso8601();
     let (store, summary) = ratify_in_dir(
