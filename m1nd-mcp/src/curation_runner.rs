@@ -466,9 +466,9 @@ pub fn curate_candidate(
     };
     let seed_err = |e: SeedError| tool_err(e.to_string());
 
-    let store = SystemBlockStore::load(dir).map_err(seed_err)?.ok_or_else(|| {
-        seed_err(SeedError::NoStore)
-    })?;
+    let store = SystemBlockStore::load(dir)
+        .map_err(seed_err)?
+        .ok_or_else(|| seed_err(SeedError::NoStore))?;
     // OCC pre-check: a stale caller conflicts BEFORE any runner is invoked.
     if expected_store_version != store.store_version {
         return Err(seed_err(SeedError::Conflict {
@@ -584,7 +584,13 @@ pub fn curate_candidate(
     let lease_until = crate::system_blocks_handlers::iso8601_from_ms(
         ms.saturating_add(DEFAULT_LEASE_TTL_SECS.saturating_mul(1000)),
     );
-    let _ = candidate_lease_in_dir(dir, LeaseAction::Acquire, &agent_id, &lease_now, &lease_until);
+    let _ = candidate_lease_in_dir(
+        dir,
+        LeaseAction::Acquire,
+        &agent_id,
+        &lease_now,
+        &lease_until,
+    );
     let release = |dir: &Path, agent_id: &str| {
         let ms = crate::util::now_ms();
         let iso = crate::system_blocks_handlers::iso8601_from_ms(ms);
@@ -746,7 +752,9 @@ mod tests {
     }
 
     /// A tempdir store + an owner runtime root with the shared secret + a registry.
-    fn fixture(blocks: Vec<SystemBlock>) -> (tempfile::TempDir, std::path::PathBuf, NamingRunnerHandle) {
+    fn fixture(
+        blocks: Vec<SystemBlock>,
+    ) -> (tempfile::TempDir, std::path::PathBuf, NamingRunnerHandle) {
         let temp = tempfile::tempdir().expect("tempdir");
         let store_dir = temp.path().join("brain");
         std::fs::create_dir_all(&store_dir).expect("store dir");
@@ -867,9 +875,8 @@ mod tests {
         .to_string();
         let (port, daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "s3cr3t");
         let store = SystemBlockStore::from_seed(seed_of(vec![heuristic_block("sb_a", &["a.rs"])]));
-        let res =
-            call_curate_endpoint(port, "s3cr3t", &packet_for(&store), Duration::from_secs(5))
-                .expect("call ok");
+        let res = call_curate_endpoint(port, "s3cr3t", &packet_for(&store), Duration::from_secs(5))
+            .expect("call ok");
         assert!(res.ok);
         assert_eq!(res.runner_id, "hand-1");
         let request_text = daemon.join().expect("daemon thread");
@@ -900,12 +907,22 @@ mod tests {
         let (temp, dir, handle) = fixture(vec![heuristic_block("sb_a", &["a.rs"])]);
         let store = SystemBlockStore::load(&dir).unwrap().unwrap();
         let before = std::fs::read(dir.join("system_blocks.json")).expect("read before");
-        let out = curate_candidate(&handle, &dir, &box_path(&temp), "repo", 1, &packet_for(&store))
-            .expect("a refusal is a result, not an exception");
+        let out = curate_candidate(
+            &handle,
+            &dir,
+            &box_path(&temp),
+            "repo",
+            1,
+            &packet_for(&store),
+        )
+        .expect("a refusal is a result, not an exception");
         assert!(!out.applied);
         assert_eq!(out.store_version, 1, "no version churn");
         assert!(
-            out.refusal.as_deref().unwrap_or("").contains("no_hand_runner"),
+            out.refusal
+                .as_deref()
+                .unwrap_or("")
+                .contains("no_hand_runner"),
             "got {:?}",
             out.refusal
         );
@@ -918,15 +935,24 @@ mod tests {
         let (temp, dir, handle) = fixture(vec![heuristic_block("sb_a", &["a.rs"])]);
         let store = SystemBlockStore::load(&dir).unwrap().unwrap();
         // NO daemon registered and none is contacted: a stale OCC key conflicts FIRST.
-        let err = curate_candidate(&handle, &dir, &box_path(&temp), "repo", 99, &packet_for(&store))
-            .expect_err("a stale OCC key conflicts");
+        let err = curate_candidate(
+            &handle,
+            &dir,
+            &box_path(&temp),
+            "repo",
+            99,
+            &packet_for(&store),
+        )
+        .expect_err("a stale OCC key conflicts");
         assert!(err.to_string().contains("conflict"), "got {err}");
     }
 
     #[test]
     fn curate_candidate_happy_path_applies_seat_runner_and_posts_the_summary() {
-        let (temp, dir, handle) =
-            fixture(vec![heuristic_block("sb_a", &["a.rs"]), heuristic_block("sb_b", &["b.rs"])]);
+        let (temp, dir, handle) = fixture(vec![
+            heuristic_block("sb_a", &["a.rs"]),
+            heuristic_block("sb_b", &["b.rs"]),
+        ]);
         let store = SystemBlockStore::load(&dir).unwrap().unwrap();
         // The hand proposes: rename sb_a + merge sb_b into sb_a.
         let body = json!({
@@ -945,8 +971,15 @@ mod tests {
         let (port, _d) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "curate-secret");
         handle.registry.register(&["hand-1".to_string()], port, 1);
 
-        let out = curate_candidate(&handle, &dir, &box_path(&temp), "repo", 1, &packet_for(&store))
-            .expect("the curation lands");
+        let out = curate_candidate(
+            &handle,
+            &dir,
+            &box_path(&temp),
+            "repo",
+            1,
+            &packet_for(&store),
+        )
+        .expect("the curation lands");
         assert!(out.applied, "the batch applied: {out:?}");
         assert_eq!(out.ops_count, 2);
         assert_eq!(out.store_version, 2, "one OCC bump for the whole batch");
@@ -973,7 +1006,11 @@ mod tests {
         assert_eq!(head.head.block_id, "sk_demo", "anchored to the skeleton id");
         assert_eq!(head.head.seat, Seat::Oracle);
         assert_eq!(head.head.capability, Capability::HandRunner);
-        let verdict = head.head.verdict.as_ref().expect("the summary carries the report");
+        let verdict = head
+            .head
+            .verdict
+            .as_ref()
+            .expect("the summary carries the report");
         assert!(verdict.gist.contains("Named the auth block"));
     }
 
@@ -996,17 +1033,30 @@ mod tests {
         let (port, _d) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "curate-secret");
         handle.registry.register(&["hand-1".to_string()], port, 1);
 
-        let out = curate_candidate(&handle, &dir, &box_path(&temp), "repo", 1, &packet_for(&store))
-            .expect("a refusal is a result");
+        let out = curate_candidate(
+            &handle,
+            &dir,
+            &box_path(&temp),
+            "repo",
+            1,
+            &packet_for(&store),
+        )
+        .expect("a refusal is a result");
         assert!(!out.applied, "the hostile batch never applies");
         let refusal = out.refusal.expect("batch_refused");
         assert!(refusal.contains("batch_refused"), "got '{refusal}'");
-        assert!(refusal.contains("HTML"), "the o5 class surfaces: '{refusal}'");
+        assert!(
+            refusal.contains("HTML"),
+            "the o5 class surfaces: '{refusal}'"
+        );
         // The store is byte-identical (o1 preflight-on-a-clone) and the lease is free.
         let after = std::fs::read(dir.join("system_blocks.json")).expect("read after");
         assert_eq!(before, after, "nothing was applied");
         let store = SystemBlockStore::load(&dir).unwrap().unwrap();
-        assert!(store.curating_by.is_none(), "the lease is released on refusal");
+        assert!(
+            store.curating_by.is_none(),
+            "the lease is released on refusal"
+        );
     }
 
     #[test]
@@ -1023,8 +1073,15 @@ mod tests {
         let (port, _d) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "curate-secret");
         handle.registry.register(&["hand-1".to_string()], port, 1);
 
-        let out = curate_candidate(&handle, &dir, &box_path(&temp), "repo", 1, &packet_for(&store))
-            .expect("a refusal is a result");
+        let out = curate_candidate(
+            &handle,
+            &dir,
+            &box_path(&temp),
+            "repo",
+            1,
+            &packet_for(&store),
+        )
+        .expect("a refusal is a result");
         assert!(!out.applied);
         assert!(out
             .refusal

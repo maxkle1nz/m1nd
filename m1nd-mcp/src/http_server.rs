@@ -1839,9 +1839,7 @@ async fn handle_curation_spawn(
         // The mission box for THIS brain (mirror of mission_letter_handlers): the
         // repo-side box when the brain has a code root, else the medulla box.
         let box_path = match session.project_root_display() {
-            Some(root) => {
-                std::path::Path::new(&root).join(crate::mailbox::BOX_REL_PATH)
-            }
+            Some(root) => std::path::Path::new(&root).join(crate::mailbox::BOX_REL_PATH),
             None => crate::mailbox::medulla_box_path(&session.runtime_root),
         };
         // The letters' brain_ref = the brain's display name (basename of its root —
@@ -1877,12 +1875,7 @@ async fn handle_curation_spawn(
     let expected = input.expected_store_version;
     let joined = tokio::task::spawn_blocking(move || {
         crate::curation_runner::curate_candidate(
-            &handle,
-            &dir,
-            &box_path,
-            &brain_ref,
-            expected,
-            &packet,
+            &handle, &dir, &box_path, &brain_ref, expected, &packet,
         )
     })
     .await;
@@ -1893,9 +1886,7 @@ async fn handle_curation_spawn(
             Json(serde_json::json!({ "result": outcome })),
         )
             .into_response(),
-        Ok(Err(err)) => {
-            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response()
-        }
+        Ok(Err(err)) => (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response(),
         Err(join_err) => {
             let e = deny(format!("curation_spawn task failed: {join_err}"));
             (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()

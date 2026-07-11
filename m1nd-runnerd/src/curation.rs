@@ -252,7 +252,10 @@ pub fn parse_curation_proposal(stdout: &str) -> Result<Value, String> {
     let doc: Value = serde_json::from_str(trimmed)
         .map_err(|e| format!("the curation proposal is not one JSON document: {e}"))?;
 
-    let schema = doc.get("schema").and_then(|v| v.as_str()).unwrap_or_default();
+    let schema = doc
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
     if schema != CURATION_PROPOSAL_SCHEMA {
         return Err(format!(
             "curation proposal schema mismatch: expected {CURATION_PROPOSAL_SCHEMA}, got '{schema}'"
@@ -261,12 +264,10 @@ pub fn parse_curation_proposal(stdout: &str) -> Result<Value, String> {
 
     match doc.get("report").and_then(|v| v.as_str()) {
         Some(r) if !r.trim().is_empty() => {}
-        _ => {
-            return Err(
-                "the curation proposal carries no non-empty `report` — the hand must say what it did"
-                    .to_string(),
-            )
-        }
+        _ => return Err(
+            "the curation proposal carries no non-empty `report` — the hand must say what it did"
+                .to_string(),
+        ),
     }
 
     let ops_value = doc.get("ops").cloned().unwrap_or(Value::Null);
@@ -558,7 +559,11 @@ mod tests {
 
     #[tokio::test]
     async fn run_curation_spawn_failure_is_honest() {
-        let runner = def("hand-ghost", "hand-runner", vec!["m1nd-no-such-hand-binary-xyz"]);
+        let runner = def(
+            "hand-ghost",
+            "hand-runner",
+            vec!["m1nd-no-such-hand-binary-xyz"],
+        );
         let run = run_curation(&runner, &packet(), &std::env::temp_dir()).await;
         assert!(!run.ok);
         assert!(run.error.as_deref().unwrap_or("").contains("spawn failed"));
