@@ -46,6 +46,30 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-11, checkpoint 17 — the hand curates; dated blocks below are the era log)
 
+> **2026-07-12 — the HUMAN-LAYER VOICE arc opens (§C11-style amendment): slice 1, `human_view`, lands.**
+> An off-§C10 front, opened by the owner's order and registered here as the ladder ritual demands
+> (never a silent front). The arc: m1nd gains a VOICE the human sees in the conversation. Slice 1
+> (this landing): the north packet carries `human_view` (`m1nd-human-view-v0`) — a server-composed,
+> already-mounted ≤4-line card in the SPINE grammar (the `m1nd` wordmark hung on the margin, `│`
+> gutter fixed at column 6), five states (clean/bell/coherence/mismatch/needs_ingest), a mechanical
+> `state_sig` anti-repetition key. Its law is the askGOD verdict "human view" (CHANGE, 10
+> amendments — versioned with the design docs under `docs/voice/`): composed AFTER reception (under
+> `caller_root_mismatch` the card IS the warning, zero statistics — they would describe the wrong
+> brain); one sentence per fact (signal lines reuse the `honest_gaps` strings VERBATIM; a line that
+> cannot fit falls whole, never truncated); brand law G1 written as the field's law (only measured
+> facts already in the packet); fail-open (north never errors over its own voice). The render side
+> is doctrine on ALL agent surfaces in the same burst: `M1ND_INSTRUCTIONS` §7 (the NEGATIVE-default
+> cadence verbatim, the translation duty, the agent-owned deep rung R2, the 1:1 ASCII fallback, the
+> counterfactual attribution law) + the three skills (same doctrine + the treacherous lexicon + the
+> ten verb families). Proven: 11 unit + 5 north integration tests (the mismatch and needs_ingest
+> shapes mandatory per the verdict), suite 829 lib tests green, budget re-pinned ~1,391 tokens
+> (≤2k; the field costs ~174 chars ≈ 43 tokens on a clean beat). HONEST residue: the ratified-maps
+> segment is OMITTED from line 1 (the packet carries no ratified-map count today — recorded in the
+> slice's DIVERGENCES.md; exposing it is a slice-2 decision); the PULSE mark (`╷╷╷│╷`) and the
+> pitch AWAIT the owner's explicit stamp (the mark is pluggable through `compose_voice_signature`
+> alone); slice 2 (the navigable cockpit verb — its verdict is already emitted, also under
+> `docs/voice/`) queues AFTER this v1 lands and the owner stamps the provador.
+
 > **2026-07-11 — ARC-1 + ARC-2 closed: the proof system hardened, F12 ratified and implemented, and the FIRST AUTONOMOUS CURATION ratified by the owner.**
 > The integrity burst (#342) closed all four open field reports: the field spool is runtime-scoped
 > (an ephemeral owner can never read or write the production box again), receipts refuse temporal

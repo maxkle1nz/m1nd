@@ -33,8 +33,18 @@ classDiagram
         +needs: Option~String~
         +recovery_playbook: Option~Value~
         +landing_bell: Option~Value~ (present iff merge_wait>0)
+        +human_view: Option~HumanView~ (present iff composed)
         +proof_state: "triaging"
         +non_claims: [4 disclaimers]
+    }
+
+    class HumanView {
+        <<m1nd-human-view-v0, human_view.rs>>
+        +schema: "m1nd-human-view-v0"
+        +state: clean|bell|coherence|mismatch|needs_ingest
+        +state_sig: "trust|bell:N|coh:ok·sick|recv:match·mismatch"
+        +lines: Vec~String~ (mounted, <=4, <=80 cols)
+        %% composed AFTER reception — pure, fail-open
     }
 
     class BindingSlice {
@@ -213,6 +223,81 @@ stateDiagram-v2
 - **Budget law**: pack_to_budget always keeps >=1 item even on zero/overflow budget, boundary <=budget inclusive; dedupe_ranked's comparator is a TOTAL order (single scalar key, panic-fix) (result_shaping.rs:80-106, 15-65 — verified: dedupe_ranked at :15, pack_to_budget at :80).
 - **top_k clamped 1..=50, default 8**; task non-empty or InvalidParams (server.rs:3188-3199).
 - **Sufficiency is answer-free**: reports sufficient|gathering|saturated from a knee test on relevance strength + what was cut, never inspecting answer content (layers.rs:100-126).
+- **human_view is composed AFTER reception and never lies under it**: the voice card is assembled from data already in the packet, after `reception_verdict()` returns — under `caller_root_mismatch` the card IS the warning (the reception strings verbatim + the literal repair call) and carries ZERO statistics, because they would describe the wrong brain (human_view.rs; server.rs handle_north tail). Fail-open: the composer is pure and total; a compose miss omits the field, `north` never errors over its own voice.
+
+## human_view — the m1nd voice (`m1nd-human-view-v0`)
+
+The server-composed, ALREADY-MOUNTED human-readable card: the m1nd voice in the
+conversation. Law source: the askGOD verdict "human view" (2026-07-12, CHANGE
+with 10 amendments) + the SPINE design — both versioned under `docs/voice/`.
+
+**Wire shape** (composed in `m1nd-mcp/src/human_view.rs`, mounted by
+`handle_north` after reception):
+
+```json
+"human_view": {
+  "schema": "m1nd-human-view-v0",
+  "state": "clean",
+  "state_sig": "full_trust|bell:0|coh:ok|recv:match",
+  "lines": ["m1nd │ full trust · 9,113 nodes · 30 memories"]
+}
+```
+
+**The five states** (form follows state; priority when signals coexist:
+mismatch > needs_ingest > bell > coherence):
+
+| state | form | trigger |
+|---|---|---|
+| `clean` | 1 line (the whisper) | no signals — the better the world, the smaller the voice |
+| `bell` | 2 lines | `landing_bell.merge_wait > 0`; line 2 = the bell gap string VERBATIM |
+| `coherence` | ≤4 lines | skeleton_coherence mismatch; the sickness line VERBATIM, wrapped |
+| `mismatch` | warning card | `reception.match == caller_root_mismatch`: line 1 = the reception `honest` string, then bound/yours, then `next: ingest project_root=<caller_root>` — ZERO statistics |
+| `needs_ingest` | ≤3 lines | empty/unbound graph: `m1nd │ needs_ingest · 0 nodes` + the gap VERBATIM; `next_move` rides only when it fits whole |
+
+**The laws of the field** (verdict amendment numbering):
+
+- (1) The field is `human_view` — never `owner_view` ("owner" = the served
+  owner process in this codebase).
+- (2) MECHANICAL cap, tested: ≤4 lines, ≤80 chars/line (counted in chars, not
+  bytes); wrap breaks at word boundaries and indents +2 inside the gutter
+  (continuations start `     │   `); the spine sits fixed at column 6.
+- (3) Composed AFTER reception. Under mismatch the card IS the warning and
+  shows no statistic — a brand confidently wrong in the human's conversation
+  is worse damage than spam.
+- (4) The empty/unbound graph is a legitimate honest card (`needs_ingest`),
+  never an emergent accident.
+- (5) ONE SENTENCE PER FACT: signal lines reuse the exact `honest_gaps`
+  strings (the bell line and the coherence line are captured at their compose
+  site; the needs-ingest gap is the shared constant
+  `human_view::NEEDS_INGEST_GAP`) — never a second wording of the same fact.
+  A verbatim line that cannot fit the remaining budget falls WHOLE, never
+  truncated (no `…`).
+- (8) **Brand law G1 — the written law of this field**: every line carries
+  only measured facts already in the packet (counts, states, verbatim gap
+  strings). No uncalibrated adjective, no benefit or economy claim, no
+  ornament. Zero-valued identity segments are OMITTED (the zero speaks only in
+  `needs_ingest`, where it IS the message). Numbers render with the thousands
+  separator (`9,024`), nothing else is reformatted.
+- The `state_sig` is the mechanical anti-repetition key
+  (`trust|bell:N|coh:ok·sick|recv:match·mismatch`): equal state ⇒ equal sig;
+  agents never render the same sig twice in a session (cadence law in
+  `M1ND_INSTRUCTIONS` §7 and the three skills).
+
+**The mark is pluggable** (amendment 7): the brand anchor is the WORD `m1nd`
+(always lowercase) + the spine `│` (U+2502) — both already accepted. Line 1 is
+composed by `compose_voice_signature()` alone, so a future mark (the PULSE row
+`╷╷╷│╷` awaits the owner's explicit stamp) plugs in at one seam without
+touching the composition laws. ASCII fallback is the AGENT's duty (1:1 map
+`│`→`|`, `·`→`.`, `—`→`-`; widths identical).
+
+**Line-1 signature**: `m1nd │ <trust> · <N nodes> · <M memories>` — the
+ratified-maps segment is OMITTED in v1 because the packet does not carry a
+ratified-map count today (see `DIVERGENCES.md` at the slice root; exposing the
+count is a slice-2 decision, never an invented number).
+
+**Budget**: re-pinned with the field mounted — the packet measures ~1,391
+tokens (≤2,000 ceiling); the card costs ~174 chars (~43 tokens) on a clean
+beat, worst case ≤4×80 + envelope (~120 tokens).
 
 ## Gaps
 
