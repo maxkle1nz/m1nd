@@ -1,0 +1,158 @@
+{
+  "version": 7,
+  "nodes": [
+    {
+      "external_id": "file::repo-alpha/src/graph.rs",
+      "label": "graph.rs",
+      "node_type": 0,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 4,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 1, "line_end": 45, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::enum::Kind",
+      "label": "Kind",
+      "node_type": 5,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 1,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 3, "line_end": 6, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::struct::Graph",
+      "label": "Graph",
+      "node_type": 4,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 9,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 9, "line_end": 16, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::function::Graph::insert",
+      "label": "insert",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 6,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 18, "line_end": 24, "namespace": "Graph", "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::function::validate",
+      "label": "validate",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 2,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 26, "line_end": 31, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::struct::Node",
+      "label": "Node",
+      "node_type": 4,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 3,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 33, "line_end": 37, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/graph.rs::function::Node::insert",
+      "label": "insert",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 1,
+      "provenance": { "source_path": "repo-alpha/src/graph.rs", "line_start": 39, "line_end": 44, "namespace": "Node", "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/store.rs",
+      "label": "store.rs",
+      "node_type": 0,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 5,
+      "provenance": { "source_path": "repo-alpha/src/store.rs", "line_start": 1, "line_end": 34, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/store.rs::struct::Store",
+      "label": "Store",
+      "node_type": 4,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 7,
+      "provenance": { "source_path": "repo-alpha/src/store.rs", "line_start": 5, "line_end": 12, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/store.rs::function::open",
+      "label": "open",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 8,
+      "provenance": { "source_path": "repo-alpha/src/store.rs", "line_start": 14, "line_end": 19, "namespace": "Store", "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/store.rs::function::save",
+      "label": "save",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 4,
+      "provenance": { "source_path": "repo-alpha/src/store.rs", "line_start": 21, "line_end": 27, "namespace": "Store", "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/src/store.rs::function::close",
+      "label": "close",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 2,
+      "provenance": { "source_path": "repo-alpha/src/store.rs", "line_start": 29, "line_end": 33, "namespace": "Store", "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/ui/panel.ts",
+      "label": "panel.ts",
+      "node_type": 0,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 3,
+      "provenance": { "source_path": "repo-alpha/ui/panel.ts", "line_start": 1, "line_end": 30, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/ui/panel.ts::function::render",
+      "label": "render",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 5,
+      "provenance": { "source_path": "repo-alpha/ui/panel.ts", "line_start": 4, "line_end": 20, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/ui/panel.ts::function::mount",
+      "label": "mount",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 2,
+      "provenance": { "source_path": "repo-alpha/ui/panel.ts", "line_start": 22, "line_end": 29, "namespace": null, "canonical": true }
+    },
+    {
+      "external_id": "file::repo-alpha/ui/helpers.ts::function::format",
+      "label": "format",
+      "node_type": 2,
+      "tags": [],
+      "last_modified": 1700000000000,
+      "change_frequency": 1,
+      "provenance": { "source_path": "repo-alpha/ui/helpers.ts", "line_start": 3, "line_end": 12, "namespace": null, "canonical": true }
+    }
+  ],
+  "edges": [
+    { "source_id": "file::repo-alpha/src/store.rs::function::open", "target_id": "file::repo-alpha/src/graph.rs::function::Graph::insert", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.8 },
+    { "source_id": "file::repo-alpha/src/store.rs::function::save", "target_id": "file::repo-alpha/src/graph.rs::function::Graph::insert", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.5 },
+    { "source_id": "file::repo-alpha/src/store.rs::function::save", "target_id": "file::repo-alpha/src/graph.rs::function::Node::insert", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.5 },
+    { "source_id": "file::repo-alpha/src/store.rs::function::close", "target_id": "file::external::std::fs::File::close", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.4 },
+    { "source_id": "file::repo-alpha/ui/panel.ts::function::render", "target_id": "file::repo-alpha/ui/helpers.ts::function::format", "relation": "def", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.7 },
+    { "source_id": "file::repo-alpha/ui/panel.ts::function::render", "target_id": "file::repo-alpha/ui/helpers.ts::function::format", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.7 },
+    { "source_id": "file::repo-alpha/ui/panel.ts::function::mount", "target_id": "file::repo-alpha/ui/helpers.ts::function::format", "relation": "call", "weight": 1.0, "direction": 1, "inhibitory": false, "causal_strength": 0.6 }
+  ]
+}
