@@ -620,7 +620,7 @@ export function landErrorToast(err: unknown): { toast: LandToast; shouldReload: 
  *     evidence was earned against THAT boundary, so the scope is NEVER re-dated to the
  *     fresh snapshot to force a pass — a moved boundary MUST re-earn (step 3). Only the
  *     `block_id` + `resolution_hash` bind at import time (mission_letter.rs §F2.5d); the
- *     emitter is the named human-tray gesture, the validity stales on boundary/member.
+ *     emitter names the human web-UI landing gesture, the validity stales on boundary/member.
  *  3. `receipt_import` with the fresh `expected_store_version`. A `stale_scope` (the
  *     boundary moved since the gate) → honest toast, NOTHING landed (the law working). A
  *     `conflict` → reload. Never a silent retry, never a scope rewrite.
@@ -662,7 +662,7 @@ export async function landCandidate(head: MissionHead, deps: LandDeps): Promise<
   //    CANDIDATE (never re-dated); only block_id + resolution_hash bind at import time.
   const receipt: Receipt = {
     type: candidate.type,
-    emitter: { kind: 'verb', id: 'human-tray-landing' },
+    emitter: { kind: 'verb', id: 'human-ui-landing' },
     scope: {
       block_id: candidate.block_id,
       boundary_version: candidate.scope.boundary_version,

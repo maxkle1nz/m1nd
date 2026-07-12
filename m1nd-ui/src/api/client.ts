@@ -225,6 +225,13 @@ export const api = {
    * WRITE verb — refused under a read-only attach. Bare tool route, agent_id 'gui',
    * unwrapping the `{result}` envelope like `missionPost`. `brain` scopes the write to
    * a hosted brain (absent = the bound graph).
+   *
+   * LANDING A RECEIPT IS THE HUMAN GESTURE (sovereign-stamp arc, step 0): this screen is
+   * the owner's UI path, so it stamps the `imported_via:'human-ui'` origin token the
+   * backend now requires — the SAME class of gate `system_blocks_ratify` carries. An
+   * agent/runner MCP client never composes it, so an import without it is refused
+   * `human_gesture_required`. The token is forgeable on an unauthenticated loopback, so
+   * it closes the cheap reflex vector, not a same-UID process (§5d; Touch ID is step 2).
    */
   receiptImport: (
     input: { expectedStoreVersion: number; blockId: string; receipt: Receipt },
@@ -237,6 +244,7 @@ export const api = {
         expected_store_version: input.expectedStoreVersion,
         block_id: input.blockId,
         receipt: input.receipt,
+        imported_via: 'human-ui',
       }),
     }).then((r) => r.result),
 

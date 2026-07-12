@@ -120,7 +120,7 @@ test('§4A.9: systemBlocksReconcile carries ?brain= when a hosted brain is viewe
 
 const RECEIPT = {
   type: 'test' as const,
-  emitter: { kind: 'verb' as const, id: 'human-tray-landing' },
+  emitter: { kind: 'verb' as const, id: 'human-ui-landing' },
   scope: { block_id: 'sb_m1nd_mailbox', boundary_version: 1, contract_version: 1, resolution_hash: 'sha256:fp' },
   evidence: { artifact_hash: 'sha256:log', evidence_refs: ['artifact://run/2'] },
   validity: { expires_on: null, stales_on: ['boundary_change', 'member_change'] },
@@ -138,6 +138,11 @@ test('receiptImport POSTs the bare receipt_import route with agent_id + OCC key 
   assert.equal(sent.expected_store_version, 9, 'the OCC key from the fresh snapshot');
   assert.equal(sent.block_id, 'sb_m1nd_mailbox');
   assert.deepEqual(sent.receipt, RECEIPT, 'the assembled receipt rides verbatim');
+  assert.equal(
+    sent.imported_via,
+    'human-ui',
+    'the owner screen stamps the human-origin token the backend requires; an agent never does',
+  );
   assert.deepEqual(got, outcome, 'the {result} envelope is unwrapped to the outcome');
 });
 
