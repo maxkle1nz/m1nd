@@ -1,8 +1,8 @@
 # The Organism — UML Atlas
 
-**Every system, subsystem and seam of m1nd as code-grounded UML — one master map, twenty system sheets, one consolidated gap ledger.**
+**Every system, subsystem and seam of m1nd as code-grounded UML — one master map, twenty-two system sheets, one consolidated gap ledger.**
 
-> **Status:** OFFICIAL — maintainer-directed, 2026-07-06. Grounded at `origin/main` @ `ef9c6e9`. Every sheet under `docs/uml/` was derived from an exhaustive per-system code map (file:line-anchored), spot-checked against source, and every Mermaid block validated with the real `mermaid.parse()` (73 blocks, 0 failures). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
+> **Status:** OFFICIAL — maintainer-directed, 2026-07-06; re-grounded 2026-07-12. Grounded at `origin/main` @ `c1ba801`. Every system sheet was derived from an exhaustive per-system code map (file:line-anchored), spot-checked against source, and every Mermaid block validated with the real `mermaid.parse()` (78 blocks across the master + the twenty-two sheets, 0 failures). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
 > **How to read this:** this master gives the whole-organism view (topology, the four grammars, the seams) and the honest consolidated gap ledger. Each system's deep view — class / sequence / state diagrams, invariants, per-system gaps — lives in its sheet under [docs/uml/](uml/). Sheets state what the code DOES today, including where it diverges from its PRD; the PRDs state the intent. Where they disagree, the sheet wins about the present and the PRD wins about the target.
 > **Sisters:** the constitution (`ORGANISM-PRD.md`) owns the ladder and the law; the six system PRDs own intent; `PATHOS.md` owns the live handoff state. This atlas owns STRUCTURE.
 
@@ -52,7 +52,7 @@ flowchart TB
     VERBS --> DLG
     VERBS --> BOX
     ING --> G
-    MED -.promote gates C8.2/C8.3.-> PB
+    MED -.->|promote gates C8.2/C8.3| PB
 ```
 
 Three crates carry it: **m1nd-core** (the in-memory engine), **m1nd-ingest** (the write side), **m1nd-mcp** (the served owner + every verb). The npm wrapper is an installer/operator CLI, never the runtime.
@@ -81,7 +81,7 @@ These cross every system; no sheet may invent a fifth word for any of them.
 - **Delegation + mailbox extend the spine from one agent to a tree.** `delegate` composes the retrieval half of a child's spec from the same graph the spine reads; `debrief` grades the real diff back into `learn`; field letters distribute into per-project boxes the same cwd-routing the calls use.
 - **The medulla law (pull, never push).** A brain's default beat = its own store + the medulla, nothing else; crossing happens only through the audited `promote` (verified-only, evidence re-anchored). *Realized fully only on the HTTP transport today — see ledger.*
 
-## 4. The twenty sheets
+## 4. The twenty-two sheets
 
 | Sheet | System | Diagrams | Honest one-liner |
 |---|---|---|---|
@@ -105,6 +105,8 @@ These cross every system; no sheet may invent a fifth word for any of them.
 | [auto-ingest-daemon](uml/auto-ingest-daemon.md) | Watcher, tick, code daemon, alerts | class·seq·state | Idle `serve()` clock now pumps the drain — an idle session drains its queue (hardening wave 4) |
 | [cli-operator](uml/cli-operator.md) | npm CLI, restart --binary, release parity | flow·seq·state | macOS reload trio (codesign/kickstart/kill) has zero tests — ledger |
 | [host-integration](uml/host-integration.md) | 22-host matrix, shim, hosts apply, ambient wave | flow·seq | Pre-orient half real; the whole ambient/R12 wave is PRD-only — ledger |
+| [scan-loading](uml/scan-loading.md) | The held `skeleton_candidate` scan wait: client state machine + SSE phase narration + honest abort | seq·state | Real events only — no fabricated %; the owner narrates phases on the existing SSE, degrades clean when silent (slice 2 shipped) |
+| [cockpit](uml/cockpit.md) | The navigable read-only menu verb (`m1nd-cockpit-v0`): seven stable slots, drill, derived deny-filter, `menu_sig` | class·seq | north's on-request sibling — breaks alone; a router in v1 (presents the read, never fabricates a receipt); per-item drill deferred by the verdict |
 
 ## 5. The consolidated gap ledger — every open debt, ranked
 
@@ -153,4 +155,4 @@ Per family: **graph-core** — JSON↔bin cross-format equivalence, unfinalized-
 
 ---
 
-*Atlas curated at the design seat from twenty code-grounded system maps; diagrams mechanically drafted from those maps and parser-validated; every load-bearing claim carries a file:line hint in its sheet. Where a sheet and reality diverge tomorrow, trust reality, re-anchor the sheet, and log a letter.*
+*Atlas curated at the design seat from twenty-two code-grounded system maps; diagrams mechanically drafted from those maps and parser-validated; every load-bearing claim carries a file:line hint in its sheet. Where a sheet and reality diverge tomorrow, trust reality, re-anchor the sheet, and log a letter.*
