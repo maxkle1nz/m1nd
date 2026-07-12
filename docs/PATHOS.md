@@ -49,6 +49,56 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-12 — THE ORGANISM FROM INSIDE + 360 arc RATIFIED (§C11-style amendment); P0 "WEAR THE WIRE" in flight.**
+> A new off-§C10 front, opened by the owner's order and ratified the same day (verbatim:
+> *"MUITO BEM! ratificado bora pra frente"*) — registered here as the ladder ritual demands,
+> never a silent fork. The spec is versioned beside its sisters: `docs/ORGANISM-INSIDE-PRD.md`
+> (the PRD, Fable seat) + `docs/uml/organism-inside.md` (the UML — a design-stage lens like
+> `massif.md`, deliberately OUT of the code-grounded atlas until the wires land; its 6/6 mermaid
+> blocks re-validated with real `mermaid.parse()`). **The mother-confession it answers:** on
+> 2026-07-12 the guardian ran the largest single-day burst in the repo's history — 8 PRs merged
+> (#347–#354), six executors, two oracle seats — and the m1nd mission board registered NONE of it
+> (measured live: 21 letters, zero from that day). The organism's agents are invisible to the
+> organism itself; the pieces exist as verbs — what is missing is the WIRES. **Four connections
+> make the organism see, heal, learn, and span itself:** the immune loop (a field report becomes
+> a mission charter automatically → pool executes → gate proves → the HUMAN stamps), the process
+> memory (every closed mission debriefs into the medulla's untouched C8.3/C8.4 gauntlet), the
+> presences (sessions become visible in the Hall/cockpit/tray, and collisions surface BEFORE they
+> cost two hours — they have, twice), and Federate 360 (the owner's brains cross doctrine with
+> provenance always visible, under the pull-only medulla law, never across a client boundary).
+> **The laws that do not bend** (PRD §4): the human stamp is the only landing — no auto-ratify
+> exists, ever, under any flag (#353's human-origin gate is the arc's model); nothing this arc
+> touches composes a `landed` letter; the Budget Law holds on every packet; a refusal teaches,
+> never silently skips. **The phases, proof-gated, each closing with live proof on the served
+> owner:**
+> - **P0 — WEAR THE WIRE (this block's PR; doctrine + docs, near-zero engine code).** The
+>   guardian's own workflow starts speaking the rails that already exist: an orchestrator that
+>   dispatches executors in a burst opens ONE mission card (`mission_start`), the burst posts
+>   progress (`mission_event`), and closes it honestly (`mission_close`) — the board becomes the
+>   day's truth. Doctrine landed on all agent surfaces (`M1ND_INSTRUCTIONS` §4 + the three skills,
+>   same PR — the agent-docs gate arms on server.rs + skills together). DOGFOODED on its own card
+>   `msn_1783893555531_claudeguardianp0we`. Gate: a real burst (≥3 executors) fully visible on the
+>   board as it happens (baseline: 0 letters on the 8-PR day).
+> - **P1 — PRESENCES (medium).** The presence sidecar + collision derivation + Hall/cockpit/tray
+>   renders. Gate: two real mutating sessions visible with themes + ages; an arranged same-block
+>   collision surfaces on both norths BEFORE either lands; TTL expiry proven (a killed session
+>   disappears, never lingers as a ghost).
+> - **P2 — THE IMMUNE REFLEX (medium-large).** The charter composer + eligibility + caps + dedup on
+>   the existing sweep; the judge armed as an advisory triager once h4nd's smart-bells land. Gate:
+>   one real spool report (bug|honesty) becomes a charter → spawned → gate green → `merge_wait` →
+>   the owner stamps → `landed`; a `cap_reached`, a `no_gate_derivable` and a `duplicate_report`
+>   each proven a logged non-event; zero auto-landings by construction AND by grep.
+> - **P3 — THE PROCESS MEMORY (medium).** The mission-close debrief → distillate → `kind:process`
+>   write-through → the packet feedback row. Gate: a process-fed packet must not lose an A/B on the
+>   same task class, and ≥1 lesson (e.g. the #331 instruction-in-packet class) demonstrably rides a
+>   packet instead of a human memory. Promotion stays manual through the untouched gauntlet.
+> - **P4 — FEDERATE 360 (medium).** The provenance render + portfolio view + the isolation
+>   allow-list (`federation_policy`, default-permissive, test-proven) + the reuse meter. Gate: a
+>   claim promoted from brain A surfaces in a session bound to brain B with its full origin line
+>   rendered; ≥1 reuse event counted; the leak-permutation battery extended with the `isolated` case.
+> **Next:** the orchestrator lands the P0 PR (this burst), then P1 begins. Nothing here grants an
+> agent a new write power; the carimbo stays the owner's — one second per decision.
+
 > **2026-07-12 — GARDENER v1 built on `feat/gardener-v1` (branch, NOT yet landed): the organism moves when seen.**
 > An off-§C10 front under its askGOD verdict (CHANGE — the law, versioned at
 > `docs/voice/ASKGOD-VERDICT-GARDENER.md`; design + measured cost in `docs/voice/GARDENER-V1.md`,
