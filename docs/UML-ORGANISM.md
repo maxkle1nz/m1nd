@@ -52,7 +52,7 @@ flowchart TB
     VERBS --> DLG
     VERBS --> BOX
     ING --> G
-    MED -.promote gates C8.2/C8.3.-> PB
+    MED -.->|promote gates C8.2/C8.3| PB
 ```
 
 Three crates carry it: **m1nd-core** (the in-memory engine), **m1nd-ingest** (the write side), **m1nd-mcp** (the served owner + every verb). The npm wrapper is an installer/operator CLI, never the runtime.
