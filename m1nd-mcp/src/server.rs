@@ -3791,10 +3791,9 @@ fn handle_north(
     //    populated. When it isn't, we say so honestly (needs_ingest) instead of
     //    running orient/focus over an empty graph and returning a fake packet.
     let (context, sufficiency, next_move) = if needs_ingest || !graph_populated {
-        honest_gaps.push(
-            "The graph is empty or unbound — no codebase context is available until ingest runs."
-                .into(),
-        );
+        // ONE authoring site for this fact (human_view amendment 5): the same
+        // constant the S4 voice card wraps verbatim — byte-equal by construction.
+        honest_gaps.push(crate::human_view::NEEDS_INGEST_GAP.into());
         (
             serde_json::Value::Null,
             serde_json::Value::Null,
@@ -3899,7 +3898,10 @@ fn handle_north(
 
     // Skeleton coherence is a vital sign, never a gate. Reuse the snapshot read
     // surface and fail open if its sidecar cannot be read so `north` itself never
-    // becomes unavailable because of this signal.
+    // becomes unavailable because of this signal. The composed line is captured
+    // so the human_view card can reuse it VERBATIM (amendment 5: one sentence
+    // per fact — never a second wording).
+    let mut coherence_line: Option<String> = None;
     if let Ok(snapshot) = crate::system_blocks_handlers::handle_system_blocks_snapshot(
         state,
         crate::system_blocks_handlers::SnapshotInput {
@@ -3913,9 +3915,11 @@ fn handle_north(
             let found_slug = snapshot["skeleton_coherence"]["found_slug"]
                 .as_str()
                 .unwrap_or("unknown");
-            honest_gaps.push(format!(
+            let line = format!(
                 "Skeleton coherence sickness: serving brain expects slug `{expected_slug}`, but the SystemBlock store carries `{found_slug}` — signal only; reads and writes remain available."
-            ));
+            );
+            honest_gaps.push(line.clone());
+            coherence_line = Some(line);
         }
     }
 
@@ -3930,6 +3934,8 @@ fn handle_north(
     // down, so reading only the tail would risk a false silence (a waiting mission
     // missed) — worse than the read the tray already pays on every poll.
     let mut landing_bell: Option<serde_json::Value> = None;
+    let mut bell_line: Option<String> = None;
+    let mut bell_merge_wait: usize = 0;
     let mission_box = crate::mission_letter_handlers::mission_box_path(state);
     if let Ok(letters) = crate::mailbox::read_letters(&mission_box) {
         let merge_wait = crate::mission_letter::heads_by_mission(&letters)
@@ -3937,9 +3943,14 @@ fn handle_north(
             .filter(|h| h.head.phase == crate::mission_letter::Phase::MergeWait)
             .count();
         if merge_wait > 0 {
-            honest_gaps.push(format!(
+            // Composed ONCE; the human_view card reuses this exact string
+            // (amendment 5) — byte-equal to the honest_gaps entry by construction.
+            let line = format!(
                 "{merge_wait} mission(s) in merge_wait await the human landing — the tray is the door"
-            ));
+            );
+            honest_gaps.push(line.clone());
+            bell_line = Some(line);
+            bell_merge_wait = merge_wait;
             landing_bell = Some(serde_json::json!({ "merge_wait": merge_wait }));
         }
     }
@@ -3949,6 +3960,50 @@ fn handle_north(
     // null (absent-ish). Computed here, after every prior `state` borrow has
     // returned, so it never conflicts with the earlier `&mut state` uses.
     let reception = state.reception_verdict();
+
+    // The m1nd voice (`human_view`, m1nd-human-view-v0) — the server-composed,
+    // already-mounted card for the HUMAN in the conversation. Composed AFTER
+    // reception (amendment 3: a card composed before it would describe the
+    // wrong brain — under `caller_root_mismatch` the card IS the warning and
+    // carries zero statistics). Every line is a measured fact already in this
+    // packet or an honest_gaps string reused VERBATIM (amendments 5 + 8/G1).
+    // Fail-open: the composer is pure and total; `north` never becomes
+    // unavailable over its own voice.
+    let human_view = {
+        let reception_mismatch = reception.as_ref().and_then(|r| {
+            (r.get("match").and_then(|m| m.as_str()) == Some("caller_root_mismatch")).then(|| {
+                crate::human_view::ReceptionMismatch {
+                    honest: r
+                        .get("honest")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("this graph does NOT cover your repo"),
+                    caller_root: r
+                        .get("caller_root")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown"),
+                    bound_workspace: r
+                        .get("bound_workspace")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown"),
+                }
+            })
+        });
+        let node_count = state.graph.read().num_nodes() as u64;
+        crate::human_view::compose_human_view(&crate::human_view::HumanViewInput {
+            trust_mode: binding
+                .get("trust_mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown"),
+            node_count,
+            memory_count: light_memory_on_disk,
+            merge_wait: bell_merge_wait,
+            bell_line: bell_line.as_deref(),
+            coherence_line: coherence_line.as_deref(),
+            needs_ingest,
+            reception_mismatch,
+            next_move: &next_move,
+        })
+    };
 
     let mut packet = serde_json::json!({
         "schema": "m1nd-north-packet-v0",
@@ -3980,6 +4035,13 @@ fn handle_north(
     if let Some(bell) = landing_bell {
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("landing_bell".to_string(), bell);
+        }
+    }
+    // The voice card rides ONLY when composed (fail-open: a compose miss omits
+    // the field — never a null ornament, and never an error on the packet).
+    if let Some(card) = human_view {
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("human_view".to_string(), card);
         }
     }
     Ok(packet)
@@ -8776,6 +8838,220 @@ mod tests {
             out.get("landing_bell").is_none(),
             "an unreadable box rings no bell (fail-open)"
         );
+    }
+
+    // === human_view — the m1nd voice card (m1nd-human-view-v0) =============
+
+    /// Assert the mechanical cap on a served card: ≤4 lines, ≤80 chars/line
+    /// (human_view amendment 2 — the Budget Law's card-level clause).
+    fn assert_human_view_cap(card: &serde_json::Value) {
+        let lines = card["lines"].as_array().expect("human_view.lines array");
+        assert!(
+            lines.len() <= 4,
+            "cap law: never more than 4 lines, got {}",
+            lines.len()
+        );
+        for line in lines {
+            let s = line.as_str().expect("line is a string");
+            assert!(
+                s.chars().count() <= 80,
+                "cap law: no line over 80 chars, got {} in {s:?}",
+                s.chars().count()
+            );
+        }
+    }
+
+    /// A clean populated beat serves a ONE-line card: the identity signature,
+    /// already mounted (wordmark + spine), with the mechanical state_sig.
+    #[test]
+    fn north_human_view_clean_is_one_line_card() {
+        let (_temp, mut state) = build_state_populated(false);
+        let out = bell_north_call(&mut state);
+
+        let card = &out["human_view"];
+        assert_eq!(card["schema"], "m1nd-human-view-v0");
+        assert_eq!(card["state"], "clean");
+        let lines = card["lines"].as_array().expect("lines array");
+        assert_eq!(lines.len(), 1, "clean state = one line (the whisper)");
+        let line = lines[0].as_str().unwrap();
+        assert!(
+            line.starts_with("m1nd │ "),
+            "the signature hangs the wordmark on the margin, got {line:?}"
+        );
+        assert!(
+            line.contains("3 nodes"),
+            "the identity line carries the measured node count, got {line:?}"
+        );
+        assert_human_view_cap(card);
+        // The sig is mechanical: same state on a second beat ⇒ same sig.
+        let again = bell_north_call(&mut state);
+        assert_eq!(
+            card["state_sig"], again["human_view"]["state_sig"],
+            "equal state must serve an equal state_sig (the anti-repetition key)"
+        );
+    }
+
+    /// The bell card's line 2 is the honest_gaps bell string VERBATIM —
+    /// byte-equal, never a second wording (amendment 5).
+    #[test]
+    fn north_human_view_bell_line_byte_equal_to_honest_gaps() {
+        use crate::mission_letter::Phase;
+        let (_temp, mut state) = build_state_populated(false);
+        post_bell_chain(&state, &[Phase::Judging, Phase::MergeWait]);
+
+        let out = bell_north_call(&mut state);
+
+        let card = &out["human_view"];
+        assert_eq!(card["state"], "bell");
+        let lines = card["lines"].as_array().expect("lines array");
+        assert_eq!(lines.len(), 2, "bell card = identity + the bell line");
+        let card_bell = lines[1]
+            .as_str()
+            .unwrap()
+            .strip_prefix("     │ ")
+            .expect("line 2 rides behind the gutter");
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        let gap_bell = gaps
+            .iter()
+            .filter_map(|g| g.as_str())
+            .find(|g| g.contains("await the human landing"))
+            .expect("the bell gap must be present");
+        assert_eq!(
+            card_bell, gap_bell,
+            "the card's bell line must be byte-equal to the honest_gaps string"
+        );
+        assert_eq!(
+            out["landing_bell"]["merge_wait"], 1,
+            "the structured bell and the voice card describe the same fact"
+        );
+        assert_human_view_cap(card);
+    }
+
+    /// MANDATORY shape (amendment 3): under `caller_root_mismatch` the card IS
+    /// the warning — reception strings verbatim, the literal repair call, and
+    /// ZERO statistics (they would describe the wrong brain). Ringing the bound
+    /// brain's bell first proves the card is composed AFTER reception.
+    #[test]
+    fn north_human_view_mismatch_is_the_warning_without_statistics() {
+        use crate::mission_letter::Phase;
+        let (_temp, mut state) = build_state_populated(false);
+        // The bound brain's bell rings — but the caller is somewhere else.
+        post_bell_chain(&state, &[Phase::Judging, Phase::MergeWait]);
+        let bound = state
+            .workspace_root
+            .clone()
+            .expect("populated state must have a bound workspace_root");
+        state.caller_root = Some("/some/other/repo".into());
+
+        let out = bell_north_call(&mut state);
+
+        assert_eq!(out["reception"]["match"], "caller_root_mismatch");
+        let card = &out["human_view"];
+        assert_eq!(card["state"], "mismatch");
+        let lines = card["lines"].as_array().expect("lines array");
+        assert_eq!(
+            lines[0], "m1nd │ this graph does NOT cover your repo",
+            "line 1 IS the warning, the reception's honest string verbatim"
+        );
+        // The bound/yours facts ride verbatim across wraps (the tempdir bound
+        // path is long, so the line may wrap; the byte-exact 3-line form is
+        // pinned in the human_view unit tests with short roots).
+        let mut rebuilt = String::new();
+        for line in lines.iter().skip(1) {
+            let content = line
+                .as_str()
+                .unwrap()
+                .trim_start_matches("     │")
+                .trim_start();
+            if !rebuilt.is_empty() {
+                rebuilt.push(' ');
+            }
+            rebuilt.push_str(content);
+        }
+        // Space-stripped containment: a root longer than one line hard-breaks
+        // mid-word, so the space-free stream is the wrap-proof witness.
+        let flat = rebuilt.replace(' ', "");
+        assert!(
+            flat.contains(&format!("bound:{bound}").replace(' ', ""))
+                && flat.contains("yours:/some/other/repo"),
+            "the card names both roots, got {rebuilt:?}"
+        );
+        for line in lines {
+            let s = line.as_str().unwrap();
+            assert!(
+                !s.contains("nodes") && !s.contains("memories") && !s.contains("merge_wait"),
+                "ZERO statistics under mismatch — the card never describes the wrong brain: {s:?}"
+            );
+        }
+        assert_human_view_cap(card);
+    }
+
+    /// MANDATORY shape (amendment 4): the empty/unbound graph serves the honest
+    /// needs_ingest card — the zero IS the message and the gap string rides
+    /// verbatim (wrapped whole, never truncated).
+    #[test]
+    fn north_human_view_needs_ingest_form() {
+        let (_temp, mut state) = build_state();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "voice-needs-ingest",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed even on an empty graph");
+
+        let card = &out["human_view"];
+        assert_eq!(card["state"], "needs_ingest");
+        let lines = card["lines"].as_array().expect("lines array");
+        assert_eq!(
+            lines[0], "m1nd │ needs_ingest · 0 nodes",
+            "S4 line 1: the zero is the message"
+        );
+        // The wrapped card content reassembles to the exact honest_gaps string.
+        let mut rebuilt = String::new();
+        for line in lines.iter().skip(1) {
+            let content = line
+                .as_str()
+                .unwrap()
+                .trim_start_matches("     │")
+                .trim_start();
+            if !rebuilt.is_empty() {
+                rebuilt.push(' ');
+            }
+            rebuilt.push_str(content);
+        }
+        assert_eq!(
+            rebuilt,
+            crate::human_view::NEEDS_INGEST_GAP,
+            "the gap rides verbatim — wrapped, never reworded"
+        );
+        assert_human_view_cap(card);
+    }
+
+    /// Fail-open: an unreadable mission box mutes the bell, and the voice card
+    /// still rides HONEST (no bell state claimed) — the packet never errors
+    /// over its own voice.
+    #[test]
+    fn north_human_view_rides_honest_when_bell_source_is_unreadable() {
+        let (_temp, mut state) = build_state_populated(false);
+        let box_path = crate::mission_letter_handlers::mission_box_path(&state);
+        if let Some(parent) = box_path.parent() {
+            std::fs::create_dir_all(parent).expect("box parent dir");
+        }
+        std::fs::write(&box_path, [0xff, 0xfe, 0x00, 0x9f]).expect("write corrupt box");
+
+        let out = bell_north_call(&mut state);
+
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        let card = &out["human_view"];
+        assert_eq!(
+            card["state"], "clean",
+            "an unreadable bell source serves the honest clean card, never a fabricated bell"
+        );
+        assert_human_view_cap(card);
     }
 
     #[test]
