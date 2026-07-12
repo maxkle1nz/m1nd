@@ -259,6 +259,20 @@ Its most important behavior is `switch_to_direct_proof` — after graph
 orientation it can tell you to stop calling `seek`/`activate` and prove the
 claim directly.
 
+**WORK RUNS INSIDE (the burst wears the wire).** When you ORCHESTRATE a burst —
+dispatching ≥2 executors, or landing a BIG change — open ONE mission card so the
+organism SEES the work instead of it happening off-book: `mission_start` at the
+start, `mission_event` at each milestone, `mission_close` with the honest outcome
+at the end (over the wire, or the REST loopback `POST /api/tools/mission_start`
+with `{agent_id, repo, mode, budget, risk, task}`). A mission-control card is
+SINGLE-AGENT — `mission_event`/`mission_close` require the card's own `agent_id` —
+so the burst posts under the orchestrator's id: executors report back and the
+orchestrator posts, they do NOT open cards of their own. ONE card per burst THEME,
+never one per executor (anti-spam). NEGATIVE DEFAULT, like the voice: a card is for
+a REAL burst, never a trivial one-file touch. The card is a TRAIL, never a GATE —
+it records what happened; the gate still proves it, and no card auto-lands (the map
+colors only by a human `receipt_import`, the always-law).
+
 ## Short-Audit Route
 
 Use the short-audit route when the repo or suspected surface is small,

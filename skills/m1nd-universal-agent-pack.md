@@ -326,6 +326,20 @@ negative-space sweep over public contracts/docs, boundary values, error paths,
 async/concurrency behavior, and helper/exported APIs. Record it as
 `coverage_sweep`, `boundary_sweep`, or `edge_case_sweep` before closing.
 
+Work runs INSIDE — the burst wears the wire. When you ORCHESTRATE a burst
+(dispatching ≥2 executors, or landing a BIG change), open ONE mission card so the
+work is visible on the organism rather than off-book: `mission_start {agent_id,
+repo, mode, budget, risk, task}` at the start (over the wire, or the REST loopback
+`POST /api/tools/mission_start`), `mission_event` at each milestone,
+`mission_close` with the honest outcome at the end. A mission-control card is
+single-agent — `mission_event`/`mission_close` require the card's own `agent_id` —
+so the burst posts under the orchestrator's id; executors report back and the
+orchestrator posts, they do not each open a card (one card per burst THEME, never
+one per executor). Negative default, like the voice: a card is for a REAL burst,
+never a trivial one-file touch. The card is a TRAIL, not a gate — it records what
+happened; the gate still proves the work, and no card auto-lands (the map colors
+only by a human `receipt_import`).
+
 ## Short-Audit Route
 
 For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded

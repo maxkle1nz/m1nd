@@ -244,6 +244,25 @@ to switch to direct proof, stop spending graph budget unless you record a
 dissent event. Mission Control is not a host repair tool, graph correctness
 proof, or autonomous multi-agent orchestrator.
 
+**Work runs INSIDE — the burst wears the wire (the immune-arc P0 doctrine).**
+The confession the ORGANISM-INSIDE arc answers: a guardian can run an eight-PR
+day with six executors and the organism's mission board sees NONE of it. So when
+you ORCHESTRATE a burst — dispatching ≥2 executors, or landing a BIG change —
+open ONE mission card so the work is visible ON the organism, not off-book:
+`mission_start {agent_id, repo, mode, budget, risk, task}` at the start (over the
+wire, or the REST loopback `POST /api/tools/mission_start` against the served
+owner), `mission_event` at each milestone, `mission_close` with the honest
+outcome at the end. A mission-control card is SINGLE-AGENT (`mission_event` /
+`mission_close` enforce the card's own `agent_id`), so the burst posts under the
+orchestrator's id — executors report back and the orchestrator posts; they do NOT
+each open a card (anti-spam: ONE card per burst THEME, never one per executor).
+NEGATIVE DEFAULT, like the voice: a card is for a REAL burst (≥2 executors or a
+BIG change), never for a trivial one-file touch. The card is a TRAIL, never a
+GATE — it records what happened; the deterministic gate still proves the work,
+and no card auto-lands (the map colors only by a human `receipt_import` on the
+mission-letter board, the always-law — a mission-control `mission_close` closes a
+trail, it never colors a block).
+
 ## Short-Audit Route
 
 Use `m1nd-short-audit` when the task is a small or localized bug hunt, a narrow

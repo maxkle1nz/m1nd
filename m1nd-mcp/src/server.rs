@@ -171,6 +171,19 @@ stamped `outcome_unverified` unless you attach `evidence`. Conformance grades PA
 quality — it never says merge-safe. Every debrief visibly deposits memory the next packet will \
 surface, so skipping it wastes knowledge; do it.
 
+**WORK RUNS INSIDE — the burst wears the wire.** When you ORCHESTRATE a burst (dispatching \
+≥2 executors, or landing a BIG change), open ONE mission card so the organism SEES the work \
+instead of it happening off-book: `mission_start {agent_id, repo, mode, budget, risk, task}` at \
+the start (over the wire, or the REST loopback `POST /api/tools/mission_start`), `mission_event` \
+at each milestone, `mission_close` with the honest outcome at the end. A mission-control card is \
+SINGLE-AGENT — `mission_event`/`mission_close` require the card's own `agent_id` — so the burst \
+posts under the orchestrator's id: executors report back and the orchestrator posts, they do NOT \
+each open a card (anti-spam: ONE card per burst THEME, never one per executor). NEGATIVE DEFAULT, \
+like the voice: a card is for a REAL burst, never a trivial one-file touch. The card is a TRAIL, \
+never a GATE — it records what happened; the deterministic gate still proves the work, and no card \
+auto-lands (the map colors only by a human `receipt_import` on the mission-letter board — a \
+`mission_close` closes a trail, it never colors a block).
+
 ## 5. THE SOUL — trust the handoff by a receipt, not by faith
 
 A repo's `docs/PATHOS.md` is its SOUL: the curated handoff — north, state, doctrine, access, \
