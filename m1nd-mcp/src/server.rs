@@ -211,6 +211,38 @@ NAME (the basename of its root, never an absolute path; a wrong one is refused `
 smoke/probe letter sets `synthetic:true`), and a letter is STATE, never evidence: it never colors a \
 block — only `receipt_import` does — and `landed` is reserved for a confirmed imported receipt.
 
+## 7. THE M1ND VOICE — rendering `human_view` (the card law)
+
+`north` carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for the HUMAN in the \
+conversation — a server-composed card with `state` (clean|bell|coherence|mismatch|needs_ingest), \
+a mechanical `state_sig`, and `lines[]` already MOUNTED (the `m1nd` wordmark + `│` gutter, ≤4 \
+lines, ≤80 chars). Render it by joining `lines` with newlines inside a fenced code block — never \
+re-compose, re-order, or decorate it. Every line is a measured fact or a verbatim server string \
+(brand law G1: no uncalibrated adjectives, no benefit claims — silence over ornament).
+
+CADENCE — the default is NEGATIVE: Do NOT render the card unless m1nd contributed structurally \
+to the mission AND the content is useful to the human NOW; never in consecutive messages; never \
+the same state_sig twice in a session; on state change or first orient. When in doubt, stay \
+silent — silence is the honest card.
+
+TRANSLATION DUTY: translate the card's CONTENT into the conversation's language while keeping \
+the geometry intact (the gutter at column 6, ≤80 cols) and ids, hashes, tool names, and state \
+tokens (`merge_wait`, `needs_ingest`, `full_trust`) verbatim.
+
+THE DEEP RUNG (R2) IS YOURS: when the human asks (\"what's the bell?\", \"show me m1nd\") or at a \
+landing moment, render a deeper card FROM THE PACKET'S STRUCTURED FIELDS (`landing_bell`, the \
+mission tray, blocks) in the SAME grammar — wordmark + gutter, one measured fact per line — \
+never a fact the packet does not carry.
+
+ASCII FALLBACK (1:1): when the surface cannot hold unicode, map `│`→`|`, `·`→`.`, `—`→`-` — \
+widths are identical, the geometry never moves.
+
+ATTRIBUTION — the second half of the voice: narrate where m1nd was useful ONLY when it passes \
+the counterfactual test (\"without it, would I have decided differently or worse?\") — it changed \
+a decision, avoided a rediscovery, opened a front, proved or refuted something. Consulting \
+without effect = silence. Never claim \"used m1nd\" as merit; state facts, never estimated \
+savings (G1).
+
 ## SECONDARY VERBS (one line each)
 
 - `seek(query)` / `focus(task)` — budgeted retrieval; carry the trust + sufficiency signals above.
@@ -558,7 +590,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -7063,6 +7095,31 @@ mod tests {
         assert!(
             s.contains("learn") && s.contains("field-reports.jsonl"),
             "instructions must document the field-telemetry loop (learn + local field-reports)"
+        );
+        // 7. THE M1ND VOICE: the human_view card law — the negative-default
+        // cadence verbatim, the render duties, and the attribution test. The
+        // instructions are the only anti-spam line on instructions-only hosts.
+        assert!(
+            s.contains("human_view") && s.contains("m1nd-human-view-v0"),
+            "instructions must document the human_view card"
+        );
+        assert!(
+            s.contains(
+                "Do NOT render the card unless m1nd contributed structurally to the mission"
+            ),
+            "instructions must carry the negative-default cadence verbatim"
+        );
+        assert!(
+            s.contains("never the same state_sig twice in a session"),
+            "instructions must carry the anti-repetition clause"
+        );
+        assert!(
+            s.contains("`│`→`|`"),
+            "instructions must carry the 1:1 ASCII fallback map"
+        );
+        assert!(
+            s.contains("counterfactual test"),
+            "instructions must gate attribution on the counterfactual test"
         );
     }
 
