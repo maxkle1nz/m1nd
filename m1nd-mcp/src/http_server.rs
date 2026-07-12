@@ -2538,11 +2538,13 @@ pub struct FileViewQuery {
 }
 
 /// `GET /api/file?path=<repo-relative>[&brain=<root>]` (HUMAN-VIEW-V2 F2 Show Code).
-/// A PURE READ: returns a member file's content under the selected brain's
-/// workspace root, enforcing the seed's anti-absolute/anti-escape law + a byte cap
-/// with honest truncation (`crate::system_blocks::read_repo_relative_file`). Never
-/// mutates — safe under a read-only attach, so it is NOT in the write deny-list.
-/// Path validation/escape → 400; a missing file or an unknown `?brain=` → 404.
+/// A PURE READ: returns a member file's content under the selected brain's CODE
+/// root (`code_root_path()` — never the raw workspace_root, which for a hosted
+/// brain is its store dir), enforcing the seed's anti-absolute/anti-escape law + a
+/// byte cap with honest truncation (`crate::system_blocks::read_repo_relative_file`).
+/// Never mutates — safe under a read-only attach, so it is NOT in the write
+/// deny-list. Path validation/escape → 400; a brain with no code root → 400; a
+/// missing file or an unknown `?brain=` → 404.
 async fn handle_file_view(
     State(state): State<Arc<AppState>>,
     Query(q): Query<FileViewQuery>,
@@ -2554,16 +2556,24 @@ async fn handle_file_view(
             // 404s honestly (the same grade the graph routes give it).
             let (session, served_brain) = resolve_brain(&state, q.brain.as_deref())
                 .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+            // Resolve the CODE root, never the raw workspace_root — a hosted/memory
+            // brain's workspace_root is its STORE dir (agent-memory sidecars), so
+            // reading a repo member under it 404s on the store (the field bug). This
+            // is the same resolution `skeleton_candidate`/`reconcile` use (#326); a
+            // brain with no code root at all is an honest refusal, never a store read.
             let root = {
                 let s = session.lock();
-                s.workspace_root.clone()
+                s.code_root_path()
             }
             .ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
                     m1nd_core::error::M1ndError::InvalidParams {
                         tool: "file_view".into(),
-                        detail: "no workspace root is bound to this brain".into(),
+                        detail: "no CODE root is bound to this brain — file_view reads \
+                             the repo (a hosted brain's raw workspace is its store dir, \
+                             which holds no viewable source)"
+                            .into(),
                     },
                 )
             })?;
