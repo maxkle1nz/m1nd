@@ -27,7 +27,7 @@ use crate::instance_registry::{
     delete_instance_state, list_instances, spawn_heartbeat, InstanceRegistryEntry,
 };
 use crate::server::{all_tool_schemas, dispatch_tool, tool_schemas, McpConfig};
-use crate::session::{ApplyBatchProgressSink, SessionState};
+use crate::session::{ApplyBatchProgressSink, ScanProgressSink, SessionState};
 use crate::util::now_ms;
 
 // ---------------------------------------------------------------------------
@@ -186,6 +186,37 @@ fn apply_batch_progress_sink(
                 "progress": progress_event,
                 "timestamp_ms": now_ms(),
             }),
+        };
+        let _ = event_tx.send(sse_event.clone());
+        if let Some(ref log_path) = event_log_path {
+            append_event_to_log(log_path, &sse_event);
+        }
+    })
+}
+
+/// The `skeleton_candidate` scan-phase sink (docs/uml/scan-loading.md slice 2) —
+/// the exact `apply_batch_progress_sink` shape, one event type over. The phase
+/// event's own fields (`phase`, the counts) flatten under `data`, joined by the
+/// same `{tool, source, agent_id, timestamp_ms}` envelope every SSE event carries.
+/// `event_tx.send` failing (no live `/api/events` subscriber) is IGNORED — the
+/// emit is fail-open, so narration can never break the scan.
+fn scan_progress_sink(
+    event_tx: broadcast::Sender<SseEvent>,
+    event_log_path: Option<std::path::PathBuf>,
+    source: String,
+    agent_id: String,
+) -> ScanProgressSink {
+    Arc::new(move |event| {
+        let mut data = serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = data.as_object_mut() {
+            obj.insert("tool".into(), serde_json::json!("skeleton_candidate"));
+            obj.insert("source".into(), serde_json::json!(source));
+            obj.insert("agent_id".into(), serde_json::json!(agent_id));
+            obj.insert("timestamp_ms".into(), serde_json::json!(now_ms()));
+        }
+        let sse_event = SseEvent {
+            event_type: "scan_progress".to_string(),
+            data,
         };
         let _ = event_tx.send(sse_event.clone());
         if let Some(ref log_path) = event_log_path {
@@ -608,6 +639,18 @@ pub async fn run(
                                         .to_string(),
                                 ));
                             }
+                            if tool_name == "skeleton_candidate" {
+                                s.scan_progress_sink = Some(scan_progress_sink(
+                                    stdio_event_tx.clone(),
+                                    stdio_event_log.clone(),
+                                    "stdio".to_string(),
+                                    arguments
+                                        .get("agent_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string(),
+                                ));
+                            }
                             if let Some(agent_id) =
                                 arguments.get("agent_id").and_then(|v| v.as_str())
                             {
@@ -615,6 +658,7 @@ pub async fn run(
                             }
                             let result = dispatch_tool(&mut s, tool_name, &arguments);
                             s.apply_batch_progress_sink = None;
+                            s.scan_progress_sink = None;
                             result
                         };
 
@@ -2066,12 +2110,21 @@ async fn handle_tool_call(
                     progress_agent_id.clone(),
                 ));
             }
+            if tool == "skeleton_candidate" {
+                session.scan_progress_sink = Some(scan_progress_sink(
+                    progress_event_tx.clone(),
+                    progress_event_log_path.clone(),
+                    "http".to_string(),
+                    progress_agent_id.clone(),
+                ));
+            }
             if let Some(agent_id) = body.get("agent_id").and_then(|v| v.as_str()) {
                 session.track_agent(agent_id);
             }
             let result = dispatch_tool(&mut session, &tool, &body);
             session.caller_root = caller_root;
             session.apply_batch_progress_sink = None;
+            session.scan_progress_sink = None;
             result
         }),
     )
@@ -2934,6 +2987,36 @@ mod tests {
         );
         assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
         assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
+    }
+
+    #[test]
+    fn scan_progress_sink_emits_flat_phase_event_with_envelope() {
+        let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
+        let sink = scan_progress_sink(tx, None, "http".to_string(), "tester".to_string());
+        sink(&crate::skeleton_scan::ScanProgressEvent::naming(8, 2));
+
+        let ev = rx.try_recv().expect("scan_progress event");
+        assert_eq!(ev.event_type, "scan_progress");
+        // The phase fields flatten under `data`, joined by the standard envelope.
+        assert_eq!(ev.data["phase"].as_str(), Some("naming"));
+        assert_eq!(ev.data["block_count"].as_u64(), Some(8));
+        assert_eq!(ev.data["naming_waves"].as_u64(), Some(2));
+        assert_eq!(ev.data["tool"].as_str(), Some("skeleton_candidate"));
+        assert_eq!(ev.data["source"].as_str(), Some("http"));
+        assert_eq!(ev.data["agent_id"].as_str(), Some("tester"));
+        assert!(ev.data["timestamp_ms"].as_u64().is_some());
+        // No fabricated fraction rides the wire.
+        assert!(ev.data.get("progress_pct").is_none());
+        assert!(ev.data.get("percent").is_none());
+    }
+
+    #[test]
+    fn scan_progress_sink_is_fail_open_without_a_subscriber() {
+        // Zero live receivers → broadcast::send returns Err, which the sink IGNORES
+        // (`let _ = event_tx.send(..)`): emitting narration can never break a scan.
+        let (tx, _) = broadcast::channel::<SseEvent>(16);
+        let sink = scan_progress_sink(tx, None, "http".to_string(), "tester".to_string());
+        sink(&crate::skeleton_scan::ScanProgressEvent::done(3)); // must not panic
     }
 
     #[test]

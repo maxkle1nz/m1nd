@@ -223,6 +223,11 @@ pub struct DaemonAlert {
 pub type ApplyBatchProgressSink =
     Arc<dyn Fn(&crate::protocol::surgical::ApplyBatchProgressEvent) + Send + Sync>;
 
+/// Optional live sink for `skeleton_candidate` scan-phase progress emission
+/// (docs/uml/scan-loading.md slice 2). The HTTP owner wires it per-request; on
+/// every other path it stays `None` and the scan emits nothing (retrocompat).
+pub type ScanProgressSink = Arc<dyn Fn(&crate::skeleton_scan::ScanProgressEvent) + Send + Sync>;
+
 // ---------------------------------------------------------------------------
 // SessionState — all server state in one place
 // Replaces: 03-MCP Section 1.1 server internal state
@@ -320,6 +325,11 @@ pub struct SessionState {
     pub instance: InstanceHandle,
     /// Optional live sink for apply_batch progress emission.
     pub apply_batch_progress_sink: Option<ApplyBatchProgressSink>,
+    /// Optional live sink for `skeleton_candidate` scan-phase progress emission
+    /// (docs/uml/scan-loading.md slice 2). Wired per-request by the HTTP owner
+    /// while dispatching `skeleton_candidate`; `None` on every other path, so the
+    /// scan then runs byte-identically and emits nothing.
+    pub scan_progress_sink: Option<ScanProgressSink>,
 
     // --- Superpowers: Antibody state ---
     /// All stored antibodies.
@@ -1667,6 +1677,7 @@ impl SessionState {
             runnerd_naming: None,
             instance,
             apply_batch_progress_sink: None,
+            scan_progress_sink: None,
             // Superpowers: Antibody state
             antibodies: {
                 let ab_path = runtime_root.join("antibodies.json");

@@ -96,6 +96,105 @@ pub struct SkeletonGraphEdge {
     pub weight: f64,
 }
 
+/// A phase-boundary progress event `handle_skeleton_candidate` emits on the
+/// EXISTING `/api/events` SSE channel (docs/uml/scan-loading.md, slice 2). It is
+/// a FACT of the pipeline — a named phase plus whatever counts the owner has
+/// actually computed at that boundary — never a fabricated percentage (the house
+/// honesty law holds on the server too). The scan verb's response is unchanged;
+/// this is a parallel narration layer, and a client that never listens sees
+/// exactly today's behavior.
+///
+/// The `naming` phase carries the block count and the budget's wave ESTIMATE
+/// (`naming_waves` = `blocks.div_ceil(4)`, the same divisor `scan_naming_timeout`
+/// uses) — a real derived number, not a per-wave counter: `run_scan_naming` makes
+/// ONE opaque daemon call, so there is no observable wave loop to narrate. The
+/// live elapsed clock on the client carries the wait; the server states the phase.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ScanProgressEvent {
+    /// `file_list` | `clustering` | `naming` | `persisting` | `done` | `failed`.
+    pub phase: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_count: Option<usize>,
+    /// The budget's wave estimate for the slow naming call (a fact, not progress).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub naming_waves: Option<usize>,
+    /// The honest error string on the terminal `failed` phase.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ScanProgressEvent {
+    fn bare(phase: &str) -> Self {
+        Self {
+            phase: phase.to_string(),
+            file_count: None,
+            node_count: None,
+            edge_count: None,
+            block_count: None,
+            naming_waves: None,
+            error: None,
+        }
+    }
+
+    /// `file_list` — the repo file list is in hand (its length is a fact).
+    pub fn file_list(file_count: usize) -> Self {
+        Self {
+            file_count: Some(file_count),
+            ..Self::bare("file_list")
+        }
+    }
+
+    /// `clustering` — the Louvain + directory-module pass is starting over a graph
+    /// of this size.
+    pub fn clustering(node_count: usize, edge_count: usize) -> Self {
+        Self {
+            node_count: Some(node_count),
+            edge_count: Some(edge_count),
+            ..Self::bare("clustering")
+        }
+    }
+
+    /// `naming` — the slow live-runner call is starting for this many blocks, with
+    /// the budget's wave estimate.
+    pub fn naming(block_count: usize, naming_waves: usize) -> Self {
+        Self {
+            block_count: Some(block_count),
+            naming_waves: Some(naming_waves),
+            ..Self::bare("naming")
+        }
+    }
+
+    /// `persisting` — the candidate seed is being written to the store.
+    pub fn persisting(block_count: usize) -> Self {
+        Self {
+            block_count: Some(block_count),
+            ..Self::bare("persisting")
+        }
+    }
+
+    /// `done` — the store landed; this many blocks were proposed.
+    pub fn done(block_count: usize) -> Self {
+        Self {
+            block_count: Some(block_count),
+            ..Self::bare("done")
+        }
+    }
+
+    /// `failed` — the scan errored at persist; the honest owner string rides along.
+    pub fn failed(error: impl Into<String>) -> Self {
+        Self {
+            error: Some(error.into()),
+            ..Self::bare("failed")
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SkeletonScanReport {
     pub algorithm: String,
