@@ -119,3 +119,14 @@ bound brain because the writer never checked which brain it was talking to.
 Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
 a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no
 agent ratifies, ever.** The hand proposes; the human signs.
+
+**The same human gate now guards `receipt_import`.** Landing a receipt (the OTHER human write
+that bumps `store_version`) requires an `imported_via` origin token, validated server-side
+against a CLOSED allow-list (today only `"human-ui"`, the value the owner's screen stamps). An
+absent, empty, or off-list origin is refused `human_gesture_required` and nothing is applied.
+Stated plainly: until the sovereign-stamp arc's step 0, `receipt_import` carried **no origin
+check at all** — only `ratify` did — so an agent could land evidence by simply calling the verb.
+Both human writes now carry the mirror. A new origin is a code change plus a test here, never a
+trusted client string; and, like ratify, the token is forgeable on an unauthenticated loopback,
+so it closes the cheap reflex vector, not a same-UID process (cryptographic elevation is a later
+step of the arc).
