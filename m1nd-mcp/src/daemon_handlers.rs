@@ -965,6 +965,78 @@ mod tests {
         assert_eq!(stopped["active"], false);
     }
 
+    /// HTTP status honesty (gardener v1, verdict item 4): a persisted
+    /// `watch_backend: "native_fs"` asserts a LIVE notify watcher, which only the
+    /// stdio serve() loop owns. A freshly booted state (any transport; on the HTTP
+    /// owner, forever) has no such consumer — resuming the label verbatim would
+    /// make `daemon_status` LIE. RED without the load-time downgrade to "polling".
+    /// `git_native_fs` must survive: it names per-tick git-diff detection, true on
+    /// every transport.
+    #[test]
+    fn resumed_status_never_claims_a_dead_notify_watcher() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        // The exact disk shape a stdio owner leaves behind: armed, live-watcher
+        // label, and the mid-tick reentrancy flags.
+        let persisted = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_backend: "native_fs".into(),
+            tick_in_flight: true,
+            pending_rerun: true,
+            ..Default::default()
+        };
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&persisted).expect("serialize"),
+        )
+        .expect("write daemon state");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let status = handle_daemon_status(
+            &mut state,
+            layers::DaemonStatusInput {
+                agent_id: "test".into(),
+            },
+        )
+        .expect("daemon status");
+        assert_eq!(status["active"], true, "the armed daemon resumes active");
+        assert_eq!(
+            status["watch_backend"], "polling",
+            "a resumed status must not claim a notify watcher that no longer exists"
+        );
+        assert_eq!(status["tick_in_flight"], false);
+        assert_eq!(status["pending_rerun"], false);
+
+        // The honest label that DOES survive: per-tick git detection.
+        let persisted_git = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_backend: "git_native_fs".into(),
+            git_root: Some("/tmp/somewhere".into()),
+            ..Default::default()
+        };
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&persisted_git).expect("serialize"),
+        )
+        .expect("write daemon state");
+        let state2 = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session 2");
+        assert_eq!(
+            state2.daemon_state.watch_backend, "git_native_fs",
+            "git_native_fs names per-tick detection and survives a resume"
+        );
+    }
+
     #[test]
     fn daemon_tick_reingests_changed_files() {
         let (temp, mut state) = build_state();

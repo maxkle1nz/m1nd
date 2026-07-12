@@ -6440,6 +6440,105 @@ mod tests {
         );
     }
 
+    // === Gardener v1: RESTART RESUME — an armed daemon survives a boot and ticks ===
+
+    /// The resume law (gardener v1): `active` survives a restart, and the daemon
+    /// actually TICKS again on the first traffic. RED without the load-time
+    /// sanitization: every traffic tick persists MID-tick, so the disk carries
+    /// `tick_in_flight: true` (proven below as a precondition) — a verbatim resume
+    /// wedges `run_daemon_tick` forever (it sees a phantom in-flight tick and
+    /// refuses every new one).
+    #[test]
+    fn armed_daemon_resumes_across_restart_and_ticks_again() {
+        use crate::protocol::core::JsonRpcRequest;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join("core.py"), "def core():\n    return 1\n").expect("seed file");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+
+        // One REAL traffic tick through the transport seam (handle_mcp_method →
+        // run_daemon_tick), exactly what a served owner does per routed call.
+        state.daemon_state.last_tick_ms = Some(0);
+        let health_call = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "health",
+                "arguments": { "agent_id": "test" }
+            }),
+        };
+        let response = super::handle_mcp_method(&mut state, &health_call);
+        assert!(response.error.is_none(), "traffic call must succeed");
+        assert!(
+            state.daemon_state.tick_count >= 1,
+            "the traffic autotick must have run at least one tick"
+        );
+
+        // THE WEDGE SHAPE, pinned as a precondition: the tick persisted itself
+        // while `tick_in_flight` was true, so that is what the disk carries.
+        let disk: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(runtime_dir.join("daemon_state.json"))
+                .expect("read persisted daemon state"),
+        )
+        .expect("parse persisted daemon state");
+        assert_eq!(
+            disk["tick_in_flight"], true,
+            "precondition: the post-traffic-tick disk carries the in-flight flag \
+             (this is the exact shape a restart resumes from)"
+        );
+        assert_eq!(disk["active"], true, "precondition: the daemon is armed on disk");
+        drop(state);
+
+        // RESTART: a fresh SessionState over the SAME runtime dir.
+        let mut resumed = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("re-init session");
+        assert!(
+            resumed.daemon_state.active,
+            "the armed daemon must resume active across a restart"
+        );
+        assert!(
+            !resumed.daemon_state.tick_in_flight && !resumed.daemon_state.pending_rerun,
+            "transient reentrancy flags must be sanitized on load"
+        );
+
+        // And it TICKS again on the first traffic (RED: wedged without the fix).
+        resumed.daemon_state.last_tick_ms = Some(0);
+        let before = resumed.daemon_state.tick_count;
+        let response = super::handle_mcp_method(&mut resumed, &health_call);
+        assert!(response.error.is_none(), "post-restart traffic call must succeed");
+        assert!(
+            resumed.daemon_state.tick_count > before,
+            "the resumed daemon must tick on traffic — a wedged resume is the bug"
+        );
+        assert_eq!(
+            resumed.daemon_state.last_tick_trigger.as_deref(),
+            Some("traffic"),
+            "the resumed tick is the traffic tick (freshness-by-traffic, v1)"
+        );
+    }
+
     #[test]
     fn read_only_deny_list_is_precise() {
         use super::read_only_denied;
