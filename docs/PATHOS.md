@@ -70,6 +70,39 @@ same bar, applied to building the organism outward.
 > alone); slice 2 (the navigable cockpit verb — its verdict is already emitted, also under
 > `docs/voice/`) queues AFTER this v1 lands and the owner stamps the provador.
 
+> **2026-07-12 — the HUMAN-LAYER VOICE arc, slice 2: the PULSE is stamped, the map fact lands, and the navigable `cockpit` verb ships (§C11-style amendment).**
+> The owner stamped the mark: the **PULSE** (`M1ND-VOICE-ALIEN.md` §5 variant C) is now the
+> OFFICIAL signature of the voice. Line 1 hangs `m1nd ` + a FIVE-cell pulse row (calm `╷` / raised
+> `│`) in a FIXED-FOREVER order — `trust · graph · focus · bell · coherence` (the anti-equalizer
+> law, pinned by test); read as an EXPRESSION (all low = calm, one stem up = look), never
+> cell-by-cell; DROPPED whole under `caller_root_mismatch` (the plain spine returns — the vitals
+> would read the wrong brain); the cells join the `state_sig` (`…|pulse:╷╷╷│╷`). **Slice-1's honest
+> residue is resolved:** line 1 gains a `map <N> blocks` segment (the served brain's ratified
+> SystemBlock count, PER-BRAIN, omitted when zero) measured from the SAME `system_blocks_snapshot`
+> read that feeds coherence — no new read, no invented number — and the packet carries a small `map`
+> field (`{ratified_blocks, coherence}`, present iff a store exists, mirroring `landing_bell`). **The
+> navigable cockpit shipped:** `cockpit` (`m1nd-cockpit-v0`) — a DEDICATED read-only verb, a SIBLING
+> of north (breaks alone, never a north field), the human's ON-REQUEST router over m1nd's read
+> surfaces. Its law is the askGOD verdict "the navigable cockpit" (the 10 amendments,
+> `docs/voice/ASKGOD-VERDICT-COCKPIT.md`): seven stable-slot collections (the tray + missions are
+> POINTERS — no verb; the map/health/trust/memories/drift are argument-less reads); the read-only
+> law is DERIVED (every routed verb filtered against `READ_ONLY_DENIED_TOOLS`, pinned by
+> `cockpit_read_verbs ∩ deny = ∅`); `menu_sig` on every response (the short reference a widget button
+> carries back, never free text/never a write); a drill re-asserts `store_version`/`state_sig` and
+> says "state moved" when the caller's snapshot diverged; the `why` text is lifted from the ONE help
+> catalog (never a parallel one). The official **widget template** is versioned
+> (`docs/voice/WIDGET-TEMPLATE.md` — the h4nd skin, STATE-JSON + render, no-write law, links-by-origin,
+> modal-in-normal-flow, payload = number + menu_sig). Render doctrine is doctrine on ALL surfaces in
+> the same burst: `M1ND_INSTRUCTIONS` §7 (the pulse, the deep-rung legend + proof glyphs `⊢`/`∎`, the
+> cockpit's on-request-only default, the extended ASCII map `╷`→`.`) + the three skills. Proven: 20
+> new unit tests (14 human_view incl. the pulse anti-equalizer + map segment + mismatch-drop; 6
+> cockpit incl. the read-only derivation + stable slots + menu_sig + state-moved), full
+> `m1nd-mcp` suite green, **two budgets re-pinned live** — north ~1,404 tokens (≤2k, fresh ingest
+> 9,178 nodes) with the pulse + map mounted; the cockpit's OWN budget ~695 tokens root (≤800), ~430
+> drill. HONEST residue (slice-2 DIVERGENCES): the cockpit is a ROUTER in v1 (presents the read to
+> run, like the help overview; its output carries the receipts — never fabricated), not an inline
+> executor; per-item drill (impact/why/trace, depth 2) is deferred by the verdict.
+
 > **2026-07-11 — ARC-1 + ARC-2 closed: the proof system hardened, F12 ratified and implemented, and the FIRST AUTONOMOUS CURATION ratified by the owner.**
 > The integrity burst (#342) closed all four open field reports: the field spool is runtime-scoped
 > (an ephemeral owner can never read or write the production box again), receipts refuse temporal
