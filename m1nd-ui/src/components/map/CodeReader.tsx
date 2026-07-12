@@ -22,7 +22,7 @@ import { useGraphSnapshot } from '../../hooks/useGraphSnapshot';
 import { fileSymbols, foldRangesFromSymbols, type OutlineSymbol, type SymbolKind } from '../../lib/reader/symbols';
 import { resolveDefinition, type DefResolution } from '../../lib/reader/definition';
 import { languageForPath } from '../../lib/reader/languages';
-import { highlightToLines, type ThemedLine, type ThemedTok } from '../../lib/reader/highlighter';
+import type { ThemedLine, ThemedTok } from '../../lib/reader/highlighter';
 import { Icon, type IconName } from '../../lib/icons/registry';
 import type { GraphSnapshot } from '../../lib/snapshot';
 import { STATE_LABEL, type BlockRollup, type BlockState } from '../../lib/buildMap';
@@ -90,9 +90,14 @@ function useHighlightedLines(content: string | null, lang: ReturnType<typeof lan
     }
     let mounted = true;
     setLines(null);
-    void highlightToLines(content, lang).then((l) => {
-      if (mounted) setLines(l);
-    });
+    // Dynamic import: the donor (Shiki core + JS engine) is a LAZY chunk, loaded
+    // only when a file is actually painted — the initial app bundle carries none of
+    // it (the air-gap/lean-bundle law, dossier Risk 1).
+    void import('../../lib/reader/highlighter')
+      .then(({ highlightToLines }) => highlightToLines(content, lang))
+      .then((l) => {
+        if (mounted) setLines(l);
+      });
     return () => {
       mounted = false;
     };
