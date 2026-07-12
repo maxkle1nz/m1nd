@@ -23,6 +23,7 @@ import {
   SCAN_SLOW_AFTER_MS,
   SCAN_TICK_MS,
   type ScanMachineState,
+  type ScanServerPhase,
 } from '../lib/scanMachine';
 import type { WriteToast } from '../lib/buildMap';
 
@@ -38,6 +39,9 @@ export interface ScanMachineHandle {
   sent: () => void;
   /** RESOLVED: the request settled into runScan's honest toast + reload decision. */
   resolve: (toast: WriteToast, reloading: boolean) => void;
+  /** PHASE: a server-named phase arrived on the SSE channel (slice 2). Display
+   *  enrichment only — it never moves the clock or the client phase machine. */
+  phase: (server: ScanServerPhase) => void;
   /** Stop WAITING: abort the fetch and settle to idle with the honest note. */
   abort: () => void;
   dismissToast: () => void;
@@ -81,6 +85,8 @@ export function useScanMachine(slowAfterMs: number = SCAN_SLOW_AFTER_MS): ScanMa
     dispatch({ type: 'RESOLVED', at: Date.now(), toast, reloading });
   }, []);
 
+  const phase = useCallback((server: ScanServerPhase) => dispatch({ type: 'PHASE', server }), []);
+
   const abort = useCallback(() => {
     controllerRef.current?.abort();
     controllerRef.current = null;
@@ -91,7 +97,7 @@ export function useScanMachine(slowAfterMs: number = SCAN_SLOW_AFTER_MS): ScanMa
   const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
 
   return useMemo(
-    () => ({ state, inFlight, begin, sent, resolve, abort, dismissToast, reset }),
-    [state, inFlight, begin, sent, resolve, abort, dismissToast, reset],
+    () => ({ state, inFlight, begin, sent, resolve, phase, abort, dismissToast, reset }),
+    [state, inFlight, begin, sent, resolve, phase, abort, dismissToast, reset],
   );
 }

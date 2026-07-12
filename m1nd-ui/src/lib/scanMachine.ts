@@ -39,6 +39,59 @@ export type ScanPhaseName =
   | 'candidate_ready'
   | 'error';
 
+/** The owner-named phases the scan emits on the SSE channel (slice 2,
+ *  docs/uml/scan-loading.md). `done`/`failed` are terminal — the authoritative
+ *  outcome still arrives on the HTTP response (RESOLVED); these only close the
+ *  narration. */
+export type ServerScanPhaseName =
+  | 'file_list'
+  | 'clustering'
+  | 'naming'
+  | 'persisting'
+  | 'done'
+  | 'failed';
+
+const SERVER_PHASES: ReadonlySet<string> = new Set<ServerScanPhaseName>([
+  'file_list',
+  'clustering',
+  'naming',
+  'persisting',
+  'done',
+  'failed',
+]);
+
+/** The latest server-reported phase — DISPLAY enrichment only (it never drives the
+ *  client state machine; the clock and phase transitions stay TICK/response-driven,
+ *  REAL EVENTS ONLY). Facts the owner actually computed at the boundary: a phase,
+ *  the counts it knew, and the naming budget's wave estimate — never a percentage. */
+export interface ScanServerPhase {
+  phase: ServerScanPhaseName;
+  fileCount: number | null;
+  nodeCount: number | null;
+  edgeCount: number | null;
+  blockCount: number | null;
+  namingWaves: number | null;
+}
+
+/** Parse a raw `scan_progress` SSE payload into a `ScanServerPhase`, or `null` when
+ *  the phase is missing/unknown (a malformed or future event is ignored — honest
+ *  degradation, never a throw). The wire is snake_case; the machine is camelCase. */
+export function scanServerPhaseFromEvent(data: unknown): ScanServerPhase | null {
+  if (data == null || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  const phase = d.phase;
+  if (typeof phase !== 'string' || !SERVER_PHASES.has(phase)) return null;
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    phase: phase as ServerScanPhaseName,
+    fileCount: num(d.file_count),
+    nodeCount: num(d.node_count),
+    edgeCount: num(d.edge_count),
+    blockCount: num(d.block_count),
+    namingWaves: num(d.naming_waves),
+  };
+}
+
 export interface ScanMachineState {
   phase: ScanPhaseName;
   /** Epoch ms when the request left (the SCAN event). `null` only in idle-from-reset. */
@@ -49,6 +102,11 @@ export interface ScanMachineState {
   /** The honest outcome (ok / conflict / readonly / error / canceled). `null`
    *  while in flight — starting a scan clears the previous outcome. */
   toast: WriteToast | null;
+  /** The latest server-reported phase (SSE `scan_progress`), or `null` when the
+   *  owner emits none (older owner / channel closed) — the panel then degrades to
+   *  the static client phase label, EXACTLY this slice's prior behavior. Cleared
+   *  on every new SCAN and on ABORT/RESET. */
+  serverPhase: ScanServerPhase | null;
 }
 
 export type ScanMachineEvent =
@@ -64,6 +122,9 @@ export type ScanMachineEvent =
   | { type: 'RESOLVED'; at: number; toast: WriteToast; reloading: boolean }
   /** The human stopped WAITING (AbortController). The owner may still finish. */
   | { type: 'ABORTED'; at: number }
+  /** A server-named phase arrived on the SSE channel (slice 2). DISPLAY only — it
+   *  enriches the label; it never moves the clock or the client phase machine. */
+  | { type: 'PHASE'; server: ScanServerPhase }
   /** Dismiss the outcome toast (from candidate_ready or error → idle). */
   | { type: 'DISMISS_TOAST' }
   /** External reset (e.g. the reload landed a store and the empty screen is gone). */
@@ -79,7 +140,7 @@ export const SCAN_SLOW_AFTER_MS = 10_000;
 export const SCAN_TICK_MS = 1_000;
 
 export function scanIdle(): ScanMachineState {
-  return { phase: 'idle', startedAt: null, elapsedMs: 0, toast: null };
+  return { phase: 'idle', startedAt: null, elapsedMs: 0, toast: null, serverPhase: null };
 }
 
 const IN_FLIGHT: ReadonlySet<ScanPhaseName> = new Set(['submitting', 'clustering', 'slow']);
@@ -126,7 +187,13 @@ export function scanReducer(
       // Only from a settled phase — a click while in flight is the button's
       // disabled state anyway; the machine refuses it too (defense in depth).
       if (isScanInFlight(state.phase)) return state;
-      return { phase: 'submitting', startedAt: event.at, elapsedMs: 0, toast: null };
+      return {
+        phase: 'submitting',
+        startedAt: event.at,
+        elapsedMs: 0,
+        toast: null,
+        serverPhase: null,
+      };
     }
     case 'SENT': {
       if (state.phase !== 'submitting') return state;
@@ -149,6 +216,15 @@ export function scanReducer(
         toast: event.toast,
       };
     }
+    case 'PHASE': {
+      // Server narration is DISPLAY enrichment ONLY: it never advances the clock
+      // or the client phase machine (REAL EVENTS ONLY holds — the elapsed clock
+      // stays TICK-driven). Applies only in flight; a stray PHASE after settle is a
+      // provable no-op (TOTAL law). A terminal server phase does NOT settle the
+      // machine — the authoritative outcome is the HTTP response (RESOLVED).
+      if (!isScanInFlight(state.phase)) return state;
+      return { ...state, serverPhase: event.server };
+    }
     case 'ABORTED': {
       if (!isScanInFlight(state.phase)) return state;
       return {
@@ -156,6 +232,7 @@ export function scanReducer(
         startedAt: null,
         elapsedMs: elapsedFrom(state.startedAt, event.at),
         toast: canceledScanToast(),
+        serverPhase: null,
       };
     }
     case 'DISMISS_TOAST': {
@@ -214,4 +291,37 @@ export function scanWaitCopy(nodeCount: number | null): string {
 export function scanSlowNote(nodeCount: number | null): string {
   const subject = nodeCount != null ? `${fmtCount(nodeCount)} nodes` : 'a large graph';
   return `still working — clustering ${subject} usually takes a while (a live naming runner can add ~2 minutes). The request stays open.`;
+}
+
+/** The owner-named phase, rendered as a label. FACTS only — the counts the owner
+ *  actually computed (files, nodes, blocks); NEVER a percentage. The slow naming
+ *  call names its block count (the client clock carries the wait). The terminal
+ *  `done`/`failed` phases return '' — they are settled by the HTTP response, so the
+ *  panel is gone; `scanDisplayLabel` then falls back to the client phase label. */
+export function serverPhaseLabel(server: ScanServerPhase): string {
+  switch (server.phase) {
+    case 'file_list':
+      return server.fileCount != null ? `listing ${fmtCount(server.fileCount)} files…` : 'listing files…';
+    case 'clustering':
+      return server.nodeCount != null
+        ? `clustering ${fmtCount(server.nodeCount)} nodes…`
+        : 'clustering…';
+    case 'naming':
+      return server.blockCount != null ? `naming ${fmtCount(server.blockCount)} blocks…` : 'naming blocks…';
+    case 'persisting':
+      return 'saving the candidate map…';
+    default:
+      return '';
+  }
+}
+
+/** The phase line the wait panel shows: the SERVER-named phase when the owner is
+ *  narrating (slice 2), else the static client label — a clean degradation to this
+ *  slice's prior behavior when no SSE is flowing (older owner / channel closed). */
+export function scanDisplayLabel(phase: ScanPhaseName, server: ScanServerPhase | null): string {
+  if (server) {
+    const label = serverPhaseLabel(server);
+    if (label) return label;
+  }
+  return scanPhaseLabel(phase);
 }

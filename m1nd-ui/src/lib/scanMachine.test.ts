@@ -17,15 +17,19 @@ import {
   canceledScanToast,
   formatElapsed,
   isScanInFlight,
+  scanDisplayLabel,
   scanIdle,
   scanPhaseLabel,
   scanReducer,
+  scanServerPhaseFromEvent,
   scanSlowNote,
   scanWaitCopy,
+  serverPhaseLabel,
   SCAN_SLOW_AFTER_MS,
   type ScanMachineEvent,
   type ScanMachineState,
   type ScanPhaseName,
+  type ScanServerPhase,
 } from './scanMachine';
 import type { WriteToast } from './buildMap';
 
@@ -259,4 +263,111 @@ test('COPY LAW + honesty: no proven/done/correct, and no percentage anywhere', (
   assert.doesNotMatch(copy, /\bdone\b/i);
   assert.doesNotMatch(copy, /\bcorrect\b/i);
   assert.doesNotMatch(copy, /%|\bpercent/i, 'no fabricated progress fraction — the owner emits none');
+});
+
+// ── slice 2: the server phase (SSE narration, docs/uml/scan-loading.md) ────────
+
+const srv = (over: Partial<ScanServerPhase> = {}): ScanServerPhase => ({
+  phase: 'clustering',
+  fileCount: null,
+  nodeCount: null,
+  edgeCount: null,
+  blockCount: null,
+  namingWaves: null,
+  ...over,
+});
+
+test('scanIdle carries no server phase (the panel degrades to the client label)', () => {
+  assert.equal(scanIdle().serverPhase, null);
+});
+
+test('PHASE sets the server phase in flight — DISPLAY only, clock + machine untouched', () => {
+  const flight = run([
+    { type: 'SCAN', at: T0 },
+    { type: 'SENT', at: T0 },
+    { type: 'TICK', at: T0 + 3_000 },
+  ]);
+  const withPhase = scanReducer(flight, {
+    type: 'PHASE',
+    server: srv({ phase: 'naming', blockCount: 8, namingWaves: 2 }),
+  });
+  assert.equal(withPhase.serverPhase?.phase, 'naming');
+  // PHASE never drives the client phase or the clock (REAL EVENTS ONLY holds):
+  assert.equal(withPhase.phase, flight.phase);
+  assert.equal(withPhase.elapsedMs, flight.elapsedMs);
+});
+
+test('PHASE is a provable no-op when NOT in flight (total reducer)', () => {
+  const idle = scanIdle();
+  assert.equal(scanReducer(idle, { type: 'PHASE', server: srv() }), idle, 'same reference');
+  const ready = run([
+    { type: 'SCAN', at: T0 },
+    { type: 'SENT', at: T0 },
+    { type: 'RESOLVED', at: T0 + 100, toast: okToast, reloading: true },
+  ]);
+  assert.equal(scanReducer(ready, { type: 'PHASE', server: srv() }), ready, 'settled: no-op');
+});
+
+test('a new SCAN clears a stale server phase (each gesture starts fresh)', () => {
+  const flight = run([{ type: 'SCAN', at: T0 }, { type: 'SENT', at: T0 }]);
+  const withPhase = scanReducer(flight, { type: 'PHASE', server: srv({ phase: 'persisting' }) });
+  const err = scanReducer(withPhase, {
+    type: 'RESOLVED',
+    at: T0 + 100,
+    toast: errToast,
+    reloading: false,
+  });
+  const rescan = scanReducer(err, { type: 'SCAN', at: T0 + 5_000 });
+  assert.equal(rescan.serverPhase, null, 'the re-scan drops the previous owner phase');
+});
+
+test('ABORT clears the server phase (the wait is over)', () => {
+  const flight = run([{ type: 'SCAN', at: T0 }, { type: 'SENT', at: T0 }]);
+  const withPhase = scanReducer(flight, { type: 'PHASE', server: srv({ phase: 'naming' }) });
+  const aborted = scanReducer(withPhase, { type: 'ABORTED', at: T0 + 2_000 });
+  assert.equal(aborted.serverPhase, null);
+  assert.equal(aborted.toast?.kind, 'canceled');
+});
+
+test('scanServerPhaseFromEvent maps the snake_case wire, drops unknown/malformed', () => {
+  const mapped = scanServerPhaseFromEvent({ phase: 'clustering', node_count: 3210, edge_count: 9000 });
+  assert.equal(mapped?.phase, 'clustering');
+  assert.equal(mapped?.nodeCount, 3210);
+  assert.equal(mapped?.edgeCount, 9000);
+  assert.equal(mapped?.blockCount, null, 'absent counts stay null — never invented');
+  // unknown phase / missing phase / non-object → null (honest degradation, no throw):
+  assert.equal(scanServerPhaseFromEvent({ phase: 'teleporting' }), null);
+  assert.equal(scanServerPhaseFromEvent({ node_count: 5 }), null);
+  assert.equal(scanServerPhaseFromEvent(null), null);
+  assert.equal(scanServerPhaseFromEvent('nope'), null);
+});
+
+test('scanDisplayLabel prefers the server phase, degrades to the client label', () => {
+  assert.equal(scanDisplayLabel('slow', srv({ phase: 'naming', blockCount: 2 })), 'naming 2 blocks…');
+  // no server phase → the static client label (retrocompat honesta):
+  assert.equal(scanDisplayLabel('clustering', null), 'clustering…');
+  // a terminal server phase yields '' → fall back to the client label:
+  assert.equal(scanDisplayLabel('slow', srv({ phase: 'done', blockCount: 2 })), 'clustering…');
+});
+
+test('serverPhaseLabel states facts per phase (counts, never a percentage)', () => {
+  assert.equal(serverPhaseLabel(srv({ phase: 'file_list', fileCount: 321 })), 'listing 321 files…');
+  assert.equal(serverPhaseLabel(srv({ phase: 'file_list' })), 'listing files…');
+  assert.equal(serverPhaseLabel(srv({ phase: 'clustering', nodeCount: 3210 })), 'clustering 3,210 nodes…');
+  assert.equal(serverPhaseLabel(srv({ phase: 'naming', blockCount: 12 })), 'naming 12 blocks…');
+  assert.equal(serverPhaseLabel(srv({ phase: 'persisting' })), 'saving the candidate map…');
+  assert.equal(serverPhaseLabel(srv({ phase: 'done' })), '');
+  assert.equal(serverPhaseLabel(srv({ phase: 'failed' })), '');
+});
+
+test('COPY LAW + honesty on every SERVER phase label (no proven/done/correct, no %)', () => {
+  const labels = (['file_list', 'clustering', 'naming', 'persisting', 'done', 'failed'] as const)
+    .map((p) =>
+      serverPhaseLabel(srv({ phase: p, fileCount: 3, nodeCount: 3, blockCount: 3, namingWaves: 2 })),
+    )
+    .join(' ');
+  assert.doesNotMatch(labels, /\bproven\b/i);
+  assert.doesNotMatch(labels, /\bdone\b/i);
+  assert.doesNotMatch(labels, /\bcorrect\b/i);
+  assert.doesNotMatch(labels, /%|\bpercent/i, 'the owner narrates phases + counts, never a fraction');
 });

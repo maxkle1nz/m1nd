@@ -337,3 +337,85 @@ test('"Stop waiting" aborts the browser wait with the honest canceled note', asy
   await expect(page.locator('[data-role="scan-repo"]')).toBeEnabled();
   await page.screenshot({ path: `${ARTIFACTS}/05-scan-canceled.png`, fullPage: true });
 });
+
+// ── 5. the owner narrates the REAL phase on the SSE channel (slice 2) ─────────
+
+test('the wait panel shows the REAL server phase as the owner narrates it (SSE)', async ({
+  page,
+}) => {
+  // A deterministic fake EventSource, driven frame-by-frame from the test — the
+  // owner's `scan_progress` narration with NO live owner and NO wall-clock race.
+  // (The whole /api/* surface is still mocked below; EventSource just never hits
+  // the network here.)
+  await page.addInitScript(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    w.__sse = { instances: [] };
+    class FakeES {
+      url: string;
+      closed = false;
+      listeners: Record<string, Array<(e: { data: string }) => void>> = {};
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      constructor(url: string) {
+        this.url = url;
+        w.__sse.instances.push(this);
+      }
+      addEventListener(type: string, cb: (e: { data: string }) => void) {
+        (this.listeners[type] = this.listeners[type] || []).push(cb);
+      }
+      removeEventListener(type: string, cb: (e: { data: string }) => void) {
+        this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== cb);
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    w.EventSource = FakeES;
+    w.__emitScanProgress = (payload: unknown) => {
+      for (const es of w.__sse.instances) {
+        if (es.closed) continue;
+        for (const cb of es.listeners['scan_progress'] || []) cb({ data: JSON.stringify(payload) });
+      }
+    };
+    w.__openSseCount = () => w.__sse.instances.filter((es: { closed: boolean }) => !es.closed).length;
+  });
+
+  await mockOwner(page, async (_call, route, markScanned) => {
+    await sleep(4_000); // the owner holds the POST while it narrates on the side
+    markScanned();
+    await json(route, { result: scanResult });
+  });
+  await openEmptyMap(page);
+
+  await page.locator('[data-role="scan-repo"]').click();
+  const wait = page.locator('[data-role="scan-wait"]');
+  await expect(wait).toBeVisible();
+  // Before any SSE, the static client label shows — the honest degradation baseline.
+  await expect(page.locator('[data-role="scan-phase-label"]')).toHaveText(/clustering…/);
+
+  // The Build Map opened its own in-flight SSE subscription (app-level + scan = 2).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await page.waitForFunction(() => (window as any).__openSseCount() >= 2);
+
+  const label = page.locator('[data-role="scan-phase-label"]');
+  const emit = (payload: Record<string, unknown>) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.evaluate((p) => (window as any).__emitScanProgress(p), payload);
+
+  // The owner narrates its real phases; the label tracks each one as it changes.
+  await emit({ phase: 'file_list', file_count: 321 });
+  await expect(label).toHaveText(/listing 321 files…/);
+
+  await emit({ phase: 'clustering', node_count: 3210, edge_count: 9000 });
+  await expect(label).toHaveText(/clustering 3,210 nodes…/);
+
+  await emit({ phase: 'naming', block_count: 2, naming_waves: 1 });
+  await expect(label).toHaveText(/naming 2 blocks…/);
+  await expect(wait).toHaveAttribute('data-scan-server-phase', 'naming');
+  await page.screenshot({ path: `${ARTIFACTS}/06-scan-server-phase.png`, fullPage: true });
+
+  // The HTTP response still drives the terminal — the candidate lands, panel gone.
+  await expect(page.locator('[data-role="candidate-banner"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-role="scan-wait"]')).toHaveCount(0);
+});

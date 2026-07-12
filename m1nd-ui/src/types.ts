@@ -256,12 +256,38 @@ export interface SseGraphChangedData {
   brain_root?: string;
 }
 
+/**
+ * Emitted by the owner (http_server.rs `scan_progress_sink`) as `skeleton_candidate`
+ * crosses its real pipeline boundaries (docs/uml/scan-loading.md slice 2). Facts of
+ * the process — a named phase + the counts the owner computed at that boundary —
+ * never a fabricated percentage. The Build Map's scan wait panel consumes it while
+ * a scan is in flight to replace the static phase label with the owner's real one;
+ * absent events (older owner) degrade to the client-only wait exactly as before.
+ */
+export interface SseScanProgressData {
+  /** file_list | clustering | naming | persisting | done | failed. */
+  phase: string;
+  file_count?: number;
+  node_count?: number;
+  edge_count?: number;
+  block_count?: number;
+  /** The naming budget's wave estimate (a fact, not progress). */
+  naming_waves?: number;
+  /** The honest error string on the terminal `failed` phase. */
+  error?: string;
+  tool?: string;
+  source?: string;
+  agent_id?: string;
+  timestamp_ms?: number;
+}
+
 export type SseEvent =
   | { event_type: 'activation'; data: SseActivationData }
   | { event_type: 'learn'; data: SseLearnData }
   | { event_type: 'ingest'; data: SseIngestData }
   | { event_type: 'persist'; data: SsePersistData }
-  | { event_type: 'graph_changed'; data: SseGraphChangedData };
+  | { event_type: 'graph_changed'; data: SseGraphChangedData }
+  | { event_type: 'scan_progress'; data: SseScanProgressData };
 
 // ---- Tool IDs ----
 

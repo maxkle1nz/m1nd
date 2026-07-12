@@ -22,10 +22,11 @@ import {
 import {
   formatElapsed,
   isScanInFlight,
-  scanPhaseLabel,
+  scanDisplayLabel,
   scanSlowNote,
   scanWaitCopy,
   type ScanPhaseName,
+  type ScanServerPhase,
 } from '../../lib/scanMachine';
 import { Icon } from '../../lib/icons/registry';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
@@ -75,7 +76,14 @@ export interface BuildMapProps {
    *  while in flight the empty state shows the wait panel — real phase + a live
    *  elapsed clock + the honest "takes a while" note past the slow threshold. The
    *  NEVER-DEAD law: with this present, the wait always has visible movement. */
-  scanPhase?: { phase: ScanPhaseName; elapsedMs: number; nodeCount: number | null } | null;
+  scanPhase?: {
+    phase: ScanPhaseName;
+    elapsedMs: number;
+    nodeCount: number | null;
+    /** The owner-named phase (SSE slice 2). When present the panel shows it in
+     *  place of the static client label; absent keeps this slice's prior behavior. */
+    serverPhase?: ScanServerPhase | null;
+  } | null;
   /** Stop WAITING (aborts the fetch; the owner may still finish — the honest
    *  canceled toast says so). Renders the panel's "Stop waiting" button. */
   onCancelScan?: () => void;
@@ -127,7 +135,14 @@ function BuildMapEmpty({
   scanning?: boolean;
   scanToast?: ReconcileToast | null;
   onDismissScanToast?: () => void;
-  scanPhase?: { phase: ScanPhaseName; elapsedMs: number; nodeCount: number | null } | null;
+  scanPhase?: {
+    phase: ScanPhaseName;
+    elapsedMs: number;
+    nodeCount: number | null;
+    /** The owner-named phase (SSE slice 2). When present the panel shows it in
+     *  place of the static client label; absent keeps this slice's prior behavior. */
+    serverPhase?: ScanServerPhase | null;
+  } | null;
   onCancelScan?: () => void;
 }) {
   const waiting = scanPhase != null && isScanInFlight(scanPhase.phase);
@@ -168,11 +183,14 @@ function BuildMapEmpty({
           <div
             data-role="scan-wait"
             data-scan-phase={scanPhase.phase}
+            data-scan-server-phase={scanPhase.serverPhase?.phase ?? undefined}
             className="rounded-lg border border-ink/15 bg-bone px-3 py-2.5 text-left space-y-1.5"
           >
             <div className="flex items-center gap-2 text-xs text-ink font-mono">
               <span className="w-1.5 h-1.5 rounded-full bg-ink/50 animate-pulse shrink-0" aria-hidden />
-              <span data-role="scan-phase-label">{scanPhaseLabel(scanPhase.phase)}</span>
+              <span data-role="scan-phase-label">
+                {scanDisplayLabel(scanPhase.phase, scanPhase.serverPhase ?? null)}
+              </span>
               <span data-role="scan-elapsed" className="ml-auto tabular-nums text-ink-soft">
                 {formatElapsed(scanPhase.elapsedMs)}
               </span>
