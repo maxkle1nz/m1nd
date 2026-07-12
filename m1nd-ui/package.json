@@ -11,7 +11,8 @@
     "violet-lint": "node scripts/violet-lint.mjs",
     "icon-lint": "node scripts/icon-lint.mjs",
     "lint:soft": "node scripts/violet-lint.mjs && node scripts/icon-lint.mjs",
-    "test": "node --import tsx --test --test-reporter=spec 'src/**/*.test.ts' 'src/**/*.test.tsx'"
+    "test": "node --import tsx --test --test-reporter=spec 'src/**/*.test.ts' 'src/**/*.test.tsx'",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.1",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.61.1",
     "@types/dagre": "^0.7.52",
     "@types/node": "^22.20.0",
     "@types/react": "^18.3.18",
