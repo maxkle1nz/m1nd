@@ -27,7 +27,9 @@ use serde_json::{json, Value};
 use m1nd_core::error::{M1ndError, M1ndResult};
 
 use crate::session::SessionState;
-use crate::skeleton_scan::{self, CandidateNamingMode, SkeletonCoherence, SkeletonScanOptions};
+use crate::skeleton_scan::{
+    self, CandidateNamingMode, ScanProgressEvent, SkeletonCoherence, SkeletonScanOptions,
+};
 use crate::system_blocks::{
     self, archive_in_dir, candidate_edit_in_dir, candidate_lease_in_dir, delete_in_dir,
     import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, reconcile_in_dir,
@@ -236,12 +238,29 @@ pub fn handle_skeleton_candidate(
         })?;
     let file_list =
         system_blocks::repo_file_list(Path::new(&root)).map_err(|e| seed_err(TOOL, e))?;
+    // Slice 2 (docs/uml/scan-loading.md): narrate the pipeline's real phase
+    // boundaries on the EXISTING `/api/events` SSE channel. The file list is in
+    // hand — `file_list` with its count. Every emit is a fact + fail-open; the
+    // verb's response is untouched, so a client that never listens sees today's
+    // behavior exactly.
+    emit_scan_progress(state, &ScanProgressEvent::file_list(file_list.len()));
     let source_commit = git_head_commit(Path::new(&root)).unwrap_or_default();
     let repo_id = Path::new(&root)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("repo")
         .to_string();
+    // `clustering` — announce the Louvain + directory-module pass with the real
+    // graph size BEFORE it runs (the heavy community detection lives inside
+    // `scan_input_from_graph`). Two cheap read locks; the emit holds neither.
+    let (node_count, edge_count) = {
+        let graph = state.graph.read();
+        (graph.num_nodes() as usize, graph.num_edges())
+    };
+    emit_scan_progress(
+        state,
+        &ScanProgressEvent::clustering(node_count, edge_count),
+    );
     let scan_input = {
         let graph = state.graph.read();
         skeleton_scan::scan_input_from_graph(
@@ -271,6 +290,15 @@ pub fn handle_skeleton_candidate(
             let secret = crate::runnerd_owner::read_secret(&handle.owner_runtime_root);
             let live = !handle.registry.live_ports().is_empty();
             if let (Some(secret), true, false) = (secret, live, scan.naming_packets.is_empty()) {
+                // `naming` — the slow phase: this many blocks, plus the budget's
+                // wave ESTIMATE (`blocks.div_ceil(4)`, the divisor `scan_naming_timeout`
+                // uses). ONE opaque daemon call follows; the client's elapsed clock
+                // narrates the wait — no fabricated per-wave sub-progress.
+                let packet_count = scan.naming_packets.len();
+                emit_scan_progress(
+                    state,
+                    &ScanProgressEvent::naming(packet_count, packet_count.div_ceil(4).max(1)),
+                );
                 let outcome = crate::naming_runner::run_scan_naming(
                     &handle,
                     &secret,
@@ -315,9 +343,23 @@ pub fn handle_skeleton_candidate(
         }
     }
     let dir = store_dir(state);
+    // `persisting` — the candidate seed is being written to the store.
+    emit_scan_progress(
+        state,
+        &ScanProgressEvent::persisting(scan.seed.blocks.len()),
+    );
     let (store, summary) =
-        skeleton_candidate_in_dir(&dir, scan.seed.clone(), input.expected_store_version)
-            .map_err(|e| seed_err(TOOL, e))?;
+        match skeleton_candidate_in_dir(&dir, scan.seed.clone(), input.expected_store_version) {
+            Ok(landed) => landed,
+            Err(e) => {
+                // Terminal `failed` with the honest owner string, THEN surface the
+                // error exactly as before (the response grammar is unchanged).
+                emit_scan_progress(state, &ScanProgressEvent::failed(e.to_string()));
+                return Err(seed_err(TOOL, e));
+            }
+        };
+    // Terminal `done` — the store landed.
+    emit_scan_progress(state, &ScanProgressEvent::done(scan.seed.blocks.len()));
 
     Ok(json!({
         "present": true,
@@ -345,6 +387,17 @@ fn git_head_commit(root: &Path) -> Option<String> {
         None
     } else {
         Some(value)
+    }
+}
+
+/// Emit one scan-phase event through the session's optional sink (slice 2,
+/// docs/uml/scan-loading.md). Fail-open by construction: no sink wired (every path
+/// but the HTTP/stdio `skeleton_candidate` dispatch) is a silent no-op, and the
+/// wired sink itself ignores a failed broadcast send — narration can never break
+/// the scan.
+fn emit_scan_progress(state: &SessionState, event: &ScanProgressEvent) {
+    if let Some(sink) = state.scan_progress_sink.as_ref() {
+        sink(event);
     }
 }
 
@@ -1048,5 +1101,202 @@ mod tests {
             assert_eq!(meta.named_by, crate::system_blocks::NamedBy::Runner);
             assert!(!meta.needs_owner_naming);
         }
+    }
+
+    // =======================================================================
+    // Slice 2 — the scan narrates its real phases on the SSE channel
+    // (docs/uml/scan-loading.md). The wire is mocked to a Vec: no HTTP, no
+    // browser — the emit points and their order are what these pin.
+    // =======================================================================
+
+    /// Install a capturing scan-progress sink and return the shared buffer the
+    /// emitted phase events land in.
+    fn capture_scan_phases(
+        state: &mut crate::session::SessionState,
+    ) -> std::sync::Arc<std::sync::Mutex<Vec<ScanProgressEvent>>> {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_buf = captured.clone();
+        state.scan_progress_sink = Some(std::sync::Arc::new(move |event: &ScanProgressEvent| {
+            sink_buf.lock().unwrap().push(event.clone());
+        }));
+        captured
+    }
+
+    fn phase_order(events: &[ScanProgressEvent]) -> Vec<String> {
+        events.iter().map(|e| e.phase.clone()).collect()
+    }
+
+    /// With NO announced runnerd the naming phase is SKIPPED (naming stays heuristic
+    /// inside clustering) — the honest order is file_list → clustering → persisting
+    /// → done, and the verb's response is byte-unchanged.
+    #[test]
+    fn scan_progress_emits_ordered_phases_without_runner() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, _repo) = naming_test_state(&temp);
+        assert!(state.runnerd_naming.is_none());
+        let captured = capture_scan_phases(&mut state);
+
+        let out = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: None, // auto — but no runnerd, so no naming phase
+            },
+        )
+        .expect("scan runs");
+        assert_eq!(out["present"], true, "the verb's response is untouched");
+
+        let events = captured.lock().unwrap();
+        assert_eq!(
+            phase_order(&events),
+            vec!["file_list", "clustering", "persisting", "done"],
+            "no live runner → no naming phase; the terminal is `done`"
+        );
+        assert!(
+            events[0].file_count.is_some(),
+            "file_list carries its count"
+        );
+        assert!(
+            events[1].node_count.is_some(),
+            "clustering carries the graph size"
+        );
+        let done = events.last().unwrap();
+        assert_eq!(
+            done.block_count,
+            Some(out["block_count"].as_u64().unwrap() as usize),
+            "done reports the block count that landed"
+        );
+    }
+
+    /// With a LIVE (fake) announced daemon the naming phase appears BETWEEN
+    /// clustering and persisting, carrying the block count + the budget's wave
+    /// estimate (a fact, never a per-wave percentage).
+    #[test]
+    fn scan_progress_emits_naming_phase_with_live_runner() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, _repo) = naming_test_state(&temp);
+
+        let owner_rt = temp.path().join("owner-rt");
+        std::fs::create_dir_all(&owner_rt).expect("owner rt");
+        std::fs::write(
+            crate::runnerd_owner::secret_path(&owner_rt),
+            "fake-naming-secret",
+        )
+        .expect("secret");
+        let port = spawn_fake_name_daemon("fake-naming-secret");
+        let registry = std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
+        registry.register(&["namer-1".to_string()], port, 1);
+        state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {
+            registry,
+            owner_runtime_root: owner_rt,
+        });
+
+        let captured = capture_scan_phases(&mut state);
+        let out = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: None, // auto
+            },
+        )
+        .expect("scan + naming runs");
+        assert_eq!(out["report"]["naming"]["applied"], "runner");
+
+        let events = captured.lock().unwrap();
+        assert_eq!(
+            phase_order(&events),
+            vec!["file_list", "clustering", "naming", "persisting", "done"],
+            "the live runner adds the naming phase between clustering and persisting"
+        );
+        let naming = events.iter().find(|e| e.phase == "naming").unwrap();
+        assert!(
+            naming.block_count.unwrap_or(0) >= 1,
+            "naming names at least one block"
+        );
+        assert!(
+            naming.naming_waves.unwrap_or(0) >= 1,
+            "the wave estimate is a positive fact, not a fraction"
+        );
+    }
+
+    /// A persist OCC conflict emits the terminal `failed` phase (with the honest
+    /// error) BEFORE the verb surfaces the same refusal — the SSE stream closes
+    /// honestly and the emit is fail-open (the refusal still propagates unchanged).
+    #[test]
+    fn scan_progress_emits_failed_on_persist_conflict() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, _repo) = naming_test_state(&temp);
+        // First scan lands a candidate store at v1 (heuristic — no runner needed).
+        handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: None,
+                review_limit: None,
+                naming: Some("heuristic".to_string()),
+            },
+        )
+        .expect("first scan lands v1");
+
+        // A second scan keyed on a STALE version conflicts at persist.
+        let captured = capture_scan_phases(&mut state);
+        let err = handle_skeleton_candidate(
+            &mut state,
+            SkeletonCandidateInput {
+                agent_id: Some("t".to_string()),
+                expected_store_version: Some(999),
+                review_limit: None,
+                naming: Some("heuristic".to_string()),
+            },
+        );
+        assert!(err.is_err(), "a stale OCC key is refused (nothing applied)");
+
+        let events = captured.lock().unwrap();
+        assert!(
+            events.iter().any(|e| e.phase == "persisting"),
+            "persisting is announced before the failure"
+        );
+        let terminal = events.last().unwrap();
+        assert_eq!(terminal.phase, "failed", "the terminal phase is `failed`");
+        assert!(
+            terminal.error.is_some(),
+            "the failed phase carries the honest owner string"
+        );
+    }
+
+    /// The event shape is phases + honest counts — NEVER a percentage/fraction
+    /// field (the house honesty law holds on the wire too).
+    #[test]
+    fn scan_progress_event_shape_has_no_fabricated_fraction() {
+        let naming = serde_json::to_value(ScanProgressEvent::naming(8, 2)).unwrap();
+        assert_eq!(naming["phase"], "naming");
+        assert_eq!(naming["block_count"], 8);
+        assert_eq!(naming["naming_waves"], 2);
+
+        for ev in [
+            ScanProgressEvent::file_list(300),
+            ScanProgressEvent::clustering(3210, 9000),
+            ScanProgressEvent::naming(8, 2),
+            ScanProgressEvent::persisting(12),
+            ScanProgressEvent::done(12),
+            ScanProgressEvent::failed("boom"),
+        ] {
+            let v = serde_json::to_value(&ev).unwrap();
+            let obj = v.as_object().unwrap();
+            for banned in ["percent", "pct", "progress", "fraction", "ratio"] {
+                assert!(
+                    !obj.contains_key(banned),
+                    "phase {} must not carry a `{banned}` field",
+                    ev.phase
+                );
+            }
+        }
+        let failed =
+            serde_json::to_value(ScanProgressEvent::failed("clustering exploded")).unwrap();
+        assert_eq!(failed["error"], "clustering exploded");
     }
 }

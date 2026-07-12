@@ -19,7 +19,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import BuildMap from './BuildMap';
 import type { SystemBlocksSnapshot } from '../../lib/buildMap';
-import type { ScanPhaseName } from '../../lib/scanMachine';
+import type { ScanPhaseName, ScanServerPhase } from '../../lib/scanMachine';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const decode = (s: string) =>
@@ -37,6 +37,23 @@ const phase = (p: ScanPhaseName, elapsedMs: number, nodeCount: number | null = 3
   elapsedMs,
   nodeCount,
 });
+
+const srv = (over: Partial<ScanServerPhase> = {}): ScanServerPhase => ({
+  phase: 'clustering',
+  fileCount: null,
+  nodeCount: null,
+  edgeCount: null,
+  blockCount: null,
+  namingWaves: null,
+  ...over,
+});
+
+const withServer = (
+  p: ScanPhaseName,
+  elapsedMs: number,
+  server: ScanServerPhase,
+  nodeCount: number | null = 3210,
+) => ({ phase: p, elapsedMs, nodeCount, serverPhase: server });
 
 const empty = (extra: Record<string, unknown> = {}) => (
   <BuildMap snapshot={emptySnap} rollup={null} onScan={noop} {...extra} />
@@ -98,6 +115,54 @@ test('"Stop waiting" renders only when the abort gesture is wired, with honest t
   );
   assert.match(withCancel, /data-role="scan-cancel"/);
   assert.match(withCancel, /owner may still finish/, 'the title says the owner is not stopped');
+});
+
+// ── slice 2: the OWNER-named phase rides the panel (SSE narration) ────────────
+
+test('the panel shows the OWNER-named phase when the server narrates (SSE)', () => {
+  const el = empty({
+    scanning: true,
+    scanPhase: withServer('slow', 84_000, srv({ phase: 'naming', blockCount: 12, namingWaves: 2 })),
+  });
+  const out = html(el);
+  assert.match(out, /data-scan-server-phase="naming"/);
+  assert.match(visible(el), /naming 12 blocks…/, 'the static "clustering…" is replaced by the real phase');
+  // the client laws still hold — slow keeps its note and the clock keeps counting:
+  assert.match(out, /data-role="scan-slow-note"/);
+  assert.match(visible(el), /1:24/);
+});
+
+test('file_list and clustering server phases each show their real counts', () => {
+  const files = visible(
+    empty({ scanning: true, scanPhase: withServer('clustering', 1_000, srv({ phase: 'file_list', fileCount: 321 })) }),
+  );
+  assert.match(files, /listing 321 files…/);
+  const clustering = visible(
+    empty({ scanning: true, scanPhase: withServer('clustering', 1_000, srv({ phase: 'clustering', nodeCount: 3210 })) }),
+  );
+  assert.match(clustering, /clustering 3,210 nodes…/);
+});
+
+test('no serverPhase degrades to the static client label (retrocompat, byte-identical)', () => {
+  const el = empty({ scanning: true, scanPhase: phase('clustering', 5_000) });
+  const out = html(el);
+  assert.doesNotMatch(out, /data-scan-server-phase=/, 'no attribute when the owner emits none');
+  assert.match(visible(el), /clustering…/);
+});
+
+test('COPY LAW + no fabricated progress on the server-phase panel', () => {
+  const text = decode(
+    html(
+      empty({
+        scanning: true,
+        scanPhase: withServer('slow', 90_000, srv({ phase: 'naming', blockCount: 8, namingWaves: 2 })),
+      }),
+    ).replace(/<[^>]+>/g, ' '),
+  );
+  assert.doesNotMatch(text, /\bproven\b/i);
+  assert.doesNotMatch(text, /\bdone\b/i);
+  assert.doesNotMatch(text, /\bcorrect\b/i);
+  assert.doesNotMatch(text, /%|\bpercent/i);
 });
 
 // ── settled phases + the legacy surface stay byte-compatible ──────────────────

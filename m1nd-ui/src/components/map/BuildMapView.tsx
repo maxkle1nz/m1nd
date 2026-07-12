@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
+import type { SseEvent } from '../../types';
 import {
   brainRefFor,
   repoIdFromSkeletonId,
@@ -28,6 +29,8 @@ import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import { useScanMachine } from '../../hooks/useScanMachine';
+import { useSSE } from '../../hooks/useSSE';
+import { scanServerPhaseFromEvent } from '../../lib/scanMachine';
 import BuildMap from './BuildMap';
 import ReviewRatify from './ReviewRatify';
 
@@ -130,6 +133,23 @@ export default function BuildMapView({
   const scanning = scan.inFlight;
   const scanToast = scan.state.toast;
   const dismissScanToast = scan.dismissToast;
+
+  // Slice 2 (docs/uml/scan-loading.md): while a scan is in flight, subscribe to the
+  // owner's scan-phase narration on the EXISTING `/api/events` channel and feed each
+  // phase to the machine (DISPLAY enrichment — the elapsed clock stays the client's
+  // own). `enabled: scanning` opens the EventSource on SCAN and the useSSE cleanup
+  // closes it on settle/unmount (honest teardown). An owner that emits nothing
+  // leaves the static client label untouched — retrocompat honesta.
+  const scanPhaseDispatch = scan.phase;
+  const onScanSse = useCallback(
+    (event: SseEvent) => {
+      if (event.event_type !== 'scan_progress') return;
+      const server = scanServerPhaseFromEvent(event.data);
+      if (server) scanPhaseDispatch(server);
+    },
+    [scanPhaseDispatch],
+  );
+  useSSE({ onEvent: onScanSse, enabled: scanning });
 
   // The reload landed a store (candidate dress takes over the surface): settle
   // the machine back to idle so a later empty state starts clean.
@@ -351,6 +371,7 @@ export default function BuildMapView({
           phase: scan.state.phase,
           elapsedMs: scan.state.elapsedMs,
           nodeCount: scanNodeCount,
+          serverPhase: scan.state.serverPhase,
         }}
         onCancelScan={scan.abort}
         onReview={openReview}

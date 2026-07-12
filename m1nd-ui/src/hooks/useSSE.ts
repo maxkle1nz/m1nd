@@ -13,9 +13,11 @@ interface UseSSEOptions {
 
 /**
  * Subscribe to server-sent events at /api/events.
- * Listens for named event types: activation, learn, ingest, persist, graph_changed.
- * `graph_changed` (PRD §5.3) fires when an agent mutates the shared graph — the
- * Living Tree uses it to refresh live.
+ * Listens for named event types: activation, learn, ingest, persist, graph_changed,
+ * scan_progress. `graph_changed` (PRD §5.3) fires when an agent mutates the shared
+ * graph — the Living Tree uses it to refresh live. `scan_progress`
+ * (docs/uml/scan-loading.md slice 2) narrates the `skeleton_candidate` scan's real
+ * phases — the Build Map's wait panel subscribes while a scan is in flight.
  * Reconnects automatically on error (exponential backoff, max 30s).
  */
 export function useSSE({ onEvent, onError, enabled = true }: UseSSEOptions = {}) {
@@ -30,7 +32,14 @@ export function useSSE({ onEvent, onError, enabled = true }: UseSSEOptions = {})
       const es = new EventSource(`${BASE_URL}/api/events`);
       esRef.current = es;
 
-      const EVENT_TYPES = ['activation', 'learn', 'ingest', 'persist', 'graph_changed'] as const;
+      const EVENT_TYPES = [
+        'activation',
+        'learn',
+        'ingest',
+        'persist',
+        'graph_changed',
+        'scan_progress',
+      ] as const;
 
       // Listen for named event types (SSE server sends event: <type>)
       for (const eventType of EVENT_TYPES) {
