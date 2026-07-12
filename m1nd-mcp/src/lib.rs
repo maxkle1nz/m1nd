@@ -26,6 +26,9 @@ pub mod boot_memory_handlers;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
 pub mod engine_ops;
+// Human-layer voice slice 1 — the `human_view` card composed into the north
+// packet (m1nd-human-view-v0): the m1nd voice for the human, server-mounted.
+pub mod human_view;
 pub mod instance_registry;
 pub mod layer_handlers;
 pub mod light_author_handlers;

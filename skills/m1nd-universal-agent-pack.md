@@ -62,6 +62,69 @@ unavailable". Do not call this graph staleness.
 `trust_selftest` and `recovery_playbook` are diagnostic. They do not ingest,
 repair, refresh the host, or mutate the graph.
 
+## The m1nd Voice — rendering `human_view`
+
+The north packet carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
+the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + `│`
+gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states `clean | bell |
+coherence | mismatch | needs_ingest`; a mechanical `state_sig`). Render it by
+joining `lines[]` with newlines inside a fenced code block — never re-compose
+it, never decorate it. Every line is a measured fact or a verbatim server
+string (brand law G1: no uncalibrated adjectives, no benefit claims).
+
+**Cadence — the default is NEGATIVE (verbatim law):** Do NOT render the card
+unless m1nd contributed structurally to the mission AND the content is useful
+to the human NOW; never in consecutive messages; never the same state_sig twice
+in a session; on state change or first orient. When in doubt, stay silent —
+silence is the honest card.
+
+**Duties:** translate the card's CONTENT into the conversation's language
+keeping the geometry (gutter at column 6, ≤80 cols) and ids/state tokens
+(`merge_wait`, `needs_ingest`, `full_trust`) intact. The DEEP rung (R2) is the
+agent's: when the human asks ("what's the bell?", "show me m1nd") render a
+deeper card FROM the packet's structured fields (`landing_bell`, the mission
+tray, blocks) in the SAME grammar — never a fact the packet does not carry.
+When a surface cannot hold unicode, apply the 1:1 ASCII map `│`→`|`, `·`→`.`,
+`—`→`-` (widths identical, geometry never moves).
+
+**Attribution — the second half of the voice:** narrate where m1nd helped ONLY
+past the counterfactual test ("without it, would I have decided differently or
+worse?") — it changed a decision, avoided a rediscovery, opened a front, proved
+or refuted something. Consulting without effect = silence; never "used m1nd" as
+merit; facts, never estimated savings (G1).
+
+**The treacherous lexicon (translate these wrong and the human is damaged):**
+
+| term | what it really means |
+|---|---|
+| `abstain` | a calibrated answer ("not enough evidence to act") — never a failure |
+| `insufficient_evidence` | ZERO evidence, the honest cold start — never "medium risk" |
+| `merge_wait` | waiting for the HUMAN stamp — never stuck or blocked |
+| stale (receipt) | aged since it was earned — never invalid |
+| `landed` | reserved for a receipt imported by the human gesture — never "gate green" |
+| ratify | a human-only gesture; no agent ratifies, ever |
+| reception mismatch | the serving brain does not cover YOUR repo — never "m1nd is broken" |
+| fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
+| `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
+| the bell | a call to the human (missions await landing) — never an error |
+| `needs_ingest` | "I don't know this repo yet" + its one-call repair — never a crash |
+| the tray | the human's door to land receipts — agents never land |
+
+**The verb families (translate by family, not tool-by-tool):**
+
+| family | the human metaphor | verbs |
+|---|---|---|
+| orient | the compass | `north`, `orient`, `audit` |
+| retrieve | the flashlight | `seek`, `search`, `glob`, `activate`, `focus` |
+| causality | the X-ray | `impact`, `why`, `trace`, `taint_trace` |
+| simulate | the crystal ball | `predict`, `counterfactual`, `hypothesize`, `epidemic` |
+| memory | the notebook | `memorize`, `boot_memory`, `promote`, `learn` |
+| missions | the order board | `mission_post`, `mission_spawn`, `mission_*` |
+| skeleton | the wall map | `skeleton_candidate`, `candidate_edit`, `system_blocks_*` |
+| proof | the receipt ledger | `receipt_import`, `cross_verify`, `soul_check` |
+| health | the doctor | `doctor`, `trust_selftest`, `health`, `recovery_playbook` |
+| ingestion | the construction site | `ingest`, `auto_ingest_*`, `federate` |
+
 ## Scope Binding Taxonomy
 
 Before using graph results as task truth, classify the binding:
