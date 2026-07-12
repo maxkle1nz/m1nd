@@ -132,7 +132,7 @@ sequenceDiagram
     end
     SK->>ENV: compose (worst-of-top-3 trust_band + cheap binding band)
     ENV->>ENV: weigh_factors folds to weighted score
-    ENV->>ENV: bin via "envelope" row (set by calibrate_envelope; None until run)
+    ENV->>ENV: bin via "envelope" row (set by calibrate_envelope, None until run)
     ENV-->>SK: verdict act|reverify|abstain if calibrated, else capped at reverify -- DARK/advisory
     SK-->>Ag: results (unchanged by envelope) + trust_envelope receipt
 ```

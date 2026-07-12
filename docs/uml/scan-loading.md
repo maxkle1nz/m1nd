@@ -70,7 +70,7 @@ sequenceDiagram
     Note over O: file_list → clustering (Louvain) → naming (≤110s) → persisting
     par owner narrates the real phases (slice 2)
         O-->>S: scan_progress {phase, counts} (fail-open emit)
-        S->>M: phase() — PHASE (serverPhase set; clock untouched)
+        S->>M: phase() — PHASE (serverPhase set, clock untouched)
         M-->>E: server-named phase label
     and the client clock keeps the wait alive
         loop every 1s while in flight
