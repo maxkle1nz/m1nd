@@ -21,9 +21,16 @@
 //!   fit the cap falls WHOLE, never truncated — amendment 5;
 //! - brand law G1 as the field's written law: only measured facts already in
 //!   the packet — no uncalibrated adjective, no benefit claim — amendment 8;
-//! - the mark is the SPINE: the `m1nd` wordmark + `│` (U+2502), both already
-//!   accepted; any future mark (the pulse row awaits the owner's explicit
-//!   stamp) plugs into `compose_voice_signature` alone — amendment 7;
+//! - the mark is the PULSE: the `m1nd` wordmark + a 5-cell pulse row `╷╷╷│╷`
+//!   (`M1ND-VOICE-ALIEN.md` §5 variant C, the owner's explicit stamp
+//!   2026-07-12 — the official signature of the voice). Calm `╷` (U+2577) = a
+//!   vital sign at rest; raised `│` (U+2502) = one calling for the human. The
+//!   cell order is FIXED FOREVER (the anti-equalizer law, pinned by test):
+//!   `trust · graph · focus · bell · coherence`. Read the row as an
+//!   EXPRESSION, never cell-by-cell: all low = calm; one stem up = look. Under
+//!   `caller_root_mismatch` the pulse is DROPPED whole (it would measure the
+//!   wrong brain) and the plain spine `│` returns — the S3 card is its own
+//!   warning. The mark plugs into `compose_voice_signature` alone — amendment 7;
 //! - fail-open: composition is pure and total; `north` never becomes
 //!   unavailable over its own voice.
 
@@ -52,6 +59,16 @@ const SPINE: char = '│';
 /// Field separator inside the identity line (U+00B7).
 const SEP: &str = " · ";
 
+/// The pulse cells (`M1ND-VOICE-ALIEN.md` §5). `╷` (U+2577, narrow-guaranteed —
+/// EAW class N) is a vital sign at rest; `│` (U+2502) is the SAME spine glyph,
+/// raised, so a calling cell reads as a stem standing up out of the calm row.
+/// ASCII fallback is the AGENT's duty (1:1 map `╷`→`.`, `│`→`|`; widths
+/// identical), documented in `M1ND_INSTRUCTIONS` §7 and the three skills.
+const PULSE_CALM: char = '╷';
+const PULSE_RAISED: char = '│';
+/// The pulse row width — FIVE cells, frozen forever (the anti-equalizer law).
+const PULSE_CELLS: usize = 5;
+
 /// Everything the composer needs, lifted from data ALREADY in the packet —
 /// the composer performs no reads of its own (pure, total, fail-open).
 pub struct HumanViewInput<'a> {
@@ -62,6 +79,14 @@ pub struct HumanViewInput<'a> {
     pub node_count: u64,
     /// `memory_exists` — the on-disk durable L1GHT claim count.
     pub memory_count: usize,
+    /// Ratified SystemBlock count of the SERVED brain (slice-2 map fact). Line 1
+    /// gains a `map <N> blocks` segment when `> 0`; a zero omits it (G1: only a
+    /// measured fact). PER-BRAIN — never a cross-brain total.
+    pub ratified_blocks: usize,
+    /// Whether `orient` activated any focus node for this task. Drives the
+    /// pulse's `focus` cell in a POPULATED graph (calm on `needs_ingest`, where
+    /// the `graph` cell already carries the message).
+    pub focus_activated: bool,
     /// `landing_bell.merge_wait` (0 = silent).
     pub merge_wait: usize,
     /// The bell line EXACTLY as pushed into `honest_gaps` (amendment 5).
@@ -89,14 +114,17 @@ pub struct ReceptionMismatch<'a> {
 /// Compose the card. Returns `None` only when nothing can be said honestly
 /// (fail-open: the caller omits the field; `north` never errors here).
 pub fn compose_human_view(input: &HumanViewInput) -> Option<serde_json::Value> {
-    let state_sig = compose_state_sig(input);
+    let pulse = compose_pulse(input);
+    let state_sig = compose_state_sig(input, &pulse);
     let (state, lines) = if let Some(mismatch) = &input.reception_mismatch {
         // Amendment 3: the card IS the warning — zero statistics, they would
-        // describe the wrong brain.
+        // describe the wrong brain. The pulse is DROPPED (it would read the
+        // wrong brain's vitals): S3 renders the plain spine, not the pulse.
         ("mismatch", compose_mismatch_lines(mismatch))
     } else if input.needs_ingest {
-        // Amendment 4: the honest "I don't know this repo yet" card.
-        ("needs_ingest", compose_needs_ingest_lines(input))
+        // Amendment 4: the honest "I don't know this repo yet" card. The pulse
+        // shows with only the `graph` cell raised (`╷│╷╷╷`).
+        ("needs_ingest", compose_needs_ingest_lines(input, &pulse))
     } else {
         let state = if input.merge_wait > 0 {
             "bell"
@@ -105,7 +133,7 @@ pub fn compose_human_view(input: &HumanViewInput) -> Option<serde_json::Value> {
         } else {
             "clean"
         };
-        (state, compose_identity_and_signal_lines(input))
+        (state, compose_identity_and_signal_lines(input, &pulse))
     };
     if lines.is_empty() {
         return None;
@@ -119,9 +147,11 @@ pub fn compose_human_view(input: &HumanViewInput) -> Option<serde_json::Value> {
 }
 
 /// The mechanical anti-repetition key (design §2): `trust | bell | coherence |
-/// reception`. Equal state ⇒ equal signature; agents use it to never render
-/// the same card twice in a session.
-fn compose_state_sig(input: &HumanViewInput) -> String {
+/// reception | pulse`. Equal state ⇒ equal signature; agents use it to never
+/// render the same card twice in a session. The pulse row is appended so a
+/// change in ANY vital sign (graph/focus too, not only the four legacy tokens)
+/// flips the key.
+fn compose_state_sig(input: &HumanViewInput, pulse: &str) -> String {
     let coh = if input.coherence_line.is_some() {
         "sick"
     } else {
@@ -133,17 +163,64 @@ fn compose_state_sig(input: &HumanViewInput) -> String {
         "match"
     };
     format!(
-        "{}|bell:{}|coh:{}|recv:{}",
-        input.trust_mode, input.merge_wait, coh, recv
+        "{}|bell:{}|coh:{}|recv:{}|pulse:{}",
+        input.trust_mode, input.merge_wait, coh, recv, pulse
     )
 }
 
+/// Compose the pulse row (`M1ND-VOICE-ALIEN.md` §5) — FIVE cells in a FROZEN
+/// order (the anti-equalizer law, pinned by test): `trust · graph · focus ·
+/// bell · coherence`. Each cell is calm `╷` or raised `│`:
+/// - **trust** rises when `trust_mode != full_trust`;
+/// - **graph** rises on `needs_ingest` or an empty graph (0 nodes);
+/// - **focus** rises when a POPULATED graph activated no focus node (calm on
+///   `needs_ingest` — there the `graph` cell already carries the message, so
+///   the row reads `╷│╷╷╷`, never `╷││╷╷`);
+/// - **bell** rises when `merge_wait > 0`;
+/// - **coherence** rises on a skeleton-coherence mismatch/stale signal.
+///
+/// The row is composed unconditionally (it is also the anti-repetition
+/// fingerprint); the CARD drops it under `caller_root_mismatch` — S3 renders
+/// the plain spine instead (the vitals would describe the wrong brain).
+fn compose_pulse(input: &HumanViewInput) -> String {
+    let cell = |raised: bool| if raised { PULSE_RAISED } else { PULSE_CALM };
+    // trust stays calm on needs_ingest — there the `graph` cell owns the
+    // message; raising trust too would double-signal (ALIEN §5: `╷│╷╷╷`, one
+    // stem up). trust rises only for a genuinely degraded trust over a usable
+    // graph.
+    let trust = input.trust_mode != "full_trust" && !input.needs_ingest;
+    let graph = input.needs_ingest || input.node_count == 0;
+    let focus = !input.needs_ingest && !input.focus_activated;
+    let bell = input.merge_wait > 0;
+    let coherence = input.coherence_line.is_some();
+    let row: String = [
+        cell(trust),
+        cell(graph),
+        cell(focus),
+        cell(bell),
+        cell(coherence),
+    ]
+    .iter()
+    .collect();
+    debug_assert_eq!(row.chars().count(), PULSE_CELLS, "the pulse row is 5 cells");
+    row
+}
+
 /// Line 1 — THE pluggable-mark seam (amendment 7). The signature prefix is the
-/// wordmark hung on the margin with the spine beside it; a future mark (e.g.
-/// the pulse row — awaiting the owner's explicit stamp) changes THIS function
-/// only, never the composition laws.
-fn compose_voice_signature(content: &str) -> Vec<String> {
-    render_wrapped(&format!("{WORDMARK} {SPINE} "), content)
+/// wordmark hung on the margin followed by the PULSE row (the owner's official
+/// stamp, `M1ND-VOICE-ALIEN.md` §5): `m1nd ╷╷╷│╷  <facts>`. The first pulse
+/// cell sits at column 6, exactly under the continuation gutter's spine — the
+/// lombada is BORN from the pulse. When `pulse` is `None` (S3 mismatch), the
+/// plain spine `m1nd │ ` returns: the pulse would read the wrong brain's
+/// vitals, so the S3 warning card carries no pulse.
+fn compose_voice_signature(pulse: Option<&str>, content: &str) -> Vec<String> {
+    let prefix = match pulse {
+        // wordmark + space + 5-cell pulse + TWO spaces (the ALIEN §5 geometry).
+        Some(cells) => format!("{WORDMARK} {cells}  "),
+        // S3: the plain spine, one space each side (v1 geometry unchanged).
+        None => format!("{WORDMARK} {SPINE} "),
+    };
+    render_wrapped(&prefix, content)
 }
 
 /// Continuation-line prefix: the gutter, spine fixed at column 6.
@@ -158,7 +235,7 @@ fn wrap_prefix() -> String {
 
 /// S0/S1/S2 — identity line + signal lines in priority order (bell before
 /// coherence), each verbatim line whole-or-nothing within the 4-line cap.
-fn compose_identity_and_signal_lines(input: &HumanViewInput) -> Vec<String> {
+fn compose_identity_and_signal_lines(input: &HumanViewInput, pulse: &str) -> Vec<String> {
     // Identity segments: each one a measured fact. A zero-valued segment is
     // OMITTED, never rendered as ornament (the zero only speaks in S4).
     let mut segments: Vec<String> = vec![input.trust_mode.replace('_', " ")];
@@ -168,7 +245,15 @@ fn compose_identity_and_signal_lines(input: &HumanViewInput) -> Vec<String> {
     if input.memory_count > 0 {
         segments.push(format!("{} memories", thousands(input.memory_count as u64)));
     }
-    let mut lines = compose_voice_signature(&segments.join(SEP));
+    // Slice-2 map fact: the served brain's ratified SystemBlock count. Omitted
+    // when zero (G1: only a measured fact; a zero is not "the map exists").
+    if input.ratified_blocks > 0 {
+        segments.push(format!(
+            "map {} blocks",
+            thousands(input.ratified_blocks as u64)
+        ));
+    }
+    let mut lines = compose_voice_signature(Some(pulse), &segments.join(SEP));
 
     // Signal lines — the verbatim honest_gaps strings, priority bell >
     // coherence, whole-or-nothing (amendment 5: never truncated).
@@ -181,9 +266,9 @@ fn compose_identity_and_signal_lines(input: &HumanViewInput) -> Vec<String> {
 
 /// S4 — `needs_ingest`: the zero IS the message (`0 nodes`), the gap string
 /// verbatim, and `next:` only when the whole wrapped line still fits.
-fn compose_needs_ingest_lines(input: &HumanViewInput) -> Vec<String> {
+fn compose_needs_ingest_lines(input: &HumanViewInput, pulse: &str) -> Vec<String> {
     let identity = format!("needs_ingest{SEP}{} nodes", thousands(input.node_count));
-    let mut lines = compose_voice_signature(&identity);
+    let mut lines = compose_voice_signature(Some(pulse), &identity);
     push_whole_or_nothing(&mut lines, NEEDS_INGEST_GAP);
     if !input.next_move.is_empty() {
         push_whole_or_nothing(&mut lines, &format!("next: {}", input.next_move));
@@ -196,7 +281,9 @@ fn compose_needs_ingest_lines(input: &HumanViewInput) -> Vec<String> {
 /// `honest` string verbatim; then bound/yours; then the literal repair call.
 /// ZERO statistics — they would describe the wrong brain.
 fn compose_mismatch_lines(m: &ReceptionMismatch) -> Vec<String> {
-    let mut lines = compose_voice_signature(m.honest);
+    // The pulse is dropped under mismatch (amendment 3 + ALIEN §5): the plain
+    // spine returns because the vitals would describe the wrong brain.
+    let mut lines = compose_voice_signature(None, m.honest);
     push_whole_or_nothing(
         &mut lines,
         &format!("bound: {}{SEP}yours: {}", m.bound_workspace, m.caller_root),
@@ -320,6 +407,8 @@ mod tests {
             trust_mode: "full_trust",
             node_count: 9024,
             memory_count: 30,
+            ratified_blocks: 0,
+            focus_activated: true,
             merge_wait: 0,
             bell_line: None,
             coherence_line: None,
@@ -360,8 +449,8 @@ mod tests {
         let lines = lines_of(&card);
         assert_eq!(lines.len(), 1, "clean state = one line");
         assert_eq!(
-            lines[0], "m1nd │ full trust · 9,024 nodes · 30 memories",
-            "the signature line renders the measured facts (maps segment omitted — not in the packet)"
+            lines[0], "m1nd ╷╷╷╷╷  full trust · 9,024 nodes · 30 memories",
+            "the signature line hangs the calm pulse (all five cells low) before the measured facts (map segment omitted — 0 ratified blocks)"
         );
         assert_cap(&lines);
     }
@@ -493,8 +582,8 @@ mod tests {
         assert_eq!(card["state"], "needs_ingest");
         let lines = lines_of(&card);
         assert_eq!(
-            lines[0], "m1nd │ needs_ingest · 0 nodes",
-            "S4 line 1: the zero is the message"
+            lines[0], "m1nd ╷│╷╷╷  needs_ingest · 0 nodes",
+            "S4 line 1: the graph cell alone is raised (the zero is the message), trust stays calm"
         );
         // The gap string rides verbatim, wrapped.
         let mut rebuilt = String::new();
@@ -571,9 +660,12 @@ mod tests {
             );
         }
         // The state still names the TOP signal (bell) and the sig carries the
-        // coherence truth mechanically.
+        // coherence truth mechanically (bell + coherence cells both raised).
         assert_eq!(card["state"], "bell");
-        assert_eq!(card["state_sig"], "full_trust|bell:3|coh:sick|recv:match");
+        assert_eq!(
+            card["state_sig"],
+            "full_trust|bell:3|coh:sick|recv:match|pulse:╷╷╷││"
+        );
     }
 
     /// The state_sig is stable for equal state and matches the pinned example.
@@ -585,9 +677,15 @@ mod tests {
         let a = compose_human_view(&input).expect("card composes");
         let b = compose_human_view(&input).expect("card composes");
         assert_eq!(a["state_sig"], b["state_sig"], "equal state ⇒ equal sig");
-        assert_eq!(a["state_sig"], "full_trust|bell:3|coh:ok|recv:match");
+        assert_eq!(
+            a["state_sig"],
+            "full_trust|bell:3|coh:ok|recv:match|pulse:╷╷╷│╷"
+        );
         let clean = compose_human_view(&clean_input()).expect("card composes");
-        assert_eq!(clean["state_sig"], "full_trust|bell:0|coh:ok|recv:match");
+        assert_eq!(
+            clean["state_sig"],
+            "full_trust|bell:0|coh:ok|recv:match|pulse:╷╷╷╷╷"
+        );
         assert_ne!(
             a["state_sig"], clean["state_sig"],
             "state change ⇒ sig change"
@@ -603,8 +701,8 @@ mod tests {
         let card = compose_human_view(&input).expect("card composes");
         assert_eq!(
             lines_of(&card)[0],
-            "m1nd │ full trust · 9,024 nodes",
-            "a zero memories segment is omitted, never `0 memories`"
+            "m1nd ╷╷╷╷╷  full trust · 9,024 nodes",
+            "a zero memories segment is omitted, never `0 memories` (calm pulse hangs on the margin)"
         );
     }
 
@@ -617,8 +715,104 @@ mod tests {
         assert_eq!(thousands(0), "0");
     }
 
-    /// The geometry law: line 1 hangs the wordmark; every later line keeps the
-    /// spine fixed at column 6 (5 spaces, `│`, space).
+    /// The PULSE is the official signature (owner's stamp, ALIEN §5). The cell
+    /// order is FROZEN FOREVER — `trust · graph · focus · bell · coherence` —
+    /// and this test is the anti-equalizer LAW: each cell rises ONLY on its own
+    /// vital sign, the row is always 5 cells, and calm is all-low `╷╷╷╷╷`.
+    #[test]
+    fn pulse_is_the_fixed_five_cell_signature() {
+        // clean: every vital at rest.
+        assert_eq!(compose_pulse(&clean_input()), "╷╷╷╷╷");
+
+        // bell alone (cell 4).
+        let mut i = clean_input();
+        i.merge_wait = 3;
+        i.bell_line = Some(BELL_3);
+        assert_eq!(compose_pulse(&i), "╷╷╷│╷");
+
+        // coherence alone (cell 5).
+        let mut i = clean_input();
+        i.coherence_line = Some(COHERENCE_LINE);
+        assert_eq!(compose_pulse(&i), "╷╷╷╷│");
+
+        // degraded trust over a usable graph (cell 1).
+        let mut i = clean_input();
+        i.trust_mode = "degraded_host_tool_surface";
+        assert_eq!(compose_pulse(&i), "│╷╷╷╷");
+
+        // no focus activated over a populated graph (cell 3).
+        let mut i = clean_input();
+        i.focus_activated = false;
+        assert_eq!(compose_pulse(&i), "╷╷│╷╷");
+
+        // needs_ingest: the graph cell ALONE (cell 2) — trust stays calm.
+        let mut i = clean_input();
+        i.trust_mode = "needs_ingest";
+        i.node_count = 0;
+        i.needs_ingest = true;
+        i.focus_activated = false;
+        assert_eq!(compose_pulse(&i), "╷│╷╷╷");
+
+        // every cell up at once, still exactly 5.
+        let mut i = clean_input();
+        i.trust_mode = "degraded";
+        i.node_count = 0;
+        i.focus_activated = false;
+        i.merge_wait = 1;
+        i.bell_line = Some(BELL_3);
+        i.coherence_line = Some(COHERENCE_LINE);
+        let all = compose_pulse(&i);
+        assert_eq!(all, "│││││");
+        assert_eq!(all.chars().count(), PULSE_CELLS);
+    }
+
+    /// Under mismatch the pulse is DROPPED: line 1 is the plain spine, never a
+    /// pulse cell — the vitals would describe the wrong brain (amendment 3).
+    #[test]
+    fn mismatch_drops_the_pulse_for_the_plain_spine() {
+        let mut input = clean_input();
+        input.reception_mismatch = Some(ReceptionMismatch {
+            honest: "this graph does NOT cover your repo",
+            caller_root: "/tmp/repo-beta",
+            bound_workspace: "/tmp/repo-alpha",
+        });
+        let card = compose_human_view(&input).expect("card composes");
+        let line0 = lines_of(&card)[0].as_str().unwrap().to_string();
+        assert!(
+            line0.starts_with("m1nd │ "),
+            "S3 uses the plain spine: {line0:?}"
+        );
+        assert!(
+            !line0.contains('╷'),
+            "no calm pulse cell rides the mismatch card: {line0:?}"
+        );
+    }
+
+    /// Slice-2 map fact: a served brain with ratified blocks gains a
+    /// `map <N> blocks` segment on line 1; zero ratified blocks omit it (G1).
+    #[test]
+    fn map_segment_rides_only_when_blocks_are_ratified() {
+        let mut input = clean_input();
+        input.ratified_blocks = 12;
+        let card = compose_human_view(&input).expect("card composes");
+        assert_eq!(
+            lines_of(&card)[0],
+            "m1nd ╷╷╷╷╷  full trust · 9,024 nodes · 30 memories · map 12 blocks",
+            "the ratified-block count rides as the map fact"
+        );
+
+        // zero ratified blocks: the segment is omitted entirely.
+        let zero = compose_human_view(&clean_input()).expect("card composes");
+        assert!(
+            !lines_of(&zero)[0].as_str().unwrap().contains("map"),
+            "a zero ratified-block count omits the map segment"
+        );
+        assert_cap(&lines_of(&card));
+    }
+
+    /// The geometry law: line 1 hangs the wordmark + the pulse, whose FIRST
+    /// cell sits at column 6 — exactly where every later line keeps the spine
+    /// (5 spaces, `│`, space). The lombada is born from the pulse.
     #[test]
     fn gutter_is_fixed_at_column_six() {
         let mut input = clean_input();
@@ -626,7 +820,17 @@ mod tests {
         input.bell_line = Some(BELL_3);
         let card = compose_human_view(&input).expect("card composes");
         let lines = lines_of(&card);
-        assert!(lines[0].as_str().unwrap().starts_with("m1nd │ "));
+        let l0: Vec<char> = lines[0].as_str().unwrap().chars().collect();
+        assert_eq!(
+            &l0[..5],
+            &['m', '1', 'n', 'd', ' '],
+            "wordmark hangs on the margin"
+        );
+        assert!(
+            l0[5] == '╷' || l0[5] == '│',
+            "the first pulse cell sits at column 6, under the gutter spine: {:?}",
+            lines[0]
+        );
         for line in lines.iter().skip(1) {
             let s = line.as_str().unwrap();
             let chars: Vec<char> = s.chars().collect();
