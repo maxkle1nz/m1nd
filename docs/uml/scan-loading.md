@@ -5,14 +5,19 @@ POST that the owner legitimately holds for minutes on a big graph — and until 
 sheet's fix the UI collapsed that whole wait into a single boolean (`scanning`), so
 the button read "Scanning…" and the screen looked frozen. This sheet grounds the
 real server timeline (why it is slow, with code anchors), defines the client-side
-loading state machine that now dresses the wait honestly, and declares the gap:
-the owner still emits NO scan progress events (slice 2, designed below, not built).
+loading state machine that dresses the wait honestly, AND — slice 2, now BUILT —
+the owner narrates its real phases on the EXISTING SSE channel so the wait panel
+shows the server's actual phase, not a static guess.
 
-**Code homes:** the pure machine `m1nd-ui/src/lib/scanMachine.ts` · the React driver
-`m1nd-ui/src/hooks/useScanMachine.ts` · the write owner `m1nd-ui/src/components/map/BuildMapView.tsx`
-(`handleScan`) · the wait panel `m1nd-ui/src/components/map/BuildMap.tsx` (`BuildMapEmpty`)
-· the abortable client `m1nd-ui/src/api/client.ts` (`skeletonCandidate`) · the server
-handler `m1nd-mcp/src/system_blocks_handlers.rs:218` (read-only for this slice).
+**Code homes:** the pure machine `m1nd-ui/src/lib/scanMachine.ts` (`PHASE` event +
+`serverPhaseLabel`) · the React driver `m1nd-ui/src/hooks/useScanMachine.ts`
+(`phase()`) · the SSE hook `m1nd-ui/src/hooks/useSSE.ts` (`scan_progress`) · the
+write owner `m1nd-ui/src/components/map/BuildMapView.tsx` (`handleScan` + the
+in-flight SSE subscription) · the wait panel `m1nd-ui/src/components/map/BuildMap.tsx`
+(`BuildMapEmpty`) · the abortable client `m1nd-ui/src/api/client.ts`
+(`skeletonCandidate`) · the server handler `m1nd-mcp/src/system_blocks_handlers.rs`
+(`handle_skeleton_candidate`, now emitting) + the sink wiring
+`m1nd-mcp/src/http_server.rs` (`scan_progress_sink`).
 
 ## The measured truth — where the minutes go
 
@@ -31,11 +36,14 @@ open across the WHOLE pipeline and nothing streams back until the final JSON:
 
 So with a LIVE naming runner announced, one scan legitimately holds the POST for
 up to ~2 minutes before the heuristic fallback — exactly the "frozen for minutes"
-report this fix answers. Progress events: the owner HAS an SSE channel
-(`/api/events`, e.g. `apply_batch_progress`, http_server.rs:70) but the scan path
-emits **nothing** on it. The client therefore cannot know the server phase — the
-honest client-side maximum is a REAL elapsed clock + honest copy, never a
-fabricated percentage. That is what this machine renders.
+report this fix answers. Progress events: the owner has an SSE channel
+(`/api/events`, e.g. `apply_batch_progress`, http_server.rs) and — slice 2 — the
+scan path now emits `scan_progress` phase events on it (the same sink pattern). The
+client's elapsed clock stays the client's own; the SERVER states the phase. Neither
+side fabricates a percentage — the events are phase boundaries and the counts the
+owner actually computed (files, nodes, blocks, the naming budget's wave estimate).
+When no SSE flows (older owner / closed channel) the panel degrades to exactly the
+pre-slice-2 behavior: a REAL elapsed clock + the static client phase label.
 
 ## Sequence — click → held POST → candidate dress
 
@@ -47,20 +55,28 @@ sequenceDiagram
     participant M as useScanMachine (reducer+timer)
     participant C as api.skeletonCandidate
     participant O as owner handle_skeleton_candidate
+    participant S as SSE /api/events (useSSE)
 
     H->>E: click "Scan this repo"
     E->>V: onScan()
     V->>M: begin() — SCAN
-    Note over M: idle → submitting (clock armed, old toast cleared)
+    Note over M: idle → submitting (clock armed, old toast + serverPhase cleared)
     V->>C: POST /api/tools/skeleton_candidate (OCC key, AbortSignal)
     V->>M: sent() — SENT
     Note over M: submitting → clustering
     V-->>C: api.graphStats (best-effort node count for the copy)
+    V->>S: useSSE subscribes while isScanInFlight
     activate O
-    Note over O: file list → Louvain → naming batch (≤110s budget) → persist
-    loop every 1s while in flight
-        M->>M: TICK — elapsed advances · ≥10s promotes clustering → slow
-        M-->>E: phase + mm:ss + (slow note past threshold)
+    Note over O: file_list → clustering (Louvain) → naming (≤110s) → persisting
+    par owner narrates the real phases (slice 2)
+        O-->>S: scan_progress {phase, counts} (fail-open emit)
+        S->>M: phase() — PHASE (serverPhase set; clock untouched)
+        M-->>E: server-named phase label
+    and the client clock keeps the wait alive
+        loop every 1s while in flight
+            M->>M: TICK — elapsed advances · ≥10s promotes clustering → slow
+            M-->>E: mm:ss + (slow note past threshold)
+        end
     end
     alt human stops waiting
         H->>E: click "Stop waiting"
@@ -97,6 +113,9 @@ stateDiagram-v2
     clustering --> clustering : TICK < slowAfterMs
     clustering --> slow : TICK >= slowAfterMs (10s)
     slow --> slow : TICK (clock keeps counting)
+    submitting --> submitting : PHASE (serverPhase set — display only)
+    clustering --> clustering : PHASE (serverPhase set — display only)
+    slow --> slow : PHASE (serverPhase set — display only)
     clustering --> candidate_ready : RESOLVED reloading=true (ok/conflict)
     slow --> candidate_ready : RESOLVED reloading=true
     submitting --> candidate_ready : RESOLVED reloading=true
@@ -113,9 +132,12 @@ stateDiagram-v2
 ```
 
 State fields: `startedAt` (epoch ms of SCAN), `elapsedMs` (advanced only by
-event-carried clocks, floored at 0), `toast` (the honest outcome; `null` in flight).
-`isScanInFlight` names exactly {submitting, clustering, slow} — the button locks and
-the wait panel shows precisely there.
+event-carried clocks, floored at 0), `toast` (the honest outcome; `null` in flight),
+`serverPhase` (the owner's last-narrated phase, or `null` when none flows — cleared
+on SCAN/ABORT/RESET). `isScanInFlight` names exactly {submitting, clustering, slow}
+— the button locks and the wait panel shows precisely there. `PHASE` sets
+`serverPhase` and NOTHING else: it never moves the clock or the phase machine, and
+it is a no-op outside flight (TOTAL law), so a late/stray phase cannot wedge it.
 
 ## Invariants
 
@@ -124,9 +146,11 @@ the wait panel shows precisely there.
   (`scanSlowNote`, with the REAL node count when `graphStats` landed) and keeps
   counting. The screen can no longer look frozen while the owner clusters.
 - **REAL EVENTS ONLY / NO FABRICATED PROGRESS** — the machine advances on
-  response / error / gesture / timer tick. There is no percentage anywhere in the
-  wait surfaces (the owner emits no progress; inventing one would lie). Unit tests
-  pin `%`-absence on every copy string.
+  response / error / gesture / timer tick, and now on the owner's `PHASE` (which
+  changes only the label, never the clock). There is no percentage anywhere in the
+  wait surfaces — the owner narrates PHASES and COUNTS (a fact), never a fraction;
+  inventing one would lie. Unit tests pin `%`-absence on every copy string,
+  client- and server-label alike (`scanMachine.test.ts`, `scan-wait.test.tsx`).
 - **TOTAL REDUCER** — every (state, event) pair is defined; inapplicable events
   return the SAME state reference. A late RESOLVED after an abort, a stray TICK
   after settle, and a double SCAN are provable no-ops. The machine cannot wedge.
@@ -140,32 +164,53 @@ the wait panel shows precisely there.
 - **LEGACY SURFACE BYTE-COMPATIBLE** — `scanning`/`scanToast`/`onScan` props behave
   as before (button lock + "Scanning…"); the wait panel renders only when the new
   `scanPhase` view is provided. All pre-existing specs pass unmodified.
+- **SERVER PHASE IS DISPLAY-ONLY + DEGRADES (slice 2)** — the owner's `scan_progress`
+  phase only NAMES the wait; it never drives the client machine, and its emit is
+  fail-open on the owner. When the channel is silent (older owner / closed) the
+  panel shows the static client label with no loss (`data-scan-server-phase` is
+  simply absent). The scan verb's response is byte-identical with or without a
+  listener — a parallel narration layer, not a semantics change.
 
 ## Proof
 
 - Unit (node:test): `m1nd-ui/src/lib/scanMachine.test.ts` — every transition, the
   slow threshold (default + injectable), totality/no-op law, abort copy, elapsed
-  floor, copy law. `m1nd-ui/src/components/map/scan-wait.test.tsx` — the panel at
-  the pixel boundary per phase, the neutral canceled tint, the legacy surface.
+  floor, copy law, AND slice 2: `PHASE` sets `serverPhase` without moving the clock,
+  is a no-op outside flight, is cleared on SCAN/ABORT, the snake_case→camelCase
+  mapper drops malformed events, and `serverPhaseLabel`/`scanDisplayLabel` hold the
+  copy law. `m1nd-ui/src/components/map/scan-wait.test.tsx` — the panel per phase,
+  the neutral canceled tint, the legacy surface, AND the owner-named phase riding
+  the panel + the no-serverPhase degradation.
+- Rust (cargo test -p m1nd-mcp): `system_blocks_handlers.rs` — the emitted phase
+  ORDER with and without a live runner, the `failed` terminal on a persist
+  conflict, and the no-fraction event shape; `http_server.rs` — the sink flattens
+  the phase + envelope, and is fail-open with no subscriber.
 - Browser (deterministic Playwright, `npm run test:e2e`, own Vite server on a
   private port, whole owner REST surface mocked in-page — no live owner touched):
   `m1nd-ui/e2e/scan-loading.spec.ts` — the counting clock, the earned slow note,
-  error verbatim + retry landing the candidate banner, stop-waiting to idle.
+  error verbatim + retry landing the candidate banner, stop-waiting to idle, AND
+  the owner narrating file_list → clustering → naming with the panel tracking each.
 
-## Gap ledger — slice 2: server progress events (NOT built)
+## Slice 2 — server progress events (DELIVERED)
 
-The honest client-side ceiling is reached; the next truth increment must come from
-the owner. Proposed contract (design only — the server is untouched by this slice):
+The client-side ceiling is passed: the owner now narrates on the EXISTING
+`/api/events` channel, and the UI shows the real phase.
 
-- `handle_skeleton_candidate` emits SSE events on the EXISTING `/api/events`
-  channel (the `apply_batch_progress` pattern, http_server.rs:70):
-  `{"event_type":"scan_progress","data":{"phase":"file_list|clustering|naming|persisting","block_count":N,"naming_wave":i,"naming_waves":n}}`
-  — real phase boundaries the pipeline already crosses, plus the naming wave
-  counter the batch loop already knows. No percentages here either: phases and
-  wave counts are facts.
-- The UI subscribes while `isScanInFlight` (the `useSSE` hook already exists) and
-  replaces the generic phase label with the server-named phase; elapsed stays the
-  client's own clock. Absent events (older owner) degrade to exactly this slice's
-  behavior — retrocompat honesta.
-- Owner-side cost: four `event_tx.send` calls in an already-blocking handler —
-  cheap; no new locks.
+- `handle_skeleton_candidate` emits `scan_progress` at each real boundary via the
+  session's `scan_progress_sink` (the `apply_batch_progress_sink` pattern, wired
+  per-request in `http_server.rs` for HTTP + stdio):
+  `{"event_type":"scan_progress","data":{"phase":"file_list|clustering|naming|persisting|done|failed","file_count":N,"node_count":N,"edge_count":N,"block_count":N,"naming_waves":n,"error":"…"}}`.
+  Only the fields the owner has at that boundary are present; no percentage anywhere.
+- **Honest divergence from the original design** — the ledger imagined a
+  `naming_wave i/N` counter "the batch loop already knows". It does NOT: `run_scan_naming`
+  makes ONE opaque daemon call for all packets (the `div_ceil(4)` "waves" only size
+  the timeout budget). Splitting it into per-wave calls would change the verb's
+  semantics (forbidden), so the `naming` phase emits ONE boundary event carrying the
+  block count + that wave ESTIMATE (a real number), and the client's elapsed clock
+  narrates the wait. No fabricated per-wave sub-progress is invented.
+- The UI subscribes while `isScanInFlight` (`useSSE`, `scan_progress` added to its
+  event list) and replaces the static phase label with the server-named phase via
+  the `PHASE` machine event; elapsed stays the client's own clock. Absent events
+  (older owner) degrade to the pre-slice-2 behavior — retrocompat honesta.
+- Owner-side cost: a handful of `event_tx.send` calls in the already-blocking
+  handler — cheap, fail-open, no new locks.
