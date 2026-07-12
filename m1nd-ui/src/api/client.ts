@@ -285,6 +285,10 @@ export const api = {
   skeletonCandidate: (
     input: { expectedStoreVersion: number | null; reviewLimit?: number; naming?: 'auto' | 'heuristic' },
     brain?: string | null,
+    // The scan is one LONG synchronous POST on the owner (clustering + a naming
+    // batch that can wait ~2 minutes) — the wait panel's "stop waiting" gesture
+    // aborts the browser side through this signal (the owner still finishes).
+    signal?: AbortSignal,
   ) =>
     apiFetch<{ result: SkeletonCandidateResult }>(withBrain('/api/tools/skeleton_candidate', brain), {
       method: 'POST',
@@ -294,6 +298,7 @@ export const api = {
         ...(input.reviewLimit != null ? { review_limit: input.reviewLimit } : {}),
         naming: input.naming ?? 'auto',
       }),
+      ...(signal != null ? { signal } : {}),
     }).then((r) => r.result),
 
   /**

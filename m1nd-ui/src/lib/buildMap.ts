@@ -604,7 +604,9 @@ export function reconcileSummary(report: ReconcileReport): string {
   return `${boundaries} · ${report.unmapped_total} unmapped · store v${report.store_version}`;
 }
 
-export type ReconcileToastKind = 'ok' | 'conflict' | 'readonly' | 'error';
+/** `canceled` is the scan wait's user-abort note (scanMachine): not a failure —
+ *  a neutral tint. The reconcile/ratify error grammar never produces it. */
+export type ReconcileToastKind = 'ok' | 'conflict' | 'readonly' | 'error' | 'canceled';
 export interface ReconcileToast {
   kind: ReconcileToastKind;
   text: string;

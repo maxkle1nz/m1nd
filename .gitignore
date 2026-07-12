@@ -82,3 +82,8 @@ docs/internal/
 /.claude/
 /CLAUDE.md
 m1nd-ingest/examples/xray_ingest.rs
+
+# Playwright e2e (m1nd-ui) — runner outputs + proof screenshots stay untracked
+m1nd-ui/test-results/
+m1nd-ui/playwright-report/
+m1nd-ui/e2e/artifacts/

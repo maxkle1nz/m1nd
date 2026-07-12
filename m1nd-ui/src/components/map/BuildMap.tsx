@@ -19,6 +19,14 @@ import {
   type ReconcileToast,
   type SystemBlocksSnapshot,
 } from '../../lib/buildMap';
+import {
+  formatElapsed,
+  isScanInFlight,
+  scanPhaseLabel,
+  scanSlowNote,
+  scanWaitCopy,
+  type ScanPhaseName,
+} from '../../lib/scanMachine';
 import { Icon } from '../../lib/icons/registry';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import BlockCard from './BlockCard';
@@ -63,6 +71,14 @@ export interface BuildMapProps {
   scanToast?: ReconcileToast | null;
   /** Dismiss the scan toast. */
   onDismissScanToast?: () => void;
+  /** The scan loading state machine's view (scanMachine, docs/uml/scan-loading.md):
+   *  while in flight the empty state shows the wait panel — real phase + a live
+   *  elapsed clock + the honest "takes a while" note past the slow threshold. The
+   *  NEVER-DEAD law: with this present, the wait always has visible movement. */
+  scanPhase?: { phase: ScanPhaseName; elapsedMs: number; nodeCount: number | null } | null;
+  /** Stop WAITING (aborts the fetch; the owner may still finish — the honest
+   *  canceled toast says so). Renders the panel's "Stop waiting" button. */
+  onCancelScan?: () => void;
   /** F0c §5 — open the Review-&-ratify walk (the candidate banner's button). */
   onReview?: () => void;
   /** F11-c §3a — dispatch the curation mission (the heavy-case escape hatch):
@@ -81,12 +97,14 @@ export interface BuildMapProps {
 }
 
 /** Toast tint by kind (F3b §D) — all sanctioned non-violet tokens: success = sage,
- *  conflict/read-only = amber warn, error = clay. */
+ *  conflict/read-only = amber warn, error = clay, canceled = neutral bone (a
+ *  user gesture, not a failure). */
 const TOAST_CLASSES: Record<ReconcileToast['kind'], string> = {
   ok: 'border-verdict-act/50 bg-verdict-act-tint/40 text-ink',
   conflict: 'border-verdict-reverify/50 bg-verdict-reverify-tint/40 text-ink',
   readonly: 'border-verdict-reverify/50 bg-verdict-reverify-tint/40 text-ink',
   error: 'border-state-failure/50 bg-state-failure-tint/40 text-ink',
+  canceled: 'border-ink/20 bg-bone text-ink',
 };
 
 /** §1.3 EMPTY — no skeleton bound for this repo. The honest backend copy, the
@@ -101,13 +119,18 @@ function BuildMapEmpty({
   scanning = false,
   scanToast = null,
   onDismissScanToast,
+  scanPhase = null,
+  onCancelScan,
 }: {
   honest: string | null;
   onScan?: () => void;
   scanning?: boolean;
   scanToast?: ReconcileToast | null;
   onDismissScanToast?: () => void;
+  scanPhase?: { phase: ScanPhaseName; elapsedMs: number; nodeCount: number | null } | null;
+  onCancelScan?: () => void;
 }) {
+  const waiting = scanPhase != null && isScanInFlight(scanPhase.phase);
   return (
     <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-empty">
       <div className="max-w-sm text-center space-y-3 px-6">
@@ -133,6 +156,44 @@ function BuildMapEmpty({
             <p className="text-[10px] text-ink-soft mt-1">
               the engine proposes blocks; you ratify them — auto-clustering only ever produces a candidate
             </p>
+          </div>
+        )}
+
+        {/* The wait panel (scanMachine, NEVER-DEAD law): while the scan request is
+            out, the screen shows the REAL phase + a live elapsed clock — never a
+            fabricated percentage (the owner emits no progress; we never invent
+            one). Past the slow threshold the panel SAYS the wait is long and keeps
+            counting. Calm paper-and-ink: a soft pulsing dot, tabular digits. */}
+        {waiting && scanPhase && (
+          <div
+            data-role="scan-wait"
+            data-scan-phase={scanPhase.phase}
+            className="rounded-lg border border-ink/15 bg-bone px-3 py-2.5 text-left space-y-1.5"
+          >
+            <div className="flex items-center gap-2 text-xs text-ink font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-ink/50 animate-pulse shrink-0" aria-hidden />
+              <span data-role="scan-phase-label">{scanPhaseLabel(scanPhase.phase)}</span>
+              <span data-role="scan-elapsed" className="ml-auto tabular-nums text-ink-soft">
+                {formatElapsed(scanPhase.elapsedMs)}
+              </span>
+            </div>
+            <p className="text-[10px] text-ink-soft">{scanWaitCopy(scanPhase.nodeCount)}</p>
+            {scanPhase.phase === 'slow' && (
+              <p data-role="scan-slow-note" className="text-[10px] text-ink-soft">
+                {scanSlowNote(scanPhase.nodeCount)}
+              </p>
+            )}
+            {onCancelScan && (
+              <button
+                type="button"
+                data-role="scan-cancel"
+                onClick={onCancelScan}
+                title="closes this request — the owner may still finish and write the candidate"
+                className="text-[10px] font-mono text-ink-soft underline decoration-ink/30 hover:text-ink"
+              >
+                Stop waiting
+              </button>
+            )}
           </div>
         )}
 
@@ -270,6 +331,8 @@ export default function BuildMap({
   scanning = false,
   scanToast = null,
   onDismissScanToast,
+  scanPhase = null,
+  onCancelScan,
   onReview,
   onSendCuration,
   sendingCuration = false,
@@ -299,6 +362,8 @@ export default function BuildMap({
         scanning={scanning}
         scanToast={scanToast}
         onDismissScanToast={onDismissScanToast}
+        scanPhase={scanPhase}
+        onCancelScan={onCancelScan}
       />
     );
   }

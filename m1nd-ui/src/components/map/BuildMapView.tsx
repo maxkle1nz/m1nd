@@ -8,7 +8,7 @@
  * ratify (all / selected). Each write is OCC-keyed on the store_version this
  * surface read; success and conflicts reload (never a silent merge).
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import {
   brainRefFor,
@@ -27,6 +27,7 @@ import { composeCurationPacket, dispatchCuration } from '../../lib/curation';
 import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
+import { useScanMachine } from '../../hooks/useScanMachine';
 import BuildMap from './BuildMap';
 import ReviewRatify from './ReviewRatify';
 
@@ -55,9 +56,13 @@ export default function BuildMapView({
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
   // F0c §5 — the scan gesture; F11-c — the editor. The write owner runs the
-  // verbs, owns the honest toasts, and reloads.
-  const [scanning, setScanning] = useState(false);
-  const [scanToast, setScanToast] = useState<ReconcileToast | null>(null);
+  // verbs, owns the honest toasts, and reloads. The scan's in-flight lifecycle is
+  // the scanMachine (docs/uml/scan-loading.md): named phases + a live elapsed
+  // clock + the honest slow note — the button never looks dead again.
+  const scan = useScanMachine();
+  // The REAL node count behind the wait copy ("clustering N nodes…"). Read once
+  // per gesture from /api/graph/stats — never invented; null keeps the copy generic.
+  const [scanNodeCount, setScanNodeCount] = useState<number | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [ratifying, setRatifying] = useState(false);
   const [ratifyToast, setRatifyToast] = useState<ReconcileToast | null>(null);
@@ -93,24 +98,44 @@ export default function BuildMapView({
 
   // The scan gesture (F0c §5): OCC-key on the store_version we read (null on the
   // first scan — no store yet), run `skeleton_candidate` with naming:"auto", and
-  // reduce it to a toast + reload (the pure `runScan`).
+  // reduce it to a toast + reload (the pure `runScan`). The machine wraps the
+  // whole wait: SCAN → SENT → ticking clustering/slow → RESOLVED (or the user's
+  // ABORT — in which case the late settle is ignored; the reducer is total).
   const handleScan = useCallback(async () => {
-    if (scanning) return;
+    const controller = scan.begin();
+    if (controller == null) return; // one gesture at a time — a click mid-flight is refused
     const version = snapshot?.store?.store_version ?? snapshot?.store_version ?? null;
-    setScanning(true);
-    try {
-      const { toast: t, shouldReload } = await runScan(
-        () => api.skeletonCandidate({ expectedStoreVersion: version, naming: 'auto' }, brainRoot),
-        version,
-      );
-      setScanToast(t);
-      if (shouldReload) reload();
-    } finally {
-      setScanning(false);
-    }
-  }, [scanning, snapshot, reload, brainRoot]);
+    // Best-effort node count for the honest wait copy (a pure read; failure keeps
+    // the generic copy — never a fabricated number).
+    api
+      .graphStats(brainRoot)
+      .then((s) => setScanNodeCount(s.node_count))
+      .catch(() => setScanNodeCount(null));
+    const settled = runScan(
+      () =>
+        api.skeletonCandidate(
+          { expectedStoreVersion: version, naming: 'auto' },
+          brainRoot,
+          controller.signal,
+        ),
+      version,
+    );
+    scan.sent(); // the POST left the browser — the wait is now the server's
+    const { toast: t, shouldReload } = await settled;
+    if (controller.signal.aborted) return; // the human stopped waiting — ABORTED already settled it
+    scan.resolve(t, shouldReload);
+    if (shouldReload) reload();
+  }, [scan, snapshot, reload, brainRoot]);
 
-  const dismissScanToast = useCallback(() => setScanToast(null), []);
+  const scanning = scan.inFlight;
+  const scanToast = scan.state.toast;
+  const dismissScanToast = scan.dismissToast;
+
+  // The reload landed a store (candidate dress takes over the surface): settle
+  // the machine back to idle so a later empty state starts clean.
+  useEffect(() => {
+    if (snapshot?.present === true && scan.state.phase === 'candidate_ready') scan.reset();
+  }, [snapshot, scan]);
 
   // F11-c §4b — ONE gesture batch through `candidate_edit`, OCC-keyed on the
   // version this surface read. Success/conflict reload; a refusal informs.
@@ -322,6 +347,12 @@ export default function BuildMapView({
         scanning={scanning}
         scanToast={scanToast}
         onDismissScanToast={dismissScanToast}
+        scanPhase={{
+          phase: scan.state.phase,
+          elapsedMs: scan.state.elapsedMs,
+          nodeCount: scanNodeCount,
+        }}
+        onCancelScan={scan.abort}
         onReview={openReview}
         onSendCuration={handleSendCuration}
         sendingCuration={sendingCuration}

@@ -50,12 +50,15 @@ import {
 } from '../../lib/candidateEdit';
 import { Icon } from '../../lib/icons/registry';
 
-/** Toast tint by kind — the shared write-toast palette (all sanctioned non-violet). */
+/** Toast tint by kind — the shared write-toast palette (all sanctioned non-violet).
+ *  `canceled` exists for record totality (the scan wait's user-abort note); the
+ *  ratify/edit grammar never produces it here. */
 const TOAST_CLASSES: Record<WriteToast['kind'], string> = {
   ok: 'border-verdict-act/50 bg-verdict-act-tint/40 text-ink',
   conflict: 'border-verdict-reverify/50 bg-verdict-reverify-tint/40 text-ink',
   readonly: 'border-verdict-reverify/50 bg-verdict-reverify-tint/40 text-ink',
   error: 'border-state-failure/50 bg-state-failure-tint/40 text-ink',
+  canceled: 'border-ink/20 bg-bone text-ink',
 };
 
 export interface ReviewRatifyProps {
