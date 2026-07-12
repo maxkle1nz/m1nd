@@ -217,7 +217,7 @@ classDiagram
 
 ```mermaid
 sequenceDiagram
-    participant A as session bound to brain A (cherry)
+    participant A as session bound to brain A (loja)
     participant PR as promote (C8.2 + C8.3, exists)
     participant M as MEDULLA (doctrine tier)
     participant POL as federation_policy (new wire)
@@ -228,14 +228,14 @@ sequenceDiagram
     A->>PR: promote {brain A, claim, reason}
     PR->>PR: C8.3 — verified-only gate passes
     PR->>PR: C8.2 — evidence re-anchored origin-qualified
-    PR->>M: medulla copy + Origin-Brain cherry + Promoted-By + reason
+    PR->>M: medulla copy + Origin-Brain loja + Promoted-By + reason
     Note over M: the project original stays — promotion ELEVATES, never moves
     B->>M: default beat — own store + medulla (pull law, unchanged)
     M->>POL: is brain A visible to this crossing
     alt owner-personal (default)
         POL-->>M: yes — all owned brains cross
         M-->>B: claim + the provenance line rendered VERBATIM
-        Note over B: "promoted from cherry · June · by agent — reason"
+        Note over B: "promoted from loja · June · by agent — reason"
         B->>B: the pattern is APPLIED in brain B's work
         B->>RM: learn feedback not-wrong — ONE reuse event counted
     else brain A marked isolated (future client case)

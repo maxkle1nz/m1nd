@@ -69,7 +69,7 @@ Four connections make the organism see, heal, learn, and span itself:
    exactly that: the 2026-07-06 worktree collision, the 2026-07-10 twin-brain incident —
    both discovered after the damage).
 4. **Federate 360** (the portfolio organism): the owner's brains stop being silos —
-   doctrine and patterns cross with provenance always visible (*"cherry cured this pattern
+   doctrine and patterns cross with provenance always visible (*"brain loja cured this pattern
    in June; this memory came from there"*), under the medulla's pull-only law, never code,
    never across client boundaries.
 
@@ -351,7 +351,7 @@ presence the registry did not serve (INV-10's discipline applied to sessions).
 **The new wire:**
 
 1. **The provenance render** — wherever a crossed claim surfaces (north memory strip,
-   seek results, the human tray), the origin line renders: *"promoted from cherry ·
+   seek results, the human tray), the origin line renders: *"promoted from loja ·
    2026-06-xx · by <agent> — <reason>"* — every field already stored, none of it shown
    today. Absent provenance renders "origin unknown", never invented (INV-04's law).
 2. **The portfolio view** — a read-only surface (a cockpit slot + a Hall lens) answering
