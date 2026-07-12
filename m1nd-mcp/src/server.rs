@@ -215,10 +215,20 @@ block — only `receipt_import` does — and `landed` is reserved for a confirme
 
 `north` carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for the HUMAN in the \
 conversation — a server-composed card with `state` (clean|bell|coherence|mismatch|needs_ingest), \
-a mechanical `state_sig`, and `lines[]` already MOUNTED (the `m1nd` wordmark + `│` gutter, ≤4 \
-lines, ≤80 chars). Render it by joining `lines` with newlines inside a fenced code block — never \
-re-compose, re-order, or decorate it. Every line is a measured fact or a verbatim server string \
-(brand law G1: no uncalibrated adjectives, no benefit claims — silence over ornament).
+a mechanical `state_sig`, and `lines[]` already MOUNTED (the `m1nd` wordmark + the PULSE row + \
+`│` gutter, ≤4 lines, ≤80 chars). Render it by joining `lines` with newlines inside a fenced \
+code block — never re-compose, re-order, or decorate it. Every line is a measured fact or a \
+verbatim server string (brand law G1: no uncalibrated adjectives, no benefit claims — silence \
+over ornament). Line 1 may also carry a `map <N> blocks` segment — the served brain's ratified \
+SystemBlock count (per-brain; the packet's `map` field), omitted when zero.
+
+THE PULSE — the official signature of the voice (owner's stamp 2026-07-12). Line 1 hangs \
+`m1nd ` then FIVE pulse cells: `trust · graph · focus · bell · coherence`, each calm `╷` or \
+raised `│` (e.g. `m1nd ╷╷╷│╷` = only the bell is calling). READ IT AS AN EXPRESSION, never \
+cell-by-cell: all low = calm; one stem standing up = look. The cell order is FIXED — never \
+reorder or add a cell. Under a repo mismatch the pulse is DROPPED and the plain spine `m1nd │ ` \
+returns (the vitals would read the wrong brain). Its meaning belongs in the deep rung, never as \
+a per-cell caption in the compact card.
 
 CADENCE — the default is NEGATIVE: Do NOT render the card unless m1nd contributed structurally \
 to the mission AND the content is useful to the human NOW; never in consecutive messages; never \
@@ -226,16 +236,27 @@ the same state_sig twice in a session; on state change or first orient. When in 
 silent — silence is the honest card.
 
 TRANSLATION DUTY: translate the card's CONTENT into the conversation's language while keeping \
-the geometry intact (the gutter at column 6, ≤80 cols) and ids, hashes, tool names, and state \
-tokens (`merge_wait`, `needs_ingest`, `full_trust`) verbatim.
+the geometry intact (the pulse + gutter at column 6, ≤80 cols) and ids, hashes, tool names, and \
+state tokens (`merge_wait`, `needs_ingest`, `full_trust`) verbatim.
 
 THE DEEP RUNG (R2) IS YOURS: when the human asks (\"what's the bell?\", \"show me m1nd\") or at a \
 landing moment, render a deeper card FROM THE PACKET'S STRUCTURED FIELDS (`landing_bell`, the \
 mission tray, blocks) in the SAME grammar — wordmark + gutter, one measured fact per line — \
-never a fact the packet does not carry.
+never a fact the packet does not carry. In the deep rung you MAY render the pulse legend \
+(`pulse ≔ trust ╷ · graph ╷ · focus ╷ · bell │ · coherence ╷`) so the human learns to read the \
+row — this legend is YOURS to render, never served in the compact card. Two proof glyphs are \
+also yours, ONLY where the packet proves them, never as decoration: `⊢` (evidence ⊢ receipt) on \
+a receipt line (`441 tests green ⊢ receipt sha256:…`; ASCII `>`), and `∎` on a consummated \
+landing (`msn_… landed ∎`; ASCII `#`).
 
-ASCII FALLBACK (1:1): when the surface cannot hold unicode, map `│`→`|`, `·`→`.`, `—`→`-` — \
-widths are identical, the geometry never moves.
+ASCII FALLBACK (1:1): when the surface cannot hold unicode, map `╷`→`.`, `│`→`|`, `·`→`.`, \
+`—`→`-`, `⊢`→`>`, `∎`→`#` — widths are identical, the geometry never moves.
+
+THE COCKPIT (`cockpit`) is the human's ON-REQUEST menu — call it ONLY when the human asks to \
+look around (\"?\", \"show me m1nd\", \"what can I check?\"); never auto-serve it, and NEVER at a \
+landing (there the card speaks and the door is the tray). It is read-only: its entries are \
+argument-less reads and pointer doors (the tray carries no verb — the stamp is a human gesture, \
+never a cockpit click). Carry its `menu_sig` back verbatim when navigating.
 
 ATTRIBUTION — the second half of the voice: narrate where m1nd was useful ONLY when it passes \
 the counterfactual test (\"without it, would I have decided differently or worse?\") — it changed \
@@ -601,6 +622,19 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for the packet's recall beat (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each memory row labeled origin_brain — the explicit cross-project inspection, never ambient. Another brain's claim reaches your default beat only if it was promoted to the medulla." }
                     },
                     "required": ["agent_id", "task"]
+                }
+            },
+            {
+                "name": "cockpit",
+                "description": "The navigable m1nd menu (m1nd-cockpit-v0) — the human's ON-REQUEST router over m1nd's read surfaces, a read-only sibling of north (never a north field; if it breaks it breaks alone). Call it ONLY when the human asks ('?', 'show me m1nd', 'what can I look at') — at a landing the human_view card speaks, never an auto-served menu. The root is argument-less READS only, in seven stable slots (labels move with state, slots never do): the tray (a POINTER — the human stamp gesture, no verb), the map (system_blocks_snapshot), missions (a POINTER to the tray), health (doctor), trust, recent-memories (boot_memory, fixed projection), and drift. Pointer entries carry NO verb — nothing to execute even by mistake. Pass select=\"<slot>\" to drill one collection (depth ≤3; select=\"0\" re-serves the root); a drill re-asserts store_version + state_sig and says 'state moved' honestly when your seen_store_version diverged. Every response carries menu_sig — the SAME short reference a widget button carries back (never free command text, never a write verb). The read entries are DERIVED and filtered against the write deny-list, so a verb that becomes a mutation drops itself. Read-only safe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier." },
+                        "select": { "type": "string", "description": "Optional slot to drill (a number 1..=7), or \"0\" to re-serve the root. Absent = the root menu." },
+                        "seen_store_version": { "type": "integer", "description": "Optional: the SystemBlock store_version you last read. If the store has moved since, the drill flags 'state moved' before you act." }
+                    },
+                    "required": ["agent_id"]
                 }
             },
             {
@@ -2969,7 +3003,7 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
 /// writes graph/disk state and is denied. `edit_preview` is intentionally
 /// allowed: it stages an in-memory preview and never writes to disk; only
 /// `edit_commit` performs the write.
-fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> bool {
+pub(crate) fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> bool {
     let bare = tool_name
         .strip_prefix("m1nd.")
         .or_else(|| tool_name.strip_prefix("m1nd_"))
@@ -3934,6 +3968,15 @@ fn handle_north(
     // so the human_view card can reuse it VERBATIM (amendment 5: one sentence
     // per fact — never a second wording).
     let mut coherence_line: Option<String> = None;
+    // Slice-2 map fact (HUMAN-VIEW voice): the SERVED brain's ratified
+    // SystemBlock count + its coherence status. Lifted from the SAME snapshot
+    // read as the coherence signal (one disk touch, no second read). PER-BRAIN
+    // by construction — `handle_system_blocks_snapshot` reads only the bound
+    // brain's store; never a cross-brain total. The structured `map` field
+    // rides ONLY when a store exists (absent — not null — otherwise, mirroring
+    // `landing_bell`: no empty ornament).
+    let mut ratified_blocks: usize = 0;
+    let mut map_field: Option<serde_json::Value> = None;
     if let Ok(snapshot) = crate::system_blocks_handlers::handle_system_blocks_snapshot(
         state,
         crate::system_blocks_handlers::SnapshotInput {
@@ -3952,6 +3995,25 @@ fn handle_north(
             );
             honest_gaps.push(line.clone());
             coherence_line = Some(line);
+        }
+        if snapshot["present"] == serde_json::Value::Bool(true) {
+            ratified_blocks = snapshot["store"]["blocks"]
+                .as_array()
+                .map(|blocks| {
+                    blocks
+                        .iter()
+                        .filter(|b| b["state"] == serde_json::Value::String("ratified".into()))
+                        .count()
+                })
+                .unwrap_or(0);
+            let coherence_status = snapshot["skeleton_coherence"]["status"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            map_field = Some(serde_json::json!({
+                "ratified_blocks": ratified_blocks,
+                "coherence": coherence_status,
+            }));
         }
     }
 
@@ -4021,6 +4083,14 @@ fn handle_north(
             })
         });
         let node_count = state.graph.read().num_nodes() as u64;
+        // The pulse's `focus` cell reads whether orient activated any focus node
+        // for this task — lifted from the context slice already composed above
+        // (null under needs_ingest, where the pulse ignores this cell anyway).
+        let focus_activated = context
+            .get("focus_nodes")
+            .and_then(|f| f.as_array())
+            .map(|nodes| !nodes.is_empty())
+            .unwrap_or(false);
         crate::human_view::compose_human_view(&crate::human_view::HumanViewInput {
             trust_mode: binding
                 .get("trust_mode")
@@ -4028,6 +4098,8 @@ fn handle_north(
                 .unwrap_or("unknown"),
             node_count,
             memory_count: light_memory_on_disk,
+            ratified_blocks,
+            focus_activated,
             merge_wait: bell_merge_wait,
             bell_line: bell_line.as_deref(),
             coherence_line: coherence_line.as_deref(),
@@ -4067,6 +4139,14 @@ fn handle_north(
     if let Some(bell) = landing_bell {
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("landing_bell".to_string(), bell);
+        }
+    }
+    // The map fact rides ONLY when the served brain has a SystemBlock store
+    // (slice-2 voice: ratified-block count + coherence, per-brain). Absent — not
+    // null — when no store exists (no empty ornament, mirroring landing_bell).
+    if let Some(map) = map_field {
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("map".to_string(), map);
         }
     }
     // The voice card rides ONLY when composed (fail-open: a compose miss omits
@@ -4604,6 +4684,7 @@ fn dispatch_core_tool(
     match tool_name {
         "orient" => handle_orient(state, params),
         "north" => handle_north(state, params),
+        "cockpit" => crate::cockpit::handle_cockpit(state, params),
         "delegate" => crate::delegation_handlers::handle_delegate(state, params),
         "debrief" => crate::delegation_handlers::handle_debrief(state, params),
         "am_i_stale" => handle_am_i_stale(state, params),
@@ -8932,8 +9013,13 @@ mod tests {
         assert_eq!(lines.len(), 1, "clean state = one line (the whisper)");
         let line = lines[0].as_str().unwrap();
         assert!(
-            line.starts_with("m1nd │ "),
+            line.starts_with("m1nd "),
             "the signature hangs the wordmark on the margin, got {line:?}"
+        );
+        let cell6 = line.chars().nth(5).unwrap();
+        assert!(
+            cell6 == '╷' || cell6 == '│',
+            "the pulse row hangs at column 6 — the lombada is born from it, got {line:?}"
         );
         assert!(
             line.contains("3 nodes"),
@@ -9064,8 +9150,8 @@ mod tests {
         assert_eq!(card["state"], "needs_ingest");
         let lines = card["lines"].as_array().expect("lines array");
         assert_eq!(
-            lines[0], "m1nd │ needs_ingest · 0 nodes",
-            "S4 line 1: the zero is the message"
+            lines[0], "m1nd ╷│╷╷╷  needs_ingest · 0 nodes",
+            "S4 line 1: the graph cell alone is raised, the zero is the message"
         );
         // The wrapped card content reassembles to the exact honest_gaps string.
         let mut rebuilt = String::new();

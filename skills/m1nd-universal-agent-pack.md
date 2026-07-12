@@ -65,8 +65,9 @@ repair, refresh the host, or mutate the graph.
 ## The m1nd Voice — rendering `human_view`
 
 The north packet carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
-the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + `│`
-gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states `clean | bell |
+the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + the
+PULSE row + `│` gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states
+`clean | bell |
 coherence | mismatch | needs_ingest`; a mechanical `state_sig`). Render it by
 joining `lines[]` with newlines inside a fenced code block — never re-compose
 it, never decorate it. Every line is a measured fact or a verbatim server
@@ -78,14 +79,34 @@ to the human NOW; never in consecutive messages; never the same state_sig twice
 in a session; on state change or first orient. When in doubt, stay silent —
 silence is the honest card.
 
+**The PULSE — the official signature (owner's stamp):** line 1 hangs `m1nd `
+then FIVE cells — `trust · graph · focus · bell · coherence` — each calm `╷` or
+raised `│` (e.g. `m1nd ╷╷╷│╷` = only the bell is calling). Read it as an
+EXPRESSION (all low = calm; one stem standing up = look), never cell-by-cell;
+the cell order is FIXED — never reorder or add one. Under a repo mismatch the
+pulse is DROPPED and the plain `m1nd │ ` returns. Line 1 may also carry a
+`map <N> blocks` segment (the served brain's ratified SystemBlock count). In the
+DEEP rung you MAY render the legend `pulse ≔ trust ╷ · graph ╷ · focus ╷ ·
+bell │ · coherence ╷`, and the two proof glyphs `⊢` (evidence ⊢ receipt; ASCII
+`>`) and `∎` (a landed mission; ASCII `#`) — ONLY where the packet proves them,
+never as decoration.
+
+**The cockpit (`cockpit`) — ON REQUEST only:** when the human asks to look around
+("?", "show me m1nd", "what can I check?"), call `cockpit` for the read-only
+navigable menu; NEVER auto-serve it, and NEVER at a landing (there the card
+speaks and the door is the tray). Its entries are argument-less reads and pointer
+doors — a pointer (the tray) carries no verb, because the stamp is a human
+gesture, never a cockpit click. Carry its `menu_sig` back verbatim when you
+navigate (`select <slot>`).
+
 **Duties:** translate the card's CONTENT into the conversation's language
 keeping the geometry (gutter at column 6, ≤80 cols) and ids/state tokens
 (`merge_wait`, `needs_ingest`, `full_trust`) intact. The DEEP rung (R2) is the
 agent's: when the human asks ("what's the bell?", "show me m1nd") render a
 deeper card FROM the packet's structured fields (`landing_bell`, the mission
 tray, blocks) in the SAME grammar — never a fact the packet does not carry.
-When a surface cannot hold unicode, apply the 1:1 ASCII map `│`→`|`, `·`→`.`,
-`—`→`-` (widths identical, geometry never moves).
+When a surface cannot hold unicode, apply the 1:1 ASCII map `╷`→`.`, `│`→`|`, `·`→`.`,
+`—`→`-`, `⊢`→`>`, `∎`→`#` (widths identical, geometry never moves).
 
 **Attribution — the second half of the voice:** narrate where m1nd helped ONLY
 past the counterfactual test ("without it, would I have decided differently or

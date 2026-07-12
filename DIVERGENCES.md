@@ -4,7 +4,7 @@ Honest record of every point where the implementation deviates from the judged
 design (`docs/voice/M1ND-VOICE-DESIGN.md` + `docs/voice/ASKGOD-VERDICT-HUMAN-VIEW.md`),
 per the slice's standing order: implement the honest subset, never invent.
 
-## 1. Line 1 omits the ratified-maps segment (coordinator-ruled)
+## 1. Line 1 omits the ratified-maps segment (coordinator-ruled) — RESOLVED in slice 2
 
 The judged signature is `m1nd │ <trust> · <N nodes> · <M memories> · <K maps
 ratified>`. The north packet carries NO ratified-map count today: the
@@ -18,6 +18,12 @@ compose time would violate G1's "only facts already in the packet".
 (mirroring the field's own law: a segment without a value is omitted, never
 zero-stuffed). Exposing a ratified-map count in the packet is a slice-2
 decision.
+
+**RESOLVED (slice 2, feat/voice-slice2, 2026-07-12):** the count is now measured
+from the SAME `system_blocks_snapshot` read (no new read, no invented number):
+the packet carries a `map` field (`{ratified_blocks, coherence}`, per-brain,
+present iff a store exists) and line 1 gains a `map <K> blocks` segment (omitted
+when zero). See `docs/voice/SLICE2-DIVERGENCES.md` for the slice-2 record.
 
 ## 2. Overflow drops whole lines — no `…` ellipsis truncation
 

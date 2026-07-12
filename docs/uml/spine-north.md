@@ -33,6 +33,7 @@ classDiagram
         +needs: Option~String~
         +recovery_playbook: Option~Value~
         +landing_bell: Option~Value~ (present iff merge_wait>0)
+        +map: Option~Value~ (present iff a SystemBlock store exists: ratified_blocks+coherence)
         +human_view: Option~HumanView~ (present iff composed)
         +proof_state: "triaging"
         +non_claims: [4 disclaimers]
@@ -42,9 +43,9 @@ classDiagram
         <<m1nd-human-view-v0, human_view.rs>>
         +schema: "m1nd-human-view-v0"
         +state: clean|bell|coherence|mismatch|needs_ingest
-        +state_sig: "trust|bell:N|coh:ok·sick|recv:match·mismatch"
-        +lines: Vec~String~ (mounted, <=4, <=80 cols)
-        %% composed AFTER reception — pure, fail-open
+        +state_sig: "trust|bell:N|coh:ok·sick|recv:match·mismatch|pulse:╷╷╷╷╷"
+        +lines: Vec~String~ (mounted, wordmark + PULSE + gutter, <=4, <=80 cols)
+        %% composed AFTER reception — pure, fail-open; pulse dropped under mismatch
     }
 
     class BindingSlice {
@@ -238,8 +239,8 @@ with 10 amendments) + the SPINE design — both versioned under `docs/voice/`.
 "human_view": {
   "schema": "m1nd-human-view-v0",
   "state": "clean",
-  "state_sig": "full_trust|bell:0|coh:ok|recv:match",
-  "lines": ["m1nd │ full trust · 9,113 nodes · 30 memories"]
+  "state_sig": "full_trust|bell:0|coh:ok|recv:match|pulse:╷╷╷╷╷",
+  "lines": ["m1nd ╷╷╷╷╷  full trust · 9,113 nodes · 30 memories"]
 }
 ```
 
@@ -279,25 +280,74 @@ mismatch > needs_ingest > bell > coherence):
   `needs_ingest`, where it IS the message). Numbers render with the thousands
   separator (`9,024`), nothing else is reformatted.
 - The `state_sig` is the mechanical anti-repetition key
-  (`trust|bell:N|coh:ok·sick|recv:match·mismatch`): equal state ⇒ equal sig;
-  agents never render the same sig twice in a session (cadence law in
-  `M1ND_INSTRUCTIONS` §7 and the three skills).
+  (`trust|bell:N|coh:ok·sick|recv:match·mismatch|pulse:╷╷╷╷╷`): equal state ⇒
+  equal sig; agents never render the same sig twice in a session (cadence law
+  in `M1ND_INSTRUCTIONS` §7 and the three skills). The pulse row is appended so
+  a change in the graph/focus vitals (not only the four legacy tokens) flips
+  the key.
 
-**The mark is pluggable** (amendment 7): the brand anchor is the WORD `m1nd`
-(always lowercase) + the spine `│` (U+2502) — both already accepted. Line 1 is
-composed by `compose_voice_signature()` alone, so a future mark (the PULSE row
-`╷╷╷│╷` awaits the owner's explicit stamp) plugs in at one seam without
-touching the composition laws. ASCII fallback is the AGENT's duty (1:1 map
-`│`→`|`, `·`→`.`, `—`→`-`; widths identical).
+**The mark is the PULSE** (amendment 7; the owner's explicit stamp 2026-07-12 —
+`M1ND-VOICE-ALIEN.md` §5 variant C). The brand anchor is the WORD `m1nd`
+(always lowercase) followed by a FIVE-cell pulse row: `m1nd ╷╷╷│╷  <facts>`. A
+cell is calm `╷` (U+2577, narrow-guaranteed) or raised `│` (U+2502, the spine
+standing up). The cell order is FIXED FOREVER (the anti-equalizer law, pinned
+by `pulse_is_the_fixed_five_cell_signature`): `trust · graph · focus · bell ·
+coherence` —
+- **trust** rises when `trust_mode != full_trust` (calm on `needs_ingest`, where
+  the graph cell owns the message);
+- **graph** rises on `needs_ingest`/empty graph;
+- **focus** rises when a populated graph activated no focus node;
+- **bell** rises when `merge_wait > 0`;
+- **coherence** rises on a skeleton-coherence mismatch/stale signal.
 
-**Line-1 signature**: `m1nd │ <trust> · <N nodes> · <M memories>` — the
-ratified-maps segment is OMITTED in v1 because the packet does not carry a
-ratified-map count today (see `DIVERGENCES.md` at the slice root; exposing the
-count is a slice-2 decision, never an invented number).
+Read the row as an EXPRESSION (all low = calm; one stem up = look), never
+cell-by-cell in the compact card. The first cell sits at column 6, exactly
+under the continuation gutter's spine — the lombada is BORN from the pulse.
+Under `caller_root_mismatch` the pulse is DROPPED WHOLE and the plain spine
+`m1nd │ ` returns (the vitals would read the wrong brain — S3 is its own
+warning). Line 1 is composed by `compose_voice_signature()` alone (the pluggable
+seam). ASCII fallback is the AGENT's duty (1:1 map `╷`→`.`, `│`→`|`, `·`→`.`,
+`—`→`-`, and the deep-rung proof glyphs `⊢`→`>`, `∎`→`#`; widths identical).
 
-**Budget**: re-pinned with the field mounted — the packet measures ~1,391
-tokens (≤2,000 ceiling); the card costs ~174 chars (~43 tokens) on a clean
-beat, worst case ≤4×80 + envelope (~120 tokens).
+**Line-1 signature**: `m1nd ╷╷╷│╷  <trust> · <N nodes> · <M memories> · map <K>
+blocks` — the **map segment** is the SERVED brain's ratified SystemBlock count
+(slice-2; the packet's `map` field, PER-BRAIN, never a cross-brain total),
+OMITTED when zero (G1: a zero is not "the map exists"). This resolves slice-1
+`DIVERGENCES.md` §1, which omitted the segment because the packet carried no
+ratified-block count; slice 2 exposes it honestly from the same
+`system_blocks_snapshot` read that feeds the coherence signal.
+
+**The `map` field** rides the packet ONLY when the served brain has a
+SystemBlock store (absent — not null — otherwise, mirroring `landing_bell`):
+`{ "ratified_blocks": <K>, "coherence": "ok"|"mismatch" }`.
+
+**Budget**: re-pinned with the pulse + map field mounted — the packet measures
+~1,404 tokens (≤2,000 ceiling; battery `north_packet_within_budget`, fresh
+ingest 9,178 nodes, 2026-07-12); the card costs ~43 tokens on a clean beat,
+worst case ≤4×80 + envelope (~120 tokens). The pulse adds 5 cells (chars that
+were spaces) to line 1 and the cells to `state_sig` (`…|pulse:╷╷╷│╷`); the
+width cap is re-verified by the human_view tests.
+
+## cockpit — the navigable menu (`m1nd-cockpit-v0`)
+
+A DEDICATED read-only verb (askGOD verdict "the navigable cockpit", the 10
+amendments — `docs/voice/ASKGOD-VERDICT-COCKPIT.md`), the human's ON-REQUEST
+router over m1nd's read surfaces. It is a **sibling of `north`, never a field**:
+if it breaks it breaks alone, never taking `north` down (fail-open does not
+apply). Full contract + class/sequence: `docs/uml/cockpit.md`. In three lines:
+- **Root = seven stable-slot collections** (labels move with state, slots never
+  do): the tray (POINTER), the map (`system_blocks_snapshot`), missions
+  (POINTER), health (`doctor`), trust (`trust`), recent-memories (`boot_memory`,
+  fixed projection), drift (`drift`). Pointer entries carry NO verb (amendment 3).
+- **The read-only law is DERIVED**: every routed verb is filtered at compose
+  time against `server::read_only_denied`, pinned by the test
+  `cockpit_read_verbs ∩ READ_ONLY_DENIED_TOOLS = ∅` (amendment 2); the `why`
+  text is lifted from the one help catalog (amendment 10), never a parallel one.
+- **Navigation**: `select="<slot>"` drills (depth ≤3; `"0"` re-serves root); every
+  response carries `menu_sig` (the short reference a widget button carries back —
+  never free text, never a write verb) + `store_version` + `state_sig`, and a
+  drill says "state moved" when the caller's `seen_store_version` diverged
+  (amendment 6). Own budget pinned ~695 tokens (root, ≤800 ceiling; drill ~430).
 
 ## Gaps
 
