@@ -1390,7 +1390,9 @@ impl SystemBlockStore {
     /// Whether a live (unexpired) lease is currently held. A lease with a missing or
     /// past `curating_until` is NOT live — it is reclaimable (o4: no dead-agent trap).
     /// Comparison is lexical over fixed-width RFC3339-UTC stamps (as elsewhere).
-    fn lease_is_live(&self, now_iso: &str) -> bool {
+    /// `pub(crate)`: the gardener's auto-reconcile YIELDS voluntarily to a live
+    /// lease (the lease is advisory by ratified law — it never blocks; WE cede).
+    pub(crate) fn lease_is_live(&self, now_iso: &str) -> bool {
         self.curating_by.is_some()
             && self
                 .curating_until

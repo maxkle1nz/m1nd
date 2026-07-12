@@ -148,4 +148,32 @@ stateDiagram-v2
 - **[low] Alert ring buffer drains oldest-first with no severity preservation**: a burst of low-value `co_change_prediction` alerts can evict an unacked critical `graph_vs_disk_drift`.
 - **[low] Daemon `last_tick_ms` mutated from a non-tick path** (write-path apply, surgical_handlers.rs:597) — perturbs due/overdue scheduling even when no daemon tick ran.
 - **[low] `file_fingerprint` reads the whole file on every candidate** before the content_hash skip check (:791→:809); no cheap mtime/size pre-filter — a burst forces N full reads + hashes per tick.
-```
+
+## Addendum — Gardener v1 (2026-07-12, `feat/gardener-v1`; line refs above predate this arc)
+
+The arc law is `docs/voice/ASKGOD-VERDICT-GARDENER.md`; design + measured cost in
+`docs/voice/GARDENER-V1.md`. What changed structurally in the systems this sheet maps:
+
+- **Fail-open vigils:** the inline auto-ingest tick in `dispatch_tool` no longer
+  propagates (`vigil_fail_open`, server.rs) — a watcher error can never fail an
+  agent's tool call. The daemon paths were already fail-open (audited).
+- **Resume sanitization:** `load_daemon_state` (session.rs) sanitizes transient
+  runtime flags on boot — `tick_in_flight`/`pending_rerun` reset (the persisted
+  mid-tick `true` used to WEDGE every resumed daemon), and a resumed
+  `watch_backend:"native_fs"` downgrades to `polling` (only a live stdio watcher
+  may claim the label — HTTP status honesty). This CLOSES the two gaps above:
+  "[medium] No auto-resume …" (the daemon half — `active` now resumes AND ticks;
+  the auto-ingest half still requires `auto_ingest_start`) and
+  "[low] daemon active=true persisted but watcher is process-bound" (the label
+  is now honest on watcherless boots; per-brain daemons advance by traffic).
+- **Burst backlog:** `handle_daemon_tick` no longer truncates the changed set —
+  the full detection enters the persisted `pending_backlog` (FIFO, dedup) and
+  drains `max_files` per tick; `git_since_ref` advances immediately because the
+  backlog owns the tail. Coalesce window 75 ms → 500 ms with a 5 s cap
+  (`BURST_COALESCE_WINDOW_MS`/`_CAP_MS`).
+- **Auto-reconcile:** after a burst settles (45 s quiet window, pushed by every
+  activity tick), the tick reconciles the RATIFIED system-blocks store —
+  voluntary yield to a live `candidate_lease`, fresh OCC key per attempt, one
+  retry, then an `auto_reconcile_conflict` alert. Candidate skeletons skip.
+- **Hosted-brain guard:** `auto_ingest_start` can no longer demote a
+  manifest-bound `workspace_root` (the #326 class).

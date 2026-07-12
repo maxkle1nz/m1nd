@@ -49,6 +49,34 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-12 — GARDENER v1 built on `feat/gardener-v1` (branch, NOT yet landed): the organism moves when seen.**
+> An off-§C10 front under its askGOD verdict (CHANGE — the law, versioned at
+> `docs/voice/ASKGOD-VERDICT-GARDENER.md`; design + measured cost in `docs/voice/GARDENER-V1.md`,
+> residue in `GARDENER-DIVERGENCES.md`). The seven changes, built exactly as judged: **fail-open
+> first** (a background vigil can never fail an agent's tool call — the violable `?` at the inline
+> auto-ingest tick is now log-and-continue, RED-proven); **the code leg is the per-brain DAEMON**
+> (opt-in per brain in its own store dir, default OFF; watch set = the brain's ingest roots; resume
+> rides the registry warm-boot/resolve — the persisted mid-tick `tick_in_flight:true` that WEDGED
+> every resume is sanitized on load, RED-proven; survives restart AND LRU eviction, both pinned);
+> **auto_ingest stays the documents lane** (plus the cheap guard: a manifest-bound workspace root
+> can no longer be demoted — the #326 class); **honesty by traffic** (v1 freshness = "when seen";
+> a resumed `watch_backend:"native_fs"` downgrades to `polling` — no surface may claim a notify
+> consumer that does not exist; the "continuous monitoring" wording was purged from the tool
+> schema, help guidance and wiki); **burst coalescing** (window 75 ms→500 ms + 5 s cap, registered;
+> the tick detects ONCE per burst into a persisted FIFO backlog drained `max_files`/tick — the old
+> truncate-then-advance hole LOST every file beyond budget on the git backend, RED-proven with a
+> 20-file burst); **auto-reconcile with cedência** (45 s quiet window pushed by every activity
+> tick — one window per burst; voluntary yield to a live candidate_lease; fresh OCC key, 1 retry,
+> then an `auto_reconcile_conflict` alert on the existing lane; candidate skeletons skip — their
+> freshness is another cycle); **intocáveis intactos** (no north fields, human ratify untouched,
+> alerts ride the existing 500-cap lane). **Cost measured before defaults** (bench, release):
+> ~36 ms/file at N≤100, 59.6 ms/file at N=1000 (detection 8.7 s, full drain 59.6 s over 31 ticks)
+> — the number that JUSTIFIES default OFF. Upgrade-safe: pre-gardener `daemon_state.json`
+> deserializes armed (serde defaults, pinned). v2 registered: zero-traffic alerts (per-brain tick
+> task on HTTP, lock contention measured first) and the detection walk's per-tick re-hash.
+> **Next:** orchestrator lands the PR, then arms the daemon on the hot brains (m1nd + game) via
+> explicit opt-in on the served owner.
+
 > **2026-07-12 — the human-layer burst SEALED (checkpoint 18): the VOICE arc + the SCAN-LOADING arc landed as four PRs, then a curation closed the burst.**
 > Four PRs landed the same day and the organism wears all of it. **The VOICE arc** (its two
 > slices detailed in the blocks below): **#348** `human_view` v1 — the north packet's ≤4-line

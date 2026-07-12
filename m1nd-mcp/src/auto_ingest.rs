@@ -585,8 +585,20 @@ impl AutoIngestState {
                 state.ingest_roots.push(root.clone());
             }
         }
-        if let Some(first_root) = self.persistent.roots.first() {
-            state.workspace_root = Some(first_root.clone());
+        // GARDENER v1 GUARD (verdict trap: auto_ingest_start MUTATES
+        // workspace_root — the #326 store-dir/code-root bug class). A HOSTED
+        // brain's workspace_root IS its project root, stamped from its birth
+        // manifest (`project_brain_manifest`); letting a document watcher's
+        // first root overwrite it would demote the brain's code identity to a
+        // docs dir (wrong code_root_path, wrong medulla classification). The
+        // bound owner keeps the historical mutation (its workspace_root is not
+        // manifest-anchored) — registered as residue in the arc's divergences.
+        let manifest_bound =
+            state.workspace_root_source.as_deref() == Some("project_brain_manifest");
+        if !manifest_bound {
+            if let Some(first_root) = self.persistent.roots.first() {
+                state.workspace_root = Some(first_root.clone());
+            }
         }
 
         self.start_watcher()?;
@@ -1270,6 +1282,155 @@ mod tests {
         assert_eq!(
             state.auto_ingest.persistent.removals_applied, 1,
             "the drained Delete reconciled the missing manifest entry"
+        );
+    }
+
+    /// GUARD (gardener v1, verdict item 3): `auto_ingest_start` mutates
+    /// `workspace_root` to its first root — on a HOSTED brain (workspace root
+    /// stamped from the birth manifest) that demoted the brain's CODE identity
+    /// to a docs dir (the #326 store-dir/code-root bug class). The manifest-bound
+    /// root must survive; the bound owner keeps the historical mutation.
+    #[test]
+    fn auto_ingest_start_never_demotes_a_hosted_brains_code_root() {
+        use crate::protocol::auto_ingest::AutoIngestStartInput;
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let temp = tempfile::tempdir().unwrap();
+        let runtime_dir = temp.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let docs = temp.path().join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(docs.join("notes.md"), "# notes").unwrap();
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // A hosted brain: workspace root IS the project root, by manifest.
+        let project_root = temp.path().join("the-project");
+        fs::create_dir_all(&project_root).unwrap();
+        state.workspace_root = Some(project_root.to_string_lossy().to_string());
+        state.workspace_root_source = Some("project_brain_manifest".into());
+
+        let start_input = AutoIngestStartInput {
+            agent_id: "test".into(),
+            roots: vec![docs.to_string_lossy().to_string()],
+            formats: Vec::new(),
+            debounce_ms: 200,
+            namespace: None,
+        };
+        let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+        runtime
+            .start(&mut state, start_input.clone())
+            .expect("auto_ingest start");
+        state.auto_ingest = runtime;
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(project_root.to_string_lossy().to_string().as_str()),
+            "a manifest-bound workspace root must NEVER be demoted to a docs dir"
+        );
+
+        // The bound owner (no manifest anchor) keeps the historical mutation.
+        state.workspace_root_source = None;
+        let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+        runtime
+            .start(&mut state, start_input)
+            .expect("auto_ingest re-start");
+        state.auto_ingest = runtime;
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(docs.to_string_lossy().to_string().as_str()),
+            "the bound owner's historical mutation is preserved"
+        );
+    }
+
+    /// FAIL-OPEN, end-to-end through the previously violable seam (gardener v1):
+    /// an agent's unrelated tool call used to FAIL when the inline auto-ingest
+    /// vigil errored — `dispatch_tool` propagated `maybe_tick_auto_ingest` with a
+    /// `?`. This test arranges a REAL erroring tick (the tick's end-of-drain
+    /// persist hits a poisoned `auto_ingest_state.tmp` that is a directory, so
+    /// `save_json_atomic`'s `fs::write` fails) and asserts the agent's `health`
+    /// call still SUCCEEDS. RED under the old `?`: dispatch_tool returned the
+    /// vigil's error; GREEN under fail-open: the error is logged and swallowed.
+    #[test]
+    fn erroring_auto_ingest_vigil_never_fails_the_agents_tool_call() {
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let temp = tempfile::tempdir().unwrap();
+        let runtime_dir = temp.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // A running auto-ingest with one ready change (debounce 0), exactly as the
+        // idle-pump case above — the drain will reach the end-of-tick persist.
+        let missing = temp.path().join("docs").join("missing.md");
+        let missing_key = missing.to_string_lossy().to_string();
+        {
+            let ai = &mut state.auto_ingest;
+            ai.running = true;
+            ai.persistent.debounce_ms = 0;
+            ai.persistent.roots = vec![temp.path().to_string_lossy().to_string()];
+            ai.persistent.manifest.insert(
+                missing_key.clone(),
+                AutoIngestManifestEntry {
+                    source_path: missing_key.clone(),
+                    format: "light".into(),
+                    namespace: None,
+                    fingerprint: AutoIngestFingerprint {
+                        canonical_path: missing_key.clone(),
+                        size: 1,
+                        mtime_ms: 1,
+                        content_hash: "hash".into(),
+                        detected_format: "light".into(),
+                    },
+                    claims: SourceClaims::default(),
+                    last_ingested_ms: 1,
+                },
+            );
+            AutoIngestState::enqueue_change(
+                &ai.pending,
+                missing_key.clone(),
+                PendingChangeKind::Delete,
+            );
+        }
+
+        // POISON the tick's persist: `save_json_atomic` writes
+        // `auto_ingest_state.tmp` then renames — a DIRECTORY at the tmp path makes
+        // `fs::write` fail on every platform, so the tick returns Err.
+        let tmp_path = AutoIngestState::state_path(&state.runtime_root).with_extension("tmp");
+        fs::create_dir_all(&tmp_path).expect("poison tmp path as a directory");
+        assert!(
+            state.auto_ingest.persist(&state.runtime_root).is_err(),
+            "precondition: the poisoned tmp path must make the vigil's persist fail"
+        );
+
+        // The agent's UNRELATED tool call ('health' is not on the tick's skip
+        // list, so the vigil runs inline) must SUCCEED despite the erroring vigil.
+        let result = crate::server::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        );
+        assert!(
+            result.is_ok(),
+            "the agent's tool call must succeed when the auto-ingest vigil errors \
+             (fail-open), got: {:?}",
+            result.err()
         );
     }
 }

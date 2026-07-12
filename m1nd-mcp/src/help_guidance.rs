@@ -1327,7 +1327,7 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                 tool: "search".into(),
                 reason: "Operations work needs system state, not just text retrieval.".into(),
             }],
-            recovery_steps: vec!["If you need continuous monitoring, move from audit to daemon_start rather than polling search.".into()],
+            recovery_steps: vec!["If you need standing freshness, arm daemon_start rather than polling search — the daemon advances when the brain is seen (verb traffic; plus watch events on a stdio owner), not as a free-running monitor.".into()],
             next_step: Some("Run audit first, then inspect daemon status and alerts.".into()),
             why: "Operations mode should start from repo or runtime health signals rather than content search.".into(),
             confidence: 0.84,

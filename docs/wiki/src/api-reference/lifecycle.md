@@ -1284,19 +1284,23 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
 <a id="m1nddaemon_start"></a>
 
 ## `daemon_start`
-Start the persisted daemon control plane. Stores watched roots, initializes daemon counters, and begins the long-lived structural monitoring lane.
+Arm the per-brain code daemon: persist the watched roots (empty = the brain's own ingest roots) and initialize the daemon counters. Arming is a per-brain opt-in — the durable state lives in the brain's own store dir, survives owner restarts AND LRU eviction (the daemon re-arms on the next warm-boot/resolve), and the factory default is OFF.
+
+**Freshness is honest, not continuous.** On a served (HTTP) owner ticks advance BY TRAFFIC — any non-recall verb touching the brain runs a due tick ("fresh when seen") — or via an explicit `daemon_tick`. Only a stdio owner additionally holds a live watch-event consumer and an idle clock. No surface claims a free-running monitor; `watch_backend` reports `native_fs` only while a real notify watcher exists.
+
+Bursts coalesce: a branch checkout becomes ONE detection whose full changed set enters a persisted backlog, drained a bounded slice per tick (`max_files`) — no file is lost to truncation. After a burst settles (45 s quiet window, pushed by every activity tick), the daemon auto-reconciles the RATIFIED system-blocks store: it yields voluntarily to a live `candidate_lease`, keys the write on a fresh `store_version`, and gives OCC exactly one retry before raising an `auto_reconcile_conflict` alert.
 
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
-| `watch_paths` | `string[]` | No | current ingest roots | Paths the daemon should monitor. |
-| `poll_interval_ms` | `integer` | No | `500` | Poll interval fallback in milliseconds. |
+| `watch_paths` | `string[]` | No | current ingest roots | Paths the daemon should watch (the per-brain default is the brain's own ingest roots). |
+| `poll_interval_ms` | `integer` | No | `500` | Traffic/idle tick due-interval in milliseconds. |
 
 ### When to Use
 
-- Start of a long-lived agent session
+- Opting a brain into standing freshness (per-brain, durable, default OFF)
 - Before relying on daemon alerts or `daemon_tick`
 - Before background/idle reconciliation should run
 

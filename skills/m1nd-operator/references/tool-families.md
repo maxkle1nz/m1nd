@@ -185,7 +185,7 @@ Use this before acting as if the current repo is the whole system.
 - `lock_diff`: compare current state with the lock baseline.
 - `lock_rebase`: accept current state as the new baseline.
 - `lock_release`: free the lock.
-- `daemon_start`: start long-lived structural monitoring.
+- `daemon_start`: arm per-brain change tracking (opt-in, default OFF; freshness advances when the brain is seen — verb traffic, plus watch events on a stdio owner — not a free-running monitor).
 - `daemon_stop`: stop monitoring without deleting alert history.
 - `daemon_status`: inspect monitor liveness and counters.
 - `daemon_tick`: force one reconciliation pass.

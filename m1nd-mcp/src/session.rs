@@ -192,6 +192,31 @@ pub struct DaemonRuntimeState {
     pub git_operation_in_progress: bool,
     pub git_operation_kind: Option<String>,
     pub deferred_ticks: u64,
+    /// Gardener v1 — BURST BACKLOG. External ids detected as changed but not yet
+    /// re-ingested (a burst bigger than one tick's `max_files` budget). The tick
+    /// detects ONCE (one git diff / inventory compare per burst), pushes the whole
+    /// changed set here, advances `git_since_ref` immediately (the backlog owns
+    /// the tail), and drains up to `max_files` per tick — so a thousand-file
+    /// checkout is ONE detection plus bounded drain ticks, and NO file is lost to
+    /// the old truncate-then-advance hole. FIFO drain: completeness over recency
+    /// (no starvation; a single burst lands in one detection anyway, newest-first
+    /// within the batch). `serde(default)`: pre-gardener daemon_state.json files
+    /// lack this field and must keep deserializing (a failed parse would fall
+    /// back to Default and silently DISARM a resumed daemon).
+    #[serde(default)]
+    pub pending_backlog: Vec<String>,
+    /// Gardener v1 — AUTO-RECONCILE quiet-window deadline. Set (and PUSHED) by
+    /// every tick that saw activity; when a quiet tick passes it with an empty
+    /// backlog, the daemon reconciles the RATIFIED system-blocks store (with
+    /// voluntary lease yield and a 1-retry OCC policy). `None` = nothing owed.
+    #[serde(default)]
+    pub reconcile_due_at_ms: Option<u64>,
+    /// When the last auto-reconcile actually ran (status honesty).
+    #[serde(default)]
+    pub last_auto_reconcile_ms: Option<u64>,
+    /// How many auto-reconciles this daemon has run since it was armed.
+    #[serde(default)]
+    pub auto_reconcile_runs: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1918,10 +1943,35 @@ impl SessionState {
     }
 
     fn load_daemon_state(path: &Path) -> DaemonRuntimeState {
-        std::fs::read_to_string(path)
+        let mut state = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<DaemonRuntimeState>(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // RESUME SANITIZATION (gardener v1). `active` legitimately survives a
+        // boot — an armed daemon stays armed across restart AND across an LRU
+        // eviction re-resolve (the per-brain opt-in is this file in the brain's
+        // own store dir). But two kinds of field describe the RUNTIME, not the
+        // config, and resuming them verbatim breaks the resume:
+        //  - `tick_in_flight`/`pending_rerun` are in-process reentrancy flags.
+        //    Every traffic tick persists MID-tick (while `tick_in_flight` is
+        //    true) and the post-tick `false` lives only in memory, so the disk
+        //    almost always carries `tick_in_flight: true`. Resuming it verbatim
+        //    WEDGES the daemon forever: `run_daemon_tick` sees a tick "in
+        //    flight" that died with the old process and refuses every new tick.
+        //  - `watch_backend == "native_fs"` asserts a LIVE notify watcher. Only
+        //    the stdio serve() loop owns one (`refresh_daemon_watcher`); a
+        //    freshly booted state has none, and on the HTTP owner none will
+        //    ever exist — resuming the label verbatim makes `daemon_status`
+        //    LIE about an event consumer. Downgrade to the honest "polling";
+        //    the stdio loop re-arms and restores the label only when a real
+        //    watcher starts. (`git_native_fs` survives: it names the per-tick
+        //    git-diff detection, true on every transport.)
+        state.tick_in_flight = false;
+        state.pending_rerun = false;
+        if state.watch_backend == "native_fs" {
+            state.watch_backend = "polling".into();
+        }
+        state
     }
 
     pub fn persist_daemon_alerts(&self) -> M1ndResult<()> {

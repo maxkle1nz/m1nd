@@ -9,6 +9,166 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Gardener v1 — burst coalescing numbers (verdict item 7), REGISTERED with
+/// their justification so the choice is auditable:
+///
+/// * `BURST_COALESCE_WINDOW_MS = 500`. The stdio event loop closes a watch-event
+///   burst after this much SILENCE (sliding window). The old 75 ms fragmented a
+///   branch checkout into several ticks: git writes files in dense sub-ms
+///   batches but pauses for index/lock/pack work in the low hundreds of ms, so
+///   75 ms of silence regularly fired mid-checkout. 500 ms spans those pauses —
+///   thousands of events become ONE detection — while adding at most half a
+///   second of latency to a single-file save (invisible for a background vigil
+///   whose poll intervals are measured in seconds).
+/// * `BURST_COALESCE_CAP_MS = 5_000`. A sliding silence window alone can starve
+///   under CONTINUOUS churn (events forever < window apart). The cap bounds one
+///   coalescing pass: after 5 s of sustained events the tick runs anyway, so the
+///   graph keeps advancing during a storm instead of waiting for a quiet that
+///   never comes.
+pub const BURST_COALESCE_WINDOW_MS: u64 = 500;
+pub const BURST_COALESCE_CAP_MS: u64 = 5_000;
+
+/// Gardener v1 — the auto-reconcile QUIET WINDOW (verdict item 5), REGISTERED:
+/// 45 s sits inside the verdict's 30–60 s band. Long enough that one logical
+/// burst — a checkout plus the seconds of follow-up churn (build artifacts,
+/// editor saves, hook output) — collapses into ONE window (every activity tick
+/// PUSHES the deadline, so a storm coalesces instead of firing per wave); short
+/// enough that the block map refreshes within a minute of the repo going quiet.
+pub const AUTO_RECONCILE_QUIET_WINDOW_MS: u64 = 45_000;
+
+/// Outcome of the 1-retry OCC policy around an auto-reconcile write.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OccOutcome {
+    /// The reconcile applied (dirty = something actually moved).
+    Ran { dirty: bool },
+    /// Two attempts, two `Conflict`s — give up and ALERT, never loop
+    /// (verdict item 5: "1 retry → alert, nunca loop").
+    ConflictExhausted,
+    /// A non-OCC failure (no store, io, ...): fail-open, log-and-drop.
+    Failed(String),
+}
+
+/// The 1-retry OCC policy (verdict item 5). Each attempt must read its OWN
+/// fresh `expected_store_version` (the closure owns that); a `Conflict` earns
+/// exactly ONE more attempt, anything else settles immediately. Pure policy —
+/// unit-testable with an injected attempt, which is the only deterministic way
+/// to exercise the conflict arm (a real conflict needs a concurrent writer).
+pub(crate) fn occ_retry_outcome(
+    mut attempt: impl FnMut() -> Result<bool, crate::system_blocks::SeedError>,
+) -> OccOutcome {
+    for _ in 0..2 {
+        match attempt() {
+            Ok(dirty) => return OccOutcome::Ran { dirty },
+            Err(crate::system_blocks::SeedError::Conflict { .. }) => continue,
+            Err(other) => return OccOutcome::Failed(other.to_string()),
+        }
+    }
+    OccOutcome::ConflictExhausted
+}
+
+/// Settle an auto-reconcile OCC outcome onto the session: bump the honest
+/// counters on success, record the conflict ALERT on exhaustion (the existing
+/// alert lane — no new surface), log-and-drop a plain failure. Returns the
+/// tick-output label plus the alert id (so the tick's totals stay truthful).
+fn settle_auto_reconcile_outcome(
+    state: &mut SessionState,
+    outcome: OccOutcome,
+) -> (&'static str, Option<String>) {
+    match outcome {
+        OccOutcome::Ran { dirty } => {
+            state.daemon_state.last_auto_reconcile_ms = Some(now_ms());
+            state.daemon_state.auto_reconcile_runs =
+                state.daemon_state.auto_reconcile_runs.saturating_add(1);
+            (if dirty { "ran_dirty" } else { "ran_clean" }, None)
+        }
+        OccOutcome::ConflictExhausted => {
+            let alert = make_daemon_alert(DaemonAlertSeed {
+                severity: "warning".into(),
+                kind: "auto_reconcile_conflict".into(),
+                message: "Auto-reconcile hit an OCC conflict twice in a row — \
+                          another writer is active on the system-blocks store. \
+                          Reconcile manually when the store settles."
+                    .into(),
+                confidence: 0.9,
+                evidence: vec![
+                    "daemon auto-reconcile (quiet window) — 1 OCC retry exhausted".into(),
+                ],
+                suggested_tool: Some("system_blocks_reconcile".into()),
+                suggested_target: None,
+                file_path: None,
+                node_id: None,
+            });
+            let id = alert.alert_id.clone();
+            state.record_daemon_alert(alert);
+            ("conflict_alert", Some(id))
+        }
+        OccOutcome::Failed(error) => {
+            eprintln!("[m1nd] gardener: auto-reconcile failed (fail-open): {error}");
+            ("reconcile_error", None)
+        }
+    }
+}
+
+/// GARDENER v1 — one auto-reconcile pass (verdict item 5), called from a QUIET
+/// tick whose deadline elapsed. Fail-open by construction: every branch returns
+/// a label, never an error. The laws, in order:
+/// 1. no store → nothing owed;
+/// 2. reconcile refreshes the RATIFIED store — a candidate skeleton is another
+///    cycle (candidate freshness re-scan), outside this arc: skip;
+/// 3. a LIVE candidate_lease → VOLUNTARY YIELD + reschedule (the lease is
+///    advisory by ratified law — it cannot block us, so WE cede);
+/// 4. fresh `expected_store_version` per attempt, 1 OCC retry, then alert.
+fn run_auto_reconcile(state: &mut SessionState) -> (&'static str, Option<String>) {
+    use crate::system_blocks::{self, SeedSkeletonState, SystemBlockStore};
+    let dir = crate::system_blocks_handlers::store_dir(state);
+    let store = match SystemBlockStore::load(&dir) {
+        Ok(Some(store)) => store,
+        Ok(None) => {
+            state.daemon_state.reconcile_due_at_ms = None;
+            return ("no_store", None);
+        }
+        Err(error) => {
+            eprintln!("[m1nd] gardener: auto-reconcile store load failed (fail-open): {error}");
+            state.daemon_state.reconcile_due_at_ms = None;
+            return ("store_load_error", None);
+        }
+    };
+    if store.skeleton.state != SeedSkeletonState::Ratified {
+        state.daemon_state.reconcile_due_at_ms = None;
+        return ("skeleton_not_ratified", None);
+    }
+    let now = now_ms();
+    let now_iso = crate::system_blocks_handlers::iso8601_from_ms(now);
+    if store.lease_is_live(&now_iso) {
+        state.daemon_state.reconcile_due_at_ms =
+            Some(now.saturating_add(AUTO_RECONCILE_QUIET_WINDOW_MS));
+        return ("yielded_to_lease", None);
+    }
+    let Some(root) = state.code_root_path() else {
+        state.daemon_state.reconcile_due_at_ms = None;
+        return ("no_code_root", None);
+    };
+    let file_list = match system_blocks::repo_file_list(Path::new(&root)) {
+        Ok(list) => list,
+        Err(error) => {
+            eprintln!("[m1nd] gardener: auto-reconcile file list failed (fail-open): {error}");
+            state.daemon_state.reconcile_due_at_ms = None;
+            return ("file_list_error", None);
+        }
+    };
+    let outcome = occ_retry_outcome(|| {
+        // FRESH expected_store_version per attempt (verdict item 5).
+        let fresh = SystemBlockStore::load(&dir)
+            .ok()
+            .flatten()
+            .map(|s| s.store_version)
+            .unwrap_or(0);
+        system_blocks::reconcile_in_dir(&dir, fresh, &file_list).map(|(_, report)| report.dirty)
+    });
+    state.daemon_state.reconcile_due_at_ms = None;
+    settle_auto_reconcile_outcome(state, outcome)
+}
+
 fn simple_content_hash(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -341,9 +501,13 @@ pub fn handle_daemon_start(
     state.daemon_state.last_tick_trigger = None;
     state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
-    state.daemon_state.coalesce_window_ms = 75;
+    state.daemon_state.coalesce_window_ms = BURST_COALESCE_WINDOW_MS;
     state.daemon_state.pending_rerun = false;
     state.daemon_state.tick_in_flight = false;
+    state.daemon_state.pending_backlog = Vec::new();
+    state.daemon_state.reconcile_due_at_ms = None;
+    state.daemon_state.last_auto_reconcile_ms = None;
+    state.daemon_state.auto_reconcile_runs = 0;
     state.daemon_state.last_coalesced_event_ms = None;
     state.daemon_state.coalesced_event_count = 0;
     state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
@@ -476,6 +640,10 @@ pub fn handle_daemon_status(
         "coalesced_event_count": state.daemon_state.coalesced_event_count,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
+        "pending_backlog_len": state.daemon_state.pending_backlog.len(),
+        "reconcile_due_at_ms": state.daemon_state.reconcile_due_at_ms,
+        "last_auto_reconcile_ms": state.daemon_state.last_auto_reconcile_ms,
+        "auto_reconcile_runs": state.daemon_state.auto_reconcile_runs,
         "tick_count": state.daemon_state.tick_count,
         "last_tick_duration_ms": state.daemon_state.last_tick_duration_ms,
         "last_tick_changed_files": state.daemon_state.last_tick_changed_files,
@@ -630,7 +798,46 @@ pub fn handle_daemon_tick(
     }
 
     changed_entries.sort_by_key(|entry| std::cmp::Reverse(entry.last_modified_ms));
-    changed_entries.truncate(input.max_files);
+    let newly_detected = changed_entries.len();
+
+    // BURST BACKLOG (gardener v1, verdict item 7). The old shape truncated the
+    // changed set to `max_files` AND (on the git backend) advanced
+    // `git_since_ref` past the whole diff — a thousand-file checkout re-ingested
+    // 32 files and silently LOST the tail forever. Now: every detected id is
+    // pushed onto the persisted backlog (dedup — the polling backend re-detects
+    // un-ingested files every tick), and the tick drains a bounded slice from
+    // the FRONT (FIFO: completeness, no starvation; a single burst lands in one
+    // detection anyway, newest-first within the batch). Each drained id is
+    // resolved against the LIVE inventory so the ingest always reads fresh
+    // content; an id that vanished from disk simply drops (the deletion lane
+    // below owns the alert for tracked files).
+    for entry in &changed_entries {
+        if !state
+            .daemon_state
+            .pending_backlog
+            .iter()
+            .any(|id| id == &entry.external_id)
+        {
+            state
+                .daemon_state
+                .pending_backlog
+                .push(entry.external_id.clone());
+        }
+    }
+    let backlog = std::mem::take(&mut state.daemon_state.pending_backlog);
+    let mut drained_entries: Vec<FileInventoryEntry> = Vec::new();
+    let mut kept_backlog: Vec<String> = Vec::new();
+    for id in backlog {
+        if drained_entries.len() >= input.max_files {
+            kept_backlog.push(id);
+            continue;
+        }
+        if let Some(entry) = live_inventory.get(&id) {
+            drained_entries.push(entry.clone());
+        }
+    }
+    state.daemon_state.pending_backlog = kept_backlog;
+    let changed_entries = drained_entries;
 
     let mut ingested_files = Vec::new();
     let mut heuristic_alerts_emitted = 0usize;
@@ -706,6 +913,36 @@ pub fn handle_daemon_tick(
         state.file_inventory.remove(&entry.external_id);
     }
 
+    // GARDENER v1 — auto-reconcile scheduling (verdict item 5). Every tick with
+    // ACTIVITY pushes the quiet-window deadline out (one window per burst — a
+    // checkout's thousands of events coalesce into ONE deadline, never one per
+    // wave). A QUIET tick — nothing new, nothing drained, backlog empty — whose
+    // deadline elapsed runs the reconcile: refresh the RATIFIED store against
+    // the real file list, yielding voluntarily to a live candidate_lease and
+    // giving OCC exactly one retry before alerting. Fail-open throughout: no
+    // arm of this block can fail the tick.
+    let mut auto_reconcile_outcome: Option<&'static str> = None;
+    {
+        let now = now_ms();
+        let had_activity =
+            newly_detected > 0 || !changed_entries.is_empty() || !deleted_entries.is_empty();
+        if had_activity {
+            state.daemon_state.reconcile_due_at_ms =
+                Some(now.saturating_add(AUTO_RECONCILE_QUIET_WINDOW_MS));
+        } else if state.daemon_state.pending_backlog.is_empty()
+            && state
+                .daemon_state
+                .reconcile_due_at_ms
+                .is_some_and(|due| now >= due)
+        {
+            let (label, alert_id) = run_auto_reconcile(state);
+            if let Some(id) = alert_id {
+                emitted_alert_ids.push(id);
+            }
+            auto_reconcile_outcome = Some(label);
+        }
+    }
+
     let tick_ms = now_ms();
     let emitted_alerts_total = emitted_alert_ids.len() + heuristic_alerts_emitted;
     state.daemon_state.last_tick_ms = Some(tick_ms);
@@ -728,7 +965,13 @@ pub fn handle_daemon_tick(
     state.daemon_state.last_tick_changed_files = changed_entries.len();
     state.daemon_state.last_tick_deleted_files = deleted_entries.len();
     state.daemon_state.last_tick_alerts_emitted = emitted_alerts_total;
-    if changed_entries.is_empty() && deleted_entries.is_empty() && emitted_alerts_total == 0 {
+    // A tick with a non-empty remaining backlog is NOT idle — drain work remains,
+    // and backing off would stretch the burst's tail out for no reason.
+    if changed_entries.is_empty()
+        && deleted_entries.is_empty()
+        && emitted_alerts_total == 0
+        && state.daemon_state.pending_backlog.is_empty()
+    {
         state.daemon_state.idle_streak = state.daemon_state.idle_streak.saturating_add(1);
     } else {
         state.daemon_state.idle_streak = 0;
@@ -740,9 +983,11 @@ pub fn handle_daemon_tick(
         "active": true,
         "tick_at_ms": tick_ms,
         "watch_paths": state.daemon_state.watch_paths,
-        "changed_files_detected": changed_entries.len(),
+        "changed_files_detected": newly_detected,
         "deleted_files_detected": deleted_entries.len(),
         "files_reingested": ingested_files.len(),
+        "backlog_len": state.daemon_state.pending_backlog.len(),
+        "auto_reconcile": auto_reconcile_outcome,
         "ingested_files": ingested_files,
         "deleted_files": deleted_entries.into_iter().map(|entry| json!({
             "file_path": entry.file_path,
@@ -948,7 +1193,7 @@ mod tests {
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["overdue_ms"], 0);
         assert_eq!(status["idle_streak"], 0);
-        assert_eq!(status["coalesce_window_ms"], 75);
+        assert_eq!(status["coalesce_window_ms"], BURST_COALESCE_WINDOW_MS);
         assert_eq!(status["pending_rerun"], false);
         assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
@@ -963,6 +1208,78 @@ mod tests {
         )
         .expect("daemon stop");
         assert_eq!(stopped["active"], false);
+    }
+
+    /// HTTP status honesty (gardener v1, verdict item 4): a persisted
+    /// `watch_backend: "native_fs"` asserts a LIVE notify watcher, which only the
+    /// stdio serve() loop owns. A freshly booted state (any transport; on the HTTP
+    /// owner, forever) has no such consumer — resuming the label verbatim would
+    /// make `daemon_status` LIE. RED without the load-time downgrade to "polling".
+    /// `git_native_fs` must survive: it names per-tick git-diff detection, true on
+    /// every transport.
+    #[test]
+    fn resumed_status_never_claims_a_dead_notify_watcher() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        // The exact disk shape a stdio owner leaves behind: armed, live-watcher
+        // label, and the mid-tick reentrancy flags.
+        let persisted = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_backend: "native_fs".into(),
+            tick_in_flight: true,
+            pending_rerun: true,
+            ..Default::default()
+        };
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&persisted).expect("serialize"),
+        )
+        .expect("write daemon state");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let status = handle_daemon_status(
+            &mut state,
+            layers::DaemonStatusInput {
+                agent_id: "test".into(),
+            },
+        )
+        .expect("daemon status");
+        assert_eq!(status["active"], true, "the armed daemon resumes active");
+        assert_eq!(
+            status["watch_backend"], "polling",
+            "a resumed status must not claim a notify watcher that no longer exists"
+        );
+        assert_eq!(status["tick_in_flight"], false);
+        assert_eq!(status["pending_rerun"], false);
+
+        // The honest label that DOES survive: per-tick git detection.
+        let persisted_git = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_backend: "git_native_fs".into(),
+            git_root: Some("/tmp/somewhere".into()),
+            ..Default::default()
+        };
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&persisted_git).expect("serialize"),
+        )
+        .expect("write daemon state");
+        let state2 = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session 2");
+        assert_eq!(
+            state2.daemon_state.watch_backend, "git_native_fs",
+            "git_native_fs names per-tick detection and survives a resume"
+        );
     }
 
     #[test]
@@ -1239,6 +1556,603 @@ mod tests {
         assert_eq!(status["pending_rerun"], false);
         assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
+    }
+
+    /// A complete ratified seed (copied from the system_blocks fixture — the
+    /// validated shape) so daemon tests can stage a real store in the brain dir.
+    fn gardener_fixture_seed() -> &'static str {
+        r#"{
+  "schema": "m1nd-system-block-seed-v0",
+  "repo": { "repo_id": "repo_a", "root": ".", "source_commit": "abc123" },
+  "skeleton": {
+    "skeleton_id": "sk_repo_a_seed_2026_07",
+    "version": 1,
+    "state": "ratified",
+    "ratification": {
+      "method": "pr_merge",
+      "ratifier": "owner",
+      "ratified_at": "2026-07-07T00:00:00Z",
+      "commit": "abc123"
+    }
+  },
+  "blocks": [
+    {
+      "block_id": "sb_core",
+      "name": "Core",
+      "purpose": "Core graph responsibilities.",
+      "kind": "scanned",
+      "state": "ratified",
+      "boundary_version": 1,
+      "contract_version": 1,
+      "membership_source": "ratified",
+      "membership": [
+        { "path": "src/**", "role": "primary" }
+      ],
+      "sockets": { "inputs": [], "outputs": [], "external": [] },
+      "receipt_contract": {
+        "version": 1,
+        "required": [],
+        "optional": [],
+        "waived": [],
+        "declared_by": "owner",
+        "declared_at": "2026-07-07T00:00:00Z"
+      },
+      "receipts": [],
+      "layout": { "x": null, "y": null, "locked": false, "algorithm_seed": null, "version": 1 },
+      "unmapped_residue": []
+    }
+  ],
+  "unmapped_policy": { "visible": true, "default_action": "leave_unmapped_until_ratified" }
+}"#
+    }
+
+    /// Stage a real system-blocks store (ratified skeleton) in the brain's
+    /// runtime dir — the store the auto-reconcile refreshes.
+    fn stage_ratified_store(state: &SessionState) -> crate::system_blocks::SystemBlockStore {
+        let seed =
+            crate::system_blocks::load_seed(gardener_fixture_seed()).expect("fixture seed parses");
+        let store = crate::system_blocks::SystemBlockStore::from_seed(seed);
+        store
+            .save(&crate::system_blocks_handlers::store_dir(state))
+            .expect("save staged store");
+        store
+    }
+
+    /// Build a state + watched non-git repo + armed daemon (polling backend),
+    /// the common auto-reconcile test stage.
+    fn build_reconcile_stage() -> (tempfile::TempDir, SessionState, PathBuf) {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/a.py"), "def a():\n    return 1\n").expect("write a.py");
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+                project_root: None,
+            },
+        )
+        .expect("initial ingest");
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+        (temp, state, repo)
+    }
+
+    fn tick(state: &mut SessionState) -> serde_json::Value {
+        handle_daemon_tick(
+            state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("tick")
+    }
+
+    /// AUTO-RECONCILE (gardener v1, verdict item 5) — the quiet window COALESCES
+    /// a burst (activity pushes the deadline; an elapsed deadline NEVER fires on
+    /// an activity tick) and a quiet tick past the deadline reconciles the
+    /// ratified store with a fresh OCC key.
+    #[test]
+    fn quiet_window_coalesces_bursts_then_reconciles() {
+        let (_temp, mut state, repo) = build_reconcile_stage();
+        stage_ratified_store(&state);
+        let dir = crate::system_blocks_handlers::store_dir(&state);
+
+        // Quiet tick, nothing owed: no deadline, no reconcile.
+        let t1 = tick(&mut state);
+        assert!(t1["auto_reconcile"].is_null());
+        assert!(state.daemon_state.reconcile_due_at_ms.is_none());
+
+        // Activity: a new file → the deadline is SET, the reconcile does NOT run.
+        std::fs::write(repo.join("src/b.py"), "def b():\n    return 2\n").expect("write b.py");
+        let t2 = tick(&mut state);
+        assert_eq!(t2["files_reingested"], 1);
+        assert!(t2["auto_reconcile"].is_null(), "no reconcile mid-burst");
+        let due_after_first = state
+            .daemon_state
+            .reconcile_due_at_ms
+            .expect("activity schedules the quiet window");
+
+        // COALESCING LAW: even an ELAPSED deadline never fires on an activity
+        // tick — the burst pushes the window out instead (one window per burst).
+        state.daemon_state.reconcile_due_at_ms = Some(1);
+        std::fs::write(repo.join("src/c.py"), "def c():\n    return 3\n").expect("write c.py");
+        let t3 = tick(&mut state);
+        assert!(
+            t3["auto_reconcile"].is_null(),
+            "an activity tick must push the deadline, never reconcile"
+        );
+        let due_after_second = state
+            .daemon_state
+            .reconcile_due_at_ms
+            .expect("the deadline was pushed, not consumed");
+        assert!(
+            due_after_second >= due_after_first,
+            "the pushed deadline moves forward"
+        );
+        assert_eq!(state.daemon_state.auto_reconcile_runs, 0);
+
+        // QUIET + elapsed deadline → the reconcile RUNS with a fresh OCC key.
+        let version_before = crate::system_blocks::SystemBlockStore::load(&dir)
+            .expect("load")
+            .expect("store")
+            .store_version;
+        state.daemon_state.reconcile_due_at_ms = Some(1);
+        let t4 = tick(&mut state);
+        assert_eq!(
+            t4["auto_reconcile"], "ran_dirty",
+            "the first reconcile records baselines — a real write"
+        );
+        assert_eq!(state.daemon_state.auto_reconcile_runs, 1);
+        assert!(state.daemon_state.last_auto_reconcile_ms.is_some());
+        assert!(
+            state.daemon_state.reconcile_due_at_ms.is_none(),
+            "a settled deadline clears"
+        );
+        let store_after = crate::system_blocks::SystemBlockStore::load(&dir)
+            .expect("load")
+            .expect("store");
+        assert!(
+            store_after.store_version > version_before,
+            "the ratified store was refreshed (OCC bump)"
+        );
+    }
+
+    /// LEASE YIELD (gardener v1, verdict item 5): the candidate_lease is advisory
+    /// by ratified law — it cannot block anyone. The auto-reconciler CEDES
+    /// voluntarily: a live lease → skip + reschedule; a released lease → run.
+    #[test]
+    fn auto_reconcile_yields_to_a_live_lease_and_reschedules() {
+        use crate::system_blocks::{LeaseAction, SystemBlockStore};
+        let (_temp, mut state, _repo) = build_reconcile_stage();
+        stage_ratified_store(&state);
+        let dir = crate::system_blocks_handlers::store_dir(&state);
+
+        // A hand holds a LIVE lease.
+        let now = now_ms();
+        let now_iso = crate::system_blocks_handlers::iso8601_from_ms(now);
+        let until_iso = crate::system_blocks_handlers::iso8601_from_ms(now + 900_000);
+        let mut store = SystemBlockStore::load(&dir).expect("load").expect("store");
+        store
+            .apply_lease(LeaseAction::Acquire, "hand-1", &now_iso, &until_iso)
+            .expect("acquire lease");
+        store.save(&dir).expect("save leased store");
+
+        // Elapsed deadline + quiet tick → VOLUNTARY YIELD + reschedule.
+        state.daemon_state.reconcile_due_at_ms = Some(1);
+        let t = tick(&mut state);
+        assert_eq!(t["auto_reconcile"], "yielded_to_lease");
+        assert_eq!(state.daemon_state.auto_reconcile_runs, 0, "nothing ran");
+        let rescheduled = state
+            .daemon_state
+            .reconcile_due_at_ms
+            .expect("the yield RESCHEDULES, never drops the debt");
+        assert!(rescheduled > now, "rescheduled into the future");
+        let untouched = SystemBlockStore::load(&dir).expect("load").expect("store");
+        assert_eq!(
+            untouched.store_version, 1,
+            "the leased store was not touched"
+        );
+
+        // The hand releases → the next elapsed quiet tick RUNS.
+        let mut store = SystemBlockStore::load(&dir).expect("load").expect("store");
+        store
+            .apply_lease(LeaseAction::Release, "hand-1", &now_iso, &until_iso)
+            .expect("release lease");
+        store.save(&dir).expect("save released store");
+        state.daemon_state.reconcile_due_at_ms = Some(1);
+        let t = tick(&mut state);
+        assert_eq!(t["auto_reconcile"], "ran_dirty");
+        assert_eq!(state.daemon_state.auto_reconcile_runs, 1);
+    }
+
+    /// RATIFIED-ONLY LAW (gardener v1, verdict item 5): reconcile refreshes the
+    /// RATIFIED store; candidate freshness is ANOTHER cycle (the candidate
+    /// re-scan), outside this arc — a candidate skeleton is skipped, debt cleared.
+    #[test]
+    fn auto_reconcile_skips_a_candidate_skeleton() {
+        use crate::system_blocks::{SeedSkeletonState, SystemBlockStore};
+        let (_temp, mut state, _repo) = build_reconcile_stage();
+        let mut store = stage_ratified_store(&state);
+        let dir = crate::system_blocks_handlers::store_dir(&state);
+        store.skeleton.state = SeedSkeletonState::Candidate;
+        store.save(&dir).expect("save candidate store");
+
+        state.daemon_state.reconcile_due_at_ms = Some(1);
+        let t = tick(&mut state);
+        assert_eq!(t["auto_reconcile"], "skeleton_not_ratified");
+        assert_eq!(state.daemon_state.auto_reconcile_runs, 0);
+        assert!(
+            state.daemon_state.reconcile_due_at_ms.is_none(),
+            "a candidate skeleton clears the debt — its freshness is another cycle"
+        );
+        let untouched = SystemBlockStore::load(&dir).expect("load").expect("store");
+        assert_eq!(untouched.store_version, 1);
+    }
+
+    /// OCC RETRY POLICY (gardener v1, verdict item 5): a Conflict earns exactly
+    /// ONE retry, then the alert — never a loop. The conflict arm is exercised
+    /// with an injected attempt (the only deterministic way: a real conflict
+    /// needs a concurrent writer), and the exhausted outcome must record the
+    /// alert on the existing daemon-alert lane.
+    #[test]
+    fn occ_conflict_gets_one_retry_then_an_alert_never_a_loop() {
+        use crate::system_blocks::SeedError;
+
+        // Conflict, conflict → exhausted after EXACTLY two attempts.
+        let mut calls = 0;
+        let out = occ_retry_outcome(|| {
+            calls += 1;
+            Err(SeedError::Conflict {
+                expected: 1,
+                actual: 2,
+            })
+        });
+        assert_eq!(out, OccOutcome::ConflictExhausted);
+        assert_eq!(calls, 2, "1 retry, never a loop");
+
+        // Conflict, then success → ran on the retry.
+        let mut calls = 0;
+        let out = occ_retry_outcome(|| {
+            calls += 1;
+            if calls == 1 {
+                Err(SeedError::Conflict {
+                    expected: 1,
+                    actual: 2,
+                })
+            } else {
+                Ok(false)
+            }
+        });
+        assert_eq!(out, OccOutcome::Ran { dirty: false });
+        assert_eq!(calls, 2);
+
+        // Immediate success → one attempt.
+        let mut calls = 0;
+        let out = occ_retry_outcome(|| {
+            calls += 1;
+            Ok(true)
+        });
+        assert_eq!(out, OccOutcome::Ran { dirty: true });
+        assert_eq!(calls, 1);
+
+        // A non-OCC failure settles immediately (fail-open, no retry).
+        let mut calls = 0;
+        let out = occ_retry_outcome(|| {
+            calls += 1;
+            Err(SeedError::NoStore)
+        });
+        assert!(matches!(out, OccOutcome::Failed(_)));
+        assert_eq!(calls, 1);
+
+        // Exhaustion RECORDS the alert on the existing lane, with the tick label.
+        let (_temp, mut state) = build_state();
+        let (label, alert_id) =
+            settle_auto_reconcile_outcome(&mut state, OccOutcome::ConflictExhausted);
+        assert_eq!(label, "conflict_alert");
+        let alert_id = alert_id.expect("the conflict alert id rides the tick totals");
+        assert!(state
+            .daemon_alerts
+            .iter()
+            .any(|a| a.alert_id == alert_id && a.kind == "auto_reconcile_conflict"));
+    }
+
+    /// BURST COALESCING (gardener v1, verdict item 7) — the checkout shape on the
+    /// git backend. A burst bigger than one tick's `max_files` budget used to be
+    /// truncated while `git_since_ref` advanced past the WHOLE diff: the tail was
+    /// silently lost forever (20-file burst, budget 6 → 6 ingested, 14 never).
+    /// Now the burst is ONE detection that fills the persisted backlog, and
+    /// bounded drain ticks re-ingest every file. RED under the old truncate:
+    /// ticks after the first find changed_files 0 and the total stalls at 6.
+    #[test]
+    fn burst_bigger_than_tick_budget_drains_completely_without_losing_the_tail() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        const N: usize = 20;
+        const BUDGET: usize = 6;
+        for i in 0..N {
+            std::fs::write(
+                repo.join(format!("src/f{i:02}.py")),
+                format!("def f{i:02}():\n    return {i}\n"),
+            )
+            .expect("write file");
+        }
+
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .output()
+                .expect("spawn git");
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "."]);
+        git(&["commit", "-m", "init"]);
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+                project_root: None,
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+
+        // THE BURST: every file changes and the head MOVES (the checkout shape —
+        // this is exactly what advanced since_ref past the tail before).
+        for i in 0..N {
+            std::fs::write(
+                repo.join(format!("src/f{i:02}.py")),
+                format!("def f{i:02}():\n    return {i} + 100\n"),
+            )
+            .expect("rewrite file");
+        }
+        git(&["add", "."]);
+        git(&["commit", "-m", "burst"]);
+
+        // Tick 1: ONE detection of the whole burst, a bounded drain, the rest
+        // owned by the persisted backlog while since_ref advances.
+        let tick1 = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: BUDGET,
+            },
+        )
+        .expect("burst tick");
+        assert_eq!(tick1["changed_files_detected"], N, "one detection sees ALL");
+        assert_eq!(tick1["files_reingested"], BUDGET);
+        assert_eq!(tick1["backlog_len"], N - BUDGET);
+        assert_eq!(
+            state.daemon_state.git_since_ref, state.daemon_state.git_head_ref,
+            "since_ref advances immediately — the backlog owns the tail"
+        );
+
+        // Drain ticks: git reports nothing new (detection already happened), the
+        // backlog empties, and EVERY file of the burst gets re-ingested.
+        let mut total_reingested = tick1["files_reingested"].as_u64().unwrap() as usize;
+        for _ in 0..10 {
+            if state.daemon_state.pending_backlog.is_empty() {
+                break;
+            }
+            let tick = handle_daemon_tick(
+                &mut state,
+                layers::DaemonTickInput {
+                    agent_id: "test".into(),
+                    max_files: BUDGET,
+                },
+            )
+            .expect("drain tick");
+            assert_eq!(
+                tick["changed_files_detected"], 0,
+                "drain ticks detect nothing new — the burst was ONE detection"
+            );
+            total_reingested += tick["files_reingested"].as_u64().unwrap() as usize;
+        }
+        assert!(
+            state.daemon_state.pending_backlog.is_empty(),
+            "the backlog must drain completely"
+        );
+        assert_eq!(
+            total_reingested, N,
+            "every file of the burst is re-ingested — no tail is lost"
+        );
+    }
+
+    /// HONEST COST BENCH (gardener v1 gate): measures the daemon tick against a
+    /// burst of N changed files on the git backend — the number the verdict
+    /// demands BEFORE any aggressive default. Ignored in CI (wall-clock noise);
+    /// run manually, release, with RSS captured externally:
+    ///   /usr/bin/time -l cargo test -p m1nd-mcp --release --lib -- \
+    ///     bench_daemon_tick_burst --ignored --nocapture
+    /// Numbers are recorded in docs/voice/GARDENER-V1.md.
+    #[test]
+    #[ignore = "cost bench — run manually, numbers recorded in the arc doc"]
+    fn bench_daemon_tick_burst() {
+        for n in [10usize, 100, 1000] {
+            let (temp, mut state) = build_state();
+            let repo = temp.path().join("repo");
+            std::fs::create_dir_all(repo.join("src")).expect("repo src");
+            for i in 0..n {
+                std::fs::write(
+                    repo.join(format!("src/f{i:04}.py")),
+                    format!("def f{i:04}():\n    return {i}\n"),
+                )
+                .expect("write file");
+            }
+            let git = |args: &[&str]| {
+                let out = Command::new("git")
+                    .args(args)
+                    .current_dir(&repo)
+                    .output()
+                    .expect("spawn git");
+                assert!(out.status.success(), "git {args:?} failed");
+            };
+            git(&["init", "-q"]);
+            git(&["config", "user.email", "bench@example.com"]);
+            git(&["config", "user.name", "Bench"]);
+            git(&["add", "."]);
+            git(&["commit", "-q", "-m", "init"]);
+
+            crate::tools::handle_ingest(
+                &mut state,
+                crate::protocol::IngestInput {
+                    path: repo.to_string_lossy().to_string(),
+                    agent_id: "bench".into(),
+                    mode: "replace".into(),
+                    incremental: false,
+                    adapter: "code".into(),
+                    namespace: None,
+                    include_dotfiles: false,
+                    dotfile_patterns: Vec::new(),
+                    project_root: None,
+                },
+            )
+            .expect("initial ingest");
+            handle_daemon_start(
+                &mut state,
+                layers::DaemonStartInput {
+                    agent_id: "bench".into(),
+                    watch_paths: vec![repo.to_string_lossy().to_string()],
+                    poll_interval_ms: 200,
+                },
+            )
+            .expect("daemon start");
+
+            // THE BURST: every file changes, head moves (the checkout shape).
+            for i in 0..n {
+                std::fs::write(
+                    repo.join(format!("src/f{i:04}.py")),
+                    format!("def f{i:04}():\n    return {i} + 1\n"),
+                )
+                .expect("rewrite file");
+            }
+            git(&["add", "."]);
+            git(&["commit", "-q", "-m", "burst"]);
+
+            // Detection tick (default drain budget 32) + drain to empty.
+            let t0 = std::time::Instant::now();
+            let first = handle_daemon_tick(
+                &mut state,
+                layers::DaemonTickInput {
+                    agent_id: "bench".into(),
+                    max_files: 32,
+                },
+            )
+            .expect("detection tick");
+            let detection_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(first["changed_files_detected"], n);
+
+            let mut drain_ticks = 0usize;
+            let t1 = std::time::Instant::now();
+            while !state.daemon_state.pending_backlog.is_empty() {
+                handle_daemon_tick(
+                    &mut state,
+                    layers::DaemonTickInput {
+                        agent_id: "bench".into(),
+                        max_files: 32,
+                    },
+                )
+                .expect("drain tick");
+                drain_ticks += 1;
+            }
+            let drain_ms = t1.elapsed().as_secs_f64() * 1000.0;
+            let total_ms = detection_ms + drain_ms;
+            println!(
+                "bench_daemon_tick_burst N={n:>5}: detection_tick={detection_ms:>9.1}ms \
+                 drain_ticks={drain_ticks:>3} drain={drain_ms:>9.1}ms \
+                 total={total_ms:>9.1}ms per_file={:>7.2}ms",
+                total_ms / n as f64
+            );
+        }
+    }
+
+    /// Backward compatibility (gardener v1): a pre-gardener daemon_state.json
+    /// (no `pending_backlog` field) must keep deserializing with `active`
+    /// preserved. A parse failure would fall back to Default and silently
+    /// DISARM every resumed daemon on upgrade.
+    #[test]
+    fn pre_gardener_daemon_state_still_deserializes_and_stays_armed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        // A faithful pre-gardener shape: serialize the current struct, then
+        // DELETE the new field from the JSON before writing it to disk.
+        let old = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_paths: vec!["/tmp/watch".into()],
+            poll_interval_ms: 60_000,
+            ..Default::default()
+        };
+        let mut value = serde_json::to_value(&old).expect("serialize");
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("pending_backlog")
+            .expect("the new field exists on the current struct");
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&value).expect("stringify"),
+        )
+        .expect("write old-shape state");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        assert!(
+            state.daemon_state.active,
+            "an old-shape daemon_state must resume armed — a parse fallback \
+             to Default would silently disarm it"
+        );
+        assert!(state.daemon_state.pending_backlog.is_empty());
+        assert_eq!(state.daemon_state.poll_interval_ms, 60_000);
     }
 
     #[test]

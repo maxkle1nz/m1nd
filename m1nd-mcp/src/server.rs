@@ -2324,7 +2324,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "daemon_start",
-                "description": "Start persisted daemon state and store watched paths for continuous structural monitoring.",
+                "description": "Arm the per-brain code daemon: persist watched paths and advance freshness when seen — ticks ride verb traffic (and, on a stdio owner, watch events / the idle clock); this is not a free-running monitor.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -4468,6 +4468,26 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
 // Zero duplication: McpServer::dispatch_tool() delegates to these.
 // ---------------------------------------------------------------------------
 
+/// FAIL-OPEN guard for a background VIGIL (gardener v1). Runs `vigil`, and if it
+/// errs, LOGS and SWALLOWS the failure so a watcher can never propagate its error
+/// into the agent's unrelated tool call. Returns `true` on success — surfaced so
+/// tests can pin the fail-open contract directly, and callers may branch on it.
+fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
+where
+    F: FnOnce() -> M1ndResult<()>,
+{
+    match vigil() {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!(
+                "[m1nd] gardener: {label} failed for tool '{tool}' \
+                 (fail-open — the tool call continues): {err}"
+            );
+            false
+        }
+    }
+}
+
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
@@ -4584,7 +4604,16 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
             | "mission_handoff"
             | "mission_close"
     ) {
-        auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+        // FAIL-OPEN (gardener v1). The inline auto-ingest tick is a background
+        // VIGIL, not part of the agent's request. Before, the `?` here turned a
+        // vigil failure into the agent's unrelated tool-call error. A watcher must
+        // never be able to break a tool call: run it fail-open (log + swallow). The
+        // code daemon's own tick already fails open (`run_daemon_tick` discards the
+        // handle_daemon_tick Result); this closes the matching hole for the
+        // document watcher's inline tick.
+        vigil_fail_open("auto_ingest tick", &normalized, || {
+            auto_ingest::maybe_tick_auto_ingest(state, &normalized)
+        });
     }
 
     let result = match normalized.as_str() {
@@ -6080,6 +6109,14 @@ impl McpServer {
                     let coalesced_at_ms = now_ms();
                     self.state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
                     loop {
+                        // BURST CAP (gardener v1): the sliding silence window
+                        // alone can starve under continuous churn — bound one
+                        // coalescing pass so the tick runs even during a storm.
+                        if now_ms().saturating_sub(coalesced_at_ms)
+                            >= crate::daemon_handlers::BURST_COALESCE_CAP_MS
+                        {
+                            break;
+                        }
                         match rx.recv_timeout(Duration::from_millis(
                             self.state.daemon_state.coalesce_window_ms.max(1),
                         )) {
@@ -6330,6 +6367,190 @@ mod tests {
         let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session");
         (temp, state)
+    }
+
+    // === Gardener v1: FAIL-OPEN — a background vigil never breaks a tool call ===
+
+    /// The fail-open contract (gardener v1): a vigil that ERRORS is swallowed
+    /// (logged, reported `false`), never propagated. RED against the old `?` at the
+    /// auto-ingest tick seam — a `?` would have surfaced the error into the tool call.
+    #[test]
+    fn vigil_fail_open_swallows_a_failing_vigil() {
+        use super::vigil_fail_open;
+        let ok = vigil_fail_open("test vigil", "search", || {
+            Err(m1nd_core::error::M1ndError::CorruptState {
+                reason: "boom".into(),
+            })
+        });
+        assert!(!ok, "a failing vigil is swallowed and reports false");
+        let ok2 = vigil_fail_open("test vigil", "search", || Ok(()));
+        assert!(ok2, "a succeeding vigil reports true");
+    }
+
+    /// End-to-end through the real traffic-autotick seam: a daemon whose tick CANNOT
+    /// persist (its state path's parent is a regular file, so `save_json_atomic`
+    /// fails) must NOT turn the agent's unrelated tool call into an error. "tick com
+    /// persist quebrado → o tool call do agente SUCEDE."
+    #[test]
+    fn broken_background_tick_never_fails_the_agents_tool_call() {
+        use crate::protocol::core::JsonRpcRequest;
+        let (temp, mut state) = build_state();
+
+        // Arm the daemon (this persists once to the good path), then break its
+        // persist target so the NEXT tick's persist errors.
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![temp.path().to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+
+        let poison_file = temp.path().join("poison");
+        std::fs::write(&poison_file, b"i am a file, not a dir").expect("write poison file");
+        // A path whose PARENT is a regular file → create_dir_all fails → persist Err.
+        state.daemon_state_path = poison_file.join("daemon_state.json");
+        // Force the traffic autotick to be due.
+        state.daemon_state.last_tick_ms = Some(0);
+
+        // Sanity: the poisoned persist really does error now.
+        assert!(
+            state.persist_daemon_state().is_err(),
+            "precondition: the poisoned daemon_state_path must make persist fail"
+        );
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "health",
+                "arguments": { "agent_id": "test" }
+            }),
+        };
+        let response = super::handle_mcp_method(&mut state, &request);
+        assert!(
+            response.error.is_none(),
+            "a broken background tick must not surface a JSON-RPC error: {:?}",
+            response.error
+        );
+        let is_error = response
+            .result
+            .as_ref()
+            .and_then(|r| r.get("isError"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(
+            !is_error,
+            "the agent's tool call must SUCCEED despite the failing background vigil"
+        );
+    }
+
+    // === Gardener v1: RESTART RESUME — an armed daemon survives a boot and ticks ===
+
+    /// The resume law (gardener v1): `active` survives a restart, and the daemon
+    /// actually TICKS again on the first traffic. RED without the load-time
+    /// sanitization: every traffic tick persists MID-tick, so the disk carries
+    /// `tick_in_flight: true` (proven below as a precondition) — a verbatim resume
+    /// wedges `run_daemon_tick` forever (it sees a phantom in-flight tick and
+    /// refuses every new one).
+    #[test]
+    fn armed_daemon_resumes_across_restart_and_ticks_again() {
+        use crate::protocol::core::JsonRpcRequest;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join("core.py"), "def core():\n    return 1\n").expect("seed file");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+
+        // One REAL traffic tick through the transport seam (handle_mcp_method →
+        // run_daemon_tick), exactly what a served owner does per routed call.
+        state.daemon_state.last_tick_ms = Some(0);
+        let health_call = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "health",
+                "arguments": { "agent_id": "test" }
+            }),
+        };
+        let response = super::handle_mcp_method(&mut state, &health_call);
+        assert!(response.error.is_none(), "traffic call must succeed");
+        assert!(
+            state.daemon_state.tick_count >= 1,
+            "the traffic autotick must have run at least one tick"
+        );
+
+        // THE WEDGE SHAPE, pinned as a precondition: the tick persisted itself
+        // while `tick_in_flight` was true, so that is what the disk carries.
+        let disk: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(runtime_dir.join("daemon_state.json"))
+                .expect("read persisted daemon state"),
+        )
+        .expect("parse persisted daemon state");
+        assert_eq!(
+            disk["tick_in_flight"], true,
+            "precondition: the post-traffic-tick disk carries the in-flight flag \
+             (this is the exact shape a restart resumes from)"
+        );
+        assert_eq!(
+            disk["active"], true,
+            "precondition: the daemon is armed on disk"
+        );
+        drop(state);
+
+        // RESTART: a fresh SessionState over the SAME runtime dir.
+        let mut resumed = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("re-init session");
+        assert!(
+            resumed.daemon_state.active,
+            "the armed daemon must resume active across a restart"
+        );
+        assert!(
+            !resumed.daemon_state.tick_in_flight && !resumed.daemon_state.pending_rerun,
+            "transient reentrancy flags must be sanitized on load"
+        );
+
+        // And it TICKS again on the first traffic (RED: wedged without the fix).
+        resumed.daemon_state.last_tick_ms = Some(0);
+        let before = resumed.daemon_state.tick_count;
+        let response = super::handle_mcp_method(&mut resumed, &health_call);
+        assert!(
+            response.error.is_none(),
+            "post-restart traffic call must succeed"
+        );
+        assert!(
+            resumed.daemon_state.tick_count > before,
+            "the resumed daemon must tick on traffic — a wedged resume is the bug"
+        );
+        assert_eq!(
+            resumed.daemon_state.last_tick_trigger.as_deref(),
+            Some("traffic"),
+            "the resumed tick is the traffic tick (freshness-by-traffic, v1)"
+        );
     }
 
     #[test]
