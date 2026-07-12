@@ -2,7 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-11 (**checkpoint 17 — THE HAND CURATES: F12 ratified+implemented, the first autonomously curated map human-ratified, the proof system hardened**).
+> Last checkpoint: 2026-07-12 (**checkpoint 18 — THE VOICE: m1nd speaks to the human in the conversation; the pulse is stamped, the cockpit ships, the scan wait is made honest**).
+> Checkpoint 18, condensed: see the dated blocks in Current State (the human-layer VOICE arc + the SCAN-LOADING arc — four PRs #347–#350, all landed same-day 2026-07-12; then a curation sealed the burst — atlas re-grounded, root cleaned).
+
+> Previous checkpoint: 2026-07-11 (**checkpoint 17 — THE HAND CURATES: F12 ratified+implemented, the first autonomously curated map human-ratified, the proof system hardened**).
 > Checkpoint 17, condensed: see the dated block in Current State (ARC-1 integrity + ARC-2 F12, both closed same-day).
 
 > Previous checkpoint: 2026-07-10 night (**checkpoint 16 — THE ORGANISM DEFENDED ITSELF: F11 shipped whole, the first HUMAN ratifies, the contamination cured with its vector proven, and the vital sign born**).
@@ -44,7 +47,50 @@ into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: clim
 rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
 same bar, applied to building the organism outward.
 
-## Current State (2026-07-11, checkpoint 17 — the hand curates; dated blocks below are the era log)
+## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
+
+> **2026-07-12 — the human-layer burst SEALED (checkpoint 18): the VOICE arc + the SCAN-LOADING arc landed as four PRs, then a curation closed the burst.**
+> Four PRs landed the same day and the organism wears all of it. **The VOICE arc** (its two
+> slices detailed in the blocks below): **#348** `human_view` v1 — the north packet's ≤4-line
+> card in the SPINE grammar; **#349** the PULSE + the `map <N> blocks` fact + the navigable
+> `cockpit` verb. **The SCAN-LOADING arc** (its own sheet `docs/uml/scan-loading.md`, no separate
+> era block here): **#347** dressed the held `skeleton_candidate` scan wait — a synchronous POST
+> the owner legitimately holds up to ~2 min with a live naming runner — as an honest client state
+> machine (idle→submitting→clustering→slow; REAL events only — response/error/gesture/1 s tick; NO
+> fabricated %; a TOTAL reducer that cannot wedge; an HONEST ABORT that stops the browser's fetch,
+> never the owner's work, so the store may still land); **#350** (its slice 2) had the owner
+> narrate the real phases (`file_list→clustering→naming→persisting`) on the EXISTING `/api/events`
+> SSE, so the panel shows the server's actual phase and degrades byte-clean to the static label
+> when the channel is silent. **The owner stamped the PULSE:** the five-cell `╷`/`│` row
+> (`trust · graph · focus · bell · coherence`, fixed-forever order, read as an EXPRESSION not
+> cell-by-cell, dropped WHOLE under `caller_root_mismatch`) is now the OFFICIAL signature of the
+> voice — the mark was the one thing the arc waited on. **Verified at the close:**
+> `cargo test -p m1nd-mcp` **1,069 / 0** (844 lib + 36 integration binaries; re-run on this
+> docs-only curation branch to prove nothing broke, exit 0), the burst's **489 UI + 5 e2e** green
+> at landing; the budgets hold — `north` ~1,404 tokens (≤2k, with the pulse + map mounted) and the
+> `cockpit`'s own ~695 root / ~430 drill (≤800). **Honest divergences, all recorded**
+> (`docs/voice/V1-DIVERGENCES.md` + `SLICE2-DIVERGENCES.md`): the ratified-maps segment was OMITTED
+> from line 1 in slice 1 (the packet carried no ratified-map count) and DELIVERED in slice 2 as
+> `map <N> blocks`, measured from the SAME `system_blocks_snapshot` read — no invented number; the
+> scan-SSE design imagined a `naming_wave i/N` counter, but `run_scan_naming` makes ONE opaque
+> daemon call for all packets (the `div_ceil(4)` "waves" only size the timeout budget), so per-wave
+> splitting would change the verb's SEMANTICS — REFUSED, and the `naming` phase emits one boundary
+> event carrying the wave ESTIMATE, never fabricated sub-progress (naming waves declined on the
+> same principle the whole voice runs on — narrate a real number, never a manufactured fraction).
+> **The curation itself (this checkpoint's own act):** the slice-1 `DIVERGENCES.md` was moved off
+> the repo root to `docs/voice/V1-DIVERGENCES.md` (beside the arc, content untouched); the UML
+> atlas indexed the two new code-grounded leaves (`scan-loading`, `cockpit`) and was re-grounded at
+> `c1ba801` with every Mermaid block re-validated by real `mermaid.parse()` — 78 across the master
+> + the twenty-two sheets, 0 failures. That re-validation caught THREE blocks silently broken and
+> un-renderable on GitHub — the master flowchart's dotted-link label (a `.` inside a `-.text.->`
+> label) and two sequence messages carrying a `;` (mermaid's statement separator) — each fixed in
+> its own commit, never silently; `docs/uml/massif.md` stays a design-stage lens under `docs/uml/`,
+> deliberately NOT in the code-grounded index. **Next, REAL and queued:** the cockpit's per-item
+> drill (`impact`/`why`/`trace` against a selected item, depth 2) — explicitly DEFERRED by the
+> verdict (amendment 4), not forgotten; exposing the menu inside the rich widget as a first-class
+> product surface; the marketing pitch, HELD by the owner's order until he stamps it; and a
+> visual-refinement pass on the widget template WITH the owner. Nothing here is done the owner has
+> not seen.
 
 > **2026-07-12 — the HUMAN-LAYER VOICE arc opens (§C11-style amendment): slice 1, `human_view`, lands.**
 > An off-§C10 front, opened by the owner's order and registered here as the ladder ritual demands
