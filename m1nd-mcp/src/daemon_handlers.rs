@@ -1764,7 +1764,10 @@ mod tests {
             .expect("the yield RESCHEDULES, never drops the debt");
         assert!(rescheduled > now, "rescheduled into the future");
         let untouched = SystemBlockStore::load(&dir).expect("load").expect("store");
-        assert_eq!(untouched.store_version, 1, "the leased store was not touched");
+        assert_eq!(
+            untouched.store_version, 1,
+            "the leased store was not touched"
+        );
 
         // The hand releases → the next elapsed quiet tick RUNS.
         let mut store = SystemBlockStore::load(&dir).expect("load").expect("store");

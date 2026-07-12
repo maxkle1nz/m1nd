@@ -2324,7 +2324,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "daemon_start",
-                "description": "Start persisted daemon state and store watched paths for continuous structural monitoring.",
+                "description": "Arm the per-brain code daemon: persist watched paths and advance freshness when seen — ticks ride verb traffic (and, on a stdio owner, watch events / the idle clock); this is not a free-running monitor.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -6516,7 +6516,10 @@ mod tests {
             "precondition: the post-traffic-tick disk carries the in-flight flag \
              (this is the exact shape a restart resumes from)"
         );
-        assert_eq!(disk["active"], true, "precondition: the daemon is armed on disk");
+        assert_eq!(
+            disk["active"], true,
+            "precondition: the daemon is armed on disk"
+        );
         drop(state);
 
         // RESTART: a fresh SessionState over the SAME runtime dir.
@@ -6535,7 +6538,10 @@ mod tests {
         resumed.daemon_state.last_tick_ms = Some(0);
         let before = resumed.daemon_state.tick_count;
         let response = super::handle_mcp_method(&mut resumed, &health_call);
-        assert!(response.error.is_none(), "post-restart traffic call must succeed");
+        assert!(
+            response.error.is_none(),
+            "post-restart traffic call must succeed"
+        );
         assert!(
             resumed.daemon_state.tick_count > before,
             "the resumed daemon must tick on traffic — a wedged resume is the bug"
