@@ -487,17 +487,56 @@ pub struct ReceiptImportInput {
     pub block_id: String,
     /// The receipt itself (full [`Receipt`] shape; unknown fields are rejected).
     pub receipt: Receipt,
+    /// The ORIGIN of the import gesture (sovereign-stamp arc, step 0). Validated
+    /// server-side against the closed [`RECEIPT_IMPORT_HUMAN_ORIGINS`] allow-list.
+    /// Only the owner's screen composes `"human-ui"`; a runner/agent MCP client never
+    /// does. Absent, empty, or any off-list value refuses the call — landing a receipt
+    /// is the human's signature, not an agent's write (the same law `ratify` carries).
+    #[serde(default)]
+    pub imported_via: Option<String>,
 }
 
-/// `receipt_import` (WRITE). Attaches a receipt to a block after the anti-poison
-/// gates (OCC, block exists, scope binds to the block's CURRENT versions, evidence
-/// contract, captured execution-window coherence) all pass; bumps
-/// `store_version`.
+/// The CLOSED allow-list of HUMAN origin tokens that pass the `receipt_import` gate.
+/// Today only the owner's web UI composes a legitimate import gesture (`"human-ui"`).
+/// The future native gestures of the sovereign-stamp arc — `"human-tray"`,
+/// `"human-tray-batch"`, `"human-touchid"` — join this list in LATER steps, and only
+/// WHEN their components exist: a new origin is a code change + a test here, never a
+/// silently-trusted client string. Absent, empty, or any off-list value is refused.
+const RECEIPT_IMPORT_HUMAN_ORIGINS: &[&str] = &["human-ui"];
+
+/// `receipt_import` (WRITE). Attaches a receipt to a block after the human-origin
+/// gate and the anti-poison gates (OCC, block exists, scope binds to the block's
+/// CURRENT versions, evidence contract, captured execution-window coherence) all
+/// pass; bumps `store_version`.
 pub fn handle_receipt_import(
     state: &mut SessionState,
     input: ReceiptImportInput,
 ) -> M1ndResult<Value> {
     const TOOL: &str = "receipt_import";
+    // Origin gate: landing a receipt is a HUMAN gesture, exactly as ratify is (the
+    // sovereign-stamp verdict, step 0). The open hole this closes: only ratify carried
+    // the mechanical mirror; `receipt_import` — the OTHER human write that bumps
+    // `store_version` — had NONE, so an agent could land evidence by simply calling it.
+    // Now both doors require a human origin token, validated server-side against a
+    // CLOSED allow-list (const in code — a new origin is a code change + a test, never a
+    // client string). The owner's screen stamps `imported_via:"human-ui"`; a
+    // runner/agent MCP client never composes it. It holds on BOTH seams (the MCP wire
+    // and REST route through this one `dispatch_tool` — the #333 parity lesson). As with
+    // ratify, the token is forgeable on an unauthenticated loopback, so this closes the
+    // CHEAP vector (an agent that calls receipt_import by reflex/deceit), NOT a malicious
+    // same-UID process — the real cryptographic elevation (Touch ID) is step 2 of the arc.
+    let origin = input.imported_via.as_deref().unwrap_or("");
+    if !RECEIPT_IMPORT_HUMAN_ORIGINS.contains(&origin) {
+        return Ok(json!({
+            "ok": false,
+            "schema": "m1nd-system-block-write-v0",
+            "refused": "human_gesture_required",
+            "tool": TOOL,
+            "field": "imported_via",
+            "allowed_origins": RECEIPT_IMPORT_HUMAN_ORIGINS,
+            "lesson": "landing a receipt is the human gesture — the owner's screen sends it; agents never do",
+        }));
+    }
     let dir = store_dir(state);
     let store = import_receipt_in_dir(
         &dir,

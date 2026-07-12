@@ -199,8 +199,10 @@ atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), a
 ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
 blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever (mechanically \
 enforced: `system_blocks_ratify` requires the `ratified_via:\"human-ui\"` origin token the owner's \
-screen stamps; an agent never composes it, so a bare ratify is refused `human_gesture_required`), \
-and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
+screen stamps; an agent never composes it, so a bare ratify is refused `human_gesture_required` — \
+and `receipt_import`, the OTHER human write that bumps `store_version`, now carries the SAME gate \
+under `imported_via` against a closed server-side allow-list, closing a step-0 hole where it \
+previously had NO origin check at all), and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
 curation mission edits via `candidate_edit`), the human signs. CURATION IS PROPOSE-APPLY (F12): the \
 `curation_spawn` verb sends the candidate to a pinned hand-runner that PROPOSES `candidate_edit` ops \
 as data; the OWNER sanitizes (o5, seat `runner`) and applies them under OCC — the hand never holds a \
@@ -2761,16 +2763,17 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "receipt_import",
-                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at); (5) a captured execution window must have `started_at < ended_at`, neither timestamp may be future-dated at import, and the window may not exceed 24 hours. Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the human-origin gate and the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (0) HUMAN-ORIGIN — `imported_via` must be a value on the closed server-side allow-list (today only `\"human-ui\"`, the owner's screen); absent or off-list is refused `human_gesture_required` and nothing is applied — landing a receipt is the human gesture, never an agent's write (the same law `ratify` carries); (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at); (5) a captured execution window must have `started_at < ended_at`, neither timestamp may be future-dated at import, and the window may not exceed 24 hours. Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
                         "block_id": { "type": "string", "description": "The block this receipt is evidence for." },
-                        "receipt": { "type": "object", "description": "The receipt (m1nd-system-block receipt shape): type, emitter, scope {block_id, boundary_version, contract_version, resolution_hash}, evidence {artifact_hash + evidence_refs required for every type; command/cwd/exit_status/started_at/ended_at additionally required for type=test}, validity." }
+                        "receipt": { "type": "object", "description": "The receipt (m1nd-system-block receipt shape): type, emitter, scope {block_id, boundary_version, contract_version, resolution_hash}, evidence {artifact_hash + evidence_refs required for every type; command/cwd/exit_status/started_at/ended_at additionally required for type=test}, validity." },
+                        "imported_via": { "type": "string", "description": "Origin token — must be \"human-ui\", stamped only by the owner's screen. Absent or any other value refuses the call `human_gesture_required`: landing a receipt is the human gesture, never an agent's write. (The closed allow-list grows only in code as future native gestures ship.)" }
                     },
-                    "required": ["agent_id", "expected_store_version", "block_id", "receipt"]
+                    "required": ["agent_id", "expected_store_version", "block_id", "receipt", "imported_via"]
                 }
             },
             {
@@ -6570,6 +6573,155 @@ mod tests {
         .expect("human-origin ratify applies");
         assert_eq!(ratified["skeleton_state"], "ratified");
         assert_eq!(ratified["store_version"], 2);
+    }
+
+    /// A valid `spec` receipt for a real ratified seed block (boundary 1 / contract 1).
+    /// Anchor-only evidence clears the evidence contract for a non-`test` type, so the
+    /// scope + OCC are the only remaining gates — leaving the ORIGIN gate as the thing
+    /// under test.
+    fn human_ui_seed_receipt() -> serde_json::Value {
+        serde_json::json!({
+            "type": "spec",
+            "emitter": { "kind": "verb", "id": "human-ui-landing" },
+            "scope": {
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "boundary_version": 1,
+                "contract_version": 1,
+                "resolution_hash": "sha256:res"
+            },
+            "evidence": { "artifact_hash": "sha256:art", "evidence_refs": ["artifacts/x.txt"] },
+            "validity": { "expires_on": null, "stales_on": [] }
+        })
+    }
+
+    #[test]
+    fn receipt_import_refuses_without_the_human_origin_and_lands_with_it() {
+        // Sovereign-stamp step 0: `receipt_import` is a human write exactly like ratify,
+        // and until now it carried NO origin gate. This proves the mirror on the SHARED
+        // `dispatch_tool` seam (the MCP wire AND REST both route through it — the #333
+        // parity lesson): a call with no origin and one with an off-list origin are BOTH
+        // refused and touch nothing; the `human-ui` call lands and bumps the OCC counter
+        // exactly once.
+        let (_temp, mut state) = build_state();
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        let imp = super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": seed}),
+        )
+        .expect("seed_import ok");
+        assert_eq!(imp["store_version"], 1);
+        let receipt = human_ui_seed_receipt();
+
+        // No origin token → soft refusal naming the field + the allow-list, nothing landed.
+        let refused = super::dispatch_tool(
+            &mut state,
+            "receipt_import",
+            &serde_json::json!({
+                "agent_id": "runner",
+                "expected_store_version": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "receipt": receipt.clone(),
+            }),
+        )
+        .expect("the origin gate is a soft refusal, not an error");
+        assert_eq!(refused["refused"], "human_gesture_required");
+        assert_eq!(refused["field"], "imported_via");
+        assert_eq!(refused["allowed_origins"], serde_json::json!(["human-ui"]));
+        assert_eq!(
+            refused["lesson"],
+            "landing a receipt is the human gesture — the owner's screen sends it; agents never do"
+        );
+
+        // An off-list (invented) origin is refused identically — the allow-list is closed.
+        let refused2 = super::dispatch_tool(
+            &mut state,
+            "receipt_import",
+            &serde_json::json!({
+                "agent_id": "runner",
+                "expected_store_version": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "receipt": receipt.clone(),
+                "imported_via": "human-tray",
+            }),
+        )
+        .expect("an unknown origin is a soft refusal too");
+        assert_eq!(refused2["refused"], "human_gesture_required");
+
+        // The SAME call carrying the owner screen's origin token lands. Its OCC key is
+        // still 1 — proof both refusals above bumped nothing.
+        let landed = super::dispatch_tool(
+            &mut state,
+            "receipt_import",
+            &serde_json::json!({
+                "agent_id": "gui",
+                "expected_store_version": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "receipt": receipt,
+                "imported_via": "human-ui",
+            }),
+        )
+        .expect("human-origin receipt import lands");
+        assert_eq!(landed["store_version"], 2);
+        assert_eq!(landed["receipt_count"], 1);
+    }
+
+    #[test]
+    fn agent_composed_receipt_import_dies_at_the_door() {
+        // The adversarial case the verdict named: an agent call to receipt_import —
+        // whether it sends NO origin, an EMPTY one, or INVENTS a plausible one — dies at
+        // the door before any mutation. On this host agents provably hold
+        // computer-use/Playwright, so a click is synthesizable; the cheap reflex vector
+        // (an agent simply calling the verb) is exactly what this gate closes. Same-UID
+        // malware and the cryptographic elevation (Touch ID, step 2) are out of scope.
+        let (_temp, mut state) = build_state();
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": seed}),
+        )
+        .expect("seed_import ok");
+        let receipt = human_ui_seed_receipt();
+
+        for forged in [
+            serde_json::json!(null), // absent field
+            serde_json::json!(""),   // empty string
+            serde_json::json!("runnerd"),
+            serde_json::json!("human-touchid"), // a future origin that does not exist yet
+        ] {
+            let mut params = serde_json::json!({
+                "agent_id": "runner",
+                "expected_store_version": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "receipt": receipt.clone(),
+            });
+            if !forged.is_null() {
+                params["imported_via"] = forged.clone();
+            }
+            let refused = super::dispatch_tool(&mut state, "receipt_import", &params)
+                .expect("the agent gate is a soft refusal, not a crash");
+            assert_eq!(
+                refused["refused"], "human_gesture_required",
+                "an agent-composed import must die at the door: imported_via={forged}"
+            );
+        }
+
+        // The human origin still lands from the SAME store version — proof every forged
+        // attempt above bumped nothing.
+        let landed = super::dispatch_tool(
+            &mut state,
+            "receipt_import",
+            &serde_json::json!({
+                "agent_id": "gui",
+                "expected_store_version": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "receipt": receipt,
+                "imported_via": "human-ui",
+            }),
+        )
+        .expect("the human gesture lands");
+        assert_eq!(landed["store_version"], 2);
     }
 
     #[test]
