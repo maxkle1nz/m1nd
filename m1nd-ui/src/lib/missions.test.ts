@@ -244,7 +244,7 @@ test('landCandidate: happy path — imports the candidate’s receipt AND posts 
   assert.equal(imp.expectedStoreVersion, 9, 'the fresh store_version keys the OCC');
   assert.equal(imp.blockId, 'sb_m1nd_mailbox');
   assert.equal(imp.receipt.type, 'test', 'the candidate’s type');
-  assert.deepEqual(imp.receipt.emitter, { kind: 'verb', id: 'human-tray-landing' }, 'the named human gesture');
+  assert.deepEqual(imp.receipt.emitter, { kind: 'verb', id: 'human-ui-landing' }, 'the named human gesture');
   assert.equal(imp.receipt.scope.block_id, 'sb_m1nd_mailbox');
   assert.equal(imp.receipt.scope.boundary_version, 1, 'the CANDIDATE’s boundary (never re-dated)');
   assert.equal(imp.receipt.scope.contract_version, 1, 'the CANDIDATE’s contract');
