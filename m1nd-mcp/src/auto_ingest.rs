@@ -1272,4 +1272,88 @@ mod tests {
             "the drained Delete reconciled the missing manifest entry"
         );
     }
+
+    /// FAIL-OPEN, end-to-end through the previously violable seam (gardener v1):
+    /// an agent's unrelated tool call used to FAIL when the inline auto-ingest
+    /// vigil errored — `dispatch_tool` propagated `maybe_tick_auto_ingest` with a
+    /// `?`. This test arranges a REAL erroring tick (the tick's end-of-drain
+    /// persist hits a poisoned `auto_ingest_state.tmp` that is a directory, so
+    /// `save_json_atomic`'s `fs::write` fails) and asserts the agent's `health`
+    /// call still SUCCEEDS. RED under the old `?`: dispatch_tool returned the
+    /// vigil's error; GREEN under fail-open: the error is logged and swallowed.
+    #[test]
+    fn erroring_auto_ingest_vigil_never_fails_the_agents_tool_call() {
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let temp = tempfile::tempdir().unwrap();
+        let runtime_dir = temp.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // A running auto-ingest with one ready change (debounce 0), exactly as the
+        // idle-pump case above — the drain will reach the end-of-tick persist.
+        let missing = temp.path().join("docs").join("missing.md");
+        let missing_key = missing.to_string_lossy().to_string();
+        {
+            let ai = &mut state.auto_ingest;
+            ai.running = true;
+            ai.persistent.debounce_ms = 0;
+            ai.persistent.roots = vec![temp.path().to_string_lossy().to_string()];
+            ai.persistent.manifest.insert(
+                missing_key.clone(),
+                AutoIngestManifestEntry {
+                    source_path: missing_key.clone(),
+                    format: "light".into(),
+                    namespace: None,
+                    fingerprint: AutoIngestFingerprint {
+                        canonical_path: missing_key.clone(),
+                        size: 1,
+                        mtime_ms: 1,
+                        content_hash: "hash".into(),
+                        detected_format: "light".into(),
+                    },
+                    claims: SourceClaims::default(),
+                    last_ingested_ms: 1,
+                },
+            );
+            AutoIngestState::enqueue_change(
+                &ai.pending,
+                missing_key.clone(),
+                PendingChangeKind::Delete,
+            );
+        }
+
+        // POISON the tick's persist: `save_json_atomic` writes
+        // `auto_ingest_state.tmp` then renames — a DIRECTORY at the tmp path makes
+        // `fs::write` fail on every platform, so the tick returns Err.
+        let tmp_path = AutoIngestState::state_path(&state.runtime_root).with_extension("tmp");
+        fs::create_dir_all(&tmp_path).expect("poison tmp path as a directory");
+        assert!(
+            state.auto_ingest.persist(&state.runtime_root).is_err(),
+            "precondition: the poisoned tmp path must make the vigil's persist fail"
+        );
+
+        // The agent's UNRELATED tool call ('health' is not on the tick's skip
+        // list, so the vigil runs inline) must SUCCEED despite the erroring vigil.
+        let result = crate::server::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        );
+        assert!(
+            result.is_ok(),
+            "the agent's tool call must succeed when the auto-ingest vigil errors \
+             (fail-open), got: {:?}",
+            result.err()
+        );
+    }
 }

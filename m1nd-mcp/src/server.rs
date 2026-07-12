@@ -4468,6 +4468,26 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
 // Zero duplication: McpServer::dispatch_tool() delegates to these.
 // ---------------------------------------------------------------------------
 
+/// FAIL-OPEN guard for a background VIGIL (gardener v1). Runs `vigil`, and if it
+/// errs, LOGS and SWALLOWS the failure so a watcher can never propagate its error
+/// into the agent's unrelated tool call. Returns `true` on success — surfaced so
+/// tests can pin the fail-open contract directly, and callers may branch on it.
+fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
+where
+    F: FnOnce() -> M1ndResult<()>,
+{
+    match vigil() {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!(
+                "[m1nd] gardener: {label} failed for tool '{tool}' \
+                 (fail-open — the tool call continues): {err}"
+            );
+            false
+        }
+    }
+}
+
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
@@ -4584,7 +4604,16 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
             | "mission_handoff"
             | "mission_close"
     ) {
-        auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+        // FAIL-OPEN (gardener v1). The inline auto-ingest tick is a background
+        // VIGIL, not part of the agent's request. Before, the `?` here turned a
+        // vigil failure into the agent's unrelated tool-call error. A watcher must
+        // never be able to break a tool call: run it fail-open (log + swallow). The
+        // code daemon's own tick already fails open (`run_daemon_tick` discards the
+        // handle_daemon_tick Result); this closes the matching hole for the
+        // document watcher's inline tick.
+        vigil_fail_open("auto_ingest tick", &normalized, || {
+            auto_ingest::maybe_tick_auto_ingest(state, &normalized)
+        });
     }
 
     let result = match normalized.as_str() {
@@ -6330,6 +6359,85 @@ mod tests {
         let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session");
         (temp, state)
+    }
+
+    // === Gardener v1: FAIL-OPEN — a background vigil never breaks a tool call ===
+
+    /// The fail-open contract (gardener v1): a vigil that ERRORS is swallowed
+    /// (logged, reported `false`), never propagated. RED against the old `?` at the
+    /// auto-ingest tick seam — a `?` would have surfaced the error into the tool call.
+    #[test]
+    fn vigil_fail_open_swallows_a_failing_vigil() {
+        use super::vigil_fail_open;
+        let ok = vigil_fail_open("test vigil", "search", || {
+            Err(m1nd_core::error::M1ndError::CorruptState {
+                reason: "boom".into(),
+            })
+        });
+        assert!(!ok, "a failing vigil is swallowed and reports false");
+        let ok2 = vigil_fail_open("test vigil", "search", || Ok(()));
+        assert!(ok2, "a succeeding vigil reports true");
+    }
+
+    /// End-to-end through the real traffic-autotick seam: a daemon whose tick CANNOT
+    /// persist (its state path's parent is a regular file, so `save_json_atomic`
+    /// fails) must NOT turn the agent's unrelated tool call into an error. "tick com
+    /// persist quebrado → o tool call do agente SUCEDE."
+    #[test]
+    fn broken_background_tick_never_fails_the_agents_tool_call() {
+        use crate::protocol::core::JsonRpcRequest;
+        let (temp, mut state) = build_state();
+
+        // Arm the daemon (this persists once to the good path), then break its
+        // persist target so the NEXT tick's persist errors.
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![temp.path().to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+
+        let poison_file = temp.path().join("poison");
+        std::fs::write(&poison_file, b"i am a file, not a dir").expect("write poison file");
+        // A path whose PARENT is a regular file → create_dir_all fails → persist Err.
+        state.daemon_state_path = poison_file.join("daemon_state.json");
+        // Force the traffic autotick to be due.
+        state.daemon_state.last_tick_ms = Some(0);
+
+        // Sanity: the poisoned persist really does error now.
+        assert!(
+            state.persist_daemon_state().is_err(),
+            "precondition: the poisoned daemon_state_path must make persist fail"
+        );
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "health",
+                "arguments": { "agent_id": "test" }
+            }),
+        };
+        let response = super::handle_mcp_method(&mut state, &request);
+        assert!(
+            response.error.is_none(),
+            "a broken background tick must not surface a JSON-RPC error: {:?}",
+            response.error
+        );
+        let is_error = response
+            .result
+            .as_ref()
+            .and_then(|r| r.get("isError"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(
+            !is_error,
+            "the agent's tool call must SUCCEED despite the failing background vigil"
+        );
     }
 
     #[test]
