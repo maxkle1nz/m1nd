@@ -1997,6 +1997,114 @@ mod tests {
         );
     }
 
+    /// HONEST COST BENCH (gardener v1 gate): measures the daemon tick against a
+    /// burst of N changed files on the git backend — the number the verdict
+    /// demands BEFORE any aggressive default. Ignored in CI (wall-clock noise);
+    /// run manually, release, with RSS captured externally:
+    ///   /usr/bin/time -l cargo test -p m1nd-mcp --release --lib -- \
+    ///     bench_daemon_tick_burst --ignored --nocapture
+    /// Numbers are recorded in docs/voice/GARDENER-V1.md.
+    #[test]
+    #[ignore = "cost bench — run manually, numbers recorded in the arc doc"]
+    fn bench_daemon_tick_burst() {
+        for n in [10usize, 100, 1000] {
+            let (temp, mut state) = build_state();
+            let repo = temp.path().join("repo");
+            std::fs::create_dir_all(repo.join("src")).expect("repo src");
+            for i in 0..n {
+                std::fs::write(
+                    repo.join(format!("src/f{i:04}.py")),
+                    format!("def f{i:04}():\n    return {i}\n"),
+                )
+                .expect("write file");
+            }
+            let git = |args: &[&str]| {
+                let out = Command::new("git")
+                    .args(args)
+                    .current_dir(&repo)
+                    .output()
+                    .expect("spawn git");
+                assert!(out.status.success(), "git {args:?} failed");
+            };
+            git(&["init", "-q"]);
+            git(&["config", "user.email", "bench@example.com"]);
+            git(&["config", "user.name", "Bench"]);
+            git(&["add", "."]);
+            git(&["commit", "-q", "-m", "init"]);
+
+            crate::tools::handle_ingest(
+                &mut state,
+                crate::protocol::IngestInput {
+                    path: repo.to_string_lossy().to_string(),
+                    agent_id: "bench".into(),
+                    mode: "replace".into(),
+                    incremental: false,
+                    adapter: "code".into(),
+                    namespace: None,
+                    include_dotfiles: false,
+                    dotfile_patterns: Vec::new(),
+                    project_root: None,
+                },
+            )
+            .expect("initial ingest");
+            handle_daemon_start(
+                &mut state,
+                layers::DaemonStartInput {
+                    agent_id: "bench".into(),
+                    watch_paths: vec![repo.to_string_lossy().to_string()],
+                    poll_interval_ms: 200,
+                },
+            )
+            .expect("daemon start");
+
+            // THE BURST: every file changes, head moves (the checkout shape).
+            for i in 0..n {
+                std::fs::write(
+                    repo.join(format!("src/f{i:04}.py")),
+                    format!("def f{i:04}():\n    return {i} + 1\n"),
+                )
+                .expect("rewrite file");
+            }
+            git(&["add", "."]);
+            git(&["commit", "-q", "-m", "burst"]);
+
+            // Detection tick (default drain budget 32) + drain to empty.
+            let t0 = std::time::Instant::now();
+            let first = handle_daemon_tick(
+                &mut state,
+                layers::DaemonTickInput {
+                    agent_id: "bench".into(),
+                    max_files: 32,
+                },
+            )
+            .expect("detection tick");
+            let detection_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(first["changed_files_detected"], n);
+
+            let mut drain_ticks = 0usize;
+            let t1 = std::time::Instant::now();
+            while !state.daemon_state.pending_backlog.is_empty() {
+                handle_daemon_tick(
+                    &mut state,
+                    layers::DaemonTickInput {
+                        agent_id: "bench".into(),
+                        max_files: 32,
+                    },
+                )
+                .expect("drain tick");
+                drain_ticks += 1;
+            }
+            let drain_ms = t1.elapsed().as_secs_f64() * 1000.0;
+            let total_ms = detection_ms + drain_ms;
+            println!(
+                "bench_daemon_tick_burst N={n:>5}: detection_tick={detection_ms:>9.1}ms \
+                 drain_ticks={drain_ticks:>3} drain={drain_ms:>9.1}ms \
+                 total={total_ms:>9.1}ms per_file={:>7.2}ms",
+                total_ms / n as f64
+            );
+        }
+    }
+
     /// Backward compatibility (gardener v1): a pre-gardener daemon_state.json
     /// (no `pending_backlog` field) must keep deserializing with `active`
     /// preserved. A parse failure would fall back to Default and silently
