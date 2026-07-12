@@ -192,6 +192,19 @@ pub struct DaemonRuntimeState {
     pub git_operation_in_progress: bool,
     pub git_operation_kind: Option<String>,
     pub deferred_ticks: u64,
+    /// Gardener v1 — BURST BACKLOG. External ids detected as changed but not yet
+    /// re-ingested (a burst bigger than one tick's `max_files` budget). The tick
+    /// detects ONCE (one git diff / inventory compare per burst), pushes the whole
+    /// changed set here, advances `git_since_ref` immediately (the backlog owns
+    /// the tail), and drains up to `max_files` per tick — so a thousand-file
+    /// checkout is ONE detection plus bounded drain ticks, and NO file is lost to
+    /// the old truncate-then-advance hole. FIFO drain: completeness over recency
+    /// (no starvation; a single burst lands in one detection anyway, newest-first
+    /// within the batch). `serde(default)`: pre-gardener daemon_state.json files
+    /// lack this field and must keep deserializing (a failed parse would fall
+    /// back to Default and silently DISARM a resumed daemon).
+    #[serde(default)]
+    pub pending_backlog: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

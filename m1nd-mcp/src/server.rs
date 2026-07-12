@@ -6109,6 +6109,14 @@ impl McpServer {
                     let coalesced_at_ms = now_ms();
                     self.state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
                     loop {
+                        // BURST CAP (gardener v1): the sliding silence window
+                        // alone can starve under continuous churn — bound one
+                        // coalescing pass so the tick runs even during a storm.
+                        if now_ms().saturating_sub(coalesced_at_ms)
+                            >= crate::daemon_handlers::BURST_COALESCE_CAP_MS
+                        {
+                            break;
+                        }
                         match rx.recv_timeout(Duration::from_millis(
                             self.state.daemon_state.coalesce_window_ms.max(1),
                         )) {

@@ -9,6 +9,25 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Gardener v1 — burst coalescing numbers (verdict item 7), REGISTERED with
+/// their justification so the choice is auditable:
+///
+/// * `BURST_COALESCE_WINDOW_MS = 500`. The stdio event loop closes a watch-event
+///   burst after this much SILENCE (sliding window). The old 75 ms fragmented a
+///   branch checkout into several ticks: git writes files in dense sub-ms
+///   batches but pauses for index/lock/pack work in the low hundreds of ms, so
+///   75 ms of silence regularly fired mid-checkout. 500 ms spans those pauses —
+///   thousands of events become ONE detection — while adding at most half a
+///   second of latency to a single-file save (invisible for a background vigil
+///   whose poll intervals are measured in seconds).
+/// * `BURST_COALESCE_CAP_MS = 5_000`. A sliding silence window alone can starve
+///   under CONTINUOUS churn (events forever < window apart). The cap bounds one
+///   coalescing pass: after 5 s of sustained events the tick runs anyway, so the
+///   graph keeps advancing during a storm instead of waiting for a quiet that
+///   never comes.
+pub const BURST_COALESCE_WINDOW_MS: u64 = 500;
+pub const BURST_COALESCE_CAP_MS: u64 = 5_000;
+
 fn simple_content_hash(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -341,9 +360,10 @@ pub fn handle_daemon_start(
     state.daemon_state.last_tick_trigger = None;
     state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
-    state.daemon_state.coalesce_window_ms = 75;
+    state.daemon_state.coalesce_window_ms = BURST_COALESCE_WINDOW_MS;
     state.daemon_state.pending_rerun = false;
     state.daemon_state.tick_in_flight = false;
+    state.daemon_state.pending_backlog = Vec::new();
     state.daemon_state.last_coalesced_event_ms = None;
     state.daemon_state.coalesced_event_count = 0;
     state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
@@ -476,6 +496,7 @@ pub fn handle_daemon_status(
         "coalesced_event_count": state.daemon_state.coalesced_event_count,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
+        "pending_backlog_len": state.daemon_state.pending_backlog.len(),
         "tick_count": state.daemon_state.tick_count,
         "last_tick_duration_ms": state.daemon_state.last_tick_duration_ms,
         "last_tick_changed_files": state.daemon_state.last_tick_changed_files,
@@ -630,7 +651,46 @@ pub fn handle_daemon_tick(
     }
 
     changed_entries.sort_by_key(|entry| std::cmp::Reverse(entry.last_modified_ms));
-    changed_entries.truncate(input.max_files);
+    let newly_detected = changed_entries.len();
+
+    // BURST BACKLOG (gardener v1, verdict item 7). The old shape truncated the
+    // changed set to `max_files` AND (on the git backend) advanced
+    // `git_since_ref` past the whole diff — a thousand-file checkout re-ingested
+    // 32 files and silently LOST the tail forever. Now: every detected id is
+    // pushed onto the persisted backlog (dedup — the polling backend re-detects
+    // un-ingested files every tick), and the tick drains a bounded slice from
+    // the FRONT (FIFO: completeness, no starvation; a single burst lands in one
+    // detection anyway, newest-first within the batch). Each drained id is
+    // resolved against the LIVE inventory so the ingest always reads fresh
+    // content; an id that vanished from disk simply drops (the deletion lane
+    // below owns the alert for tracked files).
+    for entry in &changed_entries {
+        if !state
+            .daemon_state
+            .pending_backlog
+            .iter()
+            .any(|id| id == &entry.external_id)
+        {
+            state
+                .daemon_state
+                .pending_backlog
+                .push(entry.external_id.clone());
+        }
+    }
+    let backlog = std::mem::take(&mut state.daemon_state.pending_backlog);
+    let mut drained_entries: Vec<FileInventoryEntry> = Vec::new();
+    let mut kept_backlog: Vec<String> = Vec::new();
+    for id in backlog {
+        if drained_entries.len() >= input.max_files {
+            kept_backlog.push(id);
+            continue;
+        }
+        if let Some(entry) = live_inventory.get(&id) {
+            drained_entries.push(entry.clone());
+        }
+    }
+    state.daemon_state.pending_backlog = kept_backlog;
+    let changed_entries = drained_entries;
 
     let mut ingested_files = Vec::new();
     let mut heuristic_alerts_emitted = 0usize;
@@ -728,7 +788,13 @@ pub fn handle_daemon_tick(
     state.daemon_state.last_tick_changed_files = changed_entries.len();
     state.daemon_state.last_tick_deleted_files = deleted_entries.len();
     state.daemon_state.last_tick_alerts_emitted = emitted_alerts_total;
-    if changed_entries.is_empty() && deleted_entries.is_empty() && emitted_alerts_total == 0 {
+    // A tick with a non-empty remaining backlog is NOT idle — drain work remains,
+    // and backing off would stretch the burst's tail out for no reason.
+    if changed_entries.is_empty()
+        && deleted_entries.is_empty()
+        && emitted_alerts_total == 0
+        && state.daemon_state.pending_backlog.is_empty()
+    {
         state.daemon_state.idle_streak = state.daemon_state.idle_streak.saturating_add(1);
     } else {
         state.daemon_state.idle_streak = 0;
@@ -740,9 +806,10 @@ pub fn handle_daemon_tick(
         "active": true,
         "tick_at_ms": tick_ms,
         "watch_paths": state.daemon_state.watch_paths,
-        "changed_files_detected": changed_entries.len(),
+        "changed_files_detected": newly_detected,
         "deleted_files_detected": deleted_entries.len(),
         "files_reingested": ingested_files.len(),
+        "backlog_len": state.daemon_state.pending_backlog.len(),
         "ingested_files": ingested_files,
         "deleted_files": deleted_entries.into_iter().map(|entry| json!({
             "file_path": entry.file_path,
@@ -948,7 +1015,7 @@ mod tests {
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["overdue_ms"], 0);
         assert_eq!(status["idle_streak"], 0);
-        assert_eq!(status["coalesce_window_ms"], 75);
+        assert_eq!(status["coalesce_window_ms"], BURST_COALESCE_WINDOW_MS);
         assert_eq!(status["pending_rerun"], false);
         assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
@@ -1311,6 +1378,181 @@ mod tests {
         assert_eq!(status["pending_rerun"], false);
         assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
+    }
+
+    /// BURST COALESCING (gardener v1, verdict item 7) — the checkout shape on the
+    /// git backend. A burst bigger than one tick's `max_files` budget used to be
+    /// truncated while `git_since_ref` advanced past the WHOLE diff: the tail was
+    /// silently lost forever (20-file burst, budget 6 → 6 ingested, 14 never).
+    /// Now the burst is ONE detection that fills the persisted backlog, and
+    /// bounded drain ticks re-ingest every file. RED under the old truncate:
+    /// ticks after the first find changed_files 0 and the total stalls at 6.
+    #[test]
+    fn burst_bigger_than_tick_budget_drains_completely_without_losing_the_tail() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        const N: usize = 20;
+        const BUDGET: usize = 6;
+        for i in 0..N {
+            std::fs::write(
+                repo.join(format!("src/f{i:02}.py")),
+                format!("def f{i:02}():\n    return {i}\n"),
+            )
+            .expect("write file");
+        }
+
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .output()
+                .expect("spawn git");
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "."]);
+        git(&["commit", "-m", "init"]);
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+                project_root: None,
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+
+        // THE BURST: every file changes and the head MOVES (the checkout shape —
+        // this is exactly what advanced since_ref past the tail before).
+        for i in 0..N {
+            std::fs::write(
+                repo.join(format!("src/f{i:02}.py")),
+                format!("def f{i:02}():\n    return {i} + 100\n"),
+            )
+            .expect("rewrite file");
+        }
+        git(&["add", "."]);
+        git(&["commit", "-m", "burst"]);
+
+        // Tick 1: ONE detection of the whole burst, a bounded drain, the rest
+        // owned by the persisted backlog while since_ref advances.
+        let tick1 = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: BUDGET,
+            },
+        )
+        .expect("burst tick");
+        assert_eq!(tick1["changed_files_detected"], N, "one detection sees ALL");
+        assert_eq!(tick1["files_reingested"], BUDGET);
+        assert_eq!(tick1["backlog_len"], N - BUDGET);
+        assert_eq!(
+            state.daemon_state.git_since_ref, state.daemon_state.git_head_ref,
+            "since_ref advances immediately — the backlog owns the tail"
+        );
+
+        // Drain ticks: git reports nothing new (detection already happened), the
+        // backlog empties, and EVERY file of the burst gets re-ingested.
+        let mut total_reingested = tick1["files_reingested"].as_u64().unwrap() as usize;
+        for _ in 0..10 {
+            if state.daemon_state.pending_backlog.is_empty() {
+                break;
+            }
+            let tick = handle_daemon_tick(
+                &mut state,
+                layers::DaemonTickInput {
+                    agent_id: "test".into(),
+                    max_files: BUDGET,
+                },
+            )
+            .expect("drain tick");
+            assert_eq!(
+                tick["changed_files_detected"], 0,
+                "drain ticks detect nothing new — the burst was ONE detection"
+            );
+            total_reingested += tick["files_reingested"].as_u64().unwrap() as usize;
+        }
+        assert!(
+            state.daemon_state.pending_backlog.is_empty(),
+            "the backlog must drain completely"
+        );
+        assert_eq!(
+            total_reingested, N,
+            "every file of the burst is re-ingested — no tail is lost"
+        );
+    }
+
+    /// Backward compatibility (gardener v1): a pre-gardener daemon_state.json
+    /// (no `pending_backlog` field) must keep deserializing with `active`
+    /// preserved. A parse failure would fall back to Default and silently
+    /// DISARM every resumed daemon on upgrade.
+    #[test]
+    fn pre_gardener_daemon_state_still_deserializes_and_stays_armed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        // A faithful pre-gardener shape: serialize the current struct, then
+        // DELETE the new field from the JSON before writing it to disk.
+        let old = crate::session::DaemonRuntimeState {
+            active: true,
+            watch_paths: vec!["/tmp/watch".into()],
+            poll_interval_ms: 60_000,
+            ..Default::default()
+        };
+        let mut value = serde_json::to_value(&old).expect("serialize");
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("pending_backlog")
+            .expect("the new field exists on the current struct");
+        std::fs::write(
+            runtime_dir.join("daemon_state.json"),
+            serde_json::to_string_pretty(&value).expect("stringify"),
+        )
+        .expect("write old-shape state");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        assert!(
+            state.daemon_state.active,
+            "an old-shape daemon_state must resume armed — a parse fallback \
+             to Default would silently disarm it"
+        );
+        assert!(state.daemon_state.pending_backlog.is_empty());
+        assert_eq!(state.daemon_state.poll_interval_ms, 60_000);
     }
 
     #[test]
