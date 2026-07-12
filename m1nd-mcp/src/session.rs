@@ -205,6 +205,18 @@ pub struct DaemonRuntimeState {
     /// back to Default and silently DISARM a resumed daemon).
     #[serde(default)]
     pub pending_backlog: Vec<String>,
+    /// Gardener v1 — AUTO-RECONCILE quiet-window deadline. Set (and PUSHED) by
+    /// every tick that saw activity; when a quiet tick passes it with an empty
+    /// backlog, the daemon reconciles the RATIFIED system-blocks store (with
+    /// voluntary lease yield and a 1-retry OCC policy). `None` = nothing owed.
+    #[serde(default)]
+    pub reconcile_due_at_ms: Option<u64>,
+    /// When the last auto-reconcile actually ran (status honesty).
+    #[serde(default)]
+    pub last_auto_reconcile_ms: Option<u64>,
+    /// How many auto-reconciles this daemon has run since it was armed.
+    #[serde(default)]
+    pub auto_reconcile_runs: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
