@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import type { BlockRollup, MembershipRole, Socket, SystemBlock } from '../../lib/buildMap';
 import { STATE_LABEL, domainTag as toDomainTag, membershipByRole } from '../../lib/buildMap';
-import { useFileView } from '../../hooks/useFileView';
+import CodeReader from './CodeReader';
 import { Icon } from '../../lib/icons/registry';
 
 export type ShowCodeTab = 'files' | 'tests' | 'receipts' | 'impact';
@@ -49,59 +49,6 @@ const TABS: Array<{ id: ShowCodeTab; label: string }> = [
 
 function socketTarget(s: Socket): string {
   return s.to ?? s.alias ?? s.class ?? '—';
-}
-
-/** A membership entry declared as a glob (`**`, `*`, `?`, `[…]`) rather than an
- *  exact path — the viewer reads exact files, so a glob is honestly deferred
- *  (glob resolution is a later phase, F0-TECH §2). */
-function isGlobPath(path: string): boolean {
-  return /[*?[\]]/.test(path);
-}
-
-/** The read-only file viewer (uses `/api/file`; idle/loading placeholder in SSR). */
-function Viewer({ path, brainRoot = null }: { path: string | null; brainRoot?: string | null }) {
-  const glob = path != null && isGlobPath(path);
-  // Never fire a doomed fetch for a glob — keep the hook idle and say so honestly.
-  const file = useFileView(glob ? null : path, brainRoot);
-  if (!path) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-xs text-ink-soft" data-role="viewer-idle">
-        Select a file to view its contents.
-      </div>
-    );
-  }
-  if (glob) {
-    return (
-      <div className="flex-1 flex items-center justify-center px-4 text-center text-xs text-ink-soft" data-role="viewer-glob">
-        <span>
-          <span className="font-mono text-ink">{path}</span> is a glob pattern — per-file view arrives
-          when globs are resolved (a later slice).
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex-1 min-h-0 flex flex-col" data-role="viewer">
-      <div className="px-2 py-1.5 border-b border-ink/10 text-[11px] font-mono text-ink flex items-center gap-2">
-        <Icon name="kindFile" size={14} decorative />
-        <span className="truncate">{path}</span>
-        {file.truncated && (
-          <span className="ml-auto text-[10px] text-verdict-reverify" data-role="viewer-truncated">
-            showing {file.content.length} of {file.bytes} bytes
-          </span>
-        )}
-      </div>
-      {file.status === 'loading' && <div className="p-2 text-xs text-ink-soft">Loading {path}…</div>}
-      {file.status === 'error' && (
-        <div className="p-2 text-xs text-state-failure font-mono break-words">{file.error}</div>
-      )}
-      {file.status === 'ready' && (
-        <pre className="flex-1 min-h-0 overflow-auto text-[11px] font-mono text-ink p-2 whitespace-pre">
-          {file.content}
-        </pre>
-      )}
-    </div>
-  );
 }
 
 /** The right-rail health panel (F9) — real counts only, honest denominators. */
@@ -273,7 +220,7 @@ export default function ShowCode({
                   </div>
                 ))}
               </div>
-              <Viewer path={selectedPath} brainRoot={brainRoot} />
+              <CodeReader path={selectedPath} brainRoot={brainRoot} rollup={rollup} />
               <HealthPanel block={block} rollup={rollup} />
             </>
           )}

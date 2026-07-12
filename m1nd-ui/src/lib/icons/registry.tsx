@@ -50,6 +50,9 @@ import {
   Box,
   Boxes,
   FileText,
+  List,
+  Braces,
+  Package,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -89,6 +92,9 @@ export const ICON = {
   kindFile: FileCode,
   kindFunction: SquareFunction,
   kindStruct: Box, // struct / class
+  kindEnum: List, // enum — a fixed list of variants (code reader outline)
+  kindType: Braces, // type alias / interface (code reader outline)
+  kindModule: Package, // module / namespace (code reader outline)
   kindDoc: FileText,
   kindMemory: Tag, // same concept, same icon — the law holds across tables
 } as const satisfies Record<string, LucideIcon>;
