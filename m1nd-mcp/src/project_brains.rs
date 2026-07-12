@@ -1014,6 +1014,143 @@ mod eviction_gate_tests {
 }
 
 #[cfg(test)]
+mod daemon_rearm_tests {
+    //! Gardener v1 (verdict leg 2): the per-brain daemon SURVIVES the LRU
+    //! eviction gate. `insert_with_eviction` drops the whole SessionState (and
+    //! with it any live watcher) — "armed today, dead in a week, no alert".
+    //! The re-arm lives on the registry's warm-boot/resolve path: `boot_store`
+    //! → `SessionState::initialize` → `load_daemon_state` resumes `active`
+    //! (transient flags sanitized), and the next routed call's traffic tick
+    //! advances it. Lazy by construction: the resume never scans — the first
+    //! traffic tick does the inventory work, after the listener, on demand.
+    use super::*;
+    use serde_json::json;
+
+    fn write_tiny_repo(root: &Path) {
+        std::fs::create_dir_all(root.join("src")).expect("mk src");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"tiny\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub fn tiny_probe() -> i64 { 1 }\n",
+        )
+        .expect("lib.rs");
+    }
+
+    /// eviction→rearm: arm the daemon on a hosted brain (watch_paths defaulting
+    /// to the BRAIN's ingest_roots, per the verdict), evict the brain through the
+    /// real LRU gate, re-resolve it, and prove the daemon comes back armed AND
+    /// ticks on the same transport seam the served owner uses per routed call.
+    #[test]
+    fn evicted_brains_armed_daemon_rearms_on_the_next_resolve() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Cap 1: bootstrapping a second brain MUST evict the first.
+        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+
+        let root_a = tmp.path().join("repo-a");
+        write_tiny_repo(&root_a);
+        let key_a = ProjectBrainRegistry::canonical_key(&root_a.to_string_lossy());
+        let (brain_a, _ingest, reused) = reg
+            .bootstrap(&root_a.to_string_lossy(), &json!({"agent_id": "t"}))
+            .expect("bootstrap brain A");
+        assert!(!reused, "A is a fresh mint");
+
+        // ARM the daemon on brain A through the routed verb path, with EMPTY
+        // watch_paths — the verdict's per-brain default: the brain's own
+        // ingest_roots become the watch set.
+        {
+            let mut a = brain_a.lock();
+            let started = crate::server::dispatch_tool(
+                &mut a,
+                "daemon_start",
+                &json!({"agent_id": "t", "poll_interval_ms": 1}),
+            )
+            .expect("daemon_start on the hosted brain");
+            assert_eq!(started["active"], true);
+            let watched: Vec<String> = started["watch_paths"]
+                .as_array()
+                .expect("watch_paths array")
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            assert!(
+                watched.iter().any(|p| p.contains("repo-a")),
+                "empty watch_paths must default to the BRAIN's ingest_roots \
+                 (got {watched:?})"
+            );
+
+            // One REAL traffic tick before the eviction — the lived shape: an
+            // armed brain that has already advanced, then goes cold.
+            a.daemon_state.last_tick_ms = Some(0);
+            let request = crate::protocol::core::JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: json!(0),
+                method: "tools/call".into(),
+                params: json!({
+                    "name": "health",
+                    "arguments": { "agent_id": "t" }
+                }),
+            };
+            let response = crate::server::handle_mcp_method(&mut a, &request);
+            assert!(response.error.is_none(), "pre-evict traffic call succeeds");
+            assert!(a.daemon_state.tick_count >= 1, "A ticked before eviction");
+        }
+        drop(brain_a);
+
+        // EVICT A through the real gate: cap is 1, so bootstrapping B drops A.
+        let root_b = tmp.path().join("repo-b");
+        write_tiny_repo(&root_b);
+        reg.bootstrap(&root_b.to_string_lossy(), &json!({"agent_id": "t"}))
+            .expect("bootstrap brain B evicts A");
+        assert!(
+            reg.warm_counts(&key_a).is_none(),
+            "precondition: A was evicted from the warm map"
+        );
+
+        // RE-RESOLVE A: the daemon must come back ARMED (resume on the
+        // warm-boot path) and TICK on the next traffic.
+        let revived = reg.resolve(&key_a).expect("warm-boot A from its store");
+        let mut a = revived.lock();
+        assert!(
+            a.daemon_state.active,
+            "the armed daemon must survive eviction via its store's daemon_state"
+        );
+        assert!(
+            !a.daemon_state.tick_in_flight && !a.daemon_state.pending_rerun,
+            "transient flags are sanitized on the warm-boot resume"
+        );
+
+        // The SAME transport seam a routed call takes: handle_mcp_method's
+        // traffic autotick.
+        a.daemon_state.last_tick_ms = Some(0);
+        let before = a.daemon_state.tick_count;
+        let request = crate::protocol::core::JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: json!(1),
+            method: "tools/call".into(),
+            params: json!({
+                "name": "health",
+                "arguments": { "agent_id": "t" }
+            }),
+        };
+        let response = crate::server::handle_mcp_method(&mut a, &request);
+        assert!(response.error.is_none(), "routed call must succeed");
+        assert!(
+            a.daemon_state.tick_count > before,
+            "the revived brain's daemon must tick on traffic"
+        );
+        assert_eq!(
+            a.daemon_state.last_tick_trigger.as_deref(),
+            Some("traffic"),
+            "freshness-by-traffic: the tick trigger is the routed call"
+        );
+    }
+}
+
+#[cfg(test)]
 mod overlap_guard_tests {
     //! THE OVERLAP GUARD (field friction 2026-07-10: twin brains for one project).
     //! A brain existed for a repo; a session opened in the repo's PARENT folder and
