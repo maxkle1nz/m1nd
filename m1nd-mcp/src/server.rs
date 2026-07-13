@@ -2781,7 +2781,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "receipt_import",
-                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the human-origin gate and the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (0) HUMAN-ORIGIN — `imported_via` must be a value on the closed server-side allow-list (today only `\"human-ui\"`, the owner's screen); absent or off-list is refused `human_gesture_required` and nothing is applied — landing a receipt is the human gesture, never an agent's write (the same law `ratify` carries); (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at); (5) a captured execution window must have `started_at < ended_at`, neither timestamp may be future-dated at import, and the window may not exceed 24 hours. Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
+                "description": "Human View v2 F0a WRITE verb. Attaches a typed evidence receipt to a block after the human-origin gate and the anti-poison gates all pass, then bumps `store_version`. Gates, in order: (0) HUMAN-ORIGIN — `imported_via` must be a value on the closed server-side allow-list (`\"human-ui\"`, the owner's screen, or `\"human-touchid\"`, the h4nd tray's native prompt landed behind Touch ID); absent or off-list is refused `human_gesture_required` and nothing is applied — landing a receipt is the human gesture, never an agent's write (the same law `ratify` carries); (1) optimistic-concurrency — `expected_store_version` must match or the write is rejected with a `conflict` and nothing is applied; (2) the block exists; (3) the receipt's `scope` binds to the block's CURRENT `(block_id, boundary_version, contract_version)` — otherwise `stale_scope` (PRD §3.1: evidence is never counted for a version it did not see); (4) evidence obeys the contract — the universal anchor `artifact_hash` + `evidence_refs` is present and non-empty for EVERY receipt, and a `test` receipt additionally carries its execution identity (command/cwd/exit_status/started_at/ended_at); (5) a captured execution window must have `started_at < ended_at`, neither timestamp may be future-dated at import, and the window may not exceed 24 hours. Any gate failure leaves the store untouched. Mutation — refused under a read-only attach.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2789,7 +2789,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
                         "block_id": { "type": "string", "description": "The block this receipt is evidence for." },
                         "receipt": { "type": "object", "description": "The receipt (m1nd-system-block receipt shape): type, emitter, scope {block_id, boundary_version, contract_version, resolution_hash}, evidence {artifact_hash + evidence_refs required for every type; command/cwd/exit_status/started_at/ended_at additionally required for type=test}, validity." },
-                        "imported_via": { "type": "string", "description": "Origin token — must be \"human-ui\", stamped only by the owner's screen. Absent or any other value refuses the call `human_gesture_required`: landing a receipt is the human gesture, never an agent's write. (The closed allow-list grows only in code as future native gestures ship.)" }
+                        "imported_via": { "type": "string", "description": "Origin token — a human-gesture value on the closed allow-list: \"human-ui\" (the owner's screen) or \"human-touchid\" (the h4nd tray, landed behind Touch ID). Absent or any off-list value refuses the call `human_gesture_required`: landing a receipt is the human gesture, never an agent's write. (The closed allow-list grows only in code as future native gestures ship.)" }
                     },
                     "required": ["agent_id", "expected_store_version", "block_id", "receipt", "imported_via"]
                 }
@@ -7056,7 +7056,10 @@ mod tests {
         .expect("the origin gate is a soft refusal, not an error");
         assert_eq!(refused["refused"], "human_gesture_required");
         assert_eq!(refused["field"], "imported_via");
-        assert_eq!(refused["allowed_origins"], serde_json::json!(["human-ui"]));
+        assert_eq!(
+            refused["allowed_origins"],
+            serde_json::json!(["human-ui", "human-touchid"])
+        );
         assert_eq!(
             refused["lesson"],
             "landing a receipt is the human gesture — the owner's screen sends it; agents never do"
@@ -7101,8 +7104,10 @@ mod tests {
         // whether it sends NO origin, an EMPTY one, or INVENTS a plausible one — dies at
         // the door before any mutation. On this host agents provably hold
         // computer-use/Playwright, so a click is synthesizable; the cheap reflex vector
-        // (an agent simply calling the verb) is exactly what this gate closes. Same-UID
-        // malware and the cryptographic elevation (Touch ID, step 2) are out of scope.
+        // (an agent simply calling the verb) is exactly what this gate closes. The gate is
+        // the ORIGIN check; proving the real biometric gesture behind `human-touchid` is the
+        // h4nd tray's job (Touch ID), not this server's — here we only prove the token is on
+        // the allow-list. Same-UID malware stays out of scope.
         let (_temp, mut state) = build_state();
         let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
         super::dispatch_tool(
@@ -7117,7 +7122,8 @@ mod tests {
             serde_json::json!(null), // absent field
             serde_json::json!(""),   // empty string
             serde_json::json!("runnerd"),
-            serde_json::json!("human-touchid"), // a future origin that does not exist yet
+            serde_json::json!("human-tray"), // a documented-but-unshipped future origin — still dead
+            serde_json::json!("human-touchid-x"), // a look-alike of the real token — still dead
         ] {
             let mut params = serde_json::json!({
                 "agent_id": "runner",
@@ -7136,20 +7142,22 @@ mod tests {
             );
         }
 
-        // The human origin still lands from the SAME store version — proof every forged
-        // attempt above bumped nothing.
+        // The NEW native gesture (human-touchid, sovereign-stamp step 2) lands from the SAME
+        // start version — proof every forged attempt above bumped nothing, AND proof the
+        // Touch ID origin is now a first-class human token, not a forgeable future. The
+        // owner's web screen (human-ui) is proven to land in the sibling test above.
         let landed = super::dispatch_tool(
             &mut state,
             "receipt_import",
             &serde_json::json!({
-                "agent_id": "gui",
+                "agent_id": "h4nd-tray-touchid",
                 "expected_store_version": 1,
                 "block_id": "sb_m1nd_core_graph_kernel",
                 "receipt": receipt,
-                "imported_via": "human-ui",
+                "imported_via": "human-touchid",
             }),
         )
-        .expect("the human gesture lands");
+        .expect("the native Touch ID gesture lands");
         assert_eq!(landed["store_version"], 2);
     }
 
