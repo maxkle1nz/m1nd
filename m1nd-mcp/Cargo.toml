@@ -59,6 +59,10 @@ name = "m1nd-mcp"
 path = "src/main.rs"
 
 [dev-dependencies]
+# `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
+# the owner-alive guard's port can be reserved-closed without a live listener that a
+# parallel test could collide with (see the `closed_port` helpers).
+socket2 = "0.6"
 tempfile = "3.27.0"
 tokio-test = "0.4"
 tower = { version = "0.5", features = ["util"] }

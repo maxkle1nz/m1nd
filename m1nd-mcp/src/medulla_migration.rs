@@ -919,22 +919,58 @@ mod tests {
         std::fs::write(dir.join(file), contents).expect("write claim");
     }
 
-    /// A loopback port that is CLOSED right now: bind an ephemeral port, read it,
-    /// then drop the listener so the port is free again. The owner-alive guard
-    /// probing this port gets a refused connection (the owner-down path), so
-    /// scratch tests exercise the migration logic without racing the machine's real
-    /// served owner (which really does listen on 1338 in this environment).
+    /// A loopback port reserved CLOSED for the whole test process. Bind an ephemeral
+    /// TCP port but DELIBERATELY do not listen on it, then park the socket for the
+    /// process lifetime. A bound-but-not-listening socket keeps any parallel test
+    /// from grabbing this exact port as a live listener, so the owner-alive guard can
+    /// never misread a foreign listener as a served owner, while a `connect` to it is
+    /// refused (the owner-down path) — scratch tests exercise the migration logic
+    /// without racing the machine's real served owner (which really does listen on
+    /// 1338 in this environment). The old pattern (bind, read the port, drop the
+    /// listener to free it) let a parallel case grab that freed port as a live
+    /// listener under `--test-threads`, which the guard misread as a served owner.
     fn closed_port() -> u16 {
-        match std::net::TcpListener::bind("127.0.0.1:0") {
-            Ok(listener) => listener.local_addr().unwrap().port(),
+        use socket2::{Domain, Socket, Type};
+        let socket = match Socket::new(Domain::IPV4, Type::STREAM, None) {
+            Ok(s) => s,
             Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 eprintln!(
-                    "SKIP closed_port bind probe: loopback bind is unavailable in this sandbox: {err}"
+                    "SKIP closed_port reservation: socket creation is unavailable in this sandbox: {err}"
                 );
-                9
+                return 9;
             }
-            Err(err) => panic!("bind ephemeral: {err}"),
+            Err(err) => panic!("create reservation socket: {err}"),
+        };
+        if let Err(err) = socket.bind(&std::net::SocketAddr::from(([127, 0, 0, 1], 0)).into()) {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                eprintln!(
+                    "SKIP closed_port reservation: loopback bind is unavailable in this sandbox: {err}"
+                );
+                return 9;
+            }
+            panic!("bind ephemeral reservation: {err}");
         }
+        let port = socket
+            .local_addr()
+            .expect("reservation local_addr")
+            .as_socket_ipv4()
+            .expect("reservation is ipv4")
+            .port();
+        park_reservation(socket);
+        port
+    }
+
+    /// Hold a reserved socket for the whole test-process lifetime so its port stays
+    /// bound (and therefore un-reused by any parallel test) until the process exits,
+    /// which reclaims the fd.
+    fn park_reservation(socket: socket2::Socket) {
+        use std::sync::{Mutex, OnceLock};
+        static PARKED: OnceLock<Mutex<Vec<socket2::Socket>>> = OnceLock::new();
+        PARKED
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .expect("reservation registry lock")
+            .push(socket);
     }
 
     /// Build a migration over a scratch store with the owner-alive guard pointed at

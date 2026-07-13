@@ -32,17 +32,46 @@ fn light_doc(node: &str, source_agent: &str, body: &str) -> String {
     )
 }
 
-/// A loopback port that is CLOSED right now: bind an ephemeral port, read it, then
-/// drop the listener so the port frees again. Passed to the binary via
-/// `M1ND_MEDULLA_GUARD_PORT` so the owner-alive guard sees no listener and the
-/// migration runs — these tests use fully synthetic runtime dirs and must not be
-/// gated on (or race) the developer's real served owner on the default port.
+/// A loopback port reserved CLOSED for the whole test process. Bind an ephemeral
+/// TCP port but DELIBERATELY do not listen on it, then park the socket for the
+/// process lifetime. A bound-but-not-listening socket both (a) stops the OS from
+/// handing this exact port to any other concurrent test's `TcpListener::bind`, so
+/// the owner-alive guard can only ever collide with a listener that is genuinely
+/// ours (there is none here), and (b) makes the guard's `connect` refused (no
+/// LISTEN socket) — the owner-down path these synthetic-runtime tests need, so they
+/// are never gated on (or race) the developer's real served owner on the default
+/// port. The old pattern (bind, read the port, drop the listener to free it) let a
+/// parallel case grab that freed port as a live listener, which the guard misread
+/// as a served owner — the `--test-threads` flake seen on CI run 29219109679.
+/// Passed to the binary via `M1ND_MEDULLA_GUARD_PORT`.
 fn closed_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("bind ephemeral")
+    use socket2::{Domain, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, None).expect("create reservation socket");
+    socket
+        .bind(&std::net::SocketAddr::from(([127, 0, 0, 1], 0)).into())
+        .expect("bind ephemeral reservation");
+    let port = socket
         .local_addr()
-        .unwrap()
-        .port()
+        .expect("reservation local_addr")
+        .as_socket_ipv4()
+        .expect("reservation is ipv4")
+        .port();
+    park_reservation(socket);
+    port
+}
+
+/// Hold a reserved socket for the whole test-process lifetime so its port stays
+/// bound (and therefore un-reused by any parallel test) until the process exits,
+/// which reclaims the fd. A handful of ports are reserved per run — well within the
+/// descriptor limit.
+fn park_reservation(socket: socket2::Socket) {
+    use std::sync::{Mutex, OnceLock};
+    static PARKED: OnceLock<Mutex<Vec<socket2::Socket>>> = OnceLock::new();
+    PARKED
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .expect("reservation registry lock")
+        .push(socket);
 }
 
 /// Run the binary with the owner-alive guard pointed at an explicit port.
