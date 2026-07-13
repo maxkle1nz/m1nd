@@ -217,7 +217,7 @@ pub struct HealthInput {
 }
 
 /// Input for m1nd.session_handshake.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct SessionHandshakeInput {
     pub agent_id: String,
     #[serde(default)]
@@ -228,6 +228,26 @@ pub struct SessionHandshakeInput {
     pub missing_tools: Vec<String>,
     #[serde(default)]
     pub scope: Option<String>,
+    // --- ORGANISM-INSIDE P1 — optional presence DECLARATION (askGOD verdict
+    //     2026-07-13). The session's self-declared control-room enrichment, all
+    //     optional and honest-absent. Measured facts (brain / caller_root /
+    //     task_ref) are NEVER taken from here — only what the agent chooses to
+    //     declare about itself. ---
+    /// orchestrator | executor | pool-hand | runner | oracle | human-ui.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// One free-text line ("reader slice 1", "F12 curation lane").
+    #[serde(default)]
+    pub theme: Option<String>,
+    /// `read` | `mutate` — the DECLARED mutation level (verdict c).
+    #[serde(default)]
+    pub intent: Option<String>,
+    /// Worktree/branch display string.
+    #[serde(default)]
+    pub worktree: Option<String>,
+    /// Declared working set: repo-relative paths and/or `sb_` block ids.
+    #[serde(default)]
+    pub working_set: Vec<String>,
 }
 
 /// Input for m1nd.trust_selftest.

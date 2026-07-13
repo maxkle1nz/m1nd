@@ -900,6 +900,18 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         let node_count = graph.num_nodes() as usize;
         let edge_count = graph.num_edges();
         drop(graph);
+        // P1 (ORGANISM-INSIDE): the durable presence roster + derived collisions.
+        // Owner-wide (every brain the registry serves — collisions are same-brain
+        // by construction, so no cross-brain pairing leaks); the data source the
+        // Hall strip (m1nd-ui lane) and any HTTP consumer read. Fail-open: an
+        // unreadable registry yields an empty roster, never a failed health read.
+        let (presences, presence_collisions) = {
+            let now = crate::util::now_ms();
+            let registry_root = session.instance.registry_root();
+            let roster = crate::presence::list_live(&registry_root, now);
+            let collisions = crate::presence::collisions_in(&roster, now);
+            (roster, collisions)
+        };
         serde_json::json!({
             "status": if node_count > 0 { "ok" } else { "empty" },
             "uptime_secs": session.uptime_seconds(),
@@ -907,6 +919,12 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             "edge_count": edge_count,
             "queries_processed": session.queries_processed,
             "agent_sessions": session.session_summary(),
+            "presences": {
+                "schema": crate::presence::PRESENCE_SCHEMA,
+                "scope": "owner-wide",
+                "roster": presences,
+                "collisions": presence_collisions,
+            },
             "domain": session.domain.name.as_str(),
             "graph_generation": session.graph_generation,
             "plasticity_generation": session.plasticity_generation,

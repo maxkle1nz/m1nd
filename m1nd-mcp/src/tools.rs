@@ -3358,6 +3358,20 @@ pub fn handle_session_handshake(
     state: &mut SessionState,
     input: SessionHandshakeInput,
 ) -> M1ndResult<serde_json::Value> {
+    // P1 presence (ORGANISM-INSIDE): record any DECLARED enrichment this session
+    // carried so the throttled beat projects who/what into the control-room
+    // roster. Handshake is already the session's first call — the natural,
+    // reuse-first carrier (PRD §3.3). Optional and honest-absent: a bare
+    // handshake declares nothing and erases nothing.
+    state.set_presence_declaration(
+        &input.agent_id,
+        input.kind.clone(),
+        input.theme.clone(),
+        input.intent.clone(),
+        input.worktree.clone(),
+        input.working_set.clone(),
+    );
+
     let mut available_tools = input.available_tools.clone();
     available_tools.sort();
     available_tools.dedup();
@@ -3685,6 +3699,7 @@ pub fn handle_trust_selftest(
             available_tools: input.available_tools.clone(),
             missing_tools: input.missing_tools.clone(),
             scope: input.scope.clone(),
+            ..Default::default()
         },
     )?;
 
@@ -3824,6 +3839,7 @@ pub fn handle_recovery_playbook(
             available_tools: input.available_tools.clone(),
             missing_tools: input.missing_tools.clone(),
             scope: input.scope.clone(),
+            ..Default::default()
         },
     )?;
 
@@ -4961,6 +4977,7 @@ mod tests {
                     .collect(),
                 missing_tools: vec![],
                 scope: None,
+                ..Default::default()
             },
         )
         .expect("session_handshake should succeed");
@@ -5067,6 +5084,7 @@ mod tests {
                     .collect(),
                 missing_tools: vec![],
                 scope: None,
+                ..Default::default()
             },
         )
         .expect("session_handshake should succeed");
