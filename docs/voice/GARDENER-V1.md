@@ -22,6 +22,15 @@
    the `native_fs` claim of a notify watcher that died with its process, and no
    surface says "continuously monitored" (tool schema, help guidance and wiki
    rewritten honestly).
+   **G1 (landed after v1): the traffic tick fires on EVERY transport seam.** The
+   tick moved into `dispatch_tool` itself, so REST (`/api/tools/…`), the stdio
+   side-loop and the mcp_http wire all advance freshness — not just
+   `handle_mcp_method`. The skip-list still holds (daemon_* / alerts_* /
+   session_handshake / trust_selftest / recovery_playbook / mission_*), and a
+   HEAVY entry tool (ingest / scan / scan_all / skeleton_candidate) skips the
+   inline tick honestly — it re-ingests anyway, and the REST 30s window must
+   never pay tick + heavy tool together. Measured on a live 901-file brain:
+   ~3.7s per 8-file tick.
 4. **Bursts coalesce, nothing is lost:** the stdio event window went 75 ms →
    500 ms silence with a 5 s cap, and the tick itself now detects ONCE per
    burst, pushes the whole changed set into a persisted FIFO backlog and drains
