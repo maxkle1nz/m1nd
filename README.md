@@ -59,22 +59,28 @@
 
 ## 60-second start
 
-Three commands. The first proves the runtime is visible, the second prints your host's exact wiring, and the third is your agent's — you never call it by hand again.
+Install the native runtime, confirm it is visible, print your host's exact wiring — then your agent takes over and you never run these by hand again. The npm package is the JS CLI + agent doctrine; the runtime is a separate prebuilt binary, so step 1 fetches it.
 
 ```bash
-# 1 · check the runtime is installed and visible (no build, no config)
+# 1 · install the native runtime (prebuilt binary from GitHub Releases — no build, no config)
+npx -y @maxkle1nz/m1nd update apply --yes
+#    → or build from source instead: cargo install m1nd-mcp
+```
+
+```bash
+# 2 · confirm the runtime is visible
 npx -y @maxkle1nz/m1nd doctor
 #    → prints a JSON verdict: runtime found + version, or the exact fix if not
 ```
 
 ```bash
-# 2 · print the wiring for your host (claude · codex · gemini · cursor · cline · …)
+# 3 · print the wiring for your host (claude · codex · gemini · cursor · cline · …)
 npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
 #    → dry-run: the MCP config JSON + session-start hook to paste — writes nothing
 ```
 
 ```jsonc
-// 3 · from now on your AGENT drives — its first move each session is one call:
+// from now on your AGENT drives — its first move each session is one call:
 north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
 //    → one packet: binding trust · focus nodes + anchors · prior memory · honest_gaps
 ```
@@ -337,8 +343,9 @@ The proof of the commitment is what was killed for it: `savings` and `resonate` 
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
-npm install -g .
-m1nd doctor
+npm install -g .            # installs the m1nd CLI (JavaScript) — not the native runtime
+m1nd update apply --yes     # fetches the native m1nd-mcp runtime (prebuilt binary; or: cargo install m1nd-mcp)
+m1nd doctor                 # confirms the runtime is now visible
 ```
 
 Then wire your host — the same two commands, one per host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
@@ -351,7 +358,7 @@ Then wire your host — the same two commands, one per host (`codex`, `claude`, 
 | Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
 | Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
-Or from npm: `npm install -g @maxkle1nz/m1nd`. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
+Or install the CLI from npm without cloning: `npm install -g @maxkle1nz/m1nd`, then `m1nd update apply --yes` for the native runtime. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
 
 Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn per-host **ambient recipes**: the SessionStart-family hook (`SessionStart` / `agentSpawn` / `TaskStart`, routed through the `m1nd-north-shim` command that injects the orientation packet as `additionalContext`) plus a per-host doctrine file, for the TIER-A and TIER-B hosts. `plan` is pure print; `apply --yes` merges owned hook JSON without clobbering existing hooks and prints the blocks for host-managed configs (Claude / Cline / Kiro) rather than writing them.
 
