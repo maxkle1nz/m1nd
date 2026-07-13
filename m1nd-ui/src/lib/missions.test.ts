@@ -13,6 +13,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
+  archiveBoundaryView,
+  archiveHead,
   blockLabelFromId,
   composeSeq1Letter,
   elapsedLabel,
@@ -404,4 +406,98 @@ test('landErrorToast: the owner’s real strings → honest copy (stale_scope ·
   const other = landErrorToast({ detail: 'no workspace root is bound to this brain' });
   assert.equal(other.toast.kind, 'error');
   assert.match(other.toast.text, /no workspace root is bound/, 'the owner message, verbatim');
+});
+
+// ── F2.5e — the archive gesture (archiveHead + archiveBoundaryView + the phase) ─
+
+test('PHASES includes the terminal archived phase (F2.5e); phaseLabel renders it verbatim', () => {
+  assert.ok(PHASES.includes('archived'), 'archived is in the ordered phase enum');
+  assert.equal(phaseLabel('archived'), 'archived');
+  assert.doesNotMatch(phaseLabel('archived'), /done|proven|correct/i, 'copy law holds');
+});
+
+test('landErrorToast: stale_head → reload + "state moved" (the archive×import race, binding change 6)', () => {
+  const { toast, shouldReload } = landErrorToast({
+    detail: 'stale_head: the head is seq 3 (abc123); the next letter must be seq 4 with prev_letter_id=abc123',
+  });
+  assert.equal(shouldReload, true, 'a moved head reloads on the fresh truth');
+  assert.match(toast.text, /state moved/i);
+});
+
+test('archiveBoundaryView: a MOVED boundary → provedAt≠currentAt, NOT still importable', () => {
+  const head = mergeWaitHead(); // candidate scope: boundary 1
+  const view = archiveBoundaryView(head, snapshotWith({ boundary_version: 3, contract_version: 1 }));
+  assert.equal(view.provedAt, 1, 'proved at the candidate’s boundary');
+  assert.equal(view.currentAt, 3, 'the block’s live boundary');
+  assert.equal(view.blockPresent, true);
+  assert.equal(view.stillImportable, false, 'a moved boundary stales the receipt');
+});
+
+test('archiveBoundaryView: an UNMOVED boundary → still importable (say it aloud in the confirm)', () => {
+  const head = mergeWaitHead();
+  const view = archiveBoundaryView(head, snapshotWith({ boundary_version: 1, contract_version: 1 }));
+  assert.equal(view.currentAt, 1);
+  assert.equal(view.stillImportable, true, 'the boundary has not moved — the receipt would still land');
+});
+
+test('archiveBoundaryView: the block is gone → currentAt null, not present, not importable', () => {
+  const head = mergeWaitHead();
+  const gone = { present: true, store_version: 9, store: { store_version: 9, blocks: [] } } as unknown as SystemBlocksSnapshot;
+  const view = archiveBoundaryView(head, gone);
+  assert.equal(view.currentAt, null);
+  assert.equal(view.blockPresent, false);
+  assert.equal(view.stillImportable, false);
+});
+
+test('archiveHead: posts a terminal archived letter (seq+1, inherits identity+gate, NO receipt) + reload', async () => {
+  const head = mergeWaitHead();
+  let posted: MissionLetter | undefined;
+  const result = await archiveHead(head, {
+    postMission: async (letter) => {
+      posted = letter;
+      return okPost(letter);
+    },
+    now: () => '2026-07-13T12:00:00Z',
+  });
+  assert.equal(result.archived, true);
+  assert.equal(result.shouldReload, true);
+  assert.match(result.toast.text, /archived — superseded by newer boundary/);
+  assert.ok(posted, 'a letter was posted');
+  assert.equal(posted!.phase, 'archived');
+  assert.equal(posted!.mission_seq, head.head.mission_seq + 1, 'seq+1 extends the head');
+  assert.equal(posted!.prev_letter_id, head.head_letter_id, '§1e chain: prev = the head letter id');
+  assert.equal(posted!.mission_id, head.head.mission_id);
+  assert.equal(posted!.brain_ref, head.head.brain_ref, 'inherits identity');
+  assert.equal(posted!.receipt, undefined, 'NEVER landed-in-disguise: no receipt anchor (§1g)');
+  assert.equal(posted!.receipt_candidate, undefined, 'the superseded candidate stays in history, not on the tip');
+  assert.deepEqual(posted!.gate, head.head.gate, 'inherits the gate, like the landed letter does');
+});
+
+test('archiveHead: a stale_head race → reload + "state moved", nothing claimed archived', async () => {
+  const head = mergeWaitHead();
+  let posted = false;
+  const result = await archiveHead(head, {
+    postMission: async () => {
+      posted = true;
+      throw { detail: 'stale_head: the head is seq 3 (abc); the next letter must be seq 4' };
+    },
+  });
+  assert.equal(posted, true, 'the post was attempted');
+  assert.equal(result.archived, false, 'a stale head never claims an archive');
+  assert.equal(result.shouldReload, true);
+  assert.match(result.toast.text, /state moved/i);
+});
+
+test('archiveHead: refuses a non-merge_wait head (defensive) — never touches the engine', async () => {
+  const landedHead = heads.find((h) => h.head.phase === 'landed')!;
+  let called = false;
+  const result = await archiveHead(landedHead, {
+    postMission: async (l) => {
+      called = true;
+      return okPost(l);
+    },
+  });
+  assert.equal(result.archived, false);
+  assert.equal(called, false, 'no post for a non-merge_wait head');
+  assert.match(result.toast.text, /only a merge_wait/i);
 });
