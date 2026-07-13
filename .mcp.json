@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "m1nd": {
+      "command": "m1nd-mcp",
+      "args": ["--stdio", "--no-gui"],
+      "env": { "M1ND_RUNTIME_DIR": ".m1nd" }
+    }
+  }
+}
