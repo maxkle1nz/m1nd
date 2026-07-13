@@ -463,6 +463,43 @@ fn git_changed_absolute_paths(
         changed.push(join_repo_relative(root, &rel));
     }
 
+    // `git diff --name-only <ref>` is BLIND to new, un-added files, so with a
+    // baseline ref the watcher never saw a brand-new untracked file until it was
+    // staged (field report 2026-07-12T21:05 — G2). Union the untracked entries from
+    // `git status` so new files are detected too. `--untracked-files=all` reports
+    // them at file granularity (not just the containing dir) so downstream
+    // inventory matching works; the inventory's own skip_dirs policy still filters
+    // noise (node_modules-like), because a changed path only becomes an ingest
+    // target when it exists in the watched inventory. The `status --porcelain`
+    // branch above (no baseline ref) already lists untracked files, so this second
+    // pass is only for the diff path.
+    if since_ref.is_some() {
+        let untracked = Command::new("git")
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .current_dir(root)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !untracked.status.success() {
+            return Err(String::from_utf8_lossy(&untracked.stderr)
+                .trim()
+                .to_string());
+        }
+        let untracked_stdout = String::from_utf8_lossy(&untracked.stdout);
+        for raw_line in untracked_stdout.lines() {
+            let Some(rest) = raw_line.strip_prefix("?? ") else {
+                continue;
+            };
+            let rel = rest.trim();
+            if rel.is_empty() {
+                continue;
+            }
+            let absolute = join_repo_relative(root, rel);
+            if !changed.contains(&absolute) {
+                changed.push(absolute);
+            }
+        }
+    }
+
     Ok(changed)
 }
 
@@ -2384,6 +2421,119 @@ mod tests {
             state.daemon_state.git_since_ref,
             state.daemon_state.git_head_ref
         );
+    }
+
+    /// Set up a git repo with one committed file, ingest it, and arm the git-native
+    /// daemon — the shared preamble for the untracked-detection tests below.
+    fn armed_git_daemon(repo: &Path, state: &mut SessionState) {
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/core.py"), "def core():\n    return 1\n").expect("write");
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-m", "init"],
+        ] {
+            Command::new("git")
+                .args(&args)
+                .current_dir(repo)
+                .output()
+                .unwrap_or_else(|error| panic!("git {args:?}: {error}"));
+        }
+        crate::tools::handle_ingest(
+            state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+                project_root: None,
+            },
+        )
+        .expect("initial ingest");
+        handle_daemon_start(
+            state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+    }
+
+    #[test]
+    fn daemon_tick_detects_new_untracked_file() {
+        // G2 (field report 2026-07-12T21:05): the git-native watcher used
+        // `git diff --name-only <since_ref>`, which is BLIND to new, un-added files.
+        // A brand-new untracked file must still be detected and re-ingested.
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        armed_git_daemon(&repo, &mut state);
+
+        // A brand-new file that has NOT been `git add`ed — invisible to `git diff`.
+        std::fs::write(repo.join("src/fresh.py"), "def fresh():\n    return 2\n")
+            .expect("write fresh");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("git tick");
+
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+        assert_eq!(
+            ticked["changed_files_detected"], 1,
+            "the new untracked file must be detected; got {ticked}"
+        );
+        assert_eq!(ticked["files_reingested"], 1);
+        assert!(ticked["ingested_files"][0]["file_path"]
+            .as_str()
+            .map(normalize_path_text)
+            .is_some_and(|path| path.ends_with("src/fresh.py")));
+    }
+
+    #[test]
+    fn daemon_tick_ignores_new_untracked_file_in_noise_dir() {
+        // Anti-test for G2: a brand-new untracked file inside a noise dir
+        // (node_modules-like) must STAY ignored. `git status --untracked-files=all`
+        // would list it, but the skip_dirs policy still filters it because a
+        // git-reported path only becomes an ingest target when it exists in the
+        // watched inventory.
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        armed_git_daemon(&repo, &mut state);
+
+        std::fs::create_dir_all(repo.join("node_modules/pkg")).expect("noise dir");
+        std::fs::write(
+            repo.join("node_modules/pkg/index.js"),
+            "module.exports = 1;\n",
+        )
+        .expect("write noise file");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("git tick");
+
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+        assert_eq!(
+            ticked["changed_files_detected"], 0,
+            "a new untracked file in a noise dir must stay ignored; got {ticked}"
+        );
+        assert_eq!(ticked["files_reingested"], 0);
     }
 
     #[test]

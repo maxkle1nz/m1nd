@@ -26,7 +26,12 @@
    500 ms silence with a 5 s cap, and the tick itself now detects ONCE per
    burst, pushes the whole changed set into a persisted FIFO backlog and drains
    `max_files` per tick — the old truncate-then-advance hole silently LOST every
-   file beyond the budget on the git backend.
+   file beyond the budget on the git backend. The git changed set also unions
+   `git status --porcelain --untracked-files=all`: `git diff --name-only
+   <since_ref>` is blind to new, un-added files, so a brand-new untracked file
+   was invisible to the vigil until it was staged (field report 2026-07-12) —
+   now it is detected, still filtered by the inventory's skip_dirs policy so
+   noise dirs (node_modules-like) stay out.
 5. **Auto-reconcile with cedência:** a burst schedules a reconcile of the
    RATIFIED system-blocks store behind a 45 s quiet window (every activity tick
    pushes the deadline — one window per burst); a live `candidate_lease` makes
@@ -86,6 +91,9 @@ per-brain opt-in on the hot brains only.
 - HTTP status honesty: `resumed_status_never_claims_a_dead_notify_watcher` (RED-proven)
 - burst coalescing: `burst_bigger_than_tick_budget_drains_completely_without_losing_the_tail`
   (RED-proven against the truncate-then-advance loss)
+- untracked reach: `daemon_tick_detects_new_untracked_file` (RED-proven against
+  the `git diff --name-only` blindness to un-added files),
+  `daemon_tick_ignores_new_untracked_file_in_noise_dir` (noise stays filtered)
 - quiet window: `quiet_window_coalesces_bursts_then_reconciles`
 - lease yield: `auto_reconcile_yields_to_a_live_lease_and_reschedules`
 - ratified-only: `auto_reconcile_skips_a_candidate_skeleton`
