@@ -100,8 +100,10 @@ m1nd-north-shim --repo "$PWD" --query orient
 ```
 
 An empty output with `exit 0` is the fail-open default (an absent or broken runtime never blocks
-the session), not an error. Otherwise open a fresh session and look for the injected `[m1nd
-north]` orientation — and when the packet carries a `human_view` card, its lines lead. Session-start
+the session), not an error. Otherwise open a fresh session and look for the injected orientation:
+when a served m1nd owner is live, the shim opens with its `north` **voice card** (the `human_view`
+lines lead, then the `[m1nd north]` summary); with no owner reachable it falls back to the
+standalone `first-minute` summary. Session-start
 hooks are **macOS/Linux-only** (§0); MCP itself works everywhere, and the `M1ND_INSTRUCTIONS`
 north-first line reinforces orientation on hosts that render it.
 

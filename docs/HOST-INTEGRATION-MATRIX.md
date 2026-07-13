@@ -145,8 +145,11 @@ host-neutral front for out-of-loop hooks; `north` remains the in-session front d
 > ```json
 > {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"<north packet as text>"}}
 > ```
-> The packet text is the human-readable rendering of `m1nd agent first-minute … --json`.
-> Wrap the shim in a two-line script that runs it, extracts the packet, and prints the
+> The packet text opens with a served owner's `north` **voice card** (`human_view` lines)
+> when one is reachable — the shim finds it the read-only way `--attach auto` does (instance
+> registry, then a short probe of the default serve ports) and calls `north` over HTTP — and
+> otherwise falls back to the human-readable rendering of `m1nd agent first-minute … --json`
+> standalone. Wrap the shim in a two-line script that runs it, extracts the packet, and prints the
 > envelope. This wrapper ships as the `m1nd-north-shim` bin (registered in `package.json`),
 > so every recipe below invokes `m1nd-north-shim` directly — you no longer write it by hand
 > (§6a, SHIPPED 2026-07-03).

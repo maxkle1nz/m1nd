@@ -27,6 +27,7 @@ const {
   shouldKickstartAfterInstall,
 } = require("../lib/cli");
 const { classifyScopeBinding } = require("../lib/agent-cli");
+const northShim = require("../bin/m1nd-north-shim");
 
 const cli = path.resolve(__dirname, "../bin/m1nd.js");
 
@@ -1697,5 +1698,55 @@ function homeForTest() {
     "non-darwin ignores codesign entirely"
   );
 }
+
+// --- m1nd-north-shim (v3 ambient shim: north-first voice card) ---
+// humanViewLines extracts the voice card from a top-level packet and from a
+// first-minute-nested results[0], collapsing whitespace; no card -> [].
+assert.deepStrictEqual(
+  northShim.humanViewLines({ human_view: { lines: ["m1nd ╷ pulse", "  │ two"] } }),
+  ["m1nd ╷ pulse", "│ two"],
+  "humanViewLines reads a top-level human_view card"
+);
+assert.deepStrictEqual(
+  northShim.humanViewLines({ results: [{ human_view: { lines: ["nested"] } }] }),
+  ["nested"],
+  "humanViewLines reads a first-minute nested card"
+);
+assert.deepStrictEqual(northShim.humanViewLines({}), [], "no card -> empty");
+
+// renderNorthPacket opens with the card, then a blank line, then the summary.
+const cardedPacket = northShim.renderNorthPacket({
+  human_view: { lines: ["m1nd ╷ voice", "  │ line two"] },
+  trust: { verdict: "grounded" },
+});
+assert(cardedPacket.startsWith("m1nd ╷ voice"), "packet opens with the voice card");
+assert(cardedPacket.includes("\n\n[m1nd north]"), "blank line separates card and summary");
+
+// No card -> exact prior behavior: the bare summary, no leading blank line.
+const barePacket = northShim.renderNorthPacket({ trust: { verdict: "grounded" } });
+assert(barePacket.startsWith("[m1nd north]"), "cardless packet is the bare summary");
+assert(!barePacket.startsWith("\n"), "cardless packet has no leading blank line");
+
+// capWholeLines never splits a line mid-way and drops a trailing blank separator.
+assert.strictEqual(northShim.capWholeLines("aaa\nbbb\nccc", 5), "aaa", "keeps only whole lines under the cap");
+assert.strictEqual(northShim.capWholeLines("aaa\n\nbbb", 4), "aaa", "drops a trailing blank left by the cut");
+const longPacket = northShim.renderNorthPacket({
+  human_view: { lines: ["A".repeat(400), "B".repeat(400), "C".repeat(400), "D".repeat(400)] },
+  trust: { verdict: "ok" },
+});
+assert(longPacket.length <= 1200, "packet respects the 1200 cap");
+assert(
+  longPacket
+    .split("\n")
+    .filter(Boolean)
+    .every((line) => line.length === 400 || line.startsWith("[m1nd north]")),
+  "every kept line is a whole source line (no mid-line cut)"
+);
+
+// servedOwnerBaseUrls always ends with the default probe ports, deduped.
+const shimUrls = northShim.servedOwnerBaseUrls();
+assert(shimUrls.includes("http://127.0.0.1:1337"), "probe fallback includes :1337");
+assert(shimUrls.includes("http://127.0.0.1:1338"), "probe fallback includes :1338");
+assert.strictEqual(new Set(shimUrls).size, shimUrls.length, "candidate URLs are deduped");
 
 console.log("npm cli tests ok");
