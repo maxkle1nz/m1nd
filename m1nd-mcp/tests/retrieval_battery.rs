@@ -5,20 +5,28 @@
 //! PRINTS its measurement (score / rank / latency) so the truth is in numbers.
 //!
 //! The honest diagnosis under test: memory WRITING works; memory READING (recall
-//! by meaning) fails to surface what was written. Sources (field-reports.jsonl):
-//!   C1  write-then-seek        — 2026-07-12T00:19 codex-reson (false_absence)
-//!   C2  medulla recall         — 2026-07-12T00:15 claude-orchestrator
-//!   C3  cross_verify honesty   — 2026-07-12T11:28 codex-game (missing_from_graph)
+//! by meaning) fails to surface what was written. Sources: the operator's
+//! field-reports log, cited by timestamp + class:
+//!   C1  write-then-seek        — 2026-07-12T00:19 (memory_misdelivery/false_absence)
+//!   C2  medulla recall         — 2026-07-12T00:15 (friction: laws on disk, not recalled)
+//!   C3  cross_verify honesty   — 2026-07-12T11:28 (bug: missing_from_graph after ingest)
 //!   C4  north memory beat       — chronic "N claims, none surfaced"
-//!   C5  federate clock          — 2026-07-12T18:11 / 18:28 codex-redsky (hang)
+//!   C5  federate clock          — 2026-07-12T18:11 / 18:28 (friction: >60s hang)
 //!   C6  baseline latency        — reference numbers for the test brain
+//!
+//! ROOT CAUSE (measured, fixed): the claim BODY prose line was parsed into NO
+//! node and NO excerpt by the light adapter, so recall by meaning had nothing
+//! to match (label-only recall). Fixed by folding prose into the section
+//! node's excerpt (m1nd-ingest/src/l1ght_adapter.rs) — C1 body-term recall and
+//! C4a near-body north recall flipped RED→GREEN. The remaining ceiling (C4b)
+//! is the static-embedding floor at paraphrase distance: cosine 0.338 < 0.40.
 //!
 //! GREEN cases become permanent regressions. RED cases are marked
 //! `#[ignore = "the fix target: <case>"]` with the measured number in the
 //! comment — the CI stays green while the truth stays recorded.
 #![cfg(feature = "serve")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -404,7 +412,9 @@ async fn c1_write_then_seek() {
             );
         }
         // (a2) report-105 faithful: an EXACT distinctive term that lives in the
-        // claim BODY but NOT the label ("verification matrix").
+        // claim BODY but NOT the label ("verification matrix"). RED before the
+        // prose-excerpt fix (the body reached no node/excerpt: NOT FOUND);
+        // GREEN after (rank 1) — asserted below as a permanent regression.
         let s_body = owner
             .tool(
                 &sid,
@@ -413,11 +423,11 @@ async fn c1_write_then_seek() {
                 serde_json::json!({"agent_id":"c1","query":"verification matrix"}),
             )
             .await;
-        let rb = rank_of(&seek_results(&s_body), "orbital").or_else(|| {
+        let rb = rank_of(&seek_results(&s_body), "orbitalcadencecovenant").or_else(|| {
             seek_results(&s_body).iter().enumerate().find_map(|(i, r)| {
                 r["label"]
                     .as_str()
-                    .filter(|l| l.contains("verification"))
+                    .filter(|l| l.contains(sentinel))
                     .map(|_| (i + 1, r["score"].as_f64().unwrap_or(0.0)))
             })
         });
@@ -425,6 +435,10 @@ async fn c1_write_then_seek() {
             "C1 PROBE-BODY: exact body-term 'verification matrix' -> found={} rank/score={:?}",
             rb.is_some(),
             rb
+        );
+        assert!(
+            rb.is_some(),
+            "C1: an exact BODY term must recall the memorized claim (report 105): {s_body}"
         );
 
         // (b) paraphrase — pure meaning.
@@ -518,6 +532,18 @@ async fn c1b_embedding_cosine_probe() {
             "the cat sat quietly on the warm windowsill at dawn",
         ),
     ];
+    // The C4 pair: north task query vs the section node's post-fix embed text
+    // (label + body). Decides whether the remaining C4 red is floor/model.
+    let c4_node = embedder.embed(
+        "DeployMatrixLaw publishing a release requires a green three-OS verification matrix first",
+    );
+    let c4_task = embedder.embed("is it safe to publish across operating systems");
+    let c4_broad = embedder.embed("memory decision finding note claim");
+    eprintln!(
+        "C1b C4-PAIR: task_vs_claim={:.3} broadfallback_vs_claim={:.3} (floor=0.40)",
+        cosine(&c4_task, &c4_node),
+        cosine(&c4_broad, &c4_node)
+    );
     eprint!("C1b MEASURE: floor=0.40 cosines[");
     for (name, q) in probes {
         let c = cosine(&bv, &embedder.embed(q));
@@ -598,7 +624,7 @@ async fn c2_medulla_recall() {
 // C3 — CROSS_VERIFY HONESTY. After memorize + an explicit light merge ingest of
 //      the agent-memory dir, cross_verify(existence) must NOT report the
 //      `.light.md` memory files as `missing_from_graph`. Repro of
-//      2026-07-12T11:28 (codex-game): light nodes exist yet are flagged missing.
+//      2026-07-12T11:28 field report: light nodes exist yet are flagged missing.
 // ===========================================================================
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn c3_cross_verify_light_not_missing() {
@@ -689,28 +715,22 @@ async fn c3_cross_verify_light_not_missing() {
 //      chronic "N claims, none surfaced". North's memory feed reuses `seek`
 //      scoped to `light::` (m1nd-mcp/src/server.rs ~3736).
 //
-// MEASURED RED (2026-07-13, pre-fix): claims_written=5 memory_exists=5
-//   close_task_mem_rows=0 relevant_hit=false generic_task_mem_rows=0.
-//   Probes: unscoped exact-token seek FINDS the claim (rank 1) and the scope
-//   filter is fine (light::+exact-token = 4 hits); north's broad-fallback
-//   recall = 0 hits, with_provenance=0. Root cause: the claim BODY prose line
-//   is parsed into NO node and NO excerpt (m1nd-ingest/src/l1ght_adapter.rs
-//   parse_file — only `##` headings and `[..]` markers become nodes), so a
-//   task-meaning query has nothing to match: seek keyword/trigram use the
-//   label only (layer_handlers.rs:330-365), CharNgramIndex indexes the label
-//   only (m1nd-core/src/semantic.rs CharNgramIndex::build), and embeddings
-//   embed label+excerpt (semantic.rs build_embeddings) where excerpt==label.
+// MEASURED RED (2026-07-13, PRE-fix): claims_written=5 memory_exists=5, north
+//   surfaced 0 rows for task-phrased, generic AND broad-fallback recalls; the
+//   scope filter was NOT the cause (light::+exact-token returned hits). Root
+//   cause: the claim BODY prose line was parsed into NO node and NO excerpt
+//   (m1nd-ingest/src/l1ght_adapter.rs parse_file — only `##` headings and
+//   `[..]` markers became nodes), so a meaning query had nothing to match:
+//   seek keyword/trigram use the label only (layer_handlers.rs:330-365),
+//   CharNgramIndex indexes the label only (m1nd-core/src/semantic.rs), and
+//   embeddings embed label+excerpt (semantic.rs build_embeddings) where
+//   excerpt==label. FIXED by folding prose into the section node's excerpt.
+//   c4a pins the repaired direction; c4b records the remaining model ceiling.
 // ===========================================================================
-#[ignore = "the fix target: C4 north memory beat — 5 claims on disk, 0 surfaced (task, generic and broad-fallback recalls all return 0 rows); the claim body prose reaches no searchable surface"]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn c4_north_memory_beat_surfaces_relevant() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let owner = mk_owner(&tmp.path().join("runtime"));
-    let root = tmp.path().join("repo");
-    write_repo(&root, "Beat");
-    let (sid, _n) = owner.bootstrap(&root, "c4").await;
 
-    // Five distinct claims across topics.
+/// Shared c4 fixture: bootstrap a brain and memorize five distinct claims.
+async fn c4_seed(owner: &Owner, root: &Path) -> String {
+    let (sid, _n) = owner.bootstrap(root, "c4").await;
     let claims = [
         (
             "DeployMatrixLaw",
@@ -734,24 +754,93 @@ async fn c4_north_memory_beat_surfaces_relevant() {
         ),
     ];
     for (label, text) in claims {
-        owner.memorize(&sid, &root, "c4", label, text).await;
+        owner.memorize(&sid, root, "c4", label, text).await;
     }
+    sid
+}
 
-    // Task closely matching ONE claim's meaning (DeployMatrixLaw), zero token
-    // overlap with its label.
-    let close = owner
-        .tool(&sid, &root, "north", serde_json::json!({"agent_id":"c4","task":"is it safe to publish across operating systems"}))
-        .await;
-    let close_rows = north_memory(&close);
-    let close_hit = close_rows.iter().any(|r| {
+/// True when a north memory row carries the DeployMatrixLaw claim.
+fn c4_relevant_hit(rows: &[Value]) -> bool {
+    rows.iter().any(|r| {
         let c = r["claim"].as_str().unwrap_or("");
         let l = r["label"].as_str().unwrap_or("");
         c.contains("DeployMatrix")
             || l.contains("DeployMatrix")
             || c.contains("three-OS")
             || c.contains("verification matrix")
-    });
+    })
+}
 
+// C4a — the REPAIRED direction (permanent regression): a task phrased near the
+//       claim's BODY wording (the near-body class, cosine 0.857 in C1b) must
+//       surface that claim in north's memory beat. RED before the prose-excerpt
+//       fix (0 rows — the body reached no searchable surface); GREEN after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn c4a_north_memory_beat_surfaces_near_body_task() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let owner = mk_owner(&tmp.path().join("runtime"));
+    let root = tmp.path().join("repo");
+    write_repo(&root, "Beat");
+    let sid = c4_seed(&owner, &root).await;
+
+    let near = owner
+        .tool(
+            &sid,
+            &root,
+            "north",
+            serde_json::json!({"agent_id":"c4","task":"must a release wait for a green verification matrix before publishing"}),
+        )
+        .await;
+    let rows = north_memory(&near);
+    let mem_exists = near["memory_exists"]
+        .as_u64()
+        .or_else(|| near["memory_store"]["memory_exists"].as_u64())
+        .unwrap_or(0);
+    eprintln!(
+        "C4a MEASURE: memory_exists={mem_exists} near_body_task_mem_rows={} relevant_hit={}",
+        rows.len(),
+        c4_relevant_hit(&rows)
+    );
+
+    assert!(
+        c4_relevant_hit(&rows),
+        "C4a: a near-body task must surface the memorized claim in north's beat (rows={rows:?})"
+    );
+}
+
+// C4b — the REMAINING ceiling (the fix target, measured): a task that matches
+//       the claim only at PARAPHRASE distance stays unsurfaced because the
+//       static-embedding cosine sits under the recall floor.
+//
+// MEASURED (2026-07-13, post prose-excerpt fix):
+//   task "is it safe to publish across operating systems" vs claim
+//   "DeployMatrixLaw publishing a release requires a green three-OS
+//   verification matrix first" -> cosine 0.338 < SEMANTIC_RECALL_FLOOR 0.40
+//   (m1nd-mcp/src/layer_handlers.rs:73); the broad-fallback recall query
+//   "memory decision finding note claim" -> cosine 0.117. Non-survivor nodes
+//   (zero keyword/trigram signal) are admitted ONLY at cosine >= 0.40
+//   (layer_handlers.rs:458), so both recalls return 0 rows. Closing this is a
+//   floor/model calibration decision (potion-base-8M ceiling), NOT a surgical
+//   fix — lowering the floor to ~0.32 would admit mid-band noise (C1b:
+//   unrelated pairs measure ~0.10, but the 0.30-0.35 band is uncalibrated).
+#[ignore = "the fix target: C4b north beat at paraphrase distance — task/claim cosine 0.338 < floor 0.40; broad fallback 0.117; both recalls return 0 rows (model/floor calibration, not surgical)"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn c4b_north_memory_beat_paraphrase_distance() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let owner = mk_owner(&tmp.path().join("runtime"));
+    let root = tmp.path().join("repo");
+    write_repo(&root, "Beat");
+    let sid = c4_seed(&owner, &root).await;
+
+    let far = owner
+        .tool(
+            &sid,
+            &root,
+            "north",
+            serde_json::json!({"agent_id":"c4","task":"is it safe to publish across operating systems"}),
+        )
+        .await;
+    let far_rows = north_memory(&far);
     let generic = owner
         .tool(
             &sid,
@@ -760,84 +849,23 @@ async fn c4_north_memory_beat_surfaces_relevant() {
             serde_json::json!({"agent_id":"c4","task":"orient me in this project"}),
         )
         .await;
-
-    let mem_exists = close["memory_exists"]
-        .as_u64()
-        .or_else(|| close["memory_store"]["memory_exists"].as_u64())
-        .unwrap_or(0);
-
-    // --- diagnostic probes: WHY does the beat surface nothing? ---
-    // (i) unscoped exact-token seek proves the claim is retrievable in THIS store.
-    let ex = owner
-        .tool(
-            &sid,
-            &root,
-            "seek",
-            serde_json::json!({"agent_id":"c4","query":"DeployMatrixLaw"}),
-        )
-        .await;
-    let ex_hit = seek_results(&ex).into_iter().find(|r| {
-        r["node_id"].as_str().unwrap_or("").contains("DeployMatrix")
-            || r["label"].as_str().unwrap_or("").contains("DeployMatrix")
-    });
-    let ex_found = ex_hit.is_some();
-    let ex_node_id = ex_hit
-        .as_ref()
-        .map(|r| r["node_id"].as_str().unwrap_or("").to_string())
-        .unwrap_or_default();
-    eprintln!("C4 PROBE-ID: unscoped exact hit node_id='{ex_node_id}'");
-    // (ii-a) STRONG query under the light:: scope — isolates a broken scope
-    //        filter from merely-weak scoring.
-    let scoped_strong = owner
-        .tool(
-            &sid,
-            &root,
-            "seek",
-            serde_json::json!({"agent_id":"c4","query":"DeployMatrixLaw","scope":"light::"}),
-        )
-        .await;
     eprintln!(
-        "C4 PROBE-SCOPE: light::+exact-token hits={} scanned={}",
-        seek_results(&scoped_strong).len(),
-        scoped_strong["total_candidates_scanned"]
-            .as_u64()
-            .unwrap_or(0)
-    );
-    // (ii) the `light::`-scoped recall north runs internally (broad fallback query).
-    let scoped = owner
-        .tool(&sid, &root, "seek", serde_json::json!({"agent_id":"c4","query":"memory decision finding note claim","scope":"light::"}))
-        .await;
-    let scoped_rows = seek_results(&scoped);
-    let with_prov = scoped_rows
-        .iter()
-        .filter(|r| !r["source_agent"].is_null() || !r["authored_ms_ago"].is_null())
-        .count();
-    let sample_id = scoped_rows
-        .first()
-        .map(|r| r["node_id"].as_str().unwrap_or("").to_string())
-        .unwrap_or_default();
-
-    eprintln!(
-        "C4 MEASURE: claims_written=5 memory_exists={mem_exists} close_task_mem_rows={} close_task_relevant_hit={close_hit} generic_task_mem_rows={}",
-        close_rows.len(),
+        "C4b MEASURE: far_task_mem_rows={} relevant_hit={} generic_task_mem_rows={}",
+        far_rows.len(),
+        c4_relevant_hit(&far_rows),
         north_memory(&generic).len()
-    );
-    eprintln!(
-        "C4 PROBE: unscoped_exact_found={ex_found} | light::_scoped_hits={} with_provenance={with_prov} sample_node_id='{sample_id}'",
-        scoped_rows.len()
     );
 
     assert!(
-        close_hit,
-        "C4: north memory beat surfaced no claim relevant to the task though 5 claims exist (rows={:?})",
-        close_rows
+        c4_relevant_hit(&far_rows),
+        "C4b: paraphrase-distance task did not surface the claim (rows={far_rows:?})"
     );
 }
 
 // ===========================================================================
 // C5 — FEDERATE CLOCK. Federate two repos (small ~50, then medium ~300 nodes)
 //      and seek the federated graph under a HARD 90s bound — measure real time
-//      or document the hang. Repro of 2026-07-12T18:11 / 18:28 (codex-redsky).
+//      or document the hang. Repro of the 2026-07-12T18:11 / 18:28 field reports.
 // ===========================================================================
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn c5_federate_clock() {

@@ -380,6 +380,9 @@ impl L1ghtIngestAdapter {
         let mut current_parent = file_id.clone();
         let mut last_claim_id: Option<String> = None;
         let mut section_counts: HashMap<String, usize> = HashMap::new();
+        // Index (into `nodes`) of the most recent section node — the anchor that
+        // prose body lines fold into (see the prose capture in the line loop).
+        let mut current_section_node: Option<usize> = None;
 
         for (key, value) in [
             ("protocol", header_meta.protocol.clone()),
@@ -532,6 +535,7 @@ impl L1ghtIngestAdapter {
                     "light::{}::section::{}::{}-{}",
                     self.namespace, file_slug, slug, count
                 );
+                let before = nodes.len();
                 Self::push_node(
                     nodes,
                     node_seen,
@@ -551,6 +555,11 @@ impl L1ghtIngestAdapter {
                     },
                     &prov_tags,
                 );
+                current_section_node = if nodes.len() > before {
+                    Some(nodes.len() - 1)
+                } else {
+                    None
+                };
                 Self::push_edge(
                     edges,
                     edge_seen,
@@ -565,6 +574,25 @@ impl L1ghtIngestAdapter {
                     },
                 );
                 current_parent = section_id;
+            } else if !trimmed.starts_with('#') && trimmed != "---" && !tag_re.is_match(trimmed) {
+                // Prose body lines — the claim text `memorize` renders between a
+                // section heading and its markers. Previously dropped entirely,
+                // which left a memorized claim's MEANING outside every searchable
+                // surface (label-only recall — retrieval battery C1/C4). Fold the
+                // prose into the owning section node's excerpt so the body reaches
+                // the embedding text (`SemanticEngine::build_embeddings` embeds
+                // label + excerpt). Frontmatter lines are inert here: they precede
+                // any `##` section, so `current_section_node` is still None.
+                if let Some(i) = current_section_node {
+                    let node = &mut nodes[i];
+                    let merged = match node.excerpt.take() {
+                        // The freshly-pushed section excerpt is just the heading
+                        // (== label): replace it — the label already carries it.
+                        Some(prev) if prev != node.label => format!("{prev} {trimmed}"),
+                        _ => trimmed.to_string(),
+                    };
+                    node.excerpt = Self::excerpt(&merged);
+                }
             }
 
             for caps in tag_re.captures_iter(trimmed) {
@@ -817,6 +845,67 @@ mod confidence_tests {
         assert_eq!(meta.created.as_deref(), Some("1700000000000"));
         assert_eq!(meta.source_agent.as_deref(), Some("agent-B"));
         assert_eq!(meta.origin_brain.as_deref(), Some("/path/to/repo"));
+    }
+
+    #[test]
+    fn prose_body_folds_into_section_excerpt() {
+        // A memorize-shaped .light.md: the claim BODY is the prose line between
+        // the section heading and its markers. The retrieval battery (C1/C4)
+        // measured that this body previously reached NO node and NO excerpt —
+        // recall by meaning had nothing to match. The fix folds prose into the
+        // owning section node's excerpt (the one recall surface that both ranks
+        // in seek and survives north's marker-fragment filter).
+        use crate::IngestAdapter;
+        let dir = std::env::temp_dir().join(format!(
+            "l1ght-prose-excerpt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("sky-cadence-rule.light.md"),
+            "---\nProtocol: L1GHT/1.0\nNode: SkyCadenceRule\nState: authored\n\
+             Created: 1700000000000\nSource-Agent: agent-T\n---\n\n\
+             # SkyCadenceRule\n\n## SkyCadenceRule\n\n\
+             the release train waits for a green verification matrix before publish\n\n\
+             [⍂ entity: SkyCadenceRule]\n[𝔻 confidence: high]\n",
+        )
+        .unwrap();
+
+        let adapter = super::L1ghtIngestAdapter::new(Some("light".to_string()));
+        let (graph, _stats) = adapter.ingest(&dir).expect("ingest light dir");
+
+        // Find the section node and read its label + excerpt.
+        let mut section: Option<(String, String, String)> = None;
+        for (interned, &nid) in &graph.id_to_node {
+            let ext = graph.strings.resolve(*interned).to_string();
+            if ext.contains("::section::") {
+                let idx = nid.as_usize();
+                let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
+                let excerpt = graph.nodes.provenance[idx]
+                    .excerpt
+                    .map(|e| graph.strings.resolve(e).to_string())
+                    .unwrap_or_default();
+                section = Some((ext, label, excerpt));
+                break;
+            }
+        }
+        std::fs::remove_dir_all(&dir).ok();
+
+        let (ext, label, excerpt) = section.expect("a section node must exist");
+        assert_eq!(label, "SkyCadenceRule", "section label unchanged ({ext})");
+        assert!(
+            excerpt.contains("verification matrix"),
+            "the claim BODY must reach the section excerpt (searchable/embeddable); got {excerpt:?}"
+        );
+        // Frontmatter must never pollute the excerpt.
+        assert!(
+            !excerpt.contains("Protocol") && !excerpt.contains("Source-Agent"),
+            "frontmatter leaked into the excerpt: {excerpt:?}"
+        );
     }
 
     #[test]
