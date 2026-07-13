@@ -106,7 +106,8 @@ The grammar (learn it once, don't spend four tries on it):
   refactor | docs_drift | architecture | release`, `budget ∈ short | normal | deep`,
   `risk ∈ low | medium | high`.
 - Progress = **`mission_event`**. NOT `mission_post` — that is a DIFFERENT rail (the
-  mission-LETTER board, `m1nd-mission-letter-v0`, whose `landed` is a human `receipt_import`),
+  mission-LETTER board, `m1nd-mission-letter-v0`, whose `landed` is a human `receipt_import`
+  and whose terminal `archived` is the human's set-aside of a superseded receipt, F2.5e),
   not mission progress. The two share the word "card" but not the verb, the id space, or the store.
 - Close = **`mission_close`** — a seat gesture, its only door is `ensure_agent` (no owner sign-off;
   landing a receipt stays human-only).
@@ -182,3 +183,15 @@ Both human writes now carry the mirror. A new origin is a code change plus a tes
 trusted client string; and, like ratify, the token is forgeable on an unauthenticated loopback,
 so it closes the cheap reflex vector, not a same-UID process (cryptographic elevation is a later
 step of the arc).
+
+**F2.5e adds the THIRD human write: archiving a superseded receipt.** The mission-LETTER board
+gained a terminal `archived` phase — the human sets a stale `merge_wait` receipt aside (posting a
+seq+1 `archived` letter that supersedes the head), which drops the landing bell. Because this is
+the board's first SILENT-burial verb (`failed` at least pins loud atop the tray, an `archived`
+head is quiet), `mission_post` of an `archived` letter requires the SAME human origin token —
+`archived_via:"human-ui"`, the closed allow-list, refused `human_gesture_required` with nothing
+appended. Two engine laws back it on the pure post path (both seams): an `archived` letter may
+never carry `receipt.imported==true` (never a landing in disguise), and it may only supersede a
+`merge_wait` head — the board's FIRST transition rule (`invalid_transition` otherwise). **An agent
+never archives; the owner's screen does** — an agent must never silence its own unproven work. Full
+rule: `HUMAN-VIEW-V2-F25-TECH` §1h + § archived.

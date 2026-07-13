@@ -49,6 +49,33 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-13 — F2.5e "ARCHIVE A SUPERSEDED RECEIPT" built on `feat/archive-superseded-receipt` (branch, NOT yet landed).**
+> The mission-LETTER board gained its 8th, TERMINAL phase — `archived` — the human's set-aside of a
+> stale `merge_wait` receipt (askGOD verdict `docs/voice/ASKGOD-VERDICT-ARCHIVE.md`, APPROVE, 6 binding
+> changes, all applied). Archiving posts a seq+1 `archived` letter that EXTENDS the merge_wait head, so
+> the design reuses everything: **the landing bell drops itself** (it counts `merge_wait` heads only, so
+> a moved head simply stops ringing — no bell logic changed), **history is free** (the superseded receipt
+> stays on the prior letter with its `boundary_version` forever), **the OCC is free** (the head CAS makes
+> an archive×import two-tab race a `stale_head`, nothing appended). Three laws bind it, all proven RED→GREEN:
+> **(a)** `validate()` refuses `receipt.imported==true` on an `archived` letter — never a `landed` in
+> disguise; **(b)** the board's FIRST transition rule — `archived` may only supersede a `merge_wait` head
+> (`invalid_transition` for a fresh/landed/failed/in-progress head), checked in `post_mission_letter` where
+> the head is already held for the CAS; **(c)** posting `archived` is a HUMAN-ONLY gesture — `handle_mission_post`
+> requires `archived_via:"human-ui"` (the INPUT, never the letter schema), the closed allow-list `receipt_import`
+> carries, refused `human_gesture_required` with nothing appended (the product's first SILENT-burial verb, so an
+> agent can never bury its own unproven work — the forged-origin test proves the box stays byte-intact). The tray
+> gained a discreet **"Archive — superseded by newer boundary"** beside "Import this receipt" on a merge_wait+candidate
+> card; its confirm fetches a FRESH snapshot at click and shows the live two-boundary comparison ("proved at boundary
+> v1 — the block is at v3"), saying "still importable — archive anyway?" aloud when the boundary has not moved (no
+> frozen field — derived at read); `landErrorToast` now recognizes `stale_head` (reload + "state moved"). **Known
+> behavior registered (downgrade skew):** an old owner binary that cannot parse `archived` drops the line and the
+> bell RE-RINGS — no corruption, honest in the amendment. Gates green: `cargo fmt --check`, `clippy --all-targets
+> -D warnings`, the full `m1nd-mcp` suite (1123 passed, 0 failed, incl. 6 new archive tests), the UI suite + build.
+> Docs in the SAME burst: `HUMAN-VIEW-V2-F25-TECH` §1h + § archived, AGENTS.md (the third human write), and
+> `docs/voice/ARCHIVE-DIVERGENCES.md` (auto-archive/bulk/un-archive + the pre-existing `failed`/`executing` holes,
+> all deliberately OUT of v1). **Not landed** — awaiting the burst PR; the 3 real superseded receipts on the
+> production owner stay for the owner's own hand (archiving is human) + the Rust-embedded dist restart (orchestrator's step).
+
 > **2026-07-13 — ORGANISM-INSIDE P1 "PRESENCES" (server lane): the control room can see the team.**
 > The P1-SERVER lane of the presences arc (askGOD verdict 2026-07-13 APPROVE, binding changes 1–3
 > BINDING — `docs/voice/ASKGOD-VERDICT-P1.md`). What landed on `feat/p1-presences-server`: a NEW
