@@ -23,6 +23,16 @@ Only skip the `m1nd` first pass when:
 - the question is pure compiler/test/runtime truth
 - the task is a trivial local file action with no search or structural uncertainty
 
+Trust-first is calibrated-first, not blind-first. Default to `m1nd`, AND hold its honest ruler in
+the same hand: it narrows and connects, never replaces the compiler/tests/runtime; and it still
+has live stumbles measured in the field — federated `seek`/`federate` can hang past 60s
+(bound-timeout it or fall back), a freshly-`memorize`d claim can lag its own semantic recall for a
+tick (the write is durable — re-`seek` or widen, don't conclude absence), and the runner naming
+lane can fall back to heuristics under load. In each case WORK AROUND + one field-report line;
+never blind insistence. The reason to still go first: the calibrated absence
+(`abstain`/`caller_root_mismatch`/`gathering`) is itself the answer that most often changes the
+decision — the counterfactual test for attribution.
+
 ## Trained Agent Loop
 
 For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, the
