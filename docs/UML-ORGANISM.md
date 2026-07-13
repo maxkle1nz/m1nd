@@ -106,7 +106,8 @@ These cross every system; no sheet may invent a fifth word for any of them.
 | [cli-operator](uml/cli-operator.md) | npm CLI, restart --binary, release parity | flow·seq·state | macOS reload trio (codesign/kickstart/kill) has zero tests — ledger |
 | [host-integration](uml/host-integration.md) | 22-host matrix, shim, hosts apply, ambient wave | flow·seq | Pre-orient half real; the whole ambient/R12 wave is PRD-only — ledger |
 | [scan-loading](uml/scan-loading.md) | The held `skeleton_candidate` scan wait: client state machine + SSE phase narration + honest abort | seq·state | Real events only — no fabricated %; the owner narrates phases on the existing SSE, degrades clean when silent (slice 2 shipped) |
-| [cockpit](uml/cockpit.md) | The navigable read-only menu verb (`m1nd-cockpit-v0`): seven stable slots, drill, derived deny-filter, `menu_sig` | class·seq | north's on-request sibling — breaks alone; a router in v1 (presents the read, never fabricates a receipt); per-item drill deferred by the verdict |
+| [cockpit](uml/cockpit.md) | The navigable read-only menu verb (`m1nd-cockpit-v0`): eight stable slots (P1 added `presences`), drill, derived deny-filter, `menu_sig` | class·seq | north's on-request sibling — breaks alone; a router in v1 (presents the read, never fabricates a receipt); slot 8 = the P1 control-room roster (this brain, collision on the label) |
+| [presences](uml/presences.md) | Durable session-presence sidecars (`m1nd-presence-v0`): the throttled beat in `track_agent`, TTL + boot-GC, read-time collision derivation, the cockpit 8th slot + north collision gap | class·seq | ORGANISM-INSIDE P1 (verdict 2026-07-13) — witness tissue that gates nothing; presence == activity VISIBLE to m1nd |
 
 ## 5. The consolidated gap ledger — every open debt, ranked
 

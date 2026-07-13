@@ -481,6 +481,40 @@ fn mission_dir(state: &SessionState) -> PathBuf {
     state.runtime_root.join("mission-control")
 }
 
+/// P1 presence enrichment: the MEASURED `task_ref` for a presence sidecar — the
+/// `msn_…` id of the agent's newest still-open (`status == "active"`)
+/// mission-control charter under `runtime_root`, or `None`. Measured from the
+/// charter, never a free declaration (askGOD verdict 2026-07-13). Best-effort and
+/// total: any unreadable/unparseable card is skipped, an absent dir yields `None`.
+pub fn latest_open_mission_for(runtime_root: &Path, agent_id: &str) -> Option<String> {
+    let dir = runtime_root.join("mission-control");
+    let entries = fs::read_dir(&dir).ok()?;
+    let mut best: Option<(u64, String)> = None;
+    for item in entries.flatten() {
+        let path = item.path();
+        if path.extension().and_then(|v| v.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(mission) = serde_json::from_str::<MissionState>(&raw) else {
+            continue;
+        };
+        if mission.agent_id != agent_id || mission.status != "active" {
+            continue;
+        }
+        let supersedes = match best.as_ref() {
+            Some((ts, _)) => mission.updated_at_ms >= *ts,
+            None => true,
+        };
+        if supersedes {
+            best = Some((mission.updated_at_ms, mission.mission_id));
+        }
+    }
+    best.map(|(_, id)| id)
+}
+
 /// Acquire the per-mission exclusive lock held across a load→mutate→save
 /// read-modify-write, so two concurrent writers to the same mission cannot
 /// clobber each other's update. Reuses the memorize lock primitive

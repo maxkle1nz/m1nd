@@ -641,7 +641,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "cockpit",
-                "description": "The navigable m1nd menu (m1nd-cockpit-v0) — the human's ON-REQUEST router over m1nd's read surfaces, a read-only sibling of north (never a north field; if it breaks it breaks alone). Call it ONLY when the human asks ('?', 'show me m1nd', 'what can I look at') — at a landing the human_view card speaks, never an auto-served menu. The root is argument-less READS only, in seven stable slots (labels move with state, slots never do): the tray (a POINTER — the human stamp gesture, no verb), the map (system_blocks_snapshot), missions (a POINTER to the tray), health (doctor), trust, recent-memories (boot_memory, fixed projection), and drift. Pointer entries carry NO verb — nothing to execute even by mistake. Pass select=\"<slot>\" to drill one collection (depth ≤3; select=\"0\" re-serves the root); a drill re-asserts store_version + state_sig and says 'state moved' honestly when your seen_store_version diverged. Every response carries menu_sig — the SAME short reference a widget button carries back (never free command text, never a write verb). The read entries are DERIVED and filtered against the write deny-list, so a verb that becomes a mutation drops itself. Read-only safe.",
+                "description": "The navigable m1nd menu (m1nd-cockpit-v0) — the human's ON-REQUEST router over m1nd's read surfaces, a read-only sibling of north (never a north field; if it breaks it breaks alone). Call it ONLY when the human asks ('?', 'show me m1nd', 'what can I look at') — at a landing the human_view card speaks, never an auto-served menu. The root is argument-less READS only, in eight stable slots (labels move with state, slots never do): the tray (a POINTER — the human stamp gesture, no verb), the map (system_blocks_snapshot), missions (a POINTER to the tray), health (doctor), trust, recent-memories (boot_memory, fixed projection), drift, and presences (the P1 control-room roster of THIS brain — who is talking to m1nd, on what, since when — with a collision warning on the label when two mutating hands share the work). Pointer entries carry NO verb — nothing to execute even by mistake. Pass select=\"<slot>\" to drill one collection (depth ≤3; select=\"0\" re-serves the root); a drill re-asserts store_version + state_sig and says 'state moved' honestly when your seen_store_version diverged. Every response carries menu_sig — the SAME short reference a widget button carries back (never free command text, never a write verb). The read entries are DERIVED and filtered against the write deny-list, so a verb that becomes a mutation drops itself. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1061,7 +1061,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "session_handshake",
-                "description": "Cheap session trust handshake before relying on m1nd retrieval",
+                "description": "Cheap session trust handshake before relying on m1nd retrieval. Optionally DECLARE your presence for the control room (kind/theme/intent/worktree/working_set) so the cockpit, Hall, and north can see who is working, on what, since when — advisory telemetry, never a gate.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1069,7 +1069,12 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
                         "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
                         "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
-                        "scope": { "type": "string", "description": "Optional absolute or repo-relative scope/path to validate against the active workspace binding" }
+                        "scope": { "type": "string", "description": "Optional absolute or repo-relative scope/path to validate against the active workspace binding" },
+                        "kind": { "type": "string", "description": "Optional presence role: orchestrator | executor | pool-hand | runner | oracle | human-ui" },
+                        "theme": { "type": "string", "description": "Optional one-line presence theme (e.g. 'reader slice 1')" },
+                        "intent": { "type": "string", "description": "Optional declared mutation level: 'read' or 'mutate' (advisory collision signal)" },
+                        "worktree": { "type": "string", "description": "Optional worktree/branch display string for collision derivation" },
+                        "working_set": { "type": "array", "items": { "type": "string" }, "description": "Optional declared working set: repo-relative paths and/or sb_ block ids (collision overlap signal)" }
                     },
                     "required": ["agent_id"]
                 }
@@ -4065,6 +4070,30 @@ fn handle_north(
         }
     }
 
+    // P1 (ORGANISM-INSIDE): the collision gap — present ONLY when THIS session
+    // collides with another live mutating hand on the SAME brain whose work
+    // co-locates (same caller_root/worktree or overlapping working set). It rides
+    // the EXISTING honest_gaps mechanism (no new north schema field), and the P1
+    // gate requires it on BOTH colliding sessions' packets — each session derives
+    // its own here. Advisory, never blocking (the same posture as reception).
+    // Fail-open + read-only: an unreadable registry yields no line, never breaks
+    // north; presence is witness tissue that verifies nothing.
+    {
+        let (roster, _) = state.presence_roster();
+        let now = crate::util::now_ms();
+        let collisions = crate::presence::collisions_for_agent(&roster, &agent_id, now);
+        if !collisions.is_empty() {
+            let others: Vec<String> = collisions
+                .iter()
+                .map(|c| format!("{} ({})", c.other_agent, c.overlap.join(", ")))
+                .collect();
+            honest_gaps.push(format!(
+                "COLLISION: another mutating session shares this brain and your work — {}. Advisory only (m1nd sees activity visible to it, not git); coordinate before you both write.",
+                others.join("; ")
+            ));
+        }
+    }
+
     // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root
     // mismatch this carries the honest front-desk block; on match/unknown it is
     // null (absent-ish). Computed here, after every prior `state` borrow has
@@ -4485,7 +4514,7 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
 /// errs, LOGS and SWALLOWS the failure so a watcher can never propagate its error
 /// into the agent's unrelated tool call. Returns `true` on success — surfaced so
 /// tests can pin the fail-open contract directly, and callers may branch on it.
-fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
+pub(crate) fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
 where
     F: FnOnce() -> M1ndResult<()>,
 {
@@ -4558,6 +4587,14 @@ pub fn dispatch_tool(
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+
+    // P1 presence (ORGANISM-INSIDE): stamp the OBSERVED mutation level when this
+    // dispatch is a mutating verb — `read_only_denied` is the single pure
+    // classifier (verdict c). In-memory only; the throttled beat in `track_agent`
+    // carries it to the sidecar. Never a write here, never able to break dispatch.
+    if read_only_denied(&normalized, params) {
+        state.note_mutation_observed(&agent_id);
+    }
 
     // M1ND_PROOF_GATE: when ON, refuse a real code-writing tool BEFORE any write
     // unless every target it will touch was driven to proof_state ==
@@ -11202,6 +11239,169 @@ mod tests {
             bare.first().map(|(l, _)| *l),
             Some("undated-legacy"),
             "sanity: the bare key really does float the undated claim to the front"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // P1 presences — the beat by traffic, its throttle, its fail-open, and the
+    // north collision gap on BOTH colliding sessions' packets.
+    // -----------------------------------------------------------------------
+
+    fn presence_dir_of(state: &SessionState) -> std::path::PathBuf {
+        state.instance.registry_root().join("presences")
+    }
+
+    fn read_presence_file(
+        state: &SessionState,
+        agent: &str,
+        brain: &str,
+    ) -> Option<crate::presence::PresenceRecord> {
+        let path = presence_dir_of(state).join(format!(
+            "{}.json",
+            crate::presence::stable_presence_id(agent, brain)
+        ));
+        let raw = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&raw).ok()
+    }
+
+    /// Registration by traffic + the throttle: the FIRST tracked call writes the
+    /// sidecar; an immediate second call is THROTTLED (no second write); a
+    /// changed signal (an observed mutation) clears the throttle so the next
+    /// call carries it promptly.
+    #[test]
+    fn presence_beat_registers_by_traffic_and_throttles() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/beat-brain";
+        state.workspace_root = Some(brain.to_string());
+
+        // 1. Registration by traffic — the seam call is track_agent.
+        state.track_agent("beat-agent");
+        let first = read_presence_file(&state, "beat-agent", brain)
+            .expect("first tracked call writes the presence sidecar");
+        assert_eq!(first.agent_id, "beat-agent");
+        assert_eq!(first.brain, brain);
+        assert_eq!(first.query_count, 1);
+
+        // 2. Throttle — an immediate second call updates memory, not disk.
+        state.track_agent("beat-agent");
+        let after = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert_eq!(
+            after.query_count, 1,
+            "an immediate re-beat is throttled: the sidecar still carries the first write"
+        );
+
+        // 3. A changed signal clears the throttle: the observed mutation rides
+        //    the very next tracked call.
+        state.note_mutation_observed("beat-agent");
+        state.track_agent("beat-agent");
+        let mutated = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert!(
+            mutated.mutation.observed_at_ms.is_some(),
+            "the observed-mutation stamp must ride the next beat promptly"
+        );
+        assert_eq!(
+            mutated.query_count, 3,
+            "the forced beat carries fresh counters"
+        );
+    }
+
+    /// FAIL-OPEN: a broken sidecar (the presences dir path occupied by a FILE)
+    /// must never break the tool call — track_agent still succeeds and the
+    /// in-memory session still advances.
+    #[test]
+    fn presence_beat_fails_open_when_sidecar_write_breaks() {
+        let (_temp, mut state) = build_state();
+        state.workspace_root = Some("/wt/failopen-brain".to_string());
+        // Occupy the presences DIR path with a regular file so create_dir_all fails.
+        let dir = presence_dir_of(&state);
+        std::fs::create_dir_all(dir.parent().expect("registry root")).expect("mk registry");
+        std::fs::write(&dir, b"not a directory").expect("plant the blocker");
+
+        state.track_agent("unlucky-agent");
+
+        let session = state
+            .sessions
+            .get("unlucky-agent")
+            .expect("session tracked");
+        assert_eq!(
+            session.query_count, 1,
+            "the tool call's tracking must survive a broken sidecar (fail-open)"
+        );
+    }
+
+    /// The P1 gate's packet law: an arranged collision surfaces in the north
+    /// honest_gaps of BOTH colliding sessions — and NOT in a bystander's packet.
+    #[test]
+    fn north_collision_gap_rides_both_colliding_packets() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/north-brain";
+        state.workspace_root = Some(brain.to_string());
+        let registry = state.instance.registry_root();
+        let now = crate::util::now_ms();
+
+        let seed = |agent: &str, caller: &str| {
+            let record = crate::presence::PresenceRecord {
+                schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+                presence_id: crate::presence::stable_presence_id(agent, brain),
+                agent_id: agent.to_string(),
+                brain: brain.to_string(),
+                caller_root: Some(caller.to_string()),
+                kind: None,
+                theme: None,
+                worktree: None,
+                working_set: Vec::new(),
+                task_ref: None,
+                mutation: crate::presence::MutationSignal {
+                    observed_at_ms: Some(now),
+                    declared_intent: None,
+                },
+                first_seen_ms: now,
+                last_beat_ms: now,
+                query_count: 1,
+                ttl_ms: crate::presence::PRESENCE_TTL_MS,
+            };
+            crate::presence::write_presence(&registry, &record).expect("seed presence");
+        };
+        // Two mutating hands in ONE worktree; a third in its own worktree.
+        seed("hand-a", "/wt/shared");
+        seed("hand-b", "/wt/shared");
+        seed("hand-c", "/wt/isolated");
+
+        let gaps_of = |state: &mut SessionState, agent: &str| -> Vec<String> {
+            let north = super::dispatch_tool(
+                state,
+                "north",
+                &serde_json::json!({ "agent_id": agent, "task": "collision probe" }),
+            )
+            .expect("north packet");
+            north["honest_gaps"]
+                .as_array()
+                .map(|gaps| {
+                    gaps.iter()
+                        .filter_map(|g| g.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let a_gaps = gaps_of(&mut state, "hand-a");
+        assert!(
+            a_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-b")),
+            "hand-a's packet must carry the collision gap naming hand-b: {a_gaps:?}"
+        );
+        let b_gaps = gaps_of(&mut state, "hand-b");
+        assert!(
+            b_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-a")),
+            "hand-b's packet must carry the collision gap naming hand-a: {b_gaps:?}"
+        );
+        let c_gaps = gaps_of(&mut state, "hand-c");
+        assert!(
+            !c_gaps.iter().any(|g| g.starts_with("COLLISION:")),
+            "the isolated-worktree hand must NOT carry a collision gap: {c_gaps:?}"
         );
     }
 }

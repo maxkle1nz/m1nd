@@ -84,7 +84,17 @@ struct Facts {
     memory_count: usize,
     recv_mismatch: bool,
     reception_honest: Option<String>,
+    // P1 (ORGANISM-INSIDE): the served-brain presence roster + derived collisions
+    // (slot 8). "This brain" only — never a cross-brain aggregate.
+    presences: Vec<crate::presence::PresenceRecord>,
+    presence_collisions: Vec<crate::presence::Collision>,
 }
+
+/// Cap on presence rows the drill renders (Budget Law — the roster is a bounded
+/// render, never an unbounded list; the count + `capped` flag stay honest when
+/// more sessions are live than shown). Sized so the drill holds under the ≤800
+/// token ceiling even at worst-case field lengths (battery-pinned below).
+const PRESENCE_DRILL_CAP: usize = 6;
 
 /// `cockpit` (READ). Serves the root menu, or drills one collection when
 /// `select` names a slot. Pure composer, read-only, breaks alone.
@@ -202,6 +212,11 @@ fn read_facts(state: &mut SessionState) -> Facts {
 
     let memory_count = state.light_memory_count();
 
+    // P1 presences — the served brain's live roster + derived collisions. Reads
+    // the presence sidecars (fail-open: an unreadable registry yields an empty
+    // roster, never an error). Scoped to THIS brain by construction.
+    let (presences, presence_collisions) = state.presence_roster();
+
     let reception = state.reception_verdict();
     let recv_mismatch = reception
         .as_ref()
@@ -224,12 +239,17 @@ fn read_facts(state: &mut SessionState) -> Facts {
         memory_count,
         recv_mismatch,
         reception_honest,
+        presences,
+        presence_collisions,
     }
 }
 
-/// The seven stable-slot collections (amendment 4 order). Slots 1–3 are the
+/// The eight stable-slot collections (amendment 4 order). Slots 1–3 are the
 /// permanent trio (the tray, the map, missions); their LABELS move with state,
 /// their SLOTS never do (amendment 6). Slots 4–7 are the argument-less reads.
+/// Slot 8 is the P1 presence roster — the team talking to m1nd, this brain only,
+/// a cockpit-composed render drilled in place (ORGANISM-INSIDE, verdict
+/// 2026-07-13; the collision warning rides the LABEL, no new schema field).
 fn root_collections(f: &Facts) -> Vec<Collection> {
     // 1 — the tray (POINTER: bell + the human stamp gesture; no verb).
     let tray_label = if f.merge_wait > 0 {
@@ -259,6 +279,20 @@ fn root_collections(f: &Facts) -> Vec<Collection> {
         format!("memories · {} durable claim(s)", f.memory_count)
     } else {
         "memories · none yet".to_string()
+    };
+    // 8 — presences (POINTER: the cockpit-composed roster of THIS brain, drilled
+    //     in place; no external verb). The collision warning rides the LABEL —
+    //     ONE root line whether quiet or colliding (Budget Law).
+    let presences_label = if f.presences.is_empty() {
+        "presences · none in this brain".to_string()
+    } else if !f.presence_collisions.is_empty() {
+        format!(
+            "presences · {} in this brain · ⚠ {} collision(s)",
+            f.presences.len(),
+            f.presence_collisions.len()
+        )
+    } else {
+        format!("presences · {} in this brain", f.presences.len())
     };
 
     vec![
@@ -311,6 +345,13 @@ fn root_collections(f: &Facts) -> Vec<Collection> {
             label: "drift · nodes whose evidence moved under the graph".to_string(),
             verb: Some("drift"),
             door: None,
+        },
+        Collection {
+            slot: 8,
+            key: "presences",
+            label: presences_label,
+            verb: None,
+            door: Some("the team talking to m1nd — drill to see who, where, since when"),
         },
     ]
 }
@@ -388,6 +429,58 @@ fn entry_json(c: &Collection) -> Value {
     }
 }
 
+/// The slot-8 drill body: the served brain's live presence roster (capped at
+/// [`PRESENCE_DRILL_CAP`]) + any derived collisions. A cockpit-composed render —
+/// measured from the sidecars, ages ALWAYS rendered, honest-absent on expiry.
+/// Scope is decided and LABELED here: the served-brain roster ("this brain").
+fn presence_drill_detail(f: &Facts) -> Value {
+    let now = crate::util::now_ms();
+    let rows: Vec<Value> = f
+        .presences
+        .iter()
+        .take(PRESENCE_DRILL_CAP)
+        .map(|p| {
+            // where = the most specific declared location, else the brain root.
+            let location = p
+                .worktree
+                .clone()
+                .or_else(|| p.caller_root.clone())
+                .unwrap_or_else(|| p.brain.clone());
+            // The verdict's four fields — agent · where · age · mutation — plus
+            // the declared theme (the "on what"). Richer enrichment (kind /
+            // task_ref) lives in the unbudgeted /api/health roster, not this
+            // budget-bound drill.
+            json!({
+                "agent": p.agent_id,
+                "theme": p.theme,
+                "where": location,
+                "age_secs": p.age_ms(now) / 1000,
+                "mutating": p.has_mutation_signal(now),
+            })
+        })
+        .collect();
+    let collisions: Vec<Value> = f
+        .presence_collisions
+        .iter()
+        .map(|c| {
+            json!({
+                "between": [&c.subject_agent, &c.other_agent],
+                "overlap": c.overlap,
+            })
+        })
+        .collect();
+    json!({
+        "kind": "presences",
+        "scope": "this brain",
+        "roster_count": f.presences.len(),
+        "shown": rows.len(),
+        "capped": f.presences.len() > PRESENCE_DRILL_CAP,
+        "roster": rows,
+        "collisions": collisions,
+        "note": "presence == activity VISIBLE TO m1nd — a session compiling for minutes makes no calls and expires from the roster; never read as 'who is alive'",
+    })
+}
+
 fn reception_note(f: &Facts) -> Option<Value> {
     f.recv_mismatch.then(|| {
         json!({
@@ -458,37 +551,42 @@ fn compose_drill(
     let state_moved =
         matches!((seen_store_version, f.store_version), (Some(seen), sv) if Some(seen) != sv);
 
-    let mut detail = match (c.verb, c.door) {
-        (Some(verb), _) => {
-            let why = crate::help_guidance::catalog_entry(verb)
-                .map(|e| e.one_liner)
-                .unwrap_or_default();
-            // Present the argument-less call to RUN (router pattern, like help):
-            // its own output carries the receipts/hashes, rendered in the item
-            // view (amendment 5) — the cockpit never fabricates a receipt.
-            let arguments = if verb == "boot_memory" {
-                json!({ "agent_id": agent_id, "action": "list" })
-            } else {
-                json!({ "agent_id": agent_id })
-            };
-            json!({
-                "kind": "read",
-                "verb": verb,
-                "arguments": arguments,
-                "why": why,
-                "note": "run this read — its output carries the live detail (receipts/hashes render in the item view)",
-            })
+    let mut detail = if c.key == "presences" {
+        // Slot 8: a cockpit-composed roster drilled IN PLACE (no external verb).
+        presence_drill_detail(f)
+    } else {
+        match (c.verb, c.door) {
+            (Some(verb), _) => {
+                let why = crate::help_guidance::catalog_entry(verb)
+                    .map(|e| e.one_liner)
+                    .unwrap_or_default();
+                // Present the argument-less call to RUN (router pattern, like help):
+                // its own output carries the receipts/hashes, rendered in the item
+                // view (amendment 5) — the cockpit never fabricates a receipt.
+                let arguments = if verb == "boot_memory" {
+                    json!({ "agent_id": agent_id, "action": "list" })
+                } else {
+                    json!({ "agent_id": agent_id })
+                };
+                json!({
+                    "kind": "read",
+                    "verb": verb,
+                    "arguments": arguments,
+                    "why": why,
+                    "note": "run this read — its output carries the live detail (receipts/hashes render in the item view)",
+                })
+            }
+            (None, door) => json!({
+                "kind": "pointer",
+                "door": door.unwrap_or("open the tray — the stamp lives there"),
+                // The pointer's facts are already measured — no verb, nothing to run.
+                "facts": {
+                    "merge_wait": f.merge_wait,
+                    "missions_in_flight": f.mission_total,
+                },
+                "note": "the stamp is a human gesture at the tray — the cockpit never lands it",
+            }),
         }
-        (None, door) => json!({
-            "kind": "pointer",
-            "door": door.unwrap_or("open the tray — the stamp lives there"),
-            // The pointer's facts are already measured — no verb, nothing to run.
-            "facts": {
-                "merge_wait": f.merge_wait,
-                "missions_in_flight": f.mission_total,
-            },
-            "note": "the stamp is a human gesture at the tray — the cockpit never lands it",
-        }),
     };
 
     let obj = detail.as_object_mut().unwrap();
@@ -545,6 +643,29 @@ mod tests {
             memory_count: 0,
             recv_mismatch: false,
             reception_honest: None,
+            presences: Vec::new(),
+            presence_collisions: Vec::new(),
+        }
+    }
+
+    fn presence(agent: &str, brain: &str) -> crate::presence::PresenceRecord {
+        let now = crate::util::now_ms();
+        crate::presence::PresenceRecord {
+            schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+            presence_id: crate::presence::stable_presence_id(agent, brain),
+            agent_id: agent.to_string(),
+            brain: brain.to_string(),
+            caller_root: None,
+            kind: Some("executor".to_string()),
+            theme: Some("slice".to_string()),
+            worktree: None,
+            working_set: Vec::new(),
+            task_ref: None,
+            mutation: crate::presence::MutationSignal::default(),
+            first_seen_ms: now,
+            last_beat_ms: now,
+            query_count: 3,
+            ttl_ms: crate::presence::PRESENCE_TTL_MS,
         }
     }
 
@@ -574,7 +695,7 @@ mod tests {
     }
 
     /// Amendment 6 — the permanent trio sits in stable slots 1..=3, condition
-    /// changing only the LABEL; and the root always serves the seven collections.
+    /// changing only the LABEL; and the root always serves the eight collections.
     #[test]
     fn slots_are_stable_across_conditions() {
         let quiet = root_collections(&empty_facts());
@@ -586,8 +707,8 @@ mod tests {
         busy.store_version = Some(7);
         let loud = root_collections(&busy);
 
-        assert_eq!(quiet.len(), 7);
-        assert_eq!(loud.len(), 7);
+        assert_eq!(quiet.len(), 8);
+        assert_eq!(loud.len(), 8);
         for (a, b) in quiet.iter().zip(loud.iter()) {
             assert_eq!(a.slot, b.slot, "slot is stable");
             assert_eq!(a.key, b.key, "collection identity is stable");
@@ -666,5 +787,124 @@ mod tests {
         assert_eq!(mem["kind"], "read");
         assert_eq!(mem["verb"], json!("boot_memory"));
         assert_eq!(mem["arguments"]["action"], json!("list"));
+    }
+
+    /// P1 budget RE-PIN (battery): the cockpit's own budget holds after adding
+    /// the 8th collection — root AND the presences drill both stay under the ≤800
+    /// ceiling (amendment 9). Measured with the same `chars/4` estimator the north
+    /// battery uses. The 8th ROOT line costs ~one line (the ~105-token root slack
+    /// the verdict noted absorbs it); the presences DRILL is a bounded render
+    /// (capped at PRESENCE_DRILL_CAP rows).
+    #[test]
+    fn cockpit_budget_holds_with_the_eighth_slot() {
+        // A LOUD root: every label populated + a colliding presence roster (the
+        // longest presence root line).
+        let mut f = empty_facts();
+        f.merge_wait = 7;
+        f.mission_total = 12;
+        f.store_present = true;
+        f.store_version = Some(4096);
+        f.ratified_blocks = 128;
+        f.block_count = 130;
+        f.coherence = Some("mismatch".to_string());
+        f.memory_count = 342;
+        f.presences = (0..PRESENCE_DRILL_CAP)
+            .map(|i| {
+                let mut p = presence(&format!("executor-agent-number-{i}"), "/Users/x/m1nd");
+                p.worktree = Some(format!("feat/some-longish-worktree-name-{i}"));
+                p.caller_root = Some(format!("/Users/x/m1nd-worktree-{i}"));
+                p.task_ref = Some(format!("msn_1783903278219_executoragent{i}"));
+                p.mutation.observed_at_ms = Some(crate::util::now_ms());
+                p
+            })
+            .collect();
+        f.presence_collisions = vec![crate::presence::Collision {
+            subject_agent: "executor-agent-number-0".into(),
+            subject_presence: "prs_000000000000".into(),
+            other_agent: "executor-agent-number-1".into(),
+            other_presence: "prs_000000000001".into(),
+            overlap: vec!["worktree:feat/some-longish-worktree-name-0".into()],
+        }];
+
+        let cols = root_collections(&f);
+        let ss = compose_state_sig(&f);
+        let sig = compose_menu_sig(&cols, f.store_version, &ss);
+
+        // Pretty-print basis (the conservative, larger number — comparable to the
+        // pre-P1 manual pins ~695 root / ~430 drill).
+        let root = compose_root("budget-probe-agent", &cols, &f, &sig, &ss);
+        let root_chars = serde_json::to_string_pretty(&root).unwrap().chars().count();
+        let root_tokens = crate::result_shaping::estimate_tokens_from_chars(root_chars);
+
+        let drill = compose_drill("budget-probe-agent", &cols, 8, &f, &sig, &ss, None);
+        let drill_chars = serde_json::to_string_pretty(&drill)
+            .unwrap()
+            .chars()
+            .count();
+        let drill_tokens = crate::result_shaping::estimate_tokens_from_chars(drill_chars);
+
+        eprintln!(
+            "cockpit budget re-pin (P1, 8 slots): root ~{root_tokens} tokens ({root_chars} chars); presences drill ~{drill_tokens} tokens ({drill_chars} chars)"
+        );
+        assert!(
+            root_tokens <= 800,
+            "cockpit root budget breach: ~{root_tokens} tokens (>800 ceiling, amendment 9)"
+        );
+        assert!(
+            drill_tokens <= 800,
+            "cockpit presences-drill budget breach: ~{drill_tokens} tokens (>800 ceiling)"
+        );
+    }
+
+    /// P1 — slot 8 is the presence roster. Its ROOT line is ONE line whether
+    /// quiet or colliding (Budget Law), the collision warning rides the LABEL
+    /// (no new schema field), and the DRILL renders the capped roster + the
+    /// derived collisions, scope LABELED "this brain".
+    #[test]
+    fn presences_slot_root_line_and_drill() {
+        // Quiet: one root line, no warning.
+        let mut quiet = empty_facts();
+        quiet.presences = vec![presence("exec-a", "/m1nd")];
+        let cols = root_collections(&quiet);
+        assert_eq!(cols.len(), 8);
+        let slot8 = cols.iter().find(|c| c.key == "presences").unwrap();
+        assert_eq!(slot8.slot, 8);
+        assert!(slot8.verb.is_none(), "presences is a pointer, never a verb");
+        assert!(slot8.label.contains("1 in this brain"));
+        assert!(
+            !slot8.label.contains("collision"),
+            "quiet root names no collision"
+        );
+
+        // Colliding: the SAME one root line, now carrying the warning.
+        let mut loud = empty_facts();
+        loud.presences = vec![presence("hand-a", "/m1nd"), presence("hand-b", "/m1nd")];
+        loud.presence_collisions = vec![crate::presence::Collision {
+            subject_agent: "hand-a".into(),
+            subject_presence: "prs_a".into(),
+            other_agent: "hand-b".into(),
+            other_presence: "prs_b".into(),
+            overlap: vec!["worktree:feat/x".into()],
+        }];
+        let loud_cols = root_collections(&loud);
+        assert_eq!(loud_cols.len(), 8, "the root is still ONE line per slot");
+        let loud8 = loud_cols.iter().find(|c| c.key == "presences").unwrap();
+        assert!(
+            loud8.label.contains("⚠ 1 collision"),
+            "the warning rides the label"
+        );
+
+        // Drill: capped roster + collisions, scope labeled.
+        let sig = compose_menu_sig(&loud_cols, loud.store_version, &compose_state_sig(&loud));
+        let ss = compose_state_sig(&loud);
+        let drill = compose_drill("t", &loud_cols, 8, &loud, &sig, &ss, None);
+        assert_eq!(drill["kind"], "presences");
+        assert_eq!(drill["scope"], "this brain");
+        assert_eq!(drill["roster_count"], json!(2));
+        assert_eq!(drill["collisions"].as_array().unwrap().len(), 1);
+        assert!(
+            drill["roster"][0].get("age_secs").is_some(),
+            "age is always rendered"
+        );
     }
 }

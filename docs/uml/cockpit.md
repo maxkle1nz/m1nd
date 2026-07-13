@@ -120,12 +120,12 @@ sequenceDiagram
 | 1 | dedicated read-only verb, sibling of north, no fail-open | `handle_cockpit`; NOT in `READ_ONLY_DENIED_TOOLS`; own dispatch arm |
 | 2 | read-only law DERIVED from the single source + Rust test | `.filter(read_only_denied)`; `cockpit_read_verbs_are_never_write_denied` |
 | 3 | pointer entries carry NO verb — only door text | `Collection.verb == None` for tray/missions; `pointer_entries_carry_no_verb` |
-| 4 | root = argument-less reads only; impact/why/trace OUT | seven collections; no analysis verb in the root |
+| 4 | root = argument-less reads only; impact/why/trace OUT | eight collections (P1 added `presences`); no analysis verb in the root |
 | 5 | max depth 3 (root→collection→item); "0" = back | `depth` 0/1; `select:"0"` re-serves root |
 | 6 | stable slots for the trio; menu_sig; drill re-asserts store_version/state_sig | `slots_are_stable_across_conditions`; `state_moved` |
 | 7 | widget payload = number + menu_sig, never free text / write verb | `menu_sig`; `docs/voice/WIDGET-TEMPLATE.md` |
 | 8 | on-request only; no landing auto-serve | `on_request_only:true`; negative default in `M1ND_INSTRUCTIONS` §7 + 3 skills |
-| 9 | own budget, battery-pinned | ~695 tokens root (≤800 ceiling); ~430 drill — 2026-07-12 |
+| 9 | own budget, battery-pinned | ≤800 ceiling, now MECHANICALLY pinned by `cockpit_budget_holds_with_the_eighth_slot`: worst-case root ~574 tokens, presences-drill ~567 (the new largest drill) — re-pinned 2026-07-13 after the P1 8th slot |
 | 10 | reuse the help machine (catalog), never a parallel one | `why` from `help_guidance::catalog_entry` |
 
 ## Invariantes
@@ -143,14 +143,19 @@ sequenceDiagram
 - **Per-brain only**: the map/bell/memory facts read the BOUND brain's own
   surfaces; the cockpit never aggregates across brains, and warns honestly under
   `caller_root_mismatch` (the menu describes the bound brain, not the caller's repo).
-- **Stable slots, moving labels**: the seven collections keep their slots across
+- **Stable slots, moving labels**: the eight collections keep their slots across
   every condition; only the label moves (`slots_are_stable_across_conditions`;
-  amendment 6).
+  amendment 6). Slot 8 is the P1 `presences` roster (this brain only); its
+  collision warning rides the LABEL, never a new schema field.
 - **Anti-staleness**: `menu_sig` is a deterministic digest of the served menu; a
   drill re-asserts `store_version`/`state_sig` and flags `state_moved` when the
   caller's `seen_store_version` diverged (amendment 6).
-- **Own budget**: root ~695 tokens, drill ~430 (≤800 ceiling), battery-pinned
-  2026-07-12 — north's pin does not cover it (amendment 9).
+- **Own budget**: ≤800 ceiling, mechanically pinned by
+  `cockpit_budget_holds_with_the_eighth_slot` (compact-wire `chars/4` estimator,
+  worst-case loud fixture): root ~574 tokens, presences-drill ~567 (the new
+  largest drill) — re-pinned 2026-07-13 after the P1 8th slot; north's pin does
+  not cover it (amendment 9). The presences drill is bounded at
+  `PRESENCE_DRILL_CAP` (6) rows with a `capped` flag when more sessions are live.
 
 ## Gaps / deferred (honest)
 
