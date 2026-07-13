@@ -497,12 +497,13 @@ pub struct ReceiptImportInput {
 }
 
 /// The CLOSED allow-list of HUMAN origin tokens that pass the `receipt_import` gate.
-/// Today only the owner's web UI composes a legitimate import gesture (`"human-ui"`).
-/// The future native gestures of the sovereign-stamp arc — `"human-tray"`,
-/// `"human-tray-batch"`, `"human-touchid"` — join this list in LATER steps, and only
-/// WHEN their components exist: a new origin is a code change + a test here, never a
-/// silently-trusted client string. Absent, empty, or any off-list value is refused.
-const RECEIPT_IMPORT_HUMAN_ORIGINS: &[&str] = &["human-ui"];
+/// Two gestures compose a legitimate import today: `"human-ui"` (the owner's web screen)
+/// and `"human-touchid"` (the h4nd tray's native fact-prompt, landed behind a real Touch
+/// ID / OS-password gesture — sovereign-stamp arc step 2, which now EXISTS). The remaining
+/// native gestures — `"human-tray"`, `"human-tray-batch"` — join this list in LATER steps,
+/// and only WHEN their components exist: a new origin is a code change + a test here, never
+/// a silently-trusted client string. Absent, empty, or any off-list value is refused.
+const RECEIPT_IMPORT_HUMAN_ORIGINS: &[&str] = &["human-ui", "human-touchid"];
 
 /// `receipt_import` (WRITE). Attaches a receipt to a block after the human-origin
 /// gate and the anti-poison gates (OCC, block exists, scope binds to the block's
