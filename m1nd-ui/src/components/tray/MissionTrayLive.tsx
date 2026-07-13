@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ViewedBrain } from '../../lib/viewedBrain';
 import { useMissions } from '../../hooks/useMissions';
 import { api } from '../../api/client';
-import { landCandidate, type MissionHead } from '../../lib/missions';
+import { landCandidate, archiveHead, archiveBoundaryView, type MissionHead } from '../../lib/missions';
 import { useToastStore } from '../../stores/toastStore';
 import MissionTray from './MissionTray';
 
@@ -56,6 +56,9 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
   // Re-entrancy guard: a mission being landed cannot be double-clicked into a second
   // `receipt_import` (the store would bump twice). A ref, not state — no re-render.
   const landingIds = useRef<Set<string>>(new Set());
+  // The same guard for the archive gesture — a double-click cannot post two `archived`
+  // letters (the second would `stale_head`, but guarding is cheaper than the round-trip).
+  const archivingIds = useRef<Set<string>>(new Set());
 
   // Persist the expand state so the tray remembers how the human left it.
   useEffect(() => {
@@ -114,6 +117,35 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
     [brainRoot, reload, addToast],
   );
 
+  // F2.5e — the archive confirm's FRESH two-boundary read (the landCandidate step-1
+  // snapshot), scoped to the viewed brain. Derived, never stored — a moved boundary shows
+  // live in the confirm ("proved at v1 — the block is at v3").
+  const onArchivePreview = useCallback(
+    async (head: MissionHead) => archiveBoundaryView(head, await api.systemBlocksSnapshot(brainRoot)),
+    [brainRoot],
+  );
+
+  // F2.5e — post the terminal `archived` letter, scoped to the viewed brain, stamping the
+  // human origin token (`archived_via:'human-ui'`) the backend requires. The honest
+  // outcome toasts (success on archive, info on a `stale_head` race); a reload flips the
+  // card to `archived` (or re-reads the moved head). Re-entrancy-guarded per mission.
+  const onArchive = useCallback(
+    async (head: MissionHead) => {
+      if (archivingIds.current.has(head.mission_id)) return;
+      archivingIds.current.add(head.mission_id);
+      try {
+        const result = await archiveHead(head, {
+          postMission: (letter) => api.missionPost(letter, brainRoot, 'human-ui'),
+        });
+        addToast(result.toast.text, undefined, result.archived ? 'success' : 'info');
+        if (result.shouldReload) reload();
+      } finally {
+        archivingIds.current.delete(head.mission_id);
+      }
+    },
+    [brainRoot, reload, addToast],
+  );
+
   return (
     <MissionTray
       missions={missions}
@@ -127,6 +159,8 @@ export default function MissionTrayLive({ viewedBrain, enabled, onOpenBlock }: M
       onToggleProvenance={onToggleProvenance}
       onOpenBlock={onOpenBlock}
       onImportReceipt={onImportReceipt}
+      onArchive={onArchive}
+      onArchivePreview={onArchivePreview}
     />
   );
 }

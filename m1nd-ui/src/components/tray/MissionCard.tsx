@@ -18,7 +18,7 @@
  * Copy law: no "done/proven/correct". Tokens are all sanctioned non-violet families.
  */
 import { useState } from 'react';
-import type { MissionHead, Phase } from '../../lib/missions';
+import type { ArchiveBoundaryView, MissionHead, Phase } from '../../lib/missions';
 import {
   blockLabelFromId,
   elapsedLabel,
@@ -44,6 +44,17 @@ export interface MissionCardProps {
   /** SSR/test seam: open the import confirm at mount (like PacketCompose's `initialMode`),
    *  so the confirm's honest detail is provable with a static render. */
   initialConfirmOpen?: boolean;
+  /** F2.5e — the archive gesture. Present (with onArchivePreview) → a merge_wait+candidate
+   *  card offers a discreet "Archive — superseded by newer boundary"; confirming calls this
+   *  with the head (the Live layer runs `archiveHead`). Absent → no archive affordance. */
+  onArchive?: (head: MissionHead) => void;
+  /** F2.5e — fetch the FRESH two-boundary comparison for the archive confirm (the
+   *  `landCandidate` step-1 read, done in the Live layer). Called when the human opens the
+   *  confirm; its result fills "proved at vX — the block is at vY". */
+  onArchivePreview?: (head: MissionHead) => Promise<ArchiveBoundaryView>;
+  /** SSR/test seam: the archive confirm's boundary view, pre-supplied so the two-boundary
+   *  copy is provable with a static render (like initialConfirmOpen for import). */
+  initialArchiveView?: ArchiveBoundaryView;
   /** Injectable clock for a deterministic elapsed under test. */
   now?: number;
 }
@@ -56,7 +67,8 @@ function truncateHash(hash: string): string {
 
 /** Phase → accent (left rule + phase chip). All sanctioned non-violet tokens:
  *  in-progress = socket-blue; evidence-pending (gate/review/merge_wait) = amber
- *  reverify; landed = sage act; failed = clay failure. */
+ *  reverify; landed = sage act; failed = clay failure; archived = muted hairline
+ *  (terminal + deliberately quiet — a set-aside is never a loud state, F2.5e). */
 const PHASE_ACCENT: Record<Phase, { rule: string; chip: string }> = {
   judging: { rule: 'border-l-socket-blue/60', chip: 'text-socket-blue border-socket-blue/40 bg-socket-blue/10' },
   executing: { rule: 'border-l-socket-blue/60', chip: 'text-socket-blue border-socket-blue/40 bg-socket-blue/10' },
@@ -65,6 +77,7 @@ const PHASE_ACCENT: Record<Phase, { rule: string; chip: string }> = {
   merge_wait: { rule: 'border-l-verdict-reverify/70', chip: 'text-verdict-reverify border-verdict-reverify/40 bg-verdict-reverify-tint/40' },
   landed: { rule: 'border-l-verdict-act/70', chip: 'text-verdict-act border-verdict-act/40 bg-verdict-act-tint/40' },
   failed: { rule: 'border-l-state-failure/70', chip: 'text-state-failure border-state-failure/40 bg-state-failure-tint/40' },
+  archived: { rule: 'border-l-hairline', chip: 'text-ink-soft border-hairline bg-porcelain' },
 };
 
 export default function MissionCard({
@@ -75,6 +88,9 @@ export default function MissionCard({
   onToggleProvenance,
   onImportReceipt,
   initialConfirmOpen = false,
+  onArchive,
+  onArchivePreview,
+  initialArchiveView,
   now,
 }: MissionCardProps) {
   const letter = head.head;
@@ -92,6 +108,18 @@ export default function MissionCard({
   const candidate = letter.receipt_candidate;
   const canImport = letter.phase === 'merge_wait' && !!candidate && !!onImportReceipt;
   const [confirmOpen, setConfirmOpen] = useState(initialConfirmOpen);
+
+  // F2.5e — the archive affordance is a discreet sibling of the import button, live on a
+  // merge_wait card with a candidate AND an onArchive handler. The trigger needs
+  // onArchivePreview (the fresh two-boundary read at click); the confirm renders whenever
+  // a boundary view is present (incl. the SSR/test seam).
+  const showArchive = letter.phase === 'merge_wait' && !!candidate && !!onArchive;
+  const canArchiveTrigger = showArchive && !!onArchivePreview;
+  const [archiveView, setArchiveView] = useState<ArchiveBoundaryView | null>(initialArchiveView ?? null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  // Only one affordance cluster shows at a time — the two-boundary confirm doubles as the
+  // ergonomic guard against a mis-click between "Import" and "Archive".
+  const anyConfirm = confirmOpen || !!archiveView || archiveLoading;
 
   // The seat line: `hand · build-runner[ · runner-build-1]` (runner_id only when present).
   const seatLine = [letter.seat, letter.capability, letter.runner_id ?? undefined]
@@ -168,7 +196,7 @@ export default function MissionCard({
       {/* §6-F2.5d — the human landing. With a candidate: the one-click import + a
           compact confirm that shows EXACTLY what will be imported (the gesture is
           explicit, never silent). The confirm→import is still the human's gesture. */}
-      {canImport && candidate && !confirmOpen && (
+      {canImport && candidate && !anyConfirm && (
         <button
           type="button"
           data-role="import-receipt"
@@ -229,6 +257,75 @@ export default function MissionCard({
           </div>
           <p className="text-[10px] text-ink-soft leading-snug">
             the scope stays the candidate’s boundary — a moved boundary re-runs the gate, never a rewrite.
+          </p>
+        </div>
+      )}
+
+      {/* F2.5e — the archive gesture: a discreet sibling of "Import this receipt" on the
+          SAME merge_wait+candidate card. Clicking it fetches a FRESH snapshot (the
+          landCandidate step-1 read) and opens a confirm showing the live two-boundary
+          comparison — the honesty AND the ergonomic guard against a mis-click. */}
+      {canArchiveTrigger && candidate && !anyConfirm && (
+        <button
+          type="button"
+          data-role="archive-superseded"
+          onClick={() => {
+            if (!onArchivePreview) return;
+            setArchiveLoading(true);
+            void onArchivePreview(head)
+              .then((view) => setArchiveView(view))
+              .finally(() => setArchiveLoading(false));
+          }}
+          className="mt-1 block text-left text-[10px] text-ink-soft hover:text-ink underline decoration-dotted underline-offset-2"
+        >
+          Archive — superseded by newer boundary
+        </button>
+      )}
+      {showArchive && archiveLoading && (
+        <div data-role="archive-loading" className="mt-1 text-[10px] text-ink-soft">
+          reading the current boundary…
+        </div>
+      )}
+      {showArchive && candidate && archiveView && (
+        <div
+          data-role="archive-confirm"
+          className="mt-1.5 rounded border border-hairline bg-porcelain px-2 py-1.5 space-y-1"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-ink-soft">
+            Archive this superseded receipt?
+          </div>
+          <div data-role="archive-boundaries" className="font-mono text-[10px] text-ink-soft">
+            proved at boundary v{archiveView.provedAt} — the block is at{' '}
+            {archiveView.currentAt == null ? 'v— (gone)' : `v${archiveView.currentAt}`}
+          </div>
+          {archiveView.stillImportable && (
+            <div data-role="archive-still-importable" className="text-[10px] text-verdict-reverify">
+              still importable — archive anyway?
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              data-role="archive-confirm-go"
+              onClick={() => {
+                setArchiveView(null);
+                onArchive?.(head);
+              }}
+              className="rounded border border-hairline bg-porcelain px-2 py-0.5 text-[11px] text-ink-soft hover:text-ink"
+            >
+              Archive
+            </button>
+            <button
+              type="button"
+              data-role="archive-cancel"
+              onClick={() => setArchiveView(null)}
+              className="text-[11px] text-ink-soft hover:text-ink"
+            >
+              cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-ink-soft leading-snug">
+            the superseded receipt stays in history — archiving only clears the bell, it lands nothing.
           </p>
         </div>
       )}

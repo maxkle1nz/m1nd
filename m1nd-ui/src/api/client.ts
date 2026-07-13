@@ -193,10 +193,14 @@ export const api = {
    * refused under a read-only attach. Bare tool route, agent_id 'gui', unwrapping the
    * `{result}` envelope like the reconcile write. `brain` scopes it to a hosted brain.
    */
-  missionPost: (letter: MissionLetter, brain?: string | null) =>
+  missionPost: (letter: MissionLetter, brain?: string | null, archivedVia?: string) =>
     apiFetch<{ result: PostOutcome }>(withBrain('/api/tools/mission_post', brain), {
       method: 'POST',
-      body: JSON.stringify({ agent_id: 'gui', letter }),
+      // ARCHIVE gate (F2.5e): an `archived` letter is a HUMAN gesture — this screen is the
+      // owner's UI, so it stamps the `archived_via:'human-ui'` origin token the backend
+      // requires (the same class as receipt_import's `imported_via`). Absent for every
+      // other phase (byte-identical body), so only the archive path carries it.
+      body: JSON.stringify({ agent_id: 'gui', letter, ...(archivedVia ? { archived_via: archivedVia } : {}) }),
     }).then((r) => r.result),
 
   /**

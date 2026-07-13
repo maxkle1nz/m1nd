@@ -7520,6 +7520,88 @@ mod tests {
     }
 
     #[test]
+    fn agent_composed_archive_dies_at_the_door() {
+        // F2.5e forged-origin gate (binding change 1), mirroring
+        // `agent_composed_receipt_import_dies_at_the_door`: an agent that tries to ARCHIVE
+        // a superseded receipt — sending NO origin, an EMPTY one, or INVENTING a plausible
+        // one — dies at the door before anything is appended. Only the owner screen's
+        // `archived_via:"human-ui"` supersedes the merge_wait head. The box is INTACT after
+        // every forged attempt (the anti-lie proof: an agent may not silently bury its own
+        // unproven work — the product's first silent-burial verb stays human-only).
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("project-a");
+        std::fs::create_dir_all(repo.join(".git")).expect("repo dir with .git");
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+
+        // Seq 1 = a merge_wait head (a green gate); a merge_wait letter needs no origin
+        // token — only `archived` is gated.
+        let merge_wait = serde_json::json!({
+            "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab", "mission_seq": 1,
+            "block_id": "sb_x", "brain_ref": "project-a", "seat": "hand", "capability": "build-runner",
+            "phase": "merge_wait",
+            "gate": {"command": "cargo test -p m1nd-mcp", "exit_status": 0, "artifact_hash": "sha256:gatelog"},
+            "started_at": "2026-07-13T00:00:00Z", "updated_at": "2026-07-13T00:00:00Z",
+        });
+        let posted = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "hand", "letter": merge_wait}),
+        )
+        .expect("the merge_wait head posts");
+        let head_id = posted["letter_id"].as_str().expect("letter_id").to_string();
+
+        let box_path = crate::mission_letter_handlers::mission_box_path(&state);
+        let box_before =
+            std::fs::read_to_string(&box_path).expect("box exists after the merge_wait post");
+
+        // The archived seq-2 letter (extends the merge_wait head), with a variable origin.
+        let archived = |via: Option<serde_json::Value>| {
+            let mut params = serde_json::json!({
+                "agent_id": "runner",
+                "letter": {
+                    "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab", "mission_seq": 2,
+                    "prev_letter_id": head_id.clone(), "block_id": "sb_x", "brain_ref": "project-a",
+                    "seat": "hand", "capability": "build-runner", "phase": "archived",
+                    "started_at": "2026-07-13T00:01:00Z", "updated_at": "2026-07-13T00:01:00Z",
+                }
+            });
+            if let Some(v) = via {
+                params["archived_via"] = v;
+            }
+            params
+        };
+
+        for forged in [
+            None,                                     // absent field
+            Some(serde_json::json!("")),              // empty string
+            Some(serde_json::json!("runnerd")),       // an agent origin
+            Some(serde_json::json!("human-touchid")), // a future origin that does not exist yet
+        ] {
+            let refused =
+                super::dispatch_tool(&mut state, "mission_post", &archived(forged.clone()))
+                    .expect("the archive gate is a soft refusal, not an error");
+            assert_eq!(
+                refused["refused"], "human_gesture_required",
+                "an agent-composed archive must die at the door: archived_via={forged:?}"
+            );
+            assert_eq!(refused["field"], "archived_via");
+            let box_now = std::fs::read_to_string(&box_path).expect("box still readable");
+            assert_eq!(box_before, box_now, "a forged archive appends NOTHING");
+        }
+
+        // The owner screen's origin token supersedes the merge_wait head.
+        let done = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &archived(Some(serde_json::json!("human-ui"))),
+        )
+        .expect("a human-origin archive posts");
+        assert_eq!(done["mission_seq"], 2);
+        assert_eq!(done["phase"], "archived");
+        let _ = &temp;
+    }
+
+    #[test]
     fn mission_post_is_refused_read_only() {
         let (_temp, mut state) = build_state_read_only();
         let err = super::dispatch_tool(
@@ -9526,6 +9608,31 @@ mod tests {
                 .as_str()
                 .is_some_and(|s| s.contains("await the human landing"))),
             "no landing-bell line once the head has landed, got {gaps:?}"
+        );
+    }
+
+    /// F2.5e: once the head is `archived` (the human SET ASIDE a superseded receipt) the
+    /// bell goes SILENT — exactly as a `landed` head does. The archived letter moved the
+    /// head off `merge_wait`, so `heads_by_mission` no longer counts it: the bell drops
+    /// itself, reusing the same read surface (no bell logic changed).
+    #[test]
+    fn north_landing_bell_silent_when_head_archived() {
+        use crate::mission_letter::Phase;
+        let (_temp, mut state) = build_state_populated(false);
+        post_bell_chain(&state, &[Phase::Judging, Phase::MergeWait, Phase::Archived]);
+
+        let out = bell_north_call(&mut state);
+
+        assert!(
+            out.get("landing_bell").is_none(),
+            "an archived head must not ring — the field is absent, not null"
+        );
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            !gaps.iter().any(|g| g
+                .as_str()
+                .is_some_and(|s| s.contains("await the human landing"))),
+            "no landing-bell line once the head is archived, got {gaps:?}"
         );
     }
 

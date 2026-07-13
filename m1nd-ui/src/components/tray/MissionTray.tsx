@@ -14,7 +14,7 @@
  * says so; the first fetch shows a discreet "reading…"; an empty ready tray invites
  * "no missions yet — point an agent at a block" (§3d). Copy law throughout.
  */
-import type { MissionHead } from '../../lib/missions';
+import type { ArchiveBoundaryView, MissionHead } from '../../lib/missions';
 import { PHASE_META, PHASES, phaseCounts, phaseLabel, sortForTray } from '../../lib/missions';
 import type { MissionsStatus } from '../../hooks/useMissions';
 import MissionCard from './MissionCard';
@@ -35,6 +35,11 @@ export interface MissionTrayProps {
   /** §6-F2.5d — the human-landing gesture, threaded to each `merge_wait` card that
    *  carries a candidate. Absent → the cards render read-only (no import button). */
   onImportReceipt?: (head: MissionHead) => void;
+  /** F2.5e — the archive gesture (post the terminal `archived` letter) + the fresh
+   *  two-boundary preview the confirm shows. Threaded to each `merge_wait` card with a
+   *  candidate. Absent → no archive affordance (read-only render). */
+  onArchive?: (head: MissionHead) => void;
+  onArchivePreview?: (head: MissionHead) => Promise<ArchiveBoundaryView>;
   /** Injectable clock for a deterministic elapsed under test. */
   now?: number;
 }
@@ -51,6 +56,8 @@ export default function MissionTray({
   onToggleProvenance,
   onOpenBlock,
   onImportReceipt,
+  onArchive,
+  onArchivePreview,
   now,
 }: MissionTrayProps) {
   const dismissed = dismissedIds ?? new Set<string>();
@@ -155,6 +162,8 @@ export default function MissionTray({
               provenanceOpen={provenanceIds?.has(head.mission_id) ?? false}
               onToggleProvenance={onToggleProvenance}
               onImportReceipt={onImportReceipt}
+              onArchive={onArchive}
+              onArchivePreview={onArchivePreview}
               now={now}
             />
           ))

@@ -38,7 +38,9 @@ export type Capability =
   | 'hand-runner'
   | 'review-runner';
 
-/** The seven-state phase enum (§1), verbatim, snake_case on the wire. */
+/** The phase enum (§1), verbatim, snake_case on the wire. The seven MVP states + the
+ *  F2.5e terminal `archived` (the superseded-receipt gesture) — the mirror of
+ *  mission_letter.rs `Phase`. */
 export type Phase =
   | 'judging'
   | 'executing'
@@ -46,9 +48,11 @@ export type Phase =
   | 'review'
   | 'merge_wait'
   | 'landed'
-  | 'failed';
+  | 'failed'
+  | 'archived';
 
-/** The ordered phase enum — the strip renders counts in this causal order. */
+/** The ordered phase enum — the strip renders counts in this causal order (`archived`,
+ *  terminal like `landed`/`failed`, sits at the end). */
 export const PHASES: readonly Phase[] = [
   'judging',
   'executing',
@@ -57,6 +61,7 @@ export const PHASES: readonly Phase[] = [
   'merge_wait',
   'landed',
   'failed',
+  'archived',
 ] as const;
 
 /** A verdict's decision (§1). UPPERCASE on the wire. */
@@ -174,6 +179,7 @@ export const PHASE_META: Record<Phase, { glyph: string; label: string }> = {
   merge_wait: { glyph: '⏳', label: 'merge wait' },
   landed: { glyph: '✓', label: 'landed' },
   failed: { glyph: '✗', label: 'failed' },
+  archived: { glyph: '▤', label: 'archived' },
 };
 
 /** The phase name, VERBATIM (copy law: none of these is "done/proven/correct"). */
@@ -591,6 +597,17 @@ export function landErrorToast(err: unknown): { toast: LandToast; shouldReload: 
       shouldReload: false,
     };
   }
+  if (/stale_head/i.test(s)) {
+    // The mission chain's head moved between our read and this post — the archive×import
+    // two-tab race (F2.5e / binding change 6). Reload on the fresh truth; NOTHING was
+    // appended. Distinct from stale_scope (the store boundary) — this is the chain head,
+    // which `landErrorToast` did not recognize before, so the owner saw a generic error
+    // without a reload and the two tabs stayed out of sync.
+    return {
+      toast: { kind: 'conflict', text: 'the state moved — reloading' },
+      shouldReload: true,
+    };
+  }
   if (/conflict/i.test(s)) {
     return {
       toast: { kind: 'conflict', text: 'the store moved — reloading, then re-run the import' },
@@ -721,5 +738,124 @@ export async function landCandidate(head: MissionHead, deps: LandDeps): Promise<
     toast: { kind: 'ok', text: `receipt landed — store v${outcome.store_version}` },
     shouldReload: true,
     letter: landedLetter,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The archive gesture (F2.5e) — set a superseded merge_wait receipt aside.
+// ---------------------------------------------------------------------------
+
+/** The two-boundary view the archive confirm shows (F2.5e) — DERIVED FRESH at click
+ *  from a live snapshot, never a stored field (Budget Law + schema discipline: there is
+ *  no frozen "current boundary" anywhere). `provedAt` is the candidate's boundary (what
+ *  the gate proved against); `currentAt` is the block's CURRENT boundary (null when the
+ *  block is gone). `stillImportable` says the receipt would STILL land — the honest
+ *  "archive anyway?" warning. */
+export interface ArchiveBoundaryView {
+  provedAt: number;
+  currentAt: number | null;
+  blockPresent: boolean;
+  stillImportable: boolean;
+}
+
+/** Derive the archive confirm's live two-boundary comparison from a FRESH snapshot (the
+ *  `landCandidate` step-1 read). Pure: the Live layer fetches, this computes. "Still
+ *  importable" is the honest proxy for "the `receipt_import` gate would still pass": the
+ *  block is present AND its boundary has NOT moved since the gate ran (a moved boundary
+ *  stales the evidence — system_blocks `stales_on: boundary_change`). Without a candidate
+ *  there is no proved-at boundary (the tray offers archive only on a candidate-bearing
+ *  merge_wait), so `provedAt` falls back to 0 and `stillImportable` is false. */
+export function archiveBoundaryView(head: MissionHead, snap: SystemBlocksSnapshot): ArchiveBoundaryView {
+  const candidate = head.head.receipt_candidate;
+  const provedAt = candidate?.scope.boundary_version ?? 0;
+  const block = candidate
+    ? snap.store?.blocks.find((b) => b.block_id === candidate.block_id)
+    : undefined;
+  const blockPresent = !!snap.present && !!block;
+  const currentAt = block ? block.boundary_version : null;
+  const stillImportable = blockPresent && !!candidate && currentAt === provedAt;
+  return { provedAt, currentAt, blockPresent, stillImportable };
+}
+
+/** The seams `archiveHead` writes through — injected so the flow is provable DOM-free
+ *  (the `landCandidate` pattern). `postMission` carries the human origin token
+ *  (`archived_via:'human-ui'`) — the Live layer wires it, the browser is its only composer. */
+export interface ArchiveDeps {
+  postMission: (letter: MissionLetter) => Promise<PostOutcome>;
+  now?: () => string;
+}
+
+/** The outcome of an archive attempt. `archived` is true ONLY when the `archived` letter
+ *  posted. `shouldReload` refreshes the tray so the card flips to `archived` (or, on a
+ *  `stale_head` race, re-reads the moved truth). */
+export interface ArchiveOutcome {
+  archived: boolean;
+  toast: LandToast;
+  shouldReload: boolean;
+  /** The `archived` letter that was (or would have been) posted — for assertion/debug. */
+  letter?: MissionLetter;
+}
+
+/**
+ * The archive gesture (F2.5e): supersede a `merge_wait` head whose receipt is stale by
+ * posting a terminal `archived` letter — seq+1, extending the head (§1e chain),
+ * INHERITING identity + gate exactly as `landCandidate` composes the `landed` letter, but
+ * carrying NO receipt anchor (an archived letter is set aside, never landed-in-disguise —
+ * mission_letter.rs §1h) and NOT carrying the candidate forward (the superseded receipt
+ * stays on the merge_wait letter in history — walk_head keeps it with its boundary_version
+ * forever). Pure over its injected `postMission` seam; the fresh-snapshot two-boundary read
+ * the CONFIRM shows is the component's job ([`archiveBoundaryView`]), so this heart is just
+ * the honest compose + post.
+ *
+ * A `stale_head` — the archive×import two-tab race, another tab moved the head between the
+ * confirm and this post — reduces to the reload toast ([`landErrorToast`]), NOTHING
+ * fabricated: the human re-reads the moved state (binding change 6).
+ */
+export async function archiveHead(head: MissionHead, deps: ArchiveDeps): Promise<ArchiveOutcome> {
+  const letter = head.head;
+  // Defensive: the tray offers archive only on a merge_wait head; a stale click can never
+  // archive a non-merge_wait state (the engine's §1h transition rule refuses it server-side
+  // too — this is the honest UI mirror, never the only guard).
+  if (letter.phase !== 'merge_wait') {
+    return {
+      archived: false,
+      toast: { kind: 'error', text: 'only a merge_wait mission can be archived' },
+      shouldReload: false,
+    };
+  }
+
+  const nowIso = deps.now?.() ?? new Date().toISOString();
+  const archivedLetter: MissionLetter = {
+    schema: MISSION_LETTER_SCHEMA,
+    mission_id: letter.mission_id,
+    mission_seq: letter.mission_seq + 1,
+    prev_letter_id: head.head_letter_id,
+    block_id: letter.block_id,
+    brain_ref: letter.brain_ref,
+    seat: letter.seat,
+    ...(letter.runner_id ? { runner_id: letter.runner_id } : {}),
+    capability: letter.capability,
+    phase: 'archived',
+    ...(letter.gate ? { gate: letter.gate } : {}),
+    // NO receipt anchor (§1h) and NO receipt_candidate: the superseded receipt stays on the
+    // merge_wait letter in history; the archived tip only records the set-aside.
+    ...(letter.packet_ref ? { packet_ref: letter.packet_ref } : {}),
+    tokens_total: letter.tokens_total,
+    started_at: letter.started_at,
+    updated_at: nowIso,
+  };
+
+  try {
+    await deps.postMission(archivedLetter);
+  } catch (err) {
+    const { toast, shouldReload } = landErrorToast(err);
+    return { archived: false, toast, shouldReload, letter: archivedLetter };
+  }
+
+  return {
+    archived: true,
+    toast: { kind: 'ok', text: 'archived — superseded by newer boundary' },
+    shouldReload: true,
+    letter: archivedLetter,
   };
 }
