@@ -139,9 +139,10 @@ receipt candidate → tray bell → judge parecer (advisory) → **human stamp**
   judging-phase parecer would silence the head-phase landing bells before the human
   stamps — sovereignty rings first. Calibration exercise reported 2/2 correct verdicts
   (orchestrator-reported 2026-07-12; **not yet a versioned proof file** — honest).
-- **The landing.** `receipt_import` with the **human-origin gate born today** (#353):
-  gate 0 — `imported_via` must be on the closed server-side allow-list
-  (`RECEIPT_IMPORT_HUMAN_ORIGINS`, today only `"human-ui"`); absent or off-list refuses
+- **The landing.** `receipt_import` with the **human-origin gate** (#353): gate 0 —
+  `imported_via` must be on the closed server-side allow-list
+  (`RECEIPT_IMPORT_HUMAN_ORIGINS` = `"human-ui"` the owner's screen, `"human-touchid"` the
+  h4nd tray's native prompt landed behind Touch ID); absent or off-list refuses
   `human_gesture_required`, nothing applied. Plus OCC, `stale_scope`, evidence contract,
   temporal-coherence guards — all live-fire proven.
 
