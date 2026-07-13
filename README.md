@@ -51,7 +51,7 @@
   <img src="docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
 </p>
 
-<p align="center"><em>One real session — captured from a live owner (<code>m1nd-mcp 1.3.0</code>, a 6,453-node graph over this repo): <code>north</code> briefs the agent with trust + honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
+<p align="center"><em>One real session — captured from a live owner (<code>m1nd-mcp 1.4.0</code>, a 6,453-node graph over this repo): <code>north</code> briefs the agent with trust + honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
 
 <p align="center"><img src="docs/assets/visuals/01-code-to-graph.png" width="520" alt="A stack of loose files becomes a connected graph of what links to what" /></p>
 
@@ -371,7 +371,7 @@ Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn p
 m1nd agent first-minute --repo /your/project --query "understand this system" --json
 ```
 
-Pin the binary if you need to: `--version` prints `1.2.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
+Pin the binary if you need to: `--version` prints `1.4.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
 
 Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md) · the ambient orientation layer on every agent host (session-start hooks, rules files, tiering): [docs/HOST-INTEGRATION-MATRIX.md](docs/HOST-INTEGRATION-MATRIX.md).
 
@@ -459,7 +459,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.2.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.4.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />
