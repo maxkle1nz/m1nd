@@ -953,8 +953,9 @@ fn serve_and_compose(
             .get("arguments")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
-        // Mirror handle_mcp_method's per-call agent tracking (the read-only recall
-        // tools do not autotick the daemon, so nothing else here diverges).
+        // Per-call agent tracking, mirrored across seams. The freshness-by-traffic
+        // daemon tick now lives INSIDE dispatch_tool, so this seam gets it for free
+        // via the dispatch_tool call below — only track_agent stays per-seam.
         if let Some(aid) = args.get("agent_id").and_then(|v| v.as_str()) {
             state.track_agent(aid);
         }

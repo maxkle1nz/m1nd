@@ -853,7 +853,7 @@ fn finalize_ingest(
         }
     }
     let input_path = std::path::Path::new(&input.path);
-    state.workspace_root = Some(if input_path.is_dir() {
+    let candidate_workspace_root = if input_path.is_dir() {
         input.path.clone()
     } else {
         input_path
@@ -861,7 +861,27 @@ fn finalize_ingest(
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_string_lossy()
             .to_string()
-    });
+    };
+    // #326 family (3rd member — the memorize / agent-memory merge path): a
+    // `memorize` writes `<runtime>/agent-memory/<slug>.light.md` and then ingests
+    // it here (adapter=light, mode=merge). The candidate workspace_root above then
+    // resolves to the `agent-memory` STORE dir — and blindly assigning it DEMOTES a
+    // real code `workspace_root` onto the memory sidecar, exactly the store-dir /
+    // code-root confusion #326 named and the #355 `auto_ingest` guard already
+    // fenced off. Mirror that guard: a memory-store ingest NEVER rebases a code (or
+    // manifest-bound) workspace_root onto the sidecar. A store with no code root
+    // yet (a fresh pure-memory / medulla bootstrap) still adopts the candidate, so
+    // nothing regresses.
+    let demotes_to_store = crate::session::is_memory_sidecar(&candidate_workspace_root);
+    let holds_code_root = state
+        .workspace_root
+        .as_deref()
+        .map(|ws| !crate::session::is_memory_sidecar(ws))
+        .unwrap_or(false);
+    let manifest_bound = state.workspace_root_source.as_deref() == Some("project_brain_manifest");
+    if !(demotes_to_store && (holds_code_root || manifest_bound)) {
+        state.workspace_root = Some(candidate_workspace_root);
+    }
 
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);

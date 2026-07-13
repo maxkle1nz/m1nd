@@ -115,6 +115,13 @@ bound brain because the writer never checked which brain it was talking to.
    exactly why. It holds on BOTH doors — the MCP wire and REST `POST /api/tools/ingest` route
    through one guarded core. A burst worktree does NOT get its own brain; bind to the main
    repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
+3. **Memory writes never move your code root.** `memorize` (and any agent-memory ingest
+   merge) can no longer demote a brain's `workspace_root` onto its own memory-store dir —
+   the write path guards it (the #326 family, third member), and a brain found already
+   flipped self-heals at the boot/load seam with an honest log line
+   (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
+   `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
+   disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
 
 Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
 a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no

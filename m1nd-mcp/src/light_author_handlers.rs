@@ -1135,6 +1135,95 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Test 2b (#326 family, 3rd member): the memorize / agent-memory merge must
+    // NEVER demote a real code `workspace_root` onto the memory store dir. RED
+    // before the `handle_ingest` guard: memorize writes
+    // `<runtime>/agent-memory/<slug>.light.md`, ingests it, and the ingest wrote
+    // `workspace_root = <runtime>/agent-memory`, flipping the brain's code root
+    // onto its own memory sidecar (the field-reported production flip).
+    // -----------------------------------------------------------------------
+    #[test]
+    fn memorize_never_demotes_workspace_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+        std::fs::write(proj.join("auth.rs"), "pub fn f() -> bool { true }\n").expect("write");
+
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // Bind the brain to its real code root via a code ingest.
+        let code_ingest = IngestInput {
+            path: proj.to_string_lossy().to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "code".into(),
+            mode: "replace".into(),
+            namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+            project_root: None,
+        };
+        crate::tools::handle_ingest(&mut state, code_ingest).expect("code ingest");
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(proj.to_string_lossy().as_ref()),
+            "precondition: the code ingest binds workspace_root to the code root"
+        );
+
+        // memorize: writes an agent-memory sidecar and ingests it (the flip path).
+        let input = LightAuthorInput {
+            agent_id: "test".into(),
+            node_label: "Notes".into(),
+            title: None,
+            state: None,
+            claims: vec![LightClaim {
+                label: "Fact".into(),
+                text: Some("A durable fact.".into()),
+                kind: Some("entity".into()),
+                confidence: Some("0.9".into()),
+                ambiguity: None,
+                evidence: vec![],
+                depends_on: vec![],
+            }],
+            output_path: None,
+            namespace: None,
+            ingest_after: true,
+            mode: "merge".into(),
+            supersedes: None,
+            origin_brain: None,
+            origin_claim: None,
+            promoted_by: None,
+            promotion_reason: None,
+            promoted_to: None,
+            evidence_unverifiable: false,
+            soul_source: None,
+        };
+        handle_light_author(&mut state, input).expect("memorize ok");
+
+        // The core assertion: workspace_root still points at the code root, NOT the
+        // agent-memory store dir it was demoted to before the fix.
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(proj.to_string_lossy().as_ref()),
+            "memorize must not demote the code workspace_root onto the memory store dir"
+        );
+        assert!(
+            !crate::session::is_memory_sidecar(state.workspace_root.as_deref().unwrap()),
+            "workspace_root must never be a memory sidecar after memorize"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Test 3: provenance frontmatter (Created + Source-Agent) is stamped
     // -----------------------------------------------------------------------
     #[test]

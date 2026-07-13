@@ -4643,6 +4643,33 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
         })
         .to_string();
 
+    // FRESHNESS-BY-TRAFFIC (gardener v1, G1). The daemon's re-ingest tick used to
+    // live ONLY in handle_mcp_method (the MCP-wire seam), leaving the REST, stdio
+    // side-loop, and mcp_http seams deaf to it — a file changed under a served
+    // owner stayed stale until an MCP-wire call happened by. It now rides
+    // dispatch_tool, the ONE path every seam funnels through, mirroring the
+    // auto-ingest vigil just below. The full condition is checked INLINE (not
+    // delegated to run_daemon_tick's own tick_in_flight guard) so a dispatch nested
+    // INSIDE a running tick — the project-brain bootstrap ingest (project_brains.rs),
+    // an auto-ingest flow — never enters run_daemon_tick and never inflates
+    // pending_rerun. Heavy re-ingest/scan entry tools are skipped
+    // (daemon_autotick_entry_too_heavy): their own work supersedes the tick, and
+    // stacking a tick ahead of them risks holding the brain lock past the REST 30s
+    // timeout. Fail-open: a background vigil never breaks the agent's tool call.
+    if state.daemon_state.active
+        && !state.daemon_state.tick_in_flight
+        && should_autotick_daemon(&normalized)
+        && !daemon_autotick_entry_too_heavy(&normalized)
+        && state.daemon_state.last_tick_ms.is_some_and(|last| {
+            now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms
+        })
+    {
+        vigil_fail_open("daemon tick", &normalized, || {
+            run_daemon_tick(state, "traffic");
+            Ok(())
+        });
+    }
+
     if !matches!(
         normalized.as_str(),
         "recovery_playbook"
@@ -5549,17 +5576,13 @@ pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> 
                 .cloned()
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
-            // Track agent session from arguments
+            // Track agent session from arguments. The freshness-by-traffic daemon
+            // tick used to fire HERE (MCP-wire only); it now rides dispatch_tool so
+            // ALL seams get it (REST, stdio side-loop, mcp_http). track_agent stays
+            // per-seam — moving it into dispatch_tool would double-count query
+            // traffic on the seams that already call it.
             if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
                 state.track_agent(agent_id);
-                if state.daemon_state.active
-                    && should_autotick_daemon(tool_name)
-                    && state.daemon_state.last_tick_ms.is_some_and(|last| {
-                        now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms
-                    })
-                {
-                    run_daemon_tick(state, "traffic");
-                }
             }
 
             // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
@@ -5623,6 +5646,23 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "mission_verify"
             | "mission_handoff"
             | "mission_close"
+    )
+}
+
+/// Heavy entry tools whose OWN work already re-ingests or re-scans the graph — a
+/// freshness-by-traffic tick fired just AHEAD of them is redundant, and stacking
+/// the tick's wall-clock (measured ~3.7s for 8 changed files on the 901-file m1nd
+/// brain, growing toward the 32-file tick budget) on top of theirs risks holding
+/// the brain lock past the REST 30s timeout — `spawn_blocking` is NOT cancelled
+/// when `tokio::time::timeout` fires (http_server.rs), so a tool that overruns the
+/// window keeps the lock and wedges the brain for every waiting request. Kept
+/// SEPARATE from `should_autotick_daemon` (whose skip-list is pinned by regression
+/// test to the daemon-control verbs): these tools are eligible to autotick in
+/// principle; the tick is deliberately skipped here as a cost/redundancy guard.
+fn daemon_autotick_entry_too_heavy(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "ingest" | "scan" | "scan_all" | "skeleton_candidate"
     )
 }
 
@@ -6601,6 +6641,124 @@ mod tests {
             Some("traffic"),
             "the resumed tick is the traffic tick (freshness-by-traffic, v1)"
         );
+    }
+
+    // === Gardener v1 / G1: FRESHNESS-BY-TRAFFIC ON EVERY SEAM ===
+    // The REST, stdio side-loop, and mcp_http seams call `dispatch_tool` DIRECTLY,
+    // never `handle_mcp_method`. The traffic autotick used to live only in
+    // `handle_mcp_method`, so those three seams were deaf to it — a file changed
+    // under a served owner stayed stale until an MCP-wire call happened by. The
+    // tick now rides `dispatch_tool`, the one path every seam funnels through.
+
+    /// Arms a daemon over a one-file repo and returns the session (its own runtime
+    /// dir under `temp`). The `TempDir` is returned so the caller keeps it alive.
+    fn build_state_with_armed_daemon() -> (tempfile::TempDir, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join("core.py"), "def core():\n    return 1\n").expect("seed file");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+        (temp, state)
+    }
+
+    /// RED-first at the exact core of the REST seam: a NON-skip verb dispatched
+    /// STRAIGHT through `dispatch_tool` (no `handle_mcp_method` in the path) must
+    /// run the freshness-by-traffic tick. Before the tick moved into
+    /// `dispatch_tool`, a direct dispatch left the daemon deaf and `tick_count`
+    /// unchanged — that is the three-deaf-seams bug this pins.
+    #[test]
+    fn dispatch_tool_ticks_the_daemon_on_traffic() {
+        let (_temp, mut state) = build_state_with_armed_daemon();
+        state.daemon_state.last_tick_ms = Some(0); // force the autotick due
+        let before = state.daemon_state.tick_count;
+        super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("health dispatch");
+        assert!(
+            state.daemon_state.tick_count > before,
+            "dispatch_tool must run the freshness-by-traffic tick (the REST seam core)"
+        );
+        assert_eq!(
+            state.daemon_state.last_tick_trigger.as_deref(),
+            Some("traffic"),
+            "the dispatch_tool tick is the traffic tick"
+        );
+    }
+
+    /// The skip-list holds at the `dispatch_tool` seam too: a daemon-control verb
+    /// (the REAL list — `should_autotick_daemon`) must NOT tick even with an armed,
+    /// due daemon, while a normal verb on the SAME daemon WOULD — proving the
+    /// no-tick is the skip-list, not a dead daemon.
+    #[test]
+    fn dispatch_tool_respects_the_autotick_skip_list() {
+        let (_temp, mut state) = build_state_with_armed_daemon();
+        state.daemon_state.last_tick_ms = Some(0);
+        let before = state.daemon_state.tick_count;
+        super::dispatch_tool(
+            &mut state,
+            "daemon_status",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("daemon_status dispatch");
+        assert_eq!(
+            state.daemon_state.tick_count, before,
+            "a skip-list verb must NOT autotick, even through dispatch_tool"
+        );
+
+        state.daemon_state.last_tick_ms = Some(0);
+        super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("health dispatch");
+        assert!(
+            state.daemon_state.tick_count > before,
+            "a normal verb on the same armed+due daemon must tick (skip-list is verb-specific)"
+        );
+    }
+
+    /// Heavy re-ingest/scan entry tools are skipped by the traffic autotick: their
+    /// own work supersedes the tick, and stacking the tick's wall-clock ahead of
+    /// theirs risks holding the brain lock past the REST 30s timeout. Pinned as a
+    /// predicate so the honest skip is explicit and cannot silently regress.
+    #[test]
+    fn heavy_entry_tools_skip_the_traffic_autotick() {
+        use super::daemon_autotick_entry_too_heavy;
+        for heavy in ["ingest", "scan", "scan_all", "skeleton_candidate"] {
+            assert!(
+                daemon_autotick_entry_too_heavy(heavy),
+                "{heavy} is a heavy re-ingest/scan entry tool and must skip the tick"
+            );
+        }
+        for light in ["health", "search", "seek", "why", "impact", "apply"] {
+            assert!(
+                !daemon_autotick_entry_too_heavy(light),
+                "{light} is a normal verb and must remain tick-eligible"
+            );
+        }
     }
 
     #[test]
