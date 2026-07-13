@@ -13,6 +13,13 @@ Skip the first pass only when the user gave exact file/line truth, when compiler
 or runtime output is the only source of truth, or when the task is a trivial
 local file action.
 
+The trust is calibrated, not blind — that is why it leads: a calibrated absence
+(`caller_root_mismatch`, `abstain`, `gathering`, `insufficient_evidence`) is the
+answer that stops the wrong edit, and m1nd narrows/connects while the compiler,
+tests, and runtime still decide truth. When a verb hangs or a fresh memory lags
+recall, work around and file one field-report line (never fix mid-mission, never
+conclude "broken").
+
 ## Startup: north First
 
 In a live MCP session the front door is one call: `north(task)`. It returns
