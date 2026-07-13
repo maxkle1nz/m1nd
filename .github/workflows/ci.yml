@@ -9,6 +9,15 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Cancel superseded runs so rapid fix-pushes to a PR don't each hold a full 3-OS
+# matrix. Keyed by ref: on a PR (github.ref = refs/pull/N/merge) a newer push
+# cancels the in-flight run; on the protected branch (refs/heads/main|master) we
+# keep every run so main's CI history stays complete. Biggest recurring saving,
+# zero coverage loss. Other PRs (different refs) are never touched.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
 jobs:
   check:
     name: Check
@@ -63,21 +72,11 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
 
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - if: runner.os != 'Windows'
-        run: cargo build --release --workspace
-      - if: runner.os == 'Windows'
-        run: cargo build --release -p m1nd-core -p m1nd-ingest -p m1nd-mcp
+  # The release-mode build (cargo build --release across 3 OSes) is intentionally
+  # NOT in the PR/push path: it was never a required check (required = Test, Clippy,
+  # Format), cargo check/test/clippy already compile the whole workspace on every
+  # PR, and release.yml builds + ships the release binaries per target on tag. The
+  # cross-OS macos/windows coverage that caught the port flake stays in `test`.
 
   # Fails a PR that changes agent-workflow surfaces (MCP instructions/schemas,
   # verb dispatch, skills/, the npm host installer) without also updating the

@@ -572,3 +572,133 @@ async fn hall_lists_dormant_project_brain_from_disk_after_restart() {
         "the opened brain has its graph after warm-boot"
     );
 }
+
+// ---------------------------------------------------------------------------
+// (7) Mission-control PERSISTENCE on the hosted ?brain= path — the invariant the
+//     field report (2026-07-13T03:20/03:30) doubted: "cartas de mission-control
+//     aceitas via REST ?brain=<root> NUNCA chegam a disco — vivem em memória de um
+//     runtime de instance hospedado e morrem no restart."
+//
+//     The claim does NOT reproduce, and this test is the standing PROOF (a
+//     regression guard, not a RED→GREEN fix): `handle_mission_start` calls
+//     `save_mission` BEFORE it returns the ack (mission_handlers.rs), and a hosted
+//     brain's `runtime_root` IS its durable store dir (project_brains.rs
+//     `boot_store`, `runtime_dir: Some(store)`). So a charter accepted on the
+//     hosted path is a real file at `<store>/mission-control/<msn>.json` the instant
+//     mission_start returns, and it warm-boots back after an owner restart.
+//
+//     Field corroboration this encodes: an unrelated hosted project brain (a
+//     different repo) had its own `msn_*` cards persisted normally under its
+//     `project-brains/<fp>/mission-control/` — exactly the path this test asserts.
+//     Were `save_mission` ever regressed to an in-memory-only record (the imagined
+//     bug), BOTH the ack-time `is_file()` and the post-restart reload would fail.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn charter_survives_owner_restart_on_the_hosted_path() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let (owner, _bound, project_repo) = owner_with_two_brains(tmp.path()).await;
+
+    // The hosted store's canonical mission-control dir — the ONE durable home a
+    // charter for this root must land in ("um root = um mission-control canônico").
+    let key = ProjectBrainRegistry::canonical_key(&project_repo.to_string_lossy());
+    let store_mc = owner
+        .app
+        .project_brains
+        .store_dir_for(&key)
+        .join("mission-control");
+
+    // 1. Open a charter on the HOSTED brain through the ?brain= seam (`resolve_brain`,
+    //    the ONE resolution `handle_tool_call` wraps), then dispatch mission_start on
+    //    that resolved session — the exact hosted path the field report names.
+    let (hosted, _echo) = resolve_brain(&owner.app, Some(&project_repo.to_string_lossy()))
+        .expect("the hosted brain resolves via ?brain=");
+    let mission_id = {
+        let mut s = hosted.lock();
+        let out = m1nd_mcp::server::dispatch_tool(
+            &mut s,
+            "mission_start",
+            &serde_json::json!({
+                "agent_id": "charter-hand",
+                "repo": project_repo.to_string_lossy(),
+                "task": "prove a hosted charter survives an owner restart",
+                "mode": "bug_hunt",
+                "budget": "normal",
+                "risk": "medium"
+            }),
+        )
+        .expect("mission_start on the hosted brain");
+        out["mission_id"]
+            .as_str()
+            .expect("mission_start returns a mission_id")
+            .to_string()
+    };
+
+    // ACK-TIME DURABILITY: the card is a real file the instant mission_start returned
+    // (save_mission runs BEFORE the ack) — never an in-memory-only record.
+    let card = store_mc.join(format!("{mission_id}.json"));
+    assert!(
+        card.is_file(),
+        "a charter accepted on the hosted ?brain= path must be on disk at its store's \
+         mission-control BEFORE the ack (looked at {card:?})"
+    );
+
+    // 2. A progress event — the lifecycle write path (mission_event → save_mission)
+    //    also persists, so the card on disk carries the event across the restart.
+    {
+        let mut s = hosted.lock();
+        m1nd_mcp::server::dispatch_tool(
+            &mut s,
+            "mission_event",
+            &serde_json::json!({
+                "agent_id": "charter-hand",
+                "mission_id": mission_id,
+                "event": "file_read",
+                "payload": {"path": "src/lib.rs"}
+            }),
+        )
+        .expect("mission_event on the hosted brain");
+    }
+
+    // 3. THE RESTART: drop the owner (every warm brain evicted from memory), then
+    //    boot a brand-new owner on the SAME runtime — the project brain is now
+    //    DORMANT on disk, faithful to a `launchctl kickstart` of the served owner.
+    drop(owner);
+    let owner2 = mk_owner(&runtime);
+
+    // 4. Re-open the hosted brain via ?brain= (warm-boot from its store) and RELOAD
+    //    the charter through the real seam: a mission_event on the SAME id must load
+    //    the card from disk. Had the charter "died in memory" (the field-report
+    //    hypothesis), `load_mission` would fail with "could not be loaded".
+    let (revived, _e2) = resolve_brain(&owner2.app, Some(&project_repo.to_string_lossy()))
+        .expect("the dormant hosted store warm-boots on the ?brain= selector");
+    let reload = {
+        let mut s = revived.lock();
+        m1nd_mcp::server::dispatch_tool(
+            &mut s,
+            "mission_event",
+            &serde_json::json!({
+                "agent_id": "charter-hand",
+                "mission_id": mission_id,
+                "event": "file_read",
+                "payload": {"path": "src/lib.rs (after restart)"}
+            }),
+        )
+    };
+    let reload = reload.expect(
+        "after an owner restart, the hosted charter must reload from disk — the seam must \
+         not report it lost",
+    );
+    assert_eq!(
+        reload["event_count"].as_u64(),
+        Some(2),
+        "the reloaded charter carries its pre-restart event (count 2 = pre + post): {reload}"
+    );
+
+    // 5. Still the SAME single canonical file — one root, one mission-control.
+    assert!(
+        card.is_file(),
+        "the charter file survived the restart on disk at its canonical mission-control: {card:?}"
+    );
+}
