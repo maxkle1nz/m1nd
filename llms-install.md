@@ -68,6 +68,43 @@ npx -y @maxkle1nz/m1nd install-skills <host> --project /abs/path   # the agent p
 npx -y @maxkle1nz/m1nd mcp-config <host> --project /abs/path        # the MCP server registration
 ```
 
+## 2a. Make the ambient north hook work — and verify it fired
+
+Registering the MCP server (above) lets your agent *call* `north`. The **ambient** layer is one
+more thing: a SessionStart-family hook that injects the `north` packet as `additionalContext`
+before your first turn, through the shipped `m1nd-north-shim` bin. Claude's `settings.json` is
+host-managed, so `m1nd hosts apply --host claude` **prints** the block — it does not write it.
+Paste it into `.claude/settings.json` (or `~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command",
+            "command": "m1nd-north-shim --repo \"$CLAUDE_PROJECT_DIR\" --query \"orient\"" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Verify it fired** — run the shim by hand and confirm it prints the envelope:
+
+```bash
+m1nd-north-shim --repo "$PWD" --query orient
+#  → {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[m1nd north] …"}}
+```
+
+An empty output with `exit 0` is the fail-open default (an absent or broken runtime never blocks
+the session), not an error. Otherwise open a fresh session and look for the injected `[m1nd
+north]` orientation — and when the packet carries a `human_view` card, its lines lead. Session-start
+hooks are **macOS/Linux-only** (§0); MCP itself works everywhere, and the `M1ND_INSTRUCTIONS`
+north-first line reinforces orientation on hosts that render it.
+
 ## 3. MCP server config (paste-in, per host)
 
 If your host takes a raw MCP-servers block rather than the installer, register the

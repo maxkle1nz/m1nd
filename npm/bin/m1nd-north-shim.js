@@ -44,13 +44,39 @@ function truncate(text, max) {
   return value.length > max ? `${value.slice(0, max - 3)}...` : value;
 }
 
+// The north card's human-facing voice: `human_view.lines`. It rides the north
+// packet (top level), and — when first-minute's orientation pass was north — it
+// is also nested under `results[0]`. Return up to 4 trimmed lines, or [].
+function humanViewLines(data) {
+  const candidates = [
+    data && data.human_view,
+    data && data.context && data.context.human_view,
+    data && Array.isArray(data.results) && data.results[0] && data.results[0].human_view,
+  ];
+  for (const hv of candidates) {
+    if (hv && Array.isArray(hv.lines)) {
+      const lines = hv.lines
+        .map((line) => String(line || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      if (lines.length > 0) return lines;
+    }
+  }
+  return [];
+}
+
 function renderNorthPacket(data) {
   if (!data || typeof data !== "object") return "";
-  const lines = [];
+
+  // v2: open with the human_view card (the human-facing voice) when the packet
+  // carries one, BEFORE the machine-legible summary line.
+  const head = humanViewLines(data);
+
+  const fields = [];
 
   const trust = (data.trust && data.trust.verdict) || (data.binding && data.binding.trust_mode) || "unknown";
   const usageMode = data.scope_alignment && data.scope_alignment.recommended_usage_mode;
-  lines.push(`trust=${trust}${usageMode ? ` usage=${usageMode}` : ""}`);
+  fields.push(`trust=${trust}${usageMode ? ` usage=${usageMode}` : ""}`);
 
   const anchorList = Array.isArray(data.anchors)
     ? data.anchors
@@ -61,14 +87,14 @@ function renderNorthPacket(data) {
     .map((entry) => (entry && (entry.path || entry.label)) || "")
     .filter(Boolean)
     .slice(0, 4);
-  if (anchors.length > 0) lines.push(`anchors: ${anchors.join(", ")}`);
+  if (anchors.length > 0) fields.push(`anchors: ${anchors.join(", ")}`);
 
   if (Array.isArray(data.memory)) {
     const memory = data.memory
       .slice(0, 3)
       .map((entry) => `${truncate(entry && entry.claim, 70)} [${(entry && entry.source_agent) || "?"}]`)
       .filter((entry) => entry.replace(/\[\?\]$/, "").trim());
-    if (memory.length > 0) lines.push(`memory: ${memory.join(" | ")}`);
+    if (memory.length > 0) fields.push(`memory: ${memory.join(" | ")}`);
   }
 
   const gapSource = Array.isArray(data.honest_gaps)
@@ -77,15 +103,15 @@ function renderNorthPacket(data) {
       ? data.proof_boundary.still_needs_direct_proof
       : [];
   const gaps = gapSource.map((entry) => truncate(entry, 80)).filter(Boolean).slice(0, 2);
-  if (gaps.length > 0) lines.push(`honest gaps: ${gaps.join("; ")}`);
+  if (gaps.length > 0) fields.push(`honest gaps: ${gaps.join("; ")}`);
 
   const nextMove = data.next_move || data.recommended_next_command;
-  if (nextMove) lines.push(`next: ${truncate(nextMove, 100)}`);
+  if (nextMove) fields.push(`suggested first move: ${truncate(nextMove, 100)}`);
 
-  if (lines.length === 0) return "";
-  const packet = lines.join("\n");
-  const prefixed = `[m1nd north] ${packet}`;
-  return prefixed.length > 1200 ? prefixed.slice(0, 1200) : prefixed;
+  const summary = fields.length > 0 ? `[m1nd north] ${fields.join(" · ")}` : "";
+  const packet = [...head, summary].filter(Boolean).join("\n");
+  if (!packet.trim()) return "";
+  return packet.length > 1200 ? `${packet.slice(0, 1197)}...` : packet;
 }
 
 function main() {
