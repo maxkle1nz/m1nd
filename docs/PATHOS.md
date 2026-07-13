@@ -442,6 +442,21 @@ without ALSO updating agent-facing docs in the same PR (`skills/`, `docs/` incl.
 an instructions-only edit self-satisfies; the `agent-docs-exempt` label skips it for genuine
 no-behavioral-change refactors.
 
+**CI cost discipline (`.github/workflows/ci.yml`).** m1nd is the account's heaviest Actions
+consumer (a burst can fire ~19 PRs, each a 3-OS matrix, in two days), so the CI is tuned to spend
+only where it buys bug-catching. Two levers, both coverage-neutral: (1) a `concurrency` group keyed
+by ref with `cancel-in-progress` — a newer push to a PR cancels its own in-flight run (no more one
+full matrix per rapid fix-push), while the protected branch keeps every run (`cancel-in-progress`
+is false on `refs/heads/main|master`); other PRs, on different refs, are never touched. (2) The
+release-mode build (`cargo build --release` × 3 OSes) is OFF the PR/push path — it was never a
+required check, `cargo check`/`test`/`clippy` already compile the whole workspace on every PR, and
+`release.yml` builds + ships the release binaries per target on tag. **Deliberately PRESERVED:** the
+cross-OS `test` matrix (ubuntu/macos/windows, `fail-fast: false`) — it is what caught the macOS
+port flake; blinding it trades a dollar bill for a bug you ship. **Deliberately NOT done:**
+workflow-level `paths`/`paths-ignore` filters — the required checks are exactly `Test`, `Clippy`,
+`Format`, and a path-skipped required check never reports, trapping a docs-only PR forever; the safe
+levers above capture the waste without that risk.
+
 ## Access Map
 - Battery harness: `scratchpad/m1nd_battery.py` — **TRACKED in-repo** (protected by the `.gitignore`
   negation `!scratchpad/m1nd_battery.py`, so it survives scratchpad clears). Fresh ingest +
