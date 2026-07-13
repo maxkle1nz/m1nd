@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { InstanceRegistryEntry, InstanceListResponse, InstanceSelfResponse } from '../../types';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { usePresences } from '../../hooks/usePresences';
 import { useToastStore } from '../../stores/toastStore';
 import {
   entryBaseUrl,
@@ -30,6 +31,7 @@ import { Icon } from '../../lib/icons/registry';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
 import MailboxView from './MailboxView';
+import PresenceStrip from './PresenceStrip';
 
 interface HallViewProps {
   /** ESC at the Hall (rung −1) ascends out of it — the parent owns where to. */
@@ -74,6 +76,9 @@ export default function HallView({
   const [mailboxFor, setMailboxFor] = useState<{ root: string; name: string | null } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const addToast = useToastStore((s) => s.addToast);
+  // The presence strip (P1) — the OWNER-WIDE roster (no brain = the control-room
+  // scope). Its own ~5s nerve + the shared live-refresh; fails open to empty.
+  const presence = usePresences(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -242,6 +247,13 @@ export default function HallView({
             </button>
           </div>
         </div>
+
+        {/* Presence strip (P1) — the team, at one glance, above the brains grid. */}
+        <PresenceStrip
+          presences={presence.presences}
+          collisions={presence.collisions}
+          error={presence.error}
+        />
 
         {/* Grid */}
         <div
