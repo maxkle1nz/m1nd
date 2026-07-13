@@ -177,6 +177,100 @@ export interface AgentSession {
   query_count: number;
 }
 
+// ---- Presences (ORGANISM-INSIDE-PRD P1 · askGOD-verdict-P1 · P1-UI-CONTRACT) ----
+
+/**
+ * One agent's presence — activity that is VISIBLE TO m1nd. Projected from the
+ * throttled beat inside `track_agent` (verdict binding change 1), stored in the
+ * presence sidecar, and TTL-filtered at read: an entry present in the roster is
+ * alive-within-TTL. Expired presences are ABSENT (GC'd at read/boot) — the strip
+ * never renders a ghost (metric: "Ghost presences → TTL expiry proven"). The AGE
+ * is always rendered from `last_seen_ms`; there is no binary "online" (verdict 1b).
+ *
+ * THE HONEST LIMITATION, written on the surface (verdict risk "the inverse TTL
+ * lie"): presence is activity m1nd SAW. A busy executor mid-compile that has not
+ * called in stays invisible until its next verb. The strip renders that caveat.
+ */
+export interface PresenceEntry {
+  /** The agent's own id — its `agent_id` on every m1nd call / its charter. */
+  agent_id: string;
+  /** The brain/root this agent is bound to — the served brain root (the WHERE). */
+  root: string;
+  /**
+   * The agent's resolved caller_root / worktree when it differs from `root` (a
+   * burst executor in an isolated worktree). The MEASURABLE collision signal
+   * (verdict binding change 2): two hands in ONE caller_root is the 2026-07-06
+   * incident shape. Absent/null when the caller_root equals the brain root.
+   */
+  caller_root?: string | null;
+  /** First time m1nd saw this agent (ms epoch). */
+  first_seen_ms: number;
+  /** Last time m1nd saw this agent (ms epoch) — the AGE source, always rendered. */
+  last_seen_ms: number;
+  /** How many verbs m1nd has seen from this agent in this presence. */
+  query_count: number;
+  /**
+   * The mutation signal in the verdict's TWO honest levels (binding change 1c):
+   *  - `observed_at_ms` — the agent dispatched a verb classified mutating
+   *    (server.rs `read_only_denied`), timestamped. The strong signal.
+   *  - `declared_intent` — a handshake-declared intent, rendered as DECLARED
+   *    cloth (weaker: a claim, not an observation).
+   * Both absent → a quiet read-only presence (no dot). m1nd does not see git;
+   * nothing beyond these two levels is claimable.
+   */
+  mutation: PresenceMutation;
+  /**
+   * The task line measured from the agent's OWN `mission_start` charter (never a
+   * free declaration) — the "on what". Absent when the agent opened no letter.
+   */
+  task_ref?: string | null;
+}
+
+export interface PresenceMutation {
+  observed_at_ms?: number | null;
+  declared_intent?: string | null;
+}
+
+/** Which arm of the collision predicate fired — the honest reason on the surface. */
+export type PresenceCollisionReason = 'same_worktree' | 'declared_overlap';
+
+/**
+ * A collision DERIVED AT READ (verdict binding changes 1d + 2), never
+ * materialized. The predicate: same brain AND (same caller_root/worktree OR
+ * declared working-set overlap) AND BOTH agents carry a mutation signal.
+ * Same-brain-alone NEVER warns — N executors in ISOLATED worktrees on one brain
+ * is the normal burst shape (AGENTS.md), not a collision. The measurable arm is
+ * `caller_root` equality (two hands in one worktree = the real 2026-07-06
+ * incident); the `declared_overlap` arm is server-derived from declared working
+ * sets the UI does not invent.
+ */
+export interface PresenceCollision {
+  /** The shared brain root. */
+  brain_root: string;
+  /** The shared caller_root/worktree when THAT is the trigger (the strong arm). */
+  caller_root?: string | null;
+  /** The colliding agents (≥2 distinct ids). */
+  agent_ids: string[];
+  /** WHICH arm of the predicate fired. */
+  reason: PresenceCollisionReason;
+}
+
+/**
+ * `GET /api/presences?brain=<root>` (P1-UI-CONTRACT). Absent `brain` = the
+ * OWNER-WIDE roster (every agent visible to this owner across its brains — the
+ * Hall's control-room scope, LABELED per the verdict's scope note); a `brain`
+ * scopes it to that brain. The roster is TTL-filtered at read (no ghosts).
+ * `collisions` is server-derived at read (authoritative); when the field is
+ * ABSENT (a pre-P1 owner) the client degrades to `deriveCollisions` over the
+ * roster — the honest-degradation pattern (like `served_brain`). `served_brain`
+ * echoes which brain answered (§4A.9.4).
+ */
+export interface PresenceResponse {
+  presences: PresenceEntry[];
+  collisions?: PresenceCollision[];
+  served_brain?: ServedBrain;
+}
+
 // ---- Tool call ----
 
 export interface ToolCallResult {

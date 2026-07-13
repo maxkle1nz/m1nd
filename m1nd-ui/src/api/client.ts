@@ -2,6 +2,7 @@ import type {
   HealthResponse,
   InstanceListResponse,
   InstanceSelfResponse,
+  PresenceResponse,
   SubgraphResponse,
   ToolCallResult,
   ToolsResponse,
@@ -94,6 +95,17 @@ function withBrain(path: string, brain?: string | null): string {
 
 export const api = {
   health: () => apiFetch<HealthResponse>('/api/health'),
+
+  /**
+   * The Hall presence strip's read (ORGANISM-INSIDE-PRD P1; P1-UI-CONTRACT). A
+   * pure GET — safe under a read-only attach. Absent `brain` = the OWNER-WIDE
+   * roster (the Hall's control-room scope); a `brain` scopes it to that brain.
+   * The roster is TTL-filtered at read (no ghosts) and collisions are derived at
+   * read. A pre-P1 owner has no route (404) → the caller degrades to the honest
+   * empty roster rather than an error wall (`usePresences`, vigil-fail-open).
+   */
+  presences: (brain?: string | null) => apiFetch<PresenceResponse>(withBrain('/api/presences', brain)),
+
   instanceSelf: () => apiFetch<InstanceSelfResponse>('/api/instance/self'),
   instances: () => apiFetch<InstanceListResponse>('/api/instances'),
   saveSelfInstanceState: () =>
