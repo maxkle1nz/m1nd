@@ -87,12 +87,26 @@ north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" }
 
 Ready to wire it for real (skills + MCP config, every host)? → [Quick Start](#quick-start). Self-installing from an agent? → [`llms-install.md`](llms-install.md).
 
+## Proven today vs designed
+
+m1nd ships with receipts. Every row below is backed by a reproducible artifact in this repo. Everything else you will find under `docs/` marked PRD or vision is design work — read it as intent, not capability.
+
+| Works today | Receipt |
+|---|---|
+| Orientation packet (`north`) with honest refusal states — `abstain`, `caller_root_mismatch`, `insufficient_evidence` are answers, not errors | `cargo test -p m1nd-mcp` (1000+ tests) · the [60-second start](#60-second-start) |
+| Recall over claim *bodies*, not just labels | retrieval battery `m1nd-mcp/tests/retrieval_battery.rs` — cases C1–C6, one honestly `#[ignore]`d (paraphrase distance is future work) |
+| Capability battery vs grep: 16 wins / 12 ties / 0 grep wins | `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd` — hedge: one repo, self-authored cases |
+| One served graph, many agents: what one agent `memorize`s, another `seek`s | `m1nd-mcp --serve` + `--attach` ([One graph, many agents](#one-graph-many-agents)) |
+| 27-tool default surface; the full 100+ set is opt-in | `M1ND_TOOL_TIER=full` — 27 advertised by default, 100+ when set |
+
+Built by one person and their agents, in the open. If the narrative ever outruns the artifact, that is a bug — file it.
+
 ## What m1nd is: the shell around your agent
 
 *m1nd wraps your coding agent in a loop that briefs it before it acts, keeps it honest while it works, and remembers what it learned when it's done.*
 
 - **If you build with agents** — nothing new to learn: install once, keep talking to your agent. It stops guessing, starts remembering, and says "I don't know" when that is the truth.
-- **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), conformally calibrated verdicts, and memory anchored to code nodes with provenance. Nothing leaves your machine.
+- **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), evidence-gated verdicts with honest refusal states (a conformal `predict` gate ships and, by design, mostly abstains today — a formal calibration study over those refusals is future work; see [Evidence](#evidence)), and memory anchored to code nodes with provenance. Nothing leaves your machine.
 - **If you run a team of agents** — one served owner hosts a brain per repo (two-tier routing with honest reception), and every repo gets a HUMAN-RATIFIED block map: the scan proposes it, a naming runner names it at birth, agents may curate it through one OCC-guarded verb — and only a human ever signs it. The map then guards missions: a letter naming a block the skeleton doesn't hold is refused, and a brain wearing a foreign skeleton says so out loud.
 
 Agents on real codebases do not fail because they cannot search — they fail because they have no operating model. Each session rebuilds context from scratch, edits without knowing the blast radius, and cannot tell an empty result that means "nothing exists" from one that means "wrong repo". m1nd gives the agent a durable model of the codebase — a causal graph with spreading activation and Hebbian plasticity — and wraps the agent's whole loop around it. Features are not a catalog here; they are the stations of that shell:
