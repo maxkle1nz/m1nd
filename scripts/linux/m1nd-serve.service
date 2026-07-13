@@ -1,0 +1,27 @@
+# m1nd served owner — Linux systemd user unit.
+#
+# The Linux equivalent of scripts/macos/world.m1nd.mcp-server.plist: run one
+# persistent owner that keeps the code graph resident, and point every IDE/agent
+# at it via `m1nd-mcp --attach auto --stdio` (see docs/deployment.md §2).
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/linux/m1nd-serve.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now m1nd-serve.service
+#
+# %h expands to the invoking user's home directory. Adjust the binary path if the
+# runtime is not at ~/.m1nd/bin/m1nd-mcp (e.g. a cargo-installed ~/.cargo/bin).
+
+[Unit]
+Description=m1nd served owner (persistent code graph over HTTP)
+After=network.target
+
+[Service]
+ExecStart=%h/.m1nd/bin/m1nd-mcp --serve --no-gui --port 1337
+Environment=M1ND_RUNTIME_DIR=%h/.m1nd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

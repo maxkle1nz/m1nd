@@ -156,7 +156,8 @@ m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
 `--attach auto` auto-discovers the live owner for this runtime by its lease — no hardcoded
 port (the default is 1337, but an existing owner may serve elsewhere, e.g. 1338). Pass an
 explicit `http://127.0.0.1:<port>` to pin it, or `M1ND_ATTACH_URL` to override both. See
-README → *One graph, many agents*.
+README → *One graph, many agents*, and [`docs/deployment.md`](docs/deployment.md) for the
+always-on launchd/systemd owner.
 
 ## 4. Environment variables
 
