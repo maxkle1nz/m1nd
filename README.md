@@ -51,7 +51,7 @@
   <img src="docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
 </p>
 
-<p align="center"><em>One real session — captured from a live owner (<code>m1nd-mcp 1.3.0</code>, a 6,453-node graph over this repo): <code>north</code> briefs the agent with trust + honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
+<p align="center"><em>One real session — captured from a live owner (<code>m1nd-mcp 1.4.0</code>, a 6,453-node graph over this repo): <code>north</code> briefs the agent with trust + honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
 
 <p align="center"><img src="docs/assets/visuals/01-code-to-graph.png" width="520" alt="A stack of loose files becomes a connected graph of what links to what" /></p>
 
@@ -59,34 +59,54 @@
 
 ## 60-second start
 
-Three commands. The first proves the runtime is visible, the second prints your host's exact wiring, and the third is your agent's — you never call it by hand again.
+Install the native runtime, confirm it is visible, print your host's exact wiring — then your agent takes over and you never run these by hand again. The npm package is the JS CLI + agent doctrine; the runtime is a separate prebuilt binary, so step 1 fetches it.
 
 ```bash
-# 1 · check the runtime is installed and visible (no build, no config)
+# 1 · install the native runtime (prebuilt binary from GitHub Releases — no build, no config)
+npx -y @maxkle1nz/m1nd update apply --yes
+#    → or build from source instead: cargo install m1nd-mcp
+```
+
+```bash
+# 2 · confirm the runtime is visible
 npx -y @maxkle1nz/m1nd doctor
 #    → prints a JSON verdict: runtime found + version, or the exact fix if not
 ```
 
 ```bash
-# 2 · print the wiring for your host (claude · codex · gemini · cursor · cline · …)
+# 3 · print the wiring for your host (claude · codex · gemini · cursor · cline · …)
 npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
 #    → dry-run: the MCP config JSON + session-start hook to paste — writes nothing
 ```
 
 ```jsonc
-// 3 · from now on your AGENT drives — its first move each session is one call:
+// from now on your AGENT drives — its first move each session is one call:
 north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
 //    → one packet: binding trust · focus nodes + anchors · prior memory · honest_gaps
 ```
 
 Ready to wire it for real (skills + MCP config, every host)? → [Quick Start](#quick-start). Self-installing from an agent? → [`llms-install.md`](llms-install.md).
 
+## Proven today vs designed
+
+m1nd ships with receipts. Every row below is backed by a reproducible artifact in this repo. Everything else you will find under `docs/` marked PRD or vision is design work — read it as intent, not capability.
+
+| Works today | Receipt |
+|---|---|
+| Orientation packet (`north`) with honest refusal states — `abstain`, `caller_root_mismatch`, `insufficient_evidence` are answers, not errors | `cargo test -p m1nd-mcp` (1000+ tests) · the [60-second start](#60-second-start) |
+| Recall over claim *bodies*, not just labels | retrieval battery `m1nd-mcp/tests/retrieval_battery.rs` — cases C1–C6, one honestly `#[ignore]`d (paraphrase distance is future work) |
+| Capability battery vs grep: 16 wins / 12 ties / 0 grep wins | `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd` — hedge: one repo, self-authored cases |
+| One served graph, many agents: what one agent `memorize`s, another `seek`s | `m1nd-mcp --serve` + `--attach` ([One graph, many agents](#one-graph-many-agents)) |
+| 27-tool default surface; the full 100+ set is opt-in | `M1ND_TOOL_TIER=full` — 27 advertised by default, 100+ when set |
+
+Built by one person and their agents, in the open. If the narrative ever outruns the artifact, that is a bug — file it.
+
 ## What m1nd is: the shell around your agent
 
 *m1nd wraps your coding agent in a loop that briefs it before it acts, keeps it honest while it works, and remembers what it learned when it's done.*
 
 - **If you build with agents** — nothing new to learn: install once, keep talking to your agent. It stops guessing, starts remembering, and says "I don't know" when that is the truth.
-- **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), conformally calibrated verdicts, and memory anchored to code nodes with provenance. Nothing leaves your machine.
+- **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), evidence-gated verdicts with honest refusal states (a conformal `predict` gate ships and, by design, mostly abstains today — a formal calibration study over those refusals is future work; see [Evidence](#evidence)), and memory anchored to code nodes with provenance. Nothing leaves your machine.
 - **If you run a team of agents** — one served owner hosts a brain per repo (two-tier routing with honest reception), and every repo gets a HUMAN-RATIFIED block map: the scan proposes it, a naming runner names it at birth, agents may curate it through one OCC-guarded verb — and only a human ever signs it. The map then guards missions: a letter naming a block the skeleton doesn't hold is refused, and a brain wearing a foreign skeleton says so out loud.
 
 Agents on real codebases do not fail because they cannot search — they fail because they have no operating model. Each session rebuilds context from scratch, edits without knowing the blast radius, and cannot tell an empty result that means "nothing exists" from one that means "wrong repo". m1nd gives the agent a durable model of the codebase — a causal graph with spreading activation and Hebbian plasticity — and wraps the agent's whole loop around it. Features are not a catalog here; they are the stations of that shell:
@@ -263,19 +283,22 @@ This loop has been proven live end-to-end: `memorize` → `grounded_in` edge →
 
 <p align="center"><img src="docs/assets/visuals/10-attach-core.png" width="520" alt="One owner process holds the live graph; many agents attach to the same core" /></p>
 
-Quick Start below wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
+**The recommended deployment is one served owner with many attached agents** — not a stdio server per host. Direct stdio (what the per-host [Quick Start](#quick-start) wires) is the explicit single-agent fallback: fine for one agent, but each process loads its own graph, holds its own lease, serves no UI, and compounds nothing across hosts. For real work, run one owner that holds the live graph:
 
 ```bash
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
 ```
 
+Drop `--no-gui` and add `--open` to open the served web UI (the Living Tree, Hall, and Threshold) in a browser. The default port is **1337**; an existing install may already serve on another port (a launchd/systemd owner often uses 1338), so prefer `--attach auto` below over hardcoding one.
+
 Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
 
 ```bash
-m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+m1nd-mcp --attach auto --stdio                     # auto-discovers the live owner by its lease
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or pin the URL; M1ND_ATTACH_URL overrides both
 ```
 
-Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
+Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. The write/execution lane — missions, runners, receipts — is an optional second daemon, `m1nd-runnerd` (port 1339); attached agents get the read/graph surface with or without it. To run the owner as an always-on service that starts on boot (launchd on macOS, systemd on Linux), see [docs/deployment.md](docs/deployment.md). Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 
 The owner is not single-repo anymore: a session rooted in a repo the owner's graph does not cover gets an honest `reception` block instead of wrong answers, and ONE call — `ingest` with `project_root=<your repo>` — creates a per-project brain inside the same owner (own graph, own persistence), binds the session to it, and returns its `north` packet; from then on every call from that repo routes to its own brain automatically, while the owner's original graph stays untouched.
 
@@ -337,8 +360,9 @@ The proof of the commitment is what was killed for it: `savings` and `resonate` 
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
-npm install -g .
-m1nd doctor
+npm install -g .            # installs the m1nd CLI (JavaScript) — not the native runtime
+m1nd update apply --yes     # fetches the native m1nd-mcp runtime (prebuilt binary; or: cargo install m1nd-mcp)
+m1nd doctor                 # confirms the runtime is now visible
 ```
 
 Then wire your host — the same two commands, one per host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
@@ -351,7 +375,7 @@ Then wire your host — the same two commands, one per host (`codex`, `claude`, 
 | Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
 | Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
-Or from npm: `npm install -g @maxkle1nz/m1nd`. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
+Or install the CLI from npm without cloning: `npm install -g @maxkle1nz/m1nd`, then `m1nd update apply --yes` for the native runtime. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
 
 Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn per-host **ambient recipes**: the SessionStart-family hook (`SessionStart` / `agentSpawn` / `TaskStart`, routed through the `m1nd-north-shim` command that injects the orientation packet as `additionalContext`) plus a per-host doctrine file, for the TIER-A and TIER-B hosts. `plan` is pure print; `apply --yes` merges owned hook JSON without clobbering existing hooks and prints the blocks for host-managed configs (Claude / Cline / Kiro) rather than writing them.
 
@@ -361,7 +385,7 @@ Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn p
 m1nd agent first-minute --repo /your/project --query "understand this system" --json
 ```
 
-Pin the binary if you need to: `--version` prints `1.2.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
+Pin the binary if you need to: `--version` prints `1.4.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
 
 Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md) · the ambient orientation layer on every agent host (session-start hooks, rules files, tiering): [docs/HOST-INTEGRATION-MATRIX.md](docs/HOST-INTEGRATION-MATRIX.md).
 
@@ -449,7 +473,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.2.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.4.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />

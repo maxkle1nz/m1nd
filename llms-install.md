@@ -68,15 +68,55 @@ npx -y @maxkle1nz/m1nd install-skills <host> --project /abs/path   # the agent p
 npx -y @maxkle1nz/m1nd mcp-config <host> --project /abs/path        # the MCP server registration
 ```
 
+## 2a. Make the ambient north hook work — and verify it fired
+
+Registering the MCP server (above) lets your agent *call* `north`. The **ambient** layer is one
+more thing: a SessionStart-family hook that injects the `north` packet as `additionalContext`
+before your first turn, through the shipped `m1nd-north-shim` bin. Claude's `settings.json` is
+host-managed, so `m1nd hosts apply --host claude` **prints** the block — it does not write it.
+Paste it into `.claude/settings.json` (or `~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command",
+            "command": "m1nd-north-shim --repo \"$CLAUDE_PROJECT_DIR\" --query \"orient\"" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Verify it fired** — run the shim by hand and confirm it prints the envelope:
+
+```bash
+m1nd-north-shim --repo "$PWD" --query orient
+#  → {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[m1nd north] …"}}
+```
+
+An empty output with `exit 0` is the fail-open default (an absent or broken runtime never blocks
+the session), not an error. Otherwise open a fresh session and look for the injected `[m1nd
+north]` orientation — and when the packet carries a `human_view` card, its lines lead. Session-start
+hooks are **macOS/Linux-only** (§0); MCP itself works everywhere, and the `M1ND_INSTRUCTIONS`
+north-first line reinforces orientation on hosts that render it.
+
 ## 3. MCP server config (paste-in, per host)
 
 If your host takes a raw MCP-servers block rather than the installer, register the
-runtime as a stdio server. **Canonical recipes live in
+runtime. **The recommended shape is one served owner with each host attached to it**
+(see *Shared owner, many agents* below) — that is the path that shares one graph, serves
+the UI, and compounds across hosts. **Direct stdio is the single-agent fallback**: no
+shared graph, no UI, no cross-host compounding. **Canonical recipes live in
 [`docs/HOST-INTEGRATION-MATRIX.md`](docs/HOST-INTEGRATION-MATRIX.md) §3** — the blocks
 below are the common shape; defer to the matrix for host-specific keys and gotchas.
 
-**Claude Code / Claude Agent SDK / Cursor / Windsurf / generic** (`.mcp.json`,
-`.cursor/mcp.json`, or the host's `mcpServers` map):
+**Single-agent fallback — direct stdio.** Claude Code / Claude Agent SDK / Cursor /
+Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` map):
 
 ```json
 {
@@ -105,16 +145,19 @@ M1ND_RUNTIME_DIR = "/abs/path/to/project/.m1nd"
 live graph, and point every host at it as a thin bridge (loads no graph, takes no lease):
 
 ```bash
-# once, per project — the owner:
+# once, per project — the owner (add --open, and drop --no-gui, to open the served web UI):
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
 ```
 
 ```json
-{ "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "http://127.0.0.1:1337", "--stdio"] } } }
+{ "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "auto", "--stdio"] } } }
 ```
 
-`--attach auto` auto-discovers the live owner for this runtime; `M1ND_ATTACH_URL`
-overrides both. See README → *One graph, many agents*.
+`--attach auto` auto-discovers the live owner for this runtime by its lease — no hardcoded
+port (the default is 1337, but an existing owner may serve elsewhere, e.g. 1338). Pass an
+explicit `http://127.0.0.1:<port>` to pin it, or `M1ND_ATTACH_URL` to override both. See
+README → *One graph, many agents*, and [`docs/deployment.md`](docs/deployment.md) for the
+always-on launchd/systemd owner.
 
 ## 4. Environment variables
 

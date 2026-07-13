@@ -147,13 +147,17 @@ host-neutral front for out-of-loop hooks; `north` remains the in-session front d
 > ```
 > The packet text is the human-readable rendering of `m1nd agent first-minute … --json`.
 > Wrap the shim in a two-line script that runs it, extracts the packet, and prints the
-> envelope. (This wrapper is exactly the `m1nd-north-shim` gap named in §6a — today you
-> write it by hand.)
+> envelope. This wrapper ships as the `m1nd-north-shim` bin (registered in `package.json`),
+> so every recipe below invokes `m1nd-north-shim` directly — you no longer write it by hand
+> (§6a, SHIPPED 2026-07-03).
 
-### 3.1 Claude Code — **A** (already deployed; reference implementation)
+### 3.1 Claude Code — **A** (shim shipped; you paste the hook)
 
-Claude Code already ships a working SessionStart hook in this repo — this recipe is the
-reference the others mirror. In `.claude/settings.json` (or `~/.claude/settings.json`):
+The `m1nd-north-shim` bin ships in this repo; the SessionStart hook itself does **not** — this
+repo's `.claude/settings.json` carries no hook, because Claude's settings file is host-managed,
+so m1nd **prints** the block rather than writing it. `m1nd hosts apply --host claude` wires the
+hosts it owns and prints the exact block below for you to paste into `.claude/settings.json` (or
+`~/.claude/settings.json`) and then verify it fired:
 
 ```json
 {
@@ -173,6 +177,10 @@ reference the others mirror. In `.claude/settings.json` (or `~/.claude/settings.
 
 - The shim prints the `additionalContext` envelope above; Claude Code injects it before
   turn 1. `[verified-hands-on]`
+- **Verify it fired:** run the shim by hand — `m1nd-north-shim --repo "$PWD" --query orient` —
+  and confirm it prints a `{"hookSpecificOutput":…}` line, or open a fresh session and look for
+  the injected `[m1nd north]` orientation. A silent `exit 0` with no output is the fail-open
+  default (an absent or broken runtime never blocks the session), not a hook failure.
 - **Belt-and-suspenders:** Claude Code current **also renders the MCP `instructions`
   field** (§5, live proof 2026-07-03) — so a north-first line in `M1ND_INSTRUCTIONS`
   reinforces the hook. Bonus, not dependency.
