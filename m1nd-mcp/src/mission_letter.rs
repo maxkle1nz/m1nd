@@ -77,7 +77,10 @@ pub enum Capability {
     ReviewRunner,
 }
 
-/// The seven-state phase enum (§1), verbatim.
+/// The phase enum (§1), verbatim. The seven MVP states + the F2.5e terminal
+/// `archived` (the superseded-receipt gesture) — eight total, all snake_case on the
+/// wire. `archived` is the ONLY addition since the frozen seven; the schema amendment
+/// (`HUMAN-VIEW-V2-F25-TECH` § archived) registers it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -88,6 +91,11 @@ pub enum Phase {
     MergeWait,
     Landed,
     Failed,
+    /// Terminal (F2.5e): a `merge_wait` receipt the human SET ASIDE as superseded by a
+    /// newer boundary. Extends a `merge_wait` head ONLY (the board's first transition
+    /// rule, [`validate_transition`]); carries NO imported receipt (never landed-in-
+    /// disguise, [`validate`]); posting it is a human-only gesture (the handler gate).
+    Archived,
 }
 
 impl Phase {
@@ -101,6 +109,7 @@ impl Phase {
             Phase::MergeWait => "merge_wait",
             Phase::Landed => "landed",
             Phase::Failed => "failed",
+            Phase::Archived => "archived",
         }
     }
 }
@@ -234,6 +243,14 @@ pub enum MissionLetterError {
     AbsolutePathInContract { field: String, value: String },
     /// Per-phase field gating failed (§1b): the wrong fields for the phase.
     InvalidPhase { phase: String, detail: String },
+    /// The board's FIRST transition rule (§1h, F2.5e): a phase may only follow a
+    /// permitted head. The single rule today is `archived` supersedes a `merge_wait`
+    /// head ONLY. Nothing is appended (the head pointer is guarded, like `stale_head`).
+    InvalidTransition {
+        from: Option<String>,
+        to: String,
+        detail: String,
+    },
     /// The §1d landed law: `landed` demands `receipt.imported == true` with a real
     /// `store_version` (a zero-exit gate without an imported receipt is
     /// `merge_wait`, never `landed`).
@@ -271,6 +288,11 @@ impl std::fmt::Display for MissionLetterError {
             MissionLetterError::InvalidPhase { phase, detail } => {
                 write!(f, "invalid_phase: `{phase}` {detail}")
             }
+            MissionLetterError::InvalidTransition { from, to, detail } => write!(
+                f,
+                "invalid_transition: cannot post `{to}` onto head `{}` — {detail}",
+                from.as_deref().unwrap_or("<none>")
+            ),
             MissionLetterError::LandedWithoutReceipt { detail } => write!(
                 f,
                 "landed_law: `landed` requires receipt.imported==true with a real store_version — {detail} (a zero-exit gate without an imported receipt is merge_wait, never landed)"
@@ -424,6 +446,19 @@ pub fn validate(letter: &MissionLetter) -> Result<()> {
                 })
             }
         },
+        // (§1h / binding change 3) An `archived` letter SETS ASIDE a superseded receipt —
+        // it must NEVER carry an imported receipt, or it would be a `landed` in disguise
+        // (the gate was green; the human chose NOT to land it). A receipt anchor with
+        // `imported == false` is harmless (nothing landed); an imported one is the lie
+        // this refuses. `archived` requires nothing else (its gate is inherited, optional).
+        Phase::Archived if letter.receipt.as_ref().is_some_and(|r| r.imported) => {
+            return Err(MissionLetterError::InvalidPhase {
+                phase: "archived".to_string(),
+                detail: "must not carry an imported receipt — an archived letter sets a \
+                         superseded receipt aside, it never lands one in disguise"
+                    .to_string(),
+            });
+        }
         _ => {}
     }
 
@@ -449,13 +484,17 @@ pub fn validate(letter: &MissionLetter) -> Result<()> {
 // The head CAS (§1e) — the letters of one mission form a hash chain.
 // ===========================================================================
 
-/// A reference to a mission chain's current head — just what the CAS needs.
+/// A reference to a mission chain's current head — what the CAS (§1e) and the
+/// transition rule (§1h) need.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadRef {
     /// The head letter's content id (`sha256[0..12]` of its mailbox line).
     pub letter_id: String,
     /// The head letter's `mission_seq`.
     pub mission_seq: u64,
+    /// The head letter's phase — the §1h transition rule reads it to gate `archived`
+    /// (which supersedes a `merge_wait` head only).
+    pub phase: Phase,
 }
 
 /// The §1e compare-and-swap: a candidate letter may only be appended if it
@@ -500,6 +539,31 @@ pub fn validate_against_head(letter: &MissionLetter, current_head: Option<&HeadR
             }
             Ok(())
         }
+    }
+}
+
+/// The board's FIRST transition rule (§1h, F2.5e) — deliberately narrow. Terminal
+/// `archived` may only SUPERSEDE a `merge_wait` head: it is the "set this superseded
+/// receipt aside" gesture and nothing else, so it refuses a fresh mission (no head yet),
+/// a `landed`/`failed` head, and any in-progress head — everything but `merge_wait`.
+/// Every OTHER phase is unconstrained: the board stayed transition-free until this one
+/// rule, on purpose (the sibling `executing`-ghost and pre-existing `failed`-hole
+/// problems are left undesigned here, never stretched into this arc). Pure; runs AFTER
+/// the head CAS in [`post_mission_letter`], so a stale head reports `stale_head` first.
+pub fn validate_transition(letter: &MissionLetter, current_head: Option<&HeadRef>) -> Result<()> {
+    if letter.phase != Phase::Archived {
+        return Ok(());
+    }
+    match current_head {
+        Some(head) if head.phase == Phase::MergeWait => Ok(()),
+        other => Err(MissionLetterError::InvalidTransition {
+            from: other.map(|h| h.phase.as_str().to_string()),
+            to: "archived".to_string(),
+            detail: "archived supersedes a merge_wait receipt only — the board's one \
+                     transition rule (a fresh, landed, failed, or in-progress head cannot \
+                     be archived)"
+                .to_string(),
+        }),
     }
 }
 
@@ -579,6 +643,7 @@ pub fn head_ref_for(letters: &[Letter], mission_id: &str) -> Option<HeadRef> {
     walk_head(&entries).map(|e| HeadRef {
         letter_id: e.letter_id.clone(),
         mission_seq: e.mission.mission_seq,
+        phase: e.mission.phase,
     })
 }
 
@@ -691,6 +756,11 @@ pub fn post_mission_letter(
     // The §1e head CAS against THIS mission's current head.
     let head = head_ref_for(&existing, &letter.mission_id);
     validate_against_head(letter, head.as_ref())?;
+
+    // The §1h transition rule (F2.5e) — checked here, where the head is already held for
+    // the CAS: `archived` supersedes a `merge_wait` head only. AFTER the CAS so a stale
+    // head is reported as `stale_head` first (the more fundamental refusal).
+    validate_transition(letter, head.as_ref())?;
 
     // Extend the log (append-only; dedup guards a concurrent identical write).
     let (appended_id, appended) =
@@ -988,6 +1058,7 @@ mod tests {
         let head = HeadRef {
             letter_id: "aaaaaaaaaaaa".to_string(),
             mission_seq: 1,
+            phase: Phase::Judging,
         };
         let mut l2 = base_letter(2, Phase::Executing);
         l2.prev_letter_id = Some("aaaaaaaaaaaa".to_string());
@@ -1125,5 +1196,171 @@ mod tests {
             box_path.exists(),
             "the letter landed in the box, not the store"
         );
+    }
+
+    // --- F2.5e: the archive gesture — the terminal `archived` phase ----------
+
+    #[test]
+    fn archived_letter_refuses_imported_receipt() {
+        // §1h / binding change 3: an `archived` letter SETS ASIDE a superseded receipt —
+        // it is never a `landed` in disguise. No receipt (or a non-imported anchor) is
+        // fine; an IMPORTED receipt is the lie this refuses.
+        let mut ok = base_letter(2, Phase::Archived);
+        ok.gate = Some(green_gate()); // an inherited gate is allowed
+        assert!(
+            validate(&ok).is_ok(),
+            "an archived letter with no receipt validates"
+        );
+
+        let mut anchor_only = base_letter(2, Phase::Archived);
+        anchor_only.receipt = Some(ReceiptAnchor {
+            imported: false,
+            store_version: 0,
+        });
+        assert!(
+            validate(&anchor_only).is_ok(),
+            "receipt.imported==false is not a landing"
+        );
+
+        let mut disguised = base_letter(2, Phase::Archived);
+        disguised.receipt = Some(ReceiptAnchor {
+            imported: true,
+            store_version: 7,
+        });
+        let err = validate(&disguised).expect_err("archived must not carry an imported receipt");
+        assert!(
+            matches!(err, MissionLetterError::InvalidPhase { ref phase, .. } if phase == "archived"),
+            "expected invalid_phase(archived), got {err}"
+        );
+        assert!(
+            err.to_string().contains("imported receipt"),
+            "the refusal is honest about why: {err}"
+        );
+    }
+
+    #[test]
+    fn archived_only_supersedes_a_merge_wait_head() {
+        // §1h: the board's FIRST transition rule — archived supersedes a merge_wait head
+        // ONLY. A fresh mission, a landed/failed head, and any in-progress head all refuse.
+        let archived = base_letter(2, Phase::Archived);
+
+        let mw_head = HeadRef {
+            letter_id: "aaaaaaaaaaaa".to_string(),
+            mission_seq: 1,
+            phase: Phase::MergeWait,
+        };
+        assert!(
+            validate_transition(&archived, Some(&mw_head)).is_ok(),
+            "archived supersedes a merge_wait head"
+        );
+
+        let err = validate_transition(&archived, None)
+            .expect_err("archived needs a merge_wait head to supersede");
+        assert!(matches!(err, MissionLetterError::InvalidTransition { .. }));
+        assert!(err.to_string().contains("invalid_transition"));
+
+        for phase in [
+            Phase::Landed,
+            Phase::Failed,
+            Phase::Executing,
+            Phase::Judging,
+            Phase::Archived,
+        ] {
+            let head = HeadRef {
+                letter_id: "bbbbbbbbbbbb".to_string(),
+                mission_seq: 1,
+                phase,
+            };
+            assert!(
+                matches!(
+                    validate_transition(&archived, Some(&head)),
+                    Err(MissionLetterError::InvalidTransition { .. })
+                ),
+                "archived must NOT extend a {phase:?} head"
+            );
+        }
+
+        // A NON-archived letter is unconstrained — archived is the board's only rule.
+        let in_progress = base_letter(2, Phase::Executing);
+        let landed_head = HeadRef {
+            letter_id: "cccccccccccc".to_string(),
+            mission_seq: 1,
+            phase: Phase::Landed,
+        };
+        assert!(
+            validate_transition(&in_progress, Some(&landed_head)).is_ok(),
+            "only archived is gated by the transition rule"
+        );
+    }
+
+    #[test]
+    fn archived_letter_cannot_color_the_store() {
+        // §1c extended: an `archived` letter — like every mission letter — NEVER touches
+        // the SystemBlockStore. Color only ever changes through `receipt_import`.
+        use crate::system_blocks::{import_seed_into_dir, SystemBlockStore};
+        let s = Scratch::new("nocolor-archived");
+        let dir = s.path("brain");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        import_seed_into_dir(&dir, seed, false).expect("seed import");
+        let before = SystemBlockStore::load(&dir).unwrap().unwrap().store_version;
+        assert_eq!(before, 1);
+
+        let box_path = dir.join("inbox.jsonl");
+        // A merge_wait head to supersede (the transition rule needs it).
+        let mut mw = base_letter(1, Phase::MergeWait);
+        mw.gate = Some(green_gate());
+        let out = post_mission_letter(&box_path, "agent-a", &mw).expect("post merge_wait");
+        // Archive it: seq 2 extending the merge_wait head.
+        let mut archived = base_letter(2, Phase::Archived);
+        archived.prev_letter_id = Some(out.letter_id);
+        archived.gate = Some(green_gate());
+        post_mission_letter(&box_path, "agent-a", &archived).expect("archive posts");
+
+        let after = SystemBlockStore::load(&dir).unwrap().unwrap().store_version;
+        assert_eq!(
+            before, after,
+            "archiving must not bump the store OCC counter (§1c)"
+        );
+    }
+
+    #[test]
+    fn happy_chain_archives_a_merge_wait_head() {
+        let s = Scratch::new("archive-chain");
+        let box_path = s.path("inbox.jsonl");
+
+        let l1 = base_letter(1, Phase::Judging);
+        let out1 = post_mission_letter(&box_path, "agent-a", &l1).unwrap();
+
+        let mut l2 = base_letter(2, Phase::MergeWait);
+        l2.prev_letter_id = Some(out1.letter_id);
+        l2.gate = Some(green_gate());
+        l2.receipt_candidate = Some(complete_candidate());
+        let out2 = post_mission_letter(&box_path, "agent-a", &l2).unwrap();
+
+        // seq 3 archived, superseding the merge_wait head, inheriting the gate.
+        let mut l3 = base_letter(3, Phase::Archived);
+        l3.prev_letter_id = Some(out2.letter_id.clone());
+        l3.gate = Some(green_gate());
+        let out3 = post_mission_letter(&box_path, "agent-a", &l3).unwrap();
+        assert!(!out3.deduped);
+
+        let letters = mailbox::read_letters(&box_path).unwrap();
+        let heads = heads_by_mission(&letters);
+        let head = heads.get("msn_0123456789ab").expect("mission present");
+        assert_eq!(head.head.phase, Phase::Archived, "the head is now archived");
+        assert_eq!(head.head.mission_seq, 3);
+        assert_eq!(
+            head.superseded_count, 2,
+            "judging + merge_wait are superseded"
+        );
+
+        // Archiving again (onto an archived head) is refused by the transition rule.
+        let mut l4 = base_letter(4, Phase::Archived);
+        l4.prev_letter_id = Some(out3.letter_id);
+        let err = post_mission_letter(&box_path, "agent-a", &l4)
+            .expect_err("cannot archive an already-archived head");
+        assert!(err.to_string().contains("invalid_transition"), "got {err}");
     }
 }

@@ -29,7 +29,21 @@ pub struct MissionPostInput {
     pub agent_id: String,
     /// The mission letter (validated against §1 before anything is appended).
     pub letter: MissionLetter,
+    /// The ORIGIN of an ARCHIVE gesture (F2.5e), validated ONLY when the letter's
+    /// `phase` is `archived`. This is the INPUT token — exactly like `receipt_import`'s
+    /// `imported_via` — and NEVER a field of the letter schema (§1f schema discipline).
+    /// The owner's Human View screen stamps `"human-ui"`; a runner/agent never composes
+    /// it, so an archive without it is refused `human_gesture_required`.
+    #[serde(default)]
+    pub archived_via: Option<String>,
 }
+
+/// The CLOSED allow-list of HUMAN origin tokens that pass the archive gate (F2.5e).
+/// Today only the owner's web UI composes a legitimate archive gesture (`"human-ui"`) —
+/// the SAME allow-list `receipt_import` carries. A new origin (a native tray gesture) is
+/// a code change plus a test here, never a silently-trusted client string. Absent,
+/// empty, or any off-list value is refused.
+const ARCHIVE_HUMAN_ORIGINS: &[&str] = &["human-ui"];
 
 /// The mailbox box for the bound brain — the SAME box the `kind=mission` read
 /// serves. Mirrors `http_server::handle_mailbox`: the repo-side box when the brain
@@ -59,6 +73,31 @@ fn mission_err(err: MissionLetterError) -> M1ndError {
 /// line — reusing the mailbox append/dedup. A stale head returns `stale_head` and
 /// nothing is appended; an identical replay dedups (idempotent).
 pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) -> M1ndResult<Value> {
+    // The ARCHIVE gate (F2.5e / binding change 1): archiving a superseded receipt is a
+    // HUMAN gesture — the THIRD human write after `system_blocks_ratify` and
+    // `receipt_import`. Armed ONLY when the letter is `archived`, the terminal "set this
+    // superseded receipt aside" phase. This is the product's first SILENT-burial verb
+    // (`failed` at least pins loud atop the tray; `archived` is quiet), so it MUST be the
+    // human's own hand — never an agent silencing its own unproven work. The origin token
+    // rides the INPUT (`archived_via`), never the letter schema, validated against a
+    // CLOSED allow-list; absent/empty/off-list is refused `human_gesture_required` and
+    // NOTHING is appended — a literal mirror of `handle_receipt_import`'s gate. Forgeable
+    // on an unauthenticated loopback, so it closes the CHEAP reflex vector (an agent
+    // calling `mission_post` with an archived letter), not a same-UID process (§5d). It
+    // holds on BOTH seams (the MCP wire and REST) — both route through this one handler.
+    if input.letter.phase == mission_letter::Phase::Archived {
+        let origin = input.archived_via.as_deref().unwrap_or("");
+        if !ARCHIVE_HUMAN_ORIGINS.contains(&origin) {
+            return Ok(json!({
+                "ok": false,
+                "refused": "human_gesture_required",
+                "tool": "mission_post",
+                "field": "archived_via",
+                "allowed_origins": ARCHIVE_HUMAN_ORIGINS,
+                "lesson": "archiving a superseded receipt is the human gesture — the owner's screen sends it; agents never do",
+            }));
+        }
+    }
     // The brain guard (field-hardening, proposed by the first external hand agent
     // after living the trap): a letter whose `brain_ref` does not name the brain
     // THIS session is bound to would land silently in the WRONG box — the exact
