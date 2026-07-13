@@ -1123,8 +1123,8 @@ mod daemon_rearm_tests {
             "transient flags are sanitized on the warm-boot resume"
         );
 
-        // The SAME transport seam a routed call takes: handle_mcp_method's
-        // traffic autotick.
+        // The SAME transport seam a routed call takes: the traffic autotick, now
+        // inside dispatch_tool, reached here via handle_mcp_method.
         a.daemon_state.last_tick_ms = Some(0);
         let before = a.daemon_state.tick_count;
         let request = crate::protocol::core::JsonRpcRequest {

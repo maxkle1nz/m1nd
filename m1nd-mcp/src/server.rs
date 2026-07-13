@@ -641,7 +641,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "cockpit",
-                "description": "The navigable m1nd menu (m1nd-cockpit-v0) — the human's ON-REQUEST router over m1nd's read surfaces, a read-only sibling of north (never a north field; if it breaks it breaks alone). Call it ONLY when the human asks ('?', 'show me m1nd', 'what can I look at') — at a landing the human_view card speaks, never an auto-served menu. The root is argument-less READS only, in seven stable slots (labels move with state, slots never do): the tray (a POINTER — the human stamp gesture, no verb), the map (system_blocks_snapshot), missions (a POINTER to the tray), health (doctor), trust, recent-memories (boot_memory, fixed projection), and drift. Pointer entries carry NO verb — nothing to execute even by mistake. Pass select=\"<slot>\" to drill one collection (depth ≤3; select=\"0\" re-serves the root); a drill re-asserts store_version + state_sig and says 'state moved' honestly when your seen_store_version diverged. Every response carries menu_sig — the SAME short reference a widget button carries back (never free command text, never a write verb). The read entries are DERIVED and filtered against the write deny-list, so a verb that becomes a mutation drops itself. Read-only safe.",
+                "description": "The navigable m1nd menu (m1nd-cockpit-v0) — the human's ON-REQUEST router over m1nd's read surfaces, a read-only sibling of north (never a north field; if it breaks it breaks alone). Call it ONLY when the human asks ('?', 'show me m1nd', 'what can I look at') — at a landing the human_view card speaks, never an auto-served menu. The root is argument-less READS only, in eight stable slots (labels move with state, slots never do): the tray (a POINTER — the human stamp gesture, no verb), the map (system_blocks_snapshot), missions (a POINTER to the tray), health (doctor), trust, recent-memories (boot_memory, fixed projection), drift, and presences (the P1 control-room roster of THIS brain — who is talking to m1nd, on what, since when — with a collision warning on the label when two mutating hands share the work). Pointer entries carry NO verb — nothing to execute even by mistake. Pass select=\"<slot>\" to drill one collection (depth ≤3; select=\"0\" re-serves the root); a drill re-asserts store_version + state_sig and says 'state moved' honestly when your seen_store_version diverged. Every response carries menu_sig — the SAME short reference a widget button carries back (never free command text, never a write verb). The read entries are DERIVED and filtered against the write deny-list, so a verb that becomes a mutation drops itself. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1061,7 +1061,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "session_handshake",
-                "description": "Cheap session trust handshake before relying on m1nd retrieval",
+                "description": "Cheap session trust handshake before relying on m1nd retrieval. Optionally DECLARE your presence for the control room (kind/theme/intent/worktree/working_set) so the cockpit, Hall, and north can see who is working, on what, since when — advisory telemetry, never a gate.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1069,7 +1069,12 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
                         "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
                         "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
-                        "scope": { "type": "string", "description": "Optional absolute or repo-relative scope/path to validate against the active workspace binding" }
+                        "scope": { "type": "string", "description": "Optional absolute or repo-relative scope/path to validate against the active workspace binding" },
+                        "kind": { "type": "string", "description": "Optional presence role: orchestrator | executor | pool-hand | runner | oracle | human-ui" },
+                        "theme": { "type": "string", "description": "Optional one-line presence theme (e.g. 'reader slice 1')" },
+                        "intent": { "type": "string", "description": "Optional declared mutation level: 'read' or 'mutate' (advisory collision signal)" },
+                        "worktree": { "type": "string", "description": "Optional worktree/branch display string for collision derivation" },
+                        "working_set": { "type": "array", "items": { "type": "string" }, "description": "Optional declared working set: repo-relative paths and/or sb_ block ids (collision overlap signal)" }
                     },
                     "required": ["agent_id"]
                 }
@@ -4065,6 +4070,30 @@ fn handle_north(
         }
     }
 
+    // P1 (ORGANISM-INSIDE): the collision gap — present ONLY when THIS session
+    // collides with another live mutating hand on the SAME brain whose work
+    // co-locates (same caller_root/worktree or overlapping working set). It rides
+    // the EXISTING honest_gaps mechanism (no new north schema field), and the P1
+    // gate requires it on BOTH colliding sessions' packets — each session derives
+    // its own here. Advisory, never blocking (the same posture as reception).
+    // Fail-open + read-only: an unreadable registry yields no line, never breaks
+    // north; presence is witness tissue that verifies nothing.
+    {
+        let (roster, _) = state.presence_roster();
+        let now = crate::util::now_ms();
+        let collisions = crate::presence::collisions_for_agent(&roster, &agent_id, now);
+        if !collisions.is_empty() {
+            let others: Vec<String> = collisions
+                .iter()
+                .map(|c| format!("{} ({})", c.other_agent, c.overlap.join(", ")))
+                .collect();
+            honest_gaps.push(format!(
+                "COLLISION: another mutating session shares this brain and your work — {}. Advisory only (m1nd sees activity visible to it, not git); coordinate before you both write.",
+                others.join("; ")
+            ));
+        }
+    }
+
     // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root
     // mismatch this carries the honest front-desk block; on match/unknown it is
     // null (absent-ish). Computed here, after every prior `state` borrow has
@@ -4485,7 +4514,7 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
 /// errs, LOGS and SWALLOWS the failure so a watcher can never propagate its error
 /// into the agent's unrelated tool call. Returns `true` on success — surfaced so
 /// tests can pin the fail-open contract directly, and callers may branch on it.
-fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
+pub(crate) fn vigil_fail_open<F>(label: &str, tool: &str, vigil: F) -> bool
 where
     F: FnOnce() -> M1ndResult<()>,
 {
@@ -4559,6 +4588,14 @@ pub fn dispatch_tool(
         .unwrap_or("unknown")
         .to_string();
 
+    // P1 presence (ORGANISM-INSIDE): stamp the OBSERVED mutation level when this
+    // dispatch is a mutating verb — `read_only_denied` is the single pure
+    // classifier (verdict c). In-memory only; the throttled beat in `track_agent`
+    // carries it to the sidecar. Never a write here, never able to break dispatch.
+    if read_only_denied(&normalized, params) {
+        state.note_mutation_observed(&agent_id);
+    }
+
     // M1ND_PROOF_GATE: when ON, refuse a real code-writing tool BEFORE any write
     // unless every target it will touch was driven to proof_state ==
     // "ready_to_edit" this session (via surgical_context_v2). edit_preview is
@@ -4605,6 +4642,33 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
                 .unwrap_or_else(|| params.get("node_id").and_then(|v| v.as_str()).unwrap_or(""))
         })
         .to_string();
+
+    // FRESHNESS-BY-TRAFFIC (gardener v1, G1). The daemon's re-ingest tick used to
+    // live ONLY in handle_mcp_method (the MCP-wire seam), leaving the REST, stdio
+    // side-loop, and mcp_http seams deaf to it — a file changed under a served
+    // owner stayed stale until an MCP-wire call happened by. It now rides
+    // dispatch_tool, the ONE path every seam funnels through, mirroring the
+    // auto-ingest vigil just below. The full condition is checked INLINE (not
+    // delegated to run_daemon_tick's own tick_in_flight guard) so a dispatch nested
+    // INSIDE a running tick — the project-brain bootstrap ingest (project_brains.rs),
+    // an auto-ingest flow — never enters run_daemon_tick and never inflates
+    // pending_rerun. Heavy re-ingest/scan entry tools are skipped
+    // (daemon_autotick_entry_too_heavy): their own work supersedes the tick, and
+    // stacking a tick ahead of them risks holding the brain lock past the REST 30s
+    // timeout. Fail-open: a background vigil never breaks the agent's tool call.
+    if state.daemon_state.active
+        && !state.daemon_state.tick_in_flight
+        && should_autotick_daemon(&normalized)
+        && !daemon_autotick_entry_too_heavy(&normalized)
+        && state.daemon_state.last_tick_ms.is_some_and(|last| {
+            now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms
+        })
+    {
+        vigil_fail_open("daemon tick", &normalized, || {
+            run_daemon_tick(state, "traffic");
+            Ok(())
+        });
+    }
 
     if !matches!(
         normalized.as_str(),
@@ -5512,17 +5576,13 @@ pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> 
                 .cloned()
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
-            // Track agent session from arguments
+            // Track agent session from arguments. The freshness-by-traffic daemon
+            // tick used to fire HERE (MCP-wire only); it now rides dispatch_tool so
+            // ALL seams get it (REST, stdio side-loop, mcp_http). track_agent stays
+            // per-seam — moving it into dispatch_tool would double-count query
+            // traffic on the seams that already call it.
             if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
                 state.track_agent(agent_id);
-                if state.daemon_state.active
-                    && should_autotick_daemon(tool_name)
-                    && state.daemon_state.last_tick_ms.is_some_and(|last| {
-                        now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms
-                    })
-                {
-                    run_daemon_tick(state, "traffic");
-                }
             }
 
             // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
@@ -5586,6 +5646,23 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "mission_verify"
             | "mission_handoff"
             | "mission_close"
+    )
+}
+
+/// Heavy entry tools whose OWN work already re-ingests or re-scans the graph — a
+/// freshness-by-traffic tick fired just AHEAD of them is redundant, and stacking
+/// the tick's wall-clock (measured ~3.7s for 8 changed files on the 901-file m1nd
+/// brain, growing toward the 32-file tick budget) on top of theirs risks holding
+/// the brain lock past the REST 30s timeout — `spawn_blocking` is NOT cancelled
+/// when `tokio::time::timeout` fires (http_server.rs), so a tool that overruns the
+/// window keeps the lock and wedges the brain for every waiting request. Kept
+/// SEPARATE from `should_autotick_daemon` (whose skip-list is pinned by regression
+/// test to the daemon-control verbs): these tools are eligible to autotick in
+/// principle; the tick is deliberately skipped here as a cost/redundancy guard.
+fn daemon_autotick_entry_too_heavy(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "ingest" | "scan" | "scan_all" | "skeleton_candidate"
     )
 }
 
@@ -6564,6 +6641,124 @@ mod tests {
             Some("traffic"),
             "the resumed tick is the traffic tick (freshness-by-traffic, v1)"
         );
+    }
+
+    // === Gardener v1 / G1: FRESHNESS-BY-TRAFFIC ON EVERY SEAM ===
+    // The REST, stdio side-loop, and mcp_http seams call `dispatch_tool` DIRECTLY,
+    // never `handle_mcp_method`. The traffic autotick used to live only in
+    // `handle_mcp_method`, so those three seams were deaf to it — a file changed
+    // under a served owner stayed stale until an MCP-wire call happened by. The
+    // tick now rides `dispatch_tool`, the one path every seam funnels through.
+
+    /// Arms a daemon over a one-file repo and returns the session (its own runtime
+    /// dir under `temp`). The `TempDir` is returned so the caller keeps it alive.
+    fn build_state_with_armed_daemon() -> (tempfile::TempDir, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join("core.py"), "def core():\n    return 1\n").expect("seed file");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 1,
+            },
+        )
+        .expect("daemon start");
+        (temp, state)
+    }
+
+    /// RED-first at the exact core of the REST seam: a NON-skip verb dispatched
+    /// STRAIGHT through `dispatch_tool` (no `handle_mcp_method` in the path) must
+    /// run the freshness-by-traffic tick. Before the tick moved into
+    /// `dispatch_tool`, a direct dispatch left the daemon deaf and `tick_count`
+    /// unchanged — that is the three-deaf-seams bug this pins.
+    #[test]
+    fn dispatch_tool_ticks_the_daemon_on_traffic() {
+        let (_temp, mut state) = build_state_with_armed_daemon();
+        state.daemon_state.last_tick_ms = Some(0); // force the autotick due
+        let before = state.daemon_state.tick_count;
+        super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("health dispatch");
+        assert!(
+            state.daemon_state.tick_count > before,
+            "dispatch_tool must run the freshness-by-traffic tick (the REST seam core)"
+        );
+        assert_eq!(
+            state.daemon_state.last_tick_trigger.as_deref(),
+            Some("traffic"),
+            "the dispatch_tool tick is the traffic tick"
+        );
+    }
+
+    /// The skip-list holds at the `dispatch_tool` seam too: a daemon-control verb
+    /// (the REAL list — `should_autotick_daemon`) must NOT tick even with an armed,
+    /// due daemon, while a normal verb on the SAME daemon WOULD — proving the
+    /// no-tick is the skip-list, not a dead daemon.
+    #[test]
+    fn dispatch_tool_respects_the_autotick_skip_list() {
+        let (_temp, mut state) = build_state_with_armed_daemon();
+        state.daemon_state.last_tick_ms = Some(0);
+        let before = state.daemon_state.tick_count;
+        super::dispatch_tool(
+            &mut state,
+            "daemon_status",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("daemon_status dispatch");
+        assert_eq!(
+            state.daemon_state.tick_count, before,
+            "a skip-list verb must NOT autotick, even through dispatch_tool"
+        );
+
+        state.daemon_state.last_tick_ms = Some(0);
+        super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({ "agent_id": "test" }),
+        )
+        .expect("health dispatch");
+        assert!(
+            state.daemon_state.tick_count > before,
+            "a normal verb on the same armed+due daemon must tick (skip-list is verb-specific)"
+        );
+    }
+
+    /// Heavy re-ingest/scan entry tools are skipped by the traffic autotick: their
+    /// own work supersedes the tick, and stacking the tick's wall-clock ahead of
+    /// theirs risks holding the brain lock past the REST 30s timeout. Pinned as a
+    /// predicate so the honest skip is explicit and cannot silently regress.
+    #[test]
+    fn heavy_entry_tools_skip_the_traffic_autotick() {
+        use super::daemon_autotick_entry_too_heavy;
+        for heavy in ["ingest", "scan", "scan_all", "skeleton_candidate"] {
+            assert!(
+                daemon_autotick_entry_too_heavy(heavy),
+                "{heavy} is a heavy re-ingest/scan entry tool and must skip the tick"
+            );
+        }
+        for light in ["health", "search", "seek", "why", "impact", "apply"] {
+            assert!(
+                !daemon_autotick_entry_too_heavy(light),
+                "{light} is a normal verb and must remain tick-eligible"
+            );
+        }
     }
 
     #[test]
@@ -11044,6 +11239,169 @@ mod tests {
             bare.first().map(|(l, _)| *l),
             Some("undated-legacy"),
             "sanity: the bare key really does float the undated claim to the front"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // P1 presences — the beat by traffic, its throttle, its fail-open, and the
+    // north collision gap on BOTH colliding sessions' packets.
+    // -----------------------------------------------------------------------
+
+    fn presence_dir_of(state: &SessionState) -> std::path::PathBuf {
+        state.instance.registry_root().join("presences")
+    }
+
+    fn read_presence_file(
+        state: &SessionState,
+        agent: &str,
+        brain: &str,
+    ) -> Option<crate::presence::PresenceRecord> {
+        let path = presence_dir_of(state).join(format!(
+            "{}.json",
+            crate::presence::stable_presence_id(agent, brain)
+        ));
+        let raw = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&raw).ok()
+    }
+
+    /// Registration by traffic + the throttle: the FIRST tracked call writes the
+    /// sidecar; an immediate second call is THROTTLED (no second write); a
+    /// changed signal (an observed mutation) clears the throttle so the next
+    /// call carries it promptly.
+    #[test]
+    fn presence_beat_registers_by_traffic_and_throttles() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/beat-brain";
+        state.workspace_root = Some(brain.to_string());
+
+        // 1. Registration by traffic — the seam call is track_agent.
+        state.track_agent("beat-agent");
+        let first = read_presence_file(&state, "beat-agent", brain)
+            .expect("first tracked call writes the presence sidecar");
+        assert_eq!(first.agent_id, "beat-agent");
+        assert_eq!(first.brain, brain);
+        assert_eq!(first.query_count, 1);
+
+        // 2. Throttle — an immediate second call updates memory, not disk.
+        state.track_agent("beat-agent");
+        let after = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert_eq!(
+            after.query_count, 1,
+            "an immediate re-beat is throttled: the sidecar still carries the first write"
+        );
+
+        // 3. A changed signal clears the throttle: the observed mutation rides
+        //    the very next tracked call.
+        state.note_mutation_observed("beat-agent");
+        state.track_agent("beat-agent");
+        let mutated = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert!(
+            mutated.mutation.observed_at_ms.is_some(),
+            "the observed-mutation stamp must ride the next beat promptly"
+        );
+        assert_eq!(
+            mutated.query_count, 3,
+            "the forced beat carries fresh counters"
+        );
+    }
+
+    /// FAIL-OPEN: a broken sidecar (the presences dir path occupied by a FILE)
+    /// must never break the tool call — track_agent still succeeds and the
+    /// in-memory session still advances.
+    #[test]
+    fn presence_beat_fails_open_when_sidecar_write_breaks() {
+        let (_temp, mut state) = build_state();
+        state.workspace_root = Some("/wt/failopen-brain".to_string());
+        // Occupy the presences DIR path with a regular file so create_dir_all fails.
+        let dir = presence_dir_of(&state);
+        std::fs::create_dir_all(dir.parent().expect("registry root")).expect("mk registry");
+        std::fs::write(&dir, b"not a directory").expect("plant the blocker");
+
+        state.track_agent("unlucky-agent");
+
+        let session = state
+            .sessions
+            .get("unlucky-agent")
+            .expect("session tracked");
+        assert_eq!(
+            session.query_count, 1,
+            "the tool call's tracking must survive a broken sidecar (fail-open)"
+        );
+    }
+
+    /// The P1 gate's packet law: an arranged collision surfaces in the north
+    /// honest_gaps of BOTH colliding sessions — and NOT in a bystander's packet.
+    #[test]
+    fn north_collision_gap_rides_both_colliding_packets() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/north-brain";
+        state.workspace_root = Some(brain.to_string());
+        let registry = state.instance.registry_root();
+        let now = crate::util::now_ms();
+
+        let seed = |agent: &str, caller: &str| {
+            let record = crate::presence::PresenceRecord {
+                schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+                presence_id: crate::presence::stable_presence_id(agent, brain),
+                agent_id: agent.to_string(),
+                brain: brain.to_string(),
+                caller_root: Some(caller.to_string()),
+                kind: None,
+                theme: None,
+                worktree: None,
+                working_set: Vec::new(),
+                task_ref: None,
+                mutation: crate::presence::MutationSignal {
+                    observed_at_ms: Some(now),
+                    declared_intent: None,
+                },
+                first_seen_ms: now,
+                last_beat_ms: now,
+                query_count: 1,
+                ttl_ms: crate::presence::PRESENCE_TTL_MS,
+            };
+            crate::presence::write_presence(&registry, &record).expect("seed presence");
+        };
+        // Two mutating hands in ONE worktree; a third in its own worktree.
+        seed("hand-a", "/wt/shared");
+        seed("hand-b", "/wt/shared");
+        seed("hand-c", "/wt/isolated");
+
+        let gaps_of = |state: &mut SessionState, agent: &str| -> Vec<String> {
+            let north = super::dispatch_tool(
+                state,
+                "north",
+                &serde_json::json!({ "agent_id": agent, "task": "collision probe" }),
+            )
+            .expect("north packet");
+            north["honest_gaps"]
+                .as_array()
+                .map(|gaps| {
+                    gaps.iter()
+                        .filter_map(|g| g.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let a_gaps = gaps_of(&mut state, "hand-a");
+        assert!(
+            a_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-b")),
+            "hand-a's packet must carry the collision gap naming hand-b: {a_gaps:?}"
+        );
+        let b_gaps = gaps_of(&mut state, "hand-b");
+        assert!(
+            b_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-a")),
+            "hand-b's packet must carry the collision gap naming hand-a: {b_gaps:?}"
+        );
+        let c_gaps = gaps_of(&mut state, "hand-c");
+        assert!(
+            !c_gaps.iter().any(|g| g.starts_with("COLLISION:")),
+            "the isolated-worktree hand must NOT carry a collision gap: {c_gaps:?}"
         );
     }
 }

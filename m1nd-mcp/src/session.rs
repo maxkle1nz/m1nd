@@ -36,6 +36,23 @@ pub struct AgentSession {
     pub first_seen: Instant,
     pub last_seen: Instant,
     pub query_count: u64,
+    // --- ORGANISM-INSIDE P1 — the durable-presence beat state (askGOD verdict
+    //     2026-07-13). In-memory; projected to a sidecar by the throttled beat. ---
+    /// Epoch ms of first contact — the durable age the sidecar renders (`Instant`
+    /// is process-local and meaningless across an owner restart).
+    pub first_seen_ms: u64,
+    /// Throttle clock for the presence beat (at most one disk write per
+    /// [`crate::presence::PRESENCE_BEAT_THROTTLE_MS`]). `None` until the first beat.
+    pub last_presence_beat: Option<Instant>,
+    /// Epoch ms of the last mutating verb this session dispatched (the OBSERVED
+    /// mutation level), stamped by [`SessionState::note_mutation_observed`].
+    pub mutation_observed_at_ms: Option<u64>,
+    /// DECLARED enrichment from `session_handshake` (optional, honest-absent).
+    pub declared_kind: Option<String>,
+    pub declared_theme: Option<String>,
+    pub declared_intent: Option<String>,
+    pub declared_worktree: Option<String>,
+    pub declared_working_set: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1044,6 +1061,40 @@ impl SessionState {
         None
     }
 
+    /// #326-family auto-heal (load/resolve seam). A prior memorize / agent-memory
+    /// merge could DEMOTE `workspace_root` onto the `agent-memory` store dir (the
+    /// write-path bug fixed in `handle_ingest`); brains already carrying that
+    /// flipped state on disk answer the REST seam with a store-dir workspace_root,
+    /// so every `caller_root` comparison mis-matches. When `workspace_root` is a
+    /// memory sidecar BUT a real code root is still resolvable from the ingest
+    /// roots, repair it to the code root with one honest log line. Idempotent and
+    /// self-limiting: a no-op when `workspace_root` is already a code root or when
+    /// no code root is resolvable (a genuine pure-memory / medulla store keeps its
+    /// sidecar workspace_root). This de-flips the corrupted bound owner on its next
+    /// boot without any manual data surgery.
+    pub fn heal_workspace_root(&mut self) {
+        let flipped = self
+            .workspace_root
+            .as_deref()
+            .map(is_memory_sidecar)
+            .unwrap_or(false);
+        if !flipped {
+            return;
+        }
+        // `code_root_path` never returns a sidecar: in the flipped state it falls
+        // through to the first non-sidecar ingest root that is a real directory.
+        if let Some(code_root) = self.code_root_path() {
+            if self.workspace_root.as_deref() != Some(code_root.as_str()) {
+                let from = self.workspace_root.clone().unwrap_or_default();
+                eprintln!(
+                    "[m1nd] healed workspace_root: {} -> {} (the #326 family)",
+                    from, code_root
+                );
+                self.workspace_root = Some(code_root);
+            }
+        }
+    }
+
     /// True when THIS store is the medulla — the owner's own memory-of-doctrine
     /// store, not a per-project brain (MEDULLA-PRD §4.1: the tier IS the directory).
     ///
@@ -1662,9 +1713,22 @@ impl SessionState {
         // written by `acquire_with_mode`) is never touched. Handle dropped:
         // fire-and-forget.
         let _ = crate::instance_registry::spawn_boot_gc(instance.registry_root());
+        // P1 (ORGANISM-INSIDE): reclaim orphan presence sidecars left by sessions
+        // that were live when the owner last restarted (the verdict's flagged
+        // risk: boot-GC must sweep stale sidecars post-restart). Detached, error-
+        // swallowing, never able to delay boot. Read-time filtering already hides
+        // stale presences; this only reclaims their files.
+        {
+            let registry_root = instance.registry_root();
+            let _ = std::thread::Builder::new()
+                .name("m1nd-presence-boot-gc".into())
+                .spawn(move || {
+                    let _ = crate::presence::gc_stale(&registry_root);
+                });
+        }
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
-        Ok(Self {
+        let mut state = Self {
             graph: shared,
             domain,
             orchestrator,
@@ -1756,7 +1820,13 @@ impl SessionState {
             agent_memory_boot: None,
             read_only: config.read_only,
             read_only_persist_logged: std::cell::Cell::new(false),
-        })
+        };
+        // #326-family auto-heal at the boot/load seam: if a prior memorize left
+        // `workspace_root` demoted onto the agent-memory store dir while a real code
+        // root survives in the ingest roots, repair it before the session serves a
+        // single request (de-flips the corrupted bound owner on its next boot).
+        state.heal_workspace_root();
+        Ok(state)
     }
 
     /// Check if auto-persist should trigger. Returns true every N queries.
@@ -2232,9 +2302,15 @@ impl SessionState {
 
     /// Track an agent session. Creates a new session if first contact,
     /// otherwise updates last_seen and increments query_count.
+    ///
+    /// P1: all four dispatch seams funnel through here, so this is the single
+    /// choke point for the durable-presence BEAT — a throttled, fail-open
+    /// projection of this live session to a sidecar (`crate::presence`) so the
+    /// control room (cockpit / Hall / north) can see the team.
     pub fn track_agent(&mut self, agent_id: &str) {
         let _ = self.instance.mark_heartbeat();
         let now = Instant::now();
+        let now_ms = crate::util::now_ms();
         let session = self
             .sessions
             .entry(agent_id.to_string())
@@ -2243,9 +2319,186 @@ impl SessionState {
                 first_seen: now,
                 last_seen: now,
                 query_count: 0,
+                first_seen_ms: now_ms,
+                last_presence_beat: None,
+                mutation_observed_at_ms: None,
+                declared_kind: None,
+                declared_theme: None,
+                declared_intent: None,
+                declared_worktree: None,
+                declared_working_set: Vec::new(),
             });
         session.last_seen = now;
         session.query_count += 1;
+        self.beat_presence(agent_id, now, now_ms);
+    }
+
+    /// Stamp the OBSERVED mutation level (verdict c): this session just
+    /// dispatched a verb `server::read_only_denied` classifies as mutating. Pure
+    /// in-memory — the throttled beat carries it to the sidecar. Never a write
+    /// per call, never able to break the tool call it rides.
+    pub fn note_mutation_observed(&mut self, agent_id: &str) {
+        if let Some(session) = self.sessions.get_mut(agent_id) {
+            session.mutation_observed_at_ms = Some(crate::util::now_ms());
+            // A changed signal forces the NEXT beat to write promptly (bypass the
+            // throttle for state changes; pure read spam still stays throttled).
+            session.last_presence_beat = None;
+        }
+    }
+
+    /// Record the DECLARED presence enrichment from a `session_handshake` call
+    /// (all fields optional, honest-absent). Only overwrites a field when the
+    /// caller declared it, so a later bare handshake never erases an earlier
+    /// declaration. Applied to the tracked session (created if first contact).
+    pub fn set_presence_declaration(
+        &mut self,
+        agent_id: &str,
+        kind: Option<String>,
+        theme: Option<String>,
+        intent: Option<String>,
+        worktree: Option<String>,
+        working_set: Vec<String>,
+    ) {
+        let now = Instant::now();
+        let now_ms = crate::util::now_ms();
+        let session = self
+            .sessions
+            .entry(agent_id.to_string())
+            .or_insert_with(|| AgentSession {
+                agent_id: agent_id.to_string(),
+                first_seen: now,
+                last_seen: now,
+                query_count: 0,
+                first_seen_ms: now_ms,
+                last_presence_beat: None,
+                mutation_observed_at_ms: None,
+                declared_kind: None,
+                declared_theme: None,
+                declared_intent: None,
+                declared_worktree: None,
+                declared_working_set: Vec::new(),
+            });
+        let mut changed = false;
+        if kind.is_some() {
+            session.declared_kind = kind;
+            changed = true;
+        }
+        if theme.is_some() {
+            session.declared_theme = theme;
+            changed = true;
+        }
+        if intent.is_some() {
+            session.declared_intent = intent;
+            changed = true;
+        }
+        if worktree.is_some() {
+            session.declared_worktree = worktree;
+            changed = true;
+        }
+        if !working_set.is_empty() {
+            session.declared_working_set = working_set;
+            changed = true;
+        }
+        if changed {
+            // Force the next beat to carry the fresh declaration (bypass throttle).
+            session.last_presence_beat = None;
+        }
+    }
+
+    /// The throttled, fail-open half of the presence beat: at most one disk
+    /// write per session per [`crate::presence::PRESENCE_BEAT_THROTTLE_MS`].
+    /// Composes the record from this session's own measured/declared facts and
+    /// upserts its sidecar. A broken sidecar write can NEVER break a tool call
+    /// (wrapped in the vigil fail-open guard).
+    fn beat_presence(&mut self, agent_id: &str, now: Instant, now_ms: u64) {
+        // A presence needs a served brain — an unbound (pre-ingest) session has
+        // no brain roster to join. Honest-absent until bound.
+        let Some(brain) = self.workspace_root.clone() else {
+            return;
+        };
+        // Throttle.
+        let due = match self
+            .sessions
+            .get(agent_id)
+            .and_then(|s| s.last_presence_beat)
+        {
+            Some(prev) => {
+                now.duration_since(prev).as_millis()
+                    >= crate::presence::PRESENCE_BEAT_THROTTLE_MS as u128
+            }
+            None => true,
+        };
+        if !due {
+            return;
+        }
+        let record = match self.compose_presence(agent_id, &brain, now_ms) {
+            Some(record) => record,
+            None => return,
+        };
+        let registry_root = self.instance.registry_root();
+        crate::server::vigil_fail_open("presence beat", "track_agent", || {
+            crate::presence::write_presence(&registry_root, &record)
+        });
+        if let Some(session) = self.sessions.get_mut(agent_id) {
+            session.last_presence_beat = Some(now);
+        }
+    }
+
+    /// Compose the durable presence record for `agent_id` from this session's own
+    /// facts: measured binding (`brain`/`caller_root`), the in-memory session
+    /// counters, the DECLARED handshake enrichment, and the MEASURED `task_ref`
+    /// (the agent's own open mission charter). `None` when the agent has no
+    /// tracked session yet.
+    fn compose_presence(
+        &self,
+        agent_id: &str,
+        brain: &str,
+        now_ms: u64,
+    ) -> Option<crate::presence::PresenceRecord> {
+        let session = self.sessions.get(agent_id)?;
+        let task_ref =
+            crate::mission_handlers::latest_open_mission_for(&self.runtime_root, agent_id);
+        Some(crate::presence::PresenceRecord {
+            schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+            presence_id: crate::presence::stable_presence_id(agent_id, brain),
+            agent_id: agent_id.to_string(),
+            brain: brain.to_string(),
+            caller_root: self.caller_root.clone(),
+            kind: session.declared_kind.clone(),
+            theme: session.declared_theme.clone(),
+            worktree: session.declared_worktree.clone(),
+            working_set: session.declared_working_set.clone(),
+            task_ref,
+            mutation: crate::presence::MutationSignal {
+                observed_at_ms: session.mutation_observed_at_ms,
+                declared_intent: session.declared_intent.clone(),
+            },
+            first_seen_ms: session.first_seen_ms,
+            last_beat_ms: now_ms,
+            query_count: session.query_count,
+            ttl_ms: crate::presence::PRESENCE_TTL_MS,
+        })
+    }
+
+    /// The live presence roster for the SERVED brain plus any derived collisions
+    /// — the read surface the cockpit, north, and `/api/health` share. Scoped to
+    /// this session's own brain ("this brain", never a cross-brain aggregate);
+    /// empty when the session is unbound. Fail-open: an unreadable registry
+    /// yields an empty roster, never an error.
+    pub fn presence_roster(
+        &self,
+    ) -> (
+        Vec<crate::presence::PresenceRecord>,
+        Vec<crate::presence::Collision>,
+    ) {
+        let Some(brain) = self.workspace_root.as_deref() else {
+            return (Vec::new(), Vec::new());
+        };
+        let now = crate::util::now_ms();
+        let registry_root = self.instance.registry_root();
+        let roster = crate::presence::roster_for_brain(&registry_root, brain, now);
+        let collisions = crate::presence::collisions_in(&roster, now);
+        (roster, collisions)
     }
 
     pub fn next_edit_preview_id(&self, agent_id: &str) -> String {
@@ -2589,6 +2842,115 @@ mod tests {
         state.ingest_roots = vec![];
         state.workspace_root = Some("/Users/x/solo-repo".to_string());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
+    }
+
+    // #326-family auto-heal: a brain whose workspace_root was demoted onto its
+    // agent-memory store dir (the field-reported bound-owner flip) is repaired to
+    // the real code root when one survives in the ingest roots.
+    #[test]
+    fn heal_workspace_root_undemotes_flipped_bound_brain() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let code_root = temp.path().join("m1nd");
+        std::fs::create_dir_all(&code_root).expect("code root");
+        let agent_memory = temp
+            .path()
+            .join("runtimes")
+            .join("claude")
+            .join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        // Arrange the flipped production state: workspace_root = the store dir,
+        // the real code root still present among the ingest roots.
+        state.workspace_root = Some(agent_memory.to_string_lossy().to_string());
+        state.ingest_roots = vec![
+            code_root.to_string_lossy().to_string(),
+            agent_memory.to_string_lossy().to_string(),
+        ];
+
+        state.heal_workspace_root();
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(code_root.to_string_lossy().as_ref()),
+            "the flipped workspace_root must be healed back to the code root"
+        );
+    }
+
+    // The heal is self-limiting: a genuine pure-memory / medulla store (no code
+    // root in its ingest roots) keeps its sidecar workspace_root untouched.
+    #[test]
+    fn heal_workspace_root_is_noop_without_a_code_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let agent_memory = temp.path().join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(agent_memory.to_string_lossy().to_string());
+        state.ingest_roots = vec![agent_memory.to_string_lossy().to_string()];
+
+        state.heal_workspace_root();
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(agent_memory.to_string_lossy().as_ref()),
+            "a pure-memory store with no code root keeps its sidecar workspace_root"
+        );
+    }
+
+    // The heal is wired into the boot/load seam: a brain that boots with a
+    // store-dir workspace_root (graph under `agent-memory`) but whose persisted
+    // ingest_roots carry a real code root is healed by `initialize` itself,
+    // de-flipping the corrupted bound owner on its next boot.
+    #[test]
+    fn initialize_heals_flipped_workspace_root_from_ingest_roots() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let code_root = temp.path().join("m1nd");
+        std::fs::create_dir_all(&code_root).expect("code root");
+        // The graph lives inside the agent-memory store dir, so the boot-time
+        // inference sets workspace_root to that sidecar (the flipped shape).
+        let agent_memory = temp.path().join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+        // Persist ingest_roots beside the graph (what `load_ingest_roots` reads).
+        std::fs::write(
+            agent_memory.join("ingest_roots.json"),
+            serde_json::to_string(&vec![
+                code_root.to_string_lossy().to_string(),
+                agent_memory.to_string_lossy().to_string(),
+            ])
+            .expect("serialize roots"),
+        )
+        .expect("write ingest_roots.json");
+
+        let config = McpConfig {
+            graph_source: agent_memory.join("graph.json"),
+            plasticity_state: agent_memory.join("plasticity.json"),
+            runtime_dir: Some(agent_memory.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(code_root.to_string_lossy().as_ref()),
+            "initialize must heal the store-dir workspace_root to the code root at boot"
+        );
     }
 
     #[test]

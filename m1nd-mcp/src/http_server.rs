@@ -832,6 +832,7 @@ fn tool_error_payload(e: &m1nd_core::error::M1ndError) -> serde_json::Value {
 pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
     let api = Router::new()
         .route("/api/health", get(handle_health))
+        .route("/api/presences", get(handle_presences))
         .route("/api/instance/self", get(handle_instance_self))
         .route("/api/instances", get(handle_instances))
         .route("/api/instance/save", post(handle_instance_save))
@@ -900,6 +901,18 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         let node_count = graph.num_nodes() as usize;
         let edge_count = graph.num_edges();
         drop(graph);
+        // P1 (ORGANISM-INSIDE): the durable presence roster + derived collisions.
+        // Owner-wide (every brain the registry serves — collisions are same-brain
+        // by construction, so no cross-brain pairing leaks); the data source the
+        // Hall strip (m1nd-ui lane) and any HTTP consumer read. Fail-open: an
+        // unreadable registry yields an empty roster, never a failed health read.
+        let (presences, presence_collisions) = {
+            let now = crate::util::now_ms();
+            let registry_root = session.instance.registry_root();
+            let roster = crate::presence::list_live(&registry_root, now);
+            let collisions = crate::presence::collisions_in(&roster, now);
+            (roster, collisions)
+        };
         serde_json::json!({
             "status": if node_count > 0 { "ok" } else { "empty" },
             "uptime_secs": session.uptime_seconds(),
@@ -907,6 +920,12 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             "edge_count": edge_count,
             "queries_processed": session.queries_processed,
             "agent_sessions": session.session_summary(),
+            "presences": {
+                "schema": crate::presence::PRESENCE_SCHEMA,
+                "scope": "owner-wide",
+                "roster": presences,
+                "collisions": presence_collisions,
+            },
             "domain": session.domain.name.as_str(),
             "graph_generation": session.graph_generation,
             "plasticity_generation": session.plasticity_generation,
@@ -947,6 +966,75 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     .expect("spawn_blocking panicked");
 
     (StatusCode::OK, Json(result))
+}
+
+/// `GET /api/presences?brain=` — the P1 presence endpoint the Hall strip reads
+/// (contract: `m1nd-ui` `docs/voice/P1-UI-CONTRACT.md`; authority: the P1
+/// verdict, binding changes 1–3). Envelope: `{presences, collisions, served_brain?}`.
+///
+/// - `brain` ABSENT ⇒ the OWNER-WIDE roster (the Hall's control-room scope):
+///   every live presence across all this owner's brains, no `served_brain` echo
+///   (echoing the bound brain would mislabel an owner-wide roster).
+/// - `brain` PRESENT ⇒ that brain's roster, filtered by the RESOLVED session's
+///   own `workspace_root` (the exact key its sessions' beats write), with the
+///   §4A.9.4 `served_brain` echo; an unknown root 404s honestly (the client
+///   degrades to an empty roster per the contract).
+/// - Pure READ, fail-open: an unreadable registry serves an empty roster; TTL
+///   filtering at read (`list_live`) means no ghost is ever rendered.
+/// - `collisions` is ALWAYS present (server-authoritative, even `[]`), derived
+///   at read with the P1 predicate — the same one the cockpit and north use.
+async fn handle_presences(
+    State(state): State<Arc<AppState>>,
+    Query(brain): Query<BrainQuery>,
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let now = crate::util::now_ms();
+        match brain
+            .brain
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            None => {
+                // Owner-wide: one registry serves every brain of this owner; the
+                // collision predicate is same-brain by construction, so no
+                // cross-brain pair can fire.
+                let registry_root = {
+                    let session = state.session.lock();
+                    session.instance.registry_root()
+                };
+                let roster = crate::presence::list_live(&registry_root, now);
+                Ok(crate::presence::wire_response(&roster, now))
+            }
+            Some(root) => {
+                let (target, served_echo) = resolve_brain(&state, Some(root))?;
+                let (registry_root, brain_key) = {
+                    let session = target.lock();
+                    (
+                        session.instance.registry_root(),
+                        session.workspace_root.clone(),
+                    )
+                };
+                // The sidecar's `brain` field IS the writing session's
+                // workspace_root — filter by the resolved session's own key so
+                // the scope matches exactly what its traffic wrote. An unbound
+                // session has no roster to join: honest empty.
+                let roster = match brain_key.as_deref() {
+                    Some(key) => crate::presence::roster_for_brain(&registry_root, key, now),
+                    None => Vec::new(),
+                };
+                let mut body = crate::presence::wire_response(&roster, now);
+                body["served_brain"] = served_echo;
+                Ok(body)
+            }
+        }
+    })
+    .await
+    // Fail-open for voice: a panicked read serves the honest empty envelope,
+    // never an error wall (the same posture the contract's client side takes).
+    .unwrap_or_else(|_| Ok(serde_json::json!({ "presences": [], "collisions": [] })));
+
+    graph_response(result)
 }
 
 async fn handle_instance_self(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -3215,6 +3303,10 @@ mod tests {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
             runtime_dir: Some(runtime.to_path_buf()),
+            // Isolated registry: these tests exercise real dispatch (which beats
+            // presence sidecars + instance heartbeats) — they must never write
+            // into the developer's real ~/.m1nd/registry.
+            registry_dir: Some(runtime.join("registry")),
             ..Default::default()
         };
         let session = crate::server::McpServer::new(config)
@@ -3578,5 +3670,214 @@ mod tests {
             app.project_brains.knows(&parent.to_string_lossy()),
             "the deliberate overlap brain must exist"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // P1 — GET /api/presences (the Hall strip's contract endpoint)
+    // -----------------------------------------------------------------------
+
+    /// Drive the REAL `/api/presences` handler; return (status, parsed payload).
+    async fn call_presences(
+        app: &Arc<AppState>,
+        brain: Option<String>,
+    ) -> (StatusCode, serde_json::Value) {
+        let resp = handle_presences(State(app.clone()), Query(BrainQuery { brain }))
+            .await
+            .into_response();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let payload =
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, payload)
+    }
+
+    /// Seed one presence sidecar straight into the owner's (isolated) registry —
+    /// the same file the throttled beat writes. Neutral fixture names only.
+    fn seed_presence(
+        registry: &std::path::Path,
+        agent: &str,
+        brain: &str,
+        caller_root: Option<&str>,
+        mutate: bool,
+        last_beat_ms: u64,
+    ) {
+        let record = crate::presence::PresenceRecord {
+            schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+            presence_id: crate::presence::stable_presence_id(agent, brain),
+            agent_id: agent.to_string(),
+            brain: brain.to_string(),
+            caller_root: caller_root.map(str::to_string),
+            kind: None,
+            theme: None,
+            worktree: None,
+            working_set: Vec::new(),
+            task_ref: None,
+            mutation: crate::presence::MutationSignal {
+                observed_at_ms: mutate.then_some(last_beat_ms),
+                declared_intent: None,
+            },
+            first_seen_ms: last_beat_ms,
+            last_beat_ms,
+            query_count: 1,
+            ttl_ms: crate::presence::PRESENCE_TTL_MS,
+        };
+        crate::presence::write_presence(registry, &record).expect("seed presence");
+    }
+
+    /// The contract's scope semantics: absent `brain` ⇒ the OWNER-WIDE roster
+    /// (no served_brain echo); present ⇒ that brain's roster with the §4A.9.4
+    /// echo; an unknown root ⇒ an honest 404 (the client degrades to empty);
+    /// an expired presence is ABSENT from both scopes (no ghost).
+    #[tokio::test]
+    async fn presences_endpoint_owner_wide_scoped_and_404() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bound = tmp.path().join("repo-alpha");
+        write_repo(&bound, "repoalpha");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        ingest_bound(&app, &bound).await;
+
+        let (registry, bound_key) = {
+            let s = app.session.lock();
+            (
+                s.instance.registry_root(),
+                s.workspace_root.clone().expect("bound workspace_root"),
+            )
+        };
+        let now = crate::util::now_ms();
+        // One presence on the bound brain, one on a foreign brain, one GHOST
+        // (expired) on the bound brain.
+        seed_presence(&registry, "exec-alpha", &bound_key, None, false, now);
+        seed_presence(&registry, "exec-beta", "/wt/other-brain", None, false, now);
+        seed_presence(
+            &registry,
+            "exec-ghost",
+            &bound_key,
+            None,
+            false,
+            now.saturating_sub(crate::presence::PRESENCE_TTL_MS + 60_000),
+        );
+
+        // Owner-wide: both live agents, never the ghost, no served_brain echo.
+        let (status, body) = call_presences(&app, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let agents: Vec<&str> = body["presences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["agent_id"].as_str().unwrap())
+            .collect();
+        assert!(
+            agents.contains(&"exec-alpha"),
+            "owner-wide sees the bound brain: {body}"
+        );
+        assert!(
+            agents.contains(&"exec-beta"),
+            "owner-wide sees every brain: {body}"
+        );
+        assert!(
+            !agents.contains(&"exec-ghost"),
+            "an expired presence is absent: {body}"
+        );
+        assert!(
+            body.get("served_brain").is_none(),
+            "owner-wide carries no served_brain echo: {body}"
+        );
+        assert!(body["collisions"].is_array(), "collisions always present");
+
+        // Scoped to the bound brain: only its roster + the echo.
+        let (status, body) = call_presences(&app, Some(bound.to_string_lossy().to_string())).await;
+        assert_eq!(status, StatusCode::OK);
+        let scoped: Vec<&str> = body["presences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["agent_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            scoped,
+            vec!["exec-alpha"],
+            "scoped roster is this brain only: {body}"
+        );
+        assert!(
+            body["served_brain"]["project_root"].is_string(),
+            "scoped response echoes served_brain: {body}"
+        );
+
+        // Unknown brain: honest 404 (the client degrades to an empty roster).
+        let (status, body) = call_presences(&app, Some("/nowhere/unknown-brain".to_string())).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unknown brain 404s: {body}");
+        assert_eq!(body["error"], "unknown_brain");
+    }
+
+    /// The contract's collision + wire shape on the endpoint: two mutating hands
+    /// sharing one caller_root produce ONE `same_worktree` collision naming both
+    /// agents; and an empty owner serves the honest empty envelope.
+    #[tokio::test]
+    async fn presences_endpoint_collision_and_honest_empty() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = rest_owner(&tmp.path().join("runtime"));
+        let registry = app.session.lock().instance.registry_root();
+
+        // Honest empty FIRST (nothing seeded).
+        let (status, body) = call_presences(&app, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["presences"], serde_json::json!([]));
+        assert_eq!(body["collisions"], serde_json::json!([]));
+
+        // Two mutating hands in ONE worktree on one brain → the collision.
+        let now = crate::util::now_ms();
+        seed_presence(
+            &registry,
+            "hand-a",
+            "/wt/one-brain",
+            Some("/wt/shared"),
+            true,
+            now,
+        );
+        seed_presence(
+            &registry,
+            "hand-b",
+            "/wt/one-brain",
+            Some("/wt/shared"),
+            true,
+            now,
+        );
+        // And the NORMAL shape beside it: a third mutating hand, same brain,
+        // its OWN worktree — never part of the warning.
+        seed_presence(
+            &registry,
+            "hand-c",
+            "/wt/one-brain",
+            Some("/wt/isolated"),
+            true,
+            now,
+        );
+
+        let (status, body) = call_presences(&app, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let collisions = body["collisions"].as_array().unwrap();
+        assert_eq!(collisions.len(), 1, "exactly one colliding pair: {body}");
+        assert_eq!(collisions[0]["reason"], "same_worktree");
+        assert_eq!(collisions[0]["brain_root"], "/wt/one-brain");
+        assert_eq!(collisions[0]["caller_root"], "/wt/shared");
+        let ids = collisions[0]["agent_ids"].as_array().unwrap();
+        assert!(ids.contains(&serde_json::json!("hand-a")));
+        assert!(ids.contains(&serde_json::json!("hand-b")));
+        assert!(
+            !ids.contains(&serde_json::json!("hand-c")),
+            "the isolated worktree hand never joins the warning: {body}"
+        );
+        // Entry wire shape: caller_root present when it differs from root.
+        let a = body["presences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["agent_id"] == "hand-a")
+            .unwrap();
+        assert_eq!(a["root"], "/wt/one-brain");
+        assert_eq!(a["caller_root"], "/wt/shared");
+        assert!(a["mutation"]["observed_at_ms"].is_number());
     }
 }
