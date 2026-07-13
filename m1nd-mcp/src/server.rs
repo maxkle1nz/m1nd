@@ -11083,4 +11083,167 @@ mod tests {
             "sanity: the bare key really does float the undated claim to the front"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // P1 presences — the beat by traffic, its throttle, its fail-open, and the
+    // north collision gap on BOTH colliding sessions' packets.
+    // -----------------------------------------------------------------------
+
+    fn presence_dir_of(state: &SessionState) -> std::path::PathBuf {
+        state.instance.registry_root().join("presences")
+    }
+
+    fn read_presence_file(
+        state: &SessionState,
+        agent: &str,
+        brain: &str,
+    ) -> Option<crate::presence::PresenceRecord> {
+        let path = presence_dir_of(state).join(format!(
+            "{}.json",
+            crate::presence::stable_presence_id(agent, brain)
+        ));
+        let raw = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&raw).ok()
+    }
+
+    /// Registration by traffic + the throttle: the FIRST tracked call writes the
+    /// sidecar; an immediate second call is THROTTLED (no second write); a
+    /// changed signal (an observed mutation) clears the throttle so the next
+    /// call carries it promptly.
+    #[test]
+    fn presence_beat_registers_by_traffic_and_throttles() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/beat-brain";
+        state.workspace_root = Some(brain.to_string());
+
+        // 1. Registration by traffic — the seam call is track_agent.
+        state.track_agent("beat-agent");
+        let first = read_presence_file(&state, "beat-agent", brain)
+            .expect("first tracked call writes the presence sidecar");
+        assert_eq!(first.agent_id, "beat-agent");
+        assert_eq!(first.brain, brain);
+        assert_eq!(first.query_count, 1);
+
+        // 2. Throttle — an immediate second call updates memory, not disk.
+        state.track_agent("beat-agent");
+        let after = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert_eq!(
+            after.query_count, 1,
+            "an immediate re-beat is throttled: the sidecar still carries the first write"
+        );
+
+        // 3. A changed signal clears the throttle: the observed mutation rides
+        //    the very next tracked call.
+        state.note_mutation_observed("beat-agent");
+        state.track_agent("beat-agent");
+        let mutated = read_presence_file(&state, "beat-agent", brain).expect("sidecar persists");
+        assert!(
+            mutated.mutation.observed_at_ms.is_some(),
+            "the observed-mutation stamp must ride the next beat promptly"
+        );
+        assert_eq!(
+            mutated.query_count, 3,
+            "the forced beat carries fresh counters"
+        );
+    }
+
+    /// FAIL-OPEN: a broken sidecar (the presences dir path occupied by a FILE)
+    /// must never break the tool call — track_agent still succeeds and the
+    /// in-memory session still advances.
+    #[test]
+    fn presence_beat_fails_open_when_sidecar_write_breaks() {
+        let (_temp, mut state) = build_state();
+        state.workspace_root = Some("/wt/failopen-brain".to_string());
+        // Occupy the presences DIR path with a regular file so create_dir_all fails.
+        let dir = presence_dir_of(&state);
+        std::fs::create_dir_all(dir.parent().expect("registry root")).expect("mk registry");
+        std::fs::write(&dir, b"not a directory").expect("plant the blocker");
+
+        state.track_agent("unlucky-agent");
+
+        let session = state
+            .sessions
+            .get("unlucky-agent")
+            .expect("session tracked");
+        assert_eq!(
+            session.query_count, 1,
+            "the tool call's tracking must survive a broken sidecar (fail-open)"
+        );
+    }
+
+    /// The P1 gate's packet law: an arranged collision surfaces in the north
+    /// honest_gaps of BOTH colliding sessions — and NOT in a bystander's packet.
+    #[test]
+    fn north_collision_gap_rides_both_colliding_packets() {
+        let (_temp, mut state) = build_state();
+        let brain = "/wt/north-brain";
+        state.workspace_root = Some(brain.to_string());
+        let registry = state.instance.registry_root();
+        let now = crate::util::now_ms();
+
+        let seed = |agent: &str, caller: &str| {
+            let record = crate::presence::PresenceRecord {
+                schema: crate::presence::PRESENCE_SCHEMA.to_string(),
+                presence_id: crate::presence::stable_presence_id(agent, brain),
+                agent_id: agent.to_string(),
+                brain: brain.to_string(),
+                caller_root: Some(caller.to_string()),
+                kind: None,
+                theme: None,
+                worktree: None,
+                working_set: Vec::new(),
+                task_ref: None,
+                mutation: crate::presence::MutationSignal {
+                    observed_at_ms: Some(now),
+                    declared_intent: None,
+                },
+                first_seen_ms: now,
+                last_beat_ms: now,
+                query_count: 1,
+                ttl_ms: crate::presence::PRESENCE_TTL_MS,
+            };
+            crate::presence::write_presence(&registry, &record).expect("seed presence");
+        };
+        // Two mutating hands in ONE worktree; a third in its own worktree.
+        seed("hand-a", "/wt/shared");
+        seed("hand-b", "/wt/shared");
+        seed("hand-c", "/wt/isolated");
+
+        let gaps_of = |state: &mut SessionState, agent: &str| -> Vec<String> {
+            let north = super::dispatch_tool(
+                state,
+                "north",
+                &serde_json::json!({ "agent_id": agent, "task": "collision probe" }),
+            )
+            .expect("north packet");
+            north["honest_gaps"]
+                .as_array()
+                .map(|gaps| {
+                    gaps.iter()
+                        .filter_map(|g| g.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let a_gaps = gaps_of(&mut state, "hand-a");
+        assert!(
+            a_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-b")),
+            "hand-a's packet must carry the collision gap naming hand-b: {a_gaps:?}"
+        );
+        let b_gaps = gaps_of(&mut state, "hand-b");
+        assert!(
+            b_gaps
+                .iter()
+                .any(|g| g.starts_with("COLLISION:") && g.contains("hand-a")),
+            "hand-b's packet must carry the collision gap naming hand-a: {b_gaps:?}"
+        );
+        let c_gaps = gaps_of(&mut state, "hand-c");
+        assert!(
+            !c_gaps.iter().any(|g| g.starts_with("COLLISION:")),
+            "the isolated-worktree hand must NOT carry a collision gap: {c_gaps:?}"
+        );
+    }
 }

@@ -69,8 +69,11 @@ same bar, applied to building the organism outward.
 > root line — the collision warning rides the LABEL, no new schema field — with a capped in-place
 > drill scoped and labeled "this brain"); `north` gains ONE collision honest-gap on the EXISTING
 > `honest_gaps` mechanism, present only on a real collision, derived per-agent so it lands on BOTH
-> colliding sessions' packets; `/api/health` exposes an owner-wide roster + collisions to feed the
-> Hall (m1nd-ui lane). **Budgets RE-PINNED and now MECHANICALLY enforced** by the new battery
+> colliding sessions' packets; and the Hall's CONTRACT endpoint **`GET /api/presences?brain=`**
+> (`m1nd-ui docs/voice/P1-UI-CONTRACT.md`) serves `{presences, collisions, served_brain?}` — absent
+> `brain` = owner-wide (the Hall's scope), present = that brain + the §4A.9.4 echo, unknown = honest
+> 404; `collisions` always present (server-authoritative); `/api/health` keeps an owner-wide
+> diagnostic block beside `agent_sessions`. **Budgets RE-PINNED and now MECHANICALLY enforced** by the new battery
 > `cockpit_budget_holds_with_the_eighth_slot` (`chars/4`, worst-case loud fixture): cockpit root
 > ~574 tokens, presences-drill ~567 (the new largest drill), both ≤800; north unchanged (the gap
 > line is present only on collision). **The written LIMITATION** (the verdict's flagged inverse-TTL

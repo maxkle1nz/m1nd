@@ -379,6 +379,81 @@ pub fn collisions_in(roster: &[PresenceRecord], now: u64) -> Vec<Collision> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Wire shape — the P1-UI contract (`GET /api/presences`, P1-UI-CONTRACT.md)
+// ---------------------------------------------------------------------------
+
+/// One contract `PresenceEntry` for the `/api/presences` wire: `{agent_id, root,
+/// caller_root?, first_seen_ms, last_seen_ms, query_count, mutation, task_ref?}`.
+/// `root` is the sidecar's `brain`; `caller_root` is OMITTED when it equals the
+/// root (the contract's absent-when-equal rule); `last_seen_ms` is the last real
+/// sighting (the throttled beat — never a synthetic ping); optional fields are
+/// absent, never null-fabricated.
+pub fn wire_entry(p: &PresenceRecord) -> serde_json::Value {
+    let mut entry = serde_json::json!({
+        "agent_id": p.agent_id,
+        "root": p.brain,
+        "first_seen_ms": p.first_seen_ms,
+        "last_seen_ms": p.last_beat_ms,
+        "query_count": p.query_count,
+        // MutationSignal serializes exactly the contract's PresenceMutation:
+        // {observed_at_ms?, declared_intent?}, both skip-if-none.
+        "mutation": serde_json::to_value(&p.mutation).unwrap_or_else(|_| serde_json::json!({})),
+    });
+    if let Some(caller_root) = p.caller_root.as_deref().filter(|c| *c != p.brain) {
+        entry["caller_root"] = serde_json::json!(caller_root);
+    }
+    if let Some(task_ref) = p.task_ref.as_deref() {
+        entry["task_ref"] = serde_json::json!(task_ref);
+    }
+    entry
+}
+
+/// One contract `PresenceCollision`: `{brain_root, caller_root?, agent_ids,
+/// reason}`. `reason` maps the derived overlap onto the contract's two arms —
+/// any shared `caller_root:`/`worktree:` signal is the measurable
+/// `same_worktree` arm (carrying the shared location), a pure working-set
+/// overlap is `declared_overlap` (no location claimed). `None` only when the
+/// collision's subject presence is not in the roster it was derived from
+/// (impossible by construction; skipped fail-open rather than fabricated).
+pub fn wire_collision(roster: &[PresenceRecord], c: &Collision) -> Option<serde_json::Value> {
+    let subject = roster
+        .iter()
+        .find(|p| p.presence_id == c.subject_presence)?;
+    // Prefer the caller_root signal (a measured path), then the declared
+    // worktree string — both are the same_worktree arm.
+    let shared_location = c
+        .overlap
+        .iter()
+        .find_map(|o| o.strip_prefix("caller_root:"))
+        .or_else(|| c.overlap.iter().find_map(|o| o.strip_prefix("worktree:")));
+    let mut out = serde_json::json!({
+        "brain_root": subject.brain,
+        "agent_ids": [c.subject_agent, c.other_agent],
+        "reason": if shared_location.is_some() { "same_worktree" } else { "declared_overlap" },
+    });
+    if let Some(location) = shared_location {
+        out["caller_root"] = serde_json::json!(location);
+    }
+    Some(out)
+}
+
+/// The `/api/presences` wire body over a (possibly brain-scoped) roster:
+/// `{presences: [...], collisions: [...]}`. `collisions` is ALWAYS present (even
+/// empty) — per the contract, a present array makes the SERVER authoritative and
+/// the client renders it verbatim instead of re-deriving. The caller attaches
+/// the optional `served_brain` echo when the `?brain=` selector was used.
+pub fn wire_response(roster: &[PresenceRecord], now: u64) -> serde_json::Value {
+    let collisions: Vec<serde_json::Value> = collisions_in(roster, now)
+        .iter()
+        .filter_map(|c| wire_collision(roster, c))
+        .collect();
+    serde_json::json!({
+        "presences": roster.iter().map(wire_entry).collect::<Vec<_>>(),
+        "collisions": collisions,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,5 +659,90 @@ mod tests {
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].brain, "/brain/one");
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// P1-UI contract — the wire `PresenceEntry`: `root` carries the brain,
+    /// `caller_root` is OMITTED when it equals the root and present when it
+    /// differs, `last_seen_ms` mirrors the beat, optional fields are absent
+    /// (never null-fabricated), and mutation carries the two honest levels.
+    #[test]
+    fn wire_entry_matches_the_ui_contract_shape() {
+        let now = now_ms();
+        let mut p = rec("exec-a", "/brain/one", now);
+        p.caller_root = Some("/brain/one".to_string()); // equals root → omitted
+        let e = wire_entry(&p);
+        assert_eq!(e["agent_id"], "exec-a");
+        assert_eq!(e["root"], "/brain/one");
+        assert!(
+            e.get("caller_root").is_none(),
+            "caller_root == root is omitted"
+        );
+        assert!(e.get("task_ref").is_none(), "absent task_ref stays absent");
+        assert_eq!(e["last_seen_ms"], serde_json::json!(p.last_beat_ms));
+        assert_eq!(e["first_seen_ms"], serde_json::json!(p.first_seen_ms));
+        assert_eq!(
+            e["mutation"],
+            serde_json::json!({}),
+            "quiet read-only presence"
+        );
+
+        p.caller_root = Some("/wt/lane-a".to_string()); // differs → present
+        p.task_ref = Some("msn_000000000000_neutral".to_string());
+        p.mutation.observed_at_ms = Some(now);
+        let e2 = wire_entry(&p);
+        assert_eq!(e2["caller_root"], "/wt/lane-a");
+        assert_eq!(e2["task_ref"], "msn_000000000000_neutral");
+        assert_eq!(e2["mutation"]["observed_at_ms"], serde_json::json!(now));
+        assert!(e2["mutation"].get("declared_intent").is_none());
+    }
+
+    /// P1-UI contract — the wire `PresenceCollision`: the measurable arm maps to
+    /// reason `same_worktree` carrying the shared location; a pure working-set
+    /// overlap maps to `declared_overlap` with NO location claimed; `agent_ids`
+    /// names both hands; the envelope's `collisions` is present even when empty
+    /// (server-authoritative).
+    #[test]
+    fn wire_collision_and_response_match_the_ui_contract() {
+        let now = now_ms();
+        // same_worktree arm (shared caller_root).
+        let mut a = rec("hand-a", "/brain/one", now);
+        let mut b = rec("hand-b", "/brain/one", now);
+        a.caller_root = Some("/wt/shared".to_string());
+        b.caller_root = Some("/wt/shared".to_string());
+        a.mutation.declared_intent = Some("mutate".to_string());
+        b.mutation.observed_at_ms = Some(now);
+        let roster = vec![a, b];
+        let body = wire_response(&roster, now);
+        assert_eq!(body["presences"].as_array().unwrap().len(), 2);
+        let collisions = body["collisions"].as_array().unwrap();
+        assert_eq!(collisions.len(), 1);
+        assert_eq!(collisions[0]["reason"], "same_worktree");
+        assert_eq!(collisions[0]["brain_root"], "/brain/one");
+        assert_eq!(collisions[0]["caller_root"], "/wt/shared");
+        let ids = collisions[0]["agent_ids"].as_array().unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&serde_json::json!("hand-a")));
+        assert!(ids.contains(&serde_json::json!("hand-b")));
+
+        // declared_overlap arm (working-set only, no shared location).
+        let mut c = rec("hand-c", "/brain/one", now);
+        let mut d = rec("hand-d", "/brain/one", now);
+        c.working_set = vec!["src/shared.rs".into()];
+        d.working_set = vec!["src/shared.rs".into()];
+        c.mutation.declared_intent = Some("mutate".to_string());
+        d.mutation.declared_intent = Some("mutate".to_string());
+        let roster2 = vec![c, d];
+        let body2 = wire_response(&roster2, now);
+        let col2 = &body2["collisions"].as_array().unwrap()[0];
+        assert_eq!(col2["reason"], "declared_overlap");
+        assert!(
+            col2.get("caller_root").is_none(),
+            "declared_overlap claims no location"
+        );
+
+        // Empty roster → honest empty envelope, collisions PRESENT (authoritative).
+        let empty = wire_response(&[], now);
+        assert_eq!(empty["presences"], serde_json::json!([]));
+        assert_eq!(empty["collisions"], serde_json::json!([]));
     }
 }

@@ -60,7 +60,8 @@ hands in ONE worktree; caller_root equality is the measurable signal). Two views
 |---|---|---|
 | cockpit slot 8 `presences` | ONE root line (collision warning rides the LABEL, no new schema field) + a capped in-place drill (`PRESENCE_DRILL_CAP` = 6 rows: agent · theme · where · age · mutating), scope labeled "this brain" | `cockpit.rs` |
 | north collision gap | ONE line on the EXISTING `honest_gaps` mechanism, present only on a real collision, derived per-agent so it lands on BOTH colliding sessions' packets | `server.rs::handle_north` |
-| `/api/health` | owner-wide roster + collisions (data source for the Hall strip, m1nd-ui lane) | `http_server.rs::handle_health` |
+| **`GET /api/presences?brain=`** | **the Hall strip's CONTRACT endpoint** (`m1nd-ui docs/voice/P1-UI-CONTRACT.md`): `{presences, collisions, served_brain?}` — absent `brain` = OWNER-WIDE (the Hall's scope), present = that brain's roster + the §4A.9.4 echo, unknown root = honest 404 (the client degrades to empty); `collisions` ALWAYS present (server-authoritative) | `http_server.rs::handle_presences` · wire mapping `presence.rs::wire_entry/wire_collision/wire_response` |
+| `/api/health` `presences` block | owner-wide roster + collisions as a DIAGNOSTIC beside `agent_sessions` (the Hall reads `/api/presences`, not this) | `http_server.rs::handle_health` |
 
 Budget re-pinned + MECHANICALLY enforced by `cockpit_budget_holds_with_the_eighth_slot`
 (`chars/4`, worst-case): cockpit root ~574 tokens, presences-drill ~567, both ≤800.
@@ -86,7 +87,11 @@ since when"*, never *"who is alive"*. It never invents a heartbeat.
 ## Gaps / deferred (honest)
 
 - **The Hall strip is a separate lane** (m1nd-ui) and is P1-gate-material; the
-  server exposes the data (`/api/health`), the UI renders it.
+  server serves its contract (`GET /api/presences`), the UI renders it.
+- **`task_ref` carries the charter's `msn_` id** (the verdict's binding shape),
+  not the task's free text — the UI contract calls the field "the task line";
+  the id is what is honestly measured and leak-safe (recorded in
+  `P1-SERVER-DIVERGENCES.md`).
 - **task_ref is best-effort** — measured only from an OPEN (`status:"active"`)
   mission-control card under the runtime root; absent otherwise (honest).
 - **The h4nd tray team-view is OUT** (queued in the h4nd house, per the verdict).

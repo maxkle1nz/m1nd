@@ -55,9 +55,33 @@
    open card → no `task_ref` (never fabricated). This honors "measured from the
    charter, never free declaration" while staying total and cheap.
 
-6. **Presences are exposed on `/api/health`, owner-wide.** The verdict named the
-   cockpit slot + the north gap; the Hall (m1nd-ui lane) needs a server data
-   source. Rather than a new REST route, the roster + collisions ride the existing
-   `/api/health` (beside `agent_sessions`), owner-wide (collisions are same-brain
-   by construction, so no cross-brain pairing leaks). The UI lane consumes it; no
-   m1nd-ui/ file was touched.
+6. **The Hall's data source is `GET /api/presences` (the UI contract), not
+   `/api/health`.** This lane FIRST exposed the roster on `/api/health` (beside
+   `agent_sessions`); the burst close then surfaced the P1-UI lane's declared
+   contract (`m1nd-ui docs/voice/P1-UI-CONTRACT.md`): a dedicated
+   `GET /api/presences?brain=` returning `{presences, collisions?, served_brain?}`.
+   The endpoint now exists and honors that contract: absent `brain` = OWNER-WIDE
+   (the Hall's declared scope), present = that brain's roster (filtered by the
+   RESOLVED session's own `workspace_root` — the exact key its beats write) + the
+   §4A.9.4 `served_brain` echo, unknown root = the house 404 (the client degrades
+   to an empty roster), `collisions` ALWAYS present (server-authoritative, the
+   client never re-derives). The `/api/health` block REMAINS as an owner-wide
+   diagnostic beside `agent_sessions` — same pure functions, one truth.
+
+7. **Contract fields the server serves differently (all honest, none fabricated):**
+   - `task_ref` — the UI contract calls it "the task line"; the server sends the
+     charter's **`msn_` id** (the verdict's binding shape: "task_ref?: msn_ of
+     the agent's charter"). The id is what is honestly measured from the mission
+     card and is leak-safe (free task text may carry personal context; the
+     no-leak law applies). The UI renders the id or adapts at the burst close.
+   - `PresenceCollision` is emitted **per colliding pair** (`agent_ids` always
+     2); three hands in one worktree arrive as pairs, not one merged triple —
+     same information, no invented grouping.
+   - On the `same_worktree` arm, `caller_root` carries the shared **measured
+     caller_root path when that matched**, else the shared **declared worktree
+     string** (both are the measurable arm; the value is what matched, never
+     invented). A pure working-set overlap (`declared_overlap`) claims no
+     location, exactly as the contract states.
+   - The endpoint's owner-wide response carries **no `served_brain` echo** — the
+     contract marks the field optional, and echoing the BOUND brain over an
+     owner-wide roster would mislabel the scope (INV-15 posture).
