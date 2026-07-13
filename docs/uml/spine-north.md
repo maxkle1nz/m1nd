@@ -335,10 +335,12 @@ amendments — `docs/voice/ASKGOD-VERDICT-COCKPIT.md`), the human's ON-REQUEST
 router over m1nd's read surfaces. It is a **sibling of `north`, never a field**:
 if it breaks it breaks alone, never taking `north` down (fail-open does not
 apply). Full contract + class/sequence: `docs/uml/cockpit.md`. In three lines:
-- **Root = seven stable-slot collections** (labels move with state, slots never
+- **Root = eight stable-slot collections** (labels move with state, slots never
   do): the tray (POINTER), the map (`system_blocks_snapshot`), missions
   (POINTER), health (`doctor`), trust (`trust`), recent-memories (`boot_memory`,
-  fixed projection), drift (`drift`). Pointer entries carry NO verb (amendment 3).
+  fixed projection), drift (`drift`), and P1 `presences` (POINTER — the
+  control-room roster of THIS brain, drilled in place; the collision warning
+  rides the label). Pointer entries carry NO verb (amendment 3).
 - **The read-only law is DERIVED**: every routed verb is filtered at compose
   time against `server::read_only_denied`, pinned by the test
   `cockpit_read_verbs ∩ READ_ONLY_DENIED_TOOLS = ∅` (amendment 2); the `why`
@@ -347,7 +349,16 @@ apply). Full contract + class/sequence: `docs/uml/cockpit.md`. In three lines:
   response carries `menu_sig` (the short reference a widget button carries back —
   never free text, never a write verb) + `store_version` + `state_sig`, and a
   drill says "state moved" when the caller's `seen_store_version` diverged
-  (amendment 6). Own budget pinned ~695 tokens (root, ≤800 ceiling; drill ~430).
+  (amendment 6). Own budget ≤800 ceiling, now mechanically pinned by
+  `cockpit_budget_holds_with_the_eighth_slot`: worst-case root ~574 tokens,
+  presences-drill ~567 (re-pinned 2026-07-13 after the P1 8th slot).
+
+`north` itself gains ONE P1 line: a **collision honest-gap** — present only when
+this session collides with another live mutating hand on the same brain (same
+caller_root/worktree or overlapping working set). It rides the EXISTING
+`honest_gaps` mechanism (no new schema field), is advisory (never blocking), and
+the P1 gate requires it on BOTH colliding sessions' packets — each derives its
+own (server.rs `handle_north`, `presence::collisions_for_agent`).
 
 ## Gaps
 

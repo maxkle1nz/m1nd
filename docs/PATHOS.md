@@ -49,6 +49,39 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-13 — ORGANISM-INSIDE P1 "PRESENCES" (server lane): the control room can see the team.**
+> The P1-SERVER lane of the presences arc (askGOD verdict 2026-07-13 APPROVE, binding changes 1–3
+> BINDING — `docs/voice/ASKGOD-VERDICT-P1.md`). What landed on `feat/p1-presences-server`: a NEW
+> module `presence.rs` — durable session-presence sidecars (`m1nd-presence-v0`) molded on
+> `instance_registry` (files in the shared registry dir, minutes-scale TTL, `is_stale` filtered at
+> read so a dead presence DISAPPEARS rather than lying, boot-GC reclaims orphan sidecars after an
+> owner restart). The BEAT is a THROTTLED, fail-open hook inside `track_agent` (session.rs:2235 —
+> the single choke point all four dispatch seams funnel through; ~1 disk write per 5s per session,
+> forced promptly only when a signal changes). Enrichment is measured or declared, never invented:
+> `brain`/`caller_root` from the session's own binding, `task_ref` MEASURED from the agent's own
+> open `mission_start` charter (`mission_handlers::latest_open_mission_for`), and the DECLARED
+> fields (`kind`/`theme`/`intent`/`worktree`/`working_set`) ride NEW optional `session_handshake`
+> fields. The OBSERVED mutation level is stamped in `dispatch_tool` off the single `read_only_denied`
+> classifier. **Collision is DERIVED at read, never materialized**, with the verdict's exact
+> predicate: SAME brain AND (same caller_root/worktree OR working-set overlap) AND BOTH mutating —
+> same-brain alone NEVER warns (three executors in isolated worktrees is the normal burst shape, and
+> the anti-test pins it). **Surfaces:** the cockpit gains its **8th collection** `presences` (ONE
+> root line — the collision warning rides the LABEL, no new schema field — with a capped in-place
+> drill scoped and labeled "this brain"); `north` gains ONE collision honest-gap on the EXISTING
+> `honest_gaps` mechanism, present only on a real collision, derived per-agent so it lands on BOTH
+> colliding sessions' packets; `/api/health` exposes an owner-wide roster + collisions to feed the
+> Hall (m1nd-ui lane). **Budgets RE-PINNED and now MECHANICALLY enforced** by the new battery
+> `cockpit_budget_holds_with_the_eighth_slot` (`chars/4`, worst-case loud fixture): cockpit root
+> ~574 tokens, presences-drill ~567 (the new largest drill), both ≤800; north unchanged (the gap
+> line is present only on collision). **The written LIMITATION** (the verdict's flagged inverse-TTL
+> lie): *presence == activity VISIBLE TO m1nd* — an executor compiling for 20 min makes no calls and
+> expires from the roster; the roster answers "who is talking to m1nd, on what, since when", never
+> "who is alive". Proven: `cargo test -p m1nd-mcp` lib **870/0** (9 presence + the cockpit budget/8th-slot
+> tests among them), `fmt --check` clean, `clippy --all-targets -D warnings` clean. Presence is
+> WITNESS TISSUE — it gates nothing, ratifies nothing, lands nothing (laws 5, 10 hold). Lanes kept
+> apart: no m1nd-ui/ touch, no G1 tick region, no rootfix territory. Next (other lanes): the Hall
+> strip (P1-UI, gate-material) + the live two-session collision gate on the served owner.
+
 > **2026-07-12 — THE ORGANISM FROM INSIDE + 360 arc RATIFIED (§C11-style amendment); P0 "WEAR THE WIRE" in flight.**
 > A new off-§C10 front, opened by the owner's order and ratified the same day (verbatim:
 > *"MUITO BEM! ratificado bora pra frente"*) — registered here as the ladder ritual demands,
