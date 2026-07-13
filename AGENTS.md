@@ -91,10 +91,55 @@ unless m1nd is served at a reachable address.
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
 
-## The two write laws — reception governs WRITES (read before any m1nd write)
+## Wear the wire — the cards, the voice, the presences (when m1nd is served)
+
+When you can reach the served owner, the organism should SEE the work, SPEAK to the human, and
+SHOW the team. All three rails are advisory — none is a gate, none lands truth (only a human
+`receipt_import` colors the map).
+
+**The cards (WEAR THE WIRE).** When you ORCHESTRATE a burst — dispatching ≥2 executors, or
+landing a BIG change — open a mission-control card so the work is on the board, not off-book.
+The grammar (learn it once, don't spend four tries on it):
+
+- `mission_start {agent_id, repo, task, mode, budget, risk}` opens the card. The enums are
+  CLOSED — an off-list value is refused with the allowed set: `mode ∈ bug_hunt | review |
+  refactor | docs_drift | architecture | release`, `budget ∈ short | normal | deep`,
+  `risk ∈ low | medium | high`.
+- Progress = **`mission_event`**. NOT `mission_post` — that is a DIFFERENT rail (the
+  mission-LETTER board, `m1nd-mission-letter-v0`, whose `landed` is a human `receipt_import`),
+  not mission progress. The two share the word "card" but not the verb, the id space, or the store.
+- Close = **`mission_close`** — a seat gesture, its only door is `ensure_agent` (no owner sign-off;
+  landing a receipt stays human-only).
+- A card is **SINGLE-WRITER**: `ensure_agent` refuses any caller whose `agent_id` ≠ the card's own
+  (`mission <id> belongs to agent_id <A>; got <B>`). So you post only to a card you opened under
+  YOUR `agent_id` — the orchestrator holds the umbrella burst card (executors report back to it,
+  they never post into it); an executor that runs its own scoped mission opens its OWN card under
+  its OWN id. Negative default: a card is for a real burst, never a trivial one-file touch. The
+  card is a TRAIL, never a gate.
+- Over REST, always pass an explicit `?brain=<root>` selector.
+
+**The voice (render law → M1ND_INSTRUCTIONS §7).** `north` carries `human_view`
+(`m1nd-human-view-v0`): a server-composed ≤4-line card — the m1nd voice for the HUMAN in the
+conversation, its `pulse` row (`trust · graph · focus · bell · coherence`) the served brain's own
+vital signs, plus a `map <N> blocks` fact. You RENDER it verbatim under the negative-default
+cadence in **§7 (`## 7. THE M1ND VOICE`) of the initialize instructions** — never re-compose it,
+never invent a statistic; under `caller_root_mismatch` the card IS the warning and the pulse drops
+whole. The human's on-request navigable menu is the read-only **`cockpit`** verb (a sibling of
+`north`). §7 is the single source for the render law — this file points at it, it does not restate it.
+
+**The presences (the control room sees the team).** All traffic becomes a visible presence:
+registration rides the verbs you already call (the `track_agent` beat, TTL by last-seen —
+*presence = activity visible to m1nd*); a dead session disappears rather than lingering as a ghost.
+A **collision** is derived at read, never stored: two live presences on the **same brain**, **both
+carrying a mutation signal**, whose declared working sets **overlap** → an advisory line on BOTH
+sessions' `north` packets. It warns; it never blocks. **When you see a collision, STOP and
+coordinate — do not force the write** (the same posture as reception). Contract: `m1nd-presence-v0`
+(`docs/ORGANISM-INSIDE-PRD.md` §3.3, `m1nd-mcp/src/presence.rs`); the Hall renders the live roster (`m1nd-ui`).
+
+## The write laws — reception governs WRITES (read before any m1nd write)
 
 One owner (`:1338`) hosts many per-project brains and routes each request to the brain that
-covers the caller's repo. Two laws keep one agent's work out of another repo's brain. Ignore
+covers the caller's repo. Three laws keep one agent's work out of another repo's brain. Ignore
 them and you corrupt shared state — a real incident: a foreign skeleton once overwrote a
 bound brain because the writer never checked which brain it was talking to.
 
@@ -115,6 +160,13 @@ bound brain because the writer never checked which brain it was talking to.
    exactly why. It holds on BOTH doors — the MCP wire and REST `POST /api/tools/ingest` route
    through one guarded core. A burst worktree does NOT get its own brain; bind to the main
    repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
+3. **Memory writes never move your code root.** `memorize` (and any agent-memory ingest
+   merge) can no longer demote a brain's `workspace_root` onto its own memory-store dir —
+   the write path guards it (the #326 family, third member), and a brain found already
+   flipped self-heals at the boot/load seam with an honest log line
+   (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
+   `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
+   disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
 
 Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
 a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no

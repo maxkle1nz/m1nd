@@ -13,7 +13,7 @@ This is a doctrine, not a manual.
   composes trust, task context, prior cross-session memory, a sufficiency signal, one
   `next_move`, and `honest_gaps` into a single packet before you read or edit anything.
   If it returns `needs_ingest` (empty/unbound graph), `ingest` the repo, then `north` again.
-- Before `rg`, shell globbing, or manual file reads, first ask whether `m1nd` can answer or narrow the task directly.
+- Before `rg`, shell globbing, or manual file reads, `m1nd` answers or narrows FIRST — that is the default, not a question you ask only when convenient. The one exception is the **Skip Conditions** below (exact file+lines already known, or pure compiler/runtime truth); everything else earns a `north`/`seek`/`impact` pass first.
 - Prefer the cheapest `m1nd` surface that preserves truth:
   - exact text -> `search`
   - path pattern -> `glob`
@@ -26,6 +26,22 @@ This is a doctrine, not a manual.
   - ordinary docs/wiki/PDF/office docs -> `ingest` with `adapter: "universal"` or `adapter: "auto"`
 - Before risky edits or change reviews, pass through `impact`, `validate_plan`, and usually `surgical_context_v2`.
 - Keep `agent_id` stable across one investigation unless intentionally splitting roles.
+
+## Trust-First Stance
+
+Trust `m1nd` as the first layer because reading structure first catches what surface reads miss —
+proven repeatedly: graph-grounded confrontations reversed designs before a line was written (a
+watcher mis-aimed at documents, a "sacred" law that was 80% doctrine, a spec verb that did not
+exist), each with the exact `file:line`. The trust is CALIBRATED, not blind, and that is WHY it
+comes first: a calibrated absence — `caller_root_mismatch`, `abstain`, `gathering`,
+`insufficient_evidence` — is the high-value answer that stops you editing the wrong repo, not a
+failure to route around. The counterfactual attribution law (below, in **The m1nd Voice**) is the
+same discipline pointed at credit: name m1nd's help only when, without it, you would have decided
+worse. And the ruler that keeps trust honest: m1nd narrows and connects — the compiler, tests, and
+runtime still decide truth; when a verb hangs (federated `seek`/`federate` can exceed 60s), when
+freshly-`memorize`d claims lag semantic recall, or when a runner-named scan falls back to
+heuristics, WORK AROUND and file one field-report line — never insist blindly, never conclude
+"m1nd is broken".
 
 ## Trained Agent Loop
 

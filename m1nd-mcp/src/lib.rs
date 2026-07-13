@@ -45,6 +45,9 @@ pub mod mission_local;
 pub mod persist_handlers;
 pub mod perspective;
 pub mod perspective_handlers;
+// ORGANISM-INSIDE P1 — durable session-presence sidecars (m1nd-presence-v0): the
+// control room sees the team, collisions derived at read (askGOD verdict 2026-07-13).
+pub mod presence;
 // HUMAN VIEW v2 F2.5c — the owner's runnerd surface (announce liveness registry +
 // the mission_spawn proxy that keeps the shared secret owner-side).
 pub mod runnerd_owner;
