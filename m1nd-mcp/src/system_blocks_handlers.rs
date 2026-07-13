@@ -487,11 +487,13 @@ pub struct ReceiptImportInput {
     pub block_id: String,
     /// The receipt itself (full [`Receipt`] shape; unknown fields are rejected).
     pub receipt: Receipt,
-    /// The ORIGIN of the import gesture (sovereign-stamp arc, step 0). Validated
-    /// server-side against the closed [`RECEIPT_IMPORT_HUMAN_ORIGINS`] allow-list.
-    /// Only the owner's screen composes `"human-ui"`; a runner/agent MCP client never
-    /// does. Absent, empty, or any off-list value refuses the call — landing a receipt
-    /// is the human's signature, not an agent's write (the same law `ratify` carries).
+    /// The ORIGIN of the import gesture (sovereign-stamp arc). Validated server-side
+    /// against the closed [`RECEIPT_IMPORT_HUMAN_ORIGINS`] allow-list. A HUMAN gesture
+    /// composes an allow-listed value — `"human-ui"` from the owner's screen, or
+    /// `"human-touchid"` from the h4nd tray's native prompt behind Touch ID; a runner/agent
+    /// MCP client never does. Absent, empty, or any off-list value refuses the call —
+    /// landing a receipt is the human's signature, not an agent's write (the same law
+    /// `ratify` carries).
     #[serde(default)]
     pub imported_via: Option<String>,
 }
