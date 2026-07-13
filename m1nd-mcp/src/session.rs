@@ -1044,6 +1044,40 @@ impl SessionState {
         None
     }
 
+    /// #326-family auto-heal (load/resolve seam). A prior memorize / agent-memory
+    /// merge could DEMOTE `workspace_root` onto the `agent-memory` store dir (the
+    /// write-path bug fixed in `handle_ingest`); brains already carrying that
+    /// flipped state on disk answer the REST seam with a store-dir workspace_root,
+    /// so every `caller_root` comparison mis-matches. When `workspace_root` is a
+    /// memory sidecar BUT a real code root is still resolvable from the ingest
+    /// roots, repair it to the code root with one honest log line. Idempotent and
+    /// self-limiting: a no-op when `workspace_root` is already a code root or when
+    /// no code root is resolvable (a genuine pure-memory / medulla store keeps its
+    /// sidecar workspace_root). This de-flips the corrupted bound owner on its next
+    /// boot without any manual data surgery.
+    pub fn heal_workspace_root(&mut self) {
+        let flipped = self
+            .workspace_root
+            .as_deref()
+            .map(is_memory_sidecar)
+            .unwrap_or(false);
+        if !flipped {
+            return;
+        }
+        // `code_root_path` never returns a sidecar: in the flipped state it falls
+        // through to the first non-sidecar ingest root that is a real directory.
+        if let Some(code_root) = self.code_root_path() {
+            if self.workspace_root.as_deref() != Some(code_root.as_str()) {
+                let from = self.workspace_root.clone().unwrap_or_default();
+                eprintln!(
+                    "[m1nd] healed workspace_root: {} -> {} (the #326 family)",
+                    from, code_root
+                );
+                self.workspace_root = Some(code_root);
+            }
+        }
+    }
+
     /// True when THIS store is the medulla — the owner's own memory-of-doctrine
     /// store, not a per-project brain (MEDULLA-PRD §4.1: the tier IS the directory).
     ///
@@ -1664,7 +1698,7 @@ impl SessionState {
         let _ = crate::instance_registry::spawn_boot_gc(instance.registry_root());
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
-        Ok(Self {
+        let mut state = Self {
             graph: shared,
             domain,
             orchestrator,
@@ -1756,7 +1790,13 @@ impl SessionState {
             agent_memory_boot: None,
             read_only: config.read_only,
             read_only_persist_logged: std::cell::Cell::new(false),
-        })
+        };
+        // #326-family auto-heal at the boot/load seam: if a prior memorize left
+        // `workspace_root` demoted onto the agent-memory store dir while a real code
+        // root survives in the ingest roots, repair it before the session serves a
+        // single request (de-flips the corrupted bound owner on its next boot).
+        state.heal_workspace_root();
+        Ok(state)
     }
 
     /// Check if auto-persist should trigger. Returns true every N queries.
@@ -2589,6 +2629,115 @@ mod tests {
         state.ingest_roots = vec![];
         state.workspace_root = Some("/Users/x/solo-repo".to_string());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
+    }
+
+    // #326-family auto-heal: a brain whose workspace_root was demoted onto its
+    // agent-memory store dir (the field-reported bound-owner flip) is repaired to
+    // the real code root when one survives in the ingest roots.
+    #[test]
+    fn heal_workspace_root_undemotes_flipped_bound_brain() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let code_root = temp.path().join("m1nd");
+        std::fs::create_dir_all(&code_root).expect("code root");
+        let agent_memory = temp
+            .path()
+            .join("runtimes")
+            .join("claude")
+            .join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        // Arrange the flipped production state: workspace_root = the store dir,
+        // the real code root still present among the ingest roots.
+        state.workspace_root = Some(agent_memory.to_string_lossy().to_string());
+        state.ingest_roots = vec![
+            code_root.to_string_lossy().to_string(),
+            agent_memory.to_string_lossy().to_string(),
+        ];
+
+        state.heal_workspace_root();
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(code_root.to_string_lossy().as_ref()),
+            "the flipped workspace_root must be healed back to the code root"
+        );
+    }
+
+    // The heal is self-limiting: a genuine pure-memory / medulla store (no code
+    // root in its ingest roots) keeps its sidecar workspace_root untouched.
+    #[test]
+    fn heal_workspace_root_is_noop_without_a_code_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let agent_memory = temp.path().join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(agent_memory.to_string_lossy().to_string());
+        state.ingest_roots = vec![agent_memory.to_string_lossy().to_string()];
+
+        state.heal_workspace_root();
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(agent_memory.to_string_lossy().as_ref()),
+            "a pure-memory store with no code root keeps its sidecar workspace_root"
+        );
+    }
+
+    // The heal is wired into the boot/load seam: a brain that boots with a
+    // store-dir workspace_root (graph under `agent-memory`) but whose persisted
+    // ingest_roots carry a real code root is healed by `initialize` itself,
+    // de-flipping the corrupted bound owner on its next boot.
+    #[test]
+    fn initialize_heals_flipped_workspace_root_from_ingest_roots() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let code_root = temp.path().join("m1nd");
+        std::fs::create_dir_all(&code_root).expect("code root");
+        // The graph lives inside the agent-memory store dir, so the boot-time
+        // inference sets workspace_root to that sidecar (the flipped shape).
+        let agent_memory = temp.path().join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+        // Persist ingest_roots beside the graph (what `load_ingest_roots` reads).
+        std::fs::write(
+            agent_memory.join("ingest_roots.json"),
+            serde_json::to_string(&vec![
+                code_root.to_string_lossy().to_string(),
+                agent_memory.to_string_lossy().to_string(),
+            ])
+            .expect("serialize roots"),
+        )
+        .expect("write ingest_roots.json");
+
+        let config = McpConfig {
+            graph_source: agent_memory.join("graph.json"),
+            plasticity_state: agent_memory.join("plasticity.json"),
+            runtime_dir: Some(agent_memory.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(code_root.to_string_lossy().as_ref()),
+            "initialize must heal the store-dir workspace_root to the code root at boot"
+        );
     }
 
     #[test]
