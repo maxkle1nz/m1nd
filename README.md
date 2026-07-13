@@ -269,19 +269,22 @@ This loop has been proven live end-to-end: `memorize` → `grounded_in` edge →
 
 <p align="center"><img src="docs/assets/visuals/10-attach-core.png" width="520" alt="One owner process holds the live graph; many agents attach to the same core" /></p>
 
-Quick Start below wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
+**The recommended deployment is one served owner with many attached agents** — not a stdio server per host. Direct stdio (what the per-host [Quick Start](#quick-start) wires) is the explicit single-agent fallback: fine for one agent, but each process loads its own graph, holds its own lease, serves no UI, and compounds nothing across hosts. For real work, run one owner that holds the live graph:
 
 ```bash
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
 ```
 
+Drop `--no-gui` and add `--open` to open the served web UI (the Living Tree, Hall, and Threshold) in a browser. The default port is **1337**; an existing install may already serve on another port (a launchd/systemd owner often uses 1338), so prefer `--attach auto` below over hardcoding one.
+
 Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
 
 ```bash
-m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+m1nd-mcp --attach auto --stdio                     # auto-discovers the live owner by its lease
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or pin the URL; M1ND_ATTACH_URL overrides both
 ```
 
-Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
+Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. The write/execution lane — missions, runners, receipts — is an optional second daemon, `m1nd-runnerd` (port 1339); attached agents get the read/graph surface with or without it. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 
 The owner is not single-repo anymore: a session rooted in a repo the owner's graph does not cover gets an honest `reception` block instead of wrong answers, and ONE call — `ingest` with `project_root=<your repo>` — creates a per-project brain inside the same owner (own graph, own persistence), binds the session to it, and returns its `north` packet; from then on every call from that repo routes to its own brain automatically, while the owner's original graph stays untouched.
 

@@ -108,12 +108,15 @@ north-first line reinforces orientation on hosts that render it.
 ## 3. MCP server config (paste-in, per host)
 
 If your host takes a raw MCP-servers block rather than the installer, register the
-runtime as a stdio server. **Canonical recipes live in
+runtime. **The recommended shape is one served owner with each host attached to it**
+(see *Shared owner, many agents* below) — that is the path that shares one graph, serves
+the UI, and compounds across hosts. **Direct stdio is the single-agent fallback**: no
+shared graph, no UI, no cross-host compounding. **Canonical recipes live in
 [`docs/HOST-INTEGRATION-MATRIX.md`](docs/HOST-INTEGRATION-MATRIX.md) §3** — the blocks
 below are the common shape; defer to the matrix for host-specific keys and gotchas.
 
-**Claude Code / Claude Agent SDK / Cursor / Windsurf / generic** (`.mcp.json`,
-`.cursor/mcp.json`, or the host's `mcpServers` map):
+**Single-agent fallback — direct stdio.** Claude Code / Claude Agent SDK / Cursor /
+Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` map):
 
 ```json
 {
@@ -142,16 +145,18 @@ M1ND_RUNTIME_DIR = "/abs/path/to/project/.m1nd"
 live graph, and point every host at it as a thin bridge (loads no graph, takes no lease):
 
 ```bash
-# once, per project — the owner:
+# once, per project — the owner (add --open, and drop --no-gui, to open the served web UI):
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
 ```
 
 ```json
-{ "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "http://127.0.0.1:1337", "--stdio"] } } }
+{ "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "auto", "--stdio"] } } }
 ```
 
-`--attach auto` auto-discovers the live owner for this runtime; `M1ND_ATTACH_URL`
-overrides both. See README → *One graph, many agents*.
+`--attach auto` auto-discovers the live owner for this runtime by its lease — no hardcoded
+port (the default is 1337, but an existing owner may serve elsewhere, e.g. 1338). Pass an
+explicit `http://127.0.0.1:<port>` to pin it, or `M1ND_ATTACH_URL` to override both. See
+README → *One graph, many agents*.
 
 ## 4. Environment variables
 
