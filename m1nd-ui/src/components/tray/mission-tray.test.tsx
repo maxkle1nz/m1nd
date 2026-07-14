@@ -66,6 +66,39 @@ test('a dismissed failure is un-pinned from the list (data untouched — present
   assert.deepEqual(phases, ['executing', 'merge_wait', 'landed'], 'the failed card is gone from the list');
 });
 
+// ── §3c (extended) — the stagnant judging/executing dismiss ───────────────────
+
+const STAGNANT_NOW = Date.parse('2026-07-13T12:00:00Z'); // 4+ days after the executing head moved
+const EXECUTING = 'msn_00000000a001';
+
+test('a STAGNANT executing card offers the presentation-only dismiss ✕ (exactly one)', () => {
+  const out = tray({ onDismiss: noop, now: STAGNANT_NOW });
+  assert.equal(
+    (out.match(/data-role="mission-stagnant-dismiss"/g) ?? []).length,
+    1,
+    'only the stuck executing card gets the stagnant dismiss',
+  );
+});
+
+test('a FRESH executing card (< 24h) offers NO stagnant dismiss', () => {
+  const out = tray({ onDismiss: noop }); // default now = 2026-07-09T12:00Z, ~2h after it moved
+  assert.doesNotMatch(out, /data-role="mission-stagnant-dismiss"/, 'a moving mission is not dismissable');
+});
+
+test('a dismissed STAGNANT head is hidden from the tray (presentation-only, box untouched)', () => {
+  const out = tray({ onDismiss: noop, now: STAGNANT_NOW, dismissedIds: new Set([EXECUTING]) });
+  assert.doesNotMatch(out, new RegExp(`data-mission-id="${EXECUTING}"`), 'the dismissed stagnant card is gone');
+});
+
+test('a dismissed head that is NOT (yet) stagnant still shows — dismiss holds only while stagnant', () => {
+  const out = tray({ onDismiss: noop, dismissedIds: new Set([EXECUTING]) }); // fresh now
+  assert.match(
+    out,
+    new RegExp(`data-mission-id="${EXECUTING}"`),
+    'a moving mission reappears — the dismiss never buries a live head',
+  );
+});
+
 // ── §3b / §1d — the landed anchor + the landed-law ────────────────────────────
 
 test('the landed card shows the receipt anchor `receipt ✓ store v9` (§3b/§1d)', () => {

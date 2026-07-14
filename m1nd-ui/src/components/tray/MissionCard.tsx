@@ -23,6 +23,7 @@ import {
   blockLabelFromId,
   elapsedLabel,
   gateLine,
+  isStagnantHead,
   mergeWaitStatusLine,
   phaseLabel,
   PHASE_META,
@@ -44,6 +45,8 @@ export interface MissionCardProps {
   /** SSR/test seam: open the import confirm at mount (like PacketCompose's `initialMode`),
    *  so the confirm's honest detail is provable with a static render. */
   initialConfirmOpen?: boolean;
+  /** SSR/test seam: open the stagnant-dismiss confirm at mount (SSR has no click). */
+  initialDismissConfirmOpen?: boolean;
   /** F2.5e — the archive gesture. Present (with onArchivePreview) → a merge_wait+candidate
    *  card offers a discreet "Archive — superseded by newer boundary"; confirming calls this
    *  with the head (the Live layer runs `archiveHead`). Absent → no archive affordance. */
@@ -88,6 +91,7 @@ export default function MissionCard({
   onToggleProvenance,
   onImportReceipt,
   initialConfirmOpen = false,
+  initialDismissConfirmOpen = false,
   onArchive,
   onArchivePreview,
   initialArchiveView,
@@ -96,12 +100,19 @@ export default function MissionCard({
   const letter = head.head;
   const accent = PHASE_ACCENT[letter.phase];
   const name = blockLabelFromId(letter.block_id, letter.brain_ref);
-  const elapsed = elapsedLabel(letter.started_at, now ?? Date.now());
+  const nowMs = now ?? Date.now();
+  const elapsed = elapsedLabel(letter.started_at, nowMs);
   const gate = gateLine(letter);
   const mergeLine = mergeWaitStatusLine(letter);
   const receipt = receiptAnchorLabel(letter);
   const isLanded = letter.phase === 'landed';
   const isFailed = letter.phase === 'failed';
+
+  // §3c (extended) — a judging/executing head stuck > 24h is presentation-dismissable:
+  // hide it from the tray, the letter untouched on the box (a contract transition is
+  // future work). Same dismiss mechanism as `failed`, but behind an honest confirm.
+  const canDismissStagnant = isStagnantHead(head, nowMs) && !!onDismiss;
+  const [dismissConfirmOpen, setDismissConfirmOpen] = useState(initialDismissConfirmOpen);
 
   // §6-F2.5d — the landing affordance is live only on a `merge_wait` card that carries
   // a `receipt_candidate` AND has a handler wired (a pure SSR render offers no button).
@@ -164,7 +175,55 @@ export default function MissionCard({
             ✕
           </button>
         )}
+        {canDismissStagnant && (
+          <button
+            type="button"
+            data-role="mission-stagnant-dismiss"
+            onClick={() => setDismissConfirmOpen(true)}
+            aria-label="dismiss this stagnant mission from the tray"
+            title="hasn't moved in over a day — hide it from the tray (the letter stays on the box)"
+            className="shrink-0 text-ink-soft hover:text-ink leading-none px-0.5"
+          >
+            ✕
+          </button>
+        )}
       </div>
+
+      {/* §3c (extended) — the stagnant-dismiss confirm: honest that this only hides the
+          card; the letter itself stays on the mailbox, and a real contract transition is
+          future work (never a silent server mutation dressed as a tidy). */}
+      {canDismissStagnant && dismissConfirmOpen && (
+        <div
+          data-role="dismiss-confirm"
+          className="mt-1.5 rounded border border-hairline bg-porcelain px-2 py-1.5 space-y-1"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-ink-soft">Dismiss this stagnant mission?</div>
+          <p className="text-[11px] text-ink-soft leading-snug">
+            Hides it from the tray. The letter itself stays on the mailbox — a contract transition is future work.
+          </p>
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              data-role="dismiss-confirm-go"
+              onClick={() => {
+                setDismissConfirmOpen(false);
+                onDismiss?.(head.mission_id);
+              }}
+              className="rounded border border-hairline bg-porcelain px-2 py-0.5 text-[11px] text-ink-soft hover:text-ink"
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              data-role="dismiss-confirm-cancel"
+              onClick={() => setDismissConfirmOpen(false)}
+              className="text-[11px] text-ink-soft hover:text-ink"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Seat + capability + runner_id (§3b). */}
       <div data-role="mission-seat" className="mt-1 font-mono text-[10px] text-ink-soft break-words">
