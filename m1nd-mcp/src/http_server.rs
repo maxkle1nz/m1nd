@@ -833,6 +833,10 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
     let api = Router::new()
         .route("/api/health", get(handle_health))
         .route("/api/presences", get(handle_presences))
+        // HUMAN-VIEW-V2 F30 — the Universe panorama's read-only aggregate. SIDECAR-
+        // ONLY: manifests + presence dir + each world's box/store + the owner's own
+        // alerts; it NEVER hydrates a brain (executable HARD LAW, tests/universe_endpoint.rs).
+        .route("/api/universe", get(handle_universe))
         .route("/api/instance/self", get(handle_instance_self))
         .route("/api/instances", get(handle_instances))
         .route("/api/instance/save", post(handle_instance_save))
@@ -1035,6 +1039,137 @@ async fn handle_presences(
     .unwrap_or_else(|_| Ok(serde_json::json!({ "presences": [], "collisions": [] })));
 
     graph_response(result)
+}
+
+/// `GET /api/universe` — the Universe panorama's read-only aggregate
+/// (HUMAN-VIEW-V2 F30, `m1nd-universe-v0`). One sidecar-only read of every EXISTING
+/// project brain: its manifest facts (size + freshness), its live presences (grouped
+/// from the owner-wide roster), its pending human gestures (merge_wait stamps from
+/// the mission box + candidate ratifies from the SystemBlock store), plus the OWNER's
+/// own daemon-alert scope. Composed as a pure fn so the shape is unit-testable and
+/// so the HARD LAW (never hydrates a brain) is provable without an HTTP driver.
+async fn handle_universe(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || universe_body(&state))
+        .await
+        .unwrap_or_else(|_| {
+            // Fail-open: a panicked read serves an honest-empty panorama, never a wall.
+            serde_json::json!({
+                "schema": "m1nd-universe-v0",
+                "worlds": [],
+                "owner": { "alerts_pending": 0 },
+                "totals": { "worlds": 0, "awake": 0, "pending": 0 },
+            })
+        });
+    (StatusCode::OK, Json(result))
+}
+
+/// Compose the Universe panorama body. SIDECAR-ONLY and pure: it reads project-brain
+/// manifests via [`crate::project_brains::ProjectBrainRegistry::disk_roster`] (never a
+/// warm-boot), the presence dir via [`crate::presence::list_live`], each world's
+/// mission box + SystemBlock store, and the owner's already-resident
+/// `daemon_alerts` — the routing layer's `resolve`/`bootstrap` is NEVER called, so
+/// `ProjectBrainRegistry.brains` is untouched (HARD LAW, tests/universe_endpoint.rs).
+pub fn universe_body(state: &AppState) -> serde_json::Value {
+    let now = crate::util::now_ms();
+    // Owner-scope facts, read ONCE from the already-resident bound session (never a
+    // project brain): the shared registry root (for presences) + the owner's own
+    // unacked daemon alerts (owner-scope — the alert chip is `owner`, never a world).
+    let (registry_root, alerts_pending) = {
+        let session = state.session.lock();
+        let alerts = session.daemon_alerts.iter().filter(|a| !a.acked).count() as u64;
+        (session.instance.registry_root(), alerts)
+    };
+    // The owner-wide live presence roster — a cross-brain read of the presence dir,
+    // grouped per world below by each sidecar's `brain` (its writing session's
+    // workspace_root == the world's canonical root).
+    let roster = crate::presence::list_live(&registry_root, now);
+    // The COLD roster: every project brain ON DISK, from its inert manifest only.
+    let disk = state.project_brains.disk_roster();
+
+    let mut worlds: Vec<serde_json::Value> = Vec::with_capacity(disk.len());
+    let mut total_awake = 0u64;
+    let mut total_pending = 0u64;
+
+    for (key, facts, store_dir) in &disk {
+        let root = &facts.project_root;
+        let name = crate::session::basename_of(root);
+
+        // Satellites: this world's live presences (grouped by brain == the world root).
+        let presences: Vec<serde_json::Value> = roster
+            .iter()
+            .filter(|p| p.brain == *root)
+            .map(crate::presence::wire_entry)
+            .collect();
+        let awake = !presences.is_empty();
+        if awake {
+            total_awake += 1;
+        }
+
+        // Stamps: merge_wait heads on this world's mission box (sidecar-only, fail-open).
+        let (merge_wait, mission_total) = {
+            let box_path = std::path::Path::new(root).join(crate::mailbox::BOX_REL_PATH);
+            match crate::mailbox::read_letters(&box_path) {
+                Ok(letters) => {
+                    let heads = crate::mission_letter::heads_by_mission(&letters);
+                    let mw = heads
+                        .values()
+                        .filter(|h| h.head.phase == crate::mission_letter::Phase::MergeWait)
+                        .count() as u64;
+                    (mw, heads.len() as u64)
+                }
+                Err(_) => (0, 0),
+            }
+        };
+
+        // Ratifies: candidate blocks on this world's SystemBlock store (sidecar-only).
+        // `SystemBlockStore::load` reads `<store_dir>/system_blocks.json` directly; a
+        // missing/unreadable store is an honest zero, never an error.
+        let ratifies = match crate::system_blocks::SystemBlockStore::load(store_dir) {
+            Ok(Some(store)) => store
+                .blocks
+                .iter()
+                .filter(|b| b.state == crate::system_blocks::SystemBlockState::Candidate)
+                .count() as u64,
+            _ => 0,
+        };
+
+        total_pending += merge_wait + ratifies;
+
+        let mut world = serde_json::json!({
+            "key": key,
+            "root": root,
+            "name": name,
+            "awake": awake,
+            "presences": presences,
+            // Reads aggregated; the WRITE for each still goes through its per-type verb.
+            "pending": { "stamps": merge_wait, "ratifies": ratifies },
+            "letters": { "merge_wait": merge_wait, "total": mission_total },
+        });
+        // Size + freshness ONLY when the manifest recorded them (a pre-counts manifest
+        // omits them — honest absence, never a fabricated zero or "live" state).
+        if let Some(n) = facts.node_count {
+            world["node_count"] = serde_json::json!(n);
+        }
+        if let Some(e) = facts.edge_count {
+            world["edge_count"] = serde_json::json!(e);
+        }
+        if let Some(u) = facts.updated_ms {
+            world["updated_ms"] = serde_json::json!(u);
+        }
+        worlds.push(world);
+    }
+
+    // Owner alerts are a universe-wide pending gesture too (owner-scope, one bucket).
+    total_pending += alerts_pending;
+    let world_count = worlds.len() as u64;
+
+    serde_json::json!({
+        "schema": "m1nd-universe-v0",
+        "worlds": worlds,
+        "owner": { "alerts_pending": alerts_pending },
+        "totals": { "worlds": world_count, "awake": total_awake, "pending": total_pending },
+    })
 }
 
 async fn handle_instance_self(State(state): State<Arc<AppState>>) -> impl IntoResponse {
