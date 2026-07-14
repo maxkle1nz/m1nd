@@ -105,6 +105,9 @@ export interface BuildMapProps {
   /** Test seam: open the reconcile confirm at mount (SSR has no click) so the
    *  two-step confirm's honest copy is provable with a static render. */
   initialReconcileConfirmOpen?: boolean;
+  /** Stale-while-revalidate (F1) — a re-read is in flight but the last-good map stays
+   *  mounted. Shows a discreet header indicator; the canvas/selection/scroll are kept. */
+  refreshing?: boolean;
 }
 
 /** Toast tint by kind (F3b §D) — all sanctioned non-violet tokens: success = sage,
@@ -361,6 +364,7 @@ export default function BuildMap({
   runnerAvailable = false,
   initialUnmappedExpanded = false,
   initialReconcileConfirmOpen = false,
+  refreshing = false,
 }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
@@ -418,6 +422,11 @@ export default function BuildMap({
             Build Map
             <span className="text-[11px] font-mono text-ink-soft">
               {store.blocks.length} blocks · {rollup.candidate ? 'candidate' : 'ratified'}
+              {refreshing && (
+                <span data-role="map-refreshing" className="ml-1 text-ink-soft/70">
+                  · refreshing…
+                </span>
+              )}
             </span>
           </div>
           <div className="flex items-center gap-2">

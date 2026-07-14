@@ -13,7 +13,7 @@
  * fetch heart is extracted as `loadBuildMap` so the routing is provable DOM-free
  * (the repo's liveRefreshCore pattern for hook tests).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { GraphSnapshot } from '../lib/snapshot';
 import {
@@ -23,7 +23,20 @@ import {
   type SystemBlocksSnapshot,
 } from '../lib/buildMap';
 
-export type BuildMapStatus = 'loading' | 'ready' | 'empty' | 'error';
+/** `refreshing` is a re-read that KEEPS the last-good map mounted (stale-while-
+ *  revalidate): every write reloads, and a reload must never yank the human's
+ *  selection/scroll/modal by blanking to the loading screen. */
+export type BuildMapStatus = 'loading' | 'refreshing' | 'ready' | 'empty' | 'error';
+
+/**
+ * The status a (re)read opens with (pure, so the stale-while-revalidate rule is
+ * unit-provable): a same-brain reload holding a last-good snapshot goes to the
+ * discreet `refreshing` (the map stays up); a cold start or a brain switch has no
+ * trustworthy last-good and honestly `loading`s (the map is expected to change).
+ */
+export function nextReadStatus(hasLastGood: boolean, brainChanged: boolean): 'loading' | 'refreshing' {
+  return hasLastGood && !brainChanged ? 'refreshing' : 'loading';
+}
 
 export interface BuildMapData {
   status: BuildMapStatus;
@@ -123,10 +136,25 @@ export function useBuildMap(
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
+  // Track the last-good snapshot presence + the brain we last read, WITHOUT making
+  // either a dep of the load effect (a snapshot dep would re-fire the load on every
+  // resolve). The presence ref is synced by its own effect (runs on snapshot change,
+  // never on a bare tick), so a same-brain reload still sees the prior last-good.
+  const hasLastGoodRef = useRef(false);
+  useEffect(() => {
+    hasLastGoodRef.current = snapshot?.present === true;
+  }, [snapshot]);
+  const prevBrainRef = useRef<string | null>(brainRoot);
+
   useEffect(() => {
     if (!enabled) return;
     let mounted = true;
-    setStatus('loading');
+    const brainChanged = prevBrainRef.current !== brainRoot;
+    prevBrainRef.current = brainRoot;
+    // Stale-while-revalidate (F1): keep the map mounted across a same-brain reload so a
+    // write never erases the human's selection/scroll/modal; only a cold start or a
+    // brain switch shows the loading screen.
+    setStatus(nextReadStatus(hasLastGoodRef.current, brainChanged));
     setError(null);
     void loadBuildMap(brainRoot, {
       isMounted: () => mounted,
