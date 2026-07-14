@@ -879,7 +879,21 @@ fn finalize_ingest(
         .map(|ws| !crate::session::is_memory_sidecar(ws))
         .unwrap_or(false);
     let manifest_bound = state.workspace_root_source.as_deref() == Some("project_brain_manifest");
-    if !(demotes_to_store && (holds_code_root || manifest_bound)) {
+    // #326 recurrence (field reports 2026-07-14, two flips in two days): the SHARED
+    // SERVED OWNER must be immune to a classic `ingest {path}` carrying a FOREIGN
+    // local cwd. A local run (the `first-minute` shim, then `npm test`) reaches the
+    // served owner over HTTP and its trust sequence sends `ingest {path: <cwd>}`;
+    // that silently rebound the owner's `workspace_root` to the cwd (`npm/bin`, then
+    // `npm/test`), poisoning every session's binding card until the next kickstart.
+    // The served owner is marked by `runnerd_naming` (stamped unconditionally on the
+    // HTTP serve boot, `http_server.rs`; `None` on stdio); once it holds an
+    // established code root (its runtime home — the medulla identity
+    // `infer_workspace_root` sets at boot) only its OWN boot/config gesture may move
+    // that binding, never a foreign process's ingest. The classic stdio single-graph
+    // bind (`runnerd_naming` None) is untouched, and a per-project
+    // `ingest {project_root}` routes to a hosted brain before this seam runs.
+    let served_owner_pinned = state.runnerd_naming.is_some() && holds_code_root;
+    if !(demotes_to_store && (holds_code_root || manifest_bound)) && !served_owner_pinned {
         state.workspace_root = Some(candidate_workspace_root);
     }
 
@@ -5663,6 +5677,137 @@ mod tests {
             store_roots <= 1,
             "the memory store must collapse to at most ONE dir root, got {store_roots} in {:?}",
             state.ingest_roots
+        );
+    }
+
+    /// #326 recurrence (field reports 2026-07-14, two flips in two days): the
+    /// SHARED SERVED OWNER must be immune to a classic `ingest {path}` that carries
+    /// a FOREIGN local cwd. A local run (the `first-minute` shim, then `npm test`)
+    /// reaches the served owner and its trust sequence sends `ingest {path: <cwd>}`;
+    /// that silently rebound the owner's `workspace_root` to the cwd (`npm/bin`,
+    /// then `npm/test`), poisoning every session's binding card until the next
+    /// kickstart. The served owner is marked by `runnerd_naming` (stamped on the
+    /// HTTP serve boot, `None` on stdio); its established binding is its own runtime
+    /// home and only its OWN boot/config gesture may move it — never a foreign
+    /// process's ingest. RED against origin/main (the owner flips to the foreign
+    /// subdir), GREEN with the served-owner pin in `handle_ingest`.
+    #[test]
+    fn served_owner_binding_is_immune_to_foreign_local_ingest() {
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // The served owner's established binding is its runtime home — the medulla
+        // identity `infer_workspace_root` stamps at boot, exactly the healthy field
+        // state (`workspace_root = ~/.m1nd/runtimes/claude`, source graph_path_parent).
+        let owner_binding = state
+            .workspace_root
+            .clone()
+            .expect("owner has an inferred workspace_root after init");
+        assert!(
+            !crate::session::is_memory_sidecar(&owner_binding),
+            "precondition: the owner holds a real (non-sidecar) code root, got {owner_binding}"
+        );
+
+        // The HTTP serve boot stamps `runnerd_naming` (http_server.rs:380) — the one
+        // signal that separates the shared served owner from a stdio session.
+        state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {
+            registry: std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+            owner_runtime_root: runtime_dir.clone(),
+        });
+
+        // A FOREIGN local run delivers a classic `ingest {path: <cwd subdir>}` to
+        // the served owner — the field shape: a subdir of a repo the owner maps
+        // (e.g. `<repo>/npm/test`), spawned by `npm test`.
+        let foreign_cwd = temp.path().join("repo").join("npm").join("test");
+        std::fs::create_dir_all(&foreign_cwd).expect("foreign cwd");
+        std::fs::write(
+            foreign_cwd.join("cli.test.js"),
+            b"// npm test spawns a foreign m1nd-mcp\n",
+        )
+        .expect("write foreign file");
+
+        super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: foreign_cwd.to_string_lossy().to_string(),
+                agent_id: "foreign-local-run".into(),
+                incremental: false,
+                adapter: "code".into(),
+                mode: "merge".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("foreign ingest");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(owner_binding.as_str()),
+            "the served owner's binding must be immune to a foreign local `ingest {{path}}`; \
+             it flipped from {owner_binding} to {:?} (the #326 recurrence)",
+            state.workspace_root
+        );
+    }
+
+    /// Guard scope (companion to the immunity test): a stdio session — no
+    /// `runnerd_naming` — keeps the classic single-graph binding, so an
+    /// `ingest {path: repo}` still sets its `workspace_root`. The served-owner
+    /// pin must NOT regress the plain `m1nd-mcp`-in-a-repo workflow.
+    #[test]
+    fn stdio_session_ingest_still_binds_workspace_root() {
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join("lib.rs"), "pub fn f() {}\n").expect("write code");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        // Stdio session: `runnerd_naming` stays None (never a served owner).
+        assert!(state.runnerd_naming.is_none());
+
+        super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "stdio".into(),
+                incremental: false,
+                adapter: "code".into(),
+                mode: "replace".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("code ingest");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(repo.to_string_lossy().as_ref()),
+            "a stdio single-graph session must still bind its workspace_root to the ingested repo"
         );
     }
 
