@@ -33,6 +33,7 @@ import type {
   SpawnOutcome,
 } from '../lib/missions';
 import type { UniverseResponse } from '../lib/universe';
+import type { AlertsListResponse, AlertsAckResponse } from '../lib/alerts';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -119,6 +120,33 @@ export const api = {
    * route (404) → the caller degrades to the honest empty panorama.
    */
   universe: () => apiFetch<UniverseResponse>('/api/universe'),
+
+  /**
+   * The owner's daemon-alert list (honest doors: the Landing's owner item lands on
+   * the Hall's alerts panel). `alerts_list` reads the BOUND session's unacked alerts
+   * — the SAME stock the Universe's `owner.alerts_pending` counts (http_server.rs
+   * `universe_body`). Deliberately NOT `?brain=`-scoped: a selector would list a
+   * project brain's own alerts, never the owner's. Bare tool route, agent_id 'gui',
+   * unwrapping the `{result}` envelope. A pure READ — safe under a read-only attach.
+   */
+  alertsList: () =>
+    apiFetch<{ result: AlertsListResponse }>('/api/tools/alerts_list', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: 'gui' }),
+    }).then((r) => r.result),
+
+  /**
+   * Acknowledge one or more owner daemon alerts (`alerts_ack`) — flips `acked` on the
+   * BOUND session's alerts and persists, so the Universe count and the panel agree.
+   * Like `alertsList`, deliberately NOT `?brain=`-scoped (the owner's alerts, never a
+   * project brain's). WRITE verb — refused under a read-only attach (the panel surfaces
+   * the honest refusal). Bare tool route, agent_id 'gui', unwrapping the `{result}`.
+   */
+  alertsAck: (alertIds: string[]) =>
+    apiFetch<{ result: AlertsAckResponse }>('/api/tools/alerts_ack', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: 'gui', alert_ids: alertIds }),
+    }).then((r) => r.result),
   saveSelfInstanceState: () =>
     apiFetch<ToolCallResult>('/api/instance/save', {
       method: 'POST',

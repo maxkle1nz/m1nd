@@ -378,6 +378,9 @@ export default function App() {
   // The block a mission-tray card asked to open on the map (F2.5 §3b). Seeds the
   // Build Map's selection so a tray click lands the human on the named block.
   const [mapTargetBlock, setMapTargetBlock] = useState<string | null>(null);
+  // Honest doors: the Universe Landing's owner item routes to the Hall AND asks it to
+  // open on the owner-alerts panel. True only when the Hall was entered via that item.
+  const [hallOpenAlerts, setHallOpenAlerts] = useState(false);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
   // The Build Map snapshot does NOT depend on the graph: an 'empty' owner (no
@@ -441,8 +444,17 @@ export default function App() {
     },
     [universe.worlds],
   );
-  // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall.
-  const onOpenOwner = useCallback(() => setSurface('hall'), []);
+  // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall — and
+  // lands ON its owner-alerts panel (the item finally has a destination).
+  const onOpenOwner = useCallback(() => {
+    setHallOpenAlerts(true);
+    setSurface('hall');
+  }, []);
+  // Every OTHER Hall entry (the brain chip) leaves the alerts panel closed.
+  const onOpenHall = useCallback(() => {
+    setHallOpenAlerts(false);
+    if (surface !== 'threshold') setSurface('hall');
+  }, [surface]);
   // The wordmark is the home affordance ONLY when the owner holds ≥1 world.
   const onOpenUniverse = useCallback(() => setSurface('universe'), []);
 
@@ -552,7 +564,7 @@ export default function App() {
           status={status}
           self={self}
           viewedBrain={viewedBrain}
-          onOpenHall={() => surface !== 'threshold' && setSurface('hall')}
+          onOpenHall={onOpenHall}
           onOpenMap={surface !== 'threshold' && surface !== 'map' ? () => setSurface('map') : undefined}
           onOpenUniverse={
             worldCount >= 1 && surface !== 'universe' && surface !== 'threshold'
@@ -579,6 +591,7 @@ export default function App() {
               onBootstrap={() => setIngestOpen(true)}
               restSelector={restSelector}
               viewedRoot={viewedBrain.root}
+              autoOpenAlerts={hallOpenAlerts}
             />
           ) : surface === 'map' ? (
             // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living
