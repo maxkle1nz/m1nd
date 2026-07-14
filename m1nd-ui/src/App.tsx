@@ -16,6 +16,7 @@ import ThresholdCard from './components/hall/ThresholdCard';
 import OrientationBeats from './components/hall/OrientationBeats';
 import BrainPalette from './components/hall/BrainPalette';
 import MissionTrayLive from './components/tray/MissionTrayLive';
+import UniverseView from './components/universe/UniverseView';
 import { useToastStore } from './stores/toastStore';
 import ToastContainer from './components/ToastContainer';
 import { useSSE } from './hooks/useSSE';
@@ -23,6 +24,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBuildMap } from './hooks/useBuildMap';
 import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
+import { useUniverse } from './hooks/useUniverse';
 import type { NorthPacket } from './api/toolTypes';
 import type { InstanceRegistryEntry, InstanceSelfResponse, SseEvent, SseIngestData } from './types';
 import {
@@ -103,6 +105,7 @@ function TopBar({
   viewedBrain,
   onOpenHall,
   onOpenMap,
+  onOpenUniverse,
 }: {
   status: BackendStatus;
   self: InstanceSelfResponse | null;
@@ -115,6 +118,9 @@ function TopBar({
   /** Open the Build Map for the viewed brain — the missing tree/hall→map door
    *  (the F1 gap became blocking once the map went brain-aware). */
   onOpenMap?: () => void;
+  /** Return to the Universe L0 (the home panorama) — present only when the owner
+   *  serves ≥1 world, so the wordmark becomes the home affordance (F30). */
+  onOpenUniverse?: () => void;
 }) {
   const dot =
     status === 'ok'
@@ -131,7 +137,19 @@ function TopBar({
   return (
     <div className="h-12 flex items-center justify-between px-4 border-b border-ink/10 bg-porcelain shrink-0">
       <div className="flex items-center gap-2">
-        <span className="text-ink font-semibold text-base tracking-tight">m1nd</span>
+        {onOpenUniverse ? (
+          <button
+            type="button"
+            data-role="open-universe"
+            onClick={onOpenUniverse}
+            title="Back to the Universe"
+            className="text-ink font-semibold text-base tracking-tight hover:text-ink-soft transition-colors"
+          >
+            m1nd
+          </button>
+        ) : (
+          <span className="text-ink font-semibold text-base tracking-tight">m1nd</span>
+        )}
         <span
           className="w-2 h-2 rounded-full inline-block"
           style={{ backgroundColor: dot }}
@@ -296,10 +314,11 @@ function IngestModal({
   );
 }
 
-/** The surface the shell is showing. Threshold is rung −∞; Hall is rung −1; tree is
- *  rung 0. The Build Map ('map') is the HUMAN-VIEW-V2 front door — it leads when a
- *  ratified skeleton is present; the tree/Hall stay one click away. */
-type Surface = 'tree' | 'hall' | 'threshold' | 'map';
+/** The surface the shell is showing. The Universe ('universe') is the L0 landing —
+ *  the per-world panorama that leads when the owner serves ≥1 project brain (F30).
+ *  Threshold is rung −∞; Hall is rung −1; tree is rung 0; the Build Map ('map') is a
+ *  world's room, one click from the Universe. Navigation is state-zoom (no router, v1). */
+type Surface = 'universe' | 'tree' | 'hall' | 'threshold' | 'map';
 
 /**
  * The brains the owner holds — the landing signal (§4A.1, INV-12) AND the Cmd+K
@@ -371,6 +390,11 @@ export default function App() {
   // The Build Map read (HUMAN-VIEW-V2 F1) — decides the front door and feeds the
   // 'map' surface. Read-only; gated on the backend being up.
   const buildMap = useBuildMap(backendReachable);
+  // The Universe panorama read (HUMAN-VIEW-V2 F30) — the L0 landing's data AND the
+  // entry signal (≥1 world → land on the Universe). Read-only; a pre-F30 owner
+  // degrades to an empty panorama, so the entry rule falls through untouched.
+  const { universe, status: universeStatus } = useUniverse(backendReachable);
+  const worldCount = universe.worlds.length;
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
@@ -404,16 +428,39 @@ export default function App() {
     setSurface('map');
   }, []);
 
-  // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine).
-  // HUMAN-VIEW-V2 front door: the Build Map LEADS when a ratified skeleton is
-  // present — so we wait for the snapshot to settle before deciding (no flash of
-  // the tree then a jump). A no-skeleton / absent / errored snapshot falls back to
-  // the prior doctrine: zero brains → the Threshold (empty-state-as-onboarding),
-  // otherwise the tree (the Hall is one ESC away, the map fallback protects
-  // first-run). INV-12: a returning user never meets the Threshold.
+  // Zoom from a world into its ROOM (F30): the world's Build Map, viewing that
+  // brain via the §4A.9 selector — the map is where its tray + ratify live. The
+  // world root IS a valid `?brain=` selector; the name/counts seed the chip until
+  // the served_brain echo confirms.
+  const onOpenWorld = useCallback(
+    (root: string) => {
+      const w = universe.worlds.find((x) => x.root === root);
+      setViewedBrain({ root, displayName: w?.name ?? null, nodeCount: w?.node_count ?? null });
+      setMapTargetBlock(null);
+      setSurface('map');
+    },
+    [universe.worlds],
+  );
+  // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall.
+  const onOpenOwner = useCallback(() => setSurface('hall'), []);
+  // The wordmark is the home affordance ONLY when the owner holds ≥1 world.
+  const onOpenUniverse = useCallback(() => setSurface('universe'), []);
+
+  // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine,
+  // amended by F30). The UNIVERSE is the front door when the owner serves ≥1 project
+  // brain (world) — we wait for its read to settle so we never flash then jump. With
+  // ZERO worlds the first-run door is UNCHANGED (INV-12: a returning user never meets
+  // the Threshold): a ratified skeleton leads to the Build Map, else — brains vs none —
+  // the tree or the Threshold onboarding.
   useEffect(() => {
     if (surface != null) return;
-    if (buildMap.status === 'loading') return; // still deciding — wait, don't flash
+    if (universeStatus === 'loading') return; // still deciding — wait, don't flash
+    if (worldCount >= 1) {
+      setSurface('universe');
+      return;
+    }
+    // Zero worlds → the prior doctrine, byte-for-byte.
+    if (buildMap.status === 'loading') return;
     if (buildMap.present) {
       // The skeleton alone decides the front door — even on an 'empty' owner
       // (no graph yet), where the brains fetch never resolves.
@@ -422,7 +469,7 @@ export default function App() {
     }
     if (brainCount == null) return; // no skeleton: fall back to the prior doctrine
     setSurface(brainCount <= 0 ? 'threshold' : 'tree');
-  }, [surface, brainCount, buildMap.status, buildMap.present]);
+  }, [surface, worldCount, universeStatus, brainCount, buildMap.status, buildMap.present]);
 
   // Cmd+K opens the Brains group (§4A.5). Not on the Threshold (no brains yet).
   useKeyboardShortcuts({
@@ -507,9 +554,22 @@ export default function App() {
           viewedBrain={viewedBrain}
           onOpenHall={() => surface !== 'threshold' && setSurface('hall')}
           onOpenMap={surface !== 'threshold' && surface !== 'map' ? () => setSurface('map') : undefined}
+          onOpenUniverse={
+            worldCount >= 1 && surface !== 'universe' && surface !== 'threshold'
+              ? onOpenUniverse
+              : undefined
+          }
         />
         <div className="flex flex-1 overflow-hidden">
-          {surface === 'threshold' ? (
+          {surface === 'universe' ? (
+            // The Universe L0 (HUMAN-VIEW-V2 F30) — the home panorama + the Landing.
+            // Its own right column (the Landing) replaces the tray at L0.
+            <UniverseView
+              universe={universe}
+              onOpenWorld={onOpenWorld}
+              onOpenOwner={onOpenOwner}
+            />
+          ) : surface === 'threshold' ? (
             <ThresholdCard onBootstrapped={landAndOrient} />
           ) : surface === 'hall' ? (
             <HallView
@@ -538,8 +598,9 @@ export default function App() {
               expanding it makes room instead of painting over the surface (the
               fixed-overlay tray click-blocked the block panel / tree drawer —
               field bug 2026-07-10). Not on the Threshold (no brain yet → no
-              missions to track). */}
-          {surface != null && surface !== 'threshold' && (
+              missions to track), nor on the Universe L0 (the Landing IS the tray's
+              aggregate there — one queue, every world). */}
+          {surface != null && surface !== 'threshold' && surface !== 'universe' && (
             <MissionTrayLive
               viewedBrain={viewedBrain}
               enabled={backendReachable}
