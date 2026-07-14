@@ -55,6 +55,16 @@ const DEFERRED_LEGACY = new Set(
   ].map((p) => p.split('/').join(sep)),
 );
 
+// First-class SVG DATA-VIZ surfaces (F30 Universe canvas): they draw discs,
+// satellites, and orbital rings with their OWN measured stroke weights — never a
+// registry icon. Rule (b) (icon stroke = 1.5) does not apply to a surface that
+// draws no icons — the SAME rationale that exempts the force-directed map above,
+// but scoped: rules (a) no-lucide and (c) no-Sparkles STAY enforced here (a viz
+// surface must still never import lucide directly nor glitter with Sparkles).
+const SVG_GRAPHICS = new Set(
+  ['src/components/universe/UniverseView.tsx'].map((p) => p.split('/').join(sep)),
+);
+
 // Banned "AI glitter" decoration icons — a promise, not a fact (§4A.7).
 const BANNED_ICONS = ['Sparkles', 'Sparkle', 'Stars', 'WandSparkles', 'Wand2'];
 
@@ -114,8 +124,9 @@ function lintFile(full) {
     }
 
     // (b) strokeWidth ≠ 1.5 (registry ICON_STROKE constant is exempt; tests too,
-    //     since a test may assert a specific value in a string).
-    if (!isRegistry && !isTest) {
+    //     since a test may assert a specific value in a string; an SVG data-viz
+    //     surface draws non-icon strokes and is exempt from THIS rule only).
+    if (!isRegistry && !isTest && !SVG_GRAPHICS.has(rel)) {
       let m;
       STROKE_ANY.lastIndex = 0;
       while ((m = STROKE_ANY.exec(code)) != null) {

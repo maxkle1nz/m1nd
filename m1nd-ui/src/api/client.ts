@@ -32,6 +32,7 @@ import type {
   SpawnInput,
   SpawnOutcome,
 } from '../lib/missions';
+import type { UniverseResponse } from '../lib/universe';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -108,6 +109,16 @@ export const api = {
 
   instanceSelf: () => apiFetch<InstanceSelfResponse>('/api/instance/self'),
   instances: () => apiFetch<InstanceListResponse>('/api/instances'),
+
+  /**
+   * The Universe panorama's read (HUMAN-VIEW-V2 F30, `m1nd-universe-v0`). A pure
+   * GET — safe under a read-only attach. Sidecar-only on the owner: every EXISTING
+   * project brain with its manifest facts (size + freshness), live presences, and
+   * pending human gestures (merge_wait stamps + candidate ratifies), plus the
+   * owner's own alert scope — and it never hydrates a brain. A pre-F30 owner has no
+   * route (404) → the caller degrades to the honest empty panorama.
+   */
+  universe: () => apiFetch<UniverseResponse>('/api/universe'),
   saveSelfInstanceState: () =>
     apiFetch<ToolCallResult>('/api/instance/save', {
       method: 'POST',
