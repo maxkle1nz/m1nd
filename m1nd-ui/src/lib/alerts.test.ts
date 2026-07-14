@@ -45,6 +45,11 @@ test('unackedAlerts drops acked alerts and orders freshest-first', () => {
   );
 });
 
+test('unackedAlerts tolerates a non-array body (a partial owner) — empty, never a throw', () => {
+  assert.deepEqual(unackedAlerts(undefined as unknown as never[]), []);
+  assert.deepEqual(unackedAlerts(null as unknown as never[]), []);
+});
+
 test('unackedAlerts never mutates its input', () => {
   const alerts = [alert({ alert_id: 'a', created_at_ms: 1 }), alert({ alert_id: 'b', created_at_ms: 2 })];
   const before = alerts.map((a) => a.alert_id);

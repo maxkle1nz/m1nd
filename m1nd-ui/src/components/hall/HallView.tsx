@@ -114,8 +114,10 @@ export default function HallView({
   const refreshAlerts = useCallback(async () => {
     try {
       const resp = await api.alertsList();
-      setAlerts(resp.alerts);
-      setAlertsActive(resp.active);
+      // A pre-alerts / partial owner answers the bare tool route with `{result:{}}` —
+      // guard so a missing `alerts` array degrades to empty, never crashes the Hall.
+      setAlerts(Array.isArray(resp?.alerts) ? resp.alerts : []);
+      setAlertsActive(resp?.active ?? true);
     } catch {
       setAlerts([]);
     }

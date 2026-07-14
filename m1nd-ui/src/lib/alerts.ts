@@ -57,8 +57,10 @@ export function severityTone(severity: string): AlertTone {
 }
 
 /** The unacked alerts, freshest first (the panel only ever shows what still awaits a
- *  hand — an acked alert is done with). Pure; never mutates the input. */
+ *  hand — an acked alert is set aside). Pure; never mutates the input. Tolerant of a
+ *  non-array (a partial/legacy owner body) — degrades to empty, never throws. */
 export function unackedAlerts(alerts: DaemonAlert[]): DaemonAlert[] {
+  if (!Array.isArray(alerts)) return [];
   return alerts
     .filter((a) => !a.acked)
     .slice()
