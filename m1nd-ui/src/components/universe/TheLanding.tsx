@@ -55,19 +55,29 @@ export default function TheLanding({ universe, onOpenWorld, onOpenOwner }: TheLa
         </div>
       ) : (
         <ul className="flex-1 overflow-y-auto py-1">
-          {items.map((item) => (
+          {items.map((item) => {
+            const isOwner = item.scope === 'owner';
+            // A world item with no root can't open a room — routing it to the Hall
+            // (the old `|| !item.worldRoot` fallback) landed the human in the WRONG
+            // room silently. It renders DISABLED instead, the reason in its title.
+            const missingRoot = !isOwner && !item.worldRoot;
+            return (
             <li key={item.id}>
               <button
                 type="button"
                 data-role="landing-item"
                 data-landing-kind={item.kind}
                 data-landing-chip={item.chip}
-                onClick={() =>
-                  item.scope === 'owner' || !item.worldRoot
-                    ? onOpenOwner()
-                    : onOpenWorld(item.worldRoot)
-                }
-                className="w-full text-left px-4 py-2.5 flex items-start gap-2.5 hover:bg-porcelain/70 transition-colors border-b border-hairline/50"
+                disabled={missingRoot}
+                title={missingRoot ? 'world root unknown — refresh' : undefined}
+                onClick={() => {
+                  if (missingRoot) return;
+                  if (isOwner) onOpenOwner();
+                  else if (item.worldRoot) onOpenWorld(item.worldRoot);
+                }}
+                className={`w-full text-left px-4 py-2.5 flex items-start gap-2.5 transition-colors border-b border-hairline/50 ${
+                  missingRoot ? 'opacity-50 cursor-not-allowed' : 'hover:bg-porcelain/70'
+                }`}
               >
                 <span
                   aria-hidden
@@ -95,7 +105,8 @@ export default function TheLanding({ universe, onOpenWorld, onOpenOwner }: TheLa
                 </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
