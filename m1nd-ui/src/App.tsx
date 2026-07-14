@@ -396,7 +396,7 @@ export default function App() {
   // The Universe panorama read (HUMAN-VIEW-V2 F30) — the L0 landing's data AND the
   // entry signal (≥1 world → land on the Universe). Read-only; a pre-F30 owner
   // degrades to an empty panorama, so the entry rule falls through untouched.
-  const { universe, status: universeStatus } = useUniverse(backendReachable);
+  const { universe, status: universeStatus, note: universeNote } = useUniverse(backendReachable);
   const worldCount = universe.worlds.length;
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
@@ -466,7 +466,11 @@ export default function App() {
   // the tree or the Threshold onboarding.
   useEffect(() => {
     if (surface != null) return;
-    if (universeStatus === 'loading') return; // still deciding — wait, don't flash
+    // Still deciding — wait, don't flash. An 'error' (a first non-404 poll failure)
+    // does NOT decide the landing either: a failed universe read is not proof of an
+    // empty sky, so we never silence it into "zero worlds → tree". The ~5s retry
+    // recovers a transient blip; a truly down owner is already gated to 'loading'.
+    if (universeStatus === 'loading' || universeStatus === 'error') return;
     if (worldCount >= 1) {
       setSurface('universe');
       return;
@@ -580,6 +584,7 @@ export default function App() {
               universe={universe}
               onOpenWorld={onOpenWorld}
               onOpenOwner={onOpenOwner}
+              note={universeNote}
             />
           ) : surface === 'threshold' ? (
             <ThresholdCard onBootstrapped={landAndOrient} />

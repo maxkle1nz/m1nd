@@ -57,6 +57,22 @@ test('the L0 header states universe FACTS as a serif sentence', () => {
   assert.match(out, /font-serif/, 'the headline is serif (the client-composed voice)');
 });
 
+test('a read-failure note rides the header discreetly — the last-good sky stays lit', () => {
+  const u = universe({ worlds: [world()], totals: { worlds: 1, awake: 0, pending: 0 } });
+  const out = html(
+    <UniverseView universe={u} onOpenWorld={noop} onOpenOwner={noop} note="read failed — retrying" nowMs={NOW} />,
+  );
+  assert.match(out, /data-role="universe-note"/, 'the note element renders');
+  assert.match(out.replace(/<[^>]+>/g, ' '), /read failed — retrying/);
+  assert.match(out, /data-role="universe-world"/, 'the sky is still painted — the note never blanks it');
+});
+
+test('a clean read shows no note element (nothing fabricated)', () => {
+  const u = universe({ worlds: [world()] });
+  const out = html(<UniverseView universe={u} onOpenWorld={noop} onOpenOwner={noop} nowMs={NOW} />);
+  assert.doesNotMatch(out, /data-role="universe-note"/);
+});
+
 test('each world paints a labelled disc with its honest freshness age', () => {
   const u = universe({
     worlds: [
