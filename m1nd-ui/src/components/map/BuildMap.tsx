@@ -102,6 +102,9 @@ export interface BuildMapProps {
   runnerAvailable?: boolean;
   /** Test seam: force the Unmapped tray open (SSR has no click). */
   initialUnmappedExpanded?: boolean;
+  /** Test seam: open the reconcile confirm at mount (SSR has no click) so the
+   *  two-step confirm's honest copy is provable with a static render. */
+  initialReconcileConfirmOpen?: boolean;
 }
 
 /** Toast tint by kind (F3b §D) — all sanctioned non-violet tokens: success = sage,
@@ -357,10 +360,15 @@ export default function BuildMap({
   curationResult = null,
   runnerAvailable = false,
   initialUnmappedExpanded = false,
+  initialReconcileConfirmOpen = false,
 }: BuildMapProps) {
   const store = snapshot.present ? snapshot.store ?? null : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [modal, setModal] = useState<MapModal>(null);
+  // F3b §D — the reconcile is the ONE write the map offers, so it asks first: a
+  // click opens a two-step confirm (mirroring the tray's import/archive confirm)
+  // before `onReconcile` fires. Every human write on this surface confirms.
+  const [reconcileConfirmOpen, setReconcileConfirmOpen] = useState(initialReconcileConfirmOpen);
   // F2.5c §4b — poll the runner-daemon liveness only while the compose panel is open,
   // so the spawn radio un-disables when a runner is registered.
   const runnerd = useRunnerdStatus(modal?.kind === 'packet');
@@ -413,27 +421,75 @@ export default function BuildMap({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Reconcile (F3b §D) — the ONE write the map offers. Near the read-only
-                tag: reconcile is itself a write, refused on a read-only owner (the
-                toast says so, honestly; the button never vanishes). */}
+            {/* Reconcile (F3b §D) — the ONE write the map offers. A click opens the
+                two-step confirm below (never fires the write directly); refused on a
+                read-only owner (the toast says so, honestly; the button never vanishes). */}
             {onReconcile && (
               <button
                 type="button"
                 data-role="reconcile"
-                onClick={onReconcile}
+                onClick={() => setReconcileConfirmOpen(true)}
                 disabled={reconciling}
-                title="Resolve every block's membership against the real repo files"
+                title="Re-resolve every block's membership against the repo — a write (asks first)"
                 className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono text-ink bg-bone border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
               >
                 <Icon name="ingest" size={14} decorative />
                 {reconciling ? 'Reconciling…' : 'Reconcile'}
               </button>
             )}
-            <span className="text-[10px] font-mono text-ink-soft" data-role="read-only-note">
+            {/* A hairline sets the read-only SEAL apart from the write button — the seal
+                describes the surface, the button is the one exception, so they never read
+                as one thing. The legend names the split plainly. */}
+            <span className="h-5 w-px bg-ink/10 shrink-0" aria-hidden />
+            <span
+              className="text-[10px] font-mono text-ink-soft leading-tight text-right"
+              data-role="read-only-note"
+              title="the map reads; the Reconcile button writes"
+            >
               read-only
+              {onReconcile && (
+                <span className="block text-ink-soft/70">the map reads; this button writes</span>
+              )}
             </span>
           </div>
         </div>
+
+        {/* The reconcile confirm (F3b §D) — the two-step every human write earns: the
+            honest cost stated before the write fires (a moved boundary bumps vN and
+            stales that block's receipts). Mirrors the tray's import/archive confirm. */}
+        {onReconcile && reconcileConfirmOpen && (
+          <div
+            data-role="reconcile-confirm"
+            className="mx-4 mt-3 rounded-lg border border-verdict-reverify/50 bg-verdict-reverify-tint/40 px-3 py-2.5 text-xs text-ink space-y-1.5"
+          >
+            <div className="text-[10px] uppercase tracking-wide text-ink-soft">Reconcile this map?</div>
+            <p className="leading-snug">
+              This re-resolves every block's membership against the repo. A moved boundary bumps that
+              block's version (vN) and stales its receipts — you re-earn them.
+            </p>
+            <div className="flex items-center gap-2 pt-0.5">
+              <button
+                type="button"
+                data-role="reconcile-confirm-go"
+                onClick={() => {
+                  setReconcileConfirmOpen(false);
+                  onReconcile();
+                }}
+                className="rounded border border-verdict-reverify/50 bg-bone px-2 py-0.5 text-[11px] font-mono text-ink hover:shadow-contact transition-shadow"
+              >
+                Reconcile
+              </button>
+              <button
+                type="button"
+                data-role="reconcile-confirm-cancel"
+                onClick={() => setReconcileConfirmOpen(false)}
+                className="text-[11px] text-ink-soft hover:text-ink"
+              >
+                cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* The reconcile toast (F3b §D) — the honest one-line outcome. */}
         {reconcileToast && (
