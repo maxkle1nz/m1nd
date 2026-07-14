@@ -339,3 +339,75 @@ async fn universe_aggregates_presences_stamps_and_totals_per_world() {
         "no hydration under aggregation"
     );
 }
+
+// ---------------------------------------------------------------------------
+// (3) VITALS NEVER BLOCK THE PANORAMA — a sidecar-only read surface must never
+// queue behind graph work. The gardener tick holds the session lock across a
+// re-ingest + rebuild_engines (minutes); the panorama must answer ANYWAY,
+// omitting the owner-scope vitals HONESTLY rather than stalling. RED-first: on
+// main, `universe_body` took `state.session.lock()` unconditionally on its first
+// line, so this read queued behind the held lock (it read as a deadlock — CPU 0%,
+// 15-20s timeouts — but was transient contention). Law: F30 §3a, vitals never
+// block the panorama.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn universe_never_queues_behind_a_held_session_lock() {
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = tmp.path().join("runtime");
+    let app = mk_app(&runtime);
+
+    let repo = tmp.path().join("world-a");
+    let root = write_dormant_brain(&app, &repo, 64, 128, now_ms());
+
+    // Simulate the gardener tick: a background holder grabs the session lock and
+    // keeps it far longer than any acceptable panorama latency (the real tick holds
+    // it across a re-ingest + rebuild_engines — minutes).
+    let held = app.session.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let _guard = held.lock();
+        tx.send(()).unwrap(); // the lock is provably HELD now
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    });
+    rx.recv().unwrap(); // only drive the read once the lock is held
+
+    // The panorama must answer within a tight ceiling DESPITE the held lock.
+    let start = std::time::Instant::now();
+    let (status, body) = get_universe(&app).await;
+    let elapsed = start.elapsed();
+
+    assert_eq!(
+        status, 200,
+        "the panorama serves 200 even under a held lock: {body}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "the panorama must NEVER queue behind graph work: took {elapsed:?} (ceiling 500ms)"
+    );
+
+    // The dormant world is still served from its on-disk manifest (the sidecar path
+    // needs no session lock).
+    let w = world_by_root(&body, &root)
+        .unwrap_or_else(|| panic!("world served from disk under contention: {body}"));
+    assert_eq!(
+        w["node_count"],
+        serde_json::json!(64u64),
+        "manifest counts served under contention: {w}"
+    );
+
+    // Owner vitals OMITTED HONESTLY (the lock was held): null + a declared note —
+    // never a stall, never a fabricated zero.
+    assert_eq!(
+        body["owner"]["alerts_pending"],
+        serde_json::Value::Null,
+        "owner alerts omitted (not fabricated) while the owner is busy: {body}"
+    );
+    assert_eq!(
+        body["owner"]["note"],
+        serde_json::json!("owner busy — vitals omitted"),
+        "the omission is DECLARED, never silent: {body}"
+    );
+
+    holder.join().unwrap();
+}
