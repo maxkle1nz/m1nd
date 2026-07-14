@@ -63,6 +63,16 @@ This amendment changes the SPA's entry door and adds one read-only aggregate end
   gates untouched (`RATIFY_HUMAN_ORIGIN`, `RECEIPT_IMPORT_HUMAN_ORIGINS` stay the only
   doors, `system_blocks_handlers.rs`). Batch "ratify all" remains the h4nd G slice, out
   of scope.
+- **Where each item lands (client; "honest doors" burst, 2026-07-14).** A world stamp/ratify
+  opens that world's room (its map/tray). The **owner alert** item opens the **Hall and lands
+  on its owner-alerts panel** — a drawer the Hall now carries, listing the bound session's
+  unacked `daemon_alerts` with a per-alert acknowledge + an "acknowledge all" (behind a simple
+  confirm). Before this, the owner item opened a Hall that showed the alerts *nowhere*; now it
+  has a real destination. Ack calls `alerts_ack` on the **bound session (no `?brain=`)** — the
+  same stock this endpoint's `owner.alerts_pending` counts (a `?brain=` selector would ack a
+  project brain's own alerts, a different stock). Cross-brain unification of alerts stays out
+  of scope. A world item that somehow carries **no root** renders **disabled** ("world root
+  unknown — refresh") rather than silently routing to the Hall (the wrong room).
 - Naming law for counters: the cockpit `bell` keeps its exact semantics (merge_wait
   heads only). The Landing badge counts all queued gesture types and is labelled
   "await your hand" — it is **never** called a bell in UI copy. Two numbers, two names,
@@ -141,11 +151,27 @@ fabricated "live" state.
   OWNER's alerts (the bound session, already resident) are surfaced, owner-scope — the
   `owner` chip, never a world chip.
 
+### Client read resilience (`useUniverse`; honest doors, 2026-07-14)
+
+The panorama poll degrades HONESTLY, and the three cases are now distinct (they used to be
+one — any failure became a ready, empty sky, silencing real errors):
+- a **404** (a pre-F30 owner) stays a settled degrade to the empty-ready sky — the entry rule
+  falls through to the prior doctrine untouched;
+- a **real (non-404) blip after a good read** keeps the last-good sky lit and flies a discreet
+  "read failed — retrying" note (a transient error never blanks a populated Universe);
+- the **first non-404 failure** is an honest `error` state that does NOT decide the landing —
+  the SPA waits and retries rather than reporting "zero worlds" and landing on tree/Threshold.
+  A genuinely down owner is already gated to `loading` elsewhere, so this never hangs in
+  practice (the owner's `/api/universe` fail-opens to 200, so a persistent non-404 is
+  essentially impossible while health is `ok`).
+
 ## Out of scope (declared)
 
 Atrium (L1 per-world home) = v2. Unlit worlds + ingest-click = v1.1. URL router = its
 own slice. Batch ratify = h4nd G. Aggregate pulse = would need its own law; not proposed.
 A separate `archives` queue and per-brain alerts = future, per the honesty notes above.
+Cross-brain unification of daemon alerts (surfacing project brains' alerts in one owner panel)
+stays out of scope — the owner-alerts panel is the bound session's stock only.
 
 ## Validation
 
