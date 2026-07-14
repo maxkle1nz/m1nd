@@ -19,6 +19,7 @@ import {
   composeSeq1Letter,
   elapsedLabel,
   gateLine,
+  isStagnantHead,
   landCandidate,
   landErrorToast,
   mergeWaitStatusLine,
@@ -113,6 +114,36 @@ test('phaseCounts tallies every phase present in the heads', () => {
   assert.equal(counts.landed, 1);
   assert.equal(counts.failed, 1);
   assert.equal(counts.judging, 0);
+});
+
+// ── §3c (extended) — the stagnant-head test ───────────────────────────────────
+
+const executingHead = (): MissionHead => heads.find((h) => h.head.phase === 'executing')!; // updated 2026-07-09T10:03Z
+
+test('isStagnantHead: a judging/executing head unmoved > 24h is stagnant', () => {
+  const head = executingHead();
+  // 4+ days after its updated_at.
+  assert.equal(isStagnantHead(head, Date.parse('2026-07-13T12:00:00Z')), true);
+});
+
+test('isStagnantHead: the SAME head < 24h old is NOT stagnant (a fabricated staleness is refused)', () => {
+  const head = executingHead();
+  // ~2h after its updated_at.
+  assert.equal(isStagnantHead(head, Date.parse('2026-07-09T12:00:00Z')), false);
+});
+
+test('isStagnantHead: only judging/executing can be stagnant — never merge_wait/landed/failed', () => {
+  const way_later = Date.parse('2026-08-01T00:00:00Z');
+  for (const phase of ['merge_wait', 'landed', 'failed'] as const) {
+    const head = heads.find((h) => h.head.phase === phase)!;
+    assert.equal(isStagnantHead(head, way_later), false, `${phase} is never stagnant`);
+  }
+});
+
+test('isStagnantHead: an unparseable updated_at is never stagnant (no fabricated age)', () => {
+  const head = executingHead();
+  const broken: MissionHead = { ...head, head: { ...head.head, updated_at: 'not-a-date' } };
+  assert.equal(isStagnantHead(broken, Date.parse('2027-01-01T00:00:00Z')), false);
 });
 
 // ── §1d — the landed-law, encoded ─────────────────────────────────────────────

@@ -57,6 +57,22 @@ test('the L0 header states universe FACTS as a serif sentence', () => {
   assert.match(out, /font-serif/, 'the headline is serif (the client-composed voice)');
 });
 
+test('a read-failure note rides the header discreetly — the last-good sky stays lit', () => {
+  const u = universe({ worlds: [world()], totals: { worlds: 1, awake: 0, pending: 0 } });
+  const out = html(
+    <UniverseView universe={u} onOpenWorld={noop} onOpenOwner={noop} note="read failed — retrying" nowMs={NOW} />,
+  );
+  assert.match(out, /data-role="universe-note"/, 'the note element renders');
+  assert.match(out.replace(/<[^>]+>/g, ' '), /read failed — retrying/);
+  assert.match(out, /data-role="universe-world"/, 'the sky is still painted — the note never blanks it');
+});
+
+test('a clean read shows no note element (nothing fabricated)', () => {
+  const u = universe({ worlds: [world()] });
+  const out = html(<UniverseView universe={u} onOpenWorld={noop} onOpenOwner={noop} nowMs={NOW} />);
+  assert.doesNotMatch(out, /data-role="universe-note"/);
+});
+
 test('each world paints a labelled disc with its honest freshness age', () => {
   const u = universe({
     worlds: [
@@ -143,4 +159,25 @@ test('the Landing honest empty state reads a sentence', () => {
   assert.match(out, /data-role="landing-empty"/);
   assert.match(out, /Nothing awaits your hand/);
   assert.doesNotMatch(out, /data-role="landing-item"/, 'no items in an empty queue');
+});
+
+test('a world item with no root renders DISABLED (never a wrong room), the reason in its title', () => {
+  const u = universe({
+    worlds: [world({ key: 'x', root: '', name: 'rootless', pending: { stamps: 1, ratifies: 0 } })],
+    totals: { worlds: 1, awake: 0, pending: 1 },
+  });
+  const out = html(<TheLanding universe={u} onOpenWorld={noop} onOpenOwner={noop} />);
+  assert.match(out, /data-role="landing-item"/, 'the item still renders');
+  assert.match(out, /data-role="landing-item"[^>]*disabled/, 'but it is disabled — never a wrong room');
+  assert.match(out, /title="world root unknown — refresh"/, 'the reason rides its title');
+});
+
+test('a rooted world item and the owner item are NOT disabled (only a rootless world is)', () => {
+  const u = universe({
+    worlds: [world({ key: 'a', root: '/w/a', name: 'alpha', pending: { stamps: 1, ratifies: 0 } })],
+    owner: { alerts_pending: 1 },
+    totals: { worlds: 1, awake: 0, pending: 2 },
+  });
+  const out = html(<TheLanding universe={u} onOpenWorld={noop} onOpenOwner={noop} />);
+  assert.doesNotMatch(out, /data-role="landing-item"[^>]*disabled/, 'a rooted world + owner both stay live');
 });

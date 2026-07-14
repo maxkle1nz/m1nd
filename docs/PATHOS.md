@@ -49,6 +49,29 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-14 — "HONEST DOORS AND EXITS" burst on `fix/honest-doors-and-exits` (branch, NOT yet landed).**
+> A UI-only burst (zero engine change) closing eight honesty gaps a hands-on sweep + an askGOD full cut found
+> across the Universe/Hall/map/tray surfaces: **(1)** the map's **Reconcile** asks first — a two-step confirm
+> mirroring the tray's import/archive, the read-only seal set apart from the one write button ("the map reads;
+> this button writes"); **(2)** the Landing's **owner alert item finally lands somewhere** — the Hall gained an
+> owner-alerts panel (bound-session `alerts_list`/`alerts_ack`, deliberately NO `?brain=` — the same stock
+> `/api/universe`'s `owner.alerts_pending` counts), per-alert ack + "acknowledge all"; **(3)** a **stagnant**
+> `judging`/`executing` head (>24h unmoved) is presentation-dismissable behind an honest confirm (a labelled
+> PALLIATIVE — the letter stays on the box, a contract transition is future work; the dismiss lifts if the head
+> wakes); **(4)** `useUniverse` stops silencing errors — a 404 still degrades to the empty sky, a real blip after
+> a good read keeps last-good + a "read failed — retrying" note, and a FIRST non-404 failure is an honest
+> `error` that does NOT decide the landing; **(5)** a rootless Landing world item renders **disabled** ("world
+> root unknown — refresh"), never the wrong room; **(6)** `useBuildMap` is **stale-while-revalidate** — a reload
+> keeps the map mounted (a discreet "refreshing"), preserving selection/scroll/modal (a write no longer erases
+> the human's context); **(7)** the SSE base follows the API base (`API_BASE`, no hardcoded loopback that
+> cross-origins a retargeted dev owner); **(8)** the **block detail panel finally closes** — a header ✕, a scoped
+> capture-phase ESC (fires only while the panel is open, no modal up, stops propagation so it never also ascends
+> a surface), and a re-click toggle, all deselecting WITHOUT losing scroll (coherent with #6). Proven: the full
+> `node --test` suite green (567 → 616, +49 specs), tsc + vite build + eslint/violet/icon clean, and a **5-flow
+> Playwright browser proof** (`e2e/honest-doors.spec.ts`, owner mocked in-page) — which caught a real robustness
+> bug live (the owner-alerts read crashed the Hall on a partial owner body; guarded + regression-tested). Docs
+> updated same PR (F30 · F25-TECH · this block). Next: land the burst PR.
+
 > **2026-07-14 — F30 "THE UNIVERSE" built on `feat/universe-home` (branch, NOT yet landed).**
 > The SPA gained its L0 HOME — a per-world **Universe** panorama that becomes the entry door when the
 > owner serves ≥1 project brain (amends §4A.1; zero brains keeps the first-run Threshold EXACTLY as

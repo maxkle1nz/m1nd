@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadBuildMap, type BuildMapSinks } from './useBuildMap';
+import { loadBuildMap, nextReadStatus, type BuildMapSinks } from './useBuildMap';
 
 const SNAPSHOT_BODY = JSON.stringify({
   result: {
@@ -85,4 +85,22 @@ test('an unmounted sink stops the write-through after the fetch resolves', async
     globalThis.fetch = real;
   }
   assert.equal(statusWrites, 0, 'nothing lands after unmount');
+});
+
+// ── stale-while-revalidate: a reload never blanks the map ─────────────────────
+
+test('nextReadStatus: a same-brain reload with last-good stays MOUNTED (refreshing)', () => {
+  assert.equal(nextReadStatus(true, false), 'refreshing', 'the human keeps their selection/scroll');
+});
+
+test('nextReadStatus: a cold start (no last-good) honestly loads', () => {
+  assert.equal(nextReadStatus(false, false), 'loading');
+});
+
+test('nextReadStatus: a brain switch loads even with last-good (it was another brain)', () => {
+  assert.equal(nextReadStatus(true, true), 'loading', 'the old brain map is not shown as the new one');
+});
+
+test('nextReadStatus: a cold start on a brain switch loads', () => {
+  assert.equal(nextReadStatus(false, true), 'loading');
 });

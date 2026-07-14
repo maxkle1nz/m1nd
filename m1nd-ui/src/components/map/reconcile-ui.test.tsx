@@ -132,6 +132,49 @@ test('a read-only toast keeps the button VISIBLE (it never vanishes silently)', 
   assert.match(out, /data-toast-kind="readonly"/);
 });
 
+// ── D) The two-step confirm — every human write asks first ─────────────────────
+
+test('the reconcile button does NOT fire the write directly — no confirm at rest', () => {
+  const out = html(<BuildMap snapshot={reconciled} rollup={rollup} onReconcile={() => {}} />);
+  assert.match(out, /data-role="reconcile"/, 'the button is there');
+  assert.doesNotMatch(out, /data-role="reconcile-confirm"/, 'the confirm is closed until the human opens it');
+});
+
+test('opening the confirm (SSR seam) states the honest cost + a two-way choice', () => {
+  const out = html(
+    <BuildMap snapshot={reconciled} rollup={rollup} onReconcile={() => {}} initialReconcileConfirmOpen />,
+  );
+  assert.match(out, /data-role="reconcile-confirm"/, 'the confirm renders');
+  assert.match(out, /data-role="reconcile-confirm-go"/, 'the explicit Reconcile button');
+  assert.match(out, /data-role="reconcile-confirm-cancel"/, 'and a cancel');
+  const text = visibleText(
+    <BuildMap snapshot={reconciled} rollup={rollup} onReconcile={() => {}} initialReconcileConfirmOpen />,
+  );
+  assert.match(text, /re-resolves every block's membership against the repo/i, 'names the real effect');
+  assert.match(text, /bumps that block's version \(vN\) and stales its receipts/i, 'names the honest cost');
+});
+
+test('the read-only seal is set apart with a legend naming the one write', () => {
+  const text = visibleText(<BuildMap snapshot={reconciled} rollup={rollup} onReconcile={() => {}} />);
+  assert.match(text, /read-only/, 'the seal still reads read-only');
+  assert.match(text, /the map reads; this button writes/, 'the legend names the split');
+});
+
+test('with NO reconcile handler the read-only seal shows no write legend', () => {
+  const text = visibleText(<BuildMap snapshot={reconciled} rollup={rollup} />);
+  assert.match(text, /read-only/);
+  assert.doesNotMatch(text, /this button writes/, 'no write offered → no write legend');
+});
+
+test('COPY LAW: the reconcile confirm never says proven/done/correct', () => {
+  const text = visibleText(
+    <BuildMap snapshot={reconciled} rollup={rollup} onReconcile={() => {}} initialReconcileConfirmOpen />,
+  );
+  assert.doesNotMatch(text, /\bproven\b/i);
+  assert.doesNotMatch(text, /\bdone\b/i);
+  assert.doesNotMatch(text, /\bcorrect\b/i);
+});
+
 // ── Copy law ──────────────────────────────────────────────────────────────────
 
 test('COPY LAW: no "proven/done/correct" anywhere on the reconciled map + panel', () => {

@@ -33,6 +33,9 @@ export interface BlockPanelProps {
   onShowCode?: () => void;
   /** Open the packet compositor for this block (F2). */
   onAskAgent?: () => void;
+  /** Close the panel (deselect the block). Renders the header ✕; the map also wires
+   *  ESC and a re-click toggle to the same deselect — the panel finally has an exit. */
+  onClose?: () => void;
 }
 
 function SocketList({ label, sockets }: { label: string; sockets: Array<{ to?: string; type?: string; alias?: string; class?: string }> }) {
@@ -57,7 +60,7 @@ function SocketList({ label, sockets }: { label: string; sockets: Array<{ to?: s
   );
 }
 
-export default function BlockPanel({ block, rollup, repoId, onShowCode, onAskAgent }: BlockPanelProps) {
+export default function BlockPanel({ block, rollup, repoId, onShowCode, onAskAgent, onClose }: BlockPanelProps) {
   const tag = toDomainTag(block.block_id, repoId);
   const roles = membershipByRole(block);
 
@@ -67,8 +70,22 @@ export default function BlockPanel({ block, rollup, repoId, onShowCode, onAskAge
       data-block-panel={block.block_id}
       className="w-72 shrink-0 border-l border-ink/10 bg-porcelain overflow-y-auto p-4"
     >
-      {/* Header */}
-      <div className="text-[11px] font-semibold tracking-wide uppercase text-ink-soft">{tag}</div>
+      {/* Header — the domain tag + the exit (the panel never trapped the human before). */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[11px] font-semibold tracking-wide uppercase text-ink-soft">{tag}</div>
+        {onClose && (
+          <button
+            type="button"
+            data-role="block-panel-close"
+            onClick={onClose}
+            aria-label="close the block panel"
+            title="close (Esc)"
+            className="shrink-0 -mt-1 -mr-1 text-ink-soft hover:text-ink px-1.5 py-0.5 leading-none"
+          >
+            ✕
+          </button>
+        )}
+      </div>
       <h2 className="text-base font-semibold text-ink leading-tight mt-0.5">{block.name}</h2>
       <p className="text-xs text-ink-soft mt-1">{block.purpose}</p>
 

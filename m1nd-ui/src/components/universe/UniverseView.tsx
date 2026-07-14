@@ -27,6 +27,9 @@ interface UniverseViewProps {
   onOpenWorld: (root: string) => void;
   /** Open the owner room (the Hall) for owner-scope detail (alerts). */
   onOpenOwner: () => void;
+  /** A discreet read-failure note ("read failed — retrying") when a poll blipped but
+   *  last-good is on screen — the sky stays lit, the note tells the truth. */
+  note?: string | null;
   /** Test seam: freeze "now" so freshness/light is deterministic. */
   nowMs?: number;
 }
@@ -148,6 +151,7 @@ export default function UniverseView({
   universe,
   onOpenWorld,
   onOpenOwner,
+  note = null,
   nowMs = Date.now(),
 }: UniverseViewProps) {
   const placements = useMemo(
@@ -169,6 +173,11 @@ export default function UniverseView({
           </h1>
           <p className="text-xs text-ink-soft mt-1 font-mono">
             the universe · every world this owner holds
+            {note && (
+              <span data-role="universe-note" className="ml-2 text-verdict-reverify">
+                · {note}
+              </span>
+            )}
           </p>
         </div>
 

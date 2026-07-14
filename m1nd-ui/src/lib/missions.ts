@@ -267,6 +267,22 @@ export function sortForTray(heads: MissionHead[]): MissionHead[] {
   return [...failed, ...rest];
 }
 
+/** A judging/executing head has gone STAGNANT once it hasn't moved in over 24h. The
+ *  tray then offers a presentation-only dismiss (§3c's mechanism, extended): hiding it
+ *  from the tray, the letter itself untouched on the mailbox — a real contract
+ *  transition (`judging`/`executing` → a terminal state) is future work. Pure; `now`
+ *  injectable. Keyed on `updated_at` (the head's last movement); an unparseable/absent
+ *  stamp is never stagnant (never a fabricated staleness). */
+export const STAGNANT_HEAD_MS = 24 * 60 * 60 * 1000; // 24h
+
+export function isStagnantHead(head: MissionHead, now: number = Date.now()): boolean {
+  const phase = head.head.phase;
+  if (phase !== 'judging' && phase !== 'executing') return false;
+  const updated = Date.parse(head.head.updated_at);
+  if (Number.isNaN(updated)) return false;
+  return now - updated > STAGNANT_HEAD_MS;
+}
+
 /** Per-phase counts across the heads (for the collapsed strip). */
 export function phaseCounts(heads: MissionHead[]): Record<Phase, number> {
   const counts = Object.fromEntries(PHASES.map((p) => [p, 0])) as Record<Phase, number>;

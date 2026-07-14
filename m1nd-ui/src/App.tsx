@@ -378,6 +378,9 @@ export default function App() {
   // The block a mission-tray card asked to open on the map (F2.5 §3b). Seeds the
   // Build Map's selection so a tray click lands the human on the named block.
   const [mapTargetBlock, setMapTargetBlock] = useState<string | null>(null);
+  // Honest doors: the Universe Landing's owner item routes to the Hall AND asks it to
+  // open on the owner-alerts panel. True only when the Hall was entered via that item.
+  const [hallOpenAlerts, setHallOpenAlerts] = useState(false);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
   // The Build Map snapshot does NOT depend on the graph: an 'empty' owner (no
@@ -393,7 +396,7 @@ export default function App() {
   // The Universe panorama read (HUMAN-VIEW-V2 F30) — the L0 landing's data AND the
   // entry signal (≥1 world → land on the Universe). Read-only; a pre-F30 owner
   // degrades to an empty panorama, so the entry rule falls through untouched.
-  const { universe, status: universeStatus } = useUniverse(backendReachable);
+  const { universe, status: universeStatus, note: universeNote } = useUniverse(backendReachable);
   const worldCount = universe.worlds.length;
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
@@ -441,8 +444,17 @@ export default function App() {
     },
     [universe.worlds],
   );
-  // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall.
-  const onOpenOwner = useCallback(() => setSurface('hall'), []);
+  // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall — and
+  // lands ON its owner-alerts panel (the item finally has a destination).
+  const onOpenOwner = useCallback(() => {
+    setHallOpenAlerts(true);
+    setSurface('hall');
+  }, []);
+  // Every OTHER Hall entry (the brain chip) leaves the alerts panel closed.
+  const onOpenHall = useCallback(() => {
+    setHallOpenAlerts(false);
+    if (surface !== 'threshold') setSurface('hall');
+  }, [surface]);
   // The wordmark is the home affordance ONLY when the owner holds ≥1 world.
   const onOpenUniverse = useCallback(() => setSurface('universe'), []);
 
@@ -454,7 +466,11 @@ export default function App() {
   // the tree or the Threshold onboarding.
   useEffect(() => {
     if (surface != null) return;
-    if (universeStatus === 'loading') return; // still deciding — wait, don't flash
+    // Still deciding — wait, don't flash. An 'error' (a first non-404 poll failure)
+    // does NOT decide the landing either: a failed universe read is not proof of an
+    // empty sky, so we never silence it into "zero worlds → tree". The ~5s retry
+    // recovers a transient blip; a truly down owner is already gated to 'loading'.
+    if (universeStatus === 'loading' || universeStatus === 'error') return;
     if (worldCount >= 1) {
       setSurface('universe');
       return;
@@ -552,7 +568,7 @@ export default function App() {
           status={status}
           self={self}
           viewedBrain={viewedBrain}
-          onOpenHall={() => surface !== 'threshold' && setSurface('hall')}
+          onOpenHall={onOpenHall}
           onOpenMap={surface !== 'threshold' && surface !== 'map' ? () => setSurface('map') : undefined}
           onOpenUniverse={
             worldCount >= 1 && surface !== 'universe' && surface !== 'threshold'
@@ -568,6 +584,7 @@ export default function App() {
               universe={universe}
               onOpenWorld={onOpenWorld}
               onOpenOwner={onOpenOwner}
+              note={universeNote}
             />
           ) : surface === 'threshold' ? (
             <ThresholdCard onBootstrapped={landAndOrient} />
@@ -579,6 +596,7 @@ export default function App() {
               onBootstrap={() => setIngestOpen(true)}
               restSelector={restSelector}
               viewedRoot={viewedBrain.root}
+              autoOpenAlerts={hallOpenAlerts}
             />
           ) : surface === 'map' ? (
             // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living

@@ -28,9 +28,11 @@ import {
 import { canonRootForCompare } from '../../lib/viewedBrain';
 import { useCardV2Data } from '../../hooks/useCardV2Data';
 import { Icon } from '../../lib/icons/registry';
+import { unackedAlerts, type DaemonAlert } from '../../lib/alerts';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
 import MailboxView from './MailboxView';
+import OwnerAlertsPanel from './OwnerAlertsPanel';
 import PresenceStrip from './PresenceStrip';
 
 interface HallViewProps {
@@ -51,6 +53,10 @@ interface HallViewProps {
   /** The root the tree is currently viewing (§4A.8) — the card wearing the viewing
    *  chip. `null` = the bound brain. */
   viewedRoot: string | null;
+  /** Honest doors: the Universe Landing's OWNER item routes here (`onOpenOwner`) and
+   *  asks the Hall to open on its owner-alerts panel. Any other Hall entry leaves it
+   *  closed. Read once at mount (the Hall remounts on each entry). */
+  autoOpenAlerts?: boolean;
 }
 
 function errorDetail(error: unknown, fallback: string): string {
@@ -65,6 +71,7 @@ export default function HallView({
   onBootstrap,
   restSelector,
   viewedRoot,
+  autoOpenAlerts = false,
 }: HallViewProps) {
   const [self, setSelf] = useState<InstanceSelfResponse | null>(null);
   const [instances, setInstances] = useState<InstanceRegistryEntry[]>([]);
@@ -74,6 +81,12 @@ export default function HallView({
   // The brain whose Mailbox (§4A.11) is open beside the grid, or null. The medulla
   // box is addressed by the literal `medulla` root; a project brain by its root.
   const [mailboxFor, setMailboxFor] = useState<{ root: string; name: string | null } | null>(null);
+  // The owner's daemon alerts (honest doors) — the BOUND session's stock, the same one
+  // the Universe counts. Fetched fail-open (a pre-alerts / read-only owner shows none,
+  // never a wall). The panel opens beside the grid; the Landing's owner item lands here.
+  const [alerts, setAlerts] = useState<DaemonAlert[]>([]);
+  const [alertsActive, setAlertsActive] = useState(true);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const addToast = useToastStore((s) => s.addToast);
   // The presence strip (P1) — the OWNER-WIDE roster (no brain = the control-room
@@ -96,11 +109,52 @@ export default function HallView({
     void refresh();
   }, [refresh]);
 
-  // Live refresh (R7) — same calm nerve as the tree.
+  // The owner-alerts read — BOUND session only (no `?brain=`), fail-open so a
+  // read-only / pre-alerts owner shows an empty panel, never an error wall.
+  const refreshAlerts = useCallback(async () => {
+    try {
+      const resp = await api.alertsList();
+      // A pre-alerts / partial owner answers the bare tool route with `{result:{}}` —
+      // guard so a missing `alerts` array degrades to empty, never crashes the Hall.
+      setAlerts(Array.isArray(resp?.alerts) ? resp.alerts : []);
+      setAlertsActive(resp?.active ?? true);
+    } catch {
+      setAlerts([]);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshAlerts();
+  }, [refreshAlerts]);
+
+  // Live refresh (R7) — same calm nerve as the tree (brains + alerts together).
   const onLive = useCallback(() => {
     void refresh();
-  }, [refresh]);
+    void refreshAlerts();
+  }, [refresh, refreshAlerts]);
   useLiveRefresh({ onRefresh: onLive, enabled: true });
+
+  // Ack is presentation of a real WRITE: `alerts_ack` flips the owner's alert and the
+  // count falls in lockstep. Bound-session scope; a refusal (read-only) surfaces honestly.
+  const onAckAlerts = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      try {
+        await api.alertsAck(ids);
+        await refreshAlerts();
+      } catch (err) {
+        setError(errorDetail(err, 'Acknowledge failed'));
+      }
+    },
+    [refreshAlerts],
+  );
+
+  // The Landing's owner item lands ON the alerts panel: open it once at mount when the
+  // Hall was entered via `onOpenOwner` (any other entry leaves it closed).
+  useEffect(() => {
+    if (autoOpenAlerts) setAlertsOpen(true);
+  }, [autoOpenAlerts]);
+
+  const pendingAlerts = unackedAlerts(alerts).length;
 
   const selfId = self?.instance.instance_id ?? null;
   // Defense in depth (§4A.3): collapse duplicate registry entries to ONE card per
@@ -223,6 +277,27 @@ export default function HallView({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Owner alerts (honest doors) — the owner-daemon's findings, where the
+                Universe Landing's owner item lands. The badge counts UNACKED alerts
+                (the same stock the Universe counts); absent when the bell is quiet. */}
+            <button
+              type="button"
+              data-role="owner-alerts-entry"
+              onClick={() => setAlertsOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded hover:text-ink hover:shadow-contact transition-shadow"
+              title="Owner daemon alerts — acknowledge from here"
+            >
+              <Icon name="inbox" size={14} decorative className="text-ink-soft/80" />
+              Alerts
+              {pendingAlerts > 0 && (
+                <span
+                  data-role="owner-alerts-badge"
+                  className="ml-0.5 text-[10px] font-mono px-1.5 py-px rounded-full border border-verdict-reverify/50 bg-verdict-reverify-tint/40 text-ink tabular-nums"
+                >
+                  {pendingAlerts}
+                </span>
+              )}
+            </button>
             {/* The medulla box (§4A.11) — its own labeled entry, holding ONLY the
                 projectless letters (transversal tools, owner runtime). Opened by
                 the literal `medulla` selector, never mixed into a project box. */}
@@ -332,6 +407,17 @@ export default function HallView({
           brainRoot={mailboxFor.root}
           displayName={mailboxFor.name}
           onClose={() => setMailboxFor(null)}
+        />
+      )}
+
+      {/* Owner alerts (honest doors) — the drawer the Landing's owner item lands on. */}
+      {alertsOpen && (
+        <OwnerAlertsPanel
+          alerts={alerts}
+          active={alertsActive}
+          onAck={(id) => onAckAlerts([id])}
+          onAckAll={onAckAlerts}
+          onClose={() => setAlertsOpen(false)}
         />
       )}
     </div>

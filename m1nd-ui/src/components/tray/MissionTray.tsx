@@ -15,7 +15,7 @@
  * "no missions yet — point an agent at a block" (§3d). Copy law throughout.
  */
 import type { ArchiveBoundaryView, MissionHead } from '../../lib/missions';
-import { PHASE_META, PHASES, phaseCounts, phaseLabel, sortForTray } from '../../lib/missions';
+import { PHASE_META, PHASES, isStagnantHead, phaseCounts, phaseLabel, sortForTray } from '../../lib/missions';
 import type { MissionsStatus } from '../../hooks/useMissions';
 import MissionCard from './MissionCard';
 
@@ -64,10 +64,18 @@ export default function MissionTray({
   const counts = phaseCounts(missions);
   const total = missions.length;
 
-  // The list: failed pinned atop (§3c), then newest first; a dismissed failure is
-  // un-pinned (hidden from the list) but its data is untouched in the box.
+  // The list: failed pinned atop (§3c), then newest first; a dismissed head is
+  // un-pinned (hidden from the list) but its data is untouched in the box. Dismiss
+  // holds for a `failed` head OR a stagnant judging/executing one — and ONLY while it
+  // stays in that state: if a stagnant mission wakes and moves (merge_wait/landed), the
+  // filter no longer hides it, so a dismissed-then-actionable head reappears honestly.
+  const nowMs = now ?? Date.now();
   const ordered = sortForTray(missions).filter(
-    (h) => !(h.head.phase === 'failed' && dismissed.has(h.mission_id)),
+    (h) =>
+      !(
+        dismissed.has(h.mission_id) &&
+        (h.head.phase === 'failed' || isStagnantHead(h, nowMs))
+      ),
   );
 
   // Collapsed — the thin vertical strip with per-phase counts (§3a).

@@ -357,6 +357,7 @@ export default function BuildMapView({
         snapshot={snapshot ?? { present: false }}
         rollup={rollup}
         brainRoot={brainRoot}
+        refreshing={status === 'refreshing'}
         initialSelectedId={selectedBlockId}
         onOpenTree={onOpenTree}
         onReconcile={handleReconcile}

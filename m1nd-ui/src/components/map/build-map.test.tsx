@@ -44,6 +44,36 @@ test('every card reads data-state="needs-evidence" (no green without a receipt)'
   assert.doesNotMatch(out, /data-state="evidence-backed"/);
 });
 
+// ── stale-while-revalidate — a reload keeps the map, adds a discreet note ──────
+
+test('refreshing keeps the WHOLE map mounted and adds a discreet indicator (never blanks)', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} refreshing />);
+  // The map is fully present — the canvas and all twelve cards, not a loading screen.
+  assert.match(out, /data-role="map-canvas"/, 'the canvas stays mounted while refreshing');
+  assert.equal((out.match(/data-role="block-card"/g) ?? []).length, 12, 'the cards are kept');
+  assert.match(out, /data-role="map-refreshing"/, 'a discreet refreshing indicator shows');
+  assert.match(visibleText(<BuildMap snapshot={snapshot} rollup={rollup} refreshing />), /refreshing…/);
+});
+
+test('at rest (not refreshing) there is no refreshing indicator', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
+  assert.doesNotMatch(out, /data-role="map-refreshing"/);
+});
+
+// ── the block panel's exit (the panel used to trap the human) ─────────────────
+
+test('a selected block opens the panel WITH a close ✕ (the panel finally has an exit)', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} initialSelectedId={firstId} />);
+  assert.match(out, new RegExp(`data-block-panel="${firstId}"`), 'the panel is open on the block');
+  assert.match(out, /data-role="block-panel-close"/, 'and it carries the house close ✕');
+});
+
+test('with no block selected there is no panel (nor a stray close control)', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
+  assert.match(out, /data-role="block-panel-empty"/, 'the calm hint aside shows instead');
+  assert.doesNotMatch(out, /data-role="block-panel-close"/);
+});
+
 test('a ratified seed flies NO candidate banner, and its cards are not dashed', () => {
   const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
   assert.doesNotMatch(out, /data-role="candidate-banner"/, 'the ratified seed is not a candidate map');
