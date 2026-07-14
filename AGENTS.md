@@ -137,6 +137,15 @@ sessions' `north` packets. It warns; it never blocks. **When you see a collision
 coordinate — do not force the write** (the same posture as reception). Contract: `m1nd-presence-v0`
 (`docs/ORGANISM-INSIDE-PRD.md` §3.3, `m1nd-mcp/src/presence.rs`); the Hall renders the live roster (`m1nd-ui`).
 
+**The Universe (the human's L0 panorama).** The served UI's landing surface for an owner with ≥1
+project brain is the **Universe** — a per-world panorama fed by one read-only aggregate,
+`GET /api/universe` (`m1nd-universe-v0`). It is **sidecar-only**: it reads project-brain manifests,
+the presence dir, each world's mission-letter box + SystemBlock store, and the owner's own daemon
+alerts — and it NEVER hydrates a brain (an executable RED-first law: the warm map is byte-identical
+before/after). Its unified gesture queue, **the Landing**, aggregates reads (merge_wait stamps,
+candidate ratifies, owner alerts) but every write still goes through the existing per-type verb.
+Not an agent surface — agents keep using `north`/`seek`/the cards. Contract: `docs/HUMAN-VIEW-V2-F30-UNIVERSE.md`.
+
 ## The write laws — reception governs WRITES (read before any m1nd write)
 
 One owner (`:1338`) hosts many per-project brains and routes each request to the brain that

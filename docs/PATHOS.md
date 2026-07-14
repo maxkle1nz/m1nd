@@ -49,6 +49,30 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-14 — F30 "THE UNIVERSE" built on `feat/universe-home` (branch, NOT yet landed).**
+> The SPA gained its L0 HOME — a per-world **Universe** panorama that becomes the entry door when the
+> owner serves ≥1 project brain (amends §4A.1; zero brains keeps the first-run Threshold EXACTLY as
+> today, Build-Map front door included). Authored from the askGOD CHANGE amendment
+> (`docs/HUMAN-VIEW-V2-F30-UNIVERSE.md`, six binding changes applied), it INVENTS no state and no write
+> verb: one read-only aggregate — `GET /api/universe` (`m1nd-universe-v0`) — reads the project-brain
+> manifests (`disk_roster`), the P1 presence dir (grouped per world), each world's mission-letter box +
+> SystemBlock store, and the OWNER's own `daemon_alerts` (owner-scope). **Sidecar-only, proven by an
+> executable RED-first HARD LAW** (`m1nd-mcp/tests/universe_endpoint.rs`): serving the endpoint never
+> inserts into `ProjectBrainRegistry.brains` — the warm map is byte-identical before/after, and a
+> dormant/evicted fixture brain is served purely from its manifest (never hydrated). Navigation is
+> **state-zoom** (a new `Surface` variant, no URL router this slice — that is its own future slice). The
+> canvas is calm-tech (paper/observatory, zero neon): worlds are textured circles sized ∝ node_count (log),
+> lit ∝ `updated_ms` freshness WITH the age shown honestly, satellites = live presences, an amber dashed
+> ring = pending gestures; a click opens that world's existing map/tray room. The L0 header is a
+> client-composed serif sentence of UNIVERSE FACTS (worlds · awake · await-your-hand) — **never a
+> cross-brain pulse** (the pulse stays PER-BRAIN by ratified law). **The Landing** is the unified gesture
+> queue: reads aggregated (merge_wait stamps, candidate ratifies, owner alerts), every WRITE still through
+> the existing per-type verb (origin gates untouched), the badge labelled "await your hand" — never a bell.
+> Honest omissions declared in the F30 doc: `pending.archives` (no distinct cheap queue — archival is an
+> alternative gesture on a merge_wait receipt) and per-brain daemon alerts (would need hydration). Out of
+> scope: the Atrium (v2), unlit worlds + ingest-click (v1.1), URL router, batch ratify (h4nd G).
+> Next: land the burst PR, then the live browser dogfood by the orchestrator (the real-flow proof).
+
 > **2026-07-13 — F2.5e "ARCHIVE A SUPERSEDED RECEIPT" built on `feat/archive-superseded-receipt` (branch, NOT yet landed).**
 > The mission-LETTER board gained its 8th, TERMINAL phase — `archived` — the human's set-aside of a
 > stale `merge_wait` receipt (askGOD verdict `docs/voice/ASKGOD-VERDICT-ARCHIVE.md`, APPROVE, 6 binding
