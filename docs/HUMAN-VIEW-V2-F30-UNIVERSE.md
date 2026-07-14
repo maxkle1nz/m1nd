@@ -127,7 +127,7 @@ fabricated "live" state.
       "letters": { "merge_wait": 2, "total": 7 }
     }
   ],
-  "owner": { "alerts_pending": 1 },
+  "owner": { "alerts_pending": 1 },   // null + a "note" when the owner is busy (see §3a)
   "totals": { "worlds": 3, "awake": 1, "pending": 8 }
 }
 ```
@@ -150,6 +150,34 @@ fabricated "live" state.
   `SessionState`; reading a project brain's would require hydrating it (banned). Only the
   OWNER's alerts (the bound session, already resident) are surfaced, owner-scope — the
   `owner` chip, never a world chip.
+
+### 3a · Vitals never block the panorama (server read resilience, 2026-07-15)
+
+**LAW: vitals never block the panorama.** `/api/universe` is a SIDECAR-ONLY read; it must
+never queue behind graph work. Two owner-scope facts (`alerts_pending`, and the registry
+root the presence roster reads) live on the bound `SessionState`, behind the session lock —
+the SAME lock the gardener tick holds across a re-ingest + `rebuild_engines` for minutes on a
+post-kickstart warm. Taking that lock on the read's first line made the WHOLE panorama queue
+behind the tick: it read as a deadlock (CPU 0%, 15-20s timeouts, the SPA falling back to the
+old doctrine on every boot), but was only transient contention.
+
+So `universe_body` **`try_lock`s** the session for the owner vitals:
+- **lock free** → the real values (the registry root + the unacked `alerts_pending` count) —
+  byte-identical to the prior behavior;
+- **lock busy** → the panorama is served WITHOUT the session-live vitals, an HONEST omission:
+  `owner` becomes `{ "alerts_pending": null, "note": "owner busy — vitals omitted" }`,
+  `totals.pending` folds the missing count as zero (never inflated), and the presence roster
+  degrades to the immutable boot registry hint (`AppState.registry_dir`, captured once at
+  boot) or an empty roster — the established fail-open posture. Never a stall, never a
+  fabricated zero.
+
+The disk-sourced worlds (manifests, mission boxes, SystemBlock stores) need no session lock,
+so the panorama's spine is always served. RED-first proof (`universe_endpoint.rs`
+`universe_never_queues_behind_a_held_session_lock`): a background thread holds the session
+lock for 2s; the read must still answer 200 within a 500ms ceiling carrying the honest
+omission — it took 2.001s on the pre-fix code, well under 500ms after. Client side,
+`buildLandingItems` treats the null vital as NO owner chip (an omitted count never coerces
+into a gesture).
 
 ### Client read resilience (`useUniverse`; honest doors, 2026-07-14)
 

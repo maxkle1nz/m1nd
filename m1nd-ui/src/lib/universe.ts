@@ -36,11 +36,13 @@ export interface UniverseWorld {
   letters: { merge_wait: number; total: number };
 }
 
-/** The `GET /api/universe` body (`m1nd-universe-v0`). */
+/** The `GET /api/universe` body (`m1nd-universe-v0`). Owner vitals degrade honestly:
+ *  `alerts_pending` is `null` (with a `note`) when the owner was busy and the count was
+ *  OMITTED rather than stall the panorama behind graph work — never a fabricated zero. */
 export interface UniverseResponse {
   schema: string;
   worlds: UniverseWorld[];
-  owner: { alerts_pending: number };
+  owner: { alerts_pending: number | null; note?: string };
   totals: { worlds: number; awake: number; pending: number };
 }
 
@@ -214,7 +216,9 @@ export function buildLandingItems(universe: UniverseResponse): LandingItem[] {
       });
     }
   }
-  if (universe.owner.alerts_pending > 0) {
+  // An OMITTED owner vital (`alerts_pending == null`, the owner was busy) contributes
+  // no chip — the queue degrades honestly rather than coerce the null into a gesture.
+  if (universe.owner.alerts_pending != null && universe.owner.alerts_pending > 0) {
     items.push({
       id: 'owner:alerts',
       kind: 'alert',

@@ -49,6 +49,26 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-15 — "VITALS NEVER BLOCK THE PANORAMA" fix on `fix/panorama-never-waits` (branch, NOT yet landed).**
+> A field report (2×, live) caught `/api/universe` stalling for 15-20s after a kickstart — it read as a deadlock
+> (CPU 0%), but was transient contention: `universe_body` took `state.session.lock()` on its FIRST line (just for
+> `alerts_pending` + the presence registry root), and the gardener/daemon tick holds that SAME lock for minutes
+> across a re-ingest + `rebuild_engines`. A sidecar-only READ surface was queuing behind graph work — against the
+> F30 spirit; every boot the Home Universe was unreachable and the SPA fell back to the old doctrine. Fix (minimal,
+> in the house style — fail-open + honest omission): `universe_body` now **`try_lock`s** the session — lock free →
+> the real vitals (byte-identical); lock busy → the panorama serves WITHOUT them, an honest omission
+> (`owner: { alerts_pending: null, note: "owner busy — vitals omitted" }`, `totals.pending` never inflated, the
+> presence roster degrading to the immutable boot registry hint `AppState.registry_dir`). The disk-sourced worlds
+> need no lock, so the spine is always served. RED-first proof (`universe_endpoint.rs`
+> `universe_never_queues_behind_a_held_session_lock`): a held lock made the read take 2.001s pre-fix (ceiling
+> 500ms), well under after. UI degrades honest (`buildLandingItems`: a null vital → no owner chip; +1 spec).
+> Green: `m1nd-mcp --features serve` suite (40 bins) + `m1nd-ui` `node --test` (617) + fmt + clippy `-D warnings` +
+> tsc + eslint, all clean. Docs same PR (F30 §3a + this block). Related ARC (registered, NOT in this PR): the same
+> `session.lock()`-for-`registry_root` pattern is in `handle_presences` (owner-wide), `handle_health`,
+> `handle_instance_self`, `handle_instances` — each a read surface that would also queue behind the tick; a
+> follow-up should give the registry root a lock-free owner-level source and `try_lock` the live vitals there too.
+> Next: land the burst PR.
+
 > **2026-07-14 — "HONEST DOORS AND EXITS" burst on `fix/honest-doors-and-exits` (branch, NOT yet landed).**
 > A UI-only burst (zero engine change) closing eight honesty gaps a hands-on sweep + an askGOD full cut found
 > across the Universe/Hall/map/tray surfaces: **(1)** the map's **Reconcile** asks first — a two-step confirm

@@ -172,6 +172,19 @@ test('buildLandingItems: an empty universe yields an empty queue (honest, not fa
   assert.deepEqual(buildLandingItems(universe()), []);
 });
 
+test('buildLandingItems: an OMITTED owner vital (alerts_pending null, owner busy) shows no chip', () => {
+  // The panorama served under contention: the owner was busy, so its alert count was
+  // omitted (null + a note) rather than stall the read. That omission must NOT coerce
+  // into an owner gesture — honest absence, never a fabricated bell.
+  const u = universe({ owner: { alerts_pending: null, note: 'owner busy — vitals omitted' } });
+  const items = buildLandingItems(u);
+  assert.equal(
+    items.some((i) => i.kind === 'alert'),
+    false,
+    'a null (omitted) owner vital never becomes an owner alert chip',
+  );
+});
+
 test('buildLandingItems: singular vs plural is honest in the human line', () => {
   const u = universe({
     worlds: [world({ key: 'a', root: '/w/a', name: 'alpha', pending: { stamps: 1, ratifies: 1 } })],

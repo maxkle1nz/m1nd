@@ -1072,13 +1072,29 @@ async fn handle_universe(State(state): State<Arc<AppState>>) -> impl IntoRespons
 /// `ProjectBrainRegistry.brains` is untouched (HARD LAW, tests/universe_endpoint.rs).
 pub fn universe_body(state: &AppState) -> serde_json::Value {
     let now = crate::util::now_ms();
-    // Owner-scope facts, read ONCE from the already-resident bound session (never a
-    // project brain): the shared registry root (for presences) + the owner's own
-    // unacked daemon alerts (owner-scope — the alert chip is `owner`, never a world).
-    let (registry_root, alerts_pending) = {
-        let session = state.session.lock();
-        let alerts = session.daemon_alerts.iter().filter(|a| !a.acked).count() as u64;
-        (session.instance.registry_root(), alerts)
+    // Owner-scope facts read from the already-resident bound session (never a project
+    // brain): the shared registry root (for presences) + the owner's own unacked daemon
+    // alerts (owner-scope — the alert chip is `owner`, never a world).
+    //
+    // VITALS NEVER BLOCK THE PANORAMA (F30 §3a). This is a SIDECAR-ONLY read surface; it
+    // must never queue behind graph work. The gardener tick holds the session lock across
+    // a re-ingest + rebuild_engines for minutes — blocking here stalled the whole Universe
+    // read (it read as a deadlock: CPU 0%, 15-20s timeouts, the SPA falling back to old
+    // doctrine, but was transient contention). So we TRY the session lock and, if the owner
+    // is busy, serve the panorama WITHOUT the session-live vitals — an HONEST omission (a
+    // declared note + a null count below), never a stall.
+    let (registry_root, alerts_pending) = match state.session.try_lock() {
+        Some(session) => {
+            let alerts = session.daemon_alerts.iter().filter(|a| !a.acked).count() as u64;
+            (session.instance.registry_root(), Some(alerts))
+        }
+        None => {
+            // Owner busy (graph work holds the lock). Presences degrade to the immutable
+            // boot registry hint if this owner recorded one (else an empty roster — the
+            // established fail-open posture, never a stall); the owner alert count is
+            // omitted with a declared note in the body below.
+            (state.registry_dir.clone().unwrap_or_default(), None)
+        }
     };
     // The owner-wide live presence roster — a cross-brain read of the presence dir,
     // grouped per world below by each sidecar's `brain` (its writing session's
@@ -1161,13 +1177,26 @@ pub fn universe_body(state: &AppState) -> serde_json::Value {
     }
 
     // Owner alerts are a universe-wide pending gesture too (owner-scope, one bucket).
-    total_pending += alerts_pending;
+    // When the owner was busy (lock held) the count is OMITTED — folded in as zero so the
+    // total is never inflated by a fabricated value, and declared in the body below.
+    total_pending += alerts_pending.unwrap_or(0);
     let world_count = worlds.len() as u64;
+
+    // Owner vitals: the real unacked count when we read it, or an HONEST omission (a null
+    // count + a declared note) when the owner was busy — the panorama degrades, never
+    // stalls, and never fabricates a zero it did not read.
+    let owner = match alerts_pending {
+        Some(n) => serde_json::json!({ "alerts_pending": n }),
+        None => serde_json::json!({
+            "alerts_pending": serde_json::Value::Null,
+            "note": "owner busy — vitals omitted",
+        }),
+    };
 
     serde_json::json!({
         "schema": "m1nd-universe-v0",
         "worlds": worlds,
-        "owner": { "alerts_pending": alerts_pending },
+        "owner": owner,
         "totals": { "worlds": world_count, "awake": total_awake, "pending": total_pending },
     })
 }
