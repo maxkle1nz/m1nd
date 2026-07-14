@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import type { SseEvent } from '../types';
+import { API_BASE } from '../api/client';
 
-// Guard the env read so the module imports cleanly under the Node test runner
-// (import.meta.env is a Vite-only injection; effects never run in server render).
-const BASE_URL = import.meta.env?.DEV ? 'http://localhost:1337' : '';
+// The SSE stream rides the SAME base as every other request (client.ts `API_BASE`):
+// same-origin by default so the EventSource goes through the Vite dev proxy to
+// whichever owner `M1ND_API` targets — not a hardcoded `localhost:1337` that
+// cross-origins (and breaks) the moment the dev proxy points elsewhere.
 
 interface UseSSEOptions {
   onEvent?: (event: SseEvent) => void;
@@ -29,7 +31,7 @@ export function useSSE({ onEvent, onError, enabled = true }: UseSSEOptions = {})
     if (!enabled) return;
 
     function connect() {
-      const es = new EventSource(`${BASE_URL}/api/events`);
+      const es = new EventSource(`${API_BASE}/api/events`);
       esRef.current = es;
 
       const EVENT_TYPES = [

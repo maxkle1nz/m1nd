@@ -42,10 +42,12 @@ import type { AlertsListResponse, AlertsAckResponse } from '../lib/alerts';
 // the loopback owner). `VITE_M1ND_API` still lets a browser bypass the proxy to a
 // CORS-enabled owner if ever needed. In a plain Node test runner import.meta.env
 // is undefined, so guard the read (tests stub api.* and never hit the network).
-const BASE_URL = (import.meta.env?.VITE_M1ND_API as string | undefined) ?? '';
+// Exported as the SINGLE source of base so the SSE stream (useSSE) rides the exact
+// same origin — never the hardcoded loopback that broke a retargeted `M1ND_API` dev.
+export const API_BASE = (import.meta.env?.VITE_M1ND_API as string | undefined) ?? '';
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
