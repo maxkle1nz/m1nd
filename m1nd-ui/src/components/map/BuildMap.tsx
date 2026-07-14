@@ -384,6 +384,22 @@ export default function BuildMap({
     if (initialSelectedId != null) setSelectedId(initialSelectedId);
   }, [initialSelectedId]);
 
+  // The block panel's ESC exit, SCOPED: only while a block is selected AND no F2 modal
+  // is up (the modal owns ESC first). A capture-phase window listener runs BEFORE the
+  // App-shell ESC ladder and stops propagation, so closing the panel never also ascends
+  // a surface. Closing only deselects — the canvas stays mounted, so scroll is kept
+  // (coherent with the stale-while-revalidate map). No-op in SSR (effects don't run).
+  useEffect(() => {
+    if (selectedId == null || modal != null) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setSelectedId(null);
+    };
+    window.addEventListener('keydown', onEsc, true);
+    return () => window.removeEventListener('keydown', onEsc, true);
+  }, [selectedId, modal]);
+
   if (!store || !rollup) {
     return (
       <BuildMapEmpty
@@ -548,7 +564,7 @@ export default function BuildMap({
                   rollup={r}
                   domainTag={domainTag(block.block_id, repoId)}
                   selected={block.block_id === selectedId}
-                  onSelect={setSelectedId}
+                  onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
                   style={{ left: pos.x, top: pos.y, width: 264, height: 138 }}
                 />
               );
@@ -563,6 +579,7 @@ export default function BuildMap({
           block={selectedBlock}
           rollup={selectedRollup}
           repoId={repoId}
+          onClose={() => setSelectedId(null)}
           onShowCode={() => setModal({ kind: 'showcode', blockId: selectedBlock.block_id })}
           onAskAgent={() => setModal({ kind: 'packet', blockId: selectedBlock.block_id, subPath: null })}
         />

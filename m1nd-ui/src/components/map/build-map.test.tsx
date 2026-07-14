@@ -60,6 +60,20 @@ test('at rest (not refreshing) there is no refreshing indicator', () => {
   assert.doesNotMatch(out, /data-role="map-refreshing"/);
 });
 
+// ── the block panel's exit (the panel used to trap the human) ─────────────────
+
+test('a selected block opens the panel WITH a close ✕ (the panel finally has an exit)', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} initialSelectedId={firstId} />);
+  assert.match(out, new RegExp(`data-block-panel="${firstId}"`), 'the panel is open on the block');
+  assert.match(out, /data-role="block-panel-close"/, 'and it carries the house close ✕');
+});
+
+test('with no block selected there is no panel (nor a stray close control)', () => {
+  const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
+  assert.match(out, /data-role="block-panel-empty"/, 'the calm hint aside shows instead');
+  assert.doesNotMatch(out, /data-role="block-panel-close"/);
+});
+
 test('a ratified seed flies NO candidate banner, and its cards are not dashed', () => {
   const out = html(<BuildMap snapshot={snapshot} rollup={rollup} />);
   assert.doesNotMatch(out, /data-role="candidate-banner"/, 'the ratified seed is not a candidate map');
