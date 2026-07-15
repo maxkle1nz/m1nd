@@ -23,10 +23,11 @@ This amendment changes the SPA's entry door and adds one read-only aggregate end
 ## 1 · The Universe (new landing surface)
 
 - New `Surface` variant `universe` in the SPA state machine (`m1nd-ui/src/App.tsx`).
-  **Navigation substrate for v1 is state-zoom** — the existing `useState` Surface
-  mechanism. A URL router (deep links, a real back stack) is its OWN future slice; v1
-  makes no routing promises. E2E language says "universe surface renders", never
-  "route /".
+  **Navigation substrate for v1 was state-zoom** — the existing `useState` Surface
+  mechanism. The URL router (deep links, a real back stack) that this section deferred
+  **has since landed** as a THIN sync over that same Surface machine — see the amendment
+  "**§ The hash router**" below. The state machine is unchanged; the router only mirrors
+  it into `window.location.hash` (zero server change — the SPA is rust-embed).
 - Entry rule (amends §4A.1): when the owner serves **≥1 project brain**, the SPA lands
   on `universe`. With **ZERO** project brains the first-run Threshold (onboarding,
   HUMAN-LAYER-PRD §4A.2, INV-11/INV-12) behaves exactly as today — untouched, including
@@ -193,10 +194,74 @@ one — any failure became a ready, empty sky, silencing real errors):
   practice (the owner's `/api/universe` fail-opens to 200, so a persistent non-404 is
   essentially impossible while health is `ok`).
 
+## The hash router — deep links and a real back (amendment, 2026-07-15)
+
+The future slice §1 deferred landed on `feat/url-router` (PR 1 of the Pista-A pair; the
+live-map arc is a SEPARATE PR). It is a **hash router** — zero server change (the SPA is
+rust-embed from one `index.html`, so a `#` fragment never reaches the server) — and a
+THIN URL⇄state sync over the existing Surface machine (`m1nd-ui/src/lib/router.ts`, pure
++ DOM-free). It invents no state; App.tsx routes every transition through one
+`navigate()`.
+
+- **One writer (R4).** A single `navigate()` wraps `setSurface` + `setViewedBrain` +
+  `setMapTargetBlock` (+ the transient hall-alerts flag) and is the ONLY code that writes
+  history — sprinkled `pushState` is banned. All ~10 call-sites (the TopBar wordmark/map,
+  world open, tray open-block, hall/owner entry, the landing decider, the ESC ladder,
+  `HallView` exit, the palette, `landAndOrient`) and `popstate` flow through it. The
+  landing decider writes with `replace` (a baseline entry so the FIRST Back works, no
+  spurious push); user navigations `push`; `popstate` syncs state with no write.
+- **The route scheme** (derived from the real transitions): `#/universe`, `#/hall`,
+  `#/tree`, `#/map` for the bound brain (`?block=sb_x` rides the map), and
+  `#/world/<key>/tree` / `#/world/<key>/map?block=sb_x` for a hosted world. `<key>` is the
+  world **basename** (below). `#/tree` vs `#/world/<key>/tree` IS the bound-vs-hosted
+  `viewedBrain` distinction.
+- **Deep-link beats the landing rule (placement precedence).** The hash SEEDS the initial
+  surface BEFORE the landing rule runs — the landing gate is `surface == null`
+  (App.tsx), so seeding from the hash makes the precedence natural. A bound route seeds at
+  once; a world route waits for the worlds/brains reads to settle, then resolves, while the
+  landing effect STANDS DOWN (a `deepLinkPending` guard). **No hash → the landing decision
+  is byte-identical to before** (the router only adds the `replaceState` baseline).
+- **`landAndOrient` is suppressed under a hash.** A deep link does NOT pass through the
+  3-beat orientation, and there is no race between bootstrap and the router — `landAndOrient`
+  runs only on a fresh bootstrap (the Threshold path), never on a deep-linked load.
+- **The brain key is a basename, never the absolute root (R3, no-leak law).** AGENTS.md
+  forbids personal paths in the public repo, and the e2e crystallizes URLs into public
+  specs. The world's `key`/`root` fields are BOTH the canonical absolute path (they leak);
+  `instance_id` is NOT stable either — `generate_instance_id` (instance_registry.rs) hashes
+  pid + clock + a seq nonce, ephemeral by construction across restarts. The **basename** is
+  stable (a pure function of the path) and non-leaking. Serialize = basename of the viewed
+  root; resolve = match the basename against the worlds panorama (its `name` is the server
+  basename) then the Hall registry. An **unresolvable key** (brain evicted, or a basename
+  collision — two worlds share a basename → ambiguous, never a guess) falls back to the
+  normal landing rule; a `popstate` to an evicted world falls back to the universe. It
+  **NEVER strands the human in an empty map.**
+- **The addressable boundary (half the design): transients stay OUT of the URL.**
+  Addressable = durable location only — the surface, which brain it views, and the
+  tray-seeded map block (`?block=`). NOT addressable: the ingest modal, the Cmd+K palette,
+  the 3-beat orientation, `hallOpenAlerts` (how you ENTERED the Hall — the Hall itself is
+  `#/hall`, but the auto-open-alerts sub-state is transient), and the Build Map's own
+  ad-hoc card selection (clicking a block card is exploration — only the tray-target
+  `mapTargetBlock` is the address; a Back clears `?block=` from the URL while the live
+  panel, still closeable via its ✕, is transient — the boundary, not a break). `threshold`
+  (first-run onboarding) is not addressable — it serializes to a neutral home hash and the
+  landing rule re-derives it.
+- **R5 — the brain-swap 'loading' is BY DESIGN.** A Back that swaps the viewed brain
+  (world → universe → a different world) shows the map's honest 'loading', because
+  `nextReadStatus` (useBuildMap.ts) does not hold last-good across a brain change. Intended
+  (the map is expected to change; it never lies with a stale snapshot) — declared here and
+  in an e2e comment so it never reads as a false regression.
+- **Proof.** 18 router unit tests (`router.test.ts`: parse/serialize every route, the
+  deep-link precedence, the evicted/collision fallback) + 4 Playwright flows
+  (`e2e/url-router.spec.ts`: deep-link map+block beats landing, real Back world↔universe,
+  tray `?block=` Back, evicted-key fallback) + the 23 existing e2e green; tsc + vite build +
+  `node --test` (635) + eslint/violet/icon clean; embedded dist rebuilt; no personal path in
+  any URL or spec (neutral fixtures only).
+
 ## Out of scope (declared)
 
-Atrium (L1 per-world home) = v2. Unlit worlds + ingest-click = v1.1. URL router = its
-own slice. Batch ratify = h4nd G. Aggregate pulse = would need its own law; not proposed.
+Atrium (L1 per-world home) = v2. Unlit worlds + ingest-click = v1.1. URL router =
+**LANDED** (its own slice — see "§ The hash router" above). Batch ratify = h4nd G.
+Aggregate pulse = would need its own law; not proposed.
 A separate `archives` queue and per-brain alerts = future, per the honesty notes above.
 Cross-brain unification of daemon alerts (surfacing project brains' alerts in one owner panel)
 stays out of scope — the owner-alerts panel is the bound session's stock only.

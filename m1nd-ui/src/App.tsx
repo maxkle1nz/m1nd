@@ -7,7 +7,7 @@
  * later slices (map drill-down, pre-flight, change preview) and are intentionally
  * not rendered here. SOFT PROOF tokens + the violet quarantine land in this slice.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LivingTree from './components/tree/LivingTree';
 import HallView from './components/hall/HallView';
 import BuildMapView from './components/map/BuildMapView';
@@ -35,6 +35,14 @@ import {
 } from './lib/threshold';
 import { restBrainSelectorSupported, brainDisplayName, brainProjectPath } from './lib/hallSemantics';
 import { BOUND_VIEW, type ViewedBrain } from './lib/viewedBrain';
+import {
+  parseRoute,
+  serializeRoute,
+  resolveDeepLink,
+  type Surface,
+  type NavTarget,
+  type ParsedRoute,
+} from './lib/router';
 
 // App-level error boundary.
 class AppErrorBoundary extends React.Component<
@@ -314,11 +322,12 @@ function IngestModal({
   );
 }
 
-/** The surface the shell is showing. The Universe ('universe') is the L0 landing —
- *  the per-world panorama that leads when the owner serves ≥1 project brain (F30).
- *  Threshold is rung −∞; Hall is rung −1; tree is rung 0; the Build Map ('map') is a
- *  world's room, one click from the Universe. Navigation is state-zoom (no router, v1). */
-type Surface = 'universe' | 'tree' | 'hall' | 'threshold' | 'map';
+/* The surface the shell is showing (`Surface`, in ./lib/router). The Universe
+ * ('universe') is the L0 landing — the per-world panorama that leads when the owner
+ * serves ≥1 project brain (F30). Threshold is rung −∞; Hall is rung −1; tree is rung
+ * 0; the Build Map ('map') is a world's room, one click from the Universe. Every
+ * transition now flows through the single `navigate()` below, which syncs the URL
+ * (hash router) — deep links and a real back/forward. */
 
 /**
  * The brains the owner holds — the landing signal (§4A.1, INV-12) AND the Cmd+K
@@ -403,33 +412,128 @@ export default function App() {
   const { runQuery } = useM1ndApi();
   const ownerHasGraph = (self?.graph_state.node_count ?? 0) > 0;
 
+  // ── The hash router (deep links + a real back) ───────────────────────────────
+  // One `navigate()` writes both the shell state AND the URL (R4); nothing else
+  // touches history. Refs mirror the two brain-scoped axes so navigate() can keep
+  // the "unchanged" ones and still serialize the full location without a dep churn.
+  const viewedBrainRef = useRef(viewedBrain);
+  const mapTargetBlockRef = useRef(mapTargetBlock);
+  useEffect(() => {
+    viewedBrainRef.current = viewedBrain;
+  }, [viewedBrain]);
+  useEffect(() => {
+    mapTargetBlockRef.current = mapTargetBlock;
+  }, [mapTargetBlock]);
+
+  // The ONE transition writer. Moves surface + viewed brain + map target (+ the
+  // transient hall-alerts flag) together, then serializes the URL. `history`:
+  // 'push' (a user navigation, default) → a new entry; 'replace' (the landing
+  // baseline + the deep-link seed) → no new entry; 'none' (popstate: the browser
+  // already moved) → sync state WITHOUT writing. An omitted view/block keeps the
+  // current value; `block: null` clears it.
+  const navigate = useCallback(
+    (next: NavTarget, opts?: { history?: 'push' | 'replace' | 'none' }) => {
+      const history = opts?.history ?? 'push';
+      const nextView = next.view ?? viewedBrainRef.current;
+      const nextBlock = next.block === undefined ? mapTargetBlockRef.current : next.block;
+      setSurface(next.surface);
+      if (next.view !== undefined) setViewedBrain(next.view);
+      if (next.block !== undefined) setMapTargetBlock(next.block);
+      setHallOpenAlerts(next.hallAlerts ?? false);
+      // Keep the refs hot so a same-tick serialize (or follow-up nav) is correct.
+      viewedBrainRef.current = nextView;
+      mapTargetBlockRef.current = nextBlock;
+      if (history === 'none' || typeof window === 'undefined') return;
+      const url = serializeRoute(next.surface, nextView, nextBlock);
+      const current = window.location.hash || '#/';
+      if (url === current) {
+        // Re-selecting the current surface: never stack a duplicate history entry.
+        if (history === 'replace') window.history.replaceState(null, '', url);
+        return;
+      }
+      if (history === 'replace') window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
+    },
+    [],
+  );
+
+  // The deep link parsed ONCE at mount — the seed that beats the landing rule. A
+  // null route (no / '#/' / unknown hash) means "no deep link, land normally".
+  const initialRoute = useMemo<ParsedRoute | null>(
+    () => (typeof window !== 'undefined' ? parseRoute(window.location.hash) : null),
+    [],
+  );
+  const [deepLinkPending, setDeepLinkPending] = useState<boolean>(initialRoute != null);
+  const pendingRouteRef = useRef<ParsedRoute | null>(initialRoute);
+
+  // Seed the shell from the deep link BEFORE the landing rule (which gates on
+  // `surface == null`). A bound route applies at once; a world route waits for the
+  // worlds/brains reads to settle, then resolves — or gives up (evicted brain /
+  // basename collision / pre-F30 owner) so the human lands normally instead of
+  // stranding in an empty map. While pending, the landing effect stands down.
+  useEffect(() => {
+    if (!deepLinkPending) return;
+    const settled = universeStatus !== 'loading' && brains !== null;
+    const outcome = resolveDeepLink(pendingRouteRef.current, universe.worlds, brains, settled);
+    if (outcome.kind === 'apply') {
+      navigate(outcome.intent, { history: 'replace' });
+      pendingRouteRef.current = null;
+      setDeepLinkPending(false);
+    } else if (outcome.kind === 'give-up') {
+      pendingRouteRef.current = null;
+      setDeepLinkPending(false); // surface stays null → the landing rule decides
+    }
+    // 'pending' → wait for the next worlds/brains tick.
+  }, [deepLinkPending, universe, brains, universeStatus, navigate]);
+
+  // Real back/forward: popstate re-parses the hash and syncs state THROUGH navigate
+  // (history:'none' — the browser already moved the URL). A backed-to bare hash or an
+  // evicted world key falls back honestly to the universe (or the bound tree), never
+  // a blank map.
+  useEffect(() => {
+    const onPop = () => {
+      const route = parseRoute(typeof window !== 'undefined' ? window.location.hash : '');
+      const fallback = (): NavTarget => ({
+        surface: worldCount >= 1 ? 'universe' : 'tree',
+        view: BOUND_VIEW,
+        block: null,
+      });
+      if (!route) {
+        navigate(fallback(), { history: 'none' });
+        return;
+      }
+      const outcome = resolveDeepLink(route, universe.worlds, brains, true);
+      navigate(outcome.kind === 'apply' ? outcome.intent : fallback(), { history: 'none' });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [navigate, universe, brains, worldCount]);
+
   // Open a brain IN THE TREE (§4A.9). The bound/self brain resets to BOUND_VIEW
   // (no selector — the tree's default graph); a hosted brain seeds the viewed
   // brain from its card (name + counts), which the served_brain echo then
   // confirms. Either way the shell shows the tree.
   const openBrainInTree = useCallback(
     (entry: InstanceRegistryEntry, isSelf: boolean) => {
-      if (isSelf) {
-        setViewedBrain(BOUND_VIEW);
-      } else {
-        setViewedBrain({
-          root: brainProjectPath(entry),
-          displayName: brainDisplayName(entry),
-          nodeCount: entry.node_count ?? null,
-        });
-      }
-      setSurface('tree');
+      const view: ViewedBrain = isSelf
+        ? BOUND_VIEW
+        : {
+            root: brainProjectPath(entry),
+            displayName: brainDisplayName(entry),
+            nodeCount: entry.node_count ?? null,
+          };
+      navigate({ surface: 'tree', view });
     },
-    [],
+    [navigate],
   );
 
   // A mission-tray card asked to open its block (F2.5 §3b): seed the map's selection
   // and switch to the map surface (the tray is fixed on every surface, so this works
   // from tree/hall/map alike).
-  const onOpenBlock = useCallback((blockId: string) => {
-    setMapTargetBlock(blockId);
-    setSurface('map');
-  }, []);
+  const onOpenBlock = useCallback(
+    (blockId: string) => navigate({ surface: 'map', block: blockId }),
+    [navigate],
+  );
 
   // Zoom from a world into its ROOM (F30): the world's Build Map, viewing that
   // brain via the §4A.9 selector — the map is where its tray + ratify live. The
@@ -438,25 +542,26 @@ export default function App() {
   const onOpenWorld = useCallback(
     (root: string) => {
       const w = universe.worlds.find((x) => x.root === root);
-      setViewedBrain({ root, displayName: w?.name ?? null, nodeCount: w?.node_count ?? null });
-      setMapTargetBlock(null);
-      setSurface('map');
+      navigate({
+        surface: 'map',
+        view: { root, displayName: w?.name ?? null, nodeCount: w?.node_count ?? null },
+        block: null,
+      });
     },
-    [universe.worlds],
+    [navigate, universe.worlds],
   );
   // An owner-scope Landing item (a daemon alert) opens the owner room — the Hall — and
   // lands ON its owner-alerts panel (the item finally has a destination).
-  const onOpenOwner = useCallback(() => {
-    setHallOpenAlerts(true);
-    setSurface('hall');
-  }, []);
+  const onOpenOwner = useCallback(
+    () => navigate({ surface: 'hall', hallAlerts: true }),
+    [navigate],
+  );
   // Every OTHER Hall entry (the brain chip) leaves the alerts panel closed.
   const onOpenHall = useCallback(() => {
-    setHallOpenAlerts(false);
-    if (surface !== 'threshold') setSurface('hall');
-  }, [surface]);
+    if (surface !== 'threshold') navigate({ surface: 'hall', hallAlerts: false });
+  }, [navigate, surface]);
   // The wordmark is the home affordance ONLY when the owner holds ≥1 world.
-  const onOpenUniverse = useCallback(() => setSurface('universe'), []);
+  const onOpenUniverse = useCallback(() => navigate({ surface: 'universe' }), [navigate]);
 
   // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine,
   // amended by F30). The UNIVERSE is the front door when the owner serves ≥1 project
@@ -465,14 +570,17 @@ export default function App() {
   // the Threshold): a ratified skeleton leads to the Build Map, else — brains vs none —
   // the tree or the Threshold onboarding.
   useEffect(() => {
+    if (deepLinkPending) return; // a deep link seeds the shell first (precedence)
     if (surface != null) return;
     // Still deciding — wait, don't flash. An 'error' (a first non-404 poll failure)
     // does NOT decide the landing either: a failed universe read is not proof of an
     // empty sky, so we never silence it into "zero worlds → tree". The ~5s retry
     // recovers a transient blip; a truly down owner is already gated to 'loading'.
     if (universeStatus === 'loading' || universeStatus === 'error') return;
+    // Each landing is a `navigate(..., replace)` so the URL gets a baseline entry
+    // (a real back works from the very first surface) without a spurious history push.
     if (worldCount >= 1) {
-      setSurface('universe');
+      navigate({ surface: 'universe', view: BOUND_VIEW, block: null }, { history: 'replace' });
       return;
     }
     // Zero worlds → the prior doctrine, byte-for-byte.
@@ -480,12 +588,24 @@ export default function App() {
     if (buildMap.present) {
       // The skeleton alone decides the front door — even on an 'empty' owner
       // (no graph yet), where the brains fetch never resolves.
-      setSurface('map');
+      navigate({ surface: 'map', view: BOUND_VIEW, block: null }, { history: 'replace' });
       return;
     }
     if (brainCount == null) return; // no skeleton: fall back to the prior doctrine
-    setSurface(brainCount <= 0 ? 'threshold' : 'tree');
-  }, [surface, worldCount, universeStatus, brainCount, buildMap.status, buildMap.present]);
+    navigate(
+      { surface: brainCount <= 0 ? 'threshold' : 'tree', view: BOUND_VIEW, block: null },
+      { history: 'replace' },
+    );
+  }, [
+    deepLinkPending,
+    surface,
+    worldCount,
+    universeStatus,
+    brainCount,
+    buildMap.status,
+    buildMap.present,
+    navigate,
+  ]);
 
   // Cmd+K opens the Brains group (§4A.5). Not on the Threshold (no brains yet).
   useKeyboardShortcuts({
@@ -521,9 +641,9 @@ export default function App() {
         (active.closest('[role="tree"]') != null ||
           active.closest('[data-role="tree-drawer"]') != null ||
           active.tagName === 'INPUT');
-      if (!treeIsFocused) setSurface('hall');
+      if (!treeIsFocused) navigate({ surface: 'hall', hallAlerts: false });
     },
-    [surface, orienting],
+    [surface, orienting, navigate],
   );
   useEffect(() => {
     window.addEventListener('keydown', onWindowEsc);
@@ -533,7 +653,8 @@ export default function App() {
   // After bootstrap: land on the tree and, unless the user already dismissed it
   // forever, run the 3-beat orientation seeded from the real north packet (§4A.2).
   const landAndOrient = useCallback(async () => {
-    setSurface('tree');
+    // Post-bootstrap the owner has exactly one (bound) brain; land on its tree.
+    navigate({ surface: 'tree', view: BOUND_VIEW, block: null });
     if (typeof window !== 'undefined' && orientationDismissed(window.localStorage)) return;
     try {
       const packet = await api.tool<NorthPacket>('north', { task: 'first look at this repo' });
@@ -542,7 +663,7 @@ export default function App() {
     } catch {
       // No orientation is better than a fabricated one — land on the tree quietly.
     }
-  }, []);
+  }, [navigate]);
 
   // Orientation data from the real north packet (absent → the beat is not shown).
   const orientData = useMemo(() => {
@@ -569,7 +690,9 @@ export default function App() {
           self={self}
           viewedBrain={viewedBrain}
           onOpenHall={onOpenHall}
-          onOpenMap={surface !== 'threshold' && surface !== 'map' ? () => setSurface('map') : undefined}
+          onOpenMap={
+            surface !== 'threshold' && surface !== 'map' ? () => navigate({ surface: 'map' }) : undefined
+          }
           onOpenUniverse={
             worldCount >= 1 && surface !== 'universe' && surface !== 'threshold'
               ? onOpenUniverse
@@ -590,7 +713,7 @@ export default function App() {
             <ThresholdCard onBootstrapped={landAndOrient} />
           ) : surface === 'hall' ? (
             <HallView
-              onExit={() => setSurface('tree')}
+              onExit={() => navigate({ surface: 'tree' })}
               onOpenBound={() => openBrainInTree({} as InstanceRegistryEntry, true)}
               onOpenBrain={openBrainInTree}
               onBootstrap={() => setIngestOpen(true)}
@@ -602,7 +725,7 @@ export default function App() {
             // The Build Map front door (HUMAN-VIEW-V2 F1). Read-only; the Living
             // Tree is one click away (the deterministic surface is never killed).
             <BuildMapView
-              onOpenTree={() => setSurface('tree')}
+              onOpenTree={() => navigate({ surface: 'tree' })}
               enabled={backendReachable}
               brainRoot={viewedBrain.root}
               selectedBlockId={mapTargetBlock}

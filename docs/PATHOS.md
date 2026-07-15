@@ -49,7 +49,37 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
-> **2026-07-15 — "VITALS NEVER BLOCK THE PANORAMA" fix on `fix/panorama-never-waits` (branch, NOT yet landed).**
+> **2026-07-15 — "HASH ROUTER: deep links and a real back" burst on `feat/url-router` (PR 1 of the Pista-A pair; the live-map arc is a SEPARATE PR).**
+> The SPA got the URL router F30 §1 explicitly deferred — a **hash router** (zero server change: the SPA is rust-embed
+> from one `index.html`, so a `#` fragment never reaches the server) that is a THIN URL⇄state sync over the EXISTING
+> Surface machine. Authored from the askGOD CHANGE verdict (its five required_changes are law): a new pure lib
+> `m1nd-ui/src/lib/router.ts` (parse/serialize/resolve, DOM-free) + one `navigate()` in App.tsx. **R4 — one writer:**
+> a single `navigate()` wraps `setSurface`+`setViewedBrain`+`setMapTargetBlock` (+ the transient hall-alerts flag) and is
+> the ONLY code that writes history (sprinkled `pushState` banned); all ~10 call-sites + `popstate` route through it —
+> landing writes `replace` (a baseline so the FIRST Back works), user nav `push`, popstate no-write. **The scheme:**
+> `#/universe` · `#/hall` · `#/tree` · `#/map` (bound; `?block=` rides the map) · `#/world/<key>/tree` ·
+> `#/world/<key>/map?block=sb_x` (hosted). **Deep-link BEATS landing** — the hash seeds the surface before the
+> `surface == null` landing gate (a `deepLinkPending` guard stands the landing effect down while a world key resolves);
+> **no hash → byte-identical landing** (just a `replaceState` baseline added); `landAndOrient` is SUPPRESSED under a hash
+> (a deep link skips the 3-beat orientation — no bootstrap↔router race). **R3 — the brain key is a BASENAME, never the
+> absolute root (no-leak law):** the world `key`/`root` both ARE the canonical abspath (they leak), and `instance_id` is
+> unstable across restarts (`generate_instance_id` hashes pid+clock+seq — ephemeral by construction, instance_registry.rs);
+> the basename is stable + non-leaking. Serialize = basename of the viewed root; resolve = match against the worlds
+> panorama (`name` is the server basename) then the Hall registry; an unresolvable/ambiguous key (evicted, or a basename
+> collision) falls back to the landing rule and popstate-to-evicted falls to the universe — NEVER a stranded empty map.
+> **The addressable boundary (half the design):** only durable LOCATION is in the URL (surface + viewed brain +
+> tray-seeded `?block=`); transients stay OUT — the ingest modal, the Cmd+K palette, the 3-beat orientation,
+> `hallOpenAlerts` (how you ENTERED the Hall), and the Build Map's own ad-hoc card selection (a Back clears `?block=`
+> while the live panel, closeable via its ✕, is transient). **R5 declared:** a Back that swaps the viewed brain shows the
+> map's honest 'loading' BY DESIGN (`nextReadStatus` holds no last-good across a brain change, useBuildMap.ts) — declared
+> in the F30 doc + an e2e comment so it never reads as a regression. **Proof:** 18 router unit tests + 4 Playwright flows
+> (`e2e/url-router.spec.ts`: deep-link map+block beats landing, real Back world↔universe, tray `?block=` Back, evicted-key
+> fallback) + the 23 existing e2e all green (27/27); `node --test` 635, tsc + vite build + eslint/violet/icon clean; the
+> embedded `m1nd-ui/dist` rebuilt + committed; no personal path in any URL/spec (neutral `/work/repo-alpha` fixtures).
+> Docs same PR (F30 "§ The hash router" amendment + this block; corrected the stale "NOT yet landed" markers on the landed
+> Universe arc #371/#372/#373). Next: land this PR, then PR 2 of Pista A (the live map arc) — separate.
+
+> **2026-07-15 — "VITALS NEVER BLOCK THE PANORAMA" fix on `fix/panorama-never-waits` (#373, LANDED — origin/main HEAD).**
 > A field report (2×, live) caught `/api/universe` stalling for 15-20s after a kickstart — it read as a deadlock
 > (CPU 0%), but was transient contention: `universe_body` took `state.session.lock()` on its FIRST line (just for
 > `alerts_pending` + the presence registry root), and the gardener/daemon tick holds that SAME lock for minutes
@@ -69,7 +99,7 @@ same bar, applied to building the organism outward.
 > follow-up should give the registry root a lock-free owner-level source and `try_lock` the live vitals there too.
 > Next: land the burst PR.
 
-> **2026-07-14 — "HONEST DOORS AND EXITS" burst on `fix/honest-doors-and-exits` (branch, NOT yet landed).**
+> **2026-07-14 — "HONEST DOORS AND EXITS" burst on `fix/honest-doors-and-exits` (#372, LANDED).**
 > A UI-only burst (zero engine change) closing eight honesty gaps a hands-on sweep + an askGOD full cut found
 > across the Universe/Hall/map/tray surfaces: **(1)** the map's **Reconcile** asks first — a two-step confirm
 > mirroring the tray's import/archive, the read-only seal set apart from the one write button ("the map reads;
@@ -92,7 +122,7 @@ same bar, applied to building the organism outward.
 > bug live (the owner-alerts read crashed the Hall on a partial owner body; guarded + regression-tested). Docs
 > updated same PR (F30 · F25-TECH · this block). Next: land the burst PR.
 
-> **2026-07-14 — F30 "THE UNIVERSE" built on `feat/universe-home` (branch, NOT yet landed).**
+> **2026-07-14 — F30 "THE UNIVERSE" built on `feat/universe-home` (#371, LANDED).**
 > The SPA gained its L0 HOME — a per-world **Universe** panorama that becomes the entry door when the
 > owner serves ≥1 project brain (amends §4A.1; zero brains keeps the first-run Threshold EXACTLY as
 > today, Build-Map front door included). Authored from the askGOD CHANGE amendment
