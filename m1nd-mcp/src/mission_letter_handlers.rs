@@ -156,6 +156,39 @@ pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) ->
                     ),
                 });
             }
+            // The boundary-staleness guard (field bug: the orphan letter
+            // msn_17a1d1f9b013). A `receipt_candidate` is the one-click import the
+            // tray offers; the §1 contract gate only proved its evidence was
+            // COMPLETE (artifact_hash + evidence_refs), never that its
+            // `scope.boundary_version` still matched the LIVE block. A candidate
+            // proving a boundary the block has moved past is dead evidence —
+            // `receipt_import` would reject it with `stale_scope`, yet the letter
+            // was already appended (that is how the orphan was born). Declare the
+            // staleness at POST, naming both versions, and append nothing. Mirrors
+            // the import law (`system_blocks`: receipt.scope.boundary_version !=
+            // block.boundary_version).
+            if let Some(candidate) = &input.letter.receipt_candidate {
+                if let Some(block) = store
+                    .blocks
+                    .iter()
+                    .find(|b| b.block_id == candidate.block_id)
+                {
+                    if candidate.scope.boundary_version != block.boundary_version {
+                        return Err(M1ndError::InvalidParams {
+                            tool: "mission_post".to_string(),
+                            detail: format!(
+                                "stale_scope: the receipt candidate for block '{}' proves \
+                                 boundary_version {} but the live block is at boundary_version {} \
+                                 — re-earn the candidate against the live boundary; nothing was \
+                                 appended",
+                                candidate.block_id,
+                                candidate.scope.boundary_version,
+                                block.boundary_version
+                            ),
+                        });
+                    }
+                }
+            }
         }
     }
     let box_path = mission_box_path(state);

@@ -7215,6 +7215,94 @@ mod tests {
         let _ = &temp;
     }
 
+    #[test]
+    fn mission_post_refuses_receipt_candidate_with_stale_boundary_version() {
+        // The boundary-staleness guard (field bug: the orphan letter
+        // msn_17a1d1f9b013). A mission letter may carry a `receipt_candidate` — a
+        // one-click import the tray offers. gate #3 only checked the candidate's
+        // evidence was COMPLETE, never that its `scope.boundary_version` still
+        // matched the LIVE block. A candidate proving a boundary the block has
+        // moved past is dead evidence: `receipt_import` would reject it with
+        // `stale_scope`, but the letter was already appended. Declare the staleness
+        // at POST instead, naming both versions. Mirrors the import law
+        // (`system_blocks`: receipt.scope.boundary_version != block.boundary_version).
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("m1nd");
+        std::fs::create_dir_all(&repo).expect("repo");
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+
+        // Seed the real skeleton: sb_m1nd_core_graph_kernel lives at boundary 1.
+        let real_seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
+        super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({"agent_id": "t", "seed_json": real_seed}),
+        )
+        .expect("seed imports");
+
+        // A merge_wait letter (requires a gate) carrying a candidate whose scope
+        // boundary is the parameter under test.
+        let letter = |cand_boundary: u32, mission_id: &str| {
+            serde_json::json!({
+                "schema": "m1nd-mission-letter-v0",
+                "mission_id": mission_id,
+                "mission_seq": 1,
+                "block_id": "sb_m1nd_core_graph_kernel",
+                "brain_ref": "m1nd",
+                "seat": "hand",
+                "capability": "build-runner",
+                "phase": "merge_wait",
+                "gate": {
+                    "command": "cargo test -p m1nd-mcp",
+                    "exit_status": 0,
+                    "artifact_hash": "sha256:gatelog"
+                },
+                "receipt_candidate": {
+                    "block_id": "sb_m1nd_core_graph_kernel",
+                    "type": "spec",
+                    "scope": {"boundary_version": cand_boundary, "contract_version": 1},
+                    "evidence": {
+                        "artifact_hash": "sha256:art",
+                        "evidence_refs": ["artifacts/x.txt"]
+                    }
+                },
+                "packet_ref": "sha256:x",
+                "tokens_total": 0,
+                "started_at": "2026-07-10T00:00:00Z",
+                "updated_at": "2026-07-10T00:00:00Z",
+            })
+        };
+
+        // A candidate proving the LIVE boundary (1) posts cleanly — the control.
+        super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": letter(1, "msn_0123456789ab")}),
+        )
+        .expect("a candidate proving the live boundary posts");
+
+        // A candidate proving a boundary the block is NOT at (3 != live 1) is
+        // refused, naming both versions. On main (no gate) this posts silently —
+        // the exact vector that birthed the orphan letter.
+        let err = super::dispatch_tool(
+            &mut state,
+            "mission_post",
+            &serde_json::json!({"agent_id": "t", "letter": letter(3, "msn_abcdef012345")}),
+        )
+        .expect_err("a stale-boundary candidate must be refused at post");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("stale_scope"),
+            "refusal names the staleness: {msg}"
+        );
+        assert!(
+            msg.contains('3') && msg.contains('1'),
+            "refusal names both boundary versions (candidate 3 vs live 1): {msg}"
+        );
+        let _ = &temp;
+    }
+
     /// THE CURATION-DISPATCH BATTERY (field bug 2026-07-10, seen twice in human
     /// dogfood): the map's "Send to an agent for curation" letter was refused on a
     /// HOSTED brain. Two composed causes: (1) the UI derived `brain_ref` from the

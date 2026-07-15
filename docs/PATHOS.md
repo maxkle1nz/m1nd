@@ -103,6 +103,28 @@ same bar, applied to building the organism outward.
 > Docs same PR (F30 "§ The hash router" amendment + this block; corrected the stale "NOT yet landed" markers on the landed
 > Universe arc #371/#372/#373). Next: land this PR, then PR 2 of Pista A (the live map arc) — separate.
 
+> **2026-07-15 — "GUARDS AT THE WRITE DOORS" burst on `fix/write-door-guards` (branch, NOT yet landed).**
+> Field triage 2026-07-15 ranked three write-door guards; two were real and open, one was a stale triage claim.
+> **Commit A (mission_post boundary):** the mission-letter contract checked a `receipt_candidate`'s evidence for
+> COMPLETENESS but never that its `scope.boundary_version` still matched the LIVE block — so a candidate proving a
+> boundary the block had moved past was appended silently (how the orphan `msn_17a1d1f9b013` was born) and only
+> caught later at import. `handle_mission_post` now compares the candidate's boundary against the live block
+> (reusing the store it already loads for the `unknown_block` guard) and refuses `stale_scope` at post, naming both
+> versions — dead evidence declared at the door. **Commit B (persist shrink):** defense in depth behind #370 —
+> `snapshot::save_graph` peeks the existing on-disk node count and, when the incoming graph holds under 20% of a
+> non-trivial prior snapshot, renames it to `<path>.bak-<unix_ts>` before overwriting (fail-open — a legitimate
+> shrink is never blocked, the large snapshot is never lost in silence; the incident was a 10573→704 overwrite).
+> Both RED→GREEN. **The triage's P0 was already CLOSED:** "skeleton write-verbs refuse under `caller_root_mismatch`"
+> landed 2026-07-11 in **#340** (`skeleton_write_needs_root_gate`, `server.rs:4773`, covering all eight verbs) — the
+> triage checked `GRAPH_MUTATION_TOOLS`/`READ_ONLY_DENIED_TOOLS` and missed the dedicated gate; no new code, the
+> existing tests already cover it (a verify-before-declare catch). **A fourth guard (a chain has one writer, from an
+> askGOD verdict) was OPT-OUT:** the bell-silencing hole is real (a stranger can move a `merge_wait` head with a
+> seq+1 non-archived letter; the landing bell counts only `merge_wait` heads), but a letter chain is multi-writer BY
+> DESIGN (F25-TECH §4a/§5b: the oracle posts seq 1, **runnerd** streams seq 2+ on the same chain under a different
+> identity), and the board's transitions past `archived` are explicitly "left undesigned" — closing it correctly
+> needs the chain-write AUTHORIZATION model designed (a contract slice with its own verdict), not a mechanical
+> `agent_id` gate that would break the dispatch→execute loop.
+
 > **2026-07-15 — "VITALS NEVER BLOCK THE PANORAMA" fix on `fix/panorama-never-waits` (#373, LANDED — origin/main HEAD).**
 > A field report (2×, live) caught `/api/universe` stalling for 15-20s after a kickstart — it read as a deadlock
 > (CPU 0%), but was transient contention: `universe_body` took `state.session.lock()` on its FIRST line (just for
