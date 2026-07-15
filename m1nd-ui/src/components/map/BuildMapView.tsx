@@ -27,6 +27,7 @@ import {
 import { composeCurationPacket, dispatchCuration } from '../../lib/curation';
 import { sendDirectPacket } from '../../lib/missions';
 import { useBuildMap } from '../../hooks/useBuildMap';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import { useScanMachine } from '../../hooks/useScanMachine';
 import { useSSE } from '../../hooks/useSSE';
@@ -55,7 +56,23 @@ export default function BuildMapView({
   brainRoot = null,
   selectedBlockId = null,
 }: BuildMapViewProps) {
-  const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot);
+  // §5.3 — the map breathes. An agent (or another viewer) mutating the SystemBlock
+  // store / skeleton / X-RAY tags emits a `graph_changed` SSE (the block verbs the
+  // relay now covers); useLiveRefresh debounces the burst (~500 ms) and bumps this
+  // key, so useBuildMap re-reads. The re-read opens as 'refreshing' (stale-while-
+  // revalidate, #372): the map stays mounted and the human's selection / scroll /
+  // open panel are preserved — a live refresh never yanks them.
+  const [liveRefreshKey, setLiveRefreshKey] = useState(0);
+  const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot, liveRefreshKey);
+  // Subscribe ONLY this surface (never the App-level front-door read — that would
+  // double-refetch). SCOPED to the brain in view (§4A.9.6): a mutation on another
+  // brain leaves this map untouched. Gated off the cold 'loading' start (the first
+  // read is already in flight); a live event thereafter rides the 'refreshing' path.
+  useLiveRefresh({
+    onRefresh: () => setLiveRefreshKey((k) => k + 1),
+    enabled: enabled && status !== 'loading',
+    viewedRoot: brainRoot,
+  });
   const [reconciling, setReconciling] = useState(false);
   const [toast, setToast] = useState<ReconcileToast | null>(null);
   // F0c §5 — the scan gesture; F11-c — the editor. The write owner runs the

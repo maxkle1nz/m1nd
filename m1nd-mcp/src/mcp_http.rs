@@ -58,11 +58,20 @@ const GRAPH_CHANGED_METHOD: &str = "notifications/m1nd/graph_changed";
 /// don't drop a quiet connection.
 const MCP_SSE_KEEPALIVE_SECS: u64 = 15;
 
-/// Tools whose successful execution mutates the shared graph / plasticity /
-/// disk state in a way ANOTHER attached agent needs to know about. This mirrors
-/// the `READ_ONLY_DENIED_TOOLS` set in `server.rs` (the canonical "mutation"
-/// boundary) — kept local here so the notification relay's intent is explicit
-/// and the relay stays decoupled from the read-only gate's internals.
+/// Tools whose successful execution mutates something a viewer RENDERS — the
+/// shared graph, the SystemBlock store, the skeleton, or the persisted X-RAY
+/// tags — so a viewer (an attached agent OR the served Living Tree / Build Map)
+/// must refetch to stay honest instead of showing a photograph.
+///
+/// This is a CURATED SUBSET of `server::READ_ONLY_DENIED_TOOLS`, NOT a mirror of
+/// it (the earlier "mirrors" comment drifted). The invariant is one-directional:
+/// every tool here is read-only-denied (a write), but the converse is FALSE —
+/// several read-only-denied writes never change what a viewer draws and are
+/// deliberately EXCLUDED, e.g. `mission_post`/`mission_spawn` (mailbox writes),
+/// `candidate_lease` (an advisory curation lease), `runtime_overlay` (an
+/// activation overlay, not a render source). So `GRAPH_MUTATION_TOOLS ⊆
+/// READ_ONLY_DENIED_TOOLS`, and the reason a verb is IN this set is precisely
+/// "landing it redraws the map".
 ///
 /// LOW-NOISE: a `tool_result` broadcast is relayed ONLY when its `tool` is in
 /// this set. Read/analysis tool results (the overwhelming majority of traffic,
@@ -76,6 +85,20 @@ const GRAPH_MUTATION_TOOLS: &[&str] = &[
     "learn",
     "daemon_start",
     "auto_ingest_start",
+    // Build Map (HUMAN-VIEW-V2) writes: the SystemBlock store, the skeleton and
+    // the persisted `xray:state:*` tags ARE what the map draws, so a viewer must
+    // refetch when one lands. Without these the map was live for `ingest` but a
+    // photograph for a ratify / reconcile / paint. Each is confirmed present in
+    // `READ_ONLY_DENIED_TOOLS` (server.rs) — the subset invariant above.
+    "system_blocks_seed_import",
+    "system_blocks_ratify",
+    "system_blocks_reconcile",
+    "system_blocks_archive",
+    "system_blocks_delete",
+    "skeleton_candidate",
+    "receipt_import",
+    "xray_paint",
+    "xray_retag",
 ];
 
 /// Normalize an optional `m1nd.`/`m1nd_` tool prefix, matching the same idiom
@@ -1904,6 +1927,49 @@ mod tests {
                 et
             );
         }
+    }
+
+    #[test]
+    fn build_map_write_verbs_relay_as_graph_changed() {
+        // The Build Map (HUMAN-VIEW-V2) draws the SystemBlock store, the skeleton and
+        // the persisted X-RAY tags; a write to any of them must reach a viewer as
+        // `graph_changed`, or the map is a photograph — live for `ingest`, frozen for
+        // a ratify / reconcile / paint. Before this set was extended these verbs
+        // relayed NOTHING (the natural RED); each now names itself in the frame.
+        for tool in [
+            "system_blocks_seed_import",
+            "system_blocks_ratify",
+            "system_blocks_reconcile",
+            "system_blocks_archive",
+            "system_blocks_delete",
+            "skeleton_candidate",
+            "receipt_import",
+            "xray_paint",
+            "xray_retag",
+        ] {
+            let e = ev(
+                "tool_result",
+                serde_json::json!({"tool": tool, "success": true}),
+            );
+            let frame = graph_changed_notification(&e)
+                .unwrap_or_else(|| panic!("{tool} must relay as graph_changed"));
+            assert_eq!(frame["params"]["event"], tool, "{tool} names itself");
+        }
+    }
+
+    #[test]
+    fn a_mailbox_write_is_read_only_denied_but_not_a_graph_change() {
+        // The set is a curated SUBSET of READ_ONLY_DENIED_TOOLS, not a mirror:
+        // `mission_post` is read-only-denied (a write) but writes the MAILBOX, not
+        // anything a viewer draws — it must NEVER masquerade as `graph_changed`.
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "mission_post", "success": true}),
+        );
+        assert!(
+            graph_changed_notification(&e).is_none(),
+            "a mailbox write is not a shared-graph change"
+        );
     }
 
     // ---- Handler behavior (validation / termination) ----------------------
