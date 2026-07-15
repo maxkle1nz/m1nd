@@ -136,13 +136,18 @@ export function useBuildMap(
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  // Track the last-good snapshot presence + the brain we last read, WITHOUT making
-  // either a dep of the load effect (a snapshot dep would re-fire the load on every
-  // resolve). The presence ref is synced by its own effect (runs on snapshot change,
-  // never on a bare tick), so a same-brain reload still sees the prior last-good.
-  const hasLastGoodRef = useRef(false);
+  // Whether THIS brain has EVER yielded a present snapshot, + the brain we last read,
+  // WITHOUT making either a dep of the load effect (a snapshot dep would re-fire the
+  // load on every resolve). The flag is STICKY per brain (its effect only ever SETS
+  // it, on a present snapshot; a brain switch clears it in the load effect below) —
+  // so once the map has painted, a same-brain re-read keeps it MOUNTED even when a
+  // live refresh (§5.3) transiently reads the store MID-REWRITE (present:false — a
+  // fresh-scan candidate churn) and back. "Last snapshot present" would flip false on
+  // that blink, dropping the NEXT read to 'loading' → BuildMap remounts → the human's
+  // selection/scroll is reset (the candidate map went "dead to clicks").
+  const everLoadedRef = useRef(false);
   useEffect(() => {
-    hasLastGoodRef.current = snapshot?.present === true;
+    if (snapshot?.present === true) everLoadedRef.current = true;
   }, [snapshot]);
   const prevBrainRef = useRef<string | null>(brainRoot);
 
@@ -151,10 +156,13 @@ export function useBuildMap(
     let mounted = true;
     const brainChanged = prevBrainRef.current !== brainRoot;
     prevBrainRef.current = brainRoot;
+    // A brain switch is honestly cold — the new brain has no last-good of its own yet
+    // (never show brain A's map as brain B's while B loads).
+    if (brainChanged) everLoadedRef.current = false;
     // Stale-while-revalidate (F1): keep the map mounted across a same-brain reload so a
     // write never erases the human's selection/scroll/modal; only a cold start or a
     // brain switch shows the loading screen.
-    setStatus(nextReadStatus(hasLastGoodRef.current, brainChanged));
+    setStatus(nextReadStatus(everLoadedRef.current, brainChanged));
     setError(null);
     void loadBuildMap(brainRoot, {
       isMounted: () => mounted,
