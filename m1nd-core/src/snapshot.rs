@@ -5,7 +5,7 @@ use crate::graph::{Graph, NodeProvenanceInput, ResolvedNodeProvenance};
 use crate::plasticity::SynapticState;
 use crate::types::*;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Snapshot — JSON graph persistence
@@ -141,10 +141,75 @@ fn snapshot_from_provenance(value: ResolvedNodeProvenance) -> NodeProvenanceSnap
 // Graph save/load
 // ---------------------------------------------------------------------------
 
+// Catastrophic-shrink guard (defense in depth). Incident 2026-07-15: the owner's
+// `graph_snapshot.json` was overwritten from 10573 nodes to 704 with NO backup
+// (the foreign-ingest root cause was closed by #370; this is the second line of
+// defense). A canonical snapshot must never be replaced by a catastrophically
+// smaller one in silence — the large snapshot is preserved as a timestamped
+// `.bak-<unix_ts>` sibling first. Fail-open: the write always proceeds (a
+// legitimate shrink is not blocked), the big graph is simply never lost silently.
+
+/// The existing on-disk snapshot must hold at least this many nodes for the guard
+/// to engage — below it, shrinking is ordinary churn on a small/fresh brain.
+const SHRINK_GUARD_FLOOR: usize = 100;
+
+/// Count the nodes in an on-disk snapshot cheaply, without reconstructing the
+/// graph: only the `nodes` array length is read (its elements and the `edges`
+/// array are skipped). Returns `None` if the file is absent or unreadable — the
+/// guard then does nothing (best-effort, never blocks a persist).
+fn snapshot_node_count_on_disk(path: &Path) -> Option<usize> {
+    #[derive(serde::Deserialize)]
+    struct NodeCountPeek {
+        #[serde(default)]
+        nodes: Vec<serde::de::IgnoredAny>,
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let peek: NodeCountPeek = serde_json::from_slice(&bytes).ok()?;
+    Some(peek.nodes.len())
+}
+
+/// If `path` already holds a non-trivial snapshot and `new_node_count` is under
+/// 20% of it, rename the existing file to `<path>.bak-<unix_ts>` before it is
+/// overwritten. Returns the backup path when one was made. Fail-open: any I/O
+/// hiccup (unreadable prior file, rename failure) skips the backup and lets the
+/// write proceed — the guard never blocks a legitimate persist.
+fn backup_if_catastrophic_shrink(path: &Path, new_node_count: usize) -> Option<PathBuf> {
+    let existing = snapshot_node_count_on_disk(path)?;
+    if existing < SHRINK_GUARD_FLOOR {
+        return None;
+    }
+    // Catastrophic := new < 20% of existing, i.e. `new * 5 < existing`.
+    if new_node_count.saturating_mul(5) >= existing {
+        return None;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut bak = path.as_os_str().to_owned();
+    bak.push(format!(".bak-{ts}"));
+    let bak = PathBuf::from(bak);
+    match std::fs::rename(path, &bak) {
+        Ok(()) => {
+            eprintln!(
+                "[m1nd] WARNING: snapshot {} holds {existing} nodes but the incoming graph has \
+                 {new_node_count} (< 20%) — backed up the prior snapshot to {} before overwriting",
+                path.display(),
+                bak.display()
+            );
+            Some(bak)
+        }
+        Err(_) => None,
+    }
+}
+
 /// Save full graph to JSON snapshot. Atomic write: temp file + rename (FM-PL-008).
 /// Serializes all nodes and edges so the graph can be fully reconstructed on load.
 pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
     let n = graph.num_nodes() as usize;
+
+    // Defense in depth: never silently overwrite a large snapshot with a tiny one.
+    let _ = backup_if_catastrophic_shrink(path, n);
 
     // Build reverse map: NodeId -> external_id string
     let mut node_to_ext_id = vec![String::new(); n];
@@ -382,4 +447,79 @@ pub fn load_co_change_matrix(path: &Path) -> M1ndResult<crate::temporal::CoChang
     // Return empty matrix; full deserialization needs graph context
     let graph = Graph::new();
     crate::temporal::CoChangeMatrix::bootstrap(&graph, 500_000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn graph_with_nodes(n: usize) -> Graph {
+        let mut g = Graph::new();
+        for i in 0..n {
+            let id = format!("node_{i}");
+            g.add_node(&id, &id, NodeType::File, &[], 0.0, 0.0)
+                .expect("add node");
+        }
+        g
+    }
+
+    fn bak_siblings(dir: &Path, stem: &str) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(dir)
+            .expect("read dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with(stem) && n.contains(".bak-"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn owner_persist_refuses_or_backs_up_on_catastrophic_node_shrink() {
+        // Defense in depth (incident 2026-07-15: graph_snapshot.json overwritten
+        // 10573 -> 704 nodes with no backup). Overwriting a large canonical
+        // snapshot with a catastrophically smaller graph must never lose the big
+        // one in silence — the prior snapshot is preserved as a timestamped backup.
+        let base =
+            std::env::temp_dir().join(format!("m1nd_snapshot_shrink_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+
+        // Scenario A — catastrophic shrink (500 -> 10, well under 20%): backup made.
+        let dir_a = base.join("a");
+        std::fs::create_dir_all(&dir_a).expect("mk a");
+        let path_a = dir_a.join("graph_snapshot.json");
+        save_graph(&graph_with_nodes(500), &path_a).expect("save big");
+        save_graph(&graph_with_nodes(10), &path_a).expect("save tiny (fail-open)");
+
+        let baks = bak_siblings(&dir_a, "graph_snapshot.json");
+        assert_eq!(
+            baks.len(),
+            1,
+            "a catastrophic shrink must back up the prior large snapshot before overwriting"
+        );
+        let backed = load_graph(&baks[0]).expect("the backup is a valid snapshot");
+        assert_eq!(
+            backed.num_nodes(),
+            500,
+            "the backup preserves the large graph, not the tiny replacement"
+        );
+        // The write still happened (fail-open): the live snapshot is the tiny one.
+        assert_eq!(load_graph(&path_a).expect("live loads").num_nodes(), 10);
+
+        // Scenario B — a moderate shrink (500 -> 300, above 20%) is normal churn:
+        // no backup, the write proceeds untouched.
+        let dir_b = base.join("b");
+        std::fs::create_dir_all(&dir_b).expect("mk b");
+        let path_b = dir_b.join("graph_snapshot.json");
+        save_graph(&graph_with_nodes(500), &path_b).expect("save big");
+        save_graph(&graph_with_nodes(300), &path_b).expect("save moderate");
+        assert!(
+            bak_siblings(&dir_b, "graph_snapshot.json").is_empty(),
+            "a non-catastrophic shrink must not spawn a backup"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
