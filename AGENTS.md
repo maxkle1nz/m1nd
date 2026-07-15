@@ -162,7 +162,10 @@ bound brain because the writer never checked which brain it was talking to.
    gesture BEFORE any write: `ingest project_root=<your repo root>` — a single call
    creates/resolves YOUR brain, ingests it, binds the session, and returns its north in the
    same response; from then on your root routes to your brain automatically. Then write.
-   (The mechanical write-refusal is landing; the doctrine holds now.)
+   (The mechanical write-refusal has LANDED — every skeleton write verb
+   (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
+   `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching
+   `brainless_root` that names both roots; the doctrine holds regardless.)
 2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or WORKTREE of
    an existing brain is refused with a teaching error (`overlap_parent` / `overlap_child` /
    `overlap_worktree`) that names the conflict and the two ways forward: bind to the existing
@@ -204,3 +207,13 @@ never carry `receipt.imported==true` (never a landing in disguise), and it may o
 `merge_wait` head — the board's FIRST transition rule (`invalid_transition` otherwise). **An agent
 never archives; the owner's screen does** — an agent must never silence its own unproven work. Full
 rule: `HUMAN-VIEW-V2-F25-TECH` §1h + § archived.
+
+**Two more write-door guards (2026-07-15 field hardening).** (1) A `mission_post` letter carrying a
+`receipt_candidate` is now checked against the LIVE block at post time: a candidate whose
+`scope.boundary_version` no longer matches the block is refused `stale_scope` naming both versions —
+dead evidence is declared at the door instead of surviving as an orphan letter the tray would offer
+for a one-click import that `receipt_import` then rejects. (2) The owner's graph persist gained a
+catastrophic-shrink guard: when an incoming graph holds under 20% of the nodes in the existing
+on-disk snapshot, the prior snapshot is renamed to `<path>.bak-<unix_ts>` before it is overwritten
+(fail-open — a legitimate shrink is never blocked, the large snapshot is never lost in silence).
+This is defense in depth behind the #370 binding fix, after a snapshot was overwritten 10573→704.
