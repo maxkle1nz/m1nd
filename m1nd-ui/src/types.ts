@@ -329,11 +329,13 @@ export interface SsePersistData {
 }
 
 /**
- * Emitted by the server (http_server.rs `browser_graph_changed_event`) when the
- * shared graph actually changed under the UI — an agent ran memorize / ingest /
- * edit_commit / apply / learn. The Living Tree listens for this to refresh in
- * place (PRD §5.3). `event` names WHICH mutation; the tree re-fetches the
- * snapshot rather than trusting a diff.
+ * Emitted by the server (http_server.rs `browser_graph_changed_event`) when
+ * something the UI renders actually changed — an agent ran a graph write
+ * (memorize / ingest / edit_commit / apply / learn) or a Build-Map write
+ * (system_blocks_ratify / _reconcile / _seed_import / _archive / _delete,
+ * skeleton_candidate, receipt_import, xray_paint / xray_retag). The Living Tree
+ * AND the Build Map listen for this to refresh in place (PRD §5.3). `event` names
+ * WHICH mutation; the surface re-fetches its snapshot rather than trusting a diff.
  */
 export interface SseGraphChangedData {
   event: string;

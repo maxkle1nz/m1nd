@@ -49,6 +49,30 @@ same bar, applied to building the organism outward.
 
 ## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
 
+> **2026-07-15 — "THE LIVING MAP: graph_changed covers the block verbs, the Build Map subscribes" on `feat/living-map` (PR 2 of the Pista-A pair; builds on the router #374).**
+> The Build Map was the last read surface without a live wire — it reloaded on its OWN writes (reconcile/ratify/scan)
+> but stayed a PHOTOGRAPH when an agent, the CLI or another viewer mutated the store. Authored from the askGOD CHANGE
+> verdict (required changes are law). **Commit 1 (Rust) — the classifier honestly covers the map.** The browser
+> (`browser_graph_changed_event`) and MCP (`graph_changed_notification`) relays share ONE predicate,
+> `mcp_http::graph_mutation_event_name`, gated by `GRAPH_MUTATION_TOOLS` — a set that listed only
+> ingest/apply/edit_commit/memorize/learn/daemon_start/auto_ingest_start, so NO verb that draws the map emitted a change
+> (live for ingest, frozen for ratify/reconcile/scan/paint). Extended it with the nine SystemBlock/skeleton/X-RAY writes
+> (`system_blocks_seed_import`/`_ratify`/`_reconcile`/`_archive`/`_delete`, `skeleton_candidate`, `receipt_import`,
+> `xray_paint`, `xray_retag`) — each CONFIRMED present in `server::READ_ONLY_DENIED_TOOLS`. The drifted "mirrors
+> READ_ONLY_DENIED_TOOLS" comment is corrected to the truth: a **curated subset** (mailbox writes like `mission_post`,
+> advisory leases, the activation overlay stay OUT — they change nothing a viewer draws; invariant
+> `GRAPH_MUTATION_TOOLS ⊆ READ_ONLY_DENIED_TOOLS`). Tests: the nine verbs now relay + name themselves; a mailbox write
+> stays read-only-denied yet never masquerades as a graph change. **Commit 2 (UI) — the map breathes.** `BuildMapView`
+> subscribes the house live pattern (`useLiveRefresh`: graph_changed, debounced ~500 ms, **scoped to the brain in view**
+> §4A.9.6) and feeds the idle `refreshKey` of `useBuildMap`. Composed with the stale-while-revalidate of #372, the re-read
+> opens as `refreshing` — the map never unmounts, so the human's selection/scroll/open block panel survive a live update.
+> ONLY this surface subscribes (never the App-level front-door read — the oracle flagged the double refetch), so a write
+> triggers exactly one refetch. **Proof:** Rust `cargo test`/`fmt`/`clippy` green; UI 635 unit + **29 e2e** green (new
+> `living-map.spec.ts` on a deterministic FakeES — a viewed-brain graph_changed refetches once with the panel kept open
+> and the loading screen never shown; a foreign-brain event refetches nothing); tsc/eslint/violet-lint/icon-lint clean;
+> embedded `m1nd-ui/dist` rebuilt. Doc-gate in-PR: the SSE-events table + classifier note (`docs/wiki/.../mcp-server.md`),
+> `SseGraphChangedData` (types.ts), the map's F0-TECH §8 ("live, not a photograph"), and this block.
+
 > **2026-07-15 — "HASH ROUTER: deep links and a real back" burst on `feat/url-router` (PR 1 of the Pista-A pair; the live-map arc is a SEPARATE PR).**
 > The SPA got the URL router F30 §1 explicitly deferred — a **hash router** (zero server change: the SPA is rust-embed
 > from one `index.html`, so a `#` fragment never reaches the server) that is a THIN URL⇄state sync over the EXISTING
