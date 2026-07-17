@@ -81,6 +81,32 @@ append `~/.m1nd/field-reports.jsonl`, never mid-mission surgery. Durable side re
 Reviewer runs in `~/.god/runs/`, its ledger in `~/.god/reviewer/`, its isolated pen-free
 CODEX_HOME in `~/.god/reviewer-codex/`.
 
+**The Claude Code dev setup (this host — how the next agent's environment is wired for m1nd).**
+- **MCP (user-scope, `~/.claude.json`):** `m1nd` → `~/.m1nd/bin/m1nd-mcp --attach http://127.0.0.1:1338`
+  (attach-mode, no lock — the host bridges onto the served owner). Alongside: `context7` (version-
+  pinned lib docs before coding), `semgrep`, `playwright`. m1nd tools drop mid-session = the owner
+  was kickstarted (rebuild/deploy) — new bridges self-recover; a persistent "Failed to connect" =
+  owner down → kickstart. Proceed without it, never insist, report to the box.
+- **Hooks (`~/.claude/settings.json` → `~/.claude/hooks/`), all fail-open:**
+  `SessionStart → m1nd-north.sh` (attaches :1338, calls `north`, injects the VOICE CARD + orientation
+  as ambient context — v3 shim opens with `human_view.lines`); `PostToolUse → m1nd-ambient-ingest.sh`
+  (auto_ingest_tick so the graph eats edits unasked); `PreCompact`+`SessionEnd → m1nd-trail-save.sh`
+  (persist). Universal guards on the same rail: `PreToolUse → git-guard.sh` (BLOCKS any commit carrying
+  a Claude/AI identity — authorship is Max Kle1nz, mechanically); `PostToolUse → verify-edit.sh`
+  (gitleaks secret-scan + ruff on every edit).
+- **Skills — the m1nd doctrine (user-scope mirrors of the repo's `skills/`, repo wins on divergence):**
+  `m1nd-first` (m1nd is the FIRST investigative layer before grep/glob/manual reads) and `m1nd-operator`
+  (the full operator surface: routing/reception, L1GHT ingest, risky-edit prep, delegate/debrief,
+  medulla tiers, trails, daemon alerts). The mother-workflow skills used ALL era for m1nd dev:
+  **`askgod`** (the oracle — every BIG change this era passed a `verdict`; Fable seat via express order;
+  it caught the freshness-theater trap, the bell-silence hole, the bounce illegality — read the
+  verdicts in the f0a scratchpad), **`gogod`** (the executing hand when implementation itself is the
+  bottleneck), **`bugboo`** (adversarial bug hunts with proof), **`pathos`** (this continuity system),
+  **`uiproof`** (deterministic frontend Q&A — Playwright specs, not an agent in the loop). Model
+  doctrine: Opus main orchestrates/verifies/voices and DELEGATES substantive work to Opus subagents
+  in isolated worktrees; Sonnet only for light synthesis; Fable is main-only / askgod-gogod / express
+  order — never inherited by a subagent (pass `model:` explicitly on every delegation).
+
 **What waits, and for whom.** The OWNER's hand: archive the two stale merge_wait letters
 (`msn_17a1d1f9b013` + the p0 smoke) → the armed `first_real.py --ingest` mints the fresh
 boundary-v3 letter → his Touch ID lands the first full mirror cycle; sample the Reviewer's runs
