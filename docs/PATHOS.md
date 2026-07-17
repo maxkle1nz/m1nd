@@ -2,7 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-12 (**checkpoint 18 — THE VOICE: m1nd speaks to the human in the conversation; the pulse is stamped, the cockpit ships, the scan wait is made honest**).
+> Last checkpoint: 2026-07-15 (**checkpoint 19 — THE HONEST FRONT DOOR, THE UNIVERSE, AND THE CI IS BORN: the critique became receipts, every project became a world, and the review tier grew its first judgment — with zero false approves**).
+> Checkpoint 19, condensed: **The era where the organism turned its honesty outward and grew a mechanical reviewer.** An external skeptic's review of the public repo ("solo project disguised as product; calibration claimed, never measured; receipts buried") was answered the only honest way — by fixing the front door, not arguing: **#368** (runtime-install step that actually works, the false "already ships a SessionStart hook" claim ERADICATED, serve/attach promoted to the recommended path, versions trued to 1.4.0, the **"Proven today vs designed"** receipts table, calibration language downgraded to what is measured, `.mcp.json` shipped) and **#369** (the ambient shim v3 — the npm-shipped hook now opens with the north VOICE CARD when a served owner is live; cwd-independence proven from the #326 incident directory). The #326 flip class then died at the root: **#370** pinned the served owner's binding against foreign local runs (mechanism PROVEN live: any HTTP `ingest{path}` rebound the owner; registry hypothesis honestly REFUTED), after the live-proof chain overwrote the big snapshot 10,573→704 nodes — restored by full re-ingest, and **#375** added the persist catastrophic-shrink backup (`.bak-<ts>` before any <20% overwrite) + `mission_post` now refuses `stale_scope` candidates at the door (the orphan class's death certificate; the triage's "open P0" was found ALREADY CLOSED by #340 — a verify-before-declare catch logged as calibration honesty). **The Universe landed (#371, F30):** the SPA's entry door is now the panorama — every project brain a WORLD (mass=nodes, light=manifest freshness shown as age, satellites=live presences, amber ring=pending gestures), the **Landing** one queue for every world's human gestures — built verdict-first (sidecar-only aggregator with the anti-hydration HARD LAW proven `warm_len 0→0`; no cross-brain pulse — per-brain by written law; "the Threshold" name collision honestly renamed). **The doors got honest (#372):** two-step confirm on Reconcile (the map's only one-click write), the Hall owner-alerts panel (the Landing's owner item finally lands somewhere), presentation-only dismiss for stagnant judging heads, the block panel's ✕/ESC exit (owner-reported live), SSE dev base unified — plus **#373**: `universe_body` try_locks the session (vitals omitted honestly under gardener churn; the 15-20s post-boot stalls became 32ms, RED-proven <500ms under a held lock). **Pista A closed same-day:** **#374** the hash router (deep links + a real Back; ONE `navigate()`; brain keys are BASENAMES never abspaths — `instance_id` proven ephemeral-by-construction; deep-link beats landing; transients stay out of the URL) and **#376** the LIVING MAP (the freshness-theater trap caught by verdict: `graph_changed` existed but its classifier covered NO block verb — 9 verbs added, `GRAPH_MUTATION_TOOLS ⊆ READ_ONLY_DENIED_TOOLS` invariant tested; the map subscribes scoped via the idle `refreshKey`, composing with stale-while-revalidate) — and the owner's first candidate-mode click found **#377** the same day (a fresh-scan store mid-rewrite flickered `present:false` → the map REMOUNTED and dropped selection; fixed sticky-present-per-brain; the click was never broken — the executor corrected the orchestrator's own diagnosis and retitled the PR to the truth). **The h4nd side:** pool receipts now read the LIVE block boundary (`resolve_block_scope`, fail-closed — no more v1-scope lies), `first_real.py --ingest` target armed, the tray REBUILT with the native Touch ID stamp live in the menu bar. **And the CI was born (owner's order: "um GPT SOL 3×/dia, um CI do m1nd — o humano só assina o merge"):** PRD v2 post-verdict (the Reviewer never lands; bounce via INBOX rail never the item's chain — the verdict exposed that a chain seq+1 can SILENCE THE BELL, a hole that exists today and needs its own authorization-model slice; origin gates EXTENDED not untouched; the Train as reviewer sidecar `m1nd-train-v0`; roles never vendors), **S1 SHIPPED read-only in god-hud** (packet composer over the real queue, 4-verdict schema with `insufficient_evidence`, anti-hallucination validator, idempotency ledger, isolated CODEX_HOME with ZERO pens — a codex profile-layer gap caught: `mcp_servers={}` does NOT clear inherited servers) and **run 1 judged the real board: 15 verdicts, 0 hallucinated, 0 APPROVES** (both approve-eligible items had real defects; 7 textbook evidence-refusals; it even cross-referenced two packet items). Gate S1→S2 is numeric and asymmetric: ≥3 runs, ≥30 owner-sampled verdicts, ZERO reverted approves. Field: 133 reports triaged (95 cured by the era), calibration dataset at 14 honesty entries. **Next:** the owner's three gestures (archive the two stale merge_wait letters → the armed runner mints the fresh v3 letter → the FIRST full mirror-cycle Touch ID; sample the Reviewer runs; curate/ratify the redsky candidate skeleton), then S2 (bounce rail + wrapper, gated on the sampling), the alerts two-store unification (L130 battery case ready), Universe v1.1 (unlit worlds + the m1nd world in its own panorama + refetch-error last-good), the UML Atlas re-ground (+ Universe/CI sheets), the chain-write authorization slice (verdict-gated), and Pista C: the calibration STUDY, the **npm/crates 1.5.0 release** (none of this era reaches installers until published), the HN launch.
+
+> Previous checkpoint: 2026-07-12 (**checkpoint 18 — THE VOICE: m1nd speaks to the human in the conversation; the pulse is stamped, the cockpit ships, the scan wait is made honest**).
 > Checkpoint 18, condensed: see the dated blocks in Current State (the human-layer VOICE arc + the SCAN-LOADING arc — four PRs #347–#350, all landed same-day 2026-07-12; then a curation sealed the burst — atlas re-grounded, root cleaned).
 
 > Previous checkpoint: 2026-07-11 (**checkpoint 17 — THE HAND CURATES: F12 ratified+implemented, the first autonomously curated map human-ratified, the proof system hardened**).
@@ -47,7 +50,51 @@ into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: clim
 rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
 same bar, applied to building the organism outward.
 
-## Current State (2026-07-12, checkpoint 18 — the voice; dated blocks below are the era log)
+## Current State (2026-07-15, checkpoint 19 — the honest front door, the Universe, the CI; dated blocks below are the era log)
+
+### HANDOFF — the next agent starts HERE (2026-07-15, the whole-system panorama)
+
+**The two-house organism.** `m1nd` (this repo, `github.com/maxkle1nz/m1nd`, anchor checkout
+`/Users/kle1nz/m1nd` on `main`) is the MIND: graph, brains, board, UI. `god-hud`
+(`/Users/kle1nz/god-hud`, LOCAL — no remote, its own `docs/PATHOS.md`) is the HAND: cockpit
+`:3000`, warm pool + `poold` daemon, the Touch ID tray (`~/Applications/h4nd.app`), and now the
+CI Reviewer (`h4nd-pool/reviewer/`). Law of the pair: agents propose and prove; NOTHING lands
+without the human's origin-gated gesture.
+
+**The live owner.** Binary `~/.m1nd/bin/m1nd-mcp` served at `http://127.0.0.1:1338` (LaunchAgent
+`com.kle1nz.m1nd-serve`; runnerd `:1339` = `com.kle1nz.m1nd-runnerd`). The embedded UI is the
+product: `#/universe` (the panorama, 11 worlds), the Landing, Build Map (live, deep-linkable
+`#/world/<basename>/map?block=…`), Hall, Tree, tray. Runtime root
+`~/.m1nd/runtimes/claude/` (graph_snapshot.json + `project-brains/<hash>/project_brain.json`
+manifests). REST law: every call routes with `?brain=<abs root>`; the mission board reads
+`GET /api/mailbox?kind=mission`. Deploy runbook: UI dist is committed by UI PRs → `touch
+m1nd-mcp/src/http_server.rs && cargo build --release -p m1nd-mcp` (always
+`CARGO_TARGET_DIR=$HOME/.m1nd-build-cache/target`) → `cp` to `~/.m1nd/bin/` → `xattr -cr` →
+ad-hoc `codesign -f` → `launchctl kickstart -k` both agents.
+
+**Operating law (non-negotiable).** Worktree-per-mutating-agent off the anchor; RED-first for
+every fix; askGOD verdict before BIG; bursts = 1 PR with the doc-gate inside; commits authored
+Max Kle1nz in English (never an AI identity); tests NEVER touch the live owner (ephemeral
+owners/fixtures only — the letters/cartas are the sanctioned exception); m1nd misbehavior →
+append `~/.m1nd/field-reports.jsonl`, never mid-mission surgery. Durable side records live in
+`/Users/kle1nz/m1nd-f0a/scratchpad/` (verdicts, `PRD-M1ND-CI-SOL.md`, `FIELD-TRIAGE-2026-07-15.md`);
+Reviewer runs in `~/.god/runs/`, its ledger in `~/.god/reviewer/`, its isolated pen-free
+CODEX_HOME in `~/.god/reviewer-codex/`.
+
+**What waits, and for whom.** The OWNER's hand: archive the two stale merge_wait letters
+(`msn_17a1d1f9b013` + the p0 smoke) → the armed `first_real.py --ingest` mints the fresh
+boundary-v3 letter → his Touch ID lands the first full mirror cycle; sample the Reviewer's runs
+(gate S1→S2: ≥3 runs, ≥30 verdicts, zero reverted approves — run 1 at
+`~/.god/runs/20260715T004123Z-review/`); curate/ratify redsky's 10-block candidate skeleton.
+THE NEXT AGENT's queue, in order: S2 of the CI (bounce rail + one-pen wrapper — the PRD v2 in
+the scratchpad is binding, the F25 §5e amendment rides it); alerts two-store unification (L130,
+battery spec in the triage report); Universe v1.1 (unlit worlds, the m1nd world in its own
+panorama via a served-brain manifest, refetch-error keeps last-good); the UML Atlas re-ground
+(master at `docs/UML-ORGANISM.md` is grounded pre-era) + Universe/CI sheets; the chain-write
+authorization slice (the bell CAN still be silenced by a stranger's seq+1 — verdict-gated
+contract work); then Pista C — the calibration study (14 honesty entries are the dataset), the
+**npm/crates 1.5.0 release** (this whole era is invisible to installers until published), the
+HN launch (dossier ready). Read the dated era-log blocks below for every mechanism's file:line.
 
 > **2026-07-15 — "THE LIVING MAP: graph_changed covers the block verbs, the Build Map subscribes" on `feat/living-map` (PR 2 of the Pista-A pair; builds on the router #374).**
 > The Build Map was the last read surface without a live wire — it reloaded on its OWN writes (reconcile/ratify/scan)
