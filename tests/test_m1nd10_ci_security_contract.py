@@ -112,6 +112,16 @@ class CiSecurityContractTests(unittest.TestCase):
         self.assertIn('"scripts/benchmark/m1nd10_g6_corpus.py"', policy)
         self.assertIn('"tests/test_m1nd10_g6_held_out_v2_corpus.py"', policy)
 
+    def test_hardened_candidate_guard_semantics_cannot_silently_regress(self):
+        policy = self.text("scripts/m1nd10_candidate_source_guard.py")
+        for token in (
+            "casefold",
+            "credential_file",
+            "opaque_archive",
+            "personal_path_content",
+        ):
+            self.assertIn(token, policy, f"guard lost hardened semantics: {token}")
+
     def test_release_builds_only_from_the_sealed_ui_artifact(self):
         release = self.text(".github/workflows/release.yml")
         self.assertIn("ui-artifact:", release)

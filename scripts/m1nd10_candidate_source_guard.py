@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import stat
 import subprocess
 import sys
@@ -28,6 +29,9 @@ OPERATOR_SOURCE_PATHS = frozenset(
     }
 )
 
+# Path components and basenames below are stored casefolded so that
+# violation_for() can match a casefolded candidate path and no case variant of a
+# private, cache, generated, secret, or credential name slips through.
 PRIVATE_COMPONENTS = frozenset({"operator-only", "runner-results"})
 CACHE_COMPONENTS = frozenset(
     {
@@ -41,11 +45,42 @@ CACHE_COMPONENTS = frozenset(
         "wiki-build",
     }
 )
-SECRET_BASENAMES = frozenset({".env", "runnerd.secret", "runners.toml"})
-PRIVATE_KEY_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
-GENERATED_BASENAMES = frozenset({".DS_Store"})
+SECRET_BASENAMES = frozenset({"runnerd.secret", "runners.toml"})
+CREDENTIAL_BASENAMES = frozenset({".npmrc", ".pypirc", ".netrc", ".git-credentials"})
+CLOUD_CREDENTIAL_BASENAMES = frozenset({"credentials", "credentials.toml"})
+CLOUD_CREDENTIAL_COMPONENTS = frozenset({".cargo", ".aws"})
+SSH_KEY_NAME_SUFFIXES = ("_rsa", "_dsa", "_ecdsa", "_ed25519")
+PRIVATE_KEY_SUFFIXES = frozenset(
+    {".key", ".p12", ".pem", ".pfx", ".p8", ".der", ".jks", ".keystore"}
+)
+OPAQUE_ARCHIVE_SUFFIXES = frozenset(
+    {
+        ".zip",
+        ".tar",
+        ".tgz",
+        ".tbz2",
+        ".txz",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".7z",
+        ".rar",
+        ".jar",
+    }
+)
+GENERATED_BASENAMES = frozenset({".ds_store"})
 GENERATED_SUFFIXES = frozenset({".log", ".pyc", ".pyo", ".tsbuildinfo"})
 MAX_BLOB_BYTES = 8 * 1024 * 1024
+
+# A public candidate blob must never embed a personal home-directory path. These
+# byte patterns match by shape (a path class, never a specific user) on macOS,
+# Linux, and Windows. Documented placeholders such as ``<repo-root>`` cannot
+# match because ``<`` is outside every character class.
+PERSONAL_PATH_PATTERN = re.compile(
+    rb"/Users/[A-Za-z0-9._-]+/"
+    rb"|/home/[A-Za-z0-9._-]+/"
+    rb"|[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[A-Za-z0-9._-]+"
+)
 
 
 class SourceBoundaryError(RuntimeError):
@@ -62,16 +97,29 @@ def violation_for(path_text: str) -> str | None:
         return "non_canonical_path"
     if path_text in OPERATOR_SOURCE_PATHS:
         return "operator_label_source"
-    if PRIVATE_COMPONENTS.intersection(path.parts):
+    parts = {part.casefold() for part in path.parts}
+    name = path.name.casefold()
+    suffix = path.suffix.casefold()
+    if parts & PRIVATE_COMPONENTS:
         return "operator_private_artifact"
-    if CACHE_COMPONENTS.intersection(path.parts):
+    if parts & CACHE_COMPONENTS:
         return "generated_cache"
-    if path.name in GENERATED_BASENAMES or path.suffix.lower() in GENERATED_SUFFIXES:
+    if name in GENERATED_BASENAMES or suffix in GENERATED_SUFFIXES:
         return "generated_cache"
-    if path.name in SECRET_BASENAMES:
-        return "local_secret_or_runner_config"
-    if path.suffix.lower() in PRIVATE_KEY_SUFFIXES:
+    if name == ".env" or name.startswith(".env.") or name in CREDENTIAL_BASENAMES:
+        return "credential_file"
+    if name in CLOUD_CREDENTIAL_BASENAMES and parts & CLOUD_CREDENTIAL_COMPONENTS:
+        return "credential_file"
+    if (
+        ".ssh" in parts
+        or name.endswith(SSH_KEY_NAME_SUFFIXES)
+        or suffix in PRIVATE_KEY_SUFFIXES
+    ):
         return "private_key_material"
+    if name in SECRET_BASENAMES:
+        return "local_secret_or_runner_config"
+    if suffix in OPAQUE_ARCHIVE_SUFFIXES:
+        return "opaque_archive"
     return None
 
 
@@ -210,11 +258,63 @@ def merged_violations(*groups: Iterable[dict[str, str]]) -> list[dict[str, str]]
     return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]
 
 
+def scan_blob_for_personal_path(blob: bytes) -> str | None:
+    """Refuse a public candidate blob that embeds a personal home-directory path."""
+
+    return "personal_path_content" if PERSONAL_PATH_PATTERN.search(blob) else None
+
+
+def commit_content_violations(
+    repo: Path, entries: Iterable[dict[str, object]]
+) -> list[dict[str, str]]:
+    """Scan surviving exact-commit blobs; an unreadable blob fails closed."""
+
+    rejected: dict[str, str] = {}
+    for entry in entries:
+        path = str(entry.get("path", ""))
+        object_id = str(entry.get("object_id", ""))
+        try:
+            blob = run_git(repo, ["cat-file", "blob", object_id])
+        except SourceBoundaryError:
+            rejected[path] = "unreadable_candidate_content"
+            continue
+        reason = scan_blob_for_personal_path(blob)
+        if reason is not None:
+            rejected[path] = reason
+    return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]
+
+
+def worktree_content_violations(
+    repo: Path, paths: Iterable[str]
+) -> list[dict[str, str]]:
+    """Scan surviving worktree files; an unreadable file fails closed."""
+
+    rejected: dict[str, str] = {}
+    for path in paths:
+        try:
+            blob = (repo / path).read_bytes()
+        except OSError:
+            rejected[path] = "unreadable_candidate_content"
+            continue
+        reason = scan_blob_for_personal_path(blob)
+        if reason is not None:
+            rejected[path] = reason
+    return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]
+
+
 def inspect_candidate(repo: Path, revision: str) -> dict[str, object]:
     commit = resolve_commit(repo, revision)
     entries = candidate_entries(repo, commit)
     paths = [str(entry["path"]) for entry in entries]
-    rejected = merged_violations(violations(paths), metadata_violations(entries))
+    path_rejections = violations(paths)
+    metadata_rejections = metadata_violations(entries)
+    rejected_paths = {row["path"] for row in (*path_rejections, *metadata_rejections)}
+    survivors = [entry for entry in entries if str(entry["path"]) not in rejected_paths]
+    rejected = merged_violations(
+        path_rejections,
+        metadata_rejections,
+        commit_content_violations(repo, survivors),
+    )
     return {
         "schema": SCHEMA,
         "status": "PASS" if not rejected else "FAIL",
@@ -232,8 +332,14 @@ def inspect_candidate(repo: Path, revision: str) -> dict[str, object]:
 def inspect_worktree_projection(repo: Path) -> dict[str, object]:
     base_commit = resolve_commit(repo, "HEAD")
     paths = worktree_projection_paths(repo)
+    path_rejections = violations(paths)
+    metadata_rejections = worktree_metadata_violations(repo, paths)
+    rejected_paths = {row["path"] for row in (*path_rejections, *metadata_rejections)}
+    survivors = [path for path in paths if path not in rejected_paths]
     rejected = merged_violations(
-        violations(paths), worktree_metadata_violations(repo, paths)
+        path_rejections,
+        metadata_rejections,
+        worktree_content_violations(repo, survivors),
     )
     return {
         "schema": SCHEMA,

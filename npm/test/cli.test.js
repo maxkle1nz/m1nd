@@ -191,6 +191,7 @@ const packRoutingJson = JSON.parse(packRouting.stdout);
 assert.strictEqual(packRoutingJson.schema, "m1nd-agent-pack-routing-check-v0");
 assert.strictEqual(packRoutingJson.ok, true);
 assert(packRoutingJson.contract_checks.some((check) => check.id === "direct-proof-is-final-truth" && check.ok));
+assert(packRoutingJson.files.some((file) => file.id === "m1nd-guardian" && file.ok));
 assert(packRoutingJson.files.some((file) => file.id === "m1nd-universal-agent-pack" && file.ok));
 
 const brokenRoutingFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-routing-broken-")), "pack.md");
@@ -1612,6 +1613,7 @@ withEnv(
     );
     const configPath = path.join(testHome, ".codex", "config.toml");
     assert(fs.existsSync(path.join(testHome, ".codex", "skills", "m1nd-first", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".codex", "skills", "m1nd-guardian", "SKILL.md")));
     assert(fs.existsSync(configPath));
     const config = fs.readFileSync(configPath, "utf8");
     assert(config.includes("[mcp_servers.m1nd]"));

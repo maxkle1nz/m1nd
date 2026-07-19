@@ -313,6 +313,7 @@ function readPackageVersion() {
 function assertPackShape() {
   const required = [
     path.join(SKILLS_ROOT, "m1nd-first", "SKILL.md"),
+    path.join(SKILLS_ROOT, "m1nd-guardian", "SKILL.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "SKILL.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "routing-playbooks.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "tool-families.md"),
@@ -320,6 +321,7 @@ function assertPackShape() {
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "runtime-and-refresh.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "l1ght-and-docs.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "scripts", "probe_m1nd.py"),
+    path.join(PACKAGE_ROOT, "docs", "M1ND-GUARDIAN-METHOD.md"),
     UNIVERSAL_PACK,
   ];
   const missing = required.filter((file) => !fs.existsSync(file));
@@ -338,6 +340,17 @@ const DEFAULT_PACK_ROUTING_FILES = [
       { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
       { id: "no-companion-code-truth", needles: ["code truth"] },
       { id: "direct-proof-final-truth", needles: ["direct proof", "decides what is true"] },
+    ],
+  },
+  {
+    id: "m1nd-guardian",
+    relative_path: "skills/m1nd-guardian/SKILL.md",
+    checks: [
+      { id: "one-active-front", needles: ["One active front", "proof boundary"] },
+      { id: "proof-state-separation", needles: ["SOURCE_IMPLEMENTED", "LIVE_PROVEN", "RELEASE_PROVEN", "ACTIVE"] },
+      { id: "same-candidate", needles: ["same immutable candidate", "candidate digest"] },
+      { id: "human-only-sovereignty", needles: ["Human-only", "self-ratify"] },
+      { id: "succession-test", needles: ["Succession test", "cold agent"] },
     ],
   },
   {
@@ -507,11 +520,13 @@ function packRoutingCheck(options = {}) {
 function installCodex() {
   const targetRoot = path.join(homeDir(), ".codex", "skills");
   copyDir(path.join(SKILLS_ROOT, "m1nd-first"), path.join(targetRoot, "m1nd-first"));
+  copyDir(path.join(SKILLS_ROOT, "m1nd-guardian"), path.join(targetRoot, "m1nd-guardian"));
   copyDir(path.join(SKILLS_ROOT, "m1nd-operator"), path.join(targetRoot, "m1nd-operator"));
   return {
     host: "codex",
     installed: [
       path.join(targetRoot, "m1nd-first"),
+      path.join(targetRoot, "m1nd-guardian"),
       path.join(targetRoot, "m1nd-operator"),
     ],
   };
@@ -697,6 +712,7 @@ function portableAgentPackPaths(host, projectDir) {
     target_root: targetRoot,
     skills_root: skillsRoot,
     first_skill: path.join(skillsRoot, "m1nd-first", "SKILL.md"),
+    guardian_skill: path.join(skillsRoot, "m1nd-guardian", "SKILL.md"),
     operator_skill: path.join(skillsRoot, "m1nd-operator", "SKILL.md"),
     rule_file: path.join(targetRoot, hostRuleFilename(host)),
   };
@@ -707,6 +723,7 @@ function agentPackStatusForHost(host, projectDir) {
     const skillRoot = path.join(homeDir(), ".codex", "skills");
     const required = [
       path.join(skillRoot, "m1nd-first", "SKILL.md"),
+      path.join(skillRoot, "m1nd-guardian", "SKILL.md"),
       path.join(skillRoot, "m1nd-operator", "SKILL.md"),
     ];
     const missing = required.filter((file) => !fs.existsSync(file));
@@ -721,7 +738,7 @@ function agentPackStatusForHost(host, projectDir) {
   }
 
   const paths = portableAgentPackPaths(host, projectDir);
-  const required = [paths.first_skill, paths.operator_skill, paths.rule_file];
+  const required = [paths.first_skill, paths.guardian_skill, paths.operator_skill, paths.rule_file];
   const missing = required.filter((file) => !fs.existsSync(file));
   return {
     install_kind: "project-local-portable-pack",
