@@ -36,8 +36,11 @@ Class rationale and rules:
 
 - **C1 retire, never rewrite.** These are pre-M1ND-10 evidence transcripts (bug-hunt and
   real-world rounds). Rewriting historical evidence in place would silently invalidate it;
-  retiring it from the public candidate preserves honesty (full history remains in private Git
-  history and local safeguards). This extends the retirement already begun in this worktree
+  retiring it from the public candidate preserves honesty. Correction (2026-07-20, from the
+  independent re-review): these files are already published in the public Git history of
+  origin/main — retirement protects future candidates only and does not unpublish anything;
+  rewriting public history is a separate owner decision outside this plan. This extends the
+  retirement already begun in this worktree
   (legacy `operator-only` answer keys are already deleted). Their `operator-only` siblings are
   never opened during retirement.
 - **C2 scrub with semantics preserved.** The occurrences live in strings/examples inside

@@ -2,7 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-19 (**checkpoint 26 — FUGU RETURNED `CHANGE`/HIGH: THE CANDIDATE-SOURCE ARCHITECTURE IS SOUND, BUT ITS POLICY IS NOT YET FAIL-CLOSED; REMEDIATION NOW BLOCKS CANDIDATE FREEZE**).
+> Last checkpoint: 2026-07-20 (**checkpoint 27 — THE BOUNDARY CLOSED HONESTLY: EVERY CHECKPOINT-26 REQUIRED CHANGE IMPLEMENTED, THE GOVERNED MIGRATION EXECUTED UNDER OWNER RATIFICATION, THE FRESH INDEPENDENT RE-REVIEW RETURNED `APPROVE`/NONE, AND THE OWNER AUTHORIZED FREEZE+PUSH+MERGE**).
+> Checkpoint 27, condensed: the checkpoint-26 `CHANGE` was answered in full and independently confirmed. The guard now casefolds all path matching, refuses credential/SSH/key-store classes (`credential_file`, extended `private_key_material`), denies `opaque_archive`, and carries a default-on public content gate (`personal_path_content`, raw-byte scan, fail-closed `unreadable_candidate_content`) that only ever opens path/metadata survivors — operator-only content is never read. The governed migration ran under the ratified plan: 246 historical benchmark files retired from the future candidate, 7 Rust sources + 6 operational docs + 2 executable fixtures scrubbed to neutral placeholders, 3 dated proofs redacted with explicit notes, and one owner-ratified digest-bound exception for the frozen PRD (path + exact SHA-256; one changed byte kills it; the PRD itself untouched). The legacy G6 gitignore contract was amended to the boundary-era law — public formal artifacts must never be gitignored, operator-only must be — and the re-review explicitly confirmed that design call. Evidence: guard worktree projection PASS 0 violations/1169 paths (was 265); 22 focused guard/CI tests; Python discovery 184/184; `m1nd-mcp` lib 1399/0/15 with strict clippy/fmt; npm CLI, Ruff, actionlint, diff-check green; frozen hashes exact; Semgrep one accepted pre-existing audit finding. The isolated read-only re-review (Fable seat — Fugu was down to a revoked codex CLI OAuth token, Sakana itself verified alive HTTP 200) returned `APPROVE`, alta, `REQUIRED_CHANGES: NONE`, with its own re-run of the decisive gates and matching pre/post fingerprints; preserved at `docs/proofs/m1nd10-candidate-source-boundary-askgod-rereview-20260720.md`. The boundary is back to `LOCAL_PROVEN`. Six named residual risks are registered in the proof — the material one: the 246 retired files remain published in public origin/main HISTORY (retirement protects future candidates; it does not unpublish), and accept-vs-rewrite-history is an open OWNER decision. The owner explicitly authorized candidate freeze, push, and merge in the 2026-07-20 guardian session (`docs/proofs/m1nd10-candidate-freeze-authorization-20260720.md`). Formal blind G6, native G4, real G7 LIVE, hosted G8, G9 custody, activation, and G10 remain `NOT_RUN`/`NOT_PROVEN`.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 26 — FUGU RETURNED `CHANGE`/HIGH: THE CANDIDATE-SOURCE ARCHITECTURE IS SOUND, BUT ITS POLICY IS NOT YET FAIL-CLOSED; REMEDIATION NOW BLOCKS CANDIDATE FREEZE**).
 > Checkpoint 26, condensed: the isolated read-only Fugu review completed without repository mutation, owner/1338 contact, or access to private benchmark content. The pre/post status, public-diff, and untracked-public fingerprints match exactly. Its verdict is `CHANGE`, high confidence, preserved in `docs/proofs/m1nd10-candidate-source-boundary-askgod-review-20260719.md`. The review reproduced case-variant bypasses for private/cache/secret names, found missing `.env.*`, package-manager/cloud credentials and SSH private-key classes, proved that opaque archives pass while Gitleaks does not unpack them, and found that the guard scans path/metadata but not public content. A machine-local absolute path in the public security assessment demonstrated the last gap and was removed from that report and this PATHOS surface. The subsequent repository-wide public census broadened the work: the same machine-local prefix still appears 509 times across 143 candidate-visible, non-private files, dominated by 134 historical benchmark files and including three occurrences in the frozen PRD. The frozen canon cannot be silently edited, so content-gate closure now requires a governed scrub/retirement plan and explicit ratification for any canonical amendment or exception; blanket allowlisting is forbidden. The sound seams remain: exact 40-hex commit resolution, non-mutating `git add -A` projection, symlink/gitlink/non-regular/oversized refusal, exact `${GITHUB_SHA}` workflow binding, pinned Gitleaks, and honest immutable/hosted `NOT_PROVEN` labels. Checkpoint 25's 18 tests and 1,410-path projection PASS are historical only; they do not prove the advertised universal boundary. The active front is now: casefold path policy; expand credential/key classes; deny opaque containers; plan and execute the governed public-path migration; add exact-candidate content scanning; add adversarial and semantic CI/release tests; rerun guard/Gitleaks/actionlint/Ruff/diff/frozen hashes; then obtain a fresh independent review. No candidate may be frozen before that returns green. Nothing is staged, committed, pushed, tagged, published, installed, activated, or sent to the owner. Formal G6, LIVE, release custody, activation, and G10 remain `NOT_PROVEN`/`NOT_RUN`.
 
 > Previous checkpoint: 2026-07-19 (**checkpoint 25 — THE ORIGINAL CANDIDATE-SOURCE PREFLIGHT PASSED ITS LOCAL TESTS, BUT ITS FAIL-CLOSED CLAIM IS SUPERSEDED BY CHECKPOINT 26 `CHANGE`**).
@@ -70,7 +73,33 @@ into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: clim
 rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
 same bar, applied to building the organism outward.
 
-## Current State (2026-07-19, checkpoint 26 — candidate-source independent review `CHANGE`; remediation is the active front)
+## Current State (2026-07-20, checkpoint 27 — boundary `LOCAL_PROVEN` after `APPROVE`/NONE; freeze+push+merge owner-authorized; candidate ceremony is the active front)
+
+### 2026-07-20 — Checkpoint-26 remediation closed and independently approved (BOUNDARY `LOCAL_PROVEN`)
+
+**What closed.** All five required changes of the checkpoint-26 verdict are implemented and
+adversarially tested in `scripts/m1nd10_candidate_source_guard.py` (casefold matching; credential/
+SSH/key-store denial; `opaque_archive`; default-on public content gate scanning only path/metadata
+survivors; fail-closed unreadable handling), the 265-file governed migration executed under the
+owner-ratified plan (246 retired, 18 scrubbed/redacted, one digest-bound PRD exception), and the
+G6 gitignore contract was amended to the two-layer law (public never ignored; operator-only always
+ignored) — a design call the re-review explicitly confirmed. Focused gates and the current
+aggregate lanes are green; frozen PRD/UML hashes exact.
+
+**Review binding.** `docs/proofs/m1nd10-candidate-source-boundary-askgod-rereview-20260720.md`:
+`APPROVE`, alta, `REQUIRED_CHANGES: NONE`, oracle-owned re-runs of the decisive gates, identical
+pre/post status-shape fingerprints. Voice note: Fable seat, because the Fugu route failed on a
+revoked codex CLI OAuth token (Sakana API verified alive; fix is an interactive `codex login`).
+
+**Open owner decision (risk 1).** The retired benchmark files remain published in the public
+origin/main history; retirement protects future candidates only. Accepting that exposure or
+rewriting public history is a separate owner ceremony, deliberately outside this cut.
+
+**Authorized next.** The owner authorized freeze + push + merge
+(`docs/proofs/m1nd10-candidate-freeze-authorization-20260720.md`): freeze one immutable candidate
+from this reviewed tree, re-run the matrix bound to its digest, then push, PR, and merge with
+green 3-OS CI. Publication, installation over the served owner, activation, and G10 remain
+separate authorities, untouched.
 
 ### 2026-07-19 — M1ND-10 candidate-source review and canonical handoff (CHANGE REQUIRED; CANDIDATE FREEZE BLOCKED)
 
