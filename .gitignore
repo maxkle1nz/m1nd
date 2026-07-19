@@ -1,4 +1,5 @@
 target/
+/.l00p/
 
 # m1nd-runnerd (F2.5c §5a): the operator-private runner config + the shared secret
 # are NEVER versioned. Only runners.example.toml (neutral placeholders) is tracked.
@@ -16,11 +17,35 @@ m1nd-viz/node_modules/
 m1nd-demo/dist/
 wiki-build/
 m1nd-ui/node_modules/
+/node_modules/
 # m1nd-ui/dist is intentionally tracked because the embedded UI is compiled into m1nd-mcp via rust-embed
 
 *.json
 # The versioned SystemBlock seeds are the one JSON family that SHOULD be tracked
 !docs/system-blocks/*.json
+# M1nd 10 G0 proof receipt — immutable baseline, verified in CI/tooling.
+!docs/proofs/m1nd10-ground-snapshot-v1.json
+!docs/proofs/m1nd10-g1-live-proof-v1.json
+# M1ND-10 G4/R6 ratified workload and measured runtime receipt.
+!docs/benchmarks/m1nd10-g4-r6-metric-spec-v1.json
+!docs/benchmarks/m1nd10-g4-r6-runtime-result-v1.json
+# M1ND-10 G6 ratified metric contract and fail-closed evidence receipts.
+!docs/benchmarks/m1nd10-g6-metric-spec-v1.json
+!docs/benchmarks/m1nd10-g6-current-report.json
+!docs/benchmarks/m1nd10-g6-failed-*.json
+!docs/benchmarks/m1nd10-g6-universal-ingest-matrix-v1.json
+!docs/benchmarks/m1nd10-g6-held-out-v1/public/queries.json
+# M1ND-10 G6 held-out V2 public corpus contract. Labels, reviews, generators,
+# and runner outputs remain operator-private; only public queries, manifests,
+# digests, and schemas are versionable in the candidate source tree.
+!docs/benchmarks/m1nd10-g6-held-out-v2/public/queries.json
+!docs/benchmarks/m1nd10-g6-held-out-v2/manifest/source-manifest.json
+!docs/benchmarks/m1nd10-g6-held-out-v2/manifest/digests.json
+!docs/benchmarks/m1nd10-g6-held-out-v2/schema/*.schema.json
+# M1ND-10 G6 supplemental generalization guard: public contract only.
+!docs/benchmarks/m1nd10-g6-generalization-v2/public/queries.json
+!docs/benchmarks/m1nd10-g6-generalization-v2/manifest/source-manifest.json
+!docs/benchmarks/m1nd10-g6-generalization-v2/manifest/digests.json
 !package.json
 !tsconfig.json
 !postcss.config.js
@@ -38,6 +63,7 @@ m1nd-ui/node_modules/
 # UI honesty-test fixtures — REAL captured tool envelopes (INV-01: the tests must
 # never drift from the wire). Committed on purpose despite the *.json rule.
 !m1nd-ui/src/__fixtures__/*.json
+__pycache__/
 graph_snapshot.json
 plasticity_state.json
 antibodies.json
@@ -54,7 +80,19 @@ xray.ledger.jsonl
 trails/
 .m1nd-benchmark-fixtures/
 docs/benchmarks/**/operator-only/seeded-diff.patch
+# Blind benchmark labels, reviews, outcomes, and label-generating source never
+# enter an immutable/public candidate. They remain available to the local
+# operator but are protected from broad `git add` and release packaging.
+docs/benchmarks/**/operator-only/
+docs/benchmarks/**/runner-results/
+/scripts/benchmark/m1nd10_g6_corpus.py
+/scripts/benchmark/m1nd10_g6_held_out_v2_corpus.py
+/scripts/benchmark/m1nd10_g6_generalization_v2_corpus.py
+/tests/test_m1nd10_g6_corpus.py
+/tests/test_m1nd10_g6_held_out_v2_corpus.py
+/tests/test_m1nd10_g6_generalization_v2_corpus.py
 .DS_Store
+*.log
 *.bak
 *.tsbuildinfo
 

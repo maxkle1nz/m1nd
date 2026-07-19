@@ -387,6 +387,16 @@ pub struct SurgicalContextV2Output {
     pub next_step_hint: Option<String>,
     /// Coarse cognitive stage for edit preparation.
     pub proof_state: String,
+    /// SHA-256-bound disk state captured by the one-shot proof mark. Present
+    /// only when `proof_state == "ready_to_edit"` and the mark was recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_target_digest: Option<String>,
+    /// Exact graph generation bound into the proof mark.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_graph_generation: Option<u64>,
+    /// Absolute TTL deadline of the proof mark (unix epoch milliseconds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_expires_at_ms: Option<u64>,
     /// Sum of all lines returned: line_count + sum(excerpt_lines).
     pub total_lines: usize,
     /// Elapsed milliseconds.
@@ -583,7 +593,9 @@ pub struct ApplyBatchProgressEvent {
 /// Layer A: graph-diff (pre vs post node sets)
 /// Layer B: anti-pattern detection (todo!() removal, unwrap, error handling)
 /// Layer C: real graph BFS impact (2-hop blast radius via CSR edges)
-/// Layer D: affected test execution (cargo test / go test / pytest)
+/// Layer D: dynamic verification boundary. Repository code is never executed in
+/// the owner process; fields below report `NOT_RUN` until an isolated verifier
+/// exists.
 #[derive(Clone, Debug, Serialize)]
 pub struct VerificationReport {
     /// Overall verdict: SAFE, RISKY, or BROKEN.
@@ -599,7 +611,7 @@ pub struct VerificationReport {
     /// Layer C: real BFS blast radius per file (2-hop reachability count).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub blast_radius: Vec<BlastRadiusEntry>,
-    /// Layer D: number of tests executed (None if test detection skipped).
+    /// Layer D: number of tests executed (currently None: isolated runner absent).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tests_run: Option<u32>,
     /// Layer D: number of tests that passed.
@@ -611,10 +623,8 @@ pub struct VerificationReport {
     /// Layer D: first 500 chars of test output on failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test_output: Option<String>,
-    /// Post-write compilation check result.
-    /// None = skipped (no recognized project type or verify=false).
-    /// Some("ok") = compilation passed.
-    /// Some("error: ...") = compilation failed (first 200 chars of stderr).
+    /// Post-write compilation status. Currently an explicit `not_run` reason;
+    /// repository-controlled build hooks are not executed by the owner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compile_check: Option<String>,
     /// Verification elapsed milliseconds.

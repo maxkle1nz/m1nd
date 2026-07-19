@@ -11,16 +11,28 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
+mod source_edit_transaction;
+
+pub(crate) use source_edit_transaction::{
+    PreparedSourceEditCommitV1, SourceEditCommitAdapterV1, SourceEditCommitIntentV1,
+    SourceEditCommitOutcomeV1, SourceEditCommitRequestV1, SourceEditCommitSemanticPayloadV1,
+    SourceEditConservationV1, SourceEditOperationObjectV1, SourceEditOutcomeStateV1,
+    SourceEditPreStageAbortReceiptV1, SourceEditPreStageRecoveryV1, SourceEditPreparedContextV1,
+    SourceEditRecoveryDecisionV1, SourceEditStageAbortReceiptV1, SourceEditStagedCommitV1,
+    SourceEditStagedRecoveryV1, SourceEditTerminalReceiptV1, SourceEditTerminalStateV1,
+    SourceEditTransactionError,
+};
+
 use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
 use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn proactive_severity_rank(value: &str) -> u8 {
@@ -998,6 +1010,33 @@ fn resolve_file_path(file_path: &str, ingest_roots: &[String]) -> PathBuf {
     }
 }
 
+/// Read an existing UTF-8 source file only after its canonical target is proven
+/// beneath the workspace/ingest roots already authorized for this session.
+/// The read uses the canonical authorized target, while the returned path keeps
+/// the caller's existing resolved identity so in-root graph/output behavior does
+/// not drift on platforms where canonicalization rewrites a system path prefix.
+fn read_authorized_source(
+    state: &SessionState,
+    resolved: &Path,
+    tool: &str,
+) -> M1ndResult<(PathBuf, String)> {
+    let authorized = crate::scope::authorize_existing_path(
+        resolved,
+        &state.ingest_roots,
+        state.workspace_root.as_deref(),
+        tool,
+    )?;
+    let content =
+        std::fs::read_to_string(&authorized.path).map_err(|error| M1ndError::InvalidParams {
+            tool: tool.to_string(),
+            detail: format!(
+                "cannot read authorized file {}: {error}",
+                authorized.path.display()
+            ),
+        })?;
+    Ok((resolved.to_path_buf(), content))
+}
+
 /// Deny-list: m1nd state files that must never be overwritten by apply/apply_batch.
 const DENIED_FILENAMES: &[&str] = &[
     "graph_snapshot.json",
@@ -1104,6 +1143,10 @@ fn content_hash(content: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     content.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn invalid_params(tool: &str, detail: impl Into<String>) -> M1ndError {
@@ -1748,400 +1791,6 @@ fn blast_radius_risk(count: usize) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Layer D: Affected test execution
-// ---------------------------------------------------------------------------
-
-/// Run a command with a timeout. Returns Ok(output) or Err on timeout/spawn failure.
-/// Uses spawn + poll loop with try_wait, killing after `timeout_secs`.
-fn run_command_with_timeout(
-    mut cmd: Command,
-    timeout_secs: u64,
-) -> Result<std::process::Output, String> {
-    let mut child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn failed: {}", e))?;
-
-    let deadline = Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    let poll_interval = std::time::Duration::from_millis(100);
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(_status)) => {
-                // Child exited — collect output
-                return child
-                    .wait_with_output()
-                    .map_err(|e| format!("wait_with_output failed: {}", e));
-            }
-            Ok(None) => {
-                // Still running — check timeout
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait(); // reap zombie
-                    return Err(format!("command timed out after {}s", timeout_secs));
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => {
-                return Err(format!("try_wait failed: {}", e));
-            }
-        }
-    }
-}
-
-/// Detect and run tests for modified files. Returns (tests_run, tests_passed, tests_failed, output_on_failure).
-fn run_affected_tests(
-    modified_paths: &[PathBuf],
-) -> (Option<u32>, Option<u32>, Option<u32>, Option<String>) {
-    let mut total_run: u32 = 0;
-    let mut total_passed: u32 = 0;
-    let mut total_failed: u32 = 0;
-    let mut failure_output: Option<String> = None;
-    let mut any_tests_found = false;
-
-    for path in modified_paths {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        match ext {
-            "rs" => {
-                if let Some((run, passed, failed, output)) = run_rust_tests(path) {
-                    any_tests_found = true;
-                    total_run += run;
-                    total_passed += passed;
-                    total_failed += failed;
-                    if failed > 0 && failure_output.is_none() {
-                        failure_output = output;
-                    }
-                }
-            }
-            "go" => {
-                if let Some((run, passed, failed, output)) = run_go_tests(path) {
-                    any_tests_found = true;
-                    total_run += run;
-                    total_passed += passed;
-                    total_failed += failed;
-                    if failed > 0 && failure_output.is_none() {
-                        failure_output = output;
-                    }
-                }
-            }
-            "py" => {
-                if let Some((run, passed, failed, output)) = run_python_tests(path) {
-                    any_tests_found = true;
-                    total_run += run;
-                    total_passed += passed;
-                    total_failed += failed;
-                    if failed > 0 && failure_output.is_none() {
-                        failure_output = output;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if any_tests_found {
-        (
-            Some(total_run),
-            Some(total_passed),
-            Some(total_failed),
-            failure_output,
-        )
-    } else {
-        (None, None, None, None)
-    }
-}
-
-/// Detect Rust tests: check for #[cfg(test)] in the file or companion _test.rs.
-/// Runs `cargo test --lib -p <package> -- <filter>` with 30s timeout.
-fn run_rust_tests(path: &Path) -> Option<(u32, u32, u32, Option<String>)> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let has_inline_tests = content.contains("#[cfg(test)]");
-    let stem = path.file_stem()?.to_str()?;
-    let parent = path.parent()?;
-    let test_file = parent.join(format!("{}_test.rs", stem));
-    let has_test_file = test_file.exists();
-
-    if !has_inline_tests && !has_test_file {
-        return None;
-    }
-
-    // Find the Cargo.toml to determine the package name
-    let package = find_cargo_package(path)?;
-
-    // Build the test filter from the file stem
-    let filter = stem.replace('-', "_");
-
-    let mut cmd = Command::new("cargo");
-    cmd.args(["test", "--lib", "-p", &package, "--", &filter])
-        .current_dir(find_cargo_workspace(path)?)
-        .env("RUST_BACKTRACE", "0");
-
-    match run_command_with_timeout(cmd, 30) {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let combined = format!("{}{}", stdout, stderr);
-            let (run, passed, failed) = parse_cargo_test_output(&combined);
-            let fail_output = if failed > 0 {
-                Some(combined.chars().take(500).collect())
-            } else {
-                None
-            };
-            Some((run, passed, failed, fail_output))
-        }
-        Err(_) => {
-            // Timeout or spawn failure — report as 1 failed test
-            Some((
-                1,
-                0,
-                1,
-                Some("cargo test timed out (30s limit)".to_string()),
-            ))
-        }
-    }
-}
-
-/// Parse cargo test output for pass/fail counts.
-/// Looks for lines like: "test result: ok. 5 passed; 0 failed; 0 ignored"
-fn parse_cargo_test_output(output: &str) -> (u32, u32, u32) {
-    for line in output.lines() {
-        if line.starts_with("test result:") {
-            let mut passed = 0u32;
-            let mut failed = 0u32;
-            for part in line.split(';') {
-                let trimmed = part.trim();
-                if let Some(num_str) = trimmed.strip_suffix(" passed") {
-                    let num_str = num_str.trim();
-                    // "test result: ok. 5 passed" — extract the number
-                    if let Some(n) = num_str.split_whitespace().last() {
-                        passed = n.parse().unwrap_or(0);
-                    }
-                } else if let Some(num_str) = trimmed.strip_suffix(" failed") {
-                    let num_str = num_str.trim();
-                    if let Some(n) = num_str.split_whitespace().last() {
-                        failed = n.parse().unwrap_or(0);
-                    }
-                }
-            }
-            return (passed + failed, passed, failed);
-        }
-    }
-    (0, 0, 0)
-}
-
-/// Find the cargo package name by walking up to find Cargo.toml and parsing [package] name.
-fn find_cargo_package(path: &Path) -> Option<String> {
-    let mut dir = path.parent()?;
-    loop {
-        let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            let content = std::fs::read_to_string(&cargo_toml).ok()?;
-            // Simple parse: find `name = "..."` under [package]
-            let mut in_package = false;
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed == "[package]" {
-                    in_package = true;
-                    continue;
-                }
-                if trimmed.starts_with('[') {
-                    in_package = false;
-                    continue;
-                }
-                if in_package {
-                    if let Some(rest) = trimmed.strip_prefix("name") {
-                        let rest = rest.trim_start();
-                        if let Some(rest) = rest.strip_prefix('=') {
-                            let name = rest.trim().trim_matches('"').trim_matches('\'');
-                            return Some(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        dir = dir.parent()?;
-    }
-}
-
-/// Find the workspace root (directory with Cargo.toml containing [workspace]).
-fn find_cargo_workspace(path: &Path) -> Option<PathBuf> {
-    let mut dir = path.parent()?;
-    loop {
-        let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-                if content.contains("[workspace]") {
-                    return Some(dir.to_path_buf());
-                }
-            }
-        }
-        match dir.parent() {
-            Some(p) if p != dir => dir = p,
-            _ => break,
-        }
-    }
-    // Fallback: use the first Cargo.toml parent
-    let mut dir = path.parent()?;
-    loop {
-        if dir.join("Cargo.toml").exists() {
-            return Some(dir.to_path_buf());
-        }
-        match dir.parent() {
-            Some(p) if p != dir => dir = p,
-            _ => return None,
-        }
-    }
-}
-
-fn find_cargo_project_root(path: &Path) -> Option<String> {
-    let mut dir = path.parent()?;
-    loop {
-        if dir.join("Cargo.toml").exists() {
-            return Some(dir.to_string_lossy().to_string());
-        }
-        match dir.parent() {
-            Some(parent) if parent != dir => dir = parent,
-            _ => return None,
-        }
-    }
-}
-
-fn available_python_command() -> Option<&'static str> {
-    ["python3", "python"].into_iter().find(|command| {
-        Command::new(command)
-            .arg("--version")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    })
-}
-
-/// Detect Go tests: find _test.go files in the same directory.
-/// Runs `go test ./package/...` with 30s timeout.
-fn run_go_tests(path: &Path) -> Option<(u32, u32, u32, Option<String>)> {
-    let parent = path.parent()?;
-    let stem = path.file_stem()?.to_str()?;
-    let test_file = parent.join(format!("{}_test.go", stem));
-
-    if !test_file.exists() {
-        // Also check for any *_test.go in same dir
-        let has_any_test = std::fs::read_dir(parent).ok()?.any(|entry| {
-            entry
-                .ok()
-                .and_then(|e| e.file_name().to_str().map(|s| s.ends_with("_test.go")))
-                .unwrap_or(false)
-        });
-        if !has_any_test {
-            return None;
-        }
-    }
-
-    let pkg_path = format!("./{}", parent.file_name()?.to_str()?);
-    let mut cmd = Command::new("go");
-    cmd.args(["test", &format!("{}/...", pkg_path)])
-        .current_dir(parent.parent()?);
-
-    match run_command_with_timeout(cmd, 30) {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let combined = format!("{}{}", stdout, stderr);
-            let (run, passed, failed) = parse_go_test_output(&combined);
-            let fail_output = if failed > 0 {
-                Some(combined.chars().take(500).collect())
-            } else {
-                None
-            };
-            Some((run, passed, failed, fail_output))
-        }
-        Err(_) => Some((1, 0, 1, Some("go test timed out (30s limit)".to_string()))),
-    }
-}
-
-/// Parse go test output. Looks for "ok" / "FAIL" lines and "--- PASS" / "--- FAIL".
-fn parse_go_test_output(output: &str) -> (u32, u32, u32) {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("--- PASS:") {
-            passed += 1;
-        } else if trimmed.starts_with("--- FAIL:") {
-            failed += 1;
-        }
-    }
-    (passed + failed, passed, failed)
-}
-
-/// Detect Python tests: find test_*.py or *_test.py nearby.
-/// Runs `python3 -m pytest <test_file> -x --tb=short` with 30s timeout.
-fn run_python_tests(path: &Path) -> Option<(u32, u32, u32, Option<String>)> {
-    let parent = path.parent()?;
-    let stem = path.file_stem()?.to_str()?;
-
-    // Look for test files: test_{stem}.py or {stem}_test.py
-    let test_file_a = parent.join(format!("test_{}.py", stem));
-    let test_file_b = parent.join(format!("{}_test.py", stem));
-    // Also check tests/ subdirectory
-    let test_file_c = parent.join("tests").join(format!("test_{}.py", stem));
-
-    let test_file = if test_file_a.exists() {
-        test_file_a
-    } else if test_file_b.exists() {
-        test_file_b
-    } else if test_file_c.exists() {
-        test_file_c
-    } else {
-        return None;
-    };
-
-    let test_file_str = test_file.to_string_lossy().to_string();
-    let mut cmd = Command::new("python3");
-    cmd.args(["-m", "pytest", &test_file_str, "-x", "--tb=short"])
-        .current_dir(parent);
-
-    match run_command_with_timeout(cmd, 30) {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let combined = format!("{}{}", stdout, stderr);
-            let (run, passed, failed) = parse_pytest_output(&combined);
-            let fail_output = if failed > 0 {
-                Some(combined.chars().take(500).collect())
-            } else {
-                None
-            };
-            Some((run, passed, failed, fail_output))
-        }
-        Err(_) => Some((1, 0, 1, Some("pytest timed out (30s limit)".to_string()))),
-    }
-}
-
-/// Parse pytest output. Looks for summary line like "5 passed, 1 failed" or "3 passed".
-fn parse_pytest_output(output: &str) -> (u32, u32, u32) {
-    // pytest final line format: "= 5 passed, 2 failed in 1.23s ="
-    // or "= 5 passed in 1.23s ="
-    for line in output.lines().rev() {
-        let trimmed = line.trim().trim_matches('=').trim();
-        let mut passed = 0u32;
-        let mut failed = 0u32;
-        for part in trimmed.split(',') {
-            let part = part.trim();
-            if let Some(n) = part.strip_suffix(" passed") {
-                passed = n.trim().parse().unwrap_or(0);
-            } else if let Some(n) = part.strip_suffix(" failed") {
-                failed = n.trim().parse().unwrap_or(0);
-            }
-        }
-        if passed > 0 || failed > 0 {
-            return (passed + failed, passed, failed);
-        }
-    }
-    (0, 0, 0)
-}
-
-// ---------------------------------------------------------------------------
 // m1nd.surgical_context
 // ---------------------------------------------------------------------------
 
@@ -2249,14 +1898,8 @@ pub fn handle_surgical_context(
 
     // Step 1: Resolve and read the file
     let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
-    let file_contents =
-        std::fs::read_to_string(&resolved_path).map_err(|e| {
-            invalid_params_with_hint(
-                "m1nd_surgical_context",
-                format!("cannot read file {}: {}", resolved_path.display(), e),
-                "Pass an existing file_path under an ingested workspace root, or use view(auto_ingest=true) first if you are probing a file that is not in the graph yet.",
-            )
-        })?;
+    let (resolved_path, file_contents) =
+        read_authorized_source(state, &resolved_path, "m1nd_surgical_context")?;
 
     let line_count = file_contents.lines().count() as u32;
 
@@ -2387,6 +2030,8 @@ pub fn handle_edit_preview(
             file_path: validated_path.to_string_lossy().to_string(),
             new_content: input.new_content.clone(),
             source_hash: source_hash.clone(),
+            source_sha256: sha256_hex(old_content.as_bytes()),
+            candidate_sha256: sha256_hex(input.new_content.as_bytes()),
             source_exists: file_exists,
             source_bytes: old_content.len(),
             source_line_count: line_count,
@@ -2433,6 +2078,21 @@ pub fn handle_edit_preview(
 pub fn handle_edit_commit(
     state: &mut SessionState,
     input: surgical::EditCommitInput,
+) -> M1ndResult<surgical::EditCommitOutput> {
+    handle_edit_commit_inner(state, input, false)
+}
+
+pub(crate) fn handle_edit_commit_authorized(
+    state: &mut SessionState,
+    input: surgical::EditCommitInput,
+) -> M1ndResult<surgical::EditCommitOutput> {
+    handle_edit_commit_inner(state, input, true)
+}
+
+fn handle_edit_commit_inner(
+    state: &mut SessionState,
+    input: surgical::EditCommitInput,
+    enforce_proof: bool,
 ) -> M1ndResult<surgical::EditCommitOutput> {
     let start = Instant::now();
 
@@ -2491,16 +2151,18 @@ pub fn handle_edit_commit(
         ));
     }
 
-    let apply_output = handle_apply(
-        state,
-        surgical::ApplyInput {
-            file_path: preview.file_path.clone(),
-            agent_id: input.agent_id.clone(),
-            new_content: preview.new_content.clone(),
-            description: preview.description.clone(),
-            reingest: input.reingest,
-        },
-    )?;
+    let apply_input = surgical::ApplyInput {
+        file_path: preview.file_path.clone(),
+        agent_id: input.agent_id.clone(),
+        new_content: preview.new_content.clone(),
+        description: preview.description.clone(),
+        reingest: input.reingest,
+    };
+    let apply_output = if enforce_proof {
+        handle_apply_authorized(state, apply_input)?
+    } else {
+        handle_apply(state, apply_input)?
+    };
 
     state.edit_previews.remove(&input.preview_id);
     state.track_agent(&input.agent_id);
@@ -2537,6 +2199,21 @@ pub fn handle_apply(
     state: &mut SessionState,
     input: surgical::ApplyInput,
 ) -> M1ndResult<surgical::ApplyOutput> {
+    handle_apply_inner(state, input, false)
+}
+
+pub(crate) fn handle_apply_authorized(
+    state: &mut SessionState,
+    input: surgical::ApplyInput,
+) -> M1ndResult<surgical::ApplyOutput> {
+    handle_apply_inner(state, input, true)
+}
+
+fn handle_apply_inner(
+    state: &mut SessionState,
+    input: surgical::ApplyInput,
+    enforce_proof: bool,
+) -> M1ndResult<surgical::ApplyOutput> {
     let start = Instant::now();
 
     // Step 1: Resolve and validate path
@@ -2545,6 +2222,14 @@ pub fn handle_apply(
 
     // Step 2: Read old content for diff (if file exists)
     let old_content = std::fs::read_to_string(&validated_path).unwrap_or_default();
+    if enforce_proof {
+        state
+            .validate_active_proof_permit(&input.agent_id, &validated_path.to_string_lossy())
+            .map_err(|detail| M1ndError::InvalidParams {
+                tool: "apply".to_string(),
+                detail: format!("consumed proof permit is not current: {detail}"),
+            })?;
+    }
     let (lines_added, lines_removed) = diff_summary(&old_content, &input.new_content);
     let bytes_written = input.new_content.len();
 
@@ -2573,6 +2258,18 @@ pub fn handle_apply(
             e
         ),
     })?;
+
+    if enforce_proof {
+        if let Err(detail) =
+            state.validate_active_proof_permit(&input.agent_id, &validated_path.to_string_lossy())
+        {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(M1ndError::InvalidParams {
+                tool: "apply".to_string(),
+                detail: format!("source changed after staging; refusing publish: {detail}"),
+            });
+        }
+    }
 
     // Rename (atomic on same filesystem)
     std::fs::rename(&temp_path, &validated_path).map_err(|e| {
@@ -2835,8 +2532,8 @@ pub fn handle_surgical_context_v2(
 
     for (path, node_id, label, relation_type, edge_weight) in &scored {
         let resolved = resolve_file_path(path, &state.ingest_roots);
-        match std::fs::read_to_string(&resolved) {
-            Ok(content) => {
+        match read_authorized_source(state, &resolved, "surgical_context_v2") {
+            Ok((resolved, content)) => {
                 let all_lines: Vec<&str> = content.lines().collect();
                 let file_line_count = all_lines.len();
                 let truncated = file_line_count > max_lines;
@@ -2948,9 +2645,25 @@ pub fn handle_surgical_context_v2(
     // (agent_id, normalized target) so the write gate can later let a real edit
     // of that exact file through. Only the primary `file_path` is proved here —
     // connected files are context, not cleared edit targets.
-    if proof_state == "ready_to_edit" {
-        state.note_proof_ready(&input.agent_id, &primary.file_path, "surgical_context_v2");
-    }
+    let proof_mark = if proof_state == "ready_to_edit" {
+        Some(
+            state
+                .note_proof_ready_for_content(
+                    &input.agent_id,
+                    &primary.file_path,
+                    "surgical_context_v2",
+                    primary.file_contents.as_bytes(),
+                )
+                .map_err(|detail| M1ndError::InvalidParams {
+                    tool: "surgical_context_v2".to_string(),
+                    detail: format!(
+                        "ready_to_edit could not be bound to the exact disk target: {detail}"
+                    ),
+                })?,
+        )
+    } else {
+        None
+    };
 
     Ok(surgical::SurgicalContextV2Output {
         file_path: primary.file_path,
@@ -2965,6 +2678,9 @@ pub fn handle_surgical_context_v2(
         next_suggested_target,
         next_step_hint,
         proof_state,
+        proof_target_digest: proof_mark.as_ref().map(|mark| mark.target_digest.clone()),
+        proof_graph_generation: proof_mark.as_ref().map(|mark| mark.graph_generation),
+        proof_expires_at_ms: proof_mark.as_ref().map(|mark| mark.expires_at_ms),
         total_lines,
         elapsed_ms,
         primary_truncated,
@@ -3144,6 +2860,21 @@ pub fn handle_apply_batch(
     state: &mut SessionState,
     input: surgical::ApplyBatchInput,
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
+    handle_apply_batch_inner(state, input, false)
+}
+
+pub(crate) fn handle_apply_batch_authorized(
+    state: &mut SessionState,
+    input: surgical::ApplyBatchInput,
+) -> M1ndResult<surgical::ApplyBatchOutput> {
+    handle_apply_batch_inner(state, input, true)
+}
+
+fn handle_apply_batch_inner(
+    state: &mut SessionState,
+    input: surgical::ApplyBatchInput,
+    enforce_proof: bool,
+) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
     let batch_id = format!(
         "batch-{}",
@@ -3219,6 +2950,17 @@ pub fn handle_apply_batch(
     for edit in &input.edits {
         let resolved = resolve_file_path(&edit.file_path, &state.ingest_roots);
         let validated = validate_path_safety(&resolved, &state.ingest_roots)?;
+        if enforce_proof {
+            state
+                .validate_active_proof_permit(&input.agent_id, &validated.to_string_lossy())
+                .map_err(|detail| M1ndError::InvalidParams {
+                    tool: "apply_batch".to_string(),
+                    detail: format!(
+                        "consumed proof permit is not current for {}: {detail}",
+                        validated.display()
+                    ),
+                })?;
+        }
         // Read old content for diff (empty string if new file)
         let old_content = std::fs::read_to_string(&validated).unwrap_or_default();
         resolved_edits.push((validated, edit, old_content));
@@ -3332,6 +3074,27 @@ pub fn handle_apply_batch(
             }
         }
 
+        // All temp bytes exist but no source path has been published yet. Rehash
+        // every proof-bound original once more before the first rename.
+        if enforce_proof {
+            for (_, target_path) in &temp_files {
+                if let Err(detail) = state
+                    .validate_active_proof_permit(&input.agent_id, &target_path.to_string_lossy())
+                {
+                    for (tmp, _) in &temp_files {
+                        let _ = std::fs::remove_file(tmp);
+                    }
+                    return Err(M1ndError::InvalidParams {
+                        tool: "apply_batch".to_string(),
+                        detail: format!(
+                            "source changed after batch staging for {}; refusing all publishes: {detail}",
+                            target_path.display()
+                        ),
+                    });
+                }
+            }
+        }
+
         // Phase 2: Rename all temp files to targets (atomic per-file)
         let mut renamed_files: Vec<(PathBuf, String)> = Vec::new(); // (target, old_content for rollback)
         for (idx, (tmp_path, target_path)) in temp_files.iter().enumerate() {
@@ -3411,9 +3174,15 @@ pub fn handle_apply_batch(
             // Unique temp file per edit (same fix as atomic)
             let tmp_path = parent.join(format!(".m1nd_batch_{}_{}_{}_.tmp", pid, batch_id, i));
 
-            match std::fs::write(&tmp_path, &edit.new_content)
-                .and_then(|_| std::fs::rename(&tmp_path, validated))
-            {
+            let write_result = std::fs::write(&tmp_path, &edit.new_content).and_then(|_| {
+                if enforce_proof {
+                    state
+                        .validate_active_proof_permit(&input.agent_id, &validated.to_string_lossy())
+                        .map_err(std::io::Error::other)?;
+                }
+                std::fs::rename(&tmp_path, validated)
+            });
+            match write_result {
                 Ok(_) => {
                     let (added, removed) = diff_summary(old_content, &edit.new_content);
                     let bytes = edit.new_content.len();
@@ -3880,188 +3649,25 @@ pub fn handle_apply_batch(
         }
 
         // -----------------------------------------------------------------
-        // Layer D: Affected test execution
+        // Layer D + dynamic Layer B: isolated verification boundary
         // -----------------------------------------------------------------
-        let modified_paths: Vec<PathBuf> = resolved_edits
-            .iter()
-            .filter(|(_, _, _)| true)
-            .map(|(path, _, _)| path.clone())
-            .collect();
-
-        let (tests_run, tests_passed, tests_failed, test_output) =
-            run_affected_tests(&modified_paths);
-
-        let tests_broken = tests_failed.unwrap_or(0) > 0;
-
-        // -----------------------------------------------------------------
-        // Layer B (compile): Post-write compilation check
-        // -----------------------------------------------------------------
-        let compile_check: Option<String> = {
-            let extensions: HashSet<&str> = resolved_edits
-                .iter()
-                .filter_map(|(path, _, _)| path.extension().and_then(|e| e.to_str()))
-                .collect();
-            let ws_root = state
-                .workspace_root
-                .clone()
-                .or_else(|| state.ingest_roots.last().cloned());
-
-            if extensions.contains("rs") {
-                let cargo_dir = resolved_edits
-                    .iter()
-                    .filter(|(p, _, _)| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-                    .find_map(|(p, _, _)| find_cargo_project_root(p))
-                    .or_else(|| {
-                        ws_root
-                            .clone()
-                            .filter(|dir| Path::new(dir).join("Cargo.toml").exists())
-                    });
-                if let Some(dir) = cargo_dir {
-                    match std::process::Command::new("cargo")
-                        .arg("check")
-                        .arg("--message-format=short")
-                        .current_dir(&dir)
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .spawn()
-                    {
-                        Ok(child) => match child.wait_with_output() {
-                            Ok(out) if out.status.success() => Some("ok".to_string()),
-                            Ok(out) => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                let t: String = stderr.chars().take(200).collect();
-                                layer_violations
-                                    .push(format!("COMPILE ERROR (cargo check): {}", t));
-                                Some(format!("error: {}", t))
-                            }
-                            Err(e) => {
-                                let m = format!("cargo check process error: {}", e);
-                                layer_violations.push(format!("COMPILE ERROR: {}", m));
-                                Some(format!("error: {}", m))
-                            }
-                        },
-                        Err(e) => {
-                            let m = format!("failed to spawn cargo: {}", e);
-                            layer_violations.push(format!("COMPILE ERROR: {}", m));
-                            Some(format!("error: {}", m))
-                        }
-                    }
-                } else {
-                    None
-                }
-            } else if extensions.contains("go") {
-                if let Some(dir) = ws_root.clone() {
-                    match std::process::Command::new("go")
-                        .args(["build", "./..."])
-                        .current_dir(&dir)
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output()
-                    {
-                        Ok(out) if out.status.success() => Some("ok".to_string()),
-                        Ok(out) => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let t: String = stderr.chars().take(200).collect();
-                            layer_violations.push(format!("COMPILE ERROR (go build): {}", t));
-                            Some(format!("error: {}", t))
-                        }
-                        Err(e) => {
-                            let m = format!("failed to spawn go: {}", e);
-                            layer_violations.push(format!("COMPILE ERROR: {}", m));
-                            Some(format!("error: {}", m))
-                        }
-                    }
-                } else {
-                    None
-                }
-            } else if extensions.contains("py") {
-                if let Some(python_command) = available_python_command() {
-                    let mut py_ok = true;
-                    let mut py_err = String::new();
-                    for (path, _, _) in resolved_edits.iter().filter(|(path, _, _)| {
-                        path.extension().and_then(|e| e.to_str()) == Some("py")
-                    }) {
-                        let path_str = path.to_string_lossy();
-                        match std::process::Command::new(python_command)
-                            .args([
-                                "-c",
-                                "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())",
-                            ])
-                            .arg(path)
-                            .stdout(std::process::Stdio::piped())
-                            .stderr(std::process::Stdio::piped())
-                            .output()
-                        {
-                            Ok(out) if !out.status.success() => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                let t: String = stderr.chars().take(200).collect();
-                                if py_err.is_empty() {
-                                    py_err = t.to_string();
-                                }
-                                layer_violations.push(format!(
-                                    "PARSE ERROR ({} ast): {} — {}",
-                                    python_command, path_str, t
-                                ));
-                                py_ok = false;
-                            }
-                            Ok(_) => {}
-                            Err(e) => {
-                                py_err = format!("failed to spawn {}: {}", python_command, e);
-                                py_ok = false;
-                            }
-                        }
-                    }
-
-                    if py_ok {
-                        Some("ok".to_string())
-                    } else {
-                        Some(format!("error: {}", py_err))
-                    }
-                } else {
-                    None
-                }
-            } else if extensions.contains("ts") || extensions.contains("tsx") {
-                if let Some(dir) = ws_root.clone() {
-                    let tsconfig = Path::new(&dir).join("tsconfig.json");
-                    if tsconfig.exists() {
-                        match std::process::Command::new("tsc")
-                            .arg("--noEmit")
-                            .current_dir(&dir)
-                            .stdout(std::process::Stdio::piped())
-                            .stderr(std::process::Stdio::piped())
-                            .output()
-                        {
-                            Ok(out) if out.status.success() => Some("ok".to_string()),
-                            Ok(out) => {
-                                let combined = format!(
-                                    "{}{}",
-                                    String::from_utf8_lossy(&out.stdout),
-                                    String::from_utf8_lossy(&out.stderr)
-                                );
-                                let t: String = combined.chars().take(200).collect();
-                                layer_violations.push(format!("TYPE ERROR (tsc --noEmit): {}", t));
-                                Some(format!("error: {}", t))
-                            }
-                            Err(e) => {
-                                let m = format!("failed to spawn tsc: {}", e);
-                                layer_violations.push(format!("TYPE ERROR: {}", m));
-                                Some(format!("error: {}", m))
-                            }
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-        let compile_broken = compile_check
-            .as_deref()
-            .map(|s| s.starts_with("error"))
-            .unwrap_or(false);
+        // Repository-controlled build files, test runners, compiler plugins, and
+        // PATH-resolved tools are executable code. Running them in the owner
+        // process would give an edited repository the owner's filesystem,
+        // environment, network, and credential authority. Until verification is
+        // delegated to a separately confined runner, preserve the static and graph
+        // evidence above but report dynamic proof honestly as NOT_RUN.
+        let tests_run = None;
+        let tests_passed = None;
+        let tests_failed = None;
+        let test_output = Some(
+            "NOT_RUN: repository code execution requires an isolated verification runner"
+                .to_string(),
+        );
+        let compile_check = Some(
+            "not_run: repository compilation requires an isolated verification runner".to_string(),
+        );
+        let dynamic_verification_unavailable = true;
 
         // -----------------------------------------------------------------
         // Verdict (incorporates all layers: A+B+C+D + compile)
@@ -4084,9 +3690,13 @@ pub fn handle_apply_batch(
                 .unwrap_or(false)
         });
 
-        let verdict = if tests_broken || compile_broken || has_violations || has_antibodies {
-            "BROKEN".to_string() // compile/test failure or violations = BROKEN
-        } else if has_high_risk || has_bfs_high || has_high_heuristic_risk {
+        let verdict = if has_violations || has_antibodies {
+            "BROKEN".to_string()
+        } else if dynamic_verification_unavailable
+            || has_high_risk
+            || has_bfs_high
+            || has_high_heuristic_risk
+        {
             "RISKY".to_string()
         } else {
             "SAFE".to_string()
@@ -4494,12 +4104,8 @@ pub fn handle_view(
     // Step 1: Resolve path
     let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
 
-    // Step 2: Read file
-    let raw_content =
-        std::fs::read_to_string(&resolved_path).map_err(|e| M1ndError::InvalidParams {
-            tool: "m1nd_view".into(),
-            detail: format!("cannot read file {}: {}", resolved_path.display(), e),
-        })?;
+    // Step 2: Authorize the canonical target, then read it.
+    let (resolved_path, raw_content) = read_authorized_source(state, &resolved_path, "m1nd_view")?;
 
     let all_lines: Vec<&str> = raw_content.lines().collect();
     let total_lines = all_lines.len();
@@ -4614,16 +4220,15 @@ pub fn handle_batch_view(
     let mut visited_files = Vec::new();
 
     for (requested, resolved_path) in requested_files {
-        let file_path = resolved_path.to_string_lossy().to_string();
-        if !resolved_path.is_file() || !seen.insert(file_path.clone()) {
+        if !resolved_path.exists() {
             continue;
         }
-
-        let raw_content =
-            std::fs::read_to_string(&resolved_path).map_err(|e| M1ndError::InvalidParams {
-                tool: "batch_view".into(),
-                detail: format!("cannot read file {}: {}", resolved_path.display(), e),
-            })?;
+        let (resolved_path, raw_content) =
+            read_authorized_source(state, &resolved_path, "batch_view")?;
+        let file_path = resolved_path.to_string_lossy().to_string();
+        if !seen.insert(file_path.clone()) {
+            continue;
+        }
         let all_lines: Vec<&str> = raw_content.lines().collect();
         let total = all_lines.len();
         total_lines += total;
@@ -5148,6 +4753,138 @@ mod tests {
         assert!(msg.contains("outside allowed workspace roots"));
         assert!(msg.contains("Hint:"));
         assert!(msg.contains("ingested workspace roots"));
+    }
+
+    #[test]
+    fn read_surfaces_reject_external_sentinel_without_mutating_roots_or_graph() {
+        let container = tempfile::tempdir().expect("container");
+        let root = container.path().join("workspace");
+        let outside = container.path().join("outside");
+        let inside = root.join("src/core.rs");
+        let sentinel = outside.join("sentinel.rs");
+        std::fs::create_dir_all(inside.parent().expect("inside parent")).expect("inside dirs");
+        std::fs::create_dir_all(&outside).expect("outside dir");
+        std::fs::write(&inside, "pub fn inside() {}\n").expect("inside file");
+        std::fs::write(&sentinel, "EXTERNAL_SENTINEL_MUST_NOT_LEAK\n").expect("sentinel file");
+
+        let inside_text = inside.to_string_lossy().into_owned();
+        let sentinel_text = sentinel.to_string_lossy().into_owned();
+        let mut state = build_surgical_state(&root, &inside_text);
+        let roots_before = state.ingest_roots.clone();
+        let workspace_before = state.workspace_root.clone();
+        let graph_before = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+
+        let view_error = handle_view(
+            &mut state,
+            surgical::ViewInput {
+                file_path: sentinel_text.clone(),
+                agent_id: "external-read-probe".into(),
+                offset: None,
+                limit: None,
+                auto_ingest: true,
+                max_output_chars: None,
+            },
+        )
+        .expect_err("view must reject an external absolute path");
+        assert!(view_error.to_string().contains("outside authorized"));
+        assert!(!view_error
+            .to_string()
+            .contains("EXTERNAL_SENTINEL_MUST_NOT_LEAK"));
+
+        let context_error = handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: sentinel_text.clone(),
+                agent_id: "external-read-probe".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+            },
+        )
+        .expect_err("surgical_context must reject an external absolute path");
+        assert!(context_error.to_string().contains("outside authorized"));
+
+        let batch_error = handle_batch_view(
+            &mut state,
+            surgical::BatchViewInput {
+                agent_id: "external-read-probe".into(),
+                files: vec![sentinel_text],
+                max_lines_per_file: 10,
+                summary_mode: false,
+                auto_ingest: true,
+                max_output_chars: None,
+            },
+        )
+        .expect_err("batch_view must reject an external absolute path");
+        assert!(batch_error.to_string().contains("outside authorized"));
+
+        assert_eq!(state.ingest_roots, roots_before);
+        assert_eq!(state.workspace_root, workspace_before);
+        let graph_after = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+        assert_eq!(graph_after, graph_before);
+
+        let safe_view = handle_view(
+            &mut state,
+            surgical::ViewInput {
+                file_path: inside_text.clone(),
+                agent_id: "in-root-probe".into(),
+                offset: None,
+                limit: None,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect("existing in-root view behavior must remain available");
+        assert!(safe_view.content.contains("inside"));
+        handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: inside_text,
+                agent_id: "in-root-probe".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+            },
+        )
+        .expect("existing in-root surgical context must remain available");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn view_rejects_a_symlink_that_resolves_outside_the_authorized_root() {
+        use std::os::unix::fs::symlink;
+
+        let container = tempfile::tempdir().expect("container");
+        let root = container.path().join("workspace");
+        let outside = container.path().join("outside.rs");
+        let inside = root.join("src/core.rs");
+        std::fs::create_dir_all(inside.parent().expect("inside parent")).expect("inside dirs");
+        std::fs::write(&inside, "pub fn inside() {}\n").expect("inside file");
+        std::fs::write(&outside, "EXTERNAL_SYMLINK_SENTINEL\n").expect("outside file");
+        let escape = root.join("escape.rs");
+        symlink(&outside, &escape).expect("escape symlink");
+
+        let mut state = build_surgical_state(&root, &inside.to_string_lossy());
+        let error = handle_view(
+            &mut state,
+            surgical::ViewInput {
+                file_path: escape.to_string_lossy().into_owned(),
+                agent_id: "symlink-probe".into(),
+                offset: None,
+                limit: None,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect_err("symlink escape must be rejected");
+        assert!(error.to_string().contains("outside authorized"));
+        assert!(!error.to_string().contains("EXTERNAL_SYMLINK_SENTINEL"));
     }
 
     #[test]
@@ -5748,6 +5485,64 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_batch_verification_never_executes_repository_code_in_owner_process() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/lib.rs");
+        let marker_path = root.join("repository-code-executed");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"hostile-verifier-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write manifest");
+        std::fs::write(
+            root.join("build.rs"),
+            format!(
+                "fn main() {{ std::fs::write({:?}, b\"executed\").unwrap(); }}\n",
+                marker_path
+            ),
+        )
+        .expect("write hostile build script");
+        std::fs::write(&primary_path, "pub fn value() -> i32 { 1 }\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str,
+                    new_content: "pub fn value() -> i32 { 2 }\n".into(),
+                    description: Some("update value without executing repository code".into()),
+                }],
+                atomic: true,
+                reingest: true,
+                verify: true,
+            },
+        )
+        .expect("apply batch");
+
+        let verification = output.verification.expect("verification should be present");
+        assert_eq!(verification.verdict, "RISKY");
+        assert_eq!(verification.tests_run, None);
+        assert!(verification
+            .test_output
+            .as_deref()
+            .is_some_and(|value| value.starts_with("NOT_RUN:")));
+        assert!(verification
+            .compile_check
+            .as_deref()
+            .is_some_and(|value| value.starts_with("not_run:")));
+        assert!(
+            !marker_path.exists(),
+            "owner-side verification must never execute repository build scripts"
+        );
+    }
+
+    #[test]
     fn test_apply_surfaces_proactive_insights_for_risky_file() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -6181,6 +5976,18 @@ mod tests {
     }
 
     #[test]
+    fn proof_gate_is_default_on_and_only_explicitly_disabled() {
+        let _guard = proof_gate_env_lock();
+        std::env::remove_var("M1ND_PROOF_GATE");
+        assert!(crate::server::proof_gate_enabled());
+        std::env::set_var("M1ND_PROOF_GATE", "false");
+        assert!(!crate::server::proof_gate_enabled());
+        std::env::set_var("M1ND_PROOF_GATE", "0");
+        assert!(!crate::server::proof_gate_enabled());
+        std::env::remove_var("M1ND_PROOF_GATE");
+    }
+
+    #[test]
     fn proof_gate_blocks_then_allows_apply_through_real_dispatch() {
         let _guard = proof_gate_env_lock();
         let temp = tempfile::tempdir().expect("tempdir");
@@ -6206,8 +6013,7 @@ mod tests {
         let msg = format!("{err}");
         println!("[probe] unproven apply refusal: {msg}");
         assert!(
-            msg.contains("M1ND_PROOF_GATE is on")
-                && msg.contains("not proven ready_to_edit")
+            msg.contains("M1ND_PROOF_GATE refused SOURCE_FILESYSTEM_WRITE")
                 && msg.contains("surgical_context_v2"),
             "refusal message must be actionable, got: {msg}"
         );
@@ -6255,7 +6061,13 @@ mod tests {
         let other_err = crate::server::dispatch_tool(&mut state, "apply", &other_params)
             .expect_err("different agent must still be gated");
         println!("[probe] cross-agent refusal: {other_err}");
-        assert!(format!("{other_err}").contains("M1ND_PROOF_GATE is on"));
+        assert!(format!("{other_err}").contains("M1ND_PROOF_GATE refused"));
+
+        // One-shot: the first successful write consumed the mark. Replaying the
+        // same request under the same agent must re-prove against current disk.
+        let replay_err = crate::server::dispatch_tool(&mut state, "apply", &apply_params)
+            .expect_err("consumed proof must not authorize a replay");
+        assert!(format!("{replay_err}").contains("proof mark is missing"));
 
         std::env::remove_var("M1ND_PROOF_GATE");
     }
@@ -6263,7 +6075,7 @@ mod tests {
     #[test]
     fn proof_gate_off_allows_unproven_apply() {
         let _guard = proof_gate_env_lock();
-        std::env::remove_var("M1ND_PROOF_GATE");
+        std::env::set_var("M1ND_PROOF_GATE", "0");
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
         let target = root.join("src/isolated.rs");
@@ -6287,6 +6099,7 @@ mod tests {
             out.is_ok(),
             "with gate OFF an unproven apply must pass: {out:?}"
         );
+        std::env::remove_var("M1ND_PROOF_GATE");
     }
 
     #[test]
@@ -6319,6 +6132,101 @@ mod tests {
             );
         }
         std::env::remove_var("M1ND_PROOF_GATE");
+    }
+
+    #[test]
+    fn proof_gate_covers_xray_commit_by_effect_and_requires_cross_call_occ() {
+        let _guard = proof_gate_env_lock();
+        std::env::set_var("M1ND_PROOF_GATE", "1");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/isolated.rs");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk parent");
+        std::fs::write(&target, "pub fn a() {}\n").expect("write target");
+        let target_str = target.to_string_lossy().to_string();
+        let mut state = build_isolated_state(root);
+        let agent = "xray-proof-agent";
+        let base = serde_json::json!({
+            "agent_id": agent,
+            "selector": {"path_prefix": "src/isolated.rs", "extensions": ["rs"]},
+            "transform": {"kind": "ensure_header_tag", "tag": "//! proof-bound"},
+        });
+
+        let mut dry = base.clone();
+        dry["mode"] = serde_json::json!("dry_run");
+        let dry_out = crate::server::dispatch_tool(&mut state, "xray_apply", &dry)
+            .expect("dry_run is READ and needs no proof");
+        let version = dry_out["version"]
+            .as_str()
+            .expect("dry-run OCC version")
+            .to_string();
+        assert_eq!(
+            dry_out["counts"]["planned"], 1,
+            "unexpected X-RAY plan: {dry_out}"
+        );
+
+        let mut commit = base.clone();
+        commit["mode"] = serde_json::json!("commit");
+        let no_occ = crate::server::dispatch_tool(&mut state, "xray_apply", &commit)
+            .expect_err("unconditional commit must refuse");
+        assert!(format!("{no_occ}").contains("requires expect_version"));
+        commit["expect_version"] = serde_json::json!(version);
+        let unproved = crate::server::dispatch_tool(&mut state, "xray_apply", &commit)
+            .expect_err("effect-driven gate must cover xray commit");
+        assert!(format!("{unproved}").contains("SOURCE_FILESYSTEM_WRITE"));
+
+        crate::server::dispatch_tool(
+            &mut state,
+            "surgical_context_v2",
+            &serde_json::json!({"agent_id": agent, "file_path": target_str}),
+        )
+        .expect("bind exact proof target");
+        let committed = crate::server::dispatch_tool(&mut state, "xray_apply", &commit)
+            .expect("proof + OCC authorize xray commit");
+        assert_eq!(committed["status"], "committed");
+        assert_eq!(committed["counts"]["applied"], 1);
+        assert!(std::fs::read_to_string(&target)
+            .expect("read committed")
+            .contains("//! proof-bound"));
+        std::env::remove_var("M1ND_PROOF_GATE");
+    }
+
+    #[test]
+    fn authorized_apply_rechecks_consumed_digest_before_publish() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/isolated.rs");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk parent");
+        std::fs::write(&target, "pub fn original() {}\n").expect("write target");
+        let target_str = target.to_string_lossy().to_string();
+        let mut state = build_isolated_state(root);
+        state
+            .note_proof_ready("agent", &target_str, "test")
+            .expect("proof mark");
+        let identities = state
+            .consume_proof_ready_targets("agent", std::slice::from_ref(&target_str))
+            .expect("consume proof");
+
+        // Simulate another process winning after dispatch consumption but before
+        // the handler reaches its publish point.
+        std::fs::write(&target, "pub fn concurrent() {}\n").expect("concurrent edit");
+        let error = handle_apply_authorized(
+            &mut state,
+            surgical::ApplyInput {
+                file_path: target_str,
+                agent_id: "agent".to_string(),
+                new_content: "pub fn proposed() {}\n".to_string(),
+                description: None,
+                reingest: false,
+            },
+        )
+        .expect_err("stale consumed proof must fail before publish");
+        assert!(format!("{error}").contains("digest changed"));
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("read target"),
+            "pub fn concurrent() {}\n"
+        );
+        state.clear_active_proof_permits("agent", &identities);
     }
 
     // -------------------------------------------------------------------------
@@ -6430,7 +6338,7 @@ mod tests {
     #[test]
     fn antibody_auto_propose_on_fix_then_roundtrip() {
         let _guard = proof_gate_env_lock();
-        std::env::remove_var("M1ND_PROOF_GATE");
+        std::env::set_var("M1ND_PROOF_GATE", "0");
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
         let target = root.join("src/auth.rs");
@@ -6565,5 +6473,6 @@ mod tests {
             "an unflagged node must NOT trigger a proposed_antibody"
         );
         println!("[probe] unflagged file produced no proposed_antibody (correct)");
+        std::env::remove_var("M1ND_PROOF_GATE");
     }
 }

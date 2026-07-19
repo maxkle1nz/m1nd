@@ -3,10 +3,10 @@
 // Code tremor detection: modules with accelerating change frequency.
 // Second-derivative analysis — earthquake precursor analogy for imminent bugs.
 
-use crate::error::M1ndResult;
+use crate::error::{M1ndError, M1ndResult};
 use crate::types::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
 
 // ── Constants ──
@@ -30,6 +30,7 @@ pub const DEFAULT_TOP_K: usize = 20;
 
 /// A single weight-change observation for tremor analysis.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TremorObservation {
     /// Unix timestamp (seconds) of the observation.
     pub timestamp: f64,
@@ -424,9 +425,106 @@ impl TremorRegistry {
 // ── Persistence ──
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TremorPersistenceFormat {
     version: u32,
-    nodes: HashMap<String, Vec<TremorObservation>>,
+    nodes: BTreeMap<String, Vec<TremorObservation>>,
+}
+
+const TREMOR_PERSISTENCE_VERSION: u32 = 1;
+
+fn validate_tremor_nodes<'a>(
+    nodes: impl IntoIterator<Item = (&'a str, &'a [TremorObservation])>,
+) -> M1ndResult<()> {
+    for (external_id, observations) in nodes {
+        if external_id.trim().is_empty()
+            || observations.is_empty()
+            || observations.len() > DEFAULT_MAX_OBSERVATIONS
+        {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "tremor node '{external_id}' has invalid observation cardinality {}",
+                    observations.len()
+                ),
+            });
+        }
+        if observations.iter().any(|observation| {
+            !observation.timestamp.is_finite()
+                || observation.timestamp < 0.0
+                || !observation.weight_delta.is_finite()
+        }) {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "tremor node '{external_id}' contains invalid numeric observations"
+                ),
+            });
+        }
+        if observations
+            .windows(2)
+            .any(|pair| pair[1].timestamp < pair[0].timestamp)
+        {
+            return Err(M1ndError::CorruptState {
+                reason: format!("tremor node '{external_id}' has decreasing timestamps"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Encode the tremor registry as deterministic, versioned pretty JSON bytes.
+pub fn encode_tremor_state_json(registry: &TremorRegistry) -> M1ndResult<Vec<u8>> {
+    let nodes: BTreeMap<String, Vec<TremorObservation>> = registry
+        .observations
+        .iter()
+        .map(|(external_id, observations)| {
+            (external_id.clone(), observations.iter().cloned().collect())
+        })
+        .collect();
+    validate_tremor_nodes(
+        nodes
+            .iter()
+            .map(|(external_id, observations)| (external_id.as_str(), observations.as_slice())),
+    )?;
+    serde_json::to_vec_pretty(&TremorPersistenceFormat {
+        version: TREMOR_PERSISTENCE_VERSION,
+        nodes,
+    })
+    .map_err(M1ndError::Serde)
+}
+
+/// Decode tremor JSON bytes and reject malformed, unsupported, or non-finite
+/// state as one fail-closed unit.
+pub fn decode_tremor_state_json(bytes: &[u8]) -> M1ndResult<TremorRegistry> {
+    let format: TremorPersistenceFormat =
+        serde_json::from_slice(bytes).map_err(M1ndError::Serde)?;
+    if format.version != TREMOR_PERSISTENCE_VERSION {
+        return Err(M1ndError::CorruptState {
+            reason: format!("unsupported tremor persistence version {}", format.version),
+        });
+    }
+    validate_tremor_nodes(
+        format
+            .nodes
+            .iter()
+            .map(|(external_id, observations)| (external_id.as_str(), observations.as_slice())),
+    )?;
+
+    let mut registry = TremorRegistry::new(DEFAULT_MAX_OBSERVATIONS);
+    for (external_id, observations) in format.nodes {
+        registry.observations.insert(
+            external_id,
+            observations.into_iter().collect::<VecDeque<_>>(),
+        );
+    }
+    let projected = encode_tremor_state_json(&registry)?;
+    if serde_json::from_slice::<serde_json::Value>(bytes)?
+        != serde_json::from_slice::<serde_json::Value>(&projected)?
+    {
+        return Err(M1ndError::CorruptState {
+            reason: "tremor checkpoint is not the complete current schema".into(),
+        });
+    }
+    Ok(registry)
 }
 
 /// Atomically persist the tremor registry to `path` (write temp + rename).
@@ -434,16 +532,7 @@ struct TremorPersistenceFormat {
 /// # Errors
 /// Returns `M1ndError::Serde` on serialization failure or `M1ndError::Io` on I/O failure.
 pub fn save_tremor_state(registry: &TremorRegistry, path: &Path) -> M1ndResult<()> {
-    let format = TremorPersistenceFormat {
-        version: 1,
-        nodes: registry
-            .observations
-            .iter()
-            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
-            .collect(),
-    };
-
-    let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
+    let json = encode_tremor_state_json(registry)?;
 
     // Atomic write: temp file + rename
     if let Some(parent) = path.parent() {
@@ -454,7 +543,7 @@ pub fn save_tremor_state(registry: &TremorRegistry, path: &Path) -> M1ndResult<(
         use std::io::Write;
         let file = std::fs::File::create(&temp_path)?;
         let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
+        writer.write_all(&json)?;
         writer.flush()?;
     }
     std::fs::rename(&temp_path, path)?;
@@ -474,15 +563,15 @@ pub fn load_tremor_state(path: &Path) -> M1ndResult<TremorRegistry> {
     }
 
     let data = std::fs::read_to_string(path)?;
-    let format: TremorPersistenceFormat =
-        serde_json::from_str(&data).map_err(crate::error::M1ndError::Serde)?;
+    let format: TremorPersistenceFormat = serde_json::from_str(&data).map_err(M1ndError::Serde)?;
 
+    // Preserve the historical disk-loader behavior. Checkpoint restoration
+    // uses the strict `decode_tremor_state_json` API instead.
     let mut registry = TremorRegistry::new(DEFAULT_MAX_OBSERVATIONS);
 
     for (external_id, obs_vec) in format.nodes {
         let mut queue = VecDeque::with_capacity(obs_vec.len().min(DEFAULT_MAX_OBSERVATIONS));
         for obs in obs_vec {
-            // Validate: skip non-finite values
             if !obs.timestamp.is_finite() || !obs.weight_delta.is_finite() {
                 continue;
             }
@@ -690,6 +779,103 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tremor_memory_codec_is_deterministic_and_matches_save() {
+        let mut registry = make_registry();
+        registry.record_observation("node::z", 2.0, 1, 2.0);
+        registry.record_observation("node::a", 1.0, 0, 1.0);
+
+        let first = encode_tremor_state_json(&registry).expect("encode");
+        assert_eq!(first, encode_tremor_state_json(&registry).expect("repeat"));
+        let text = std::str::from_utf8(&first).expect("utf8");
+        assert!(text.find("node::a").unwrap() < text.find("node::z").unwrap());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("tremor_state.json");
+        save_tremor_state(&registry, &path).expect("save");
+        assert_eq!(std::fs::read(path).expect("saved bytes"), first);
+
+        let decoded = decode_tremor_state_json(&first).expect("decode");
+        assert_eq!(decoded.observation_count("node::a"), 1);
+        assert_eq!(decoded.observation_count("node::z"), 1);
+    }
+
+    #[test]
+    fn tremor_memory_codec_rejects_corruption_version_and_nonfinite() {
+        assert!(decode_tremor_state_json(b"{").is_err());
+        assert!(decode_tremor_state_json(br#"{"version":2,"nodes":{}}"#).is_err());
+
+        let mut registry = make_registry();
+        registry.observations.insert(
+            "node::bad".to_string(),
+            std::collections::VecDeque::from([TremorObservation {
+                timestamp: f64::NAN,
+                weight_delta: 1.0,
+                edge_events: 0,
+            }]),
+        );
+        assert!(encode_tremor_state_json(&registry).is_err());
+    }
+
+    #[test]
+    fn tremor_checkpoint_codec_rejects_oversize_order_and_schema_drift() {
+        let observation = |timestamp| TremorObservation {
+            timestamp,
+            weight_delta: 1.0,
+            edge_events: 0,
+        };
+        let at_limit = serde_json::json!({
+            "version": TREMOR_PERSISTENCE_VERSION,
+            "nodes": {
+                "node::limit": (0..DEFAULT_MAX_OBSERVATIONS)
+                    .map(|index| observation(index as f64))
+                    .collect::<Vec<_>>()
+            }
+        });
+        let at_limit =
+            decode_tremor_state_json(&serde_json::to_vec_pretty(&at_limit).expect("at-limit json"))
+                .expect("at-limit checkpoint must restore without truncation");
+        assert_eq!(
+            at_limit.observation_count("node::limit"),
+            DEFAULT_MAX_OBSERVATIONS
+        );
+
+        let oversized = serde_json::json!({
+            "version": TREMOR_PERSISTENCE_VERSION,
+            "nodes": {
+                "node::oversized": (0..=DEFAULT_MAX_OBSERVATIONS)
+                    .map(|index| observation(index as f64))
+                    .collect::<Vec<_>>()
+            }
+        });
+        assert!(
+            decode_tremor_state_json(&serde_json::to_vec_pretty(&oversized).expect("json"))
+                .is_err()
+        );
+
+        let decreasing = serde_json::json!({
+            "version": TREMOR_PERSISTENCE_VERSION,
+            "nodes": {"node::backwards": [observation(2.0), observation(1.0)]}
+        });
+        assert!(
+            decode_tremor_state_json(&serde_json::to_vec_pretty(&decreasing).expect("json"))
+                .is_err()
+        );
+
+        let unknown = serde_json::json!({
+            "version": TREMOR_PERSISTENCE_VERSION,
+            "nodes": {"node::future": [{
+                "timestamp": 1.0,
+                "weight_delta": 1.0,
+                "edge_events": 0,
+                "future_field": true
+            }]}
+        });
+        assert!(
+            decode_tremor_state_json(&serde_json::to_vec_pretty(&unknown).expect("json")).is_err()
+        );
     }
 
     // Extra: window filter — observations outside window are excluded

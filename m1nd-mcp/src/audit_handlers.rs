@@ -182,7 +182,7 @@ fn is_placeholder_external_path(path: &Path) -> bool {
         || value == "/your/project"
         || value == "/your/docs"
         || value == "/your/domain.json"
-        || value.starts_with("/Users/youruser/")
+        || value.starts_with("/Users/<name>/")
         || value.starts_with("/path/")
         || value.starts_with("/path/to/")
         || value.starts_with("/app/")
@@ -3181,10 +3181,33 @@ mod tests {
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use m1nd_core::types::NodeType;
+    use std::ops::{Deref, DerefMut};
 
-    fn build_empty_state(root: &Path) -> SessionState {
-        let runtime_dir = root.join("runtime");
-        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+    struct EmptyStateFixture {
+        state: SessionState,
+        _runtime: tempfile::TempDir,
+    }
+
+    impl Deref for EmptyStateFixture {
+        type Target = SessionState;
+
+        fn deref(&self) -> &Self::Target {
+            &self.state
+        }
+    }
+
+    impl DerefMut for EmptyStateFixture {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.state
+        }
+    }
+
+    fn build_empty_state(root: &Path) -> EmptyStateFixture {
+        // Runtime artifacts are deliberately outside the audited repository.
+        // Putting them under `root/runtime` made a freshly committed fixture
+        // dirty and diluted doc-heavy profile ratios with owner state files.
+        let runtime = tempfile::tempdir().expect("isolated runtime dir");
+        let runtime_dir = runtime.path().to_path_buf();
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
@@ -3196,7 +3219,10 @@ mod tests {
             SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
         state.ingest_roots = vec![root.to_string_lossy().to_string()];
         state.workspace_root = Some(root.to_string_lossy().to_string());
-        state
+        EmptyStateFixture {
+            state,
+            _runtime: runtime,
+        }
     }
 
     #[test]

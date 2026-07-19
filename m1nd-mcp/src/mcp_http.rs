@@ -12,7 +12,7 @@
 // relayed as `notifications/m1nd/graph_changed`; an agent never sees an echo
 // of its own (or anyone's) read-only tool results.
 //
-// This transport binds to the SAME shared `Arc<Mutex<SessionState>>` that the
+// This transport binds to the SAME shared `Arc<BrainSessionCell>` that the
 // HTTP server already owns (via `AppState.session`), so a future `--attach`
 // client sees the live graph. Tool execution runs under the same
 // lock + spawn_blocking + timeout discipline as the REST `handle_tool_call`.
@@ -22,21 +22,26 @@
 #![cfg(feature = "serve")]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 use axum::{
     body::Bytes,
     http::{HeaderMap, StatusCode},
     response::{sse, IntoResponse, Response, Sse},
 };
-use futures::stream::StreamExt;
+use futures::{stream::StreamExt, Stream};
 use parking_lot::Mutex;
 
+use crate::brain_runtime::BrainSessionCell;
 use crate::http_server::{AppState, SseEvent};
 use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
-use crate::server::{dispatch_tool, handle_mcp_method};
+use crate::server::{
+    dispatch_generic_tool, enforce_generic_action_policy, handle_mcp_method_transactional,
+};
 use crate::session::SessionState;
 use crate::util::now_ms;
 
@@ -45,6 +50,9 @@ const MCP_SESSION_HEADER: &str = "mcp-session-id";
 /// Hop-2 caller-root header the `--attach` bridge stamps (TWO-TIER-BRAIN-PRD
 /// §9.5.4). Absent → the caller is unknown (legacy bridge / direct HTTP).
 const CALLER_ROOT_HEADER: &str = "m1nd-caller-root";
+/// One-shot G2 authorization lease. It is intentionally distinct from both
+/// the MCP session and any HTTP bearer credential.
+const AUTHORITY_LEASE_HEADER: &str = "m1nd-authority-lease-id";
 
 /// Per-tool execution timeout for the HTTP MCP transport (mirrors the REST
 /// `TOOL_TIMEOUT_SECS` discipline in `http_server`).
@@ -57,6 +65,26 @@ const GRAPH_CHANGED_METHOD: &str = "notifications/m1nd/graph_changed";
 /// Keepalive interval for the `GET /mcp` SSE stream so proxies / idle clients
 /// don't drop a quiet connection.
 const MCP_SSE_KEEPALIVE_SECS: u64 = 15;
+
+/// Resource ceilings for the loopback Streamable-HTTP ingress. These are
+/// deliberately process-local and immutable: an untrusted client cannot widen
+/// them through request data or ambient environment variables.
+const MCP_SESSION_IDLE_TTL_SECS: u64 = 30 * 60;
+const MCP_MAX_SESSIONS: usize = 256;
+const MCP_MAX_SSE_STREAMS_PER_SESSION: usize = 2;
+const MCP_MAX_SSE_STREAMS_GLOBAL: usize = 64;
+
+/// Session ids are 256 bits from the operating system CSPRNG, rendered as
+/// lowercase hex. A few bounded retries cover the impossible-in-practice
+/// collision case without ever turning admission into an unbounded loop.
+const MCP_SESSION_ID_BYTES: usize = 32;
+const MCP_SESSION_ID_ATTEMPTS: usize = 4;
+
+/// Axum bounds aggregate header bytes at the HTTP layer; these tighter
+/// per-value ceilings keep copies and path/lease parsing bounded too.
+const MCP_SESSION_HEADER_MAX_BYTES: usize = 128;
+const CALLER_ROOT_HEADER_MAX_BYTES: usize = 4 * 1024;
+const AUTHORITY_LEASE_HEADER_MAX_BYTES: usize = 512;
 
 /// Tools whose successful execution mutates something a viewer RENDERS — the
 /// shared graph, the SystemBlock store, the skeleton, or the persisted X-RAY
@@ -235,47 +263,235 @@ pub struct McpTransportSession {
     /// NOT re-detected, the scope-guard backstop covers it). `None` = the session
     /// rides the owner's bound graph, exactly as before this feature.
     pub bound_project_root: Option<String>,
+    /// Monotonic idle clock. Wall time remains above for observability, while
+    /// expiry must not be defeated by a system-clock rollback.
+    last_seen_at: Instant,
+    /// Number of live SSE response bodies owned by this session.
+    active_sse_streams: usize,
+}
+
+impl McpTransportSession {
+    fn touch(&mut self, wall_ms: u64, monotonic: Instant) {
+        self.last_seen_ms = wall_ms;
+        self.last_seen_at = monotonic;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct McpTransportLimits {
+    idle_ttl: Duration,
+    max_sessions: usize,
+    max_sse_streams_per_session: usize,
+    max_sse_streams_global: usize,
+}
+
+impl Default for McpTransportLimits {
+    fn default() -> Self {
+        Self {
+            idle_ttl: Duration::from_secs(MCP_SESSION_IDLE_TTL_SECS),
+            max_sessions: MCP_MAX_SESSIONS,
+            max_sse_streams_per_session: MCP_MAX_SSE_STREAMS_PER_SESSION,
+            max_sse_streams_global: MCP_MAX_SSE_STREAMS_GLOBAL,
+        }
+    }
+}
+
+/// Bounded registry state. `Deref` preserves the existing short map lookups at
+/// routing seams while keeping admission limits and SSE accounting inseparable
+/// from the map they protect.
+#[derive(Debug)]
+pub struct McpSessionRegistryState {
+    sessions: HashMap<String, McpTransportSession>,
+    active_sse_streams: usize,
+    limits: McpTransportLimits,
+}
+
+impl McpSessionRegistryState {
+    fn new(limits: McpTransportLimits) -> Self {
+        Self {
+            sessions: HashMap::new(),
+            active_sse_streams: 0,
+            limits,
+        }
+    }
+
+    /// Evict idle sessions before every admission/lookup. A session with a live
+    /// response body is not idle; its bounded SSE permit keeps it present until
+    /// the body is dropped.
+    fn evict_idle(&mut self, now: Instant) {
+        let ttl = self.limits.idle_ttl;
+        self.sessions.retain(|_, session| {
+            session.active_sse_streams > 0
+                || now.saturating_duration_since(session.last_seen_at) < ttl
+        });
+    }
+}
+
+impl Deref for McpSessionRegistryState {
+    type Target = HashMap<String, McpTransportSession>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sessions
+    }
+}
+
+impl DerefMut for McpSessionRegistryState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sessions
+    }
 }
 
 /// Registry of live MCP wire sessions, keyed by opaque session id.
-pub type McpSessionRegistry = Arc<Mutex<HashMap<String, McpTransportSession>>>;
+pub type McpSessionRegistry = Arc<Mutex<McpSessionRegistryState>>;
 
 /// Build a fresh, empty MCP session registry.
 pub fn new_mcp_session_registry() -> McpSessionRegistry {
-    Arc::new(Mutex::new(HashMap::new()))
+    Arc::new(Mutex::new(McpSessionRegistryState::new(
+        McpTransportLimits::default(),
+    )))
 }
 
-/// Monotonic counter so two ids minted in the same millisecond differ.
-static MCP_SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+fn new_mcp_session_registry_with_limits(limits: McpTransportLimits) -> McpSessionRegistry {
+    Arc::new(Mutex::new(McpSessionRegistryState::new(limits)))
+}
 
-/// Generate an opaque, URL-safe, visible-ASCII MCP session id (128-bit hex).
-///
-/// No new crate dependency: we combine two `DefaultHasher` digests seeded with
-/// process id, wall-clock time, and a per-process atomic sequence — the same
-/// idiom already used by `instance_registry::generate_instance_id`. The result
-/// is a 32-char lowercase-hex string, which is valid per the MCP spec
-/// (visible ASCII, no whitespace).
-pub fn generate_mcp_session_id() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+fn generate_mcp_session_id_with<E>(
+    mut fill: impl FnMut(&mut [u8]) -> Result<(), E>,
+) -> Result<String, E> {
+    let mut bytes = [0_u8; MCP_SESSION_ID_BYTES];
+    fill(&mut bytes)?;
 
-    let seq = MCP_SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
-    let pid = std::process::id();
-    let t = now_ms();
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(MCP_SESSION_ID_BYTES * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    Ok(encoded)
+}
 
-    let mut hi = DefaultHasher::new();
-    pid.hash(&mut hi);
-    t.hash(&mut hi);
-    seq.hash(&mut hi);
-    "m1nd-mcp-hi".hash(&mut hi);
+/// Generate an opaque MCP session id from the operating system CSPRNG.
+/// Failure is propagated so initialization can fail closed without minting a
+/// predictable fallback id.
+pub fn generate_mcp_session_id() -> Result<String, getrandom::Error> {
+    generate_mcp_session_id_with(getrandom::fill)
+}
 
-    let mut lo = DefaultHasher::new();
-    seq.hash(&mut lo);
-    t.hash(&mut lo);
-    pid.hash(&mut lo);
-    "m1nd-mcp-lo".hash(&mut lo);
+#[derive(Debug)]
+enum McpSessionAdmissionError {
+    RandomnessUnavailable(String),
+    Capacity,
+    CollisionBudgetExhausted,
+}
 
-    format!("{:016x}{:016x}", hi.finish(), lo.finish())
+/// A capacity reservation inserted before `initialize` executes. If the
+/// request future is cancelled or initialization fails, `Drop` removes the
+/// placeholder; a half-initialized session never becomes addressable.
+struct McpSessionReservation {
+    registry: McpSessionRegistry,
+    session_id: Option<String>,
+}
+
+impl McpSessionReservation {
+    fn commit(mut self, protocol_version: String) -> Result<String, ()> {
+        let session_id = self.session_id.as_deref().ok_or(())?;
+        {
+            let mut registry = self.registry.lock();
+            let session = registry.get_mut(session_id).ok_or(())?;
+            session.protocol_version = protocol_version;
+            session.touch(now_ms(), Instant::now());
+        }
+        self.session_id.take().ok_or(())
+    }
+}
+
+impl Drop for McpSessionReservation {
+    fn drop(&mut self) {
+        if let Some(session_id) = self.session_id.take() {
+            self.registry.lock().remove(&session_id);
+        }
+    }
+}
+
+fn reserve_mcp_session(
+    registry: &McpSessionRegistry,
+    caller_root: Option<String>,
+) -> Result<McpSessionReservation, McpSessionAdmissionError> {
+    for _ in 0..MCP_SESSION_ID_ATTEMPTS {
+        let session_id = generate_mcp_session_id()
+            .map_err(|error| McpSessionAdmissionError::RandomnessUnavailable(error.to_string()))?;
+        let monotonic = Instant::now();
+        let wall_ms = now_ms();
+        let mut state = registry.lock();
+        state.evict_idle(monotonic);
+        if state.len() >= state.limits.max_sessions {
+            return Err(McpSessionAdmissionError::Capacity);
+        }
+        if state.contains_key(&session_id) {
+            continue;
+        }
+        state.insert(
+            session_id.clone(),
+            McpTransportSession {
+                protocol_version: "pending".into(),
+                created_ms: wall_ms,
+                last_seen_ms: wall_ms,
+                caller_root: caller_root.clone(),
+                bound_project_root: None,
+                last_seen_at: monotonic,
+                active_sse_streams: 0,
+            },
+        );
+        drop(state);
+        return Ok(McpSessionReservation {
+            registry: registry.clone(),
+            session_id: Some(session_id),
+        });
+    }
+    Err(McpSessionAdmissionError::CollisionBudgetExhausted)
+}
+
+/// RAII accounting for one live SSE response body. The stream owns the permit;
+/// dropping the response releases both the per-session and process-wide slot
+/// without a cleanup task or queue.
+struct McpSsePermit {
+    registry: McpSessionRegistry,
+    session_id: String,
+}
+
+impl Drop for McpSsePermit {
+    fn drop(&mut self) {
+        let mut state = self.registry.lock();
+        state.active_sse_streams = state.active_sse_streams.saturating_sub(1);
+        if let Some(session) = state.get_mut(&self.session_id) {
+            session.active_sse_streams = session.active_sse_streams.saturating_sub(1);
+        }
+    }
+}
+
+/// A pinned inner stream plus its permit. This wrapper introduces no task,
+/// channel, or background reap loop; ownership alone drives release.
+struct PermitStream<S> {
+    inner: Pin<Box<S>>,
+    _permit: McpSsePermit,
+}
+
+impl<S> PermitStream<S> {
+    fn new(inner: S, permit: McpSsePermit) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            _permit: permit,
+        }
+    }
+}
+
+impl<S: Stream> Stream for PermitStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
+    }
 }
 
 /// A parsed inbound JSON-RPC message. We need to distinguish requests (have an
@@ -333,8 +549,21 @@ fn jsonrpc_ok_response(resp: &JsonRpcResponse, session_id: Option<&str>) -> Resp
     response
 }
 
+/// Wait through a slow blocking task without detaching it. Actor commands cannot
+/// be cancelled after enqueue, so returning a timeout while the task kept
+/// mutating would be a false terminal result and could overlap a retry.
+async fn await_mcp_blocking_terminal<T: Send + 'static>(
+    mut task: tokio::task::JoinHandle<T>,
+    slow_after: Duration,
+) -> (bool, Result<T, tokio::task::JoinError>) {
+    tokio::select! {
+        result = &mut task => (false, result),
+        _ = tokio::time::sleep(slow_after) => (true, task.await),
+    }
+}
+
 /// Run an MCP request against the shared session under the same
-/// lock + spawn_blocking + timeout discipline as the REST `handle_tool_call`.
+/// lock + spawn_blocking + terminal-completion discipline as REST dispatch.
 ///
 /// The `parking_lot::Mutex` lock is acquired *inside* `spawn_blocking`, so it is
 /// never held across an `.await`.
@@ -349,35 +578,65 @@ async fn run_mcp_method(
     caller_root: Option<String>,
 ) -> JsonRpcResponse {
     let id = request.id.clone();
-    let result = tokio::time::timeout(
-        Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
+    let is_tool_call = request.method == "tools/call";
+    let mutating = if is_tool_call {
+        let tool_name = request
+            .params
+            .get("name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let arguments = request
+            .params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        crate::server::read_only_denied(tool_name, &arguments)
+    } else {
+        false
+    };
+    let (slow, result) = await_mcp_blocking_terminal(
         tokio::task::spawn_blocking(move || {
-            let mut session = app.session.lock();
-            session.caller_root = caller_root;
-            handle_mcp_method(&mut session, &request)
+            app.project_brains.execute_target_m1nd(
+                app.session.clone(),
+                None,
+                true,
+                mutating,
+                move |session| {
+                    session.caller_root = caller_root;
+                    handle_mcp_method_transactional(session, &request)
+                },
+            )
         }),
+        Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
     )
     .await;
+    if slow {
+        eprintln!(
+            "[m1nd-mcp] MCP actor command exceeded the {}s slow threshold; waiting for its terminal result",
+            MCP_TOOL_TIMEOUT_SECS
+        );
+    }
 
     match result {
         Ok(Ok(resp)) => resp,
-        Ok(Err(_join_err)) => JsonRpcResponse {
+        Ok(Err(error)) if is_tool_call => tool_error_response(id, error.to_string()),
+        Ok(Err(error)) => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            }),
+        },
+        Err(_join_err) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
             id,
             result: None,
             error: Some(JsonRpcError {
                 code: -32603,
                 message: "Internal error: tool task panicked".into(),
-                data: None,
-            }),
-        },
-        Err(_elapsed) => JsonRpcResponse {
-            jsonrpc: "2.0".into(),
-            id,
-            result: None,
-            error: Some(JsonRpcError {
-                code: -32000,
-                message: format!("Tool execution exceeded {}s timeout", MCP_TOOL_TIMEOUT_SECS),
                 data: None,
             }),
         },
@@ -455,6 +714,14 @@ fn promote_request(request: &JsonRpcRequest) -> Option<crate::promote_handlers::
     })
 }
 
+fn owner_runtime_root(app: &AppState) -> std::path::PathBuf {
+    app.project_brains
+        .base_dir()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default()
+}
+
 /// Execute a `promote` verb (MEDULLA-PRD §7). Resolves the SOURCE brain's store
 /// dir + the MEDULLA store dir (the bound owner's `agent-memory`), then runs the
 /// pure [`promote_claim`](crate::promote_handlers::promote_claim) logic across
@@ -477,14 +744,17 @@ fn run_promote(
     // The MEDULLA store: the bound owner's own agent-memory dir + its runtime root
     // (where the medulla's .locks/.history live). This is the shared doctrine store
     // every session's default beat reads.
-    let (medulla_runtime_root, medulla_store_dir, brain_is_bound) = {
-        let session = app.session.lock();
-        let rr = session.runtime_root.clone();
-        let store = rr.join("agent-memory");
-        // A brain the bound owner covers IS the medulla — promoting from it to
-        // itself is a no-op the caller should not attempt.
-        let covered = session.covers_root(&input.brain);
-        (rr, store, covered)
+    let medulla_runtime_root = owner_runtime_root(app);
+    let medulla_store_dir = medulla_runtime_root.join("agent-memory");
+    // A brain the bound owner covers IS the medulla — promoting from it to
+    // itself is a no-op the caller should not attempt. The predicate is copied
+    // through the actor; the transport never opens SessionState directly.
+    let brain_is_bound = match app
+        .project_brains
+        .bound_covers_root(Arc::clone(&app.session), &input.brain)
+    {
+        Ok(covered) => covered,
+        Err(error) => return tool_error_response(id, error.to_string()),
     };
 
     // Resolve the SOURCE brain's store dir. Two shapes:
@@ -505,8 +775,9 @@ fn run_promote(
         return tool_error_response(
             id,
             format!(
-                "no project brain for '{}' — bootstrap it first (ingest with project_root=...), \
-                 or check the path. Promotion reads a real, hosted source store.",
+                "no project brain for '{}' — check the path or connect to an owner that already \
+                 hosts it. brain_bootstrap_consumer_not_installed: the internal bootstrap is not \
+                 a public repair. Promotion reads a real, hosted source store.",
                 input.brain
             ),
         );
@@ -525,23 +796,26 @@ fn run_promote(
         Ok(outcome) => {
             // Re-ingest the medulla copy so it is immediately recallable in the
             // default beat (the R3 tier=medulla path reads the bound owner's graph).
-            {
-                let mut session = app.session.lock();
-                let ingest = crate::protocol::core::IngestInput {
-                    path: outcome.medulla_path.to_string_lossy().to_string(),
-                    agent_id: input.agent_id.clone(),
-                    incremental: false,
-                    adapter: "light".into(),
-                    mode: "merge".into(),
-                    namespace: Some("light".into()),
-                    include_dotfiles: false,
-                    dotfile_patterns: vec![],
-                    project_root: None,
-                };
-                // Best-effort: a failed re-ingest never loses the durable file (it
-                // is on disk + will load next boot); it only delays recall.
-                let _ = crate::tools::handle_ingest(&mut session, ingest);
-            }
+            let ingest = crate::protocol::core::IngestInput {
+                path: outcome.medulla_path.to_string_lossy().to_string(),
+                agent_id: input.agent_id.clone(),
+                incremental: false,
+                adapter: "light".into(),
+                mode: "merge".into(),
+                namespace: Some("light".into()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            };
+            // Best-effort: a failed re-ingest never loses the durable file (it
+            // is on disk + will load next boot); it only delays recall.
+            let _ = app.project_brains.execute_target_m1nd(
+                app.session.clone(),
+                None,
+                true,
+                true,
+                move |session| crate::tools::handle_ingest(session, ingest),
+            );
             let payload = crate::promote_handlers::promote_response(input, &outcome);
             tool_result_response(id, &payload)
         }
@@ -581,6 +855,731 @@ fn tool_error_response(id: serde_json::Value, message: String) -> JsonRpcRespons
     }
 }
 
+fn mission_service_refusal_response(
+    id: serde_json::Value,
+    refusal: &crate::mission_service_transport::MissionServiceTransportRefusalV1,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(refusal).unwrap_or_default()
+            }],
+            "isError": true
+        })),
+        error: None,
+    }
+}
+
+fn authority_refusal_response(
+    id: serde_json::Value,
+    refusal: &crate::authority_transport::AuthorityTransportRefusalV1,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(refusal).unwrap_or_default()
+            }],
+            "isError": true
+        })),
+        error: None,
+    }
+}
+
+fn external_mutation_refusal_response(
+    id: serde_json::Value,
+    refusal: &crate::external_mutation_service::ExternalMutationRefusalV1,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(refusal).unwrap_or_default()
+            }],
+            "isError": true
+        })),
+        error: None,
+    }
+}
+
+fn resolve_external_mutation_brain(
+    app: &Arc<AppState>,
+    selector: Option<&str>,
+) -> Result<Arc<BrainSessionCell>, crate::external_mutation_service::ExternalMutationError> {
+    let Some(selector) = selector else {
+        return Ok(Arc::clone(&app.session));
+    };
+    match app.project_brains.try_resolve(selector) {
+        Ok(Some(brain)) => Ok(brain),
+        Ok(None) => match app
+            .project_brains
+            .bound_covers_root(Arc::clone(&app.session), selector)
+        {
+            Ok(true) => Ok(Arc::clone(&app.session)),
+            Ok(false) => Err(
+                crate::external_mutation_service::ExternalMutationError::refused(
+                    "external_mutation_brain_not_hosted",
+                    format!(
+                        "the MCP session is bound to project brain '{selector}', but that brain is no longer hosted and the bound owner session does not cover it"
+                    ),
+                ),
+            ),
+            Err(error) => Err(
+                crate::external_mutation_service::ExternalMutationError::refused(
+                    "external_mutation_brain_resolution_failed",
+                    error.to_string(),
+                ),
+            ),
+        },
+        Err(error) => Err(
+            crate::external_mutation_service::ExternalMutationError::refused(
+                "external_mutation_brain_resolution_failed",
+                error.to_string(),
+            ),
+        ),
+    }
+}
+
+struct McpOwnerActorBindingV1 {
+    route_selector: Option<String>,
+    actor_brain_id: String,
+    selected_brain: Arc<BrainSessionCell>,
+}
+
+fn resolve_mcp_owner_actor_binding(
+    app: &Arc<AppState>,
+    session_id: &str,
+    caller_root: Option<&str>,
+) -> Result<McpOwnerActorBindingV1, crate::external_mutation_service::ExternalMutationError> {
+    let caller_root = caller_root.ok_or_else(|| {
+        crate::external_mutation_service::ExternalMutationError::refused(
+            "external_mutation_caller_root_required",
+            "typed authority and mutation tools require the current MCP caller root",
+        )
+    })?;
+    let caller_root = crate::project_brains::ProjectBrainRegistry::canonical_key(caller_root);
+    let sticky = app
+        .mcp_sessions
+        .lock()
+        .get(session_id)
+        .and_then(|session| session.bound_project_root.clone());
+    let sticky =
+        sticky.map(|root| crate::project_brains::ProjectBrainRegistry::canonical_key(&root));
+    if sticky
+        .as_deref()
+        .is_some_and(|sticky_root| sticky_root != caller_root.as_str())
+    {
+        return Err(
+            crate::external_mutation_service::ExternalMutationError::refused(
+                "external_mutation_caller_root_sticky_mismatch",
+                "the current caller root differs from this MCP session's sticky project root",
+            ),
+        );
+    }
+    let requested_selector = sticky.or_else(|| Some(caller_root.clone()));
+    let binding = app
+        .project_brains
+        .resolve_external_mutation_transport_actor(
+            Arc::clone(&app.session),
+            requested_selector.as_deref(),
+        )
+        .map_err(|error| {
+            crate::external_mutation_service::ExternalMutationError::refused(
+                "external_mutation_actor_resolution_failed",
+                error.to_string(),
+            )
+        })?;
+    if binding.actor_root != caller_root {
+        return Err(
+            crate::external_mutation_service::ExternalMutationError::refused(
+                "external_mutation_caller_root_actor_mismatch",
+                "mutating authority requires the exact actor root; ancestor and descendant routing matches are read-only",
+            ),
+        );
+    }
+    let route_selector = Some(binding.actor_root.clone());
+    Ok(McpOwnerActorBindingV1 {
+        route_selector,
+        actor_brain_id: binding.brain_id,
+        selected_brain: binding.brain,
+    })
+}
+
+fn build_external_mutation_host(
+    app: &Arc<AppState>,
+    selected_brain: Arc<BrainSessionCell>,
+    selected_actor_brain_id: &str,
+    reconciliation_brain_id: String,
+    promote_paths: Option<crate::external_mutation_service::ExternalPromotePathsV1>,
+) -> Result<
+    crate::external_mutation_service::ExternalMutationExecutionHostV1,
+    crate::external_mutation_service::ExternalMutationError,
+> {
+    // A corrupt runtime-job journal fences graph scans, but must not make an
+    // unrelated ratify/promote/source recovery host impossible to construct.
+    let runtime_jobs = app
+        .project_brains
+        .runtime_job_registry()
+        .map_err(|error| error.to_string());
+    let recovery_registry = Arc::clone(&app.project_brains);
+    let recovery_bound = Arc::clone(&app.session);
+    let actor_app = Arc::clone(app);
+    let reconciliation_registry = Arc::clone(&app.project_brains);
+    Ok(
+        crate::external_mutation_service::ExternalMutationExecutionHostV1 {
+            selected_brain,
+            selected_actor_brain_id: selected_actor_brain_id.to_string(),
+            resolve_brain: Arc::new(move |requested_actor_id| {
+                recovery_registry
+                    .resolve_external_mutation_actor_by_id(
+                        Arc::clone(&recovery_bound),
+                        requested_actor_id,
+                    )
+                    .map(|binding| binding.brain)
+                    .map_err(|error| error.to_string())
+            }),
+            reconcile_promote: Arc::new(move |request| {
+                let runs_on_source_brain = request.runs_on_source_brain_actor();
+                let requires_checkpoint_ack = request.requires_checkpoint_ack();
+                let allows_resolved_actor_identity = request.allows_resolved_actor_identity();
+                let failure_code = request.actor_failure_code();
+                let (actor_brain, selected_project_root, bound) = if runs_on_source_brain {
+                    let binding = reconciliation_registry
+                        .resolve_external_mutation_actor_by_id(
+                            Arc::clone(&actor_app.session),
+                            &request.source_brain_id,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    if binding.brain_id != request.reconciliation_brain_id
+                        && !allows_resolved_actor_identity
+                    {
+                        return Err(format!(
+                            "reconciliation actor mismatch: expected '{}', observed '{}'",
+                            request.reconciliation_brain_id, binding.brain_id
+                        ));
+                    }
+                    (binding.brain, binding.selected_project_root, binding.bound)
+                } else {
+                    (Arc::clone(&actor_app.session), None, true)
+                };
+                let actual_brain_id = if bound {
+                    reconciliation_registry
+                        .bound_brain_id_for_target(Arc::clone(&actor_brain))
+                        .map_err(|error| error.to_string())?
+                } else {
+                    reconciliation_registry.brain_id_for(
+                        selected_project_root
+                            .as_deref()
+                            .ok_or_else(|| "hosted actor project root is missing".to_string())?,
+                    )
+                };
+                if actual_brain_id != request.reconciliation_brain_id
+                    && !allows_resolved_actor_identity
+                {
+                    return Err(format!(
+                        "reconciliation actor mismatch: expected '{}', observed '{}'",
+                        request.reconciliation_brain_id, actual_brain_id
+                    ));
+                }
+                if requires_checkpoint_ack {
+                    reconciliation_registry
+                        .execute_target_runtime_with_checkpoint_ack(
+                            actor_brain,
+                            selected_project_root.as_deref(),
+                            bound,
+                            move |state| {
+                                request.execute(state).map_err(|detail| {
+                                    crate::runtime_jobs::RuntimeJobFailure::new(
+                                        failure_code,
+                                        detail,
+                                    )
+                                })
+                            },
+                        )
+                        .map(|(execution, ack)| execution.bind_checkpoint_ack(&ack))
+                        .map_err(|error| error.to_string())
+                } else {
+                    reconciliation_registry
+                        .execute_target_runtime(
+                            actor_brain,
+                            selected_project_root.as_deref(),
+                            bound,
+                            false,
+                            move |state| {
+                                request.execute(state).map_err(|detail| {
+                                    crate::runtime_jobs::RuntimeJobFailure::new(
+                                        failure_code,
+                                        detail,
+                                    )
+                                })
+                            },
+                        )
+                        .map_err(|error| error.to_string())
+                }
+            }),
+            reconciliation_brain_id,
+            promote_paths,
+            runtime_jobs,
+        },
+    )
+}
+
+/// Seam intercept for the sole G3 external mission boundary and its legacy
+/// tombstones. Selection uses only method/tool name. Raw legacy names return
+/// before argument serialization, authority lookup, or brain routing.
+fn run_mission_service_wire(
+    app: &Arc<AppState>,
+    request: &JsonRpcRequest,
+    caller_root: Option<String>,
+    session_id: &str,
+    authority_lease_id: Option<String>,
+) -> Option<JsonRpcResponse> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    let tool = request
+        .params
+        .get("name")
+        .and_then(|value| value.as_str())?;
+    let bare = bare_tool_name(tool);
+    if let Some(refusal) = crate::mission_service_transport::legacy_mutation_refusal(bare) {
+        return Some(mission_service_refusal_response(
+            request.id.clone(),
+            &refusal,
+        ));
+    }
+    if !matches!(
+        bare,
+        "mission_service"
+            | "external_mutation_service"
+            | "graph_ingest_preview"
+            | "authority_session_challenge"
+            | "authority_session_authenticate"
+            | "authority_authorize"
+    ) {
+        return None;
+    }
+    let arguments = request
+        .params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let body = match serde_json::to_vec(&arguments) {
+        Ok(body) => body,
+        Err(error) => {
+            let error = crate::mission_service_transport::MissionServiceTransportError::refused(
+                "invalid_transport_request",
+                format!("cannot serialize MCP arguments: {error}"),
+            );
+            return Some(mission_service_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(None),
+            ));
+        }
+    };
+    let actor_binding =
+        match resolve_mcp_owner_actor_binding(app, session_id, caller_root.as_deref()) {
+            Ok(binding) => binding,
+            Err(error) => {
+                if matches!(bare, "external_mutation_service" | "graph_ingest_preview") {
+                    return Some(external_mutation_refusal_response(
+                        request.id.clone(),
+                        &error.to_refusal(None),
+                    ));
+                }
+                let error = crate::authority_transport::AuthorityTransportError::refused(
+                    "authority_actor_resolution_failed",
+                    error.to_string(),
+                );
+                return Some(authority_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(None),
+                ));
+            }
+        };
+    let route_selector = actor_binding.route_selector.clone();
+    let actor_brain_id = actor_binding.actor_brain_id.clone();
+    let ingress_context_digest = m1nd_control::digest_canonical(
+        "m1nd-mission-service-ingress-context-v1",
+        &(
+            "MCP_STREAMABLE_HTTP",
+            session_id,
+            caller_root.as_deref(),
+            route_selector.as_deref(),
+            actor_brain_id.as_str(),
+        ),
+    )
+    .ok();
+    let context = crate::mission_service_transport::MissionServiceTransportContextV1 {
+        ingress: crate::mission_service_transport::MissionServiceIngressV1::McpStreamableHttp,
+        transport_session_id: Some(session_id.to_string()),
+        ingress_context_digest,
+        authority_lease_id,
+        caller_root,
+        route_selector,
+        actor_brain_id: Some(actor_brain_id),
+    };
+    if matches!(bare, "external_mutation_service" | "graph_ingest_preview") {
+        let Some(service) = app.external_mutation_service.as_ref() else {
+            let error = crate::external_mutation_service::ExternalMutationError::refused(
+                "external_mutation_service_unavailable",
+                "no owner-authority broker and external mutation journal are installed",
+            );
+            return Some(external_mutation_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(None),
+            ));
+        };
+        if bare == "graph_ingest_preview" {
+            let preview_request: crate::external_mutation_service::GraphIngestPreviewRequestV1 =
+                match serde_json::from_value(arguments) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        let error =
+                            crate::external_mutation_service::ExternalMutationError::refused(
+                                "invalid_graph_ingest_preview_request",
+                                error.to_string(),
+                            );
+                        return Some(external_mutation_refusal_response(
+                            request.id.clone(),
+                            &error.to_refusal(None),
+                        ));
+                    }
+                };
+            let host = match build_external_mutation_host(
+                app,
+                actor_binding.selected_brain,
+                context
+                    .actor_brain_id
+                    .as_deref()
+                    .expect("actor id injected"),
+                context.actor_brain_id.clone().expect("actor id injected"),
+                None,
+            ) {
+                Ok(host) => host,
+                Err(error) => {
+                    return Some(external_mutation_refusal_response(
+                        request.id.clone(),
+                        &error.to_refusal(Some(&preview_request.request_id)),
+                    ))
+                }
+            };
+            return Some(
+                match service.preview_graph_ingest(&context, preview_request, host) {
+                    Ok(response) => {
+                        let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                        serde_json::json!({
+                            "schema": crate::external_mutation_service::EXTERNAL_MUTATION_REFUSAL_SCHEMA,
+                            "code": "graph_ingest_preview_response_encoding_failed",
+                            "detail": error.to_string(),
+                        })
+                    });
+                        tool_result_response(request.id.clone(), &payload)
+                    }
+                    Err(error) => external_mutation_refusal_response(
+                        request.id.clone(),
+                        &error.to_refusal(None),
+                    ),
+                },
+            );
+        }
+        let external_request: crate::external_mutation_service::ExternalMutationRequestV1 =
+            match serde_json::from_value(arguments) {
+                Ok(request) => request,
+                Err(error) => {
+                    let error = crate::external_mutation_service::ExternalMutationError::refused(
+                        "invalid_external_mutation_request",
+                        error.to_string(),
+                    );
+                    return Some(external_mutation_refusal_response(
+                        request.id.clone(),
+                        &error.to_refusal(None),
+                    ));
+                }
+            };
+        let selected_brain = actor_binding.selected_brain;
+        let promote_paths = match &external_request {
+            crate::external_mutation_service::ExternalMutationRequestV1::BrainPromote {
+                source_brain,
+                ..
+            } => {
+                let canonical =
+                    crate::project_brains::ProjectBrainRegistry::canonical_key(source_brain);
+                let bound_source = match app
+                    .project_brains
+                    .bound_covers_root(Arc::clone(&app.session), source_brain)
+                {
+                    Ok(covered) => covered,
+                    Err(error) => {
+                        let error =
+                            crate::external_mutation_service::ExternalMutationError::refused(
+                                "external_mutation_brain_resolution_failed",
+                                error.to_string(),
+                            );
+                        return Some(external_mutation_refusal_response(
+                            request.id.clone(),
+                            &error.to_refusal(Some(external_request.request_id())),
+                        ));
+                    }
+                };
+                if bound_source || !app.project_brains.knows(&canonical) {
+                    None
+                } else {
+                    let medulla_runtime_root = owner_runtime_root(app);
+                    let medulla_store_dir = medulla_runtime_root.join("agent-memory");
+                    Some(crate::external_mutation_service::ExternalPromotePathsV1 {
+                        source_store_dir: app
+                            .project_brains
+                            .store_dir_for(&canonical)
+                            .join("agent-memory"),
+                        medulla_store_dir,
+                        medulla_runtime_root,
+                    })
+                }
+            }
+            _ => None,
+        };
+        let reconciliation_brain_id = match &external_request {
+            crate::external_mutation_service::ExternalMutationRequestV1::SourceEditCommit {
+                ..
+            }
+            | crate::external_mutation_service::ExternalMutationRequestV1::SystemBlocksRatify {
+                ..
+            } => Ok(context
+                .actor_brain_id
+                .clone()
+                .expect("actor id injected before request parsing")),
+            crate::external_mutation_service::ExternalMutationRequestV1::BrainPromote { .. } => app
+                .project_brains
+                .bound_brain_id_for_target(Arc::clone(&app.session)),
+            crate::external_mutation_service::ExternalMutationRequestV1::GraphIngestReplace {
+                ..
+            }
+            | crate::external_mutation_service::ExternalMutationRequestV1::GraphIngestMergeExisting {
+                ..
+            } => Ok(context
+                .actor_brain_id
+                .clone()
+                .expect("actor id injected before request parsing")),
+        };
+        let reconciliation_brain_id = match reconciliation_brain_id {
+            Ok(brain_id) => brain_id,
+            Err(error) => {
+                let error = crate::external_mutation_service::ExternalMutationError::refused(
+                    "external_mutation_reconciliation_actor_unavailable",
+                    error.to_string(),
+                );
+                return Some(external_mutation_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(Some(external_request.request_id())),
+                ));
+            }
+        };
+        let host = match build_external_mutation_host(
+            app,
+            selected_brain,
+            context
+                .actor_brain_id
+                .as_deref()
+                .expect("actor id injected"),
+            reconciliation_brain_id,
+            promote_paths,
+        ) {
+            Ok(host) => host,
+            Err(error) => {
+                return Some(external_mutation_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(Some(external_request.request_id())),
+                ))
+            }
+        };
+        let external_request_id = external_request.request_id().to_string();
+        return Some(match service.execute(&context, external_request, host) {
+            Ok(response) => {
+                let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                    serde_json::json!({
+                        "schema": crate::external_mutation_service::EXTERNAL_MUTATION_REFUSAL_SCHEMA,
+                        "code": "external_mutation_response_encoding_failed",
+                        "detail": error.to_string(),
+                    })
+                });
+                tool_result_response(request.id.clone(), &payload)
+            }
+            Err(error) => external_mutation_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(Some(&external_request_id)),
+            ),
+        });
+    }
+    if bare == "authority_session_challenge" {
+        let Some(authority_service) = app.authority_service.as_ref() else {
+            let error = crate::authority_transport::AuthorityTransportError::refused(
+                "authority_service_unavailable",
+                "no owner AuthorityRuntime, key registry, and durable broker are installed",
+            );
+            return Some(authority_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(None),
+            ));
+        };
+        let challenge_request = match serde_json::from_value(arguments) {
+            Ok(request) => request,
+            Err(error) => {
+                let error = crate::authority_transport::AuthorityTransportError::refused(
+                    "invalid_authority_session_challenge_request",
+                    error.to_string(),
+                );
+                return Some(authority_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(None),
+                ));
+            }
+        };
+        return Some(
+            match authority_service.issue_session_challenge(
+                &context,
+                challenge_request,
+                crate::util::now_ms(),
+            ) {
+                Ok(response) => {
+                    let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                    serde_json::json!({
+                        "schema": crate::authority_transport::AUTHORITY_TRANSPORT_REFUSAL_SCHEMA,
+                        "code": "authority_response_encoding_failed",
+                        "detail": error.to_string(),
+                    })
+                });
+                    tool_result_response(request.id.clone(), &payload)
+                }
+                Err(error) => {
+                    authority_refusal_response(request.id.clone(), &error.to_refusal(None))
+                }
+            },
+        );
+    }
+    if bare == "authority_session_authenticate" {
+        let Some(authority_service) = app.authority_service.as_ref() else {
+            let error = crate::authority_transport::AuthorityTransportError::refused(
+                "authority_service_unavailable",
+                "no owner AuthorityRuntime, key registry, and durable broker are installed",
+            );
+            return Some(authority_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(None),
+            ));
+        };
+        let authenticate_request = match serde_json::from_value(arguments) {
+            Ok(request) => request,
+            Err(error) => {
+                let error = crate::authority_transport::AuthorityTransportError::refused(
+                    "invalid_authority_session_authenticate_request",
+                    error.to_string(),
+                );
+                return Some(authority_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(None),
+                ));
+            }
+        };
+        return Some(
+            match authority_service.authenticate_session(
+                &context,
+                authenticate_request,
+                crate::util::now_ms(),
+            ) {
+                Ok(response) => {
+                    let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                    serde_json::json!({
+                        "schema": crate::authority_transport::AUTHORITY_TRANSPORT_REFUSAL_SCHEMA,
+                        "code": "authority_response_encoding_failed",
+                        "detail": error.to_string(),
+                    })
+                });
+                    tool_result_response(request.id.clone(), &payload)
+                }
+                Err(error) => {
+                    authority_refusal_response(request.id.clone(), &error.to_refusal(None))
+                }
+            },
+        );
+    }
+    if bare == "authority_authorize" {
+        let Some(authority_service) = app.authority_service.as_ref() else {
+            let error = crate::authority_transport::AuthorityTransportError::refused(
+                "authority_service_unavailable",
+                "no owner AuthorityRuntime, key registry, and durable broker are installed",
+            );
+            return Some(authority_refusal_response(
+                request.id.clone(),
+                &error.to_refusal(None),
+            ));
+        };
+        let authorize_request = match serde_json::from_value(arguments) {
+            Ok(request) => request,
+            Err(error) => {
+                let error = crate::authority_transport::AuthorityTransportError::refused(
+                    "invalid_authority_authorize_request",
+                    error.to_string(),
+                );
+                return Some(authority_refusal_response(
+                    request.id.clone(),
+                    &error.to_refusal(None),
+                ));
+            }
+        };
+        return Some(
+            match authority_service.authorize(&context, authorize_request, crate::util::now_ms()) {
+                Ok(response) => {
+                    let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                    serde_json::json!({
+                        "schema": crate::authority_transport::AUTHORITY_TRANSPORT_REFUSAL_SCHEMA,
+                        "code": "authority_response_encoding_failed",
+                        "detail": error.to_string(),
+                    })
+                });
+                    tool_result_response(request.id.clone(), &payload)
+                }
+                Err(error) => {
+                    authority_refusal_response(request.id.clone(), &error.to_refusal(None))
+                }
+            },
+        );
+    }
+    let Some(facade) = app.mission_service.as_ref() else {
+        let error = crate::mission_service_transport::MissionServiceTransportError::refused(
+            "mission_service_unavailable",
+            "no canonical MissionService config and sovereign G2 authority provider are installed",
+        );
+        return Some(mission_service_refusal_response(
+            request.id.clone(),
+            &error.to_refusal(None),
+        ));
+    };
+    match facade.dispatch_wire_json(&context, &body) {
+        Ok(response) => {
+            let payload = serde_json::to_value(response).unwrap_or_else(|error| {
+                serde_json::json!({
+                    "schema": crate::mission_service_transport::MISSION_SERVICE_TRANSPORT_REFUSAL_SCHEMA,
+                    "code": "mission_service_response_encoding_failed",
+                    "detail": error.to_string(),
+                })
+            });
+            Some(tool_result_response(request.id.clone(), &payload))
+        }
+        Err(error) => Some(mission_service_refusal_response(
+            request.id.clone(),
+            &error.to_refusal(None),
+        )),
+    }
+}
+
 /// SEAM-SHARED core of the one-call bootstrap (TWO-TIER-BRAIN interim): the
 /// bound-shadow guard, the guarded mint + ingest (`ProjectBrainRegistry::
 /// bootstrap`, which carries the overlap guard and its `allow_overlap` escape),
@@ -609,7 +1608,9 @@ pub(crate) fn run_bootstrap_core(
     // Guard: a root the BOUND brain already covers needs no project brain — and
     // silently shadowing the dev graph would be worse than refusing. One honest
     // error, one next action.
-    let bound_covers = { app.session.lock().covers_root(project_root) };
+    let bound_covers = app
+        .project_brains
+        .bound_covers_root(Arc::clone(&app.session), project_root)?;
     if bound_covers {
         return Err(m1nd_core::error::M1ndError::InvalidParams {
             tool: "ingest".into(),
@@ -630,25 +1631,27 @@ pub(crate) fn run_bootstrap_core(
         .and_then(|v| v.as_str())
         .unwrap_or("bootstrap")
         .to_string();
-    let north = {
-        let mut state = brain.lock();
-        state.caller_root = Some(key.clone());
-        crate::server::dispatch_tool(
-            &mut state,
-            "north",
-            &serde_json::json!({
-                "agent_id": agent_id,
-                "task": format!(
-                    "first orientation of the {key} project brain right after its one-call bootstrap"
-                ),
-            }),
-        )
+    let north_key = key.clone();
+    let north = app
+        .project_brains
+        .execute_target_m1nd(brain, Some(&key), false, false, move |state| {
+            state.caller_root = Some(north_key.clone());
+            crate::server::dispatch_tool(
+                state,
+                "north",
+                &serde_json::json!({
+                    "agent_id": agent_id,
+                    "task": format!(
+                        "first orientation of the {north_key} project brain right after its one-call bootstrap"
+                    ),
+                }),
+            )
+        })
         .unwrap_or_else(|e| {
             serde_json::json!({
                 "error": format!("north after bootstrap failed: {e}"),
             })
-        })
-    };
+        });
 
     let packet = serde_json::json!({
         "schema": "m1nd-project-brain-bootstrap-v0",
@@ -722,131 +1725,65 @@ fn run_bootstrap(
 ///      warm-bootable store) → that brain, silently, and the session goes sticky;
 ///   4. default → the bound graph (whose reception verdict flags true unknowns).
 ///
-/// Same lock + spawn_blocking + timeout discipline as `run_mcp_method`; no lock
+/// Same lock + spawn_blocking + terminal-completion discipline as
+/// `run_mcp_method`; no lock
 /// is ever held across `.await` and no two session locks are held at once.
 async fn route_and_run(
     app: Arc<AppState>,
     request: JsonRpcRequest,
     caller_root: Option<String>,
     session_id: String,
+    authority_lease_id: Option<String>,
 ) -> JsonRpcResponse {
     let id = request.id.clone();
-    let result = tokio::time::timeout(
-        Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
+    let (slow, result) = await_mcp_blocking_terminal(
         tokio::task::spawn_blocking(move || {
-            // 1. The one-call bootstrap.
-            if let Some(project_root) = bootstrap_project_root(&request) {
-                return run_bootstrap(&app, &request, &project_root, Some(&session_id));
-            }
-
-            // 1b. The `promote` verb (MEDULLA-PRD §7) — an owner-level cross-store
-            //     crossing (read a project brain, write the medulla). Like the
-            //     bootstrap, it runs at the seam, before per-session routing.
-            if let Some(promote) = promote_request(&request) {
-                return run_promote(&app, &request, &promote);
-            }
-
-            // 2. Sticky per-session choice.
-            let sticky = {
-                let sessions = app.mcp_sessions.lock();
-                sessions
-                    .get(&session_id)
-                    .and_then(|s| s.bound_project_root.clone())
-            };
-            if let Some(root) = sticky {
-                if let Some(brain) = app.project_brains.resolve(&root) {
-                    // Served by a PROJECT brain → its default beat is project + medulla,
-                    // and it can fan out to `all-brains` (MEDULLA-PRD §5); compose runs
-                    // AROUND the primary dispatch, holding one lock at a time.
-                    return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
-                }
-                // Brain store vanished mid-session — fall through to the bound
-                // graph, whose reception will say so honestly.
-            }
-
-            // 3. Automatic recognition by resolved caller root.
-            if let Some(root) = caller_root.as_deref() {
-                let bound_covers = { app.session.lock().covers_root(root) };
-                if !bound_covers {
-                    if let Some(brain) = app.project_brains.resolve(root) {
-                        let key = crate::project_brains::ProjectBrainRegistry::canonical_key(root);
-                        if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
-                            s.bound_project_root = Some(key);
-                        }
-                        return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
-                    }
-
-                    // 3b. RECONNECT-REBIND, load-bearing (§C5.4, ladder R13). No brain
-                    // resolves at the caller root EXACTLY, but after an MCP reconnect the
-                    // caller_root can collapse to the host launch dir — an ANCESTOR of the
-                    // real repo (letter#49) — or the caller can sit in a monorepo subdir
-                    // UNDER a brain root, so the exact-match probe above misses even though
-                    // a known brain relates to this caller by ancestry. Consult the SAME
-                    // disk roster signal R13 uses (`covering_brain`): when exactly ONE known
-                    // brain relates to the caller in EITHER direction, warm-resolve it and
-                    // reattach the wire session to it — the roster fact drives routing here,
-                    // not just the reception hint, so the bind survives and a following
-                    // `memorize`/`ingest` lands on that project brain instead of refusing on
-                    // the medulla with `brainless_root`. The unique/abstain law is upheld by
-                    // `covering_brain` itself: it returns `None` for 0 (unknown repo) or >1
-                    // (ambiguous) related brains, so those still fall through to step 4's
-                    // honest mismatch reception — never an auto-pick.
-                    //
-                    // Reception honesty on the BROAD-CALLER direction: when the brain root
-                    // is UNDER the caller (the collapsed host-cwd shape), the served brain
-                    // does NOT cover the wider caller_root, so its own reception is still a
-                    // `caller_root_mismatch`. We route to the brain (so its answers + writes
-                    // are the brain's) BUT re-run the R13 enrichment on the result so that
-                    // mismatch reception NAMES the brain and suggests the PRECISE
-                    // `project_root`, never the bare host cwd — the same seam step 4 uses.
-                    // A caller UNDER the brain root gets a covering match, so R13 finds no
-                    // mismatch to rewrite and returns the response verbatim.
-                    if let Some(brain_root) = app.project_brains.covering_brain(root) {
-                        if let Some(brain) = app.project_brains.resolve(&brain_root) {
-                            if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
-                                s.bound_project_root = Some(brain_root);
-                            }
-                            let response =
-                                serve_and_compose(&app, brain, &request, caller_root.clone(), true);
-                            return enrich_reception_with_roster(
-                                response,
-                                &app,
-                                caller_root.as_deref(),
-                            );
-                        }
-                    }
-                }
-            }
-
-            // 4. Default: the bound graph (reception flags true unknowns there). This
-            // IS the medulla store today — its own beat is already project+medulla by
-            // identity; `all-brains` still fans out to the hosted project brains.
-            //
-            // RECONNECT-REBIND (§C5.4, ladder R13): the owner-default reception says
-            // "this graph does NOT cover your repo" and, before this rung, suggested
-            // `ingest project_root=<caller_root>` — the host cwd. After an MCP
-            // reconnect that cwd collapses to the host launch dir, an ANCESTOR of the
-            // real repo (letter#49). If the disk roster holds exactly ONE known brain
-            // related to the caller by ancestry, step 3b above has already REBOUND to
-            // it (load-bearing) and returned; this reception rewrite remains the
-            // fallback for the READ-ONLY reception verbs that reach step 4 without a
-            // rebindable session, naming THAT brain instead of the host cwd. 0 or >1
-            // related brains leave the reception exactly as today (honest mismatch).
-            let response = serve_and_compose(
+            if let Some(response) = run_mission_service_wire(
                 &app,
-                app.session.clone(),
                 &request,
                 caller_root.clone(),
-                false,
-            );
-            enrich_reception_with_roster(response, &app, caller_root.as_deref())
+                &session_id,
+                authority_lease_id.clone(),
+            ) {
+                return response;
+            }
+
+            // F-01: every non-typed MCP call is classified before bootstrap,
+            // promote, sticky routing, warm resolution, presence tracking, or
+            // dispatcher freshness effects. A supplied lease header cannot
+            // authorize this generic route; only the typed service above can
+            // consume a lease.
+            if request.method == "tools/call" {
+                let tool = request
+                    .params
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let arguments = request
+                    .params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                if let Err(error) = enforce_generic_action_policy(tool, &arguments) {
+                    return tool_error_response(request.id.clone(), error.to_string());
+                }
+            }
+
+            route_and_run_blocking_body(app, request, caller_root, session_id)
         }),
+        Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
     )
     .await;
+    if slow {
+        eprintln!(
+            "[m1nd-mcp] routed MCP command exceeded the {}s slow threshold; waiting for its terminal result",
+            MCP_TOOL_TIMEOUT_SECS
+        );
+    }
 
     match result {
-        Ok(Ok(resp)) => resp,
-        Ok(Err(_join_err)) => JsonRpcResponse {
+        Ok(resp) => resp,
+        Err(_join_err) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
             id,
             result: None,
@@ -856,17 +1793,159 @@ async fn route_and_run(
                 data: None,
             }),
         },
-        Err(_elapsed) => JsonRpcResponse {
-            jsonrpc: "2.0".into(),
-            id,
-            result: None,
-            error: Some(JsonRpcError {
-                code: -32000,
-                message: format!("Tool execution exceeded {}s timeout", MCP_TOOL_TIMEOUT_SECS),
-                data: None,
-            }),
-        },
     }
+}
+
+fn route_and_run_blocking_body(
+    app: Arc<AppState>,
+    request: JsonRpcRequest,
+    caller_root: Option<String>,
+    session_id: String,
+) -> JsonRpcResponse {
+    // 1. The one-call bootstrap.
+    if let Some(project_root) = bootstrap_project_root(&request) {
+        return run_bootstrap(&app, &request, &project_root, Some(&session_id));
+    }
+
+    // 1b. The `promote` verb (MEDULLA-PRD §7) — an owner-level cross-store
+    //     crossing (read a project brain, write the medulla). Like the
+    //     bootstrap, it runs at the seam, before per-session routing.
+    if let Some(promote) = promote_request(&request) {
+        return run_promote(&app, &request, &promote);
+    }
+
+    // 2. Sticky per-session choice.
+    let sticky = {
+        let sessions = app.mcp_sessions.lock();
+        sessions
+            .get(&session_id)
+            .and_then(|s| s.bound_project_root.clone())
+    };
+    if let Some(root) = sticky {
+        match app.project_brains.try_resolve(&root) {
+            Ok(Some(brain)) => {
+                // Served by a PROJECT brain → its default beat is project + medulla,
+                // and it can fan out to `all-brains` (MEDULLA-PRD §5); compose runs
+                // AROUND the primary dispatch, holding one lock at a time.
+                return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return tool_error_response(
+                    request.id.clone(),
+                    format!("project brain resolution refused: {error}"),
+                );
+            }
+        }
+        // Brain store vanished mid-session — fall through to the bound
+        // graph, whose reception will say so honestly.
+    }
+
+    // 3. Automatic recognition by resolved caller root.
+    if let Some(root) = caller_root.as_deref() {
+        let bound_covers = match app
+            .project_brains
+            .bound_covers_root(Arc::clone(&app.session), root)
+        {
+            Ok(covered) => covered,
+            Err(error) => {
+                return tool_error_response(
+                    request.id.clone(),
+                    format!("bound brain routing snapshot refused: {error}"),
+                );
+            }
+        };
+        if !bound_covers {
+            match app.project_brains.try_resolve(root) {
+                Ok(Some(brain)) => {
+                    let key = crate::project_brains::ProjectBrainRegistry::canonical_key(root);
+                    if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
+                        s.bound_project_root = Some(key);
+                    }
+                    return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    return tool_error_response(
+                        request.id.clone(),
+                        format!("project brain resolution refused: {error}"),
+                    );
+                }
+            }
+
+            // 3b. RECONNECT-REBIND, load-bearing (§C5.4, ladder R13). No brain
+            // resolves at the caller root EXACTLY, but after an MCP reconnect the
+            // caller_root can collapse to the host launch dir — an ANCESTOR of the
+            // real repo (letter#49) — or the caller can sit in a monorepo subdir
+            // UNDER a brain root, so the exact-match probe above misses even though
+            // a known brain relates to this caller by ancestry. Consult the SAME
+            // disk roster signal R13 uses (`covering_brain`): when exactly ONE known
+            // brain relates to the caller in EITHER direction, warm-resolve it and
+            // reattach the wire session to it — the roster fact drives routing here,
+            // not just the reception hint, so the bind survives and a following
+            // `memorize`/`ingest` lands on that project brain instead of refusing on
+            // the medulla with `brainless_root`. The unique/abstain law is upheld by
+            // `covering_brain` itself: it returns `None` for 0 (unknown repo) or >1
+            // (ambiguous) related brains, so those still fall through to step 4's
+            // honest mismatch reception — never an auto-pick.
+            //
+            // Reception honesty on the BROAD-CALLER direction: when the brain root
+            // is UNDER the caller (the collapsed host-cwd shape), the served brain
+            // does NOT cover the wider caller_root, so its own reception is still a
+            // `caller_root_mismatch`. We route to the brain (so its answers + writes
+            // are the brain's) BUT re-run the R13 enrichment on the result so that
+            // mismatch reception NAMES the brain and suggests the PRECISE
+            // `project_root`, never the bare host cwd — the same seam step 4 uses.
+            // A caller UNDER the brain root gets a covering match, so R13 finds no
+            // mismatch to rewrite and returns the response verbatim.
+            if let Some(brain_root) = app.project_brains.covering_brain(root) {
+                match app.project_brains.try_resolve(&brain_root) {
+                    Ok(Some(brain)) => {
+                        if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
+                            s.bound_project_root = Some(brain_root);
+                        }
+                        let response =
+                            serve_and_compose(&app, brain, &request, caller_root.clone(), true);
+                        return enrich_reception_with_roster(
+                            response,
+                            &app,
+                            caller_root.as_deref(),
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        return tool_error_response(
+                            request.id.clone(),
+                            format!("project brain resolution refused: {error}"),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Default: the bound graph (reception flags true unknowns there). This
+    // IS the medulla store today — its own beat is already project+medulla by
+    // identity; `all-brains` still fans out to the hosted project brains.
+    //
+    // RECONNECT-REBIND (§C5.4, ladder R13): the owner-default reception says
+    // "this graph does NOT cover your repo" and, before this rung, suggested
+    // `ingest project_root=<caller_root>` — the host cwd. After an MCP
+    // reconnect that cwd collapses to the host launch dir, an ANCESTOR of the
+    // real repo (letter#49). If the disk roster holds exactly ONE known brain
+    // related to the caller by ancestry, step 3b above has already REBOUND to
+    // it (load-bearing) and returned; this reception rewrite remains the
+    // fallback for the READ-ONLY reception verbs that reach step 4 without a
+    // rebindable session, naming THAT brain instead of the host cwd. 0 or >1
+    // related brains leave the reception exactly as today (honest mismatch).
+    let response = serve_and_compose(
+        &app,
+        app.session.clone(),
+        &request,
+        caller_root.clone(),
+        false,
+    );
+    enrich_reception_with_roster(response, &app, caller_root.as_deref())
 }
 
 // =========================================================================
@@ -945,7 +2024,7 @@ impl MemoryTier {
 /// identity). Non-recall tools and the `project` tier are served verbatim.
 fn serve_and_compose(
     app: &Arc<AppState>,
-    primary: Arc<Mutex<SessionState>>,
+    primary: Arc<BrainSessionCell>,
     request: &JsonRpcRequest,
     caller_root: Option<String>,
     primary_is_project: bool,
@@ -957,9 +2036,30 @@ fn serve_and_compose(
         None
     };
     let Some(tool) = tool_name.filter(|t| is_tier_recall_tool(t)) else {
-        let mut state = primary.lock();
-        state.caller_root = caller_root;
-        return handle_mcp_method(&mut state, request);
+        let mutating = tool_name
+            .map(|tool| {
+                let args = request
+                    .params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                crate::server::read_only_denied(tool, &args)
+            })
+            .unwrap_or(false);
+        let request = request.clone();
+        let response_id = request.id.clone();
+        let response = app.project_brains.execute_target_m1nd(
+            primary,
+            None,
+            !primary_is_project,
+            mutating,
+            move |state| {
+                state.caller_root = caller_root;
+                handle_mcp_method_transactional(state, &request)
+            },
+        );
+        return response
+            .unwrap_or_else(|error| tool_error_response(response_id, error.to_string()));
     };
     let tier = MemoryTier::from_request(request);
 
@@ -968,26 +2068,32 @@ fn serve_and_compose(
     //    so composing is a structured merge, not string surgery. The lock is
     //    released before any sibling store is read (lock discipline).
     let id = request.id.clone();
-    let (mut payload, primary_origin) = {
-        let mut state = primary.lock();
-        state.caller_root = caller_root.clone();
-        let args = request
-            .params
-            .get("arguments")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-        // Per-call agent tracking, mirrored across seams. The freshness-by-traffic
-        // daemon tick now lives INSIDE dispatch_tool, so this seam gets it for free
-        // via the dispatch_tool call below — only track_agent stays per-seam.
-        if let Some(aid) = args.get("agent_id").and_then(|v| v.as_str()) {
-            state.track_agent(aid);
-        }
-        let origin = state.origin_brain();
-        match dispatch_tool(&mut state, bare_tool_name(tool), &args) {
-            Ok(v) => (v, origin),
-            // Tool-level failure: return it verbatim (no compose over an error).
-            Err(e) => return tool_error_response(id, e.to_string()),
-        }
+    let args = request
+        .params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let dispatch_tool_name = bare_tool_name(tool).to_string();
+    let dispatch = app.project_brains.execute_target_m1nd(
+        primary,
+        None,
+        !primary_is_project,
+        crate::server::read_only_denied(&dispatch_tool_name, &args),
+        move |state| {
+            state.caller_root = caller_root.clone();
+            // Per-call agent tracking, mirrored across seams. The freshness-by-traffic
+            // daemon tick now lives INSIDE dispatch_tool, so this seam gets it for free
+            // via the dispatch_tool call below — only track_agent stays per-seam.
+            if let Some(aid) = args.get("agent_id").and_then(|v| v.as_str()) {
+                state.track_agent(aid);
+            }
+            let origin = state.origin_brain();
+            dispatch_generic_tool(state, &dispatch_tool_name, &args).map(|value| (value, origin))
+        },
+    );
+    let (mut payload, primary_origin) = match dispatch {
+        Ok(output) => output,
+        Err(error) => return tool_error_response(id, error.to_string()),
     };
     // `tier:"project"` — the primary brain's own beat, nothing folded in.
     if tier == MemoryTier::Project {
@@ -1018,7 +2124,7 @@ fn serve_and_compose(
         // doctrine feed every project beat gets (MED-INV-1's "+ medulla").
         let medulla = app.session.clone();
         folded.extend(store_recall_rows(
-            tool, &medulla, &agent_id, &query, "medulla",
+            app, tool, &medulla, true, &agent_id, &query, "medulla",
         ));
     }
 
@@ -1042,11 +2148,21 @@ fn serve_and_compose(
             if canonical_of(&root) == primary_key {
                 continue; // already the primary's own rows
             }
-            // resolve() bumps LRU + routes through insert_with_eviction: the warm
+            // try_resolve() bumps LRU + routes through insert_with_eviction: the warm
             // map stays ≤ cap no matter how many roots this fan-out touches.
-            if let Some(brain) = app.project_brains.resolve(&root) {
-                let origin = { brain.lock().origin_brain() };
-                folded.extend(store_recall_rows(tool, &brain, &agent_id, &query, &origin));
+            match app.project_brains.try_resolve(&root) {
+                Ok(Some(brain)) => {
+                    folded.extend(store_recall_rows(
+                        app, tool, &brain, false, &agent_id, &query, &root,
+                    ));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    return tool_error_response(
+                        id,
+                        format!("all-brains resolution refused for '{root}': {error}"),
+                    );
+                }
             }
         }
     }
@@ -1099,12 +2215,11 @@ fn serve_and_compose(
 /// that holds BOTH the caller_root and the registry — layers the roster onto that
 /// verdict: when the response carries a `caller_root_mismatch` reception AND the
 /// disk roster names exactly one known brain related to the caller by ancestry
-/// (`covering_brain`), it rewrites the reception to PREFER that existing brain over
-/// the host cwd:
-///   - `known_brain` names the repo root the caller should land on;
-///   - the `ingest_your_repo` option's `call` points at the brain root (a re-ingest
-///     is a warm re-bind — it resolves the existing store, not a fresh birth), not
-///     the ancestor cwd the letter#49 defect suggested;
+/// (`covering_brain`), it names that existing brain without fabricating a public
+/// rebind call. The owner-only bootstrap seam stays unreachable from reception:
+///   - `known_brain` names the repo root the caller should reconnect from;
+///   - `bootstrap_unavailable` keeps the closed consumer code and explains that
+///     reconnecting with the exact known root is the available non-mutating step;
 ///   - `honest` gains the reconnect hint so a reader knows a known brain was found.
 ///
 /// A response with no reception, a matched/unknown reception, or no unique roster
@@ -1163,15 +2278,15 @@ fn enrich_reception_with_roster(
         );
         if let Some(options) = reception.get_mut("options").and_then(|o| o.as_array_mut()) {
             for option in options.iter_mut() {
-                if option.get("action").and_then(|a| a.as_str()) == Some("ingest_your_repo") {
+                if option.get("action").and_then(|a| a.as_str()) == Some("bootstrap_unavailable") {
                     if let Some(obj) = option.as_object_mut() {
                         obj.insert(
-                            "call".into(),
+                            "note".into(),
                             serde_json::json!(format!(
-                                "ingest with project_root={brain_root} — a project brain already \
-                                 exists for this root; ONE call warm-resolves it and binds this \
-                                 session to it (a re-bind after reconnect, not a fresh birth), \
-                                 then every call from your root routes to it automatically"
+                                "a project brain already exists at {brain_root}; reconnect with \
+                                 that exact caller root to use silent matching. Public bootstrap \
+                                 or warm-rebind remains unavailable until the exact typed G2/G3 \
+                                 consumer is installed; no mutation was attempted"
                             )),
                         );
                     }
@@ -1214,34 +2329,43 @@ fn tier_recall_query(tool: &str, request: &JsonRpcRequest) -> String {
 /// fold L1GHT claims (via [`store_memory_rows`]); `boot_memory` folds boot-KV
 /// entries (via [`store_boot_rows`]) — same shape as the primary's own `entries`.
 fn store_recall_rows(
+    app: &Arc<AppState>,
     tool: &str,
-    brain: &Arc<Mutex<SessionState>>,
+    brain: &Arc<BrainSessionCell>,
+    bound: bool,
     agent_id: &str,
     query: &str,
     origin_brain: &str,
 ) -> Vec<serde_json::Value> {
-    match bare_tool_name(tool) {
-        "boot_memory" => store_boot_rows(brain, agent_id, origin_brain),
-        _ => store_memory_rows(brain, agent_id, query, origin_brain),
-    }
+    let tool = bare_tool_name(tool).to_string();
+    let agent_id = agent_id.to_string();
+    let query = query.to_string();
+    let origin_brain = origin_brain.to_string();
+    app.project_brains
+        .execute_target_runtime(brain.clone(), None, bound, false, move |state| {
+            Ok(match tool.as_str() {
+                "boot_memory" => store_boot_rows(state, &agent_id, &origin_brain),
+                _ => store_memory_rows(state, &agent_id, &query, &origin_brain),
+            })
+        })
+        .unwrap_or_default()
 }
 
 /// Read a sibling store's boot-memory KV entries (action=list), each labeled with
 /// `origin_brain` + `tier`. Same `{key, value, updated_at_ms, …}` shape the
 /// primary's own `entries` carry, so the fold is homogeneous.
 fn store_boot_rows(
-    brain: &Arc<Mutex<SessionState>>,
+    state: &mut SessionState,
     agent_id: &str,
     origin_brain: &str,
 ) -> Vec<serde_json::Value> {
-    let mut state = brain.lock();
     let this_tier = if state.is_medulla_store() {
         "medulla"
     } else {
         "project"
     };
     let list = crate::boot_memory_handlers::handle_boot_memory(
-        &mut state,
+        state,
         crate::boot_memory_handlers::BootMemoryInput {
             agent_id: agent_id.to_string(),
             action: "list".into(),
@@ -1271,20 +2395,19 @@ fn store_boot_rows(
 /// window; each hit becomes a `{claim, age_ms, source_agent, origin_brain, tier,
 /// node_id}` row. Empty when the store has no live L1GHT claims (honest absence).
 fn store_memory_rows(
-    brain: &Arc<Mutex<SessionState>>,
+    state: &mut SessionState,
     agent_id: &str,
     query: &str,
     origin_brain: &str,
 ) -> Vec<serde_json::Value> {
     const LIGHT_RECALL_SCOPE: &str = "light::";
-    let mut state = brain.lock();
     let this_tier = if state.is_medulla_store() {
         "medulla"
     } else {
         "project"
     };
     let out = crate::layer_handlers::handle_seek(
-        &mut state,
+        state,
         crate::protocol::layers::SeekInput {
             query: query.to_string(),
             agent_id: agent_id.to_string(),
@@ -1426,21 +2549,84 @@ fn parse_message(body: &Bytes) -> Result<ParsedMessage, String> {
     }
 }
 
-/// Read the `Mcp-Session-Id` request header, if present.
-fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get(MCP_SESSION_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+fn bounded_header_from_headers(
+    headers: &HeaderMap,
+    name: &'static str,
+    max_bytes: usize,
+    allow_spaces: bool,
+) -> Result<Option<String>, String> {
+    let mut values = headers.get_all(name).iter();
+    let Some(value) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() {
+        return Err(format!("duplicate {name} headers are not accepted"));
+    }
+    let bytes = value.as_bytes();
+    if bytes.is_empty() {
+        return Err(format!("{name} header must not be empty"));
+    }
+    if bytes.len() > max_bytes {
+        return Err(format!("{name} header exceeds {max_bytes} bytes"));
+    }
+    let minimum = if allow_spaces { 0x20 } else { 0x21 };
+    if !bytes.iter().all(|byte| (minimum..=0x7e).contains(byte)) {
+        return Err(format!("{name} header contains invalid bytes"));
+    }
+    let text = value
+        .to_str()
+        .map_err(|_| format!("{name} header is not visible ASCII"))?;
+    Ok(Some(text.to_string()))
+}
+
+/// Read a bounded `Mcp-Session-Id` request header, if present.
+fn session_id_from_headers(headers: &HeaderMap) -> Result<Option<String>, String> {
+    bounded_header_from_headers(
+        headers,
+        MCP_SESSION_HEADER,
+        MCP_SESSION_HEADER_MAX_BYTES,
+        false,
+    )
 }
 
 /// Read the hop-2 `M1nd-Caller-Root` request header, if present (§9.5.4). Absent
 /// → `None` (caller unknown). Mirrors `session_id_from_headers`.
-fn caller_root_from_headers(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get(CALLER_ROOT_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+fn caller_root_from_headers(headers: &HeaderMap) -> Result<Option<String>, String> {
+    bounded_header_from_headers(
+        headers,
+        CALLER_ROOT_HEADER,
+        CALLER_ROOT_HEADER_MAX_BYTES,
+        true,
+    )
+}
+
+fn authority_lease_from_headers(headers: &HeaderMap) -> Result<Option<String>, String> {
+    bounded_header_from_headers(
+        headers,
+        AUTHORITY_LEASE_HEADER,
+        AUTHORITY_LEASE_HEADER_MAX_BYTES,
+        false,
+    )
+}
+
+/// Evict stale entries, then touch one known session and optionally refresh its
+/// caller-root binding. `None` means unknown/expired and is always rendered as
+/// 404 by the ingress handlers.
+fn touch_mcp_session(
+    registry: &McpSessionRegistry,
+    session_id: &str,
+    incoming_caller_root: Option<&String>,
+) -> Option<Option<String>> {
+    let monotonic = Instant::now();
+    let wall_ms = now_ms();
+    let mut state = registry.lock();
+    state.evict_idle(monotonic);
+    let session = state.get_mut(session_id)?;
+    session.touch(wall_ms, monotonic);
+    if let Some(root) = incoming_caller_root {
+        session.caller_root = Some(root.clone());
+    }
+    Some(session.caller_root.clone())
 }
 
 /// `POST /mcp` — the Streamable-HTTP MCP request handler.
@@ -1453,10 +2639,41 @@ pub async fn handle_mcp_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let incoming_session = session_id_from_headers(&headers);
+    let incoming_session = match session_id_from_headers(&headers) {
+        Ok(value) => value,
+        Err(message) => {
+            return jsonrpc_error_response(
+                StatusCode::BAD_REQUEST,
+                serde_json::Value::Null,
+                -32600,
+                message,
+            );
+        }
+    };
     // Hop-2 caller root (§9.5.4): present on every bridge-forwarded request,
     // absent for legacy bridges / direct HTTP (→ owner sees unknown).
-    let incoming_caller_root = caller_root_from_headers(&headers);
+    let incoming_caller_root = match caller_root_from_headers(&headers) {
+        Ok(value) => value,
+        Err(message) => {
+            return jsonrpc_error_response(
+                StatusCode::BAD_REQUEST,
+                serde_json::Value::Null,
+                -32600,
+                message,
+            );
+        }
+    };
+    let incoming_authority_lease = match authority_lease_from_headers(&headers) {
+        Ok(value) => value,
+        Err(message) => {
+            return jsonrpc_error_response(
+                StatusCode::BAD_REQUEST,
+                serde_json::Value::Null,
+                -32600,
+                message,
+            );
+        }
+    };
 
     // 1. Parse + classify the message.
     let parsed = match parse_message(&body) {
@@ -1476,9 +2693,12 @@ pub async fn handle_mcp_post(
         // carry a known session, bump last_seen.
         ParsedMessage::NotificationOrResponse => {
             if let Some(sid) = &incoming_session {
-                let mut reg = app.mcp_sessions.lock();
-                if let Some(s) = reg.get_mut(sid) {
-                    s.last_seen_ms = now_ms();
+                if touch_mcp_session(&app.mcp_sessions, sid, None).is_none() {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        "Unknown or expired Mcp-Session-Id; re-initialize",
+                    )
+                        .into_response();
                 }
             }
             return StatusCode::ACCEPTED.into_response();
@@ -1488,10 +2708,43 @@ pub async fn handle_mcp_post(
 
     // 2. `initialize` — mint a new wire session, run, return with session header.
     if request.method == "initialize" {
-        let session_id = generate_mcp_session_id();
-        let now = now_ms();
+        // Reserve capacity BEFORE running initialize. Concurrent floods cannot
+        // all pass a separate len check and create side effects before insert.
+        let reservation = match reserve_mcp_session(&app.mcp_sessions, incoming_caller_root.clone())
+        {
+            Ok(reservation) => reservation,
+            Err(McpSessionAdmissionError::Capacity) => {
+                return jsonrpc_error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    request.id.clone(),
+                    -32000,
+                    "MCP session capacity reached; retry after an idle session expires",
+                );
+            }
+            Err(McpSessionAdmissionError::RandomnessUnavailable(_detail)) => {
+                return jsonrpc_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    request.id.clone(),
+                    -32603,
+                    "Secure session-id randomness unavailable; initialization refused",
+                );
+            }
+            Err(McpSessionAdmissionError::CollisionBudgetExhausted) => {
+                return jsonrpc_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    request.id.clone(),
+                    -32603,
+                    "Secure session-id allocation failed; initialization refused",
+                );
+            }
+        };
 
         let response = run_mcp_method(app.clone(), request, incoming_caller_root.clone()).await;
+
+        // A failed initialize never commits its reserved id.
+        if response.error.is_some() {
+            return jsonrpc_ok_response(&response, None);
+        }
 
         // Record the negotiated protocol version from the result we just built.
         let protocol_version = response
@@ -1502,20 +2755,17 @@ pub async fn handle_mcp_post(
             .unwrap_or(crate::server::MCP_PROTOCOL_VERSION)
             .to_string();
 
-        {
-            let mut reg = app.mcp_sessions.lock();
-            reg.insert(
-                session_id.clone(),
-                McpTransportSession {
-                    protocol_version,
-                    created_ms: now,
-                    last_seen_ms: now,
-                    // Remember the caller root for post-init requests that omit it.
-                    caller_root: incoming_caller_root,
-                    bound_project_root: None,
-                },
-            );
-        }
+        let session_id = match reservation.commit(protocol_version) {
+            Ok(session_id) => session_id,
+            Err(()) => {
+                return jsonrpc_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    serde_json::Value::Null,
+                    -32603,
+                    "MCP session reservation vanished; initialization refused",
+                );
+            }
+        };
 
         return jsonrpc_ok_response(&response, Some(&session_id));
     }
@@ -1537,26 +2787,21 @@ pub async fn handle_mcp_post(
     // stamps every request); if absent we fall back to the value captured at
     // initialize, so a legacy re-init or a dropped header does not blind the owner
     // mid-session. Refreshed back onto the stored session when present (§9.5.4).
-    let resolved_caller_root = {
-        let mut reg = app.mcp_sessions.lock();
-        match reg.get_mut(&session_id) {
-            // Unknown session → 404 signals the client to re-initialize (per spec).
-            None => {
-                return jsonrpc_error_response(
-                    StatusCode::NOT_FOUND,
-                    request.id.clone(),
-                    -32001,
-                    "Unknown or expired Mcp-Session-Id; re-initialize",
-                );
-            }
-            Some(s) => {
-                s.last_seen_ms = now_ms();
-                if incoming_caller_root.is_some() {
-                    s.caller_root = incoming_caller_root.clone();
-                }
-                s.caller_root.clone()
-            }
+    let resolved_caller_root = match touch_mcp_session(
+        &app.mcp_sessions,
+        &session_id,
+        incoming_caller_root.as_ref(),
+    ) {
+        // Unknown session → 404 signals the client to re-initialize (per spec).
+        None => {
+            return jsonrpc_error_response(
+                StatusCode::NOT_FOUND,
+                request.id.clone(),
+                -32001,
+                "Unknown or expired Mcp-Session-Id; re-initialize",
+            );
         }
+        Some(caller_root) => caller_root,
     };
 
     // 4. Known session → run the method against the shared graph.
@@ -1580,6 +2825,7 @@ pub async fn handle_mcp_post(
         request,
         resolved_caller_root,
         session_id.clone(),
+        incoming_authority_lease,
     )
     .await;
     if let Some((tool, agent_id)) = mutation_meta {
@@ -1677,29 +2923,82 @@ fn publish_graph_mutation_event(
 #[allow(clippy::result_large_err)]
 fn validate_session(app: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
     let session_id = match session_id_from_headers(headers) {
-        None => {
+        Ok(None) => {
             return Err((StatusCode::BAD_REQUEST, "Missing Mcp-Session-Id header").into_response());
         }
-        Some(sid) => sid,
+        Ok(Some(sid)) => sid,
+        Err(message) => return Err((StatusCode::BAD_REQUEST, message).into_response()),
     };
 
-    {
-        let mut reg = app.mcp_sessions.lock();
-        match reg.get_mut(&session_id) {
-            None => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    "Unknown or expired Mcp-Session-Id; re-initialize",
-                )
-                    .into_response());
-            }
-            Some(s) => {
-                s.last_seen_ms = now_ms();
-            }
-        }
+    if touch_mcp_session(&app.mcp_sessions, &session_id, None).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Unknown or expired Mcp-Session-Id; re-initialize",
+        )
+            .into_response());
     }
 
     Ok(session_id)
+}
+
+#[allow(clippy::result_large_err)]
+fn acquire_sse_permit(
+    app: &Arc<AppState>,
+    headers: &HeaderMap,
+) -> Result<(String, McpSsePermit), Response> {
+    let session_id = match session_id_from_headers(headers) {
+        Ok(None) => {
+            return Err((StatusCode::BAD_REQUEST, "Missing Mcp-Session-Id header").into_response());
+        }
+        Ok(Some(session_id)) => session_id,
+        Err(message) => return Err((StatusCode::BAD_REQUEST, message).into_response()),
+    };
+
+    let monotonic = Instant::now();
+    let wall_ms = now_ms();
+    let mut state = app.mcp_sessions.lock();
+    state.evict_idle(monotonic);
+
+    let Some(per_session_active) = state
+        .get(&session_id)
+        .map(|session| session.active_sse_streams)
+    else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Unknown or expired Mcp-Session-Id; re-initialize",
+        )
+            .into_response());
+    };
+    if per_session_active >= state.limits.max_sse_streams_per_session {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "MCP SSE stream limit reached for this session",
+        )
+            .into_response());
+    }
+    if state.active_sse_streams >= state.limits.max_sse_streams_global {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "MCP SSE stream limit reached for this owner",
+        )
+            .into_response());
+    }
+
+    state.active_sse_streams += 1;
+    let session = state
+        .get_mut(&session_id)
+        .expect("session remained present under registry lock");
+    session.active_sse_streams += 1;
+    session.touch(wall_ms, monotonic);
+    drop(state);
+
+    Ok((
+        session_id.clone(),
+        McpSsePermit {
+            registry: app.mcp_sessions.clone(),
+            session_id,
+        },
+    ))
 }
 
 /// `GET /mcp` — the server→client Streamable-HTTP SSE stream.
@@ -1724,8 +3023,8 @@ pub async fn handle_mcp_get(
 ) -> Response {
     // Validate before opening the stream (no lock held across `.await`). Retain the
     // validated session id: the relay must suppress THIS session's own mutations.
-    let own_session = match validate_session(&app, &headers) {
-        Ok(sid) => sid,
+    let (own_session, permit) = match acquire_sse_permit(&app, &headers) {
+        Ok(acquired) => acquired,
         Err(resp) => return resp,
     };
 
@@ -1755,7 +3054,7 @@ pub async fn handle_mcp_get(
         async move { item }
     });
 
-    Sse::new(stream)
+    Sse::new(PermitStream::new(stream, permit))
         .keep_alive(sse::KeepAlive::new().interval(Duration::from_secs(MCP_SSE_KEEPALIVE_SECS)))
         .into_response()
 }
@@ -1796,6 +3095,24 @@ mod tests {
             event_type: event_type.to_string(),
             data,
         }
+    }
+
+    #[tokio::test]
+    async fn slow_blocking_actor_work_is_awaited_to_terminal_result() {
+        let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_finished = Arc::clone(&finished);
+        let task = tokio::task::spawn_blocking(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            worker_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+            17_u8
+        });
+        let (slow, result) = await_mcp_blocking_terminal(task, Duration::from_millis(1)).await;
+        assert!(slow, "the observability threshold must fire");
+        assert_eq!(result.expect("terminal worker result"), 17);
+        assert!(
+            finished.load(std::sync::atomic::Ordering::SeqCst),
+            "the helper cannot return while the blocking worker is detached"
+        );
     }
 
     // ---- Low-noise relay decision -----------------------------------------
@@ -1975,6 +3292,214 @@ mod tests {
     // ---- Handler behavior (validation / termination) ----------------------
 
     fn build_app_state(root: &std::path::Path) -> Arc<AppState> {
+        build_app_state_with_limits(root, McpTransportLimits::default())
+    }
+
+    #[test]
+    fn vanished_project_brain_never_falls_back_to_bound_mutation_state() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let vanished = temp.path().join("vanished-project");
+        let selector = vanished.to_string_lossy().to_string();
+        assert!(!app
+            .project_brains
+            .bound_covers_root(Arc::clone(&app.session), &selector)
+            .expect("bound covers snapshot"));
+
+        let bound_store =
+            crate::system_blocks::SystemBlockStore::path_in(&owner_runtime_root(&app));
+        std::fs::write(&bound_store, b"bound-session-sentinel").expect("sentinel");
+
+        let error = match resolve_external_mutation_brain(&app, Some(&selector)) {
+            Err(error) => error,
+            Ok(_) => panic!("a vanished project selector must fail closed"),
+        };
+        assert_eq!(error.code(), "external_mutation_brain_not_hosted");
+        assert_eq!(
+            std::fs::read(&bound_store).expect("sentinel remains"),
+            b"bound-session-sentinel"
+        );
+    }
+
+    #[test]
+    fn external_mutation_bound_owner_requires_exact_current_root_and_actor_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let session_id = seed_session(&app);
+        let exact_root = app
+            .project_brains
+            .bound_actor_root_for_target(Arc::clone(&app.session))
+            .expect("bound owner root");
+
+        let binding = resolve_mcp_owner_actor_binding(&app, &session_id, Some(&exact_root))
+            .expect("exact current root selects the already-hosted bound owner");
+        let expected_actor = app
+            .project_brains
+            .bound_brain_id_for_target(Arc::clone(&app.session))
+            .expect("bound owner actor id");
+
+        assert_eq!(binding.route_selector.as_deref(), Some(exact_root.as_str()));
+        assert_eq!(binding.actor_brain_id, expected_actor);
+        assert!(Arc::ptr_eq(&binding.selected_brain, &app.session));
+        assert!(app
+            .mcp_sessions
+            .lock()
+            .get(&session_id)
+            .expect("fresh MCP session")
+            .bound_project_root
+            .is_none());
+    }
+
+    #[test]
+    fn external_mutation_missing_current_root_is_rejected_before_any_service_surface() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let session_id = seed_session(&app);
+        let error = resolve_mcp_owner_actor_binding(&app, &session_id, None)
+            .err()
+            .expect("missing current root must fail closed");
+        assert_eq!(error.code(), "external_mutation_caller_root_required");
+
+        for tool in [
+            "graph_ingest_preview",
+            "authority_authorize",
+            "external_mutation_service",
+        ] {
+            let request = JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: serde_json::json!(tool),
+                method: "tools/call".to_string(),
+                params: serde_json::json!({"name": tool, "arguments": {}}),
+            };
+            let response = run_mission_service_wire(&app, &request, None, &session_id, None)
+                .expect("typed owner seam handles tool");
+            let encoded = serde_json::to_string(&response).expect("response JSON");
+            assert!(
+                encoded.contains("external_mutation_caller_root_required")
+                    || encoded.contains("authority_actor_resolution_failed"),
+                "{tool} must stop at actor resolution: {encoded}"
+            );
+            assert!(!encoded.contains("external_mutation_service_unavailable"));
+            assert!(!encoded.contains("authority_service_unavailable"));
+        }
+    }
+
+    #[test]
+    fn external_mutation_hosted_route_keeps_root_selector_distinct_from_actor_id() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let hosted_root = temp.path().join("hosted-project");
+        std::fs::create_dir_all(hosted_root.join("src")).expect("hosted source tree");
+        std::fs::write(
+            hosted_root.join("src/lib.rs"),
+            "pub fn already_hosted() -> u8 { 1 }\n",
+        )
+        .expect("hosted source");
+        let canonical = app
+            .project_brains
+            .ensure_registered(&hosted_root.to_string_lossy())
+            .expect("existing hosted brain manifest");
+        let session_id = seed_session(&app);
+        app.mcp_sessions
+            .lock()
+            .get_mut(&session_id)
+            .expect("hosted MCP session")
+            .bound_project_root = Some(canonical.clone());
+
+        let binding = resolve_mcp_owner_actor_binding(&app, &session_id, Some(&canonical))
+            .expect("sticky hosted root selects its existing actor");
+        let expected_actor = app.project_brains.brain_id_for(&canonical);
+
+        assert_eq!(binding.route_selector.as_deref(), Some(canonical.as_str()));
+        assert_eq!(binding.actor_brain_id, expected_actor);
+        assert_ne!(binding.actor_brain_id, canonical);
+        assert!(!Arc::ptr_eq(&binding.selected_brain, &app.session));
+    }
+
+    #[test]
+    fn external_mutation_rejects_sticky_current_root_mismatch_before_service_dispatch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let hosted_root = temp.path().join("sticky-project");
+        let other_root = temp.path().join("different-current-project");
+        std::fs::create_dir_all(&hosted_root).expect("hosted root");
+        std::fs::create_dir_all(&other_root).expect("other root");
+        let canonical = app
+            .project_brains
+            .ensure_registered(&hosted_root.to_string_lossy())
+            .expect("hosted brain");
+        let session_id = seed_session(&app);
+        app.mcp_sessions
+            .lock()
+            .get_mut(&session_id)
+            .expect("MCP session")
+            .bound_project_root = Some(canonical);
+
+        let error =
+            resolve_mcp_owner_actor_binding(&app, &session_id, Some(&other_root.to_string_lossy()))
+                .err()
+                .expect("sticky/current mismatch must fail closed");
+        assert_eq!(
+            error.code(),
+            "external_mutation_caller_root_sticky_mismatch"
+        );
+    }
+
+    #[test]
+    fn external_mutation_rejects_unique_ancestor_and_descendant_covering_routes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let workspace = temp.path().join("workspace");
+        let hosted_root = workspace.join("exact-project");
+        let descendant = hosted_root.join("src").join("nested");
+        std::fs::create_dir_all(&descendant).expect("hosted source tree");
+        app.project_brains
+            .ensure_registered(&hosted_root.to_string_lossy())
+            .expect("hosted brain");
+
+        for caller_root in [&workspace, &descendant] {
+            let session_id = seed_session(&app);
+            let error = resolve_mcp_owner_actor_binding(
+                &app,
+                &session_id,
+                Some(&caller_root.to_string_lossy()),
+            )
+            .err()
+            .expect("related but non-exact root must fail closed");
+            assert_eq!(
+                error.code(),
+                "external_mutation_caller_root_actor_mismatch",
+                "caller_root={}",
+                caller_root.display()
+            );
+
+            for tool in ["graph_ingest_preview", "authority_authorize"] {
+                let request = JsonRpcRequest {
+                    jsonrpc: "2.0".to_string(),
+                    id: serde_json::json!([tool, caller_root]),
+                    method: "tools/call".to_string(),
+                    params: serde_json::json!({"name": tool, "arguments": {}}),
+                };
+                let response = run_mission_service_wire(
+                    &app,
+                    &request,
+                    Some(caller_root.to_string_lossy().into_owned()),
+                    &session_id,
+                    None,
+                )
+                .expect("typed owner seam handles tool");
+                let encoded = serde_json::to_string(&response).expect("response JSON");
+                assert!(encoded.contains("external_mutation_caller_root_actor_mismatch"));
+                assert!(!encoded.contains("external_mutation_service_unavailable"));
+                assert!(!encoded.contains("authority_service_unavailable"));
+            }
+        }
+    }
+
+    fn build_app_state_with_limits(
+        root: &std::path::Path,
+        limits: McpTransportLimits,
+    ) -> Arc<AppState> {
         let runtime_dir = root.join("runtime");
         std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
         let config = McpConfig {
@@ -1996,14 +3521,19 @@ mod tests {
             None,
         ));
         Arc::new(AppState {
-            session: Arc::new(Mutex::new(session)),
+            session: Arc::new(BrainSessionCell::new(session)),
             tool_schemas_cache,
             event_tx,
             event_log_path: None,
             registry_dir: None,
-            mcp_sessions: new_mcp_session_registry(),
+            mcp_sessions: new_mcp_session_registry_with_limits(limits),
             project_brains,
             runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
+            ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),
+            mission_service: None,
+            external_mutation_service: None,
+            authority_service: None,
+            autonomy_owner: None,
         })
     }
 
@@ -2014,7 +3544,7 @@ mod tests {
     }
 
     fn seed_session(app: &Arc<AppState>) -> String {
-        let sid = generate_mcp_session_id();
+        let sid = generate_mcp_session_id().expect("OS randomness available in test");
         let now = now_ms();
         app.mcp_sessions.lock().insert(
             sid.clone(),
@@ -2024,9 +3554,328 @@ mod tests {
                 last_seen_ms: now,
                 caller_root: None,
                 bound_project_root: None,
+                last_seen_at: Instant::now(),
+                active_sse_streams: 0,
             },
         );
         sid
+    }
+
+    fn initialize_body(id: u64) -> Bytes {
+        Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": crate::server::MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "resource-bound-test", "version": "1"}
+                }
+            }))
+            .expect("initialize JSON"),
+        )
+    }
+
+    fn response_session_id(response: &Response) -> String {
+        response
+            .headers()
+            .get(MCP_SESSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .expect("successful initialize returns a session id")
+            .to_string()
+    }
+
+    #[test]
+    fn session_ids_are_256_bit_hex_and_rng_failure_propagates() {
+        let ids: std::collections::HashSet<String> = (0..128)
+            .map(|_| generate_mcp_session_id().expect("OS CSPRNG available"))
+            .collect();
+        assert_eq!(ids.len(), 128, "fresh CSPRNG calls must not collide");
+        assert!(ids.iter().all(|id| {
+            id.len() == MCP_SESSION_ID_BYTES * 2 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }));
+
+        let refused = generate_mcp_session_id_with(|_| Err::<(), _>("rng unavailable"));
+        assert_eq!(refused, Err("rng unavailable"));
+    }
+
+    #[tokio::test]
+    async fn initialize_flood_stops_at_hard_session_cap() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let limits = McpTransportLimits {
+            max_sessions: 3,
+            ..McpTransportLimits::default()
+        };
+        let app = build_app_state_with_limits(temp.path(), limits);
+
+        let futures = (0..16).map(|id| {
+            handle_mcp_post(
+                axum::extract::State(app.clone()),
+                HeaderMap::new(),
+                initialize_body(id),
+            )
+        });
+        let responses = futures::future::join_all(futures).await;
+        let admitted = responses
+            .iter()
+            .filter(|response| response.status() == StatusCode::OK)
+            .count();
+        let refused = responses
+            .iter()
+            .filter(|response| response.status() == StatusCode::SERVICE_UNAVAILABLE)
+            .count();
+        let admitted_ids: std::collections::HashSet<String> = responses
+            .iter()
+            .filter(|response| response.status() == StatusCode::OK)
+            .map(response_session_id)
+            .collect();
+        assert_eq!(admitted, 3);
+        assert_eq!(refused, 13);
+        assert_eq!(admitted_ids.len(), 3);
+        assert_eq!(app.mcp_sessions.lock().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn capacity_is_reserved_before_initialize_side_effects() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let limits = McpTransportLimits {
+            max_sessions: 1,
+            ..McpTransportLimits::default()
+        };
+        let app = build_app_state_with_limits(temp.path(), limits);
+
+        let mut first_headers = HeaderMap::new();
+        first_headers.insert(CALLER_ROOT_HEADER, "/tmp/m1nd-first".parse().unwrap());
+        let first = handle_mcp_post(
+            axum::extract::State(app.clone()),
+            first_headers,
+            initialize_body(1),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+
+        let mut refused_headers = HeaderMap::new();
+        refused_headers.insert(CALLER_ROOT_HEADER, "/tmp/m1nd-refused".parse().unwrap());
+        let refused = handle_mcp_post(
+            axum::extract::State(app.clone()),
+            refused_headers,
+            initialize_body(2),
+        )
+        .await;
+        assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let caller_root = app
+            .project_brains
+            .read_target_runtime_snapshot(Arc::clone(&app.session), None, true, |state| {
+                Ok(state.caller_root.clone())
+            })
+            .expect("actor caller-root snapshot")
+            .value;
+        assert_eq!(
+            caller_root.as_deref(),
+            Some("/tmp/m1nd-first"),
+            "at-capacity initialize must not execute against SessionState"
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_session_is_evicted_and_returns_404() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let limits = McpTransportLimits {
+            idle_ttl: Duration::from_millis(10),
+            ..McpTransportLimits::default()
+        };
+        let app = build_app_state_with_limits(temp.path(), limits);
+        let sid = seed_session(&app);
+        app.mcp_sessions
+            .lock()
+            .get_mut(&sid)
+            .expect("seeded session")
+            .last_seen_at = Instant::now() - Duration::from_millis(20);
+
+        let response = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&sid),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(!app.mcp_sessions.lock().contains_key(&sid));
+    }
+
+    #[tokio::test]
+    async fn sse_limits_are_per_session_and_global_and_drop_releases_both() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let limits = McpTransportLimits {
+            max_sse_streams_per_session: 1,
+            max_sse_streams_global: 1,
+            ..McpTransportLimits::default()
+        };
+        let app = build_app_state_with_limits(temp.path(), limits);
+        let first_sid = seed_session(&app);
+        let second_sid = seed_session(&app);
+
+        let first = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&first_sid),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+        {
+            let state = app.mcp_sessions.lock();
+            assert_eq!(state.active_sse_streams, 1);
+            assert_eq!(state[&first_sid].active_sse_streams, 1);
+        }
+
+        let same_session = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&first_sid),
+        )
+        .await;
+        assert_eq!(same_session.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let other_session = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&second_sid),
+        )
+        .await;
+        assert_eq!(other_session.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        drop(first);
+        {
+            let state = app.mcp_sessions.lock();
+            assert_eq!(state.active_sse_streams, 0);
+            assert_eq!(state[&first_sid].active_sse_streams, 0);
+        }
+
+        let after_release = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&second_sid),
+        )
+        .await;
+        assert_eq!(after_release.status(), StatusCode::OK);
+        drop(after_release);
+        assert_eq!(app.mcp_sessions.lock().active_sse_streams, 0);
+    }
+
+    #[tokio::test]
+    async fn custom_headers_are_duplicate_and_size_bounded() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+
+        let mut duplicate_session = HeaderMap::new();
+        duplicate_session.append(MCP_SESSION_HEADER, "first".parse().unwrap());
+        duplicate_session.append(MCP_SESSION_HEADER, "second".parse().unwrap());
+        let duplicate = handle_mcp_get(axum::extract::State(app.clone()), duplicate_session).await;
+        assert_eq!(duplicate.status(), StatusCode::BAD_REQUEST);
+
+        for (name, length) in [
+            (CALLER_ROOT_HEADER, CALLER_ROOT_HEADER_MAX_BYTES + 1),
+            (AUTHORITY_LEASE_HEADER, AUTHORITY_LEASE_HEADER_MAX_BYTES + 1),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                name,
+                axum::http::HeaderValue::from_str(&"x".repeat(length)).unwrap(),
+            );
+            let response = handle_mcp_post(
+                axum::extract::State(app.clone()),
+                headers,
+                initialize_body(length as u64),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name}");
+        }
+        assert!(app.mcp_sessions.lock().is_empty());
+    }
+
+    fn tool_text(response: &JsonRpcResponse) -> &str {
+        response
+            .result
+            .as_ref()
+            .and_then(|result| result.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|content| content.get("text"))
+            .and_then(|text| text.as_str())
+            .expect("tool response carries content[0].text")
+    }
+
+    #[tokio::test]
+    async fn generic_promote_is_denied_before_routing_even_with_a_lease_header() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        for name in ["promote", "m1nd.promote", "m1nd_promote"] {
+            let response = route_and_run(
+                app.clone(),
+                JsonRpcRequest {
+                    jsonrpc: "2.0".to_string(),
+                    id: serde_json::json!(name),
+                    method: "tools/call".to_string(),
+                    params: serde_json::json!({
+                        "name": name,
+                        "arguments": {
+                            "agent_id": "attacker",
+                            "brain": temp.path().join("claimed-source").to_string_lossy(),
+                            "claim": "self-authored-verified",
+                            "reason": "forgeable evidence must not reach promote_claim"
+                        }
+                    }),
+                },
+                Some(temp.path().join("caller").to_string_lossy().to_string()),
+                sid.clone(),
+                Some("unbound-generic-lease-id".to_string()),
+            )
+            .await;
+            let rendered = tool_text(&response);
+            assert!(
+                rendered.contains("generic_action_authority_required")
+                    && rendered.contains("POSITIVE_SOVEREIGN")
+                    && !rendered.contains("no project brain"),
+                "promote must stop before run_promote/promote_claim: {rendered}"
+            );
+            assert_eq!(
+                app.mcp_sessions
+                    .lock()
+                    .get(&sid)
+                    .and_then(|session| session.bound_project_root.clone()),
+                None,
+                "denied promote must not alter sticky routing"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn typed_mission_service_still_bypasses_the_generic_policy_gate() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+        let exact_root = app
+            .project_brains
+            .bound_actor_root_for_target(Arc::clone(&app.session))
+            .expect("bound owner root");
+        let response = route_and_run(
+            app,
+            JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: serde_json::json!("typed"),
+                method: "tools/call".to_string(),
+                params: serde_json::json!({
+                    "name": "mission_service",
+                    "arguments": {"action": "execution_started"}
+                }),
+            },
+            Some(exact_root),
+            sid,
+            Some("typed-lease-id".to_string()),
+        )
+        .await;
+        let rendered = tool_text(&response);
+        assert!(
+            rendered.contains("mission_service_unavailable")
+                && !rendered.contains("generic_action_authority_required"),
+            "typed service must retain its own fail-closed transport: {rendered}"
+        );
     }
 
     #[tokio::test]
@@ -2193,6 +4042,7 @@ mod tests {
             memorize_request("RebindFact"),
             Some(workspace.to_string_lossy().to_string()),
             sid.clone(),
+            None,
         )
         .await;
 
@@ -2238,6 +4088,7 @@ mod tests {
             memorize_request("SubdirFact"),
             Some(subdir.to_string_lossy().to_string()),
             sid.clone(),
+            None,
         )
         .await;
 
@@ -2276,6 +4127,7 @@ mod tests {
             memorize_request("StrangerFact"),
             Some(stranger.to_string_lossy().to_string()),
             sid.clone(),
+            None,
         )
         .await;
 
@@ -2315,6 +4167,7 @@ mod tests {
             memorize_request("AmbiguousFact"),
             Some(workspace.to_string_lossy().to_string()),
             sid.clone(),
+            None,
         )
         .await;
 

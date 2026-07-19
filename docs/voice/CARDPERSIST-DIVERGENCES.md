@@ -39,13 +39,13 @@ ephemeral.
    charter opened on a `?brain=` hosted brain lands at
    `<owner runtime>/project-brains/<fp>/mission-control/<msn>.json` and warm-boots
    back from there — not a temp dir.
-3. **`?brain=/Users/kle1nz/m1nd` resolves to the BOUND graph, not a hosted
+3. **`?brain=<repo-root>` resolves to the BOUND graph, not a hosted
    instance.** `resolve_brain` checks `bound_matches` FIRST
    (`m1nd-mcp/src/http_server.rs:1634-1646`), comparing the request against
    `project_root_display()`, which returns the first non-sidecar ingest root
-   (`m1nd-mcp/src/session.rs:1007-1013`) — `/Users/kle1nz/m1nd`. So the selector
+   (`m1nd-mcp/src/session.rs:1007-1013`) — `<repo-root>`. So the selector
    matches bound and persists to the bound mission-control. Live probe confirms it:
-   `mission_start?brain=/Users/kle1nz/m1nd` for `cardpersist-executor` produced
+   `mission_start?brain=<repo-root>` for `cardpersist-executor` produced
    `msn_1783938868118_cardpersistexecuto.json` on disk the instant it returned.
 
 ## Root of the misdiagnosis (the honest telemetry)
@@ -57,12 +57,12 @@ ephemeral.
   was true and expected; the `03:30` leap from "not on the board" to "not on disk /
   died in memory" was the error.
 - **`inst_f168ae0e3b608a2e` IS the bound owner, not a twin.** The report read it as
-  "an instance for `/Users/kle1nz/m1nd` SEPARATE from the bound." The registry
+  "an instance for `<repo-root>` SEPARATE from the bound." The registry
   entry (`~/.m1nd/registry-claude/instances/inst_f168ae0e3b608a2e.json`, and
   `/api/instances`) says `brain_kind: "medulla"`, `project_root:
-  /Users/kle1nz/m1nd`, `runtime_root: ~/.m1nd/runtimes/claude` — it is the served
+  <repo-root>`, `runtime_root: ~/.m1nd/runtimes/claude` — it is the served
   owner itself. There is exactly ONE runtime for that root; no project brain for
-  `/Users/kle1nz/m1nd` exists on disk. "Two runtimes for one root" was a misread of
+  `<repo-root>` exists on disk. "Two runtimes for one root" was a misread of
   the medulla owner (`inst_f168…`) beside a hosted brain for a DIFFERENT,
   unrelated repo (`inst_a24952…`).
 
@@ -84,8 +84,8 @@ invariant is now a standing regression guard:
 ## One latent risk, noted and OUT of scope
 
 If a project brain were ever MINTED for the bound root itself (e.g.
-`ingest project_root=/Users/kle1nz/m1nd` — the overlap guard checks other project
-brains, not the bound graph), `?brain=/Users/kle1nz/m1nd` would still resolve to
+`ingest project_root=<repo-root>` — the overlap guard checks other project
+brains, not the bound graph), `?brain=<repo-root>` would still resolve to
 BOUND (bound-first, `http_server.rs:1643`) and SHADOW that project brain's
 mission-control, orphaning any charter written to it. This did NOT happen in the
 field (no such brain on disk) and is a DIFFERENT concern from the reported bug;

@@ -3,7 +3,7 @@
 use m1nd_core::antibody::Antibody;
 use m1nd_core::counterfactual::CounterfactualEngine;
 use m1nd_core::domain::DomainConfig;
-use m1nd_core::error::M1ndResult;
+use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::{Graph, SharedGraph};
 use m1nd_core::plasticity::PlasticityEngine;
 use m1nd_core::query::QueryOrchestrator;
@@ -14,17 +14,22 @@ use m1nd_core::tremor::TremorRegistry;
 use m1nd_core::trust::TrustLedger;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::auto_ingest::AutoIngestState;
+use crate::boot_kv_migration::BootKvCheckpointInventoryV1;
 use crate::instance_registry::{InstanceHandle, InstanceRegistryEntry};
 use crate::perspective::state::{
     LockState, PeekSecurityConfig, PerspectiveLimits, PerspectiveState, WatchTrigger, WatcherEvent,
 };
-use crate::universal_docs::{load_document_cache, persist_document_cache, DocumentCacheState};
+use crate::universal_docs::{
+    load_document_artifact_inventory_friendly, load_document_cache, DocumentArtifactInventory,
+    DocumentArtifactPresence, DocumentCacheState,
+};
 
 // ---------------------------------------------------------------------------
 // AgentSession — per-agent session tracking
@@ -62,6 +67,11 @@ pub struct EditPreviewState {
     pub file_path: String,
     pub new_content: String,
     pub source_hash: String,
+    /// Canonical authority-grade digest of the exact bytes observed by preview.
+    /// `source_hash` above remains only for legacy preview compatibility.
+    pub source_sha256: String,
+    /// Canonical digest of the exact candidate bytes staged by preview.
+    pub candidate_sha256: String,
     pub source_exists: bool,
     pub source_bytes: usize,
     pub source_line_count: usize,
@@ -71,6 +81,25 @@ pub struct EditPreviewState {
     pub unified_diff: String,
     pub description: Option<String>,
     pub created_at_ms: u64,
+}
+
+/// Generation-bound lexical document prepared once and reused by narrative
+/// `seek` calls. It is deliberately runtime-only: graph_generation is the
+/// authoritative invalidation fence, so no stale on-disk search index can be
+/// mistaken for current graph truth.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SeekFileIndexDocument {
+    pub path: String,
+    pub length: usize,
+    pub term_counts: HashMap<String, u32>,
+    pub entity_terms: HashSet<String>,
+    pub file_idx: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SeekFileIndexCache {
+    pub graph_generation: u64,
+    pub documents: Vec<SeekFileIndexDocument>,
 }
 
 struct RecoveryAutoActionContext<'a> {
@@ -104,12 +133,12 @@ pub struct QueryLogEntry {
     pub query_preview: String,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct BootMemoryState {
     pub entries: HashMap<String, BootMemoryEntry>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BootMemoryEntry {
     pub key: String,
     pub value: Value,
@@ -147,8 +176,14 @@ pub struct CoverageSessionState {
 pub struct ProofReadyMark {
     /// When the target was proved ready, in unix-epoch milliseconds.
     pub proved_at_ms: u64,
-    /// Cache generation captured at proof time (for staleness inspection).
-    pub generation: u64,
+    /// Absolute expiry of this one-shot proof mark.
+    pub expires_at_ms: u64,
+    /// Graph generation captured at proof time. Any ingest/rebuild invalidates it.
+    pub graph_generation: u64,
+    /// Canonical absolute target identity, including its workspace-root scope.
+    pub target_identity: String,
+    /// Exact on-disk state at proof time (`sha256:<hex>` or `missing`).
+    pub target_digest: String,
     /// Tool/evidence that established readiness (e.g. "surgical_context_v2").
     pub evidence: Option<String>,
 }
@@ -270,6 +305,91 @@ pub type ApplyBatchProgressSink =
 /// every other path it stays `None` and the scan emits nothing (retrocompat).
 pub type ScanProgressSink = Arc<dyn Fn(&crate::skeleton_scan::ScanProgressEvent) + Send + Sync>;
 
+const CHECKPOINT_GRAPH_SCHEMA_ID: &str = "m1nd-graph-snapshot";
+const CHECKPOINT_ROOTS_SCHEMA_ID: &str = "m1nd-ingest-roots";
+const CHECKPOINT_SIDECAR_SCHEMA_ID: &str = "m1nd-session-sidecar";
+const CHECKPOINT_ROOTS_SCHEMA_VERSION: &str = "1";
+const CHECKPOINT_SIDECAR_SCHEMA_VERSION: &str = "1";
+
+/// Explicit working-set decision for a candidate-first checkpoint. `Absent` is
+/// not the same as omission: it instructs post-commit projection/rollback to
+/// remove a previously owned file when this generation no longer owns it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CheckpointCandidatePresence {
+    Present(Vec<u8>),
+    Absent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionCheckpointCandidateFile {
+    pub logical_name: String,
+    pub relative_path: String,
+    pub schema_id: String,
+    pub schema_version: String,
+    pub presence: CheckpointCandidatePresence,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionCheckpointCandidate {
+    pub files: Vec<SessionCheckpointCandidateFile>,
+    /// Whether any legacy handler requested persistence while staged. This is
+    /// diagnostic evidence only; candidate construction always serializes the
+    /// complete in-memory state regardless of the flag.
+    pub persist_requested: bool,
+    /// Domain-separated digest over the complete PRESENT/ABSENT inventory.
+    /// Useful as a mutation witness before deciding whether a callback refusal
+    /// is safe to return without degrading the actor.
+    pub state_digest: String,
+}
+
+/// Opaque capability proving that the caller owns the active SessionState
+/// persistence stage. It is Clone (but not Copy) so the actor can retain a
+/// reconciliation token across post-CURRENT confirmation. Finishing once
+/// invalidates every retained clone; an abandoned transaction remains staged
+/// until authoritative recovery replaces it.
+#[derive(Clone, Debug)]
+pub(crate) struct CheckpointPersistenceStage {
+    id: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PersistenceStageState {
+    id: u64,
+    persist_requested: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StagedBinarySnapshotEffect {
+    relative_path: String,
+    graph_v4_json: Vec<u8>,
+}
+
+/// Fully decoded authoritative state prepared off to the side before a recovery
+/// is allowed to replace any live owner. Keeping this separate from
+/// `SessionState` is the fail-closed boundary: a missing/corrupt sidecar leaves
+/// the existing in-memory session byte-for-byte untouched.
+struct StrictRecoveryState {
+    graph: Graph,
+    orchestrator: QueryOrchestrator,
+    temporal: TemporalEngine,
+    counterfactual: CounterfactualEngine,
+    topology: TopologyAnalyzer,
+    resonance: ResonanceEngine,
+    plasticity: PlasticityEngine,
+    ingest_roots: Vec<String>,
+    antibodies: Vec<Antibody>,
+    tremor_registry: TremorRegistry,
+    trust_ledger: TrustLedger,
+    calibration_table: m1nd_core::calibration::CalibrationTable,
+    boot_memory: HashMap<String, BootMemoryEntry>,
+    daemon_state: DaemonRuntimeState,
+    daemon_alerts: Vec<DaemonAlert>,
+    auto_ingest: AutoIngestState,
+    document_cache: DocumentCacheState,
+    document_artifacts: DocumentArtifactInventory,
+    boot_kv_checkpoint_inventory: BootKvCheckpointInventoryV1,
+}
+
 // ---------------------------------------------------------------------------
 // SessionState — all server state in one place
 // Replaces: 03-MCP Section 1.1 server internal state
@@ -277,7 +397,23 @@ pub type ScanProgressSink = Arc<dyn Fn(&crate::skeleton_scan::ScanProgressEvent)
 
 /// Server session state. Owns the graph and all engine instances.
 /// Single instance shared across all agent connections.
+///
+/// Instance lifecycle authority is intentionally not part of the public state
+/// surface; external readers cannot capture it before the brain actor starts.
+///
+/// ```compile_fail
+/// use m1nd_mcp::server::{McpConfig, McpServer};
+///
+/// let state = McpServer::new(McpConfig::default())
+///     .unwrap()
+///     .into_session_state();
+/// let _escaped_lifecycle_capability = state.instance;
+/// ```
 pub struct SessionState {
+    /// Exact friendly-boot construction contract retained for diagnostics and
+    /// process configuration. Strict recovery does not reconstruct through this
+    /// config; it reuses the existing process-owned handles in place.
+    pub(crate) boot_config: crate::server::McpConfig,
     /// Shared graph with RwLock for concurrent read access.
     pub graph: SharedGraph,
     /// Domain configuration (code, music, generic, etc.)
@@ -306,6 +442,8 @@ pub struct SessionState {
     pub graph_path: PathBuf,
     /// Path to plasticity state file.
     pub plasticity_path: PathBuf,
+    /// Atomic sidecar containing both graph-bound co-change matrices.
+    pub temporal_state_path: PathBuf,
     /// Path to the on-disk embedding cache (OPTIONAL `embed` feature). Derived
     /// from the runtime root; reused across warm boots and re-ingests.
     pub embeddings_cache_path: PathBuf,
@@ -313,6 +451,9 @@ pub struct SessionState {
     pub sessions: HashMap<String, AgentSession>,
     /// In-memory preview states for Ultra Edit phase 1.
     pub edit_previews: HashMap<String, EditPreviewState>,
+    /// Lazily-built, graph-generation-fenced file lexical index for narrative
+    /// seek. Rebuilt after ingest/mutation; never persisted or trusted across boot.
+    pub(crate) seek_file_index: Option<SeekFileIndexCache>,
 
     // --- Perspective MCP state (12-PERSPECTIVE-SYNTHESIS) ---
     /// Generation counter: bumped on ingest, rebuild_engines (Theme 1).
@@ -363,8 +504,10 @@ pub struct SessionState {
     /// `None` on a stdio owner (no announce surface): `skeleton_candidate` with
     /// `naming:"auto"` then falls back to heuristic naming exactly as before.
     pub runnerd_naming: Option<crate::runnerd_owner::NamingRunnerHandle>,
-    /// Registry + lease handle for this process instance.
-    pub instance: InstanceHandle,
+    /// Registry + lease handle for this process instance. Crate-private because
+    /// even `&SessionState` would otherwise expose a cloneable process capability
+    /// across the actor ownership fence.
+    pub(crate) instance: InstanceHandle,
     /// Optional live sink for apply_batch progress emission.
     pub apply_batch_progress_sink: Option<ApplyBatchProgressSink>,
     /// Optional live sink for `skeleton_candidate` scan-phase progress emission
@@ -403,9 +546,11 @@ pub struct SessionState {
     pub session_start_node_count: u32,
     /// Graph edge count at session start.
     pub session_start_edge_count: u64,
-    /// Path to canonical boot memory persisted next to the graph.
+    /// Path to the legacy Boot KV compatibility tombstone. Writable owners
+    /// retire it into Boot Config/L1GHT during initialization.
     pub boot_memory_path: PathBuf,
-    /// Hot runtime cache of canonical boot memory entries.
+    /// Legacy hot cache (empty after migration; retained only for read-only
+    /// attachment to a pre-migration runtime).
     pub boot_memory: HashMap<String, BootMemoryEntry>,
     /// Path to daemon state persisted next to the graph.
     pub daemon_state_path: PathBuf,
@@ -424,6 +569,11 @@ pub struct SessionState {
     /// has driven a target to `proof_state == "ready_to_edit"`; checked at edit
     /// time by the M1ND_PROOF_GATE write gate against the normalized edit target.
     pub proof_ready: HashMap<(String, String), ProofReadyMark>,
+    /// Marks atomically consumed by the dispatch proof middleware and exposed
+    /// only for the duration of that single synchronous physical-write call.
+    /// Handlers re-check these immediately before publishing bytes to close the
+    /// proof-check -> write TOCTOU window. Never persisted.
+    pub active_proof_permits: HashMap<(String, String), ProofReadyMark>,
     /// Per-agent flagged findings keyed by (agent_id, node_id) where node_id is
     /// the node's external id. Ephemeral session intent — NOT persisted. Recorded
     /// when a scan/audit finding is assembled for an agent; consumed at edit/apply
@@ -435,10 +585,24 @@ pub struct SessionState {
     pub auto_ingest: AutoIngestState,
     /// Universal document artifact/cache index.
     pub document_cache: DocumentCacheState,
+    /// Canonical universal bodies staged in memory until the checkpoint actor
+    /// publishes their PRESENT/ABSENT decisions after CURRENT.
+    pub(crate) document_artifacts: DocumentArtifactInventory,
     /// Result of boot-time agent-memory auto-load, surfaced verbatim in
     /// `session_handshake` (and thus `trust_selftest`). `None` = the auto-load
     /// did not run (no agent-memory dir yet); never hidden.
     pub agent_memory_boot: Option<serde_json::Value>,
+
+    /// Validated at boot under the writer lease. The migration is immutable
+    /// during a session, so checkpointing can include its fixed files and
+    /// dynamic L1GHT working set without a racy filesystem rediscovery.
+    boot_kv_checkpoint_inventory: BootKvCheckpointInventoryV1,
+
+    /// Actor-owned candidate-first persistence fence. `Cell` lets granular
+    /// `&self` persistence helpers turn a write into a staged intent marker.
+    persistence_stage: std::cell::Cell<Option<PersistenceStageState>>,
+    next_persistence_stage_id: u64,
+    staged_binary_snapshot_effects: Vec<StagedBinarySnapshotEffect>,
 
     /// Read-only attach mode. When true: `persist()` and every granular
     /// persist helper are no-ops, `should_persist()` is always false, queries
@@ -453,6 +617,11 @@ pub struct SessionState {
 /// compounding-negative-memory store from growing without bound across a long
 /// session; on overflow the oldest mark is evicted (see [`SessionState::note_finding`]).
 const MAX_FLAGGED_FINDINGS: usize = 4096;
+
+/// Proof marks are intentionally short-lived and one-shot. Five minutes matches
+/// the edit-preview OCC window while still forcing a fresh graph/disk read for a
+/// later write.
+pub const PROOF_READY_TTL_MS: u64 = 5 * 60 * 1000;
 
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
     // Host-neutral contract. Any MCP host can set one of these.
@@ -514,6 +683,12 @@ pub const BINARY_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The running binary's git short sha (+`-dirty`), embedded by `build.rs`.
 /// `"unknown"` on builds without a `.git` (crates.io / vendored).
 pub const BINARY_GIT_SHA: &str = env!("M1ND_GIT_SHA");
+/// Exact full source commit captured by build.rs. Unlike `BINARY_GIT_SHA`, this
+/// value has no display suffix and can be compared byte-for-byte with Git HEAD.
+pub const BINARY_BUILD_SOURCE_COMMIT: &str = env!("M1ND_BUILD_SOURCE_COMMIT");
+/// Whether tracked/untracked source differed from that commit at build time.
+/// A dirty build is useful for development but can never be release-coherent.
+pub const BINARY_BUILD_SOURCE_DIRTY: &str = env!("M1ND_BUILD_SOURCE_DIRTY");
 
 /// Parse the `version = "x.y.z"` value from a `Cargo.toml`'s `[package]` table
 /// using only std. Returns the first `version = "..."` at zero indentation
@@ -562,8 +737,8 @@ pub(crate) fn is_memory_sidecar(p: &str) -> bool {
 }
 
 /// The last path component of a filesystem root — the human name of a repo
-/// ("/Users/x/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
-/// so a Windows backslash path ("C:\\Users\\dev\\m1nd" → "m1nd") names its repo
+/// ("/Users/<name>/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
+/// so a Windows backslash path ("C:\\Users\\<name>\\m1nd" → "m1nd") names its repo
 /// the same as a POSIX one. Trailing separators are tolerated; a rootless or
 /// empty input returns the trimmed input unchanged (honest, never a panic).
 /// Shared by the bound-brain display name and the project-brain listing so both
@@ -944,10 +1119,10 @@ impl SessionState {
             return None;
         }
 
-        // Mismatch: the bound graph does NOT cover the caller's repo. Say so, and
-        // hand the agent machine-actionable options. `ingest_your_repo` is now the
-        // REAL one-call bootstrap (owner-hosted project brain — Two-Tier interim),
-        // no longer a roadmap promise.
+        // Mismatch: the bound graph does NOT cover the caller's repo. Say so, but
+        // never advertise the internal bootstrap seam as a public repair. The
+        // generic route is POSITIVE_SOVEREIGN and no exact typed G2/G3 consumer
+        // exists yet.
         Some(serde_json::json!({
             "schema": "m1nd-reception-degraded-v0",
             "match": "caller_root_mismatch",
@@ -960,8 +1135,9 @@ impl SessionState {
                     "note": "keep using this graph, but treat its answers as NOT covering your current repo — verify against local files"
                 },
                 {
-                    "action": "ingest_your_repo",
-                    "call": format!("ingest with project_root={caller_root} — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it, and returns its north packet; thereafter every call from this root routes to YOUR brain automatically (silent on match)")
+                    "action": "bootstrap_unavailable",
+                    "code": "brain_bootstrap_consumer_not_installed",
+                    "note": "creating or rebinding a project brain is unavailable until an exact typed G2/G3 bootstrap consumer is installed; no mutation was attempted"
                 }
             ]
         }))
@@ -992,7 +1168,7 @@ impl SessionState {
     /// by plumbing: the bound dev graph's `workspace_root` is its `agent-memory`
     /// sidecar dir (inferred `graph_path_parent`), so naming from it leaks
     /// "agent-memory"/"claude". The true project is the primary *code* ingest
-    /// root (e.g. `/Users/kle1nz/m1nd`). Precedence, mirroring
+    /// root (e.g. `<repo-root>`). Precedence, mirroring
     /// `self_repo_declared_version`'s "which root is the repo" rule:
     ///
     /// 1. the first ingest root that is a real directory and is NOT a `.light.md`
@@ -1649,7 +1825,18 @@ impl SessionState {
 
     /// Initialize from a loaded graph. Builds all engines.
     /// Replaces: 03-MCP Section 1.2 startup sequence steps 3-6.
-    pub fn initialize(
+    ///
+    /// Raw session construction is an owner-internal authority seam. External
+    /// crates must enter through the supported MCP/HTTP transports instead.
+    ///
+    /// ```compile_fail,E0624
+    /// use m1nd_core::{domain::DomainConfig, graph::Graph};
+    /// use m1nd_mcp::{server::McpConfig, session::SessionState};
+    ///
+    /// let config = McpConfig::default();
+    /// let _state = SessionState::initialize(Graph::new(), &config, DomainConfig::code());
+    /// ```
+    pub(crate) fn initialize(
         graph: Graph,
         config: &crate::server::McpConfig,
         domain: DomainConfig,
@@ -1672,12 +1859,19 @@ impl SessionState {
         // Build all engines from graph (semantic reuses the embedding cache).
         // Only the writable owner persists the cache; a read-only attacher reuses
         // it but never writes (honoring the read-only "persistence disabled" contract).
-        let orchestrator = QueryOrchestrator::build_with_cache(
+        let mut orchestrator = QueryOrchestrator::build_with_cache(
             &graph,
             Some(&embeddings_cache_path),
             !config.read_only,
         )?;
-        let temporal = TemporalEngine::build(&graph)?;
+        let mut temporal = TemporalEngine::build(&graph)?;
+        let temporal_state_path = runtime_root.join(crate::temporal_state::TEMPORAL_STATE_FILE);
+        if let Some((primary, orchestrator_matrix)) =
+            crate::temporal_state::load_temporal_state(&temporal_state_path, &graph)?
+        {
+            temporal.co_change = primary;
+            orchestrator.temporal.co_change = orchestrator_matrix;
+        }
         let counterfactual = CounterfactualEngine::with_defaults();
         let topology = TopologyAnalyzer::with_defaults();
         let resonance = ResonanceEngine::with_defaults();
@@ -1704,7 +1898,15 @@ impl SessionState {
             eprintln!(
                 "[m1nd] read-only attach: holding no lease; persistence disabled; mutation tools gated."
             );
+        } else {
+            // M1ND-10 G6: retire the arbitrary Boot KV before serving any
+            // request. The migration is journaled/idempotent; a corrupt or
+            // incomplete plan fails boot rather than silently reviving dual
+            // writers.
+            crate::boot_kv_migration::migrate_boot_kv(&runtime_root)?;
         }
+        let boot_kv_checkpoint_inventory =
+            crate::boot_kv_migration::checkpoint_inventory(&runtime_root)?;
         // Best-effort, non-blocking sweep of dead lease/instance entries at every
         // boot. The daemon-tick GC only runs when the daemon is active, so dead
         // entries otherwise leak unbounded (~25k observed live). Detached on its
@@ -1727,8 +1929,15 @@ impl SessionState {
                 });
         }
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
+        let document_cache = load_document_cache(&runtime_root);
+        // Compatibility is intentionally confined to friendly boot. A legacy
+        // runtime without the v1 inventory is reconstructed in memory from its
+        // exact current bodies; strict checkpoint recovery requires the sidecar.
+        let document_artifacts =
+            load_document_artifact_inventory_friendly(&runtime_root, &document_cache)?;
 
         let mut state = Self {
+            boot_config: config.clone(),
             graph: shared,
             domain,
             orchestrator,
@@ -1743,9 +1952,11 @@ impl SessionState {
             last_persist_time: None,
             graph_path: config.graph_source.clone(),
             plasticity_path: config.plasticity_state.clone(),
+            temporal_state_path,
             embeddings_cache_path,
             sessions: HashMap::new(),
             edit_previews: HashMap::new(),
+            seek_file_index: None,
             // Perspective MCP state
             graph_generation: 0,
             plasticity_generation: 0,
@@ -1814,10 +2025,16 @@ impl SessionState {
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
             proof_ready: HashMap::new(),
+            active_proof_permits: HashMap::new(),
             flagged_findings: HashMap::new(),
             auto_ingest: AutoIngestState::load(&runtime_root),
-            document_cache: load_document_cache(&runtime_root),
+            document_cache,
+            document_artifacts,
             agent_memory_boot: None,
+            boot_kv_checkpoint_inventory,
+            persistence_stage: std::cell::Cell::new(None),
+            next_persistence_stage_id: 1,
+            staged_binary_snapshot_effects: Vec::new(),
             read_only: config.read_only,
             read_only_persist_logged: std::cell::Cell::new(false),
         };
@@ -1827,6 +2044,352 @@ impl SessionState {
         // single request (de-flips the corrupted bound owner on its next boot).
         state.heal_workspace_root();
         Ok(state)
+    }
+
+    fn read_required_recovery_file(path: &Path, logical_name: &str) -> M1ndResult<Vec<u8>> {
+        crate::checkpoint_store::read_regular_checkpoint_input(path).map_err(|error| {
+            M1ndError::CorruptState {
+                reason: format!(
+                    "strict recovery could not read required {logical_name} '{}': {error}",
+                    path.display()
+                ),
+            }
+        })
+    }
+
+    /// Reject fields/defaults that a compatibility-oriented serde decoder would
+    /// otherwise silently erase. Object key order and insignificant JSON
+    /// whitespace remain irrelevant, but the decoded current-schema projection
+    /// must be semantically identical to the checkpoint payload.
+    fn verify_current_json_projection(
+        logical_name: &str,
+        observed: &[u8],
+        projected: &[u8],
+    ) -> M1ndResult<()> {
+        let observed: Value = serde_json::from_slice(observed)?;
+        let projected: Value = serde_json::from_slice(projected)?;
+        if observed != projected {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "strict recovery refused non-current or lossy {logical_name} checkpoint payload"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// Decode every required authoritative owner before touching `self`. This is
+    /// intentionally not implemented through `initialize`: recovery must not
+    /// acquire a discovery handle, refresh the registry, run migration/GC, load
+    /// an embedding cache, create directories, or substitute friendly defaults.
+    fn prepare_strict_recovery_state(&self) -> M1ndResult<StrictRecoveryState> {
+        let ingest_roots_path = self
+            .graph_path
+            .parent()
+            .unwrap_or(&self.runtime_root)
+            .join("ingest_roots.json");
+        let auto_ingest_path = self.runtime_root.join("auto_ingest_state.json");
+        let document_cache_path = self.runtime_root.join("document_cache_index.json");
+        let document_artifact_inventory_path =
+            crate::universal_docs::document_artifact_inventory_path(&self.runtime_root);
+
+        // Read the complete fixed working set first. Required candidate files
+        // are never allowed to decay into defaults during authoritative recovery.
+        let graph_bytes = Self::read_required_recovery_file(&self.graph_path, "graph_snapshot")?;
+        let ingest_roots_bytes =
+            Self::read_required_recovery_file(&ingest_roots_path, "ingest_roots")?;
+        let plasticity_bytes =
+            Self::read_required_recovery_file(&self.plasticity_path, "plasticity_state")?;
+        let antibodies_bytes =
+            Self::read_required_recovery_file(&self.antibodies_path, "antibodies")?;
+        let tremor_bytes = Self::read_required_recovery_file(&self.tremor_path, "tremor_state")?;
+        let trust_bytes = Self::read_required_recovery_file(&self.trust_path, "trust_state")?;
+        let calibration_bytes =
+            Self::read_required_recovery_file(&self.calibration_path, "calibration_state")?;
+        let temporal_bytes =
+            Self::read_required_recovery_file(&self.temporal_state_path, "temporal_state")?;
+        let daemon_state_bytes =
+            Self::read_required_recovery_file(&self.daemon_state_path, "daemon_state")?;
+        let daemon_alerts_bytes =
+            Self::read_required_recovery_file(&self.daemon_alerts_path, "daemon_alerts")?;
+        let auto_ingest_bytes =
+            Self::read_required_recovery_file(&auto_ingest_path, "auto_ingest_state")?;
+        let document_cache_bytes =
+            Self::read_required_recovery_file(&document_cache_path, "document_cache_index")?;
+        let document_artifact_inventory_bytes = Self::read_required_recovery_file(
+            &document_artifact_inventory_path,
+            "document_artifact_inventory",
+        )?;
+
+        let mut graph = m1nd_core::snapshot::decode_graph_json(&graph_bytes)?;
+        if !graph.finalized && graph.num_nodes() > 0 {
+            graph.finalize()?;
+        }
+
+        let plasticity_states =
+            m1nd_core::plasticity::decode_plasticity_state_json(&plasticity_bytes)?;
+        let expected_synapses = graph.csr.num_edges();
+        if plasticity_states.len() != expected_synapses
+            || plasticity_states
+                .iter()
+                .any(|state| state.direction.is_none() || state.inhibitory.is_none())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "strict recovery requires one current-identity plasticity row per CSR edge: rows={}, edges={expected_synapses}",
+                    plasticity_states.len()
+                ),
+            });
+        }
+        let mut plasticity =
+            PlasticityEngine::new(&graph, m1nd_core::plasticity::PlasticityConfig::default());
+        let applied = plasticity.import_state(&mut graph, &plasticity_states)? as usize;
+        if applied != expected_synapses {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "strict recovery applied {applied} plasticity rows for {expected_synapses} CSR edges"
+                ),
+            });
+        }
+        let projected_plasticity =
+            m1nd_core::plasticity::encode_plasticity_state_json(&plasticity.export_state(&graph)?)?;
+        Self::verify_current_json_projection(
+            "plasticity_state",
+            &plasticity_bytes,
+            &projected_plasticity,
+        )?;
+        Self::verify_current_json_projection(
+            "graph_snapshot",
+            &graph_bytes,
+            &m1nd_core::snapshot::encode_graph_json(&graph)?,
+        )?;
+
+        // Build graph-derived engines without an embedding-cache path. `build`
+        // is the pure in-memory constructor; it neither reads nor writes working
+        // files. Only the two explicitly checkpointed temporal matrices replace
+        // their derived bootstrap values.
+        let mut orchestrator = QueryOrchestrator::build(&graph)?;
+        let orchestrator_applied = orchestrator
+            .plasticity
+            .import_state(&mut graph, &plasticity_states)?
+            as usize;
+        if orchestrator_applied != expected_synapses {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "strict recovery applied {orchestrator_applied} orchestrator plasticity rows for {expected_synapses} CSR edges"
+                ),
+            });
+        }
+        let mut temporal = TemporalEngine::build(&graph)?;
+        let (primary_temporal, orchestrator_temporal) =
+            crate::temporal_state::decode_temporal_state(&temporal_bytes, &graph)?;
+        temporal.co_change = primary_temporal;
+        orchestrator.temporal.co_change = orchestrator_temporal;
+        Self::verify_current_json_projection(
+            "temporal_state",
+            &temporal_bytes,
+            &crate::temporal_state::encode_temporal_state(
+                &graph,
+                &temporal.co_change,
+                &orchestrator.temporal.co_change,
+            )?,
+        )?;
+
+        let ingest_roots: Vec<String> = serde_json::from_slice(&ingest_roots_bytes)?;
+        Self::verify_current_json_projection(
+            "ingest_roots",
+            &ingest_roots_bytes,
+            &canonical_json_bytes(&ingest_roots)?,
+        )?;
+
+        let antibodies = m1nd_core::antibody::decode_antibodies_json(&antibodies_bytes)?;
+        Self::verify_current_json_projection(
+            "antibodies",
+            &antibodies_bytes,
+            &m1nd_core::antibody::encode_antibodies_json(&antibodies)?,
+        )?;
+        let tremor_registry = m1nd_core::tremor::decode_tremor_state_json(&tremor_bytes)?;
+        Self::verify_current_json_projection(
+            "tremor_state",
+            &tremor_bytes,
+            &m1nd_core::tremor::encode_tremor_state_json(&tremor_registry)?,
+        )?;
+        let trust_ledger = m1nd_core::trust::decode_trust_state_json(&trust_bytes)?;
+        Self::verify_current_json_projection(
+            "trust_state",
+            &trust_bytes,
+            &m1nd_core::trust::encode_trust_state_json(&trust_ledger)?,
+        )?;
+        let calibration_table =
+            m1nd_core::calibration::decode_calibration_state_json(&calibration_bytes)?;
+        Self::verify_current_json_projection(
+            "calibration_state",
+            &calibration_bytes,
+            &m1nd_core::calibration::encode_calibration_state_json(&calibration_table)?,
+        )?;
+
+        let daemon_state: DaemonRuntimeState = serde_json::from_slice(&daemon_state_bytes)?;
+        if daemon_state
+            .last_tick_duration_ms
+            .is_some_and(|value| !value.is_finite())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "strict recovery daemon state has a non-finite tick duration".into(),
+            });
+        }
+        Self::verify_current_json_projection(
+            "daemon_state",
+            &daemon_state_bytes,
+            &canonical_json_bytes(&daemon_state)?,
+        )?;
+        let daemon_alerts: Vec<DaemonAlert> = serde_json::from_slice(&daemon_alerts_bytes)?;
+        if daemon_alerts
+            .iter()
+            .any(|alert| !alert.confidence.is_finite())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "strict recovery daemon alerts have a non-finite confidence".into(),
+            });
+        }
+        Self::verify_current_json_projection(
+            "daemon_alerts",
+            &daemon_alerts_bytes,
+            &canonical_json_bytes(&daemon_alerts)?,
+        )?;
+
+        // AutoIngest's compatibility loader is private to its module. Fence it
+        // with a no-follow read before and after, then demand an exact semantic
+        // round-trip through its canonical checkpoint encoder. Any missing,
+        // malformed, unknown, defaulted, or concurrently replaced payload fails.
+        let auto_ingest = AutoIngestState::load(&self.runtime_root);
+        let auto_ingest_after =
+            Self::read_required_recovery_file(&auto_ingest_path, "auto_ingest_state")?;
+        if auto_ingest_bytes != auto_ingest_after {
+            return Err(M1ndError::CorruptState {
+                reason: "auto-ingest checkpoint changed during strict recovery".into(),
+            });
+        }
+        Self::verify_current_json_projection(
+            "auto_ingest_state",
+            &auto_ingest_bytes,
+            &auto_ingest.encode_checkpoint_state()?,
+        )?;
+
+        let document_cache: DocumentCacheState = serde_json::from_slice(&document_cache_bytes)?;
+        Self::verify_current_json_projection(
+            "document_cache_index",
+            &document_cache_bytes,
+            &crate::universal_docs::encode_document_cache(&document_cache)?,
+        )?;
+        let document_artifacts = crate::universal_docs::decode_document_artifact_inventory_strict(
+            &self.runtime_root,
+            &document_cache,
+            &document_artifact_inventory_bytes,
+        )?;
+
+        // This function only reads and validates the exact fixed/dynamic Boot KV
+        // ownership set. It deliberately does not invoke the migration writer.
+        let boot_kv_checkpoint_inventory =
+            crate::boot_kv_migration::checkpoint_inventory(&self.runtime_root)?;
+        let boot_memory = match boot_kv_checkpoint_inventory
+            .fixed_file(crate::boot_kv_migration::LEGACY_BOOT_KV_FILE)
+            .ok_or_else(|| M1ndError::CorruptState {
+                reason: "strict Boot KV inventory omitted the legacy fixed path".into(),
+            })? {
+            Some(bytes) => serde_json::from_slice::<BootMemoryState>(bytes)?.entries,
+            None => HashMap::new(),
+        };
+
+        Ok(StrictRecoveryState {
+            graph,
+            orchestrator,
+            temporal,
+            counterfactual: CounterfactualEngine::with_defaults(),
+            topology: TopologyAnalyzer::with_defaults(),
+            resonance: ResonanceEngine::with_defaults(),
+            plasticity,
+            ingest_roots,
+            antibodies,
+            tremor_registry,
+            trust_ledger,
+            calibration_table,
+            boot_memory,
+            daemon_state,
+            daemon_alerts,
+            auto_ingest,
+            document_cache,
+            document_artifacts,
+            boot_kv_checkpoint_inventory,
+        })
+    }
+
+    /// Rebuild this session from canonical working files after the brain actor
+    /// restored a validated checkpoint. All durable owners are decoded before
+    /// the swap; process-owned handles/paths/config remain on the existing
+    /// session and recovery performs no filesystem write.
+    pub(crate) fn reload_authoritative_from_disk(
+        &mut self,
+        preserve_process_state: bool,
+    ) -> M1ndResult<()> {
+        let recovered = self.prepare_strict_recovery_state()?;
+
+        self.graph = Arc::new(parking_lot::RwLock::new(recovered.graph));
+        self.orchestrator = recovered.orchestrator;
+        self.temporal = recovered.temporal;
+        self.counterfactual = recovered.counterfactual;
+        self.topology = recovered.topology;
+        self.resonance = recovered.resonance;
+        self.plasticity = recovered.plasticity;
+        self.ingest_roots = recovered.ingest_roots;
+        self.antibodies = recovered.antibodies;
+        self.tremor_registry = recovered.tremor_registry;
+        self.trust_ledger = recovered.trust_ledger;
+        self.calibration_table = recovered.calibration_table;
+        self.boot_memory = recovered.boot_memory;
+        // Recovery preserves the exact explicitly checkpointed daemon payload.
+        // Friendly boot sanitization is intentionally not applied here: changing
+        // these bytes would make the working-set digest unverifiable.
+        self.daemon_state = recovered.daemon_state;
+        self.daemon_alerts = recovered.daemon_alerts;
+        self.auto_ingest = recovered.auto_ingest;
+        self.document_cache = recovered.document_cache;
+        self.document_artifacts = recovered.document_artifacts;
+        self.boot_kv_checkpoint_inventory = recovered.boot_kv_checkpoint_inventory;
+
+        // These values are process-only/derived and are never authoritative
+        // checkpoint owners. A stale graph index, one-call proof capability, or
+        // abandoned persistence capability must not cross the recovery fence.
+        self.seek_file_index = None;
+        self.active_proof_permits.clear();
+        self.persistence_stage.set(None);
+        self.staged_binary_snapshot_effects.clear();
+        self.read_only_persist_logged.set(false);
+
+        if !preserve_process_state {
+            self.sessions.clear();
+            self.edit_previews.clear();
+            self.graph_generation = 0;
+            self.plasticity_generation = 0;
+            self.cache_generation = 0;
+            self.perspectives.clear();
+            self.locks.clear();
+            self.perspective_counter.clear();
+            self.lock_counter.clear();
+            self.pending_watcher_events.clear();
+            self.query_log.clear();
+            self.session_start_node_count = 0;
+            self.session_start_edge_count = 0;
+            self.file_inventory.clear();
+            self.coverage_sessions.clear();
+            self.proof_ready.clear();
+            self.flagged_findings.clear();
+            self.queries_processed = 0;
+            self.start_time = Instant::now();
+            self.last_persist_time = None;
+            self.last_antibody_scan_generation = 0;
+            self.agent_memory_boot = None;
+        }
+        Ok(())
     }
 
     /// Check if auto-persist should trigger. Returns true every N queries.
@@ -1870,11 +2433,496 @@ impl SessionState {
         }
     }
 
+    /// Enter actor-owned candidate-first mode. While this capability is live,
+    /// every SessionState/AutoIngest persistence choke point records intent and
+    /// returns success without touching canonical working files.
+    pub(crate) fn begin_checkpoint_staging(&mut self) -> M1ndResult<CheckpointPersistenceStage> {
+        if let Some(active) = self.persistence_stage.get() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "checkpoint persistence transaction {} is already active",
+                active.id
+            )));
+        }
+        if !self.staged_binary_snapshot_effects.is_empty() {
+            return Err(M1ndError::PersistenceFailed(
+                "unresolved staged binary snapshot effects block a new checkpoint transaction"
+                    .into(),
+            ));
+        }
+        let id = self.next_persistence_stage_id;
+        self.next_persistence_stage_id =
+            self.next_persistence_stage_id
+                .checked_add(1)
+                .ok_or_else(|| {
+                    M1ndError::PersistenceFailed(
+                        "checkpoint persistence transaction id exhausted".into(),
+                    )
+                })?;
+        self.auto_ingest.begin_checkpoint_staging(id)?;
+        self.persistence_stage.set(Some(PersistenceStageState {
+            id,
+            persist_requested: false,
+        }));
+        Ok(CheckpointPersistenceStage { id })
+    }
+
+    fn verify_checkpoint_stage(&self, stage: &CheckpointPersistenceStage) -> M1ndResult<()> {
+        let active = self.persistence_stage.get();
+        if active.map(|value| value.id) != Some(stage.id) {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "checkpoint persistence staging token mismatch: active={:?}, observed={}",
+                active.map(|value| value.id),
+                stage.id
+            )));
+        }
+        self.auto_ingest.verify_checkpoint_staging(stage.id)
+    }
+
+    fn note_staged_persist(&self) -> bool {
+        let Some(mut stage) = self.persistence_stage.get() else {
+            return false;
+        };
+        stage.persist_requested = true;
+        self.persistence_stage.set(Some(stage));
+        true
+    }
+
+    /// Serialize the fixed candidate inventory directly from live in-memory
+    /// owners. Kept stage-agnostic so strict recovery can produce the same state
+    /// witness without manufacturing a persistence capability.
+    fn checkpoint_candidate_files(&self) -> M1ndResult<Vec<SessionCheckpointCandidateFile>> {
+        let mut files = Vec::new();
+        let (graph_bytes, temporal_bytes, plasticity_bytes) = {
+            let graph = self.graph.read();
+            let graph_bytes = m1nd_core::snapshot::encode_graph_json(&graph)?;
+            let temporal_bytes = crate::temporal_state::encode_temporal_state(
+                &graph,
+                &self.temporal.co_change,
+                &self.orchestrator.temporal.co_change,
+            )?;
+            let plasticity = self.plasticity.export_state(&graph)?;
+            let plasticity_bytes =
+                m1nd_core::plasticity::encode_plasticity_state_json(&plasticity)?;
+            (graph_bytes, temporal_bytes, plasticity_bytes)
+        };
+
+        push_checkpoint_candidate_file(
+            &mut files,
+            &self.runtime_root,
+            "graph_snapshot",
+            &self.graph_path,
+            CHECKPOINT_GRAPH_SCHEMA_ID,
+            &m1nd_core::snapshot::SNAPSHOT_VERSION.to_string(),
+            CheckpointCandidatePresence::Present(graph_bytes),
+        )?;
+        let ingest_roots_path = self
+            .graph_path
+            .parent()
+            .unwrap_or(&self.runtime_root)
+            .join("ingest_roots.json");
+        push_checkpoint_candidate_file(
+            &mut files,
+            &self.runtime_root,
+            "ingest_roots",
+            &ingest_roots_path,
+            CHECKPOINT_ROOTS_SCHEMA_ID,
+            CHECKPOINT_ROOTS_SCHEMA_VERSION,
+            CheckpointCandidatePresence::Present(canonical_json_bytes(&self.ingest_roots)?),
+        )?;
+
+        let sidecars = [
+            (
+                "plasticity_state",
+                self.plasticity_path.as_path(),
+                CheckpointCandidatePresence::Present(plasticity_bytes),
+            ),
+            (
+                "antibodies",
+                self.antibodies_path.as_path(),
+                CheckpointCandidatePresence::Present(m1nd_core::antibody::encode_antibodies_json(
+                    &self.antibodies,
+                )?),
+            ),
+            (
+                "tremor_state",
+                self.tremor_path.as_path(),
+                CheckpointCandidatePresence::Present(m1nd_core::tremor::encode_tremor_state_json(
+                    &self.tremor_registry,
+                )?),
+            ),
+            (
+                "trust_state",
+                self.trust_path.as_path(),
+                CheckpointCandidatePresence::Present(m1nd_core::trust::encode_trust_state_json(
+                    &self.trust_ledger,
+                )?),
+            ),
+            (
+                "calibration_state",
+                self.calibration_path.as_path(),
+                CheckpointCandidatePresence::Present(
+                    m1nd_core::calibration::encode_calibration_state_json(&self.calibration_table)?,
+                ),
+            ),
+            (
+                "temporal_state",
+                self.temporal_state_path.as_path(),
+                CheckpointCandidatePresence::Present(temporal_bytes),
+            ),
+        ];
+        for (logical_name, path, presence) in sidecars {
+            push_checkpoint_candidate_file(
+                &mut files,
+                &self.runtime_root,
+                logical_name,
+                path,
+                CHECKPOINT_SIDECAR_SCHEMA_ID,
+                CHECKPOINT_SIDECAR_SCHEMA_VERSION,
+                presence,
+            )?;
+        }
+
+        for (logical_name, relative_path) in [
+            (
+                "boot_memory_state",
+                crate::boot_kv_migration::LEGACY_BOOT_KV_FILE,
+            ),
+            ("boot_config", crate::boot_kv_migration::BOOT_CONFIG_FILE),
+            (
+                "boot_kv_migration",
+                crate::boot_kv_migration::MIGRATION_MARKER_FILE,
+            ),
+            (
+                "boot_kv_migration_journal",
+                crate::boot_kv_migration::MIGRATION_JOURNAL_FILE,
+            ),
+        ] {
+            let presence = self
+                .boot_kv_checkpoint_inventory
+                .fixed_file(relative_path)
+                .ok_or_else(|| M1ndError::CorruptState {
+                    reason: format!(
+                        "Boot KV checkpoint inventory omitted fixed path '{relative_path}'"
+                    ),
+                })?
+                .as_ref()
+                .map(|bytes| CheckpointCandidatePresence::Present(bytes.clone()))
+                .unwrap_or(CheckpointCandidatePresence::Absent);
+            push_checkpoint_candidate_file(
+                &mut files,
+                &self.runtime_root,
+                logical_name,
+                &self.runtime_root.join(relative_path),
+                CHECKPOINT_SIDECAR_SCHEMA_ID,
+                CHECKPOINT_SIDECAR_SCHEMA_VERSION,
+                presence,
+            )?;
+        }
+        for (index, (relative_path, bytes)) in self
+            .boot_kv_checkpoint_inventory
+            .migrated_lights()
+            .enumerate()
+        {
+            push_checkpoint_candidate_file(
+                &mut files,
+                &self.runtime_root,
+                &format!("boot_kv_migrated_light_{index}"),
+                &self.runtime_root.join(relative_path),
+                CHECKPOINT_SIDECAR_SCHEMA_ID,
+                CHECKPOINT_SIDECAR_SCHEMA_VERSION,
+                CheckpointCandidatePresence::Present(bytes.to_vec()),
+            )?;
+        }
+
+        let auto_ingest_path = self.runtime_root.join("auto_ingest_state.json");
+        let document_cache_path = self.runtime_root.join("document_cache_index.json");
+        let document_artifact_inventory_path =
+            crate::universal_docs::document_artifact_inventory_path(&self.runtime_root);
+        let binary_snapshot_path = self.graph_path.with_extension("bin");
+        if self
+            .daemon_state
+            .last_tick_duration_ms
+            .is_some_and(|value| !value.is_finite())
+            || self
+                .daemon_alerts
+                .iter()
+                .any(|alert| !alert.confidence.is_finite())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "daemon checkpoint state contains a non-finite value".into(),
+            });
+        }
+        for (logical_name, path, presence) in [
+            (
+                "daemon_state",
+                self.daemon_state_path.as_path(),
+                CheckpointCandidatePresence::Present(canonical_json_bytes(&self.daemon_state)?),
+            ),
+            (
+                "daemon_alerts",
+                self.daemon_alerts_path.as_path(),
+                CheckpointCandidatePresence::Present(canonical_json_bytes(&self.daemon_alerts)?),
+            ),
+            (
+                "auto_ingest_state",
+                auto_ingest_path.as_path(),
+                CheckpointCandidatePresence::Present(self.auto_ingest.encode_checkpoint_state()?),
+            ),
+            (
+                "document_cache_index",
+                document_cache_path.as_path(),
+                CheckpointCandidatePresence::Present(crate::universal_docs::encode_document_cache(
+                    &self.document_cache,
+                )?),
+            ),
+            (
+                "embeddings_cache",
+                self.embeddings_cache_path.as_path(),
+                // The cache is derived and has no complete in-memory owner.
+                // Explicit absence is safer than checkpointing stale disk bytes.
+                CheckpointCandidatePresence::Absent,
+            ),
+            (
+                "binary_graph_snapshot",
+                binary_snapshot_path.as_path(),
+                // Binary snapshots are a derived, explicitly requested export.
+                // Their exact graph source is queued in memory and materialized
+                // only after CURRENT; otherwise stale exports are removed.
+                CheckpointCandidatePresence::Absent,
+            ),
+        ] {
+            push_checkpoint_candidate_file(
+                &mut files,
+                &self.runtime_root,
+                logical_name,
+                path,
+                CHECKPOINT_SIDECAR_SCHEMA_ID,
+                CHECKPOINT_SIDECAR_SCHEMA_VERSION,
+                presence,
+            )?;
+        }
+
+        crate::universal_docs::validate_inventory_against_cache(
+            &self.runtime_root,
+            &self.document_artifacts,
+            &self.document_cache,
+        )?;
+        push_checkpoint_candidate_file(
+            &mut files,
+            &self.runtime_root,
+            "document_artifact_inventory",
+            &document_artifact_inventory_path,
+            crate::universal_docs::DOCUMENT_ARTIFACT_INVENTORY_SCHEMA_ID,
+            crate::universal_docs::DOCUMENT_ARTIFACT_SCHEMA_VERSION,
+            CheckpointCandidatePresence::Present(
+                crate::universal_docs::encode_document_artifact_inventory(
+                    &self.document_artifacts,
+                )?,
+            ),
+        )?;
+
+        for artifact in self.document_artifacts.files() {
+            let presence = match &artifact.presence {
+                DocumentArtifactPresence::Present(bytes) => {
+                    CheckpointCandidatePresence::Present(bytes.clone())
+                }
+                DocumentArtifactPresence::Absent => CheckpointCandidatePresence::Absent,
+            };
+            push_checkpoint_candidate_file(
+                &mut files,
+                &self.runtime_root,
+                &artifact.logical_name,
+                &self.runtime_root.join(&artifact.relative_path),
+                crate::universal_docs::DOCUMENT_ARTIFACT_SCHEMA_ID,
+                crate::universal_docs::DOCUMENT_ARTIFACT_SCHEMA_VERSION,
+                presence,
+            )?;
+        }
+
+        let mut logical_names = HashSet::new();
+        let mut relative_paths = HashSet::new();
+        for file in &files {
+            if !logical_names.insert(file.logical_name.as_str()) {
+                return Err(M1ndError::CorruptState {
+                    reason: format!(
+                        "candidate checkpoint contains duplicate logical name '{}'",
+                        file.logical_name
+                    ),
+                });
+            }
+            if !relative_paths.insert(file.relative_path.as_str()) {
+                return Err(M1ndError::CorruptState {
+                    reason: format!(
+                        "candidate checkpoint contains duplicate owned path '{}'",
+                        file.relative_path
+                    ),
+                });
+            }
+        }
+        Ok(files)
+    }
+
+    /// Serialize the exact candidate directly from live in-memory owners. No
+    /// filesystem write or working-file read occurs here. Every fixed managed
+    /// path is represented explicitly as PRESENT or ABSENT, and every path is
+    /// lexically confined beneath the runtime root before bytes are returned.
+    pub(crate) fn checkpoint_candidate(
+        &self,
+        stage: &CheckpointPersistenceStage,
+    ) -> M1ndResult<SessionCheckpointCandidate> {
+        self.verify_checkpoint_stage(stage)?;
+        let files = self.checkpoint_candidate_files()?;
+        let session_requested = self
+            .persistence_stage
+            .get()
+            .is_some_and(|active| active.persist_requested);
+        let auto_ingest_requested = self.auto_ingest.checkpoint_persist_requested(stage.id)?;
+        // Only the PRESENT/ABSENT working set is authoritative and therefore
+        // restart-reconstructible. Derived post-CURRENT effects are tracked by
+        // `persist_requested` and the live stage, but never folded into this
+        // digest unless their bytes are also sealed in the candidate.
+        let state_digest = checkpoint_candidate_digest(&files);
+        Ok(SessionCheckpointCandidate {
+            files,
+            persist_requested: session_requested || auto_ingest_requested,
+            state_digest,
+        })
+    }
+
+    /// Stage-free witness of the currently rebuilt authoritative in-memory
+    /// working set. The brain actor compares this with the digest stored in the
+    /// checkpoint working-set envelope after rollback/reconciliation. An active
+    /// stage or unresolved derived effect is refused rather than omitted.
+    pub(crate) fn authoritative_checkpoint_state_digest(&self) -> M1ndResult<String> {
+        if let Some(active) = self.persistence_stage.get() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "authoritative digest is unavailable while checkpoint transaction {} is active",
+                active.id
+            )));
+        }
+        if !self.staged_binary_snapshot_effects.is_empty() {
+            return Err(M1ndError::PersistenceFailed(
+                "authoritative digest is unavailable with unresolved derived effects".into(),
+            ));
+        }
+        let files = self.checkpoint_candidate_files()?;
+        Ok(checkpoint_candidate_digest(&files))
+    }
+
+    /// Replace the live SharedGraph with a v4 encode/decode deep clone. Any Arc
+    /// escaped by an untrusted callback continues to point at the detached old
+    /// graph and can no longer mutate the actor-owned state after the callback
+    /// boundary.
+    pub(crate) fn rebind_detached_graph(&mut self) -> M1ndResult<()> {
+        let bytes = {
+            let graph = self.graph.read();
+            m1nd_core::snapshot::encode_graph_json(&graph)?
+        };
+        let graph = m1nd_core::snapshot::decode_graph_json(&bytes)?;
+        self.graph = Arc::new(parking_lot::RwLock::new(graph));
+        Ok(())
+    }
+
+    /// Actor-aware implementation of `persist(format="bin")`. During a
+    /// checkpoint transaction it captures the exact graph as v4 JSON and queues
+    /// a typed derived effect; no binary/canonical path is touched. Outside an
+    /// actor transaction it preserves the historical immediate write behavior.
+    pub(crate) fn persist_binary_snapshot(&mut self) -> M1ndResult<PathBuf> {
+        let path = self.graph_path.with_extension("bin");
+        if self.persistence_stage.get().is_some() {
+            let relative_path = strict_runtime_relative_path(&self.runtime_root, &path)?;
+            let graph_v4_json = {
+                let graph = self.graph.read();
+                m1nd_core::snapshot::encode_graph_json(&graph)?
+            };
+            self.staged_binary_snapshot_effects
+                .retain(|effect| effect.relative_path != relative_path);
+            self.staged_binary_snapshot_effects
+                .push(StagedBinarySnapshotEffect {
+                    relative_path,
+                    graph_v4_json,
+                });
+            let _ = self.note_staged_persist();
+            return Ok(path);
+        }
+
+        refuse_non_regular_checkpoint_target(&path)?;
+        let graph = self.graph.read();
+        m1nd_core::snapshot_bin::save_graph(&graph, &path)?;
+        let plasticity = self.plasticity.export_state(&graph)?;
+        m1nd_core::snapshot::save_plasticity_state(&plasticity, &self.plasticity_path)?;
+        Ok(path)
+    }
+
+    /// Materialize queued derived exports after CURRENT selected and validated
+    /// the candidate. Graph bytes come from the staged v4 payload, not from a
+    /// potentially changed live Arc. Effects remain queued on any error so the
+    /// transaction cannot close or report a false success.
+    pub(crate) fn apply_staged_post_commit_effects(
+        &mut self,
+        stage: &CheckpointPersistenceStage,
+    ) -> M1ndResult<usize> {
+        self.verify_checkpoint_stage(stage)?;
+        for effect in &self.staged_binary_snapshot_effects {
+            let path = self.runtime_root.join(&effect.relative_path);
+            let observed = strict_runtime_relative_path(&self.runtime_root, &path)?;
+            if observed != effect.relative_path {
+                return Err(M1ndError::CorruptState {
+                    reason: "staged binary snapshot path changed identity".into(),
+                });
+            }
+            refuse_non_regular_checkpoint_target(&path)?;
+            let graph = m1nd_core::snapshot::decode_graph_json(&effect.graph_v4_json)?;
+            m1nd_core::snapshot_bin::save_graph(&graph, &path)?;
+        }
+        let applied = self.staged_binary_snapshot_effects.len();
+        self.staged_binary_snapshot_effects.clear();
+        Ok(applied)
+    }
+
+    /// Release the persistence fence only after the caller has either confirmed
+    /// CURRENT or restored an authoritative preimage. A wrong token never
+    /// clears the fence.
+    pub(crate) fn finish_checkpoint_staging(
+        &mut self,
+        stage: CheckpointPersistenceStage,
+    ) -> M1ndResult<bool> {
+        self.verify_checkpoint_stage(&stage)?;
+        if !self.staged_binary_snapshot_effects.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "{} staged binary snapshot effect(s) were not applied after CURRENT",
+                self.staged_binary_snapshot_effects.len()
+            )));
+        }
+        let session_requested = self
+            .persistence_stage
+            .get()
+            .is_some_and(|active| active.persist_requested);
+        let auto_ingest_requested = self.auto_ingest.finish_checkpoint_staging(stage.id)?;
+        self.persistence_stage.set(None);
+        Ok(session_requested || auto_ingest_requested)
+    }
+
+    /// Abandon an actor candidate after the callback was refused and before
+    /// restoring the authoritative checkpoint. No staged post-CURRENT effect
+    /// may survive into the reload, and closing the token here is required so
+    /// strict reload does not mistake the rejected transaction for a live one.
+    pub(crate) fn abort_checkpoint_staging(
+        &mut self,
+        stage: CheckpointPersistenceStage,
+    ) -> M1ndResult<()> {
+        self.verify_checkpoint_stage(&stage)?;
+        self.staged_binary_snapshot_effects.clear();
+        let _ = self.auto_ingest.finish_checkpoint_staging(stage.id)?;
+        self.persistence_stage.set(None);
+        Ok(())
+    }
+
     /// Persist all state to disk.
     ///
-    /// Ordering: graph first (source of truth), then plasticity.
-    /// If graph save fails, skip plasticity to avoid inconsistent state.
-    /// If plasticity save fails after graph succeeds, log warning but don't crash.
+    /// Ordering: graph first (source of truth), then every durable sidecar.
+    /// The actor checkpoint fence requires an all-or-error result: logging and
+    /// continuing would let a readable old sidecar masquerade as the new state.
     pub fn persist(&mut self) -> M1ndResult<()> {
         // HARD SAFETY: a read-only attach must never write to disk. This is the
         // single choke point every persist call site funnels through, so this
@@ -1883,95 +2931,57 @@ impl SessionState {
             self.log_read_only_persist_skip();
             return Ok(());
         }
-        let _ = self.instance.mark_heartbeat();
-        self.persist_ingest_roots();
+        if self.note_staged_persist() {
+            return Ok(());
+        }
+        self.instance.mark_heartbeat()?;
+        self.persist_ingest_roots()?;
         let graph = self.graph.read();
 
         // Graph is the source of truth — save it first.
         m1nd_core::snapshot::save_graph(&graph, &self.graph_path)?;
 
-        // Graph succeeded. Now try plasticity — failure here is non-fatal.
-        match self.plasticity.export_state(&graph) {
-            Ok(states) => {
-                if let Err(e) =
-                    m1nd_core::snapshot::save_plasticity_state(&states, &self.plasticity_path)
-                {
-                    eprintln!(
-                        "[m1nd] WARNING: graph saved but plasticity persist failed: {}",
-                        e
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!(
-                    "[m1nd] WARNING: graph saved but plasticity export failed: {}",
-                    e
-                );
-            }
-        }
+        // Temporal evidence is graph-bound and affects action authorization.
+        // Unlike advisory sidecars below, failure is fatal: publishing a
+        // complete persist while silently discarding learned co-change state
+        // would make restart behavior non-reproducible.
+        crate::temporal_state::save_temporal_state(
+            &self.temporal_state_path,
+            &graph,
+            &self.temporal.co_change,
+            &self.orchestrator.temporal.co_change,
+        )?;
 
-        // Antibodies — failure here is non-fatal.
-        if !self.antibodies.is_empty() {
-            if let Err(e) =
-                m1nd_core::antibody::save_antibodies(&self.antibodies, &self.antibodies_path)
-            {
-                eprintln!("[m1nd] WARNING: antibody persist failed: {}", e);
-            }
-        }
-
-        if let Err(e) = m1nd_core::trust::save_trust_state(&self.trust_ledger, &self.trust_path) {
-            eprintln!("[m1nd] WARNING: trust persist failed: {}", e);
-        }
-
-        if let Err(e) = m1nd_core::calibration::save_calibration_state(
+        let plasticity = self.plasticity.export_state(&graph)?;
+        m1nd_core::snapshot::save_plasticity_state(&plasticity, &self.plasticity_path)?;
+        m1nd_core::antibody::save_antibodies(&self.antibodies, &self.antibodies_path)?;
+        m1nd_core::trust::save_trust_state(&self.trust_ledger, &self.trust_path)?;
+        m1nd_core::calibration::save_calibration_state(
             &self.calibration_table,
             &self.calibration_path,
-        ) {
-            eprintln!("[m1nd] WARNING: calibration persist failed: {}", e);
-        }
-
-        if let Err(e) =
-            m1nd_core::tremor::save_tremor_state(&self.tremor_registry, &self.tremor_path)
-        {
-            eprintln!("[m1nd] WARNING: tremor persist failed: {}", e);
-        }
-
-        if let Err(e) = self.persist_boot_memory() {
-            eprintln!("[m1nd] WARNING: boot memory persist failed: {}", e);
-        }
-        if let Err(e) = self.persist_daemon_state() {
-            eprintln!("[m1nd] WARNING: daemon state persist failed: {}", e);
-        }
-        if let Err(e) = self.persist_daemon_alerts() {
-            eprintln!("[m1nd] WARNING: daemon alert persist failed: {}", e);
-        }
-        if let Err(e) = self.auto_ingest.persist(&self.runtime_root) {
-            eprintln!("[m1nd] WARNING: auto-ingest persist failed: {}", e);
-        }
-        if let Err(e) = persist_document_cache(&self.runtime_root, &self.document_cache) {
-            eprintln!("[m1nd] WARNING: document cache persist failed: {}", e);
-        }
+        )?;
+        m1nd_core::tremor::save_tremor_state(&self.tremor_registry, &self.tremor_path)?;
+        self.persist_boot_memory()?;
+        self.persist_daemon_state()?;
+        self.persist_daemon_alerts()?;
+        self.auto_ingest.persist(&self.runtime_root)?;
+        // Universal cache index, inventory, and bodies are candidate-only.
+        // Their sole physical publisher is the brain checkpoint projection
+        // after CURRENT; a legacy/direct persist must never expose them early.
 
         self.last_persist_time = Some(Instant::now());
         Ok(())
     }
 
-    fn persist_ingest_roots(&mut self) {
+    fn persist_ingest_roots(&mut self) -> M1ndResult<()> {
         let persist_root = self
             .graph_path
             .parent()
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(|| self.runtime_root.clone());
-        if let Err(e) = std::fs::create_dir_all(&persist_root) {
-            eprintln!("[m1nd] WARNING: ingest roots persist dir failed: {}", e);
-            return;
-        }
+        std::fs::create_dir_all(&persist_root)?;
         let ingest_roots_path = persist_root.join("ingest_roots.json");
-        if let Ok(json) = serde_json::to_string_pretty(&self.ingest_roots) {
-            if let Err(e) = std::fs::write(&ingest_roots_path, json) {
-                eprintln!("[m1nd] WARNING: ingest roots persist failed: {}", e);
-            }
-        }
+        save_json_atomic(&ingest_roots_path, &self.ingest_roots)
     }
 
     fn load_ingest_roots(graph_path: &std::path::Path) -> Vec<String> {
@@ -1988,6 +2998,14 @@ impl SessionState {
     pub fn persist_boot_memory(&self) -> M1ndResult<()> {
         if self.read_only {
             self.log_read_only_persist_skip();
+            return Ok(());
+        }
+        if self.note_staged_persist() {
+            return Ok(());
+        }
+        if crate::boot_kv_migration::migration_status(&self.runtime_root)?.is_some() {
+            // The compatibility source is retired. Do not even rewrite the
+            // empty tombstone: there is exactly one active sink per entry type.
             return Ok(());
         }
         let state = BootMemoryState {
@@ -2008,6 +3026,18 @@ impl SessionState {
         if self.read_only {
             self.log_read_only_persist_skip();
             return Ok(());
+        }
+        if self.note_staged_persist() {
+            return Ok(());
+        }
+        if self
+            .daemon_state
+            .last_tick_duration_ms
+            .is_some_and(|value| !value.is_finite())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "daemon state contains a non-finite tick duration".into(),
+            });
         }
         save_json_atomic(&self.daemon_state_path, &self.daemon_state)
     }
@@ -2048,6 +3078,18 @@ impl SessionState {
         if self.read_only {
             self.log_read_only_persist_skip();
             return Ok(());
+        }
+        if self.note_staged_persist() {
+            return Ok(());
+        }
+        if self
+            .daemon_alerts
+            .iter()
+            .any(|alert| !alert.confidence.is_finite())
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "daemon alerts contain a non-finite confidence".into(),
+            });
         }
         save_json_atomic(&self.daemon_alerts_path, &self.daemon_alerts)
     }
@@ -2103,6 +3145,8 @@ impl SessionState {
         self.mark_all_lock_baselines_stale();
         self.graph_generation += 1;
         self.cache_generation = self.cache_generation.max(self.graph_generation);
+        self.proof_ready.clear();
+        self.active_proof_permits.clear();
 
         Ok(())
     }
@@ -2113,6 +3157,8 @@ impl SessionState {
     pub fn bump_graph_generation(&mut self) {
         self.graph_generation += 1;
         self.cache_generation = self.cache_generation.max(self.graph_generation);
+        self.proof_ready.clear();
+        self.active_proof_permits.clear();
     }
 
     /// Bump plasticity generation (Theme 1). Called after learn.
@@ -2592,49 +3638,263 @@ impl SessionState {
         }
     }
 
-    /// Record that `agent_id` drove `raw_target` to `proof_state ==
-    /// "ready_to_edit"` (M1ND_PROOF_GATE). `raw_target` may be absolute,
-    /// repo-relative, or `file::`-prefixed; it is normalized through
-    /// [`crate::scope::normalize_scope_path`] so the recorded key compares equal
-    /// to the key the write gate derives from the about-to-edit path. A target
-    /// that normalizes to `None` (empty/repo-root) is skipped so a malformed
-    /// target never silently grants edit permission. `evidence` names the prover.
-    pub fn note_proof_ready(&mut self, agent_id: &str, raw_target: &str, evidence: &str) {
-        let Some(target) = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)
-        else {
-            return;
+    /// Resolve a proof target to one canonical absolute identity. Unlike the
+    /// legacy repo-relative key, this preserves which ingest root owns the file,
+    /// so equal relative paths in two brains/scopes cannot share a mark.
+    fn proof_target_identity(&self, raw_target: &str) -> Result<String, String> {
+        if self.ingest_roots.is_empty() {
+            return Err("no ingest roots are bound".to_string());
+        }
+        let raw = raw_target
+            .trim()
+            .strip_prefix("file::")
+            .unwrap_or(raw_target.trim());
+        if raw.is_empty() {
+            return Err("target is empty".to_string());
+        }
+
+        let requested = Path::new(raw);
+        let candidate = if requested.is_absolute() {
+            requested.to_path_buf()
+        } else {
+            // Mirror surgical apply resolution exactly: newest existing match,
+            // otherwise the newest bound root for a not-yet-created file.
+            self.ingest_roots
+                .iter()
+                .rev()
+                .map(|root| Path::new(root).join(requested))
+                .find(|path| path.exists())
+                .or_else(|| {
+                    self.ingest_roots
+                        .last()
+                        .map(|root| Path::new(root).join(requested))
+                })
+                .ok_or_else(|| "target has no resolvable ingest root".to_string())?
         };
+
+        let identity = if candidate.exists() {
+            candidate
+                .canonicalize()
+                .map_err(|error| format!("cannot canonicalize target: {error}"))?
+        } else {
+            let parent = candidate
+                .parent()
+                .ok_or_else(|| "target has no parent directory".to_string())?;
+            let file_name = candidate
+                .file_name()
+                .ok_or_else(|| "target has no file name".to_string())?;
+            parent
+                .canonicalize()
+                .map_err(|error| format!("cannot canonicalize target parent: {error}"))?
+                .join(file_name)
+        };
+
+        let inside_bound_root = self.ingest_roots.iter().any(|root| {
+            Path::new(root)
+                .canonicalize()
+                .is_ok_and(|canonical_root| identity.starts_with(canonical_root))
+        });
+        if !inside_bound_root {
+            return Err(format!(
+                "target '{}' escapes every bound ingest root",
+                identity.display()
+            ));
+        }
+        Ok(crate::scope::normalize_path_text(
+            &identity.to_string_lossy(),
+        ))
+    }
+
+    fn proof_target_digest(target_identity: &str) -> Result<String, String> {
+        let path = Path::new(target_identity);
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(format!("sha256:{:x}", Sha256::digest(bytes))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Missing is a first-class disk state, not an empty-file hash.
+                Ok("missing".to_string())
+            }
+            Err(error) => Err(format!("cannot read proof target: {error}")),
+        }
+    }
+
+    fn validate_proof_mark(
+        &self,
+        agent_id: &str,
+        raw_target: &str,
+        active: bool,
+    ) -> Result<(String, ProofReadyMark), String> {
+        let target = self.proof_target_identity(raw_target)?;
+        let key = (agent_id.to_string(), target.clone());
+        let marks = if active {
+            &self.active_proof_permits
+        } else {
+            &self.proof_ready
+        };
+        let mark = marks.get(&key).cloned().ok_or_else(|| {
+            "proof mark is missing for this agent and exact target scope".to_string()
+        })?;
+        if mark.target_identity != target {
+            return Err("proof target identity no longer matches".to_string());
+        }
+        if mark.graph_generation != self.graph_generation {
+            return Err(format!(
+                "proof graph generation is stale (proved={}, current={})",
+                mark.graph_generation, self.graph_generation
+            ));
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        self.proof_ready.insert(
-            (agent_id.to_string(), target),
-            ProofReadyMark {
-                proved_at_ms: now_ms,
-                generation: self.cache_generation,
-                evidence: Some(evidence.to_string()),
-            },
-        );
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(u64::MAX);
+        if now_ms > mark.expires_at_ms {
+            return Err("proof mark TTL expired".to_string());
+        }
+        let disk_digest = Self::proof_target_digest(&target)?;
+        if disk_digest != mark.target_digest {
+            return Err(format!(
+                "proof target digest changed (proved={}, current={})",
+                mark.target_digest, disk_digest
+            ));
+        }
+        Ok((target, mark))
     }
 
-    /// Whether `agent_id` has a proof-ready mark for `raw_target` (normalized via
-    /// the same [`crate::scope::normalize_scope_path`] used when recording). A
-    /// target that normalizes to `None` is treated as not-proved.
-    pub fn is_proof_ready(&self, agent_id: &str, raw_target: &str) -> bool {
-        let Some(target) = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)
-        else {
-            return false;
+    /// Record a generation/digest/TTL-bound, one-shot proof mark. Failure is
+    /// explicit: a prover may never report ready while silently failing to bind
+    /// the exact disk target.
+    pub fn note_proof_ready(
+        &mut self,
+        agent_id: &str,
+        raw_target: &str,
+        evidence: &str,
+    ) -> Result<ProofReadyMark, String> {
+        self.note_proof_ready_inner(agent_id, raw_target, evidence, None)
+    }
+
+    /// Production prover entry: additionally requires that the exact bytes the
+    /// agent inspected still equal disk at mark creation. This prevents a race
+    /// from binding a changed file that was never part of the proof packet.
+    pub fn note_proof_ready_for_content(
+        &mut self,
+        agent_id: &str,
+        raw_target: &str,
+        evidence: &str,
+        inspected_content: &[u8],
+    ) -> Result<ProofReadyMark, String> {
+        self.note_proof_ready_inner(
+            agent_id,
+            raw_target,
+            evidence,
+            Some(format!("sha256:{:x}", Sha256::digest(inspected_content))),
+        )
+    }
+
+    fn note_proof_ready_inner(
+        &mut self,
+        agent_id: &str,
+        raw_target: &str,
+        evidence: &str,
+        inspected_digest: Option<String>,
+    ) -> Result<ProofReadyMark, String> {
+        if agent_id.trim().is_empty() {
+            return Err("agent_id is empty".to_string());
+        }
+        let target_identity = self.proof_target_identity(raw_target)?;
+        let target_digest = Self::proof_target_digest(&target_identity)?;
+        if let Some(inspected_digest) = inspected_digest {
+            if inspected_digest != target_digest {
+                return Err(format!(
+                    "target changed while proof context was being assembled (inspected={inspected_digest}, current={target_digest})"
+                ));
+            }
+        }
+        let proved_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let mark = ProofReadyMark {
+            proved_at_ms,
+            expires_at_ms: proved_at_ms.saturating_add(PROOF_READY_TTL_MS),
+            graph_generation: self.graph_generation,
+            target_identity: target_identity.clone(),
+            target_digest,
+            evidence: Some(evidence.to_string()),
         };
         self.proof_ready
-            .contains_key(&(agent_id.to_string(), target))
+            .insert((agent_id.to_string(), target_identity), mark.clone());
+        Ok(mark)
     }
 
-    /// Borrow the proof-ready mark for inspection (staleness/evidence), mirroring
-    /// [`Self::get_perspective`].
+    /// True only while every live binding of the mark still matches disk.
+    pub fn is_proof_ready(&self, agent_id: &str, raw_target: &str) -> bool {
+        self.validate_proof_mark(agent_id, raw_target, false)
+            .is_ok()
+    }
+
+    /// Borrow the mark for inspection. This accessor deliberately returns stale
+    /// marks too; callers that authorize writes must use validation/consumption.
     pub fn get_proof_ready(&self, agent_id: &str, raw_target: &str) -> Option<&ProofReadyMark> {
-        let target = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)?;
+        let target = self.proof_target_identity(raw_target).ok()?;
         self.proof_ready.get(&(agent_id.to_string(), target))
+    }
+
+    /// Return a fully revalidated proof mark for an internal typed mutation
+    /// consumer. This is inspection only: authority and one-shot consumption
+    /// remain the responsibility of the caller's trusted dispatch path.
+    pub(crate) fn validated_proof_ready_mark(
+        &self,
+        agent_id: &str,
+        raw_target: &str,
+    ) -> Result<ProofReadyMark, String> {
+        self.validate_proof_mark(agent_id, raw_target, false)
+            .map(|(_, mark)| mark)
+    }
+
+    /// Atomically validate all targets, then move all marks Ready -> Consumed.
+    /// If any target is stale/missing, none are consumed. Returned identities
+    /// are the cleanup token for the synchronous dispatcher.
+    pub fn consume_proof_ready_targets(
+        &mut self,
+        agent_id: &str,
+        raw_targets: &[String],
+    ) -> Result<Vec<String>, String> {
+        let mut validated = Vec::with_capacity(raw_targets.len());
+        let mut seen = BTreeSet::new();
+        for raw_target in raw_targets {
+            let (identity, mark) = self.validate_proof_mark(agent_id, raw_target, false)?;
+            if seen.insert(identity.clone()) {
+                validated.push((identity, mark));
+            }
+        }
+        if validated.is_empty() {
+            return Err("physical write resolved no proof targets".to_string());
+        }
+        let mut identities = Vec::with_capacity(validated.len());
+        for (identity, mark) in validated {
+            let key = (agent_id.to_string(), identity.clone());
+            self.proof_ready.remove(&key);
+            self.active_proof_permits.insert(key, mark);
+            identities.push(identity);
+        }
+        Ok(identities)
+    }
+
+    /// Re-check the consumed permit immediately before publishing source bytes.
+    pub fn validate_active_proof_permit(
+        &self,
+        agent_id: &str,
+        raw_target: &str,
+    ) -> Result<(), String> {
+        self.validate_proof_mark(agent_id, raw_target, true)
+            .map(|_| ())
+    }
+
+    /// Drop dispatcher-scoped consumed permits on both success and failure.
+    pub fn clear_active_proof_permits(&mut self, agent_id: &str, identities: &[String]) {
+        for identity in identities {
+            self.active_proof_permits
+                .remove(&(agent_id.to_string(), identity.clone()));
+        }
     }
 
     /// Record that `agent_id`'s scan/audit flagged a finding against `node_id`
@@ -2700,6 +3960,137 @@ impl SessionState {
     }
 }
 
+fn strict_runtime_relative_path(runtime_root: &Path, path: &Path) -> M1ndResult<String> {
+    let relative = path.strip_prefix(runtime_root).map_err(|_| {
+        M1ndError::PersistenceFailed(format!(
+            "checkpoint-managed path '{}' escapes runtime root '{}'",
+            path.display(),
+            runtime_root.display()
+        ))
+    })?;
+    if relative.as_os_str().is_empty()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(M1ndError::PersistenceFailed(format!(
+            "checkpoint-managed path '{}' is not a strict relative file path",
+            path.display()
+        )));
+    }
+    relative.to_str().map(str::to_string).ok_or_else(|| {
+        M1ndError::PersistenceFailed(format!(
+            "checkpoint-managed path '{}' is not UTF-8",
+            path.display()
+        ))
+    })
+}
+
+fn push_checkpoint_candidate_file(
+    files: &mut Vec<SessionCheckpointCandidateFile>,
+    runtime_root: &Path,
+    logical_name: &str,
+    path: &Path,
+    schema_id: &str,
+    schema_version: &str,
+    presence: CheckpointCandidatePresence,
+) -> M1ndResult<()> {
+    if logical_name.trim().is_empty()
+        || schema_id.trim().is_empty()
+        || schema_version.trim().is_empty()
+    {
+        return Err(M1ndError::CorruptState {
+            reason: "candidate checkpoint metadata contains an empty identifier".into(),
+        });
+    }
+    files.push(SessionCheckpointCandidateFile {
+        logical_name: logical_name.to_string(),
+        relative_path: strict_runtime_relative_path(runtime_root, path)?,
+        schema_id: schema_id.to_string(),
+        schema_version: schema_version.to_string(),
+        presence,
+    });
+    Ok(())
+}
+
+fn refuse_non_regular_checkpoint_target(path: &Path) -> M1ndResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        M1ndError::PersistenceFailed("post-commit derived target has no parent".into())
+    })?;
+    let parent_metadata = std::fs::symlink_metadata(parent)?;
+    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+        return Err(M1ndError::PersistenceFailed(format!(
+            "post-commit derived target parent '{}' is not a real directory",
+            parent.display()
+        )));
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            Err(M1ndError::PersistenceFailed(format!(
+                "post-commit derived target '{}' is not a regular no-follow file",
+                path.display()
+            )))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn checkpoint_candidate_digest(files: &[SessionCheckpointCandidateFile]) -> String {
+    fn update_field(hasher: &mut Sha256, bytes: &[u8]) {
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+
+    let mut ordered = files.iter().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| {
+        left.logical_name
+            .cmp(&right.logical_name)
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(b"m1nd/session-checkpoint-candidate/v1\0");
+    hasher.update((ordered.len() as u64).to_be_bytes());
+    for file in ordered {
+        update_field(&mut hasher, file.logical_name.as_bytes());
+        update_field(&mut hasher, file.relative_path.as_bytes());
+        update_field(&mut hasher, file.schema_id.as_bytes());
+        update_field(&mut hasher, file.schema_version.as_bytes());
+        match &file.presence {
+            CheckpointCandidatePresence::Present(bytes) => {
+                hasher.update([1]);
+                update_field(&mut hasher, bytes);
+            }
+            CheckpointCandidatePresence::Absent => hasher.update([0]),
+        }
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
+    fn canonicalize(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(canonicalize).collect())
+            }
+            serde_json::Value::Object(values) => {
+                let mut entries = values.into_iter().collect::<Vec<_>>();
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
+                let mut sorted = serde_json::Map::new();
+                for (key, value) in entries {
+                    sorted.insert(key, canonicalize(value));
+                }
+                serde_json::Value::Object(sorted)
+            }
+            scalar => scalar,
+        }
+    }
+
+    let value = serde_json::to_value(value)?;
+    Ok(serde_json::to_vec_pretty(&canonicalize(value))?)
+}
+
 fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -2713,12 +4104,17 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{basename_of, SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
+    use super::{
+        basename_of, CheckpointCandidatePresence, ProofReadyMark, SeekFileIndexCache, SessionState,
+        WORKSPACE_ROOT_ENV_CANDIDATES,
+    };
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
-    use m1nd_core::types::NodeType;
-    use std::sync::{Mutex, OnceLock};
+    use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -2754,6 +4150,100 @@ mod tests {
         }
     }
 
+    fn snapshot_regular_files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(root: &Path, current: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            let mut entries = std::fs::read_dir(current)
+                .expect("read snapshot directory")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("read snapshot entries");
+            entries.sort_by_key(|entry| entry.file_name());
+            for entry in entries {
+                let path = entry.path();
+                let metadata = std::fs::symlink_metadata(&path).expect("snapshot metadata");
+                if metadata.is_dir() {
+                    visit(root, &path, files);
+                } else if metadata.is_file() {
+                    files.insert(
+                        path.strip_prefix(root)
+                            .expect("relative snapshot path")
+                            .to_path_buf(),
+                        std::fs::read(path).expect("snapshot file"),
+                    );
+                }
+            }
+        }
+
+        let mut files = BTreeMap::new();
+        visit(root, root, &mut files);
+        files
+    }
+
+    fn project_candidate_for_test(runtime: &Path, candidate: &super::SessionCheckpointCandidate) {
+        for file in &candidate.files {
+            let path = runtime.join(&file.relative_path);
+            match &file.presence {
+                CheckpointCandidatePresence::Present(bytes) => {
+                    std::fs::create_dir_all(path.parent().expect("candidate parent"))
+                        .expect("create candidate parent");
+                    std::fs::write(path, bytes).expect("project candidate file");
+                }
+                CheckpointCandidatePresence::Absent => match std::fs::remove_file(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => panic!("remove candidate absence: {error}"),
+                },
+            }
+        }
+    }
+
+    fn strict_recovery_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let registry = temp.path().join("registry");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            registry_dir: Some(registry.clone()),
+            ..McpConfig::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("node::source", "source", NodeType::Function, &[], 1.0, 0.5)
+            .expect("source node");
+        graph
+            .add_node("node::target", "target", NodeType::Function, &[], 1.0, 0.5)
+            .expect("target node");
+        graph
+            .add_edge(
+                NodeId::new(0),
+                NodeId::new(1),
+                "calls",
+                FiniteF32::new(0.8),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        graph.finalize().expect("finalize");
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("initialize strict fixture");
+        state.daemon_state.tick_in_flight = true;
+        state.daemon_state.pending_rerun = true;
+        state.daemon_state.watch_backend = "native_fs".into();
+        let stage = state
+            .begin_checkpoint_staging()
+            .expect("stage strict fixture candidate");
+        let candidate = state
+            .checkpoint_candidate(&stage)
+            .expect("strict fixture candidate");
+        project_candidate_for_test(&runtime, &candidate);
+        state
+            .finish_checkpoint_staging(stage)
+            .expect("finish strict fixture candidate");
+        (temp, runtime, registry, state)
+    }
+
     #[test]
     fn workspace_root_uses_graph_parent_for_normal_graph_path() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -2774,6 +4264,445 @@ mod tests {
         assert_eq!(
             state.workspace_root_source.as_deref(),
             Some("graph_path_parent")
+        );
+    }
+
+    #[test]
+    fn candidate_staging_suppresses_working_writes_and_is_deterministic() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let graph_path = runtime.join("graph.json");
+        let daemon_path = runtime.join("daemon_state.json");
+        let auto_ingest_path = runtime.join("auto_ingest_state.json");
+        let binary_path = runtime.join("graph.bin");
+        let config = McpConfig {
+            graph_source: graph_path.clone(),
+            plasticity_state: runtime.join("plasticity.json"),
+            runtime_dir: Some(runtime.clone()),
+            ..McpConfig::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("file::one", "one", NodeType::File, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize");
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("initialize session");
+
+        let stage = state
+            .begin_checkpoint_staging()
+            .expect("begin checkpoint staging");
+        assert!(state.begin_checkpoint_staging().is_err());
+        state.persist().expect("staged full persist");
+        state
+            .persist_daemon_state()
+            .expect("staged granular persist");
+        state
+            .auto_ingest
+            .persist(&runtime)
+            .expect("staged auto-ingest persist");
+        let before_binary = state
+            .checkpoint_candidate(&stage)
+            .expect("candidate before derived export");
+        assert_eq!(
+            state
+                .persist_binary_snapshot()
+                .expect("queue binary snapshot"),
+            binary_path
+        );
+        assert!(!graph_path.exists());
+        assert!(!daemon_path.exists());
+        assert!(!auto_ingest_path.exists());
+        assert!(!binary_path.exists());
+
+        let first = state.checkpoint_candidate(&stage).expect("first candidate");
+        let second = state
+            .checkpoint_candidate(&stage)
+            .expect("second candidate");
+        assert_eq!(first, second);
+        assert_eq!(
+            before_binary.state_digest, first.state_digest,
+            "a derived post-CURRENT binary export is not part of the authoritative candidate digest"
+        );
+        assert!(first.persist_requested);
+        assert_eq!(first.state_digest.len(), 64);
+        assert!(matches!(
+            first
+                .files
+                .iter()
+                .find(|file| file.logical_name == "document_artifact_inventory")
+                .expect("explicit document artifact inventory candidate")
+                .presence,
+            CheckpointCandidatePresence::Present(_)
+        ));
+        let graph_file = first
+            .files
+            .iter()
+            .find(|file| file.logical_name == "graph_snapshot")
+            .expect("graph candidate");
+        let CheckpointCandidatePresence::Present(graph_bytes) = &graph_file.presence else {
+            panic!("graph must be present")
+        };
+        let snapshot: serde_json::Value = serde_json::from_slice(graph_bytes).expect("graph JSON");
+        assert_eq!(snapshot["version"], m1nd_core::snapshot::SNAPSHOT_VERSION);
+        assert!(matches!(
+            first
+                .files
+                .iter()
+                .find(|file| file.logical_name == "embeddings_cache")
+                .expect("explicit derived cache decision")
+                .presence,
+            CheckpointCandidatePresence::Absent
+        ));
+
+        assert_eq!(
+            state
+                .apply_staged_post_commit_effects(&stage)
+                .expect("apply derived exports"),
+            1
+        );
+        assert_eq!(
+            m1nd_core::snapshot_bin::load_graph(&binary_path)
+                .expect("load staged binary")
+                .num_nodes(),
+            1
+        );
+        assert!(state
+            .finish_checkpoint_staging(stage)
+            .expect("finish staging"));
+        state.persist().expect("direct persist after staging");
+        assert!(graph_path.exists());
+        assert!(daemon_path.exists());
+        assert!(auto_ingest_path.exists());
+    }
+
+    #[test]
+    fn checkpoint_stage_clone_retains_capability_but_cannot_finish_twice() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        let stage = state.begin_checkpoint_staging().expect("begin stage");
+        let retained = stage.clone();
+        assert_eq!(
+            state
+                .checkpoint_candidate(&stage)
+                .expect("original token")
+                .state_digest,
+            state
+                .checkpoint_candidate(&retained)
+                .expect("retained token")
+                .state_digest
+        );
+        state
+            .finish_checkpoint_staging(stage)
+            .expect("finish original token");
+        assert!(state.checkpoint_candidate(&retained).is_err());
+    }
+
+    #[test]
+    fn strict_reload_is_pure_reuses_instance_and_matches_working_set_digest() {
+        let (_temp, runtime, registry, mut state) = strict_recovery_fixture();
+        let expected_digest = state
+            .authoritative_checkpoint_state_digest()
+            .expect("authoritative digest before mutation");
+        let instance_id = state.instance.summary().instance_id;
+        let registry_entry = registry
+            .join("instances")
+            .join(format!("{instance_id}.json"));
+        let registry_bytes = std::fs::read(&registry_entry).expect("registry entry");
+        let runtime_before = snapshot_regular_files(&runtime);
+
+        // Explicit durable daemon bytes must be restored exactly. These three
+        // values are sanitized only by friendly boot, never by checkpoint
+        // recovery, because changing them would invalidate the stored digest.
+        state.daemon_state.tick_in_flight = false;
+        state.daemon_state.pending_rerun = false;
+        state.daemon_state.watch_backend = "polling".into();
+        state.ingest_roots.push("postimage-only".into());
+        state.seek_file_index = Some(SeekFileIndexCache::default());
+        state.active_proof_permits.insert(
+            ("agent".into(), "target".into()),
+            ProofReadyMark {
+                proved_at_ms: 1,
+                expires_at_ms: 2,
+                graph_generation: state.graph_generation,
+                target_identity: "target".into(),
+                target_digest: "missing".into(),
+                evidence: Some("test".into()),
+            },
+        );
+        let _abandoned_stage = state.begin_checkpoint_staging().expect("abandoned stage");
+
+        state
+            .reload_authoritative_from_disk(false)
+            .expect("strict authoritative reload");
+
+        assert_eq!(state.instance.summary().instance_id, instance_id);
+        assert_eq!(
+            std::fs::read(&registry_entry).expect("registry entry after reload"),
+            registry_bytes,
+            "strict reload must not heartbeat or rewrite the registry"
+        );
+        assert_eq!(snapshot_regular_files(&runtime), runtime_before);
+        assert!(state.daemon_state.tick_in_flight);
+        assert!(state.daemon_state.pending_rerun);
+        assert_eq!(state.daemon_state.watch_backend, "native_fs");
+        assert!(state.seek_file_index.is_none());
+        assert!(state.active_proof_permits.is_empty());
+        assert!(state.persistence_stage.get().is_none());
+        assert_eq!(
+            state
+                .authoritative_checkpoint_state_digest()
+                .expect("digest after rebuild"),
+            expected_digest
+        );
+    }
+
+    #[test]
+    fn strict_reload_is_all_or_nothing_on_corrupt_current_sidecar() {
+        let (_temp, _runtime, registry, mut state) = strict_recovery_fixture();
+        state.ingest_roots.push("uncommitted-postimage".into());
+        let postimage_digest = state
+            .authoritative_checkpoint_state_digest()
+            .expect("postimage digest");
+        let instance_id = state.instance.summary().instance_id;
+        let registry_entry = registry
+            .join("instances")
+            .join(format!("{instance_id}.json"));
+        let registry_bytes = std::fs::read(&registry_entry).expect("registry entry");
+        std::fs::write(&state.trust_path, b"{not-json").expect("corrupt trust sidecar");
+
+        state
+            .reload_authoritative_from_disk(false)
+            .expect_err("corrupt required sidecar must fail closed");
+        assert_eq!(
+            state.ingest_roots.last().map(String::as_str),
+            Some("uncommitted-postimage")
+        );
+        assert_eq!(
+            state
+                .authoritative_checkpoint_state_digest()
+                .expect("failed reload leaves live state untouched"),
+            postimage_digest
+        );
+        assert_eq!(state.instance.summary().instance_id, instance_id);
+        assert_eq!(
+            std::fs::read(registry_entry).expect("registry after failed reload"),
+            registry_bytes
+        );
+    }
+
+    #[test]
+    fn strict_reload_rejects_every_missing_required_current_sidecar() {
+        let (_temp, runtime, _registry, mut state) = strict_recovery_fixture();
+        let required = [
+            state.graph_path.clone(),
+            runtime.join("ingest_roots.json"),
+            state.plasticity_path.clone(),
+            state.antibodies_path.clone(),
+            state.tremor_path.clone(),
+            state.trust_path.clone(),
+            state.calibration_path.clone(),
+            state.temporal_state_path.clone(),
+            state.daemon_state_path.clone(),
+            state.daemon_alerts_path.clone(),
+            runtime.join("auto_ingest_state.json"),
+            runtime.join("document_cache_index.json"),
+            crate::universal_docs::document_artifact_inventory_path(&runtime),
+        ];
+        for (index, path) in required.into_iter().enumerate() {
+            let backup = runtime.join(format!("missing-required-{index}.bak"));
+            std::fs::rename(&path, &backup).expect("hide required sidecar");
+            let result = state.reload_authoritative_from_disk(false);
+            std::fs::rename(&backup, &path).expect("restore required sidecar");
+            assert!(
+                result.is_err(),
+                "missing required sidecar was accepted: {}",
+                path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn strict_reload_rejects_incomplete_plasticity_and_lossy_auto_ingest() {
+        let (_temp, runtime, _registry, mut state) = strict_recovery_fixture();
+        let plasticity: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&state.plasticity_path).expect("plasticity bytes"),
+        )
+        .expect("plasticity value");
+        let empty = serde_json::to_vec_pretty(&serde_json::json!([])).expect("empty rows");
+        std::fs::write(&state.plasticity_path, empty).expect("incomplete plasticity");
+        assert!(state.reload_authoritative_from_disk(false).is_err());
+        std::fs::write(
+            &state.plasticity_path,
+            serde_json::to_vec_pretty(&plasticity).expect("plasticity restore"),
+        )
+        .expect("restore plasticity");
+
+        let auto_path = runtime.join("auto_ingest_state.json");
+        let mut auto: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&auto_path).expect("auto-ingest bytes"))
+                .expect("auto-ingest value");
+        auto["future_field"] = serde_json::json!(true);
+        std::fs::write(
+            &auto_path,
+            serde_json::to_vec_pretty(&auto).expect("auto-ingest json"),
+        )
+        .expect("write lossy auto-ingest");
+        assert!(state.reload_authoritative_from_disk(false).is_err());
+    }
+
+    #[test]
+    fn candidate_refuses_paths_outside_runtime_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let config = McpConfig {
+            graph_source: temp.path().join("outside-graph.json"),
+            plasticity_state: runtime.join("plasticity.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        let stage = state.begin_checkpoint_staging().expect("begin staging");
+        let error = state
+            .checkpoint_candidate(&stage)
+            .expect_err("external graph path must be refused");
+        assert!(error.to_string().contains("escapes runtime root"));
+    }
+
+    #[test]
+    fn read_only_session_can_use_staging_as_a_non_writing_snapshot_fence() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            read_only: true,
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize read-only session");
+        let stage = state
+            .begin_checkpoint_staging()
+            .expect("read snapshot fence");
+        state.persist().expect("read-only persist remains a no-op");
+        let candidate = state
+            .checkpoint_candidate(&stage)
+            .expect("detached read witness");
+        assert!(!candidate.persist_requested);
+        assert!(!config.graph_source.exists());
+        assert!(!state
+            .finish_checkpoint_staging(stage)
+            .expect("finish read fence"));
+    }
+
+    #[test]
+    fn graph_rebind_neutralizes_an_escaped_shared_graph_arc() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = McpConfig {
+            graph_source: temp.path().join("graph.json"),
+            plasticity_state: temp.path().join("plasticity.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        let escaped = Arc::clone(&state.graph);
+        state.rebind_detached_graph().expect("deep-clone graph");
+        assert!(!Arc::ptr_eq(&escaped, &state.graph));
+        escaped
+            .write()
+            .add_node("escaped", "escaped", NodeType::File, &[], 0.0, 0.0)
+            .expect("mutate detached graph");
+        assert_eq!(escaped.read().num_nodes(), 1);
+        assert_eq!(state.graph.read().num_nodes(), 0);
+    }
+
+    #[test]
+    fn session_persist_and_restart_restore_both_temporal_matrices() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            registry_dir: Some(temp.path().join("registry")),
+            ..McpConfig::default()
+        };
+        let mut graph = Graph::new();
+        for index in 0..3 {
+            graph
+                .add_node(
+                    &format!("node_{index}"),
+                    &format!("node_{index}"),
+                    NodeType::File,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add node");
+        }
+        graph.finalize().expect("finalize");
+
+        let mut first = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("first initialize");
+        for _ in 0..3 {
+            first
+                .temporal
+                .co_change
+                .note_node_appearance(NodeId::new(0));
+            first
+                .temporal
+                .co_change
+                .note_node_appearance(NodeId::new(1));
+            first
+                .temporal
+                .co_change
+                .record_co_change(NodeId::new(0), NodeId::new(1), 0.0)
+                .expect("learn primary");
+        }
+        for _ in 0..6 {
+            first
+                .orchestrator
+                .temporal
+                .co_change
+                .note_node_appearance(NodeId::new(0));
+            first
+                .orchestrator
+                .temporal
+                .co_change
+                .note_node_appearance(NodeId::new(2));
+            first
+                .orchestrator
+                .temporal
+                .co_change
+                .record_co_change(NodeId::new(0), NodeId::new(2), 0.0)
+                .expect("learn orchestrator");
+        }
+        let expected_primary = first.temporal.co_change.predict(NodeId::new(0), 8);
+        let expected_orchestrator = first
+            .orchestrator
+            .temporal
+            .co_change
+            .predict(NodeId::new(0), 8);
+        first.persist().expect("persist complete session");
+        drop(first);
+
+        let restored_graph =
+            m1nd_core::snapshot::load_graph(&config.graph_source).expect("load persisted graph");
+        let restored = SessionState::initialize(restored_graph, &config, DomainConfig::code())
+            .expect("restart initialize");
+        assert_eq!(
+            restored.temporal.co_change.predict(NodeId::new(0), 8),
+            expected_primary
+        );
+        assert_eq!(
+            restored
+                .orchestrator
+                .temporal
+                .co_change
+                .predict(NodeId::new(0), 8),
+            expected_orchestrator
         );
     }
 
@@ -2840,7 +4769,7 @@ mod tests {
         let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("initialize session");
         state.ingest_roots = vec![];
-        state.workspace_root = Some("/Users/x/solo-repo".to_string());
+        state.workspace_root = Some("/Users/<name>/solo-repo".to_string());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
     }
 
@@ -2962,12 +4891,12 @@ mod tests {
         // Windows backslash paths: the chronic red Windows CI case — a '\\'
         // separator must name the same repo a '/' separator does.
         assert_eq!(
-            basename_of(r"C:\Users\dev\m1nd"),
+            basename_of(r"C:\Users\<name>\m1nd"),
             "m1nd",
             "backslash path must yield the repo basename, not the whole string"
         );
         assert_eq!(
-            basename_of(r"C:\Users\dev\m1nd\"),
+            basename_of(r"C:\Users\<name>\m1nd\"),
             "m1nd",
             "trailing backslash tolerated"
         );
@@ -2975,7 +4904,7 @@ mod tests {
         assert_eq!(basename_of(r"\\server\share\repo"), "repo", "UNC path");
         // Mixed separators (some tools emit these on Windows).
         assert_eq!(
-            basename_of(r"C:\Users\dev/m1nd"),
+            basename_of(r"C:\Users\<name>/m1nd"),
             "m1nd",
             "mixed separators"
         );
@@ -3406,5 +5335,129 @@ mod tests {
             state.workspace_root_source.as_deref(),
             Some("env:ANTIGRAVITY_WORKSPACE_ROOT")
         );
+    }
+
+    fn proof_test_state(root: &Path) -> SessionState {
+        let runtime = root.join(".m1nd-test-runtime");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph.json"),
+            plasticity_state: runtime.join("plasticity.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize proof state");
+        state.ingest_roots = vec![root.to_string_lossy().into_owned()];
+        state.workspace_root = Some(root.to_string_lossy().into_owned());
+        state
+    }
+
+    #[test]
+    fn proof_mark_binds_digest_generation_ttl_agent_and_exact_scope() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("src/lib.rs");
+        std::fs::create_dir_all(target.parent().expect("parent")).expect("src");
+        std::fs::write(&target, "pub fn one() {}\n").expect("target");
+        let mut state = proof_test_state(temp.path());
+
+        let raced = state
+            .note_proof_ready_for_content(
+                "agent-a",
+                &target.to_string_lossy(),
+                "test",
+                b"stale inspected bytes\n",
+            )
+            .expect_err("uninspected current bytes must not be marked");
+        assert!(raced.contains("changed while proof context"));
+
+        let mark = state
+            .note_proof_ready("agent-a", &target.to_string_lossy(), "test")
+            .expect("proof mark");
+        assert!(mark.target_digest.starts_with("sha256:"));
+        assert_eq!(mark.graph_generation, state.graph_generation);
+        assert!(mark.expires_at_ms > mark.proved_at_ms);
+        assert!(state.is_proof_ready("agent-a", &target.to_string_lossy()));
+        assert!(!state.is_proof_ready("agent-b", &target.to_string_lossy()));
+
+        std::fs::write(&target, "pub fn changed() {}\n").expect("mutate target");
+        assert!(!state.is_proof_ready("agent-a", &target.to_string_lossy()));
+        assert!(state
+            .consume_proof_ready_targets("agent-a", &[target.to_string_lossy().into_owned()],)
+            .expect_err("changed digest must refuse")
+            .contains("digest changed"));
+    }
+
+    #[test]
+    fn proof_mark_consumption_is_atomic_and_one_shot() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let first = temp.path().join("first.rs");
+        let second = temp.path().join("second.rs");
+        std::fs::write(&first, "one\n").expect("first");
+        std::fs::write(&second, "two\n").expect("second");
+        let mut state = proof_test_state(temp.path());
+        state
+            .note_proof_ready("agent", &first.to_string_lossy(), "test")
+            .expect("first proof");
+
+        let error = state
+            .consume_proof_ready_targets(
+                "agent",
+                &[
+                    first.to_string_lossy().into_owned(),
+                    second.to_string_lossy().into_owned(),
+                ],
+            )
+            .expect_err("all-or-none consumption");
+        assert!(error.contains("missing"));
+        assert!(state.is_proof_ready("agent", &first.to_string_lossy()));
+
+        state
+            .note_proof_ready("agent", &second.to_string_lossy(), "test")
+            .expect("second proof");
+        let identities = state
+            .consume_proof_ready_targets(
+                "agent",
+                &[
+                    first.to_string_lossy().into_owned(),
+                    second.to_string_lossy().into_owned(),
+                ],
+            )
+            .expect("consume both");
+        assert!(!state.is_proof_ready("agent", &first.to_string_lossy()));
+        state
+            .validate_active_proof_permit("agent", &first.to_string_lossy())
+            .expect("active permit");
+        state.clear_active_proof_permits("agent", &identities);
+        assert!(state
+            .validate_active_proof_permit("agent", &first.to_string_lossy())
+            .is_err());
+        assert!(state
+            .consume_proof_ready_targets("agent", &[first.to_string_lossy().into_owned()])
+            .is_err());
+    }
+
+    #[test]
+    fn proof_mark_generation_bump_and_ttl_expiry_invalidate() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("lib.rs");
+        std::fs::write(&target, "one\n").expect("target");
+        let mut state = proof_test_state(temp.path());
+        let mark = state
+            .note_proof_ready("agent", &target.to_string_lossy(), "test")
+            .expect("proof");
+        state
+            .proof_ready
+            .get_mut(&("agent".to_string(), mark.target_identity.clone()))
+            .expect("stored mark")
+            .expires_at_ms = 0;
+        assert!(!state.is_proof_ready("agent", &target.to_string_lossy()));
+
+        state
+            .note_proof_ready("agent", &target.to_string_lossy(), "test")
+            .expect("fresh proof");
+        state.bump_graph_generation();
+        assert!(!state.is_proof_ready("agent", &target.to_string_lossy()));
+        assert!(state.proof_ready.is_empty());
     }
 }

@@ -1,3 +1,13 @@
+//! Process-instance discovery and writer-lease registry.
+//!
+//! The lifecycle capability is deliberately crate-private. External callers may
+//! inspect the public registry records, but they cannot acquire, clone, release,
+//! or heartbeat the process-owned writer handle.
+//!
+//! ```compile_fail
+//! use m1nd_mcp::instance_registry::InstanceHandle;
+//! ```
+
 use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use parking_lot::Mutex;
@@ -5,8 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
@@ -52,7 +63,7 @@ pub struct InstanceRegistryEntry {
 /// discoverable `instances/<id>.json` entry and always succeeds, even while a
 /// live `ReadWrite` owner holds the lease.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InstanceMode {
+pub(crate) enum InstanceMode {
     ReadWrite,
     ReadOnly,
 }
@@ -60,7 +71,7 @@ pub enum InstanceMode {
 impl InstanceMode {
     /// On-disk string used in the `mode` field. Kept stable for backward
     /// compatibility with the ~54k existing lease/instance JSON files.
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             InstanceMode::ReadWrite => "read_write",
             InstanceMode::ReadOnly => "read_only",
@@ -73,7 +84,7 @@ impl InstanceMode {
     // Infallible, default-on-unknown conversion — the std `FromStr` trait would
     // force a never-used `Err` type, so an inherent method is the right shape.
     #[allow(clippy::should_implement_trait)]
-    pub fn from_str(value: &str) -> Self {
+    pub(crate) fn from_str(value: &str) -> Self {
         match value {
             "read_only" => InstanceMode::ReadOnly,
             _ => InstanceMode::ReadWrite,
@@ -92,12 +103,22 @@ pub struct GcReport {
     pub scanned: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct InstanceHandle {
+#[derive(Debug)]
+pub(crate) struct InstanceHandle {
     inner: Arc<Mutex<InstanceHandleInner>>,
 }
 
-#[derive(Clone, Debug)]
+/// Revocable, heartbeat-only projection of one unique [`InstanceHandle`].
+///
+/// The weak reference cannot extend the owner's lifetime, and the only allowed
+/// operation checks the owner's `released` bit while holding the same mutex that
+/// linearizes release and file removal.
+#[derive(Debug)]
+pub(crate) struct InstanceHeartbeatPermit {
+    inner: Weak<Mutex<InstanceHandleInner>>,
+}
+
+#[derive(Debug)]
 struct InstanceHandleInner {
     entry: InstanceRegistryEntry,
     registry_root: PathBuf,
@@ -105,13 +126,21 @@ struct InstanceHandleInner {
     /// `Some` only for `ReadWrite` handles. `ReadOnly` handles hold no
     /// exclusive lease, so they have no lease file to refresh or remove.
     lock_path: Option<PathBuf>,
+    /// Crash-released, per-runtime OS lock held for the full writer lifetime.
+    /// Modern contenders cannot replace a merely stale heartbeat while the
+    /// original process still owns this guard. Legacy owners without the guard
+    /// remain recoverable through the historical PID+heartbeat lease rule.
+    owner_lifetime_guard: Option<OwnerLifetimeGuard>,
     mode: InstanceMode,
+    /// Linear revocation bit. Set before release removes either registry file;
+    /// every persistence path checks it under this same mutex.
+    released: bool,
 }
 
 impl InstanceHandle {
-    /// Acquire in the default `ReadWrite` mode. Behavior is identical to the
-    /// historical single-argument-set version; existing callers are untouched.
-    pub fn acquire(
+    /// Acquire in the default `ReadWrite` mode. This is the unique lifecycle
+    /// capability for the runtime root; same-PID duplicates are refused too.
+    pub(crate) fn acquire(
         workspace_root: &Path,
         runtime_root: &Path,
         graph_source: &Path,
@@ -130,15 +159,15 @@ impl InstanceHandle {
 
     /// Acquire with an explicit mode.
     ///
-    /// `ReadWrite` is the exclusive PID+heartbeat lease (unchanged from before):
-    /// if a live, non-stale, foreign owner holds the lease for this
-    /// `runtime_root`, this returns `AlreadyExists`.
+    /// `ReadWrite` is the exclusive PID+heartbeat lease: a same-PID duplicate is
+    /// always refused, and a live, non-stale foreign owner also returns
+    /// `AlreadyExists`.
     ///
     /// `ReadOnly` always succeeds and never touches the lease file. It only
     /// writes an `instances/<id>.json` entry (with `mode:"read_only"`) so the
     /// attacher is discoverable via `list_instances`. Multiple `ReadOnly`
     /// attachers and one `ReadWrite` owner coexist with zero conflict.
-    pub fn acquire_with_mode(
+    pub(crate) fn acquire_with_mode(
         workspace_root: &Path,
         runtime_root: &Path,
         graph_source: &Path,
@@ -161,25 +190,6 @@ impl InstanceHandle {
         let lease_file = registry_root
             .join(LEASE_DIR_NAME)
             .join(format!("{}.json", fingerprint_path(&runtime_root)));
-
-        // ReadWrite is the only mode that contends for the exclusive lease.
-        // ReadOnly never inspects, steals, or overwrites the lease file.
-        if mode == InstanceMode::ReadWrite && lease_file.exists() {
-            let existing: InstanceRegistryEntry = read_json(&lease_file)?;
-            let live = is_pid_live(existing.pid);
-            let stale = is_stale(existing.last_heartbeat_ms);
-            if live && !stale && existing.pid != std::process::id() {
-                return Err(M1ndError::Io(std::io::Error::new(
-                    std::io::ErrorKind::AlreadyExists,
-                    format!(
-                        "runtime_root {} is already owned by instance {} (pid {})",
-                        runtime_root.display(),
-                        existing.instance_id,
-                        existing.pid
-                    ),
-                )));
-            }
-        }
 
         let now_ms = now_ms();
         let instance_id = generate_instance_id(&workspace_root, &runtime_root, now_ms);
@@ -206,15 +216,30 @@ impl InstanceHandle {
             .join(INSTANCE_DIR_NAME)
             .join(format!("{}.json", instance_id));
 
-        // ReadOnly: discovery entry only, no exclusive lease.
-        let lock_path = match mode {
+        // ReadWrite claims the canonical lease with create_new/O_EXCL while the
+        // per-lease mutation guard serializes identity-checked stale recovery.
+        // ReadOnly remains discovery-only and never touches either primitive.
+        let (lock_path, owner_lifetime_guard) = match mode {
             InstanceMode::ReadWrite => {
-                save_json_atomic(&lease_file, &entry)?;
-                Some(lease_file)
+                let lifetime_guard = OwnerLifetimeGuard::acquire(&lease_file)?;
+                claim_readwrite_lease(&lease_file, &entry)?;
+                (Some(lease_file), Some(lifetime_guard))
             }
-            InstanceMode::ReadOnly => None,
+            InstanceMode::ReadOnly => (None, None),
         };
-        save_json_atomic(&entry_path, &entry)?;
+        if let Err(error) = save_json_atomic(&entry_path, &entry) {
+            if let Some(lock_path) = &lock_path {
+                // Acquisition is not published until both files exist. If the
+                // discovery entry fails, relinquish only the exclusive lease
+                // this attempt just created before returning the original error.
+                if let Err(cleanup_error) = remove_owned_lease_file(lock_path, &entry) {
+                    return Err(M1ndError::Io(std::io::Error::other(format!(
+                            "instance discovery write failed: {error}; exclusive lease cleanup failed: {cleanup_error}"
+                        ))));
+                }
+            }
+            return Err(error);
+        }
 
         Ok(Self {
             inner: Arc::new(Mutex::new(InstanceHandleInner {
@@ -222,16 +247,30 @@ impl InstanceHandle {
                 registry_root,
                 entry_path,
                 lock_path,
+                owner_lifetime_guard,
                 mode,
+                released: false,
             })),
         })
     }
 
-    pub fn set_running_endpoint(&self, bind: String, port: u16) -> M1ndResult<()> {
+    pub(crate) fn set_running_endpoint(&mut self, bind: String, port: u16) -> M1ndResult<()> {
         let mut inner = self.inner.lock();
+        ensure_instance_active(&inner)?;
         inner.entry.bind = Some(bind);
         inner.entry.port = Some(port);
         inner.entry.status = "running".into();
+        inner.entry.last_heartbeat_ms = now_ms();
+        persist_handle_inner(&inner)
+    }
+
+    /// Withdraw an HTTP endpoint without releasing the process-owned instance.
+    /// Used by a background HTTP sidecar whose stdio owner remains alive.
+    pub(crate) fn clear_running_endpoint(&mut self) -> M1ndResult<()> {
+        let mut inner = self.inner.lock();
+        ensure_instance_active(&inner)?;
+        inner.entry.bind = None;
+        inner.entry.port = None;
         inner.entry.last_heartbeat_ms = now_ms();
         persist_handle_inner(&inner)
     }
@@ -244,89 +283,151 @@ impl InstanceHandle {
     ///
     /// STABLE-ID re-key (the "duplicate workspace" field bug): `acquire` mints an
     /// EPHEMERAL instance id (pid + clock + a per-process nonce) that changes on
-    /// every boot. For a long-lived owner that is harmless (its dead-pid entry is
-    /// GC'd on restart), but a hosted brain warm-boots repeatedly WITHIN one live
-    /// owner (the eviction gate drops a brain's handle without `release`, so its
-    /// `instances/<id>.json` lingers under a still-live pid, and the next resolve
-    /// mints a NEW ephemeral id) — so the Hall listed one card PER boot. A brain
-    /// entry therefore takes a DETERMINISTIC id, `inst_<hash(workspace+runtime)>`,
-    /// stable across every warm-boot of the same store, so the boot UPSERTS the
-    /// SAME file instead of minting a duplicate. Attachers never reach here
-    /// (`ReadOnly` never calls `set_brain_kind`), so the N-attacher design keeps
-    /// its ephemeral, per-attacher ids untouched.
-    pub fn set_brain_kind(&self, brain_kind: &str) -> M1ndResult<()> {
+    /// every boot. A brain entry instead takes a DETERMINISTIC id,
+    /// `inst_<hash(workspace+runtime)>`, stable across clean release/reboot and
+    /// able to reconcile duplicate files inherited from pre-linear-handle builds.
+    /// Attachers never reach here (`ReadOnly` never calls `set_brain_kind`), so
+    /// the N-attacher design keeps its ephemeral, per-attacher ids untouched.
+    pub(crate) fn set_brain_kind(&mut self, brain_kind: &str) -> M1ndResult<()> {
         let mut inner = self.inner.lock();
-        inner.entry.brain_kind = Some(brain_kind.to_string());
-
+        ensure_instance_active(&inner)?;
+        let previous_entry = inner.entry.clone();
+        let previous_entry_path = inner.entry_path.clone();
+        let mut next_entry = previous_entry.clone();
+        next_entry.brain_kind = Some(brain_kind.to_string());
         let stable_id =
-            stable_brain_instance_id(&inner.entry.workspace_root, &inner.entry.runtime_root);
-        if inner.entry.instance_id != stable_id {
-            // Drop the ephemeral-id file this handle wrote at `acquire`; the brain
-            // is re-keyed onto its stable id (an atomic upsert-by-filename from
-            // here on — the warm-boot rewrites this one file, never a new one).
-            let ephemeral_path = inner.entry_path.clone();
-            inner.entry.instance_id = stable_id.clone();
-            inner.entry_path = inner
-                .registry_root
-                .join(INSTANCE_DIR_NAME)
-                .join(format!("{stable_id}.json"));
-            if ephemeral_path != inner.entry_path {
-                let _ = fs::remove_file(&ephemeral_path);
-            }
+            stable_brain_instance_id(&next_entry.workspace_root, &next_entry.runtime_root);
+        next_entry.instance_id = stable_id.clone();
+        let next_entry_path = inner
+            .registry_root
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{stable_id}.json"));
+
+        // Preserve the old in-memory identity/path and its discovery file until
+        // the new entry is durable and the owned lease commits the re-key. A
+        // pre-commit error therefore leaves Drop able to name the old lease.
+        commit_brain_rekey(&inner, &previous_entry, &next_entry, &next_entry_path)?;
+
+        // The lease write is the commit point. Publish its identity in memory
+        // before best-effort cleanup so every later Drop/heartbeat names it.
+        inner.entry = next_entry;
+        inner.entry_path = next_entry_path;
+        if previous_entry_path != inner.entry_path {
+            let _ = remove_owned_registry_file(&previous_entry_path, &previous_entry);
         }
-        // Write the (re-keyed) entry + refresh the lease, THEN reconcile away any
-        // stale duplicates of THIS store left by earlier ephemeral-id boots.
-        persist_handle_inner(&inner)?;
+
+        // Reconcile away stale duplicates of this store only after commit.
         reconcile_brain_duplicates(&inner);
         Ok(())
     }
 
-    pub fn mark_heartbeat(&self) -> M1ndResult<()> {
+    pub(crate) fn mark_heartbeat(&mut self) -> M1ndResult<()> {
         let mut inner = self.inner.lock();
-        inner.entry.last_heartbeat_ms = now_ms();
-        if inner.entry.status == "starting" {
-            inner.entry.status = "running".into();
-        }
-        persist_handle_inner(&inner)
+        mark_heartbeat_inner(&mut inner)
     }
 
-    pub fn mark_degraded(&self) -> M1ndResult<()> {
+    pub(crate) fn mark_degraded(&mut self) -> M1ndResult<()> {
         let mut inner = self.inner.lock();
+        ensure_instance_active(&inner)?;
         inner.entry.status = "degraded".into();
         inner.entry.last_heartbeat_ms = now_ms();
         persist_handle_inner(&inner)
     }
 
-    pub fn summary(&self) -> InstanceRegistryEntry {
+    pub(crate) fn summary(&self) -> InstanceRegistryEntry {
         self.inner.lock().entry.clone()
     }
 
-    pub fn registry_root(&self) -> PathBuf {
+    pub(crate) fn registry_root(&self) -> PathBuf {
         self.inner.lock().registry_root.clone()
     }
 
     /// The mode this handle was acquired with.
-    pub fn mode(&self) -> InstanceMode {
+    pub(crate) fn mode(&self) -> InstanceMode {
         self.inner.lock().mode
     }
 
-    pub fn release(&self) -> M1ndResult<()> {
-        let inner = self.inner.lock();
+    /// Mint the only background capability derived from this unique owner.
+    /// It can refresh liveness and nothing else; it cannot keep the owner alive.
+    pub(crate) fn heartbeat_permit(&self) -> InstanceHeartbeatPermit {
+        InstanceHeartbeatPermit {
+            inner: Arc::downgrade(&self.inner),
+        }
+    }
+
+    /// Revoke this unique owner and remove only registry files that still name
+    /// this acquisition. Idempotent: a second call retries any leftover cleanup.
+    pub(crate) fn release(&mut self) -> M1ndResult<()> {
+        let mut inner = self.inner.lock();
+        // This is the linearization point. A heartbeat that completed before it
+        // may have written once; we delete afterward. A heartbeat arriving after
+        // it observes `released` and exits without touching the filesystem.
+        inner.released = true;
+
+        let mut first_error = None;
         // ReadOnly handles hold no lease; only the discovery entry is removed.
         if let Some(lock_path) = &inner.lock_path {
-            let _ = fs::remove_file(lock_path);
+            if let Err(error) = remove_owned_lease_file(lock_path, &inner.entry) {
+                first_error = Some(error);
+            }
         }
-        let _ = fs::remove_file(&inner.entry_path);
-        Ok(())
+        if let Err(error) = remove_owned_registry_file(&inner.entry_path, &inner.entry) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => {
+                // Registry removal is the release commit. Only now may a
+                // contender acquire the crash-released lifetime lock.
+                inner.owner_lifetime_guard.take();
+                Ok(())
+            }
+        }
     }
 }
 
-pub fn spawn_heartbeat(instance: InstanceHandle) -> JoinHandle<()> {
+impl Drop for InstanceHandle {
+    fn drop(&mut self) {
+        if self.release().is_err() {
+            // Fail-safe cleanup ownership: if registry removal failed, retain
+            // the OS lifetime lock until process exit rather than let another
+            // writer start against ambiguous files. Explicit release callers
+            // can retry while the handle is alive; Drop has no such caller.
+            std::mem::forget(Arc::clone(&self.inner));
+        }
+    }
+}
+
+impl InstanceHeartbeatPermit {
+    /// `Ok(true)` means one heartbeat landed. `Ok(false)` is terminal: the
+    /// unique owner was released or dropped and the task must exit.
+    pub(crate) fn heartbeat(&self) -> M1ndResult<bool> {
+        let Some(inner) = self.inner.upgrade() else {
+            return Ok(false);
+        };
+        let mut inner = inner.lock();
+        if inner.released {
+            return Ok(false);
+        }
+        mark_heartbeat_inner(&mut inner)?;
+        Ok(true)
+    }
+}
+
+pub(crate) fn spawn_heartbeat(permit: InstanceHeartbeatPermit) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(5));
         loop {
             ticker.tick().await;
-            let _ = instance.mark_heartbeat();
+            match permit.heartbeat() {
+                Ok(true) => {}
+                Ok(false) => break,
+                // Preserve the historical best-effort heartbeat posture for a
+                // transient I/O error; release/drop is the explicit exit signal.
+                Err(_) => continue,
+            }
         }
     })
 }
@@ -426,7 +527,9 @@ pub fn delete_instance_state(
         }
     }
     let _ = fs::remove_file(&entry_path);
-    let _ = fs::remove_file(&lease_path);
+    // Never let an explicit stale-state deletion unlink a successor that won
+    // the canonical lease after this instance entry was inspected.
+    let _ = remove_owned_lease_file(&lease_path, &entry);
     Ok(entry)
 }
 
@@ -450,12 +553,14 @@ pub fn gc_dead_leases(registry_root: &Path) -> std::io::Result<GcReport> {
     gc_dead_in_dir(
         &registry_root.join(LEASE_DIR_NAME),
         &live,
+        true,
         &mut report.scanned,
         &mut report.leases_removed,
     )?;
     gc_dead_in_dir(
         &registry_root.join(INSTANCE_DIR_NAME),
         &live,
+        false,
         &mut report.scanned,
         &mut report.instances_removed,
     )?;
@@ -485,6 +590,7 @@ pub fn spawn_boot_gc(registry_root: PathBuf) -> std::thread::JoinHandle<()> {
 fn gc_dead_in_dir(
     dir: &Path,
     live: &LivePids,
+    is_lease_dir: bool,
     scanned: &mut usize,
     removed: &mut usize,
 ) -> std::io::Result<()> {
@@ -511,7 +617,27 @@ fn gc_dead_in_dir(
         if live.is_live(entry.pid) {
             continue;
         }
-        if fs::remove_file(&path).is_ok() {
+
+        if is_lease_dir {
+            // Serialize with claim/heartbeat/release, then re-read the exact
+            // acquisition identity. A successor can never be removed based on
+            // the dead predecessor observed before entering this critical
+            // section.
+            let _guard = match LeaseMutationGuard::acquire(&path) {
+                Ok(guard) => guard,
+                Err(_) => continue,
+            };
+            let verified: InstanceRegistryEntry = match read_json(&path) {
+                Ok(verified) => verified,
+                Err(_) => continue,
+            };
+            if !lease_identity_matches(&verified, &entry) || live.is_live(verified.pid) {
+                continue;
+            }
+            if fs::remove_file(&path).is_ok() {
+                *removed += 1;
+            }
+        } else if fs::remove_file(&path).is_ok() {
             *removed += 1;
         }
     }
@@ -556,15 +682,487 @@ fn apply_conflicts(entries: &mut [InstanceRegistryEntry]) {
     }
 }
 
-fn persist_handle_inner(inner: &InstanceHandleInner) -> M1ndResult<()> {
-    // Always refresh the discovery entry so heartbeats keep ReadOnly attachers
-    // (and ReadWrite owners) visible/live in list_instances.
-    save_json_atomic(&inner.entry_path, &inner.entry)?;
-    // Refresh the exclusive lease only for ReadWrite handles.
-    if let Some(lock_path) = &inner.lock_path {
-        save_json_atomic(lock_path, &inner.entry)?;
+/// Short-lived cross-process serialization for registry lease mutations. The
+/// lease itself is still claimed with `create_new`; this guard exists so stale
+/// identity verification and removal form one critical section with claim,
+/// heartbeat, re-key, release, explicit deletion, and lease GC.
+///
+/// One stable guard file is shared by the whole `leases/` directory, avoiding a
+/// leaked sidecar for every historical runtime. A process-global mutex covers
+/// sibling threads on every platform. On Unix `flock` is released by the kernel
+/// if the process dies; on Windows an open handle with no sharing provides the
+/// same crash-released cross-process lifetime.
+static LEASE_MUTATION_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Same-process ownership table for per-runtime lifetime guards. OS locking is
+/// authoritative across processes; this table closes platform-specific
+/// same-process `flock` semantics and gives every runtime exactly one local
+/// owner too.
+fn owner_lifetime_paths() -> &'static std::sync::Mutex<HashSet<PathBuf>> {
+    static PATHS: OnceLock<std::sync::Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    PATHS.get_or_init(|| std::sync::Mutex::new(HashSet::new()))
+}
+
+#[derive(Debug)]
+struct OwnerLifetimeGuard {
+    path: PathBuf,
+    #[cfg(any(unix, windows))]
+    file: fs::File,
+}
+
+impl OwnerLifetimeGuard {
+    fn acquire(lease_path: &Path) -> M1ndResult<Self> {
+        let path = lease_path.with_extension("owner.lock");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        {
+            let mut owned = owner_lifetime_paths()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !owned.insert(path.clone()) {
+                return Err(owner_lifetime_held_error(&path));
+            }
+        }
+
+        let acquired = Self::acquire_os(path.clone());
+        if acquired.is_err() {
+            owner_lifetime_paths()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&path);
+        }
+        acquired
+    }
+
+    #[cfg(unix)]
+    fn acquire_os(path: PathBuf) -> M1ndResult<Self> {
+        use std::os::fd::AsRawFd;
+
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        // SAFETY: file owns a valid descriptor for this guard's full lifetime.
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.kind() == std::io::ErrorKind::WouldBlock {
+                Err(owner_lifetime_held_error(&path))
+            } else {
+                Err(M1ndError::Io(error))
+            };
+        }
+        Ok(Self { path, file })
+    }
+
+    #[cfg(windows)]
+    fn acquire_os(path: PathBuf) -> M1ndResult<Self> {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        match fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .share_mode(0)
+            .open(&path)
+        {
+            Ok(file) => Ok(Self { path, file }),
+            Err(error) if matches!(error.raw_os_error(), Some(32) | Some(33)) => {
+                Err(owner_lifetime_held_error(&path))
+            }
+            Err(error) => Err(M1ndError::Io(error)),
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn acquire_os(path: PathBuf) -> M1ndResult<Self> {
+        // The in-process table remains useful on niche targets. Their legacy
+        // PID liveness fence below is deliberately stricter cross-process.
+        Ok(Self { path })
+    }
+}
+
+impl Drop for OwnerLifetimeGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+
+            // SAFETY: the descriptor remains valid until fields drop.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+        owner_lifetime_paths()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.path);
+    }
+}
+
+fn owner_lifetime_held_error(path: &Path) -> M1ndError {
+    M1ndError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!(
+            "runtime_root is already owned; writer lifetime guard {} is held by another live owner",
+            path.display()
+        ),
+    ))
+}
+
+struct LeaseMutationGuard {
+    #[cfg(any(unix, windows))]
+    file: fs::File,
+    // Declared after `file`: once Drop unlocks the OS primitive, automatic field
+    // drop closes the file before releasing this in-process mutex.
+    _in_process: std::sync::MutexGuard<'static, ()>,
+}
+
+impl LeaseMutationGuard {
+    fn acquire(lease_path: &Path) -> M1ndResult<Self> {
+        let in_process = LEASE_MUTATION_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard_path = lease_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(".lease-mutations.guard");
+        if let Some(parent) = guard_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&guard_path)?;
+            loop {
+                // SAFETY: `file` owns a valid descriptor for the full guard
+                // lifetime; LOCK_EX has no pointer or aliasing requirements.
+                let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+                if result == 0 {
+                    return Ok(Self {
+                        file,
+                        _in_process: in_process,
+                    });
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(M1ndError::Io(error));
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+
+            loop {
+                match fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .share_mode(0)
+                    .open(&guard_path)
+                {
+                    Ok(file) => {
+                        return Ok(Self {
+                            file,
+                            _in_process: in_process,
+                        });
+                    }
+                    Err(error) if matches!(error.raw_os_error(), Some(32) | Some(33)) => {
+                        std::thread::yield_now();
+                    }
+                    Err(error) => return Err(M1ndError::Io(error)),
+                }
+            }
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = guard_path;
+            Ok(Self {
+                _in_process: in_process,
+            })
+        }
+    }
+}
+
+impl Drop for LeaseMutationGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+
+            // SAFETY: the descriptor remains valid until fields are dropped
+            // after this method. Unlock is best-effort; close also unlocks.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
+fn lease_identity_matches(
+    observed: &InstanceRegistryEntry,
+    expected: &InstanceRegistryEntry,
+) -> bool {
+    observed.instance_id == expected.instance_id
+        && observed.pid == expected.pid
+        && observed.started_at_ms == expected.started_at_ms
+        && observed.runtime_root == expected.runtime_root
+}
+
+fn lease_blocks_acquisition(entry: &InstanceRegistryEntry) -> bool {
+    entry.pid == std::process::id()
+        || (is_pid_live(entry.pid) && !is_stale(entry.last_heartbeat_ms))
+}
+
+fn already_owned_error(
+    requested: &InstanceRegistryEntry,
+    existing: &InstanceRegistryEntry,
+) -> M1ndError {
+    M1ndError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!(
+            "runtime_root {} is already owned by instance {} (pid {})",
+            requested.runtime_root, existing.instance_id, existing.pid
+        ),
+    ))
+}
+
+/// Write a brand-new JSON file without ever replacing an existing path.
+/// Serialization happens before the exclusive open. Once `create_new` succeeds,
+/// any write or fsync error closes and removes that exact file before returning.
+fn save_json_exclusive<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_vec_pretty(value).map_err(|error| {
+        M1ndError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("failed to serialize {}: {error}", path.display()),
+        ))
+    })?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    let write_result = file.write_all(&json).and_then(|()| file.sync_all());
+    if let Err(write_error) = write_result {
+        drop(file);
+        let cleanup_error = match fs::remove_file(path) {
+            Ok(()) => None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => Some(error),
+        };
+        return match cleanup_error {
+            None => Err(M1ndError::Io(write_error)),
+            Some(cleanup_error) => Err(M1ndError::Io(std::io::Error::new(
+                write_error.kind(),
+                format!(
+                    "exclusive lease write failed for {}: {write_error}; cleanup failed: {cleanup_error}",
+                    path.display()
+                ),
+            ))),
+        };
     }
     Ok(())
+}
+
+/// Atomically claim a ReadWrite lease. Only `create_new` can produce a winner.
+/// A stale/dead incumbent is re-read and identity-checked while the mutation
+/// guard is held, removed, and retried without opening an overwrite seam.
+fn claim_readwrite_lease(path: &Path, requested: &InstanceRegistryEntry) -> M1ndResult<()> {
+    let _guard = LeaseMutationGuard::acquire(path)?;
+    loop {
+        match save_json_exclusive(path, requested) {
+            Ok(()) => return Ok(()),
+            Err(M1ndError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+
+        let existing: InstanceRegistryEntry = match read_json(path) {
+            Ok(existing) => existing,
+            Err(M1ndError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        if lease_blocks_acquisition(&existing) {
+            return Err(already_owned_error(requested, &existing));
+        }
+
+        // Re-read under the same guard immediately before removal. This catches
+        // an identity transition or a legacy heartbeat that refreshed the lease
+        // between inspection and the guarded cleanup attempt.
+        let verified: InstanceRegistryEntry = match read_json(path) {
+            Ok(verified) => verified,
+            Err(M1ndError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        if !lease_identity_matches(&verified, &existing) {
+            continue;
+        }
+        if lease_blocks_acquisition(&verified) {
+            return Err(already_owned_error(requested, &verified));
+        }
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(M1ndError::Io(error)),
+        }
+        // Loop while retaining the guard: this attempt either wins through
+        // create_new or observes a non-cooperating replacement and re-evaluates.
+    }
+}
+
+fn ensure_owned_lease(path: &Path, expected: &InstanceRegistryEntry) -> M1ndResult<()> {
+    let observed: InstanceRegistryEntry = read_json(path)?;
+    if lease_identity_matches(&observed, expected) {
+        return Ok(());
+    }
+    Err(M1ndError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        format!(
+            "instance {} no longer owns lease {} (now owned by {} pid {})",
+            expected.instance_id,
+            path.display(),
+            observed.instance_id,
+            observed.pid
+        ),
+    )))
+}
+
+fn remove_owned_lease_file(path: &Path, expected: &InstanceRegistryEntry) -> M1ndResult<()> {
+    let _guard = LeaseMutationGuard::acquire(path)?;
+    remove_owned_registry_file(path, expected)
+}
+
+fn persist_handle_inner(inner: &InstanceHandleInner) -> M1ndResult<()> {
+    ensure_instance_active(inner)?;
+    // A writer must still own the canonical lease before it can refresh either
+    // registry projection. This prevents a stale predecessor from overwriting a
+    // successor after identity-checked recovery.
+    if let Some(lock_path) = &inner.lock_path {
+        let _guard = LeaseMutationGuard::acquire(lock_path)?;
+        ensure_owned_lease(lock_path, &inner.entry)?;
+        save_json_atomic(lock_path, &inner.entry)?;
+    }
+    // ReadOnly handles reach only this discovery write. ReadWrite owners publish
+    // it after the lease refresh above has confirmed continuing ownership.
+    save_json_atomic(&inner.entry_path, &inner.entry)
+}
+
+/// Transactional stable-id transition for `set_brain_kind`.
+///
+/// For a real re-key, the new discovery entry is staged first and the guarded
+/// lease update is the commit point. Before that point the caller retains its
+/// old in-memory identity/path and old discovery entry. If lease verification or
+/// persistence fails, the staged target is removed or its displaced predecessor
+/// is restored. Once this returns Ok, callers must publish `next` in memory
+/// before any fallible cleanup.
+fn commit_brain_rekey(
+    inner: &InstanceHandleInner,
+    previous: &InstanceRegistryEntry,
+    next: &InstanceRegistryEntry,
+    next_entry_path: &Path,
+) -> M1ndResult<()> {
+    ensure_instance_active(inner)?;
+    let is_rekey = inner.entry_path != next_entry_path;
+
+    if let Some(lock_path) = &inner.lock_path {
+        let _guard = LeaseMutationGuard::acquire(lock_path)?;
+        ensure_owned_lease(lock_path, previous)?;
+
+        if is_rekey {
+            // A stable-id card from an inherited boot may already occupy the
+            // target. Preserve it so a lease-commit failure can restore the
+            // exact pre-transaction registry topology instead of deleting it.
+            let displaced_target: Option<InstanceRegistryEntry> = if next_entry_path.exists() {
+                Some(read_json(next_entry_path)?)
+            } else {
+                None
+            };
+            save_json_atomic(next_entry_path, next)?;
+            if let Err(commit_error) = save_json_atomic(lock_path, next) {
+                let rollback = match displaced_target {
+                    Some(ref displaced) => save_json_atomic(next_entry_path, displaced),
+                    None => remove_owned_registry_file(next_entry_path, next),
+                };
+                return match rollback {
+                    Ok(()) => Err(commit_error),
+                    Err(rollback_error) => Err(M1ndError::Io(std::io::Error::other(format!(
+                            "brain re-key lease commit failed: {commit_error}; target rollback failed: {rollback_error}"
+                        )))),
+                };
+            }
+        } else {
+            save_json_atomic(lock_path, next)?;
+        }
+
+        if !is_rekey {
+            if let Err(error) = save_json_atomic(next_entry_path, next) {
+                // Identity is unchanged in the non-re-key case. Restore the old
+                // payload best-effort; even if rollback I/O also fails, Drop can
+                // still identify and remove the lease by acquisition identity.
+                let _ = save_json_atomic(lock_path, previous);
+                return Err(error);
+            }
+        }
+    } else {
+        save_json_atomic(next_entry_path, next)?;
+    }
+
+    Ok(())
+}
+
+fn ensure_instance_active(inner: &InstanceHandleInner) -> M1ndResult<()> {
+    if inner.released {
+        return Err(M1ndError::Io(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            format!(
+                "instance {} has already released its registry lifecycle capability",
+                inner.entry.instance_id
+            ),
+        )));
+    }
+    Ok(())
+}
+
+fn mark_heartbeat_inner(inner: &mut InstanceHandleInner) -> M1ndResult<()> {
+    ensure_instance_active(inner)?;
+    inner.entry.last_heartbeat_ms = now_ms();
+    if inner.entry.status == "starting" {
+        inner.entry.status = "running".into();
+    }
+    persist_handle_inner(inner)
+}
+
+/// Remove a registry file only when it still belongs to this exact acquisition.
+/// This prevents a late Drop from deleting a successor/foreign owner that has
+/// atomically replaced the shared lease path.
+fn remove_owned_registry_file(path: &Path, expected: &InstanceRegistryEntry) -> M1ndResult<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let observed: InstanceRegistryEntry = read_json(path)?;
+    if !lease_identity_matches(&observed, expected) {
+        return Ok(());
+    }
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(M1ndError::Io(error)),
+    }
 }
 
 /// Reconcile the `instances/` dir after a brain re-keys onto its stable id: drop
@@ -872,7 +1470,7 @@ mod tests {
         fs::create_dir_all(&runtime).unwrap();
         let registry = temp.path().join("registry");
 
-        let handle =
+        let mut handle =
             InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
                 .unwrap();
         handle
@@ -1062,7 +1660,7 @@ mod tests {
         assert_eq!(owner.mode(), InstanceMode::ReadWrite);
 
         // Two ReadOnly attachers succeed even with a live ReadWrite owner.
-        let ro_a = InstanceHandle::acquire_with_mode(
+        let mut ro_a = InstanceHandle::acquire_with_mode(
             &workspace,
             &runtime,
             &graph,
@@ -1116,7 +1714,7 @@ mod tests {
         fs::create_dir_all(&workspace).unwrap();
         fs::create_dir_all(&runtime).unwrap();
 
-        let ro = InstanceHandle::acquire_with_mode(
+        let mut ro = InstanceHandle::acquire_with_mode(
             &workspace,
             &runtime,
             &graph,
@@ -1134,6 +1732,266 @@ mod tests {
         ro.mark_heartbeat().unwrap();
         assert!(!lease_path.exists());
         assert_eq!(list_instances(Some(&registry)).unwrap().len(), 1);
+    }
+
+    fn lifecycle_paths(handle: &InstanceHandle) -> (PathBuf, Option<PathBuf>) {
+        let entry = handle.summary();
+        let registry = handle.registry_root();
+        let entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", entry.instance_id));
+        let lease_path = (handle.mode() == InstanceMode::ReadWrite).then(|| {
+            registry.join(LEASE_DIR_NAME).join(format!(
+                "{}.json",
+                fingerprint_path(Path::new(&entry.runtime_root))
+            ))
+        });
+        (entry_path, lease_path)
+    }
+
+    fn assert_lifecycle_files_absent(entry_path: &Path, lease_path: Option<&Path>) {
+        assert!(!entry_path.exists(), "instance entry must be absent");
+        if let Some(lease_path) = lease_path {
+            assert!(!lease_path.exists(), "writer lease must be absent");
+        }
+    }
+
+    #[test]
+    fn same_pid_readwrite_owner_is_refused_until_unique_handle_releases() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let mut first =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let error =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .expect_err("a live same-PID writer is still a duplicate owner");
+        assert!(error.to_string().contains("already owned"));
+
+        first.release().unwrap();
+        let replacement =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .expect("release opens the only valid same-PID reacquisition seam");
+        assert_ne!(
+            replacement.summary().instance_id,
+            first.summary().instance_id
+        );
+    }
+
+    #[test]
+    fn concurrent_readwrite_acquire_has_one_winner_without_lease_overwrite() {
+        const CONTENDERS: usize = 16;
+
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let barrier = Arc::new(std::sync::Barrier::new(CONTENDERS));
+        let mut threads = Vec::with_capacity(CONTENDERS);
+        for _ in 0..CONTENDERS {
+            let workspace = workspace.clone();
+            let runtime = runtime.clone();
+            let graph = graph.clone();
+            let plasticity = plasticity.clone();
+            let registry = registry.clone();
+            let barrier = Arc::clone(&barrier);
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                    .map_err(|error| error.to_string())
+            }));
+        }
+
+        let mut winners = Vec::new();
+        let mut losers = Vec::new();
+        for thread in threads {
+            match thread.join().unwrap() {
+                Ok(handle) => winners.push(handle),
+                Err(error) => losers.push(error),
+            }
+        }
+
+        assert_eq!(winners.len(), 1, "create_new admits exactly one writer");
+        assert_eq!(losers.len(), CONTENDERS - 1);
+        assert!(losers.iter().all(|error| error.contains("already owned")));
+
+        let winner = winners.pop().unwrap();
+        let winner_entry = winner.summary();
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        let lease: InstanceRegistryEntry = read_json(&lease_path).unwrap();
+        assert!(lease_identity_matches(&lease, &winner_entry));
+
+        let instances = list_instances(Some(&registry)).unwrap();
+        assert_eq!(instances.len(), 1, "losers publish no discovery entries");
+        assert_eq!(instances[0].instance_id, winner_entry.instance_id);
+    }
+
+    #[test]
+    fn lifetime_guard_blocks_live_stale_takeover_then_legacy_stale_remains_recoverable() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let first =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let mut foreign_process = spawn_live_pid_fixture();
+        let mut foreign = first.summary();
+        foreign.instance_id = "inst_foreign_stale".into();
+        foreign.pid = foreign_process.id();
+        foreign.last_heartbeat_ms = 0;
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        save_json_atomic(&lease_path, &foreign).unwrap();
+
+        let guarded_error =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .expect_err("a modern owner lifetime guard outranks a stale JSON heartbeat");
+        assert!(guarded_error.to_string().contains("already owned"));
+
+        // Dropping the modern owner crash-releases its OS guard. The injected
+        // foreign JSON now models a legacy owner that predates lifetime locks;
+        // its historical live-but-stale recovery rule remains compatible.
+        drop(first);
+        let replacement =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .expect("legacy foreign-stale owner remains recoverable after guard release");
+        assert_ne!(replacement.summary().instance_id, foreign.instance_id);
+        let _ = foreign_process.kill();
+        let _ = foreign_process.wait();
+    }
+
+    #[test]
+    fn release_revokes_permit_and_cannot_be_undone_by_late_heartbeats() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let mut owner =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let permit = owner.heartbeat_permit();
+        let (entry_path, lease_path) = lifecycle_paths(&owner);
+        assert!(permit.heartbeat().unwrap());
+
+        owner.release().unwrap();
+        assert_lifecycle_files_absent(&entry_path, lease_path.as_deref());
+        for _ in 0..8 {
+            assert!(!permit.heartbeat().unwrap());
+        }
+        assert_lifecycle_files_absent(&entry_path, lease_path.as_deref());
+        owner.release().expect("release is idempotent");
+    }
+
+    #[test]
+    fn heartbeat_permit_is_weak_and_drop_releases_the_unique_owner() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let (permit, entry_path, lease_path) = {
+            let owner =
+                InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                    .unwrap();
+            let permit = owner.heartbeat_permit();
+            let (entry_path, lease_path) = lifecycle_paths(&owner);
+            (permit, entry_path, lease_path)
+        };
+
+        assert!(!permit.heartbeat().unwrap());
+        assert_lifecycle_files_absent(&entry_path, lease_path.as_deref());
+    }
+
+    #[test]
+    fn concurrent_heartbeat_cannot_resurrect_files_after_release_returns() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let mut owner =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let permit = owner.heartbeat_permit();
+        let (entry_path, lease_path) = lifecycle_paths(&owner);
+        let ready = Arc::new(std::sync::Barrier::new(2));
+        let race = Arc::new(std::sync::Barrier::new(2));
+        let worker_ready = Arc::clone(&ready);
+        let worker_race = Arc::clone(&race);
+        let worker = std::thread::spawn(move || {
+            assert!(permit.heartbeat().unwrap());
+            worker_ready.wait();
+            worker_race.wait();
+            while permit.heartbeat().unwrap() {
+                std::thread::yield_now();
+            }
+        });
+
+        ready.wait();
+        race.wait();
+        owner.release().unwrap();
+        worker.join().unwrap();
+        assert_lifecycle_files_absent(&entry_path, lease_path.as_deref());
+    }
+
+    #[test]
+    fn clear_running_endpoint_withdraws_discovery_without_releasing_owner() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let mut owner =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        owner
+            .set_running_endpoint("127.0.0.1".into(), 1337)
+            .unwrap();
+        owner.clear_running_endpoint().unwrap();
+        let summary = owner.summary();
+        assert!(summary.bind.is_none());
+        assert!(summary.port.is_none());
+        assert!(lifecycle_paths(&owner).0.exists());
     }
 
     #[test]
@@ -1310,15 +2168,13 @@ mod tests {
         assert!(live_lease_path.exists());
     }
 
-    // ── STABLE BRAIN ID + reconcile (the "duplicate workspace" field bug) ────────
+    // ── STABLE BRAIN ID + inherited-duplicate reconcile ─────────────────────────
     // Field repro (reproduced twice on-screen 2026-07-11): clicking "Open brain"
     // on a dormant project brain DUPLICATED its Hall card. Root cause: a brain
-    // warm-boot minted a NEW ephemeral `instances/<id>.json` each time (the
-    // eviction gate drops a brain's handle without `release`, so its entry lingers
-    // under the still-live owner pid, which the dead-pid GC can never reap). The
-    // fix: a brain entry (`set_brain_kind` project/medulla) takes a DETERMINISTIC
-    // id, so the warm-boot UPSERTS one file, and a reconcile sweeps the stale twins
-    // earlier ephemeral boots left behind.
+    // warm-boot minted a NEW ephemeral `instances/<id>.json` each time. Linear
+    // handles now release on Drop, while the deterministic brain id preserves
+    // identity across clean boots and the reconcile still sweeps stale twins
+    // inherited from pre-linear-handle builds.
 
     /// How many `instances/*.json` entries the registry holds.
     fn count_instance_files(registry: &Path) -> usize {
@@ -1342,10 +2198,45 @@ mod tests {
         (store, graph, plasticity)
     }
 
-    /// A second warm-boot of the SAME brain re-registers onto the SAME stable id
-    /// and UPSERTS the one file — never a duplicate — and the second boot's content
-    /// wins (proving it rewrote, not stacked). This is the exact "open twice = one
-    /// card" proof at the registry layer.
+    #[test]
+    fn brain_rekey_lease_failure_rolls_back_staged_identity_for_drop_cleanup() {
+        let temp = tempdir().unwrap();
+        let registry = temp.path().join("registry");
+        let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
+        let mut brain =
+            InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
+        let before = brain.summary();
+        let (old_entry_path, lease_path) = lifecycle_paths(&brain);
+        let lease_path = lease_path.unwrap();
+
+        let stable_id = stable_brain_instance_id(&before.workspace_root, &before.runtime_root);
+        let stable_entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{stable_id}.json"));
+        // The stable discovery entry stages successfully first. A directory at
+        // the lease's exact `.tmp` path then deterministically fails the lease
+        // commit, exercising rollback after the new identity reached disk.
+        let fault_path = lease_path.with_extension("tmp");
+        fs::create_dir_all(&fault_path).unwrap();
+
+        let error = brain
+            .set_brain_kind("project")
+            .expect_err("faulted lease commit must abort and roll back the re-key");
+        assert!(!error.to_string().is_empty());
+        assert_eq!(brain.summary().instance_id, before.instance_id);
+        assert_eq!(brain.summary().brain_kind, before.brain_kind);
+        assert!(old_entry_path.exists());
+        assert!(!stable_entry_path.exists());
+        let lease: InstanceRegistryEntry = read_json(&lease_path).unwrap();
+        assert!(lease_identity_matches(&lease, &before));
+
+        fs::remove_dir(&fault_path).unwrap();
+        drop(brain);
+        assert_lifecycle_files_absent(&old_entry_path, Some(&lease_path));
+    }
+
+    /// A clean release followed by a second boot of the SAME brain re-registers
+    /// onto the SAME stable id and leaves exactly one current file.
     #[test]
     fn brain_reregister_upserts_one_stable_entry() {
         let temp = tempdir().unwrap();
@@ -1354,8 +2245,9 @@ mod tests {
 
         // Boot 1: acquire (ephemeral id) → stamp brain kind (re-key to stable).
         let stable_id = {
-            let h1 = InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry))
-                .unwrap();
+            let mut h1 =
+                InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry))
+                    .unwrap();
             h1.set_brain_kind("project").unwrap();
             let id = h1.summary().instance_id;
             assert_eq!(
@@ -1364,13 +2256,18 @@ mod tests {
                 "boot 1 writes one entry"
             );
             id
-            // h1 dropped WITHOUT release — its stable-id entry lingers on disk,
-            // exactly like an eviction-orphaned brain handle.
+            // h1 drops here: linear Drop releases both registry files before the
+            // next same-PID owner may acquire this runtime.
         };
+        assert_eq!(
+            count_instance_files(&registry),
+            0,
+            "clean owner Drop releases the stable entry before reboot"
+        );
 
         // Boot 2 (a warm-boot of the SAME store): a fresh handle, a distinguishable
         // endpoint, then the brain-kind stamp that re-keys onto the SAME stable id.
-        let h2 =
+        let mut h2 =
             InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
         h2.set_running_endpoint("127.0.0.1".into(), 4321).unwrap();
         h2.set_brain_kind("project").unwrap();
@@ -1405,7 +2302,7 @@ mod tests {
         let registry = temp.path().join("registry");
         let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
 
-        let brain =
+        let mut brain =
             InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
         brain.set_brain_kind("project").unwrap();
         let stable_id = brain.summary().instance_id;
@@ -1449,7 +2346,7 @@ mod tests {
         let registry = temp.path().join("registry");
         let (store, graph, plasticity) = brain_store(temp.path(), "fingerprintA");
 
-        let brain =
+        let mut brain =
             InstanceHandle::acquire(&store, &store, &graph, &plasticity, Some(&registry)).unwrap();
         brain.set_brain_kind("project").unwrap();
 
@@ -1500,11 +2397,11 @@ mod tests {
         let (store_a, graph_a, plasticity_a) = brain_store(temp.path(), "fingerprintA");
         let (store_b, graph_b, plasticity_b) = brain_store(temp.path(), "fingerprintB");
 
-        let a =
+        let mut a =
             InstanceHandle::acquire(&store_a, &store_a, &graph_a, &plasticity_a, Some(&registry))
                 .unwrap();
         a.set_brain_kind("project").unwrap();
-        let b =
+        let mut b =
             InstanceHandle::acquire(&store_b, &store_b, &graph_b, &plasticity_b, Some(&registry))
                 .unwrap();
         b.set_brain_kind("project").unwrap();

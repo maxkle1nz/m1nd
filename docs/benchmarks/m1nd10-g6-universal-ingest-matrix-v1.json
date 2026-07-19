@@ -1,0 +1,206 @@
+{
+  "schema": "m1nd10-g6-universal-ingest-matrix-v1",
+  "version": 1,
+  "implementation": "m1nd-ingest/src/universal_adapter.rs",
+  "verification_status": "PASS",
+  "test_receipt": {
+    "command": "cargo test -p m1nd-ingest universal_adapter --lib",
+    "passed": 20,
+    "failed": 0,
+    "filtered_out": 233,
+    "date": "2026-07-18"
+  },
+  "persistence_receipts": [
+    {
+      "command": "cargo test -p m1nd-mcp universal_auto_ingest --lib",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "command": "cargo test -p m1nd-mcp unsupported_and_failed_auto_ingest_are_noncommittable_zero_mutation_audit_events --lib",
+      "passed": 1,
+      "failed": 0
+    }
+  ],
+  "document_statuses": [
+    "INGESTED",
+    "DEGRADED",
+    "UNSUPPORTED",
+    "FAILED",
+    "EMPTY"
+  ],
+  "provider_outcomes": [
+    "EXTRACTED",
+    "EMPTY",
+    "FAILED/SPAWN_FAILED",
+    "FAILED/CRASHED",
+    "FAILED/TIMED_OUT",
+    "FAILED/CORRUPT",
+    "FAILED/ENCRYPTED",
+    "FAILED/INVALID_OUTPUT",
+    "FAILED/OUTPUT_LIMIT_EXCEEDED"
+  ],
+  "rows": [
+    {
+      "input": "candidate set is empty",
+      "provider": "not invoked",
+      "provider_outcome": null,
+      "document_status": "EMPTY",
+      "parsed": false,
+      "committable": false,
+      "reason_required": false
+    },
+    {
+      "input": "markdown or plain text",
+      "provider": "universal:internal",
+      "provider_outcome": null,
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "recognized native L1GHT, BibTeX, article, RFC, patent, or Crossref",
+      "provider": "universal:native-wrap",
+      "provider_outcome": null,
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "HTML with external extraction",
+      "provider": "trafilatura then docling",
+      "provider_outcome": "EXTRACTED",
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "HTML external provider returns empty or fails",
+      "provider": "attempted provider plus universal:internal-html fallback provenance",
+      "provider_outcome": "EMPTY or typed FAILED/*",
+      "document_status": "DEGRADED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": true
+    },
+    {
+      "input": "HTML without external provider",
+      "provider": "universal:internal-html",
+      "provider_outcome": null,
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "PDF with successful provider",
+      "provider": "grobid then docling then markitdown",
+      "provider_outcome": "EXTRACTED",
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "DOCX, PPTX, or XLSX with successful provider",
+      "provider": "docling then markitdown",
+      "provider_outcome": "EXTRACTED",
+      "document_status": "INGESTED",
+      "parsed": true,
+      "committable": true,
+      "reason_required": false
+    },
+    {
+      "input": "PDF or Office provider returns empty",
+      "provider": "selected provider",
+      "provider_outcome": "EMPTY",
+      "document_status": "FAILED",
+      "parsed": false,
+      "committable": false,
+      "reason_required": true
+    },
+    {
+      "input": "PDF or Office provider spawn, crash, timeout, corruption, encryption, invalid-output, or output-limit failure",
+      "provider": "selected provider",
+      "provider_outcome": "typed FAILED/*",
+      "document_status": "FAILED",
+      "parsed": false,
+      "committable": false,
+      "reason_required": true
+    },
+    {
+      "input": "PDF or Office without an available provider",
+      "provider": "universal:none",
+      "provider_outcome": null,
+      "document_status": "UNSUPPORTED",
+      "parsed": false,
+      "committable": false,
+      "reason_required": true
+    },
+    {
+      "input": "unknown or unsupported file kind",
+      "provider": "universal:none",
+      "provider_outcome": null,
+      "document_status": "UNSUPPORTED",
+      "parsed": false,
+      "committable": false,
+      "reason_required": true
+    },
+    {
+      "input": "per-file read failure",
+      "provider": "universal:reader",
+      "provider_outcome": null,
+      "document_status": "FAILED",
+      "parsed": false,
+      "committable": false,
+      "reason_required": true
+    }
+  ],
+  "bundle_reduction": [
+    {
+      "condition": "zero candidates",
+      "status": "EMPTY"
+    },
+    {
+      "condition": "zero parsed and at least one FAILED",
+      "status": "FAILED"
+    },
+    {
+      "condition": "zero parsed and no FAILED",
+      "status": "UNSUPPORTED"
+    },
+    {
+      "condition": "all documents INGESTED",
+      "status": "INGESTED"
+    },
+    {
+      "condition": "at least one parsed plus any DEGRADED, UNSUPPORTED, or FAILED outcome",
+      "status": "DEGRADED"
+    }
+  ],
+  "hard_invariants": [
+    "A provider invocation always records EXTRACTED, EMPTY, or typed FAILED/*; no provider Ok(None) can disappear.",
+    "Every DEGRADED, UNSUPPORTED, or FAILED document carries bounded provider and reason diagnostics.",
+    "FAILED or UNSUPPORTED-only bundles are noncommittable and create zero graph nodes.",
+    "HTML fallback is DEGRADED and names both the attempted provider and internal fallback provenance.",
+    "Timeout kills the provider process group; stdout and stderr are bounded.",
+    "Diagnostic rows are bounded and diagnostics_omitted reports the exact omitted count."
+  ],
+  "mechanical_tests": [
+    "empty_candidate_set_is_explicit_empty",
+    "missing_ingest_root_is_an_error_not_empty",
+    "pdf_and_office_without_providers_are_typed_noncommittable_unsupported",
+    "available_provider_returning_empty_is_typed_failed_not_placeholder",
+    "mixed_batch_returns_degraded_with_parsed_documents_and_diagnostics",
+    "provider_failure_uses_honest_html_fallback_provenance",
+    "diagnostics_are_bounded_and_report_omissions",
+    "provider_process_result_distinguishes_positive_empty_crash_timeout_corrupt_and_encrypted",
+    "positive_provider_fixture_is_committable_and_persists_typed_outcome",
+    "provider_failure_fixtures_are_failed_noncommittable_and_never_create_graph_nodes",
+    "per_file_read_error_is_failed_without_discarding_other_documents",
+    "mixed_success_and_provider_failure_is_degraded_not_ingested"
+  ]
+}

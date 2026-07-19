@@ -163,7 +163,7 @@ def lane_prompt(round_payload, lane):
             "Use m1nd as the full agent operating layer, not only as search.",
             "Before the audit, read or reference the full-spec manual:",
             "",
-            "`/Users/kle1nz/m1nd/skills/m1nd-operator/references/full-spec-agent-os.md`",
+            "`<repo-root>/skills/m1nd-operator/references/full-spec-agent-os.md`",
             "",
             "Required operating posture:",
             "",

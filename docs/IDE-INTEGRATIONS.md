@@ -47,7 +47,7 @@ On Windows the command should point at `m1nd-mcp.exe`, for example:
 {
   "mcpServers": {
     "m1nd": {
-      "command": "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe",
+      "command": "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe",
       "args": ["--stdio", "--no-gui"]
     }
   }

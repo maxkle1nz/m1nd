@@ -46,7 +46,7 @@ interface HallViewProps {
    * switches to the tree. A live SIBLING (own port) still opens in a new tab here.
    */
   onOpenBrain: (entry: InstanceRegistryEntry, isSelf: boolean) => void;
-  /** Start the Threshold bootstrap ("+ Read a new repo"). */
+  /** Opens the fail-honest bootstrap-unavailable explanation. */
   onBootstrap: () => void;
   /** §4A.9.5 capability stamp — enables Open on hosted project cards when true. */
   restSelector: boolean;
@@ -315,10 +315,10 @@ export default function HallView({
               type="button"
               data-role="bootstrap-new"
               onClick={onBootstrap}
-              className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
-              title="Read a new repo into its own brain"
+              className="px-3 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded hover:shadow-contact transition-shadow"
+              title="brain_bootstrap_consumer_not_installed"
             >
-              + Read a new repo
+              New repo unavailable
             </button>
           </div>
         </div>

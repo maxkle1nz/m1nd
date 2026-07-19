@@ -1,0 +1,126 @@
+{
+  "schema": "m1nd-metric-spec-v1",
+  "spec_version": "m1nd10-g4-r6-20260718.2",
+  "metric_id": "m1nd10-r6-runtime-isolation-durability-v1",
+  "question": "Does one owner remain responsive, isolate brain state, preserve observable cancellation/backpressure, and recover only an old-or-new checkpoint under the ratified R6 workload?",
+  "ratification_binding": {
+    "authority_state": "OWNER_RATIFIED_IN_SESSION",
+    "cryptographic_signature": "NOT_INSTALLED",
+    "prd_path": "docs/M1ND-10-PRD.md",
+    "prd_sha256": "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38",
+    "uml_path": "docs/M1ND-10-UML.md",
+    "uml_sha256": "8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b",
+    "binding_note": "This spec operationalizes PRD R6 and G4 without claiming a signed external GateReceipt."
+  },
+  "corpus_or_cohort_digest": "sha256:1aa11c8523e1a5d9d1e358ac12bef0741f8aecbfa0c0bcb15d178e65f907dc39",
+  "ground_truth_protocol": "Exact assertions over the complete deterministic workload: public actor operations are counted at the call boundary; every expected per-brain marker is compared as a set; every checkpoint fault point must load exactly the previous or next complete generation; health records every latency sample while the owner SessionState lock remains held for at least 30 seconds; a conservative lexical audit inventories every remaining production SessionState lock scope and rejects filesystem, network, subprocess, dispatch, persistence, checkpoint, or graph-analysis tokens inside that scope; runtime tests hold graph analysis and actor ownership open to verify the session storage mutex is not retained.",
+  "unit": "composite deterministic R6 gate",
+  "numerator": {
+    "health": "health samples below 100 ms",
+    "isolation": "completed operations with correct brain-local observation",
+    "writes": "expected write markers present in exactly one brain",
+    "faults": "injected persistence phases recovering an old or new complete checkpoint"
+  },
+  "denominator": {
+    "health": 601,
+    "isolation_operations": 10000,
+    "writes": 80,
+    "checkpoint_fault_points": 15,
+    "production_source_files_lock_audited": 73,
+    "remaining_session_lock_scopes": 23,
+    "actor_checkout_methods": 4
+  },
+  "minimum_n": {
+    "health_samples": 601,
+    "health_operation_duration_seconds": 30,
+    "concurrent_operations": 10000,
+    "checkpoint_fault_points": 15,
+    "session_lock_scopes": 23
+  },
+  "strata": {
+    "health": [
+      "cached degraded snapshot while SessionState is exclusively locked"
+    ],
+    "operations": {
+      "brains": 8,
+      "operations_per_brain": 1250,
+      "reads_per_brain": 1240,
+      "writes_per_brain": 10
+    },
+    "durability": [
+      "write",
+      "fsync",
+      "directory fsync",
+      "rename checkpoint",
+      "write CURRENT",
+      "fsync CURRENT",
+      "rename CURRENT",
+      "confirm CURRENT"
+    ]
+  },
+  "environment": {
+    "host_class": "Apple MacBook Pro",
+    "cpu": "Apple M4 Max",
+    "physical_cores": 14,
+    "logical_cores": 14,
+    "memory_bytes": 38654705664,
+    "os": "macOS 15.6 (24G84)",
+    "kernel": "Darwin 24.6.0 arm64",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "cargo_target_dir": "/Volumes/Cofre/.codex-m1nd-build-20260718",
+    "cargo_incremental": 0,
+    "source_commit": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+    "source_tree": "DIRTY_UNCOMMITTED_SOURCE_FILE_DIGESTS_BOUND_IN_RESULT"
+  },
+  "workload_and_seeds": {
+    "health": {
+      "seed": "deterministic-no-rng-health-v1",
+      "operation": "hold the real owner SessionState mutex continuously for >=30 seconds",
+      "sample_count": 601,
+      "sample_interval_ms": 50,
+      "threshold_ms": 100
+    },
+    "multi_brain": {
+      "seed": "deterministic-no-rng-multibrain-v1",
+      "concurrency": 8,
+      "actor_queue_capacity_per_brain": 2048,
+      "global_worker_limit": 8,
+      "total_operations": 10000,
+      "read_operations": 9920,
+      "write_operations": 80,
+      "completion_bound_seconds": 60
+    }
+  },
+  "confidence_interval": {
+    "health": "With zero >=100 ms observations in 601 samples, the one-sided exact zero-failure 99% upper bound on the violation probability is 0.007633230577054451 under the stated stationary-independent sampling model, below the 0.01 p99 allowance. The observed maximum is also retained.",
+    "isolation_and_writes": "Exact census of all 10,000 operations and all 80 expected write markers; no sampling interval.",
+    "checkpoint_faults": "Exact enumeration of every one of the 15 implemented checkpoint fault points; no sampling interval."
+  },
+  "pass_threshold": {
+    "health_empirical_p99_ms": "<100",
+    "health_threshold_violations": 0,
+    "health_minimum_operation_duration_seconds": 30,
+    "completed_operations": 10000,
+    "lost_writes": 0,
+    "cross_brain_observations": 0,
+    "checkpoint_partial_generations": 0,
+    "degraded_persistence_reads_available": true,
+    "degraded_persistence_new_writes_refused": true,
+    "checkpoint_retry_ack_required_to_recover": true,
+    "session_lock_forbidden_operations": 0,
+    "actor_long_command_storage_mutex_available": true
+  },
+  "non_inferiority_margin": 0,
+  "command": "python3 scripts/m1nd10_g4_lock_audit.py && CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --test project_brain_runtime -- --nocapture && CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --test runtime_jobs --test checkpoint_store -- --nocapture && CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib health_returns_cached_degraded_snapshot_while_owner_is_busy -- --nocapture && CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib && CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo clippy --locked -p m1nd-mcp --features serve --all-targets -- -D warnings",
+  "artifact_retention": [
+    "docs/benchmarks/m1nd10-g4-r6-runtime-result-v1.json",
+    "docs/benchmarks/m1nd10-g4-r6-lock-audit-v1.json",
+    "docs/proofs/m1nd10-g4-r6-runtime-isolation-20260718.md"
+  ],
+  "non_claims": [
+    "No Windows directory-fsync proof was run; Windows remains NOT_RUN and the complete cross-platform G4 gate remains NOT_PROVEN.",
+    "Injected failpoints are process-level filesystem fault simulation, not a physical power-loss test.",
+    "The owner ratification is session evidence, not a cryptographic external signature."
+  ]
+}

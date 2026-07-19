@@ -1,0 +1,189 @@
+{
+  "schema": "m1nd-runtime-r6-benchmark-result-v1",
+  "result_version": "m1nd10-g4-r6-20260718.3",
+  "metric_id": "m1nd10-r6-runtime-isolation-durability-v1",
+  "metric_spec_path": "docs/benchmarks/m1nd10-g4-r6-metric-spec-v1.json",
+  "metric_spec_sha256": "cb9cb67229efaf81e654551333094ead3ae2e3114d353c34bf3b674d94fedaf9",
+  "verdict": "MACOS_COMPONENT_PASS_G4_CROSS_PLATFORM_NOT_PROVEN",
+  "component_verdict": "PASS",
+  "g4_gate_verdict": "NOT_PROVEN_WINDOWS_NOT_RUN",
+  "source_commit": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+  "source_tree": "DIRTY_UNCOMMITTED",
+  "cohort_digest": "1aa11c8523e1a5d9d1e358ac12bef0741f8aecbfa0c0bcb15d178e65f907dc39",
+  "source_file_digests": {
+    "m1nd-mcp/src/brain_runtime.rs": "ab8c8bde0456b3f1d08d9ecf1d19a51873345ff9cf8490a5a031a92bf1a5ba2d",
+    "m1nd-mcp/src/project_brains.rs": "d6716df58b18d0be5d1be8a45bc17671b2fb239c0bfe9d91db785f330bce45e2",
+    "m1nd-mcp/src/runtime_jobs.rs": "6640d8e29ed9214ce78e7e30f6e6e31be8d598beb051b0d9825601e08bcfba8e",
+    "m1nd-mcp/src/checkpoint_store.rs": "5775679bc562b4d20b0a948d1dab96ba1c78429b835c02303c495fc58bd57ae7",
+    "m1nd-mcp/src/http_server.rs": "a31bfe03573e6e02ac1a0bccf64b6988c017c9b5fa2355aec8a9e80c3cc9f755",
+    "m1nd-mcp/src/mcp_http.rs": "feac6b97ce1ce1064e0c6ca8f42625a29ca2ed50c8d79cb32d44781adb7ecb21",
+    "m1nd-mcp/tests/project_brain_runtime.rs": "5eb058fdb74232ae3abcae6c0574b74a12cfc085be0ca66b80e692c9e0fca450",
+    "m1nd-mcp/tests/runtime_jobs.rs": "c6b039c26367561078a644c78c5bea006447c67f2e3d28e4b9e4b185fcee803a",
+    "m1nd-mcp/tests/checkpoint_store.rs": "efbc81997e7d37d33619cdd8602d42e1aa3a3688ca748b9ef853d1388d9ae6a8",
+    "scripts/m1nd10_g4_lock_audit.py": "cb6c75464474806c6b94454d4f0c338a0e7d6dbc8947618029d5b9f6464937eb"
+  },
+  "measurements": {
+    "health": {
+      "operation_duration_seconds": 31.277137958,
+      "samples": 601,
+      "sample_interval_ms": 50,
+      "empirical_p99_ms": 0.838625,
+      "maximum_ms": 3.003625,
+      "threshold_ms": 100,
+      "threshold_violations": 0,
+      "zero_failure_one_sided_99pct_violation_upper_bound": 0.007633230577054451,
+      "verdict": "PASS"
+    },
+    "multi_brain": {
+      "brains": 8,
+      "concurrent_worker_threads": 8,
+      "operations": 10000,
+      "reads": 9920,
+      "writes": 80,
+      "elapsed_seconds": 7.268235291,
+      "completion_bound_seconds": 60,
+      "lost_writes": 0,
+      "cross_brain_observations": 0,
+      "verdict": "PASS"
+    },
+    "session_lock_audit": {
+      "production_files_scanned": 73,
+      "session_lock_scopes_audited": 23,
+      "forbidden_operations_observed": 0,
+      "legacy_mutex_session_types_observed": 0,
+      "actor_checkout_methods": 4,
+      "runtime_handler_stall_tests": 3,
+      "verdict": "PASS"
+    },
+    "checkpoint_fault_matrix": {
+      "implemented_fault_points": 15,
+      "partial_generations_selected": 0,
+      "old_or_new_complete_only": true,
+      "verdict": "PASS"
+    },
+    "persistence_degradation": {
+      "reads_remained_available": true,
+      "new_write_apply_calls_while_degraded": 0,
+      "status": "degraded_persistence",
+      "recovery_required_real_checkpoint_ack": true,
+      "post_recovery_write_succeeded": true,
+      "verdict": "PASS"
+    }
+  },
+  "mechanical_proofs": [
+    {
+      "command": "python3 scripts/m1nd10_g4_lock_audit.py",
+      "result": "PASS",
+      "counts": "73 production files; 23 SessionState lock scopes; 0 forbidden operations; 0 failures"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo check --locked -p m1nd-mcp --features serve --lib",
+      "result": "PASS",
+      "counts": "library check",
+      "elapsed_seconds": 12.25
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --test project_brain_runtime -- --nocapture",
+      "result": "PASS",
+      "counts": "8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+      "elapsed_test_seconds": 12.14
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --test runtime_jobs --test checkpoint_store -- --nocapture",
+      "result": "PASS",
+      "counts": "runtime_jobs 14 passed; checkpoint_store 13 passed; 0 failed",
+      "elapsed_test_seconds": 1.87
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib analysis_releases_session_lock -- --nocapture",
+      "result": "PASS",
+      "counts": "3 passed; 0 failed",
+      "elapsed_test_seconds": 1.16
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib brain_runtime::tests::actor_checkout_releases_storage_mutex_during_long_command -- --exact --nocapture",
+      "result": "PASS",
+      "counts": "1 passed; 0 failed",
+      "elapsed_test_seconds": 0.46
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib health_returns_cached_degraded_snapshot_while_owner_is_busy -- --nocapture",
+      "result": "PASS",
+      "counts": "1 passed; 0 failed; 601 latency samples; 0 threshold violations",
+      "elapsed_test_seconds": 31.86
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo test --locked -p m1nd-mcp --features serve --lib",
+      "result": "PASS",
+      "counts": "1049 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out",
+      "elapsed_test_seconds": 47.56
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/Volumes/Cofre/.codex-m1nd-build-20260718 CARGO_INCREMENTAL=0 cargo clippy --locked -p m1nd-mcp --features serve --all-targets -- -D warnings",
+      "result": "PASS",
+      "counts": "strict all-target lint; no scoped allow",
+      "elapsed_seconds": 18.31
+    }
+  ],
+  "preserved_failures": [
+    {
+      "stage": "first strict all-target clippy after transport adoption",
+      "result": "FAIL_FIXED_RETEST_PASS",
+      "detail": "One needless borrow in the all-brains recall call site was removed; the unchanged strict command then passed."
+    },
+    {
+      "stage": "first exact actor test invocation",
+      "result": "FILTER_MISS_RETRIED_PASS",
+      "detail": "The short filter plus --exact selected zero tests; the fully qualified test name selected and passed the intended actor checkout proof."
+    }
+  ],
+  "independent_review": {
+    "status": "UNAVAILABLE",
+    "verdict": null,
+    "attempts": [
+      {
+        "route": "Fable",
+        "result": "UNAVAILABLE_CREDIT_BALANCE_TOO_LOW"
+      },
+      {
+        "route": "Fugu full review",
+        "result": "UNAVAILABLE_TIMEOUT_NO_CONTRACT_VERDICT",
+        "bounded_minutes": 10
+      },
+      {
+        "route": "Fugu narrow retry",
+        "result": "UNAVAILABLE_TIMEOUT_NO_CONTRACT_VERDICT",
+        "bounded_minutes": 10
+      }
+    ],
+    "proof_effect": "NO_APPROVAL_OR_REJECTION_INFERRED; partial reasoning was discarded; the mechanical component verdict is unchanged"
+  },
+  "claim_status": {
+    "actor_queue_and_backpressure": "PROVEN_MACOS_COMPONENT",
+    "timeout_and_cancellation_observability": "PROVEN_MACOS_COMPONENT",
+    "degraded_persistence_live_read_and_write_fence": "PROVEN_MACOS_COMPONENT",
+    "old_or_new_checkpoint_all_implemented_failpoints": "PROVEN_MACOS_COMPONENT",
+    "multi_brain_isolation_10000_operations": "PROVEN_MACOS_COMPONENT",
+    "health_p99_under_30_second_owner_lock": "PROVEN_MACOS_COMPONENT",
+    "production_rest_mcp_stdio_transport_adoption": "PROVEN_SOURCE_AND_TEST_MACOS_COMPONENT",
+    "all_session_locks_avoid_filesystem_network_subprocess_or_long_analysis": "PROVEN_BY_CONSERVATIVE_SOURCE_AUDIT_PLUS_RUNTIME_STALL_TESTS_ON_MACOS",
+    "required_owner_authority_installs_before_endpoint_heartbeat_router_and_bind": "PROVEN_COMPONENT",
+    "windows_directory_fsync_and_recovery": "NOT_RUN",
+    "physical_power_loss": "NOT_RUN"
+  },
+  "remaining_g4_gaps": [
+    "The ratified G4 gate explicitly requires the Windows checkpoint primitive and recovery battery; Windows is NOT_RUN.",
+    "Injected filesystem failpoints are not evidence of physical power-loss behavior.",
+    "Linux was not run in this component window; no cross-platform gate claim is made."
+  ],
+  "platforms": {
+    "macos_arm64": "PASS_COMPONENT",
+    "windows": "NOT_RUN",
+    "linux": "NOT_RUN",
+    "physical_power_loss": "NOT_RUN"
+  },
+  "artifact_digests": {
+    "prd_sha256": "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38",
+    "uml_sha256": "8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b"
+  }
+}

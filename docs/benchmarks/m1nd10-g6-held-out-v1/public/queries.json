@@ -1,0 +1,4362 @@
+{
+  "blinded": true,
+  "corpus_digest": "sha256:82643b72c1d89809db2339f54134db6362bcdabbeb3e3cc9518273a233144b3d",
+  "corpus_id": "m1nd10-g6-held-out-v1-82643b72c1d89809",
+  "runner_contract": {
+    "forbidden_artifact": "operator-only/corpus.json",
+    "labels_exposed": false,
+    "read_only_artifact": "public/queries.json",
+    "result_coverage": "emit exactly one measurement for every task_id",
+    "source_checkout": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee"
+  },
+  "schema": "m1nd10-g6-public-query-corpus-v1",
+  "self_digest": "sha256:3c00b729d4ec6292a9ec0775dc9dbea700a227ffcc9b6cdc055470d72e7c4fe9",
+  "source_manifest": {
+    "manifest_digest": "sha256:9cd7537a78d67c16676c80924da752b05e339e30c558ace408a60290dbb4cb61",
+    "repos": [
+      {
+        "file_set_digest": "sha256:781f16c1585a11edae6b7da21a9fb3462dcfec8b8be94caa460afe2fa370408d",
+        "files": [
+          {
+            "bytes": 3173,
+            "lines": 68,
+            "path": "Cargo.toml",
+            "role": "dependency_manifest",
+            "sha256": "sha256:c6b324133f86686762be6df921c5c2130fa1f7d58c5871c528485e47084a545b"
+          },
+          {
+            "bytes": 2256,
+            "lines": 57,
+            "path": "build.rs",
+            "role": "source",
+            "sha256": "sha256:81a6e54d8ff00b3d3441efc5adf4124ef4288f0ae90006d83f8ee06d7d78b3ee"
+          },
+          {
+            "bytes": 49938,
+            "lines": 1177,
+            "path": "src/attach_client.rs",
+            "role": "source",
+            "sha256": "sha256:287f76666af692719531876af515b1e28569ef1c725826b9f86bf6e123159121"
+          },
+          {
+            "bytes": 157983,
+            "lines": 4407,
+            "path": "src/audit_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:7f19586363d0f2a67c454bf50321d2eeee5109ef2a10d922ecdf687676c2ca76"
+          },
+          {
+            "bytes": 55972,
+            "lines": 1436,
+            "path": "src/auto_ingest.rs",
+            "role": "source",
+            "sha256": "sha256:0428d0173e48b37b0014db3fbe249e352ef5f5638236dd5ba9b95c42a24556bb"
+          },
+          {
+            "bytes": 5386,
+            "lines": 154,
+            "path": "src/boot_memory_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:2c53a9ab865380344b4ac2e5b6431c4a5f867ff152b0cec9bafec7619997e0af"
+          },
+          {
+            "bytes": 60878,
+            "lines": 1572,
+            "path": "src/candidate_edit.rs",
+            "role": "source",
+            "sha256": "sha256:2ef30002e7fb2984cdf1c19cbcbd81de97349e1dde29c31196e278b2686dfafc"
+          },
+          {
+            "bytes": 7898,
+            "lines": 176,
+            "path": "src/cli.rs",
+            "role": "source",
+            "sha256": "sha256:264f034ddaacb0e712ce89a8be501b6ee34b51759d94cdaa0a1da4ef655a80f5"
+          },
+          {
+            "bytes": 36468,
+            "lines": 910,
+            "path": "src/cockpit.rs",
+            "role": "source",
+            "sha256": "sha256:dca6c1e47c18bd0e042a33c317969ae602fa6888a4e6d2ded644a2d7562efef5"
+          },
+          {
+            "bytes": 45520,
+            "lines": 1092,
+            "path": "src/curation_runner.rs",
+            "role": "source",
+            "sha256": "sha256:d2261d6c1d1fef1ee53e8252e978d1036f30162f3cd6b5b3be8c625b6bdc5540"
+          },
+          {
+            "bytes": 102304,
+            "lines": 2620,
+            "path": "src/daemon_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:cf7458d8b8d42547a4b8c7ee24d998e0eb72d4d21f7192873d0b1028a78a489a"
+          },
+          {
+            "bytes": 77139,
+            "lines": 1858,
+            "path": "src/delegation_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:119731c3bc037cd619727a6e15be4d7eca2956d286c9194dd080076dd7a3d2bb"
+          },
+          {
+            "bytes": 15863,
+            "lines": 537,
+            "path": "src/engine_ops.rs",
+            "role": "source",
+            "sha256": "sha256:253950a2cb55d2f7e8921cf97736d5086174592c347ea15b770fd008776c6258"
+          },
+          {
+            "bytes": 92301,
+            "lines": 2434,
+            "path": "src/help_guidance.rs",
+            "role": "source",
+            "sha256": "sha256:e4fb4be2bca145fbfe44a7d4a2c05eda5fdfd5abf694573e66de9967660d0fe7"
+          },
+          {
+            "bytes": 174691,
+            "lines": 4047,
+            "path": "src/http_server.rs",
+            "role": "source",
+            "sha256": "sha256:67d48792c6dd85c962633d02e19902b51ea434f1acf71aee3069605dbfd8d158"
+          },
+          {
+            "bytes": 2813,
+            "lines": 117,
+            "path": "src/http_types.rs",
+            "role": "source",
+            "sha256": "sha256:04309e4283ea2129b16575d3b74bd8a669a99189d98546af3c303943dc285314"
+          },
+          {
+            "bytes": 35355,
+            "lines": 841,
+            "path": "src/human_view.rs",
+            "role": "source",
+            "sha256": "sha256:8137f3ed886d486d8f844a35c7cd076e05ccc35e66d5a115d3093a20bd174b83"
+          },
+          {
+            "bytes": 61722,
+            "lines": 1523,
+            "path": "src/instance_registry.rs",
+            "role": "source",
+            "sha256": "sha256:da5639132657badea298793d225d5127e4df8a8e999e9c5030ce22f54dd07cd0"
+          },
+          {
+            "bytes": 551469,
+            "lines": 14940,
+            "path": "src/layer_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:890a6a0c5ad1a679921f6ae38700270a20348a440d561ae9d11c5358eddb8fec"
+          },
+          {
+            "bytes": 3166,
+            "lines": 87,
+            "path": "src/lib.rs",
+            "role": "source",
+            "sha256": "sha256:c85963599382048b2d1ae0e3e56430157d9135340a7e52e972efdc46219570b1"
+          },
+          {
+            "bytes": 84981,
+            "lines": 1960,
+            "path": "src/light_author_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:0ea94ddf9c1997039ae65357d65f5abf3717ac5eb1d2c1d8ffb204ab9fb3b411"
+          },
+          {
+            "bytes": 24502,
+            "lines": 739,
+            "path": "src/lock_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:363865e17cffc96fb6730da5fea18e35bc0e949cd064891c75a820f120380a24"
+          },
+          {
+            "bytes": 87973,
+            "lines": 2100,
+            "path": "src/mailbox.rs",
+            "role": "source",
+            "sha256": "sha256:b47a049a0e7e84fe9d3c5896945fae4facce4b4709cd7d91d05192040763036c"
+          },
+          {
+            "bytes": 36439,
+            "lines": 897,
+            "path": "src/main.rs",
+            "role": "source",
+            "sha256": "sha256:3408bb3aee176bdd01e06b6830bd5a39aa4455609aa3c83f7153c59d5e747594"
+          },
+          {
+            "bytes": 97774,
+            "lines": 2337,
+            "path": "src/mcp_http.rs",
+            "role": "source",
+            "sha256": "sha256:4fe5246719ef8e821d5a3e2385900a7d2cf7b89db71951db24b51f5137ee7d7b"
+          },
+          {
+            "bytes": 72060,
+            "lines": 1695,
+            "path": "src/medulla_migration.rs",
+            "role": "source",
+            "sha256": "sha256:f6fca78808656b4d8d925412c40059899e086902a6629e34228ee297ceaf3034"
+          },
+          {
+            "bytes": 65310,
+            "lines": 1833,
+            "path": "src/mission_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:d5cbd2aa0736974fc05a400d2f064d3b325616b759e13fd522291fbc3d3fa02e"
+          },
+          {
+            "bytes": 56631,
+            "lines": 1366,
+            "path": "src/mission_letter.rs",
+            "role": "source",
+            "sha256": "sha256:bd7119a69a49acae5ec43b61b17ffb32252e24cfdce2f51bbcf6edfff9279aa9"
+          },
+          {
+            "bytes": 11525,
+            "lines": 204,
+            "path": "src/mission_letter_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:151cab5bb82448f4566f098bc5c1b2a033fb82a36737f2a4bf5d0dd7eabc3a00"
+          },
+          {
+            "bytes": 7627,
+            "lines": 192,
+            "path": "src/mission_local.rs",
+            "role": "source",
+            "sha256": "sha256:17b7ebc65bcfda19e8f51cea540783a55933cb80219e053bd5c0dddb35951df9"
+          },
+          {
+            "bytes": 54154,
+            "lines": 1228,
+            "path": "src/naming_runner.rs",
+            "role": "source",
+            "sha256": "sha256:652f3004afbd041aeada4ae1fee841342c2aa213edcccb64ec53f4525a15e966"
+          },
+          {
+            "bytes": 3772,
+            "lines": 104,
+            "path": "src/persist_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:c0b5797881e3eac5e6f9899bd19ebbc6536f3d859df4490d27fc695d4649d5c0"
+          },
+          {
+            "bytes": 116928,
+            "lines": 2571,
+            "path": "src/personality.rs",
+            "role": "source",
+            "sha256": "sha256:035bb7b4f368629573a63f33d0858934e46232d8a7d52ca65edc4401c13adf5a"
+          },
+          {
+            "bytes": 9542,
+            "lines": 283,
+            "path": "src/perspective/confidence.rs",
+            "role": "source",
+            "sha256": "sha256:ff747255aaaceba115c918ac65e62aafaf119a656c5991d21dc46398cfdced05"
+          },
+          {
+            "bytes": 4100,
+            "lines": 117,
+            "path": "src/perspective/keys.rs",
+            "role": "source",
+            "sha256": "sha256:5cd0fee526012ef8438ee0c4a2860089353d98a7c47558af9d37c89e93d919df"
+          },
+          {
+            "bytes": 636,
+            "lines": 16,
+            "path": "src/perspective/mod.rs",
+            "role": "source",
+            "sha256": "sha256:d61c52e3286a521b84adab82cfdac2d332bc8f56a9cd90c1548415f4127fc86c"
+          },
+          {
+            "bytes": 9561,
+            "lines": 298,
+            "path": "src/perspective/peek_security.rs",
+            "role": "source",
+            "sha256": "sha256:efeaacd8576569a2cd9263a9eadd050488b45568177864a3a8ef58359648cc4f"
+          },
+          {
+            "bytes": 27568,
+            "lines": 773,
+            "path": "src/perspective/state.rs",
+            "role": "source",
+            "sha256": "sha256:12c982abe6ddb183d435bc7b9b1895bcbfa1b99a4222f8add2ac84d87ad414fa"
+          },
+          {
+            "bytes": 14049,
+            "lines": 415,
+            "path": "src/perspective/validation.rs",
+            "role": "source",
+            "sha256": "sha256:67064ad27e66721b334ffb91e5c148d55fe6ed9e21dc273b7a4662d6121aa981"
+          },
+          {
+            "bytes": 73121,
+            "lines": 2150,
+            "path": "src/perspective_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:d32f48db27262b649321866a87e0bd6e7e686f1a68c9cb21aa6f89f485dfcc11"
+          },
+          {
+            "bytes": 31792,
+            "lines": 748,
+            "path": "src/presence.rs",
+            "role": "source",
+            "sha256": "sha256:285cd6f9bf38cbe9e68d8719223c5880f16335ad40108b8383f0b766b9f08846"
+          },
+          {
+            "bytes": 69994,
+            "lines": 1498,
+            "path": "src/project_brains.rs",
+            "role": "source",
+            "sha256": "sha256:b2a3998a58230f8b1dc52ee55fcb51e500ddd1a753b68d923d1aa5ad0549a065"
+          },
+          {
+            "bytes": 33631,
+            "lines": 781,
+            "path": "src/promote_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:66fe817bba3a5700ad145c05b2748ce67a64f3cad45d52fb9cf0c7a363f80997"
+          },
+          {
+            "bytes": 7192,
+            "lines": 252,
+            "path": "src/protocol/auto_ingest.rs",
+            "role": "source",
+            "sha256": "sha256:8ed017cf26cfbba2b53f04312adc88a693a9a693875916cdf2996008272aedeb"
+          },
+          {
+            "bytes": 18501,
+            "lines": 567,
+            "path": "src/protocol/core.rs",
+            "role": "source",
+            "sha256": "sha256:68a9d964f1cbb695389ead5743c12645ed30fe83b4126e2d1e352869d8a315f2"
+          },
+          {
+            "bytes": 122831,
+            "lines": 3471,
+            "path": "src/protocol/layers.rs",
+            "role": "source",
+            "sha256": "sha256:5f4aefaf479427a4cbda330207fd322d0870820bfa4098f2ca538fbc48f4237f"
+          },
+          {
+            "bytes": 7118,
+            "lines": 208,
+            "path": "src/protocol/lock.rs",
+            "role": "source",
+            "sha256": "sha256:6d323d8546066325ff5eabdf903a9501acddef2779ad10210d7571608b500aac"
+          },
+          {
+            "bytes": 502,
+            "lines": 17,
+            "path": "src/protocol/mod.rs",
+            "role": "source",
+            "sha256": "sha256:1787583305c1876fc36adce109b6800609f9557f6fede5627ae4848727da3d1a"
+          },
+          {
+            "bytes": 18946,
+            "lines": 539,
+            "path": "src/protocol/perspective.rs",
+            "role": "source",
+            "sha256": "sha256:32d6cb6f581815f9f2d0c81bd3086abdb7f595862ab00cca65596aa003cd4415"
+          },
+          {
+            "bytes": 28941,
+            "lines": 757,
+            "path": "src/protocol/surgical.rs",
+            "role": "source",
+            "sha256": "sha256:032b87d94a967ebdd26d25958d7fcd58222df6152e29f347355fd937498b8423"
+          },
+          {
+            "bytes": 18146,
+            "lines": 548,
+            "path": "src/report_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:73b7f742df1bd154bde923e308300181208d2b80e3d3f5f6af3c44fee9b757a0"
+          },
+          {
+            "bytes": 19586,
+            "lines": 576,
+            "path": "src/result_shaping.rs",
+            "role": "source",
+            "sha256": "sha256:00a1b39e91fb3b0d804aa3f02c4908c417e8cf8d03c23c28d6979b60d226f91f"
+          },
+          {
+            "bytes": 20131,
+            "lines": 496,
+            "path": "src/runnerd_owner.rs",
+            "role": "source",
+            "sha256": "sha256:e641de05a82b782846194e1eb5b04c908b1518d25a2969e9fa1e5ef1d5751e4f"
+          },
+          {
+            "bytes": 4855,
+            "lines": 169,
+            "path": "src/scope.rs",
+            "role": "source",
+            "sha256": "sha256:2e438706f3f75d0d20b35030fceb7913be47f5a3d670679eaa8543c7aa97d7c6"
+          },
+          {
+            "bytes": 99754,
+            "lines": 2818,
+            "path": "src/search_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:64b7711ac10d676c9820167b48f207121f7fa5979fc50b1bd65ad35ddf59ec52"
+          },
+          {
+            "bytes": 589345,
+            "lines": 11610,
+            "path": "src/server.rs",
+            "role": "source",
+            "sha256": "sha256:9c1aab4d6fd8e0f000a2c8ae761ef84643cdcc81fe04be7fde13c6098241a366"
+          },
+          {
+            "bytes": 143093,
+            "lines": 3410,
+            "path": "src/session.rs",
+            "role": "source",
+            "sha256": "sha256:44392cc74036540ca26344d74c8f641ef1fe6efb6a5c1e445d6305ce02619e28"
+          },
+          {
+            "bytes": 74650,
+            "lines": 2149,
+            "path": "src/skeleton_scan.rs",
+            "role": "source",
+            "sha256": "sha256:accdb798454e709ab745a833ed12680e91f74660dfca0bae480e66757901ac73"
+          },
+          {
+            "bytes": 48063,
+            "lines": 1306,
+            "path": "src/soul_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:690ea7d1ae916ff490f241913f376d8aa29a607ba3c603d8f7f6bf9de81f1ddd"
+          },
+          {
+            "bytes": 248876,
+            "lines": 6569,
+            "path": "src/surgical_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:6dda272f7aaf083bff65ea12964c57865368c1405f3ac2b0238d121ee636c711"
+          },
+          {
+            "bytes": 168700,
+            "lines": 4213,
+            "path": "src/system_blocks.rs",
+            "role": "source",
+            "sha256": "sha256:2ff8eaf1d100a5d747768c94dce90758664ec13c3ecd6a5a0bc097abf6579a0d"
+          },
+          {
+            "bytes": 58475,
+            "lines": 1344,
+            "path": "src/system_blocks_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:80fe89775ba522f1e0b6930b46d5a4d0c576518ea436ca505273ba8b2c52717f"
+          },
+          {
+            "bytes": 254548,
+            "lines": 6301,
+            "path": "src/tools.rs",
+            "role": "source",
+            "sha256": "sha256:65205ad4c97315daaad6110ac25ab5c4e4ab2e2dede3801d528ab3d7db33bd46"
+          },
+          {
+            "bytes": 23640,
+            "lines": 566,
+            "path": "src/trust_envelope.rs",
+            "role": "source",
+            "sha256": "sha256:2723c6d8d89b8d7e22b70ddb1770f4e46230bac978a240b7b7411cf1fd3fcef2"
+          },
+          {
+            "bytes": 55934,
+            "lines": 1494,
+            "path": "src/universal_docs.rs",
+            "role": "source",
+            "sha256": "sha256:add738eca2d9152f0a5a70cf64fb8c978d72b0aa5ffdc05e2e58c0eb9eea1c15"
+          },
+          {
+            "bytes": 1108,
+            "lines": 34,
+            "path": "src/util.rs",
+            "role": "source",
+            "sha256": "sha256:a4a6d8d2152b69bb7022f809b2fd05f1c6f6b3022154efae89355f499e247f9b"
+          },
+          {
+            "bytes": 215693,
+            "lines": 5511,
+            "path": "src/xray_handlers.rs",
+            "role": "source",
+            "sha256": "sha256:fb65fee5a64ad87293792f3d299b2f33342ccb7d5e47a33da402fb03ffee51a9"
+          },
+          {
+            "bytes": 9924,
+            "lines": 295,
+            "path": "tests/antibody_lifecycle_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:8f929f0edca1e4ff7a13af4ca6b76b8aecea7f4719d3742821d6350592efb7a2"
+          },
+          {
+            "bytes": 16936,
+            "lines": 392,
+            "path": "tests/attach_reinit.rs",
+            "role": "source",
+            "sha256": "sha256:9b1389fa3b1387d87fa01f4eae0fd67b0736a7a923c39d9c51cf33db56dc31ef"
+          },
+          {
+            "bytes": 14123,
+            "lines": 342,
+            "path": "tests/attach_self_echo.rs",
+            "role": "source",
+            "sha256": "sha256:3a27e7610346733d4e33af5a64f004b5e87f80298d75eb224714b52ae7732c4d"
+          },
+          {
+            "bytes": 7652,
+            "lines": 219,
+            "path": "tests/counterfactual_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:e3ea510df1c5baa9bc1304e429ff5e648157df8df8a37da6da4c861ce7f67382"
+          },
+          {
+            "bytes": 32149,
+            "lines": 890,
+            "path": "tests/delegation_slices.rs",
+            "role": "source",
+            "sha256": "sha256:2047f758af5214ec523084e21ddcb0af36eb3f5e9c0410d080563a35c323d1c9"
+          },
+          {
+            "bytes": 13807,
+            "lines": 354,
+            "path": "tests/file_view_brain_root.rs",
+            "role": "source",
+            "sha256": "sha256:1117968aba64da890cb187bc6ab1f6cc46b652e9fb6ed611705d3491f9cfc587"
+          },
+          {
+            "bytes": 3727,
+            "lines": 106,
+            "path": "tests/fuzzy_tool_suggestions.rs",
+            "role": "source",
+            "sha256": "sha256:03f80a72089e0ffd3f85adb8bf2d474b8f00181859d9b915be6f96592f87cb39"
+          },
+          {
+            "bytes": 33321,
+            "lines": 785,
+            "path": "tests/hall_brains_listing.rs",
+            "role": "source",
+            "sha256": "sha256:ea7144ce0ee20f36b01c29f6821e17ea7a7c3ecd2af87e967c768ea6692437f3"
+          },
+          {
+            "bytes": 5671,
+            "lines": 165,
+            "path": "tests/lock_diff_ownership_and_not_found_errors.rs",
+            "role": "source",
+            "sha256": "sha256:6908d4d661867fa08078b28b5030295ec8d690652c08ba0b94f27d7a68e78bf7"
+          },
+          {
+            "bytes": 15382,
+            "lines": 378,
+            "path": "tests/mailbox_m7b.rs",
+            "role": "source",
+            "sha256": "sha256:20530de1e44d774a011159d0b51a929e12394eb10246e560b3b24f2ae4aa9ef2"
+          },
+          {
+            "bytes": 22771,
+            "lines": 622,
+            "path": "tests/medulla_m5b_tier_recall.rs",
+            "role": "source",
+            "sha256": "sha256:9532a4d0b4ffeb0676d57988069d0ea09808d4ca782baddfedb25d6d43f19c56"
+          },
+          {
+            "bytes": 24638,
+            "lines": 680,
+            "path": "tests/medulla_m6_promote.rs",
+            "role": "source",
+            "sha256": "sha256:1f52605f8c2cd592f0ed8e286db19ff0a4ea36c1325699400c8f61e178661c0d"
+          },
+          {
+            "bytes": 24544,
+            "lines": 579,
+            "path": "tests/medulla_migrate_cli.rs",
+            "role": "source",
+            "sha256": "sha256:756c62da1ae4e32c8d1e180ab2f31f50751a552bc680664261dae35c32a7d4e6"
+          },
+          {
+            "bytes": 7274,
+            "lines": 216,
+            "path": "tests/metrics_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:8c03f5ba55bf12cbdf8a732b930f9330764bbb5add90cc806ca27885a9a401c9"
+          },
+          {
+            "bytes": 29698,
+            "lines": 704,
+            "path": "tests/per_brain_open.rs",
+            "role": "source",
+            "sha256": "sha256:30670b1d44a6631ef7270033a8e23f7f795fb155c0cd45ef5c1444a97012c668"
+          },
+          {
+            "bytes": 11997,
+            "lines": 285,
+            "path": "tests/persist_runtime_root.rs",
+            "role": "source",
+            "sha256": "sha256:5d4ff01fd77c12c972e1b8768a2fecfe162ef9023dc2da131bda654920e3ca2f"
+          },
+          {
+            "bytes": 24713,
+            "lines": 685,
+            "path": "tests/perspective_golden.rs",
+            "role": "source",
+            "sha256": "sha256:7925940bb5ffb6789551a11f72affc66e42789f14dc0ab2f6955f03bad89a5d5"
+          },
+          {
+            "bytes": 7533,
+            "lines": 206,
+            "path": "tests/perspective_inspect_stale_route_set_version_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:dcd8153f31a9649d942f717992333baf8a015a4458dff8f26ba9550439799d44"
+          },
+          {
+            "bytes": 7816,
+            "lines": 239,
+            "path": "tests/perspective_lifecycle_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:000b6c32cc7a2604946c4a9f162395541438be361a4ab6774204835dcb3a94e1"
+          },
+          {
+            "bytes": 37148,
+            "lines": 968,
+            "path": "tests/perspective_suggest_affinity.rs",
+            "role": "source",
+            "sha256": "sha256:f701fef16c78ccfbbddea681a8ea895838ecaa53a2133f0bb369c6e448e433dd"
+          },
+          {
+            "bytes": 1933,
+            "lines": 47,
+            "path": "tests/remote_bind_refusal.rs",
+            "role": "source",
+            "sha256": "sha256:e2195e837ad36b27227dd8d7c4ed90ac744d13c8d30384f00b8550f76a30389b"
+          },
+          {
+            "bytes": 37327,
+            "lines": 939,
+            "path": "tests/retrieval_battery.rs",
+            "role": "source",
+            "sha256": "sha256:7b91fc645b368b37e21597aac335e93efdbcf9e47b36757410201a6b3035c5f9"
+          },
+          {
+            "bytes": 18900,
+            "lines": 520,
+            "path": "tests/soul_check_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:113968e5823834e20399a903a500bdd67d115f6db7b61abc02db905b736025f1"
+          },
+          {
+            "bytes": 1722,
+            "lines": 43,
+            "path": "tests/strict_version_refusal.rs",
+            "role": "source",
+            "sha256": "sha256:2c7f1eaf49e8efb9a792cb07b74937bb90f437ffd4d9ea77ba61d11181eba058"
+          },
+          {
+            "bytes": 5803,
+            "lines": 156,
+            "path": "tests/taint_trace_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:7d598f4bbd31f5c98885d7d0bd9708cec5362d4d39302c3ed6ab4e664411a6d4"
+          },
+          {
+            "bytes": 29934,
+            "lines": 960,
+            "path": "tests/test_auto_ingest.rs",
+            "role": "source",
+            "sha256": "sha256:73a5fc5b43d58b244ca970f15c90429c4c59a45ecd294299ae22b659018bc426"
+          },
+          {
+            "bytes": 9362,
+            "lines": 291,
+            "path": "tests/test_edit_preview.rs",
+            "role": "source",
+            "sha256": "sha256:581b3d88fe740144e543b463e47f611b2fa0de087a95f09a7e73f6011db48251"
+          },
+          {
+            "bytes": 29452,
+            "lines": 821,
+            "path": "tests/test_surgical.rs",
+            "role": "source",
+            "sha256": "sha256:743ee7fb8a91b9b2bd5216ea784a23b500e34924eb171861834bd6a792f3640a"
+          },
+          {
+            "bytes": 36849,
+            "lines": 1045,
+            "path": "tests/test_surgical_v2.rs",
+            "role": "source",
+            "sha256": "sha256:0ba390345b89d1155421e6c0c6a8f42acf173a2b3233c72a57ca66d6c4cdedba"
+          },
+          {
+            "bytes": 39505,
+            "lines": 1047,
+            "path": "tests/test_v04.rs",
+            "role": "source",
+            "sha256": "sha256:20cc2ef6053b3c9de106fb1683dcc3c27d20bce2b889e08760275c0c37505efc"
+          },
+          {
+            "bytes": 10052,
+            "lines": 282,
+            "path": "tests/trail_save_list_resume_dispatch_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:723a1ccb84865a93cf1225b70dc642bad5e59e51e3c119ddddc5c7646636fb3b"
+          },
+          {
+            "bytes": 8741,
+            "lines": 238,
+            "path": "tests/trust_cold_start_no_lie.rs",
+            "role": "source",
+            "sha256": "sha256:2f708966f8bd02d97ddec3b38431b793972c3f61775424c4bd9603299f01e46c"
+          },
+          {
+            "bytes": 38165,
+            "lines": 946,
+            "path": "tests/two_tier_project_brains.rs",
+            "role": "source",
+            "sha256": "sha256:79864cb8fb18d705c738fcb88223756aeeac7d1ea77b6a514964d8a3b571d6ab"
+          },
+          {
+            "bytes": 5849,
+            "lines": 171,
+            "path": "tests/type_trace_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:94f48472516c6872b82c593adad57f50d8adae572d77c64912bf581ed3e84d5a"
+          },
+          {
+            "bytes": 15994,
+            "lines": 413,
+            "path": "tests/universe_endpoint.rs",
+            "role": "source",
+            "sha256": "sha256:f26bb0a7f2fbd12b13171f7fb4ce43b133ea23a70306e35e97d3de0c3ddc4966"
+          },
+          {
+            "bytes": 8069,
+            "lines": 232,
+            "path": "tests/why_closure_verdict_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:14cbe874bc532fe6b5bd5332816d215ec9ef21168a04128513ad45ce79589d1e"
+          },
+          {
+            "bytes": 6197,
+            "lines": 187,
+            "path": "tests/why_path_reconstruction_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:3137722ae82d4a3d8941350fa6c5937bccaca9149c8984af43651d363ede088a"
+          }
+        ],
+        "git_tree": "e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+        "primary_language": "rust",
+        "repo_id": "m1nd-mcp",
+        "repo_size_band": "large",
+        "searched_file_count": 104,
+        "size_band_definition": {
+          "large": "100000 or more source lines",
+          "medium": "10000 through 99999 source lines",
+          "small": "fewer than 10000 source lines"
+        },
+        "source_file_count": 103,
+        "source_line_count": 136663,
+        "source_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+        "source_root": "m1nd-mcp"
+      },
+      {
+        "file_set_digest": "sha256:52c50283a7e0800342863828131021ddcc4ce664eab91dbfa9f7dfd6881aaae2",
+        "files": [
+          {
+            "bytes": 3259,
+            "lines": 74,
+            "path": "Cargo.toml",
+            "role": "dependency_manifest",
+            "sha256": "sha256:4f446a173faab6680402024dd386fdc2f2cbeae945d3a9d8843b5fbef0d3b777"
+          },
+          {
+            "bytes": 14186,
+            "lines": 442,
+            "path": "benches/core_benchmarks.rs",
+            "role": "source",
+            "sha256": "sha256:ed549cc5241864575333bb16b40e5a217972165ad38e6f1ccd3f09a6e0c3ea84"
+          },
+          {
+            "bytes": 28670,
+            "lines": 808,
+            "path": "src/activation.rs",
+            "role": "source",
+            "sha256": "sha256:b7335ed3412e0918ad91a74825c6a8e5f40bc9a7bb6df0e4b2e9089e74e1a985"
+          },
+          {
+            "bytes": 58388,
+            "lines": 1760,
+            "path": "src/antibody.rs",
+            "role": "source",
+            "sha256": "sha256:b2f95fa067d12ee0b36bfbe7f6d742d6395ce5c9a12199abf34b1c74f0331243"
+          },
+          {
+            "bytes": 2474,
+            "lines": 104,
+            "path": "src/builder.rs",
+            "role": "source",
+            "sha256": "sha256:fba34495933ef81e692b7d01744978606655a87263ebba2ca7e7662e835973a8"
+          },
+          {
+            "bytes": 14198,
+            "lines": 375,
+            "path": "src/calibration.rs",
+            "role": "source",
+            "sha256": "sha256:d48d72fb15eeea85b8da6844a3aa7682ef32a14b461df6d5fb7dc5244893137a"
+          },
+          {
+            "bytes": 29473,
+            "lines": 816,
+            "path": "src/counterfactual.rs",
+            "role": "source",
+            "sha256": "sha256:74a19e06dd1824f670c74d56003682ae7608317d55eb2357fa5999f90d8ba891"
+          },
+          {
+            "bytes": 5794,
+            "lines": 161,
+            "path": "src/domain.rs",
+            "role": "source",
+            "sha256": "sha256:97ea152fd72133dee991d5d82f6d51a7d8dc08448d8362bcae38cca2b8b45984"
+          },
+          {
+            "bytes": 13510,
+            "lines": 336,
+            "path": "src/embed.rs",
+            "role": "source",
+            "sha256": "sha256:14e3ad9514c90c460e1364d65378d63590bb0288c048e8c17c6bbbdddea5b795"
+          },
+          {
+            "bytes": 6164,
+            "lines": 155,
+            "path": "src/embed_cache.rs",
+            "role": "source",
+            "sha256": "sha256:b3fb305a604024fec88a91fe694fc3e605b6d55e0eceee67cae78d85124bff92"
+          },
+          {
+            "bytes": 39331,
+            "lines": 1045,
+            "path": "src/epidemic.rs",
+            "role": "source",
+            "sha256": "sha256:f5d1c13fb8f760087f4790200aaaee6f8280c8a747ad960da6aa59e46391f51a"
+          },
+          {
+            "bytes": 9800,
+            "lines": 268,
+            "path": "src/error.rs",
+            "role": "source",
+            "sha256": "sha256:b2d57f00d040854e56f495b40a8422a12719c0bc515b6837d8a444efb88894d7"
+          },
+          {
+            "bytes": 61604,
+            "lines": 1761,
+            "path": "src/flow.rs",
+            "role": "source",
+            "sha256": "sha256:50ea420ad60c85c0ed21f2396aaed3d13babc7be330d010553f678e0c7f63c72"
+          },
+          {
+            "bytes": 13267,
+            "lines": 397,
+            "path": "src/git_history.rs",
+            "role": "source",
+            "sha256": "sha256:c173dcfb6d4d6981d8bb86869e902bbcdabca456c5e3136556649a9139ef911d"
+          },
+          {
+            "bytes": 42785,
+            "lines": 1120,
+            "path": "src/graph.rs",
+            "role": "source",
+            "sha256": "sha256:31eed210b594e24a1e5ea9470e3fa67a8682bfc0a1257f2b6a42f90920a2e55d"
+          },
+          {
+            "bytes": 59956,
+            "lines": 1667,
+            "path": "src/layer.rs",
+            "role": "source",
+            "sha256": "sha256:eefc133dd3e9b2d0d6db7b1996127af3963d913c7724073c1ff7b7df1b9059e1"
+          },
+          {
+            "bytes": 19877,
+            "lines": 687,
+            "path": "src/lib.rs",
+            "role": "source",
+            "sha256": "sha256:251839fa48d61bc20e65d07a018579cb83fd7779a408602596fe03e0126fa94e"
+          },
+          {
+            "bytes": 28928,
+            "lines": 763,
+            "path": "src/plasticity.rs",
+            "role": "source",
+            "sha256": "sha256:2a53b20224ccda7943dabc0a5229f59dd0ce5806b524a43bbbe577190f49505c"
+          },
+          {
+            "bytes": 24275,
+            "lines": 644,
+            "path": "src/query.rs",
+            "role": "source",
+            "sha256": "sha256:cee3eae1b302c657c39fe54a7a1210549eeb00df8a9413753d75a0127c4f18b6"
+          },
+          {
+            "bytes": 17237,
+            "lines": 520,
+            "path": "src/refactor.rs",
+            "role": "source",
+            "sha256": "sha256:10611bb66b52233b766fabbac02aad458e39254c2eadda4e32097c1f4afebf15"
+          },
+          {
+            "bytes": 24267,
+            "lines": 684,
+            "path": "src/resonance.rs",
+            "role": "source",
+            "sha256": "sha256:0755a2cbf2a14dd3392e4e51d2e35d026f7e387af363735e8c671022fcaf1db2"
+          },
+          {
+            "bytes": 21861,
+            "lines": 656,
+            "path": "src/runtime_overlay.rs",
+            "role": "source",
+            "sha256": "sha256:1e446eec22483ddb0072fc4ad7e0834ddefe3c52646c17e53ab9d2e40904b788"
+          },
+          {
+            "bytes": 14560,
+            "lines": 417,
+            "path": "src/seed.rs",
+            "role": "source",
+            "sha256": "sha256:cb952d56d897406ce1445e4aa5587207120b05d86cb517f8204537106de588cf"
+          },
+          {
+            "bytes": 36475,
+            "lines": 937,
+            "path": "src/semantic.rs",
+            "role": "source",
+            "sha256": "sha256:4b2a1e31c970ef50795c84b2a35d74766bc476836905002afa4b08a1dafee0e8"
+          },
+          {
+            "bytes": 18835,
+            "lines": 525,
+            "path": "src/snapshot.rs",
+            "role": "source",
+            "sha256": "sha256:3cd2227176a445657d330eb50fdb8be8d373649272d163e7bebd8d7fc5e1d5a7"
+          },
+          {
+            "bytes": 7873,
+            "lines": 254,
+            "path": "src/snapshot_bin.rs",
+            "role": "source",
+            "sha256": "sha256:720275ebbacbe77ab1133b3080bd6e986027318305ba17e62fc499f2d0a323a2"
+          },
+          {
+            "bytes": 23550,
+            "lines": 717,
+            "path": "src/taint.rs",
+            "role": "source",
+            "sha256": "sha256:feae0263956abe0ec33bb8c17364d756937eb83a7e01538730e69d477f748b31"
+          },
+          {
+            "bytes": 37721,
+            "lines": 1065,
+            "path": "src/temporal.rs",
+            "role": "source",
+            "sha256": "sha256:da6a10e754ec82b089ff847abfe476470538614042089ea900442e418b782dee"
+          },
+          {
+            "bytes": 31133,
+            "lines": 892,
+            "path": "src/topology.rs",
+            "role": "source",
+            "sha256": "sha256:bb75f9ade925b3f43d25b2ba70b58cf0efce03c040fd0e3a4aeebedf0c577c41"
+          },
+          {
+            "bytes": 24753,
+            "lines": 714,
+            "path": "src/tremor.rs",
+            "role": "source",
+            "sha256": "sha256:8425c9ce65b09670abcb9403d94b82830013d519f862a010ead1f3c15a071c83"
+          },
+          {
+            "bytes": 30366,
+            "lines": 884,
+            "path": "src/trust.rs",
+            "role": "source",
+            "sha256": "sha256:877a465e32f71338ef3f3e4edaddf112aa4975a015da69a3d7e49db451d17d12"
+          },
+          {
+            "bytes": 23637,
+            "lines": 735,
+            "path": "src/twins.rs",
+            "role": "source",
+            "sha256": "sha256:b7382d0f7e0b14744aaea74c9234212688a30fc7640a54ca605c01acd1b57eac"
+          },
+          {
+            "bytes": 10340,
+            "lines": 370,
+            "path": "src/types.rs",
+            "role": "source",
+            "sha256": "sha256:72b8f4256693fd56b52bc174f66da99ff210f478d814d886bad6b46a005c9d64"
+          },
+          {
+            "bytes": 20237,
+            "lines": 570,
+            "path": "src/xlr.rs",
+            "role": "source",
+            "sha256": "sha256:2ee52bc42828f24a1046082359ba05281c8d21403078e64613ab2b919b27fec3"
+          },
+          {
+            "bytes": 9290,
+            "lines": 247,
+            "path": "tests/activation_engine_equivalence.rs",
+            "role": "source",
+            "sha256": "sha256:b0216fba5db7ff45415706afa8c8713e51f2a3bcddd176e9d01f5c35d85dd639"
+          },
+          {
+            "bytes": 7107,
+            "lines": 213,
+            "path": "tests/domain_half_life_table_invariants.rs",
+            "role": "source",
+            "sha256": "sha256:b2086d48495f3ab2a5745436e17c05a782c8419f7ccecfd6b7763cc4d68dbcc9"
+          },
+          {
+            "bytes": 5312,
+            "lines": 148,
+            "path": "tests/embed_cache_warm.rs",
+            "role": "source",
+            "sha256": "sha256:a7d1a3d9e97c2ece789bc2d397c2232dd15f6057e77ab5c7f61fe3502327c59f"
+          },
+          {
+            "bytes": 8738,
+            "lines": 248,
+            "path": "tests/embed_fake_no_blob.rs",
+            "role": "source",
+            "sha256": "sha256:73b88810a7bb9a112f29f6b75d0a67245d01944851091ef352a96c338fcb6506"
+          },
+          {
+            "bytes": 6599,
+            "lines": 191,
+            "path": "tests/graph_pagerank_staleness_and_finalize_guard.rs",
+            "role": "source",
+            "sha256": "sha256:4750701c2beb9930e96a6211ae00de4942066afc2eded01e429cb05622a466cf"
+          },
+          {
+            "bytes": 3749,
+            "lines": 96,
+            "path": "tests/plasticity_persist_roundtrip.rs",
+            "role": "source",
+            "sha256": "sha256:df71de5ca06967cc1fe75b5ce032b5f105c87fd23fed69f61123e17d468b7bd2"
+          },
+          {
+            "bytes": 8944,
+            "lines": 253,
+            "path": "tests/plasticity_priming_signal_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:2d7cf4d819c618f79893f630098cf11c5becf06688bc9782aaf65109b3c65871"
+          },
+          {
+            "bytes": 9520,
+            "lines": 268,
+            "path": "tests/query_orchestrator_readonly_detectors_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:f15e78425de640cdc60529efd385134501850eb8c62dcbda39bfb7562648972b"
+          },
+          {
+            "bytes": 4058,
+            "lines": 130,
+            "path": "tests/refinalize_preserves_edges.rs",
+            "role": "source",
+            "sha256": "sha256:806fc52a39cba768376e9d8696ae60517343d91e5161d2b7d6f2cf3332adc3f7"
+          },
+          {
+            "bytes": 5639,
+            "lines": 180,
+            "path": "tests/resonance_chain_propagation.rs",
+            "role": "source",
+            "sha256": "sha256:5a289cc491ac034d0a0cafccf478b9597dbc5f9ca3ca15be2a941e24fbea163a"
+          },
+          {
+            "bytes": 8011,
+            "lines": 264,
+            "path": "tests/retrobuilder_real.rs",
+            "role": "source",
+            "sha256": "sha256:fff297f7cd611a74c6c1e0299c4a3a75dadd8fa7e11e237e1a53eff45ccf76bb"
+          },
+          {
+            "bytes": 23291,
+            "lines": 690,
+            "path": "tests/retrobuilder_stress.rs",
+            "role": "source",
+            "sha256": "sha256:b59aaba20864f8214c1a7d0c6f598d3ef80f2a6e3c4285e36df36078a5a75621"
+          },
+          {
+            "bytes": 3341,
+            "lines": 112,
+            "path": "tests/snapshot_bin_roundtrip.rs",
+            "role": "source",
+            "sha256": "sha256:8c36bf782635cfea0a7c97e19bd4cc0dc112de2f739bf0d347a9ff40870cda37"
+          },
+          {
+            "bytes": 5766,
+            "lines": 178,
+            "path": "tests/snapshot_json_roundtrip.rs",
+            "role": "source",
+            "sha256": "sha256:e9884d7d6b05929c02cda9c4a5fe68b2dc8cab072c89a64b45a04a5aa17063c8"
+          },
+          {
+            "bytes": 6993,
+            "lines": 204,
+            "path": "tests/synonym_expander_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:9c477c27b21cdbc2be7ed52f1e7fe5d98148f0f4b5af297337756bfecc50a0bf"
+          },
+          {
+            "bytes": 3195,
+            "lines": 104,
+            "path": "tests/tag_mutation.rs",
+            "role": "source",
+            "sha256": "sha256:5fa67d2b4cd6bf6b851156122f3b88040fbf8bbcf69126cdf918cb56daf0261b"
+          },
+          {
+            "bytes": 4235,
+            "lines": 114,
+            "path": "tests/taint_seed_boundary.rs",
+            "role": "source",
+            "sha256": "sha256:788c43f8925c312701335afd41f2106f3f6f1930c1e9f314fca8d3c52560efb6"
+          },
+          {
+            "bytes": 11204,
+            "lines": 296,
+            "path": "tests/temporal_cochange_predict_ranking.rs",
+            "role": "source",
+            "sha256": "sha256:f7cfaa373acaf92301e3918127d728270336577a51c342be31700a2cc04f4a6c"
+          },
+          {
+            "bytes": 4544,
+            "lines": 107,
+            "path": "tests/temporal_per_type_half_life_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:3296f1f5ad4ed7c4a486e08740030c111b6a2102ec0233c24e48c597434df1c6"
+          },
+          {
+            "bytes": 6766,
+            "lines": 205,
+            "path": "tests/topology_community_partition_completeness.rs",
+            "role": "source",
+            "sha256": "sha256:6d46a68679afaa4e79a201355d9f2223671b6461096f94d5685d9d3616bfac6c"
+          },
+          {
+            "bytes": 2013,
+            "lines": 52,
+            "path": "tests/topology_density_overflow.rs",
+            "role": "source",
+            "sha256": "sha256:4307374f719f2d9157c11c82555acc51e1e8582effd60d189de13fb389133be8"
+          },
+          {
+            "bytes": 6147,
+            "lines": 167,
+            "path": "tests/xlr_spectral_overlap_behavior.rs",
+            "role": "source",
+            "sha256": "sha256:db4e91f73e9eab4f9606cc650aa2ddb819bfe10111c82ffff9e35cb0c4dbf7f3"
+          },
+          {
+            "bytes": 10937,
+            "lines": 318,
+            "path": "tests/xray_conformance.rs",
+            "role": "source",
+            "sha256": "sha256:626cab4e708f09bd7d34bc10aa1bc5c682bac8ab875434aa1ce4f2023c14281f"
+          }
+        ],
+        "git_tree": "a793f47eaac54e72becb837f466d6db033d51da4",
+        "primary_language": "rust",
+        "repo_id": "m1nd-core",
+        "repo_size_band": "medium",
+        "searched_file_count": 57,
+        "size_band_definition": {
+          "large": "100000 or more source lines",
+          "medium": "10000 through 99999 source lines",
+          "small": "fewer than 10000 source lines"
+        },
+        "source_file_count": 56,
+        "source_line_count": 28034,
+        "source_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+        "source_root": "m1nd-core"
+      },
+      {
+        "file_set_digest": "sha256:bce7aa73e9ae0cf93ba1210fc7437bec2793ddcb994e49c3e3dab1e5a988560d",
+        "files": [
+          {
+            "bytes": 10095,
+            "lines": 254,
+            "path": "agent_docs_gate.py",
+            "role": "source",
+            "sha256": "sha256:9acbcd684b415426c3396172b292d4ff2ac78ae07a37924bb4ffbe43aab51f8d"
+          },
+          {
+            "bytes": 26017,
+            "lines": 654,
+            "path": "benchmark/agent_reliability_round.py",
+            "role": "source",
+            "sha256": "sha256:175ee9f62b814431449740d0adfa040e3c048d6e7a2fd0646b0db3944c3d5965"
+          },
+          {
+            "bytes": 80217,
+            "lines": 1822,
+            "path": "benchmark/bug_hunt_round.py",
+            "role": "source",
+            "sha256": "sha256:dc0515d89dcc5f364391da7a0ca6a58842cd5d9aeb4b615a516472b542d73007"
+          },
+          {
+            "bytes": 68602,
+            "lines": 1726,
+            "path": "benchmark/real_world_agent_round.py",
+            "role": "source",
+            "sha256": "sha256:4ddd8b92e74c71de544760b951608f4ba30fd2cc151d63189d1b9881234045b5"
+          },
+          {
+            "bytes": 17500,
+            "lines": 399,
+            "path": "benchmark/run_benchmark.py",
+            "role": "source",
+            "sha256": "sha256:b3ecb1b3537fdec618ebc41fdf634c63b63520878bf3a730c005d810bf7bd6d5"
+          },
+          {
+            "bytes": 23275,
+            "lines": 438,
+            "path": "benchmark/summarize_benchmarks.py",
+            "role": "source",
+            "sha256": "sha256:72868cfeadbd90607e895972463c2a39bb6a7bec12f51bfc384f7a3c35cfe1c1"
+          },
+          {
+            "bytes": 6879,
+            "lines": 198,
+            "path": "m1nd_agent_demo.py",
+            "role": "source",
+            "sha256": "sha256:ea6fcae6c59de00d9ee621519fc7ca6fb63306d97ba2d8ece8346f13332f6784"
+          },
+          {
+            "bytes": 2073,
+            "lines": 73,
+            "path": "macos/file-watcher.py",
+            "role": "source",
+            "sha256": "sha256:6c8fd497c8e2af4c00e5485f65a7be748b4bd5a8204629d521005f6da984500a"
+          },
+          {
+            "bytes": 6155,
+            "lines": 209,
+            "path": "macos/m1nd-proxy.py",
+            "role": "source",
+            "sha256": "sha256:bc0e6572f17f8cbd48772d558cfc0922d8cc9b8563bd5fc95afd40f2cab1d047"
+          },
+          {
+            "bytes": 3155,
+            "lines": 97,
+            "path": "macos/smart-ingest.py",
+            "role": "source",
+            "sha256": "sha256:29fbcec96b9628dedb2a269fc52ccb257952845e2be29212953fb2602122a17e"
+          },
+          {
+            "bytes": 42280,
+            "lines": 1020,
+            "path": "mcp_agent_smoke.py",
+            "role": "source",
+            "sha256": "sha256:582935413a51f440a2786bb6c35f87e781217335ac58261e3129ca9a5ef7e2b7"
+          }
+        ],
+        "git_tree": "b43e71abc557173e529ef1c23a07eea089cf95bf",
+        "primary_language": "python",
+        "repo_id": "m1nd-python-tools",
+        "repo_size_band": "small",
+        "searched_file_count": 11,
+        "size_band_definition": {
+          "large": "100000 or more source lines",
+          "medium": "10000 through 99999 source lines",
+          "small": "fewer than 10000 source lines"
+        },
+        "source_file_count": 11,
+        "source_line_count": 6890,
+        "source_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+        "source_root": "scripts"
+      },
+      {
+        "file_set_digest": "sha256:b42069cacebd0e4b8d020c5df192b6dbca1f6af5cd6a5b9b049e154c1278419a",
+        "files": [
+          {
+            "bytes": 10238,
+            "lines": 198,
+            "path": "e2e/candidate-map.spec.ts",
+            "role": "source",
+            "sha256": "sha256:c6628693ab53ebe96c5dcac78acc6e79a0be58ddaadda0328689ebb905e76321"
+          },
+          {
+            "bytes": 14532,
+            "lines": 369,
+            "path": "e2e/honest-doors.spec.ts",
+            "role": "source",
+            "sha256": "sha256:0a0dc4522b447cc52d4043a6474768d6ac294a2f5b9fcff2af018344d69ebd81"
+          },
+          {
+            "bytes": 11314,
+            "lines": 258,
+            "path": "e2e/living-map.spec.ts",
+            "role": "source",
+            "sha256": "sha256:15f82d11b3da08a39d257f2a4e0f935bfc8da4494ee699b2ae339ea260b27d68"
+          },
+          {
+            "bytes": 9819,
+            "lines": 239,
+            "path": "e2e/presences.spec.ts",
+            "role": "source",
+            "sha256": "sha256:095cee220b94ece0f7df3589729d9e7e5312cce777d0a4340ee2e7fcc99ea48e"
+          },
+          {
+            "bytes": 13272,
+            "lines": 350,
+            "path": "e2e/reader.spec.ts",
+            "role": "source",
+            "sha256": "sha256:ebe8d1c8d9e8e80992491871a10235692b05e6dc0ef0e93ecb5a38305b275fab"
+          },
+          {
+            "bytes": 17088,
+            "lines": 421,
+            "path": "e2e/scan-loading.spec.ts",
+            "role": "source",
+            "sha256": "sha256:e3b4c42d4a3cbd494564eb08ce819926dfb435a415a5e6a5f7d3722241d3241d"
+          },
+          {
+            "bytes": 13105,
+            "lines": 328,
+            "path": "e2e/universe.spec.ts",
+            "role": "source",
+            "sha256": "sha256:5f6935e520eab891423b066f87532a9c5e2118f3118ad00620da55427e8aefe7"
+          },
+          {
+            "bytes": 11955,
+            "lines": 292,
+            "path": "e2e/url-router.spec.ts",
+            "role": "source",
+            "sha256": "sha256:db98502cce8693888a06dc439f347ebc95c940aab9554dc2af451728c6cd40d8"
+          },
+          {
+            "bytes": 1375,
+            "lines": 47,
+            "path": "package.json",
+            "role": "dependency_manifest",
+            "sha256": "sha256:c36b8d0bc1b442e5e54a405edcd1b87bce301b9a3bb5bac05d8725e95d1fd10f"
+          },
+          {
+            "bytes": 975,
+            "lines": 28,
+            "path": "playwright.config.ts",
+            "role": "source",
+            "sha256": "sha256:9564c5d81f0d87c63e9079ffa6729661e1077a288ed1ecf2ecd09a0ddd7d4947"
+          },
+          {
+            "bytes": 32823,
+            "lines": 785,
+            "path": "src/App.tsx",
+            "role": "source",
+            "sha256": "sha256:2891ea9bf709266bb1aeaa30c31bbac2f88d6a1a761d57e6f40bdd7fa5336f63"
+          },
+          {
+            "bytes": 8954,
+            "lines": 192,
+            "path": "src/api/client.test.ts",
+            "role": "source",
+            "sha256": "sha256:23a4e99a0ca73eaea9c92b0c168df8771ebf025adcf0dd063b4a8050a0572e3b"
+          },
+          {
+            "bytes": 24173,
+            "lines": 505,
+            "path": "src/api/client.ts",
+            "role": "source",
+            "sha256": "sha256:dc95a9a7e0cf713ef396f38b4784dc12cf2e491a86789ce38bccfe36502fa85e"
+          },
+          {
+            "bytes": 798,
+            "lines": 16,
+            "path": "src/api/toolTypes.test.ts",
+            "role": "source",
+            "sha256": "sha256:78a7ab8c021a8a2355ec104bc63e50313817ace5aee27d468257b25fa013d5b0"
+          },
+          {
+            "bytes": 7607,
+            "lines": 210,
+            "path": "src/api/toolTypes.ts",
+            "role": "source",
+            "sha256": "sha256:5a22890af43ded8e9bda35c32ee78c2a96f0310d33434d31a71f0e9e27cf7f57"
+          },
+          {
+            "bytes": 568,
+            "lines": 30,
+            "path": "src/api/types.ts",
+            "role": "source",
+            "sha256": "sha256:e4ad67b46fb243e277424ff24a0fb8a30effae3e719e07fb1e50013981afa2bf"
+          },
+          {
+            "bytes": 11617,
+            "lines": 351,
+            "path": "src/components/ActivationReplay.tsx",
+            "role": "source",
+            "sha256": "sha256:8f03c44e1d4bf123c11ba9d730387fb261881aa4fa65e41121d493821d6fac35"
+          },
+          {
+            "bytes": 6785,
+            "lines": 184,
+            "path": "src/components/CommandPalette.tsx",
+            "role": "source",
+            "sha256": "sha256:99fd8d07eea815be4b15a847c552dab714bc6ff2e27de4d1091b0ae30ec763af"
+          },
+          {
+            "bytes": 7339,
+            "lines": 190,
+            "path": "src/components/DetailPanel.tsx",
+            "role": "source",
+            "sha256": "sha256:42b209df3ad926ada9bb8fded3928dde38ce2beaa7bdba23ad739bcc3714a68b"
+          },
+          {
+            "bytes": 6278,
+            "lines": 175,
+            "path": "src/components/GraphCanvas.tsx",
+            "role": "source",
+            "sha256": "sha256:ae28ab6a41643df51cc3cbf5660e7c981371a6cfe46e80e303e1f35da4ca84da"
+          },
+          {
+            "bytes": 12034,
+            "lines": 273,
+            "path": "src/components/InstancesPanel.tsx",
+            "role": "source",
+            "sha256": "sha256:64e0368d0991e43c34cf257d15b794b9eb6e4b196cec8a40a888e83ff5cede33"
+          },
+          {
+            "bytes": 1578,
+            "lines": 47,
+            "path": "src/components/ToastContainer.tsx",
+            "role": "source",
+            "sha256": "sha256:42cf535c823b3563c20f26ffa30f1bb5a64f2a811bf10f7f08c5c88751e416c8"
+          },
+          {
+            "bytes": 4941,
+            "lines": 105,
+            "path": "src/components/TopBar.tsx",
+            "role": "source",
+            "sha256": "sha256:c6f7e888b40a6cebb91db4f93db5af87aac6932292b6c7991350ea0251ec204f"
+          },
+          {
+            "bytes": 589,
+            "lines": 27,
+            "path": "src/components/edges/GhostEdge.tsx",
+            "role": "source",
+            "sha256": "sha256:b64e173d7c0f6e589c49bee2456baf1d99960ff18425f23be5a381a534ebbdb8"
+          },
+          {
+            "bytes": 1283,
+            "lines": 52,
+            "path": "src/components/edges/WeightedEdge.tsx",
+            "role": "source",
+            "sha256": "sha256:363ef9bd7aa6e0d41b320cb15048963ffa534be0601a03e640db85dba4758999"
+          },
+          {
+            "bytes": 11491,
+            "lines": 260,
+            "path": "src/components/hall/BrainCard.tsx",
+            "role": "source",
+            "sha256": "sha256:d3ce944b274e95c8af2f488f7ca6f3ecc9c99e72752bb82bc8d82900047989f5"
+          },
+          {
+            "bytes": 3131,
+            "lines": 81,
+            "path": "src/components/hall/BrainCardGold.tsx",
+            "role": "source",
+            "sha256": "sha256:50d63b7b56b845cf088052747c704cd3eb95def722c1ef438dbb45e87e2a0f66"
+          },
+          {
+            "bytes": 2459,
+            "lines": 59,
+            "path": "src/components/hall/BrainChip.tsx",
+            "role": "source",
+            "sha256": "sha256:5fcc2a83cae1e95db92a006590c0a650b34fbb7ce3d70f4ef409963df1a86843"
+          },
+          {
+            "bytes": 7961,
+            "lines": 205,
+            "path": "src/components/hall/BrainPalette.tsx",
+            "role": "source",
+            "sha256": "sha256:55e9f46310be1f0d6c21095823efee2a6abeed5faa3f7b78de81ca1b89c33ac0"
+          },
+          {
+            "bytes": 12887,
+            "lines": 280,
+            "path": "src/components/hall/BrainReceiptDrawer.tsx",
+            "role": "source",
+            "sha256": "sha256:c003516056cabf87acb3fa91b23aca9b2fe2fe691f881190c85f19b6ac4c5efc"
+          },
+          {
+            "bytes": 10316,
+            "lines": 274,
+            "path": "src/components/hall/ForgetRuntimeFlow.tsx",
+            "role": "source",
+            "sha256": "sha256:78799eb8e25b95876dc27d521c534c680e89b3ac811b0c0883d6efab9089f1bc"
+          },
+          {
+            "bytes": 18120,
+            "lines": 425,
+            "path": "src/components/hall/HallView.tsx",
+            "role": "source",
+            "sha256": "sha256:f2bbdb7fbc825596cd7b5636ff59f10b6f0facc29b4be970b7103fabe5ba77d6"
+          },
+          {
+            "bytes": 14749,
+            "lines": 418,
+            "path": "src/components/hall/MailboxView.tsx",
+            "role": "source",
+            "sha256": "sha256:a863ed24e0b26a99725cf67e2ed708e1e04f40a4ec7b66b4c46eb684876a30dc"
+          },
+          {
+            "bytes": 3837,
+            "lines": 116,
+            "path": "src/components/hall/OrientationBeats.tsx",
+            "role": "source",
+            "sha256": "sha256:ef0e5bc19c30b103823b59766f2416f7b5d57030996916f12efde176e7b4fd53"
+          },
+          {
+            "bytes": 8600,
+            "lines": 213,
+            "path": "src/components/hall/OwnerAlertsPanel.tsx",
+            "role": "source",
+            "sha256": "sha256:c0493378f74c03e2a9a00aff1fa8d401c69ab5f53a270553f65ae47c903e08a1"
+          },
+          {
+            "bytes": 8566,
+            "lines": 201,
+            "path": "src/components/hall/PresenceStrip.tsx",
+            "role": "source",
+            "sha256": "sha256:f5a0c1f5a85ea6b7eb13629c881c94fb5111db71fdb4a2640cbc8016b9615d66"
+          },
+          {
+            "bytes": 4929,
+            "lines": 124,
+            "path": "src/components/hall/ThresholdCard.tsx",
+            "role": "source",
+            "sha256": "sha256:f2ec0bef03bf96f658736ddf35f0225c162c63e62a094ca75e871c5eccc26bf5"
+          },
+          {
+            "bytes": 8390,
+            "lines": 156,
+            "path": "src/components/hall/card-v2.test.tsx",
+            "role": "source",
+            "sha256": "sha256:938a9fe49ca3d4873ed9ccc7f77c627ef4b93e96993dec3150765ebea82fa6c7"
+          },
+          {
+            "bytes": 8727,
+            "lines": 177,
+            "path": "src/components/hall/delete-flow.test.tsx",
+            "role": "source",
+            "sha256": "sha256:57b8135be59729895223c2186ed8f6baea393758e33f4caa6993eda72f218117"
+          },
+          {
+            "bytes": 23869,
+            "lines": 431,
+            "path": "src/components/hall/hall-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:0b4b1105d8ea213478437ceecddff1a62be9d7384acff92d537c3d2343dd8698"
+          },
+          {
+            "bytes": 11198,
+            "lines": 244,
+            "path": "src/components/hall/mailbox-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:88b04716a1767dd367bbd06a24a16bae9fbb6e70ecfe75f49f1b80534c6bc55e"
+          },
+          {
+            "bytes": 6991,
+            "lines": 125,
+            "path": "src/components/hall/needs-backend.test.tsx",
+            "role": "source",
+            "sha256": "sha256:6f935485920595ab15c6b88b03c9203859e7e17b7fe26629df454d60aba6687b"
+          },
+          {
+            "bytes": 3993,
+            "lines": 98,
+            "path": "src/components/hall/owner-alerts.test.tsx",
+            "role": "source",
+            "sha256": "sha256:48b0d5f551981d4dd30401867e4f01168bfc46e4f5a2fc8ab1d654a83f6282ff"
+          },
+          {
+            "bytes": 6212,
+            "lines": 95,
+            "path": "src/components/hall/palette-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:c3acce2fc2084a2bbf044716eb5056115b7152c52d6a41fa4fb70702eba62775"
+          },
+          {
+            "bytes": 8013,
+            "lines": 182,
+            "path": "src/components/hall/presence-strip.test.tsx",
+            "role": "source",
+            "sha256": "sha256:72b9d72fb52572cf277d5f2448ab123e1261f0ce0fc1e65ed2b66779007cba17"
+          },
+          {
+            "bytes": 4525,
+            "lines": 93,
+            "path": "src/components/hall/threshold-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:f0cec003ed949236d3d3f7926fd3a829d325df3ab32ae196a4b67b99b8866f69"
+          },
+          {
+            "bytes": 7102,
+            "lines": 170,
+            "path": "src/components/map/BlockCard.tsx",
+            "role": "source",
+            "sha256": "sha256:ab82440e2a1cafb75c3bddc635c44a652778cb9b22befe24bf962d3940976659"
+          },
+          {
+            "bytes": 8978,
+            "lines": 202,
+            "path": "src/components/map/BlockPanel.tsx",
+            "role": "source",
+            "sha256": "sha256:3d756063424bd9156169a22b999773d95438cf96c2521a9471af50f5aba7b1f8"
+          },
+          {
+            "bytes": 27461,
+            "lines": 622,
+            "path": "src/components/map/BuildMap.tsx",
+            "role": "source",
+            "sha256": "sha256:d8d19ae74be7e1c98d6506a17af9f1c644725c2e2dbecb2677d165d43b71becc"
+          },
+          {
+            "bytes": 17888,
+            "lines": 420,
+            "path": "src/components/map/BuildMapView.tsx",
+            "role": "source",
+            "sha256": "sha256:8b9594c7f47d3c861ee96dbf77456395162ba6deea4f9e27954d57297c1eda9c"
+          },
+          {
+            "bytes": 19712,
+            "lines": 462,
+            "path": "src/components/map/CodeReader.tsx",
+            "role": "source",
+            "sha256": "sha256:81ca681ac1d360c4e916af582426d6412a77d581cb1339470b93f2cf1bcc49f5"
+          },
+          {
+            "bytes": 20695,
+            "lines": 460,
+            "path": "src/components/map/PacketCompose.tsx",
+            "role": "source",
+            "sha256": "sha256:7f4ef82ea9ded2711882551adbb84d4b157a0d5025185e42b3c0e35958276280"
+          },
+          {
+            "bytes": 35222,
+            "lines": 846,
+            "path": "src/components/map/ReviewRatify.tsx",
+            "role": "source",
+            "sha256": "sha256:a00890db970764b2dc6628aca4043f2000f26f3d70ed1017f501ed3091273044"
+          },
+          {
+            "bytes": 16274,
+            "lines": 365,
+            "path": "src/components/map/ShowCode.tsx",
+            "role": "source",
+            "sha256": "sha256:1580972c7ccc5151029ae573620c2b7fb8017fe7f187962ecd81583cdd537bff"
+          },
+          {
+            "bytes": 7020,
+            "lines": 147,
+            "path": "src/components/map/SystemHealthSidebar.tsx",
+            "role": "source",
+            "sha256": "sha256:972fe8d7ed52a1404d5f33ebadb9840670ff9de1e6d8f0d91e404548bbf2f55d"
+          },
+          {
+            "bytes": 3931,
+            "lines": 111,
+            "path": "src/components/map/Wires.tsx",
+            "role": "source",
+            "sha256": "sha256:a8510b840377ead1b4f1eaa9845f2b4233ae740447b391e255720f179b222cca"
+          },
+          {
+            "bytes": 2276,
+            "lines": 47,
+            "path": "src/components/map/build-map-empty.test.tsx",
+            "role": "source",
+            "sha256": "sha256:b1e053a8c7f74aec6761f0ad66b66252bdbfebf3d9e1a51286842c938dd23f08"
+          },
+          {
+            "bytes": 7774,
+            "lines": 138,
+            "path": "src/components/map/build-map.test.tsx",
+            "role": "source",
+            "sha256": "sha256:bae37195be46b2497e870d4b5a071ba258618552d84c9b290a2a4ec7b2819586"
+          },
+          {
+            "bytes": 4637,
+            "lines": 96,
+            "path": "src/components/map/code-reader.test.tsx",
+            "role": "source",
+            "sha256": "sha256:33cccd04d3d6c28f32f3b2cf023c4d07e5030c7356dacd510c3debe90dd2e189"
+          },
+          {
+            "bytes": 11333,
+            "lines": 235,
+            "path": "src/components/map/edit-names-boundaries.test.tsx",
+            "role": "source",
+            "sha256": "sha256:b92f723b601eafb296e2a9a93ae4c9babd3acaa84e6ab405c6daaa6f0b477899"
+          },
+          {
+            "bytes": 6436,
+            "lines": 138,
+            "path": "src/components/map/packet-compose-direct.test.tsx",
+            "role": "source",
+            "sha256": "sha256:09b59627fe7ca9f473ce754efb70979c3a7010753191d0777c4068e349ef2ee4"
+          },
+          {
+            "bytes": 5591,
+            "lines": 122,
+            "path": "src/components/map/packet-compose-spawn.test.tsx",
+            "role": "source",
+            "sha256": "sha256:bc4890ef8cf9179c97d5e694285b3fd04ead4bae208a73103a54b9c8185da30e"
+          },
+          {
+            "bytes": 11322,
+            "lines": 190,
+            "path": "src/components/map/reconcile-ui.test.tsx",
+            "role": "source",
+            "sha256": "sha256:b091a6f617a52dcd67122760da7133f04791dff6710817f64aeb04895f883ece"
+          },
+          {
+            "bytes": 15080,
+            "lines": 297,
+            "path": "src/components/map/scan-review.test.tsx",
+            "role": "source",
+            "sha256": "sha256:6f09cafddb32bc1a7a2da46cb451e95194f5a26a14e57de5c3342a6f39833e27"
+          },
+          {
+            "bytes": 9478,
+            "lines": 208,
+            "path": "src/components/map/scan-wait.test.tsx",
+            "role": "source",
+            "sha256": "sha256:a6d661d5466788a911f6d2ce40c4daee828ad429546498e442793822fad2202c"
+          },
+          {
+            "bytes": 6635,
+            "lines": 151,
+            "path": "src/components/map/show-code.test.tsx",
+            "role": "source",
+            "sha256": "sha256:1fbc7fd35a9575a1b4d3391dba9ddb21c95c0063aace134b5402e402937dea97"
+          },
+          {
+            "bytes": 2809,
+            "lines": 78,
+            "path": "src/components/nodes/ClassNode.tsx",
+            "role": "source",
+            "sha256": "sha256:b05eb08f73b8028f9319c7d4246bff9ae3a7c4a9d1617f9e6068662d35883762"
+          },
+          {
+            "bytes": 2689,
+            "lines": 75,
+            "path": "src/components/nodes/FileNode.tsx",
+            "role": "source",
+            "sha256": "sha256:db558c6a6ae67a8a1b55f0be0e2ef102623ac0e1982732f74ffa7912a5805b88"
+          },
+          {
+            "bytes": 2664,
+            "lines": 73,
+            "path": "src/components/nodes/FunctionNode.tsx",
+            "role": "source",
+            "sha256": "sha256:49cc7ae358e0c83b2e81b26bd81b8c3ab76827bb831b1541e986fdcadb0a4e2a"
+          },
+          {
+            "bytes": 2232,
+            "lines": 59,
+            "path": "src/components/nodes/StructuralHoleNode.tsx",
+            "role": "source",
+            "sha256": "sha256:5f4bebe5dd4b271393da5b0d41851890e702fc2b07989479ad72e00294cbf1e7"
+          },
+          {
+            "bytes": 10837,
+            "lines": 272,
+            "path": "src/components/preflight/PreFlightCard.tsx",
+            "role": "source",
+            "sha256": "sha256:2eaa4b27ff59eedff95a89d6b50c4950de79ce3e9315b6871f855ba99cac31f5"
+          },
+          {
+            "bytes": 9813,
+            "lines": 186,
+            "path": "src/components/preflight/preflight-card.test.tsx",
+            "role": "source",
+            "sha256": "sha256:c19e9544bdd4e06c1b14a26ca7dd0691fff215cd31f0ec8a155b0cd1159a182d"
+          },
+          {
+            "bytes": 1291,
+            "lines": 38,
+            "path": "src/components/soft/FreshnessBanner.tsx",
+            "role": "source",
+            "sha256": "sha256:8842130841e8a50398b05d56e1968763fb20f86b1dc6e5b97e7dcd14b956cf40"
+          },
+          {
+            "bytes": 1406,
+            "lines": 38,
+            "path": "src/components/soft/GapCard.tsx",
+            "role": "source",
+            "sha256": "sha256:1799b0a25206c98f9a9a1a259f4474cfa0fbed9ff26f81d34dd845bc19c80e10"
+          },
+          {
+            "bytes": 3413,
+            "lines": 97,
+            "path": "src/components/soft/PostItChip.tsx",
+            "role": "source",
+            "sha256": "sha256:2535873506608796c7d1a1270497773842ada1a4baea34b08c2e51484ec15667"
+          },
+          {
+            "bytes": 2280,
+            "lines": 58,
+            "path": "src/components/soft/StatCell.tsx",
+            "role": "source",
+            "sha256": "sha256:77294dfbcbaad71d65d1aea3d6cb80877a6063d3175f676f46cc73f33f9a0acd"
+          },
+          {
+            "bytes": 1145,
+            "lines": 34,
+            "path": "src/components/soft/TrustDot.tsx",
+            "role": "source",
+            "sha256": "sha256:1e78d89731361f01089b55574d239c170dfd77c304aee420d616e97bc8eaa5c3"
+          },
+          {
+            "bytes": 2277,
+            "lines": 59,
+            "path": "src/components/soft/VerdictChip.tsx",
+            "role": "source",
+            "sha256": "sha256:51dd5c829ed54588c3024491175c8b766117b9802f802c1e23789855c3af58ef"
+          },
+          {
+            "bytes": 6077,
+            "lines": 131,
+            "path": "src/components/soft/soft.test.tsx",
+            "role": "source",
+            "sha256": "sha256:66dcbb9c1b1c119e7c367da055774a855496e61dee8f6436a1a032c95e026b83"
+          },
+          {
+            "bytes": 20760,
+            "lines": 446,
+            "path": "src/components/tray/MissionCard.tsx",
+            "role": "source",
+            "sha256": "sha256:680ccda08c16015045b6bb87693da5a7e03bca8864a8d0ecabdeb23ed336d382"
+          },
+          {
+            "bytes": 7943,
+            "lines": 186,
+            "path": "src/components/tray/MissionTray.tsx",
+            "role": "source",
+            "sha256": "sha256:ed1038aacff90a4db650b803781fb38d8c05167475ce9b833fe5d29185b2f726"
+          },
+          {
+            "bytes": 6875,
+            "lines": 166,
+            "path": "src/components/tray/MissionTrayLive.tsx",
+            "role": "source",
+            "sha256": "sha256:39d62a426bd143dfd24167b885ca5a0164c70cc39767dabf06b7e6420a4dc799"
+          },
+          {
+            "bytes": 6664,
+            "lines": 121,
+            "path": "src/components/tray/mission-archive.test.tsx",
+            "role": "source",
+            "sha256": "sha256:9bd54b4f35ebff102757539e8f09568bb3b5709b18e79f3cdc51e509ebffd076"
+          },
+          {
+            "bytes": 5940,
+            "lines": 118,
+            "path": "src/components/tray/mission-landing.test.tsx",
+            "role": "source",
+            "sha256": "sha256:293d3666d5f954d0fbca033ee36785691e86c54aa823b643aa030510abe30a56"
+          },
+          {
+            "bytes": 3633,
+            "lines": 73,
+            "path": "src/components/tray/mission-stagnant.test.tsx",
+            "role": "source",
+            "sha256": "sha256:6a86b3779c9214220ece3ee8455cad863e398a41842d3fe24ef459079bb584ef"
+          },
+          {
+            "bytes": 10972,
+            "lines": 215,
+            "path": "src/components/tray/mission-tray.test.tsx",
+            "role": "source",
+            "sha256": "sha256:724979046159c1b2935a4b88280adc41f4d93f1d81c4e4cce7cb1681c7953676"
+          },
+          {
+            "bytes": 1301,
+            "lines": 35,
+            "path": "src/components/tree/GroupHeader.tsx",
+            "role": "source",
+            "sha256": "sha256:ce0f69f492c84f0dd39b32c5ad7085e50d67e68b10eaca89d2c885f837e25d8d"
+          },
+          {
+            "bytes": 28153,
+            "lines": 722,
+            "path": "src/components/tree/LivingTree.tsx",
+            "role": "source",
+            "sha256": "sha256:ab0e72789d1cd7cc66a01710fff16b62cd2d607fd1853735eb793f9a1d15b99f"
+          },
+          {
+            "bytes": 8115,
+            "lines": 197,
+            "path": "src/components/tree/SeekPanel.tsx",
+            "role": "source",
+            "sha256": "sha256:88cb1c9afaa2050c69542b20ea8f6a551fd3747b4493ad9d261bc42aec192477"
+          },
+          {
+            "bytes": 6363,
+            "lines": 167,
+            "path": "src/components/tree/TreeControls.tsx",
+            "role": "source",
+            "sha256": "sha256:03dd444e06a6412577184053685d04fe9713f6545c83e5af08ca542df766bfe6"
+          },
+          {
+            "bytes": 8420,
+            "lines": 211,
+            "path": "src/components/tree/TreeDrawer.tsx",
+            "role": "source",
+            "sha256": "sha256:616833495d6617ecb7134034a41a4cc5ac91eb8cfaed0e19a4b1f19c78fbff48"
+          },
+          {
+            "bytes": 4309,
+            "lines": 130,
+            "path": "src/components/tree/TreeRowView.tsx",
+            "role": "source",
+            "sha256": "sha256:6f85b09409c1dfcd7ea10e3a95d06ba7ae9f31203d781bb5292a74d2fe958ed9"
+          },
+          {
+            "bytes": 5822,
+            "lines": 109,
+            "path": "src/components/tree/seek-panel.test.tsx",
+            "role": "source",
+            "sha256": "sha256:13b74b16522e8f3d948a382a43676b8e29af580853c9bff8baaa397a3298fe03"
+          },
+          {
+            "bytes": 3976,
+            "lines": 98,
+            "path": "src/components/tree/tree-controls.test.tsx",
+            "role": "source",
+            "sha256": "sha256:53960c9319e52210bab51eea604bcea0a5c2ef1cd1c57fc4ee6ae20fd1925f95"
+          },
+          {
+            "bytes": 4098,
+            "lines": 88,
+            "path": "src/components/tree/tree-drawer.test.tsx",
+            "role": "source",
+            "sha256": "sha256:caf610472005ad440a6229401002fca6f6f0315c10e0ddda3ad093e34a51370a"
+          },
+          {
+            "bytes": 2968,
+            "lines": 90,
+            "path": "src/components/tree/tree-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:6b926ea10eb051d5010dcf23139d186105e3706dbaf1d5c103e4531577797a69"
+          },
+          {
+            "bytes": 5134,
+            "lines": 118,
+            "path": "src/components/universe/TheLanding.tsx",
+            "role": "source",
+            "sha256": "sha256:7df425130ebc1544d5b27e76b1c5b5301cbaf5af858e3461ded320bdac61d598"
+          },
+          {
+            "bytes": 7782,
+            "lines": 230,
+            "path": "src/components/universe/UniverseView.tsx",
+            "role": "source",
+            "sha256": "sha256:638b5b29aa16228aeb16507b5735411249f5fdb8a3540641ab98724c38e7cfea"
+          },
+          {
+            "bytes": 8549,
+            "lines": 183,
+            "path": "src/components/universe/universe-render.test.tsx",
+            "role": "source",
+            "sha256": "sha256:9de699bdf136dedc22c56c21bb6796bd773a68af10cd94b92753b6bf8cdd0255"
+          },
+          {
+            "bytes": 2566,
+            "lines": 67,
+            "path": "src/hooks/liveRefreshCore.ts",
+            "role": "source",
+            "sha256": "sha256:003718c2198c56fa83c199c0622c19701d15ad938727fd632372ec532c1a1b5c"
+          },
+          {
+            "bytes": 3912,
+            "lines": 106,
+            "path": "src/hooks/use-build-map.test.ts",
+            "role": "source",
+            "sha256": "sha256:6779b7984bc2f200cf76fc98cbc49af494f307ccc2ea47784a60e32b392cda62"
+          },
+          {
+            "bytes": 3926,
+            "lines": 94,
+            "path": "src/hooks/use-missions.test.ts",
+            "role": "source",
+            "sha256": "sha256:5569c3b3af14aca222bb36540bf2b4b3329febc695e21dddeeb54ce2dfefb4d0"
+          },
+          {
+            "bytes": 3264,
+            "lines": 75,
+            "path": "src/hooks/use-runnerd-status.test.ts",
+            "role": "source",
+            "sha256": "sha256:0bcfc29dfb8aff3971ac02b1c4f87e70ddfc787d10af5e33a1c6f8720d96d562"
+          },
+          {
+            "bytes": 3787,
+            "lines": 86,
+            "path": "src/hooks/use-universe.test.ts",
+            "role": "source",
+            "sha256": "sha256:35a8aca1546d038f8b280472b4c3bf1c36d1d71c86c3a4016792006ed4ac1468"
+          },
+          {
+            "bytes": 8106,
+            "lines": 192,
+            "path": "src/hooks/useBuildMap.ts",
+            "role": "source",
+            "sha256": "sha256:12ecc0f1eaaf611e1fe9b16defc24f7af1b2b7b97787ca2a6d302b5c077c33bd"
+          },
+          {
+            "bytes": 5744,
+            "lines": 165,
+            "path": "src/hooks/useCardV2Data.ts",
+            "role": "source",
+            "sha256": "sha256:37cd261c942e64bd5ea7b19f5722616c299cc2c4a694340dc818fb75bdbb538b"
+          },
+          {
+            "bytes": 2165,
+            "lines": 78,
+            "path": "src/hooks/useFileView.ts",
+            "role": "source",
+            "sha256": "sha256:70bf3360e15b11a3af382085cc787313471404c4d801d8e8c3b124b960272481"
+          },
+          {
+            "bytes": 2827,
+            "lines": 83,
+            "path": "src/hooks/useGraphSnapshot.ts",
+            "role": "source",
+            "sha256": "sha256:a0bc02e409a952a4e5ef3315cda6d774930d47ac1d67f2cd3762e27353d0395a"
+          },
+          {
+            "bytes": 1182,
+            "lines": 46,
+            "path": "src/hooks/useKeyboardShortcuts.ts",
+            "role": "source",
+            "sha256": "sha256:12db5a2c2b5b4a97cecbe8f57e5d91602971a3248371abf3f1c24e614cebb397"
+          },
+          {
+            "bytes": 6420,
+            "lines": 161,
+            "path": "src/hooks/useLiveRefresh.test.ts",
+            "role": "source",
+            "sha256": "sha256:8419b47a915e3797a3fd84798ba83b7ce7307ee6cd446a51d495a632b00dd969"
+          },
+          {
+            "bytes": 4854,
+            "lines": 122,
+            "path": "src/hooks/useLiveRefresh.ts",
+            "role": "source",
+            "sha256": "sha256:dfa6361fec31bc3f9dd14d9f524c4109e0d9b93035df172ffd8b4375304aac02"
+          },
+          {
+            "bytes": 2110,
+            "lines": 61,
+            "path": "src/hooks/useM1ndApi.ts",
+            "role": "source",
+            "sha256": "sha256:6e1f9a0f96d00c3d16bd42473eb150baf0705178e8f848835205dd680d6b07ea"
+          },
+          {
+            "bytes": 3960,
+            "lines": 98,
+            "path": "src/hooks/useMissions.ts",
+            "role": "source",
+            "sha256": "sha256:47b7063e9da91d87ffbdea9d273308b4b7cba0f61f5c05a138e1543a9e10a295"
+          },
+          {
+            "bytes": 2368,
+            "lines": 62,
+            "path": "src/hooks/usePresences.ts",
+            "role": "source",
+            "sha256": "sha256:a1215de789ac66d7890a0ec5443ab62b7caa20af837a9c1281f6ee65e86936d9"
+          },
+          {
+            "bytes": 3344,
+            "lines": 89,
+            "path": "src/hooks/useRunnerdStatus.ts",
+            "role": "source",
+            "sha256": "sha256:e653c9d2844c21aa23fd91a2cc6e1114f7a3f550bf825bc7449a786d1b20feca"
+          },
+          {
+            "bytes": 3100,
+            "lines": 93,
+            "path": "src/hooks/useSSE.ts",
+            "role": "source",
+            "sha256": "sha256:91a324fd30916195514a14382719efeab093fa22b696308937ab98fe3f27dbb0"
+          },
+          {
+            "bytes": 4384,
+            "lines": 103,
+            "path": "src/hooks/useScanMachine.ts",
+            "role": "source",
+            "sha256": "sha256:d53fe2a5aaad352a48ec002dbd037b5151bf202adb9e4cf5b5b9d2884b3aebbe"
+          },
+          {
+            "bytes": 6055,
+            "lines": 148,
+            "path": "src/hooks/useTreeData.ts",
+            "role": "source",
+            "sha256": "sha256:64fc948647bfbe5388934ff7e7fd3f924008e5fabaf7326e14458e438344388b"
+          },
+          {
+            "bytes": 4633,
+            "lines": 124,
+            "path": "src/hooks/useUniverse.ts",
+            "role": "source",
+            "sha256": "sha256:0938340646653ad004f7e841dca96a20dcb6d0c43ad01503422fe3ec0e9294c4"
+          },
+          {
+            "bytes": 2156,
+            "lines": 58,
+            "path": "src/lib/alerts.test.ts",
+            "role": "source",
+            "sha256": "sha256:d301adff748cfdb32f068dcaa889f603a0f75b46e8d4e1e1d87006bffb777dfa"
+          },
+          {
+            "bytes": 2853,
+            "lines": 68,
+            "path": "src/lib/alerts.ts",
+            "role": "source",
+            "sha256": "sha256:aa03355a95cbf5bc6efee5c2ca9e2e13f778999b2ef93e2b4fcd427e830fd4bf"
+          },
+          {
+            "bytes": 91,
+            "lines": 2,
+            "path": "src/lib/api.ts",
+            "role": "source",
+            "sha256": "sha256:a51302fff6b48547cf7149a5b8cb1e5788eaf9be3676d9be0843455e07838d07"
+          },
+          {
+            "bytes": 10949,
+            "lines": 251,
+            "path": "src/lib/buildMap.test.ts",
+            "role": "source",
+            "sha256": "sha256:b02b1ef46c868a9be0aad8e180c8a129e62dace845fd5252e5bf2f806c59c8d1"
+          },
+          {
+            "bytes": 39572,
+            "lines": 936,
+            "path": "src/lib/buildMap.ts",
+            "role": "source",
+            "sha256": "sha256:5235fa79efbb43712d7f020016ba96f5a2598b690fab71d09d8c52fb9619c4fe"
+          },
+          {
+            "bytes": 6264,
+            "lines": 172,
+            "path": "src/lib/buildReplayFrames.ts",
+            "role": "source",
+            "sha256": "sha256:ab5be4fbbc3803eaf2d24d85ac6b7431a6896acc548bb3bbf4216b017664011f"
+          },
+          {
+            "bytes": 10262,
+            "lines": 232,
+            "path": "src/lib/candidate.test.ts",
+            "role": "source",
+            "sha256": "sha256:adf979c05c32ab1b9b283e63103d2d11037d50bbe74c712df126ce34c2e9a9b7"
+          },
+          {
+            "bytes": 11404,
+            "lines": 276,
+            "path": "src/lib/candidateEdit.test.ts",
+            "role": "source",
+            "sha256": "sha256:550dc5634008da14fc8cb2e2286e8fc35b83140c6e5471025d91103dc7a4072d"
+          },
+          {
+            "bytes": 13515,
+            "lines": 319,
+            "path": "src/lib/candidateEdit.ts",
+            "role": "source",
+            "sha256": "sha256:2c31de889f00102dc7bd3d3ad41336b06133e3560d50f94dcc188b9ca4cf42f8"
+          },
+          {
+            "bytes": 7600,
+            "lines": 136,
+            "path": "src/lib/cardV2.test.ts",
+            "role": "source",
+            "sha256": "sha256:67f09eb80ed6a52d47656325a209d975f13280322945c28764241029949d422c"
+          },
+          {
+            "bytes": 9122,
+            "lines": 229,
+            "path": "src/lib/cardV2.ts",
+            "role": "source",
+            "sha256": "sha256:a2119de1fecef9efb99ee9d8a13b0dffe9b657ada7df17a984800d78c9cc80fa"
+          },
+          {
+            "bytes": 1489,
+            "lines": 50,
+            "path": "src/lib/colors.ts",
+            "role": "source",
+            "sha256": "sha256:6f316b7076530197e1aa3b0169c7b27a8dd20950731944eecaf8df6c9140472a"
+          },
+          {
+            "bytes": 3458,
+            "lines": 134,
+            "path": "src/lib/commandParser.ts",
+            "role": "source",
+            "sha256": "sha256:e3628ceff4d53f8735b5eb701142ce037469a73f6221d795f8b51de0156801ac"
+          },
+          {
+            "bytes": 11063,
+            "lines": 261,
+            "path": "src/lib/curation.test.ts",
+            "role": "source",
+            "sha256": "sha256:f3204961a530fc29162483c7d25c533e8e0a6f911d87a86f8bba164b56e8122c"
+          },
+          {
+            "bytes": 7307,
+            "lines": 141,
+            "path": "src/lib/curation.ts",
+            "role": "source",
+            "sha256": "sha256:e8ad0295eb06f090564415637c298d121e6aa6a5f240dac8e3d3a5d4c83cc6df"
+          },
+          {
+            "bytes": 4912,
+            "lines": 141,
+            "path": "src/lib/exportMermaid.ts",
+            "role": "source",
+            "sha256": "sha256:13d7475ae332ef9befc1aa4eecaf3c23745eebdd7ca1f2aae40b612fca82f575"
+          },
+          {
+            "bytes": 14030,
+            "lines": 242,
+            "path": "src/lib/hallSemantics.test.ts",
+            "role": "source",
+            "sha256": "sha256:0d4b22cd2efeb22b074f6b9425ff53153e84957a80c6a40e87d4ca6e9587bbbd"
+          },
+          {
+            "bytes": 18735,
+            "lines": 405,
+            "path": "src/lib/hallSemantics.ts",
+            "role": "source",
+            "sha256": "sha256:4be0d2971a9b75249d90e2a80c60f10acba6c22463318870d1356310ffee5a36"
+          },
+          {
+            "bytes": 6092,
+            "lines": 113,
+            "path": "src/lib/icons/registry.test.tsx",
+            "role": "source",
+            "sha256": "sha256:4d1684f43d64af04c6ad34b84a10c248bf148c71b421732594d8b04c21d18b64"
+          },
+          {
+            "bytes": 5679,
+            "lines": 145,
+            "path": "src/lib/icons/registry.tsx",
+            "role": "source",
+            "sha256": "sha256:7edf8707644f68845416da3171054bcceacddf5f84fe8e6e377ba55e0eecbc75"
+          },
+          {
+            "bytes": 1816,
+            "lines": 82,
+            "path": "src/lib/layout.ts",
+            "role": "source",
+            "sha256": "sha256:7a45b9524a54ae74081885d99307b4d4ea0cb2656a56bb99c20a7b5a1da36137"
+          },
+          {
+            "bytes": 7898,
+            "lines": 169,
+            "path": "src/lib/mailbox.test.ts",
+            "role": "source",
+            "sha256": "sha256:ae2c1ef935f04a2ac461969ff13619d456ce0da9ba9c0b2e05ab4e015abd0255"
+          },
+          {
+            "bytes": 13559,
+            "lines": 320,
+            "path": "src/lib/mailbox.ts",
+            "role": "source",
+            "sha256": "sha256:b02b5ebee9a01a92bd4b48096c89cd4eebde6889e25da598797bb51abf68f12c"
+          },
+          {
+            "bytes": 25320,
+            "lines": 534,
+            "path": "src/lib/missions.test.ts",
+            "role": "source",
+            "sha256": "sha256:3b6484eacf6e910047db7a165ab1acc6088f483989e12b25e2b6432ad3385a98"
+          },
+          {
+            "bytes": 37059,
+            "lines": 877,
+            "path": "src/lib/missions.ts",
+            "role": "source",
+            "sha256": "sha256:e01cd619b43f1fd4cb6a6bebe36eb16060642341ca5593440fd43ba213b6f769"
+          },
+          {
+            "bytes": 4736,
+            "lines": 99,
+            "path": "src/lib/packet.test.ts",
+            "role": "source",
+            "sha256": "sha256:fc0a709ce01ff83b57edfa2516f0b55ac524602442f455699f706154040d66e3"
+          },
+          {
+            "bytes": 6726,
+            "lines": 163,
+            "path": "src/lib/packet.ts",
+            "role": "source",
+            "sha256": "sha256:4a27bec868bb05682d4fd0a9250eea62fa4b81d8c4098d121aeaeefbf92517a3"
+          },
+          {
+            "bytes": 8116,
+            "lines": 166,
+            "path": "src/lib/preflight.test.ts",
+            "role": "source",
+            "sha256": "sha256:780976de674b488dd1be51cdedeba6c1b10874fb0a51b8be9437b8741f5f763f"
+          },
+          {
+            "bytes": 8629,
+            "lines": 220,
+            "path": "src/lib/preflight.ts",
+            "role": "source",
+            "sha256": "sha256:742bb1b97148de512a8b24e3142d10738f0c0104f2395ad3857272e2b47739bc"
+          },
+          {
+            "bytes": 7135,
+            "lines": 142,
+            "path": "src/lib/presence.test.ts",
+            "role": "source",
+            "sha256": "sha256:e6d04a658768b98e8e7c0a33bec35c7fb4beccee67feabf71d1c3c23303f2cb2"
+          },
+          {
+            "bytes": 5122,
+            "lines": 121,
+            "path": "src/lib/presence.ts",
+            "role": "source",
+            "sha256": "sha256:4cde437502d1ab94430cb14daa083280ff1aaa47164e743e8ff2295961a14cde"
+          },
+          {
+            "bytes": 3857,
+            "lines": 82,
+            "path": "src/lib/reader/definition.test.ts",
+            "role": "source",
+            "sha256": "sha256:72796be27f3d5a452484479577d9efc68d3ded436aab2e422c572320c1c115e9"
+          },
+          {
+            "bytes": 4886,
+            "lines": 120,
+            "path": "src/lib/reader/definition.ts",
+            "role": "source",
+            "sha256": "sha256:b2984c5c207bdf06dda1e339eb67d1a471ea8a68e91a920e8b5267c06beec10b"
+          },
+          {
+            "bytes": 4532,
+            "lines": 117,
+            "path": "src/lib/reader/highlighter.ts",
+            "role": "source",
+            "sha256": "sha256:c3430094d7bef013e4adf669f45922e6e02c5b2e2bd9ce394ec2a3e3fd7c28c4"
+          },
+          {
+            "bytes": 3091,
+            "lines": 67,
+            "path": "src/lib/reader/languages.test.ts",
+            "role": "source",
+            "sha256": "sha256:c221f2a7e7c5a2779b577f659495a6074dcb7fcbc228587f21678230aa6df77d"
+          },
+          {
+            "bytes": 5452,
+            "lines": 110,
+            "path": "src/lib/reader/languages.ts",
+            "role": "source",
+            "sha256": "sha256:df99c1360d5bbc4751d5bf4b2ae78ed8108ea97c704b7741c0d537442dd6aeb9"
+          },
+          {
+            "bytes": 4907,
+            "lines": 103,
+            "path": "src/lib/reader/paperInkTheme.ts",
+            "role": "source",
+            "sha256": "sha256:9c4639a8b6f297fb24a31789b536de3b6d4facaa71004f6714c171927ae30fe9"
+          },
+          {
+            "bytes": 3603,
+            "lines": 79,
+            "path": "src/lib/reader/symbols.test.ts",
+            "role": "source",
+            "sha256": "sha256:d5849a1c49217d072f14fb5bbd683303688829f56f21047ac613210ac469d4b1"
+          },
+          {
+            "bytes": 4823,
+            "lines": 114,
+            "path": "src/lib/reader/symbols.ts",
+            "role": "source",
+            "sha256": "sha256:8950a8e3328b9197f0baf86c43a64eef548d24897f555bd8231880929dbddcb5"
+          },
+          {
+            "bytes": 2535,
+            "lines": 64,
+            "path": "src/lib/reader/theme.test.ts",
+            "role": "source",
+            "sha256": "sha256:18bdafd04af37392d147ae1e1017a53bd995dc38753d79b06b31388384123e02"
+          },
+          {
+            "bytes": 6106,
+            "lines": 129,
+            "path": "src/lib/reconcile.test.ts",
+            "role": "source",
+            "sha256": "sha256:b732eb2d9152fa0f5553f89348c9c46074699e233ddf99db70d950fdc753577a"
+          },
+          {
+            "bytes": 9956,
+            "lines": 228,
+            "path": "src/lib/router.test.ts",
+            "role": "source",
+            "sha256": "sha256:1557f221347cd03126e4819c504df7ef729dded613d333e3caf083cf077c8ce5"
+          },
+          {
+            "bytes": 10096,
+            "lines": 227,
+            "path": "src/lib/router.ts",
+            "role": "source",
+            "sha256": "sha256:800077e099d527eb936bddf415b6bbf614e10f21194db731a8ba3a0e2e940f17"
+          },
+          {
+            "bytes": 16511,
+            "lines": 373,
+            "path": "src/lib/scanMachine.test.ts",
+            "role": "source",
+            "sha256": "sha256:fba5de37c71356fd022498fc991b9fea5bdeed370df1708f9dcfbcbd1bff3681"
+          },
+          {
+            "bytes": 14409,
+            "lines": 327,
+            "path": "src/lib/scanMachine.ts",
+            "role": "source",
+            "sha256": "sha256:0e302475bf604dafa59c02f4897b4ffb0fcd97a9249b78c3c7fda8ce096098b0"
+          },
+          {
+            "bytes": 3373,
+            "lines": 103,
+            "path": "src/lib/snapshot.ts",
+            "role": "source",
+            "sha256": "sha256:ae1a0083d7ff31871f66380a94716d99d06430fc8f9a77379f1db6299043e122"
+          },
+          {
+            "bytes": 5525,
+            "lines": 111,
+            "path": "src/lib/softProof.test.ts",
+            "role": "source",
+            "sha256": "sha256:4220fb397e2d66659c70780906ef43e422769b7b4db2e2747b5b876d26939ade"
+          },
+          {
+            "bytes": 7257,
+            "lines": 169,
+            "path": "src/lib/softProof.ts",
+            "role": "source",
+            "sha256": "sha256:eefbe50fe9d7fea57364659c44a84bfc1d0e2057a8b5b6caa00eb3f09d3ee66f"
+          },
+          {
+            "bytes": 6792,
+            "lines": 140,
+            "path": "src/lib/threshold.test.ts",
+            "role": "source",
+            "sha256": "sha256:c3963c08d467cdea4cfedff960bcfca9576bebe98f587e795c4ea128185edf4b"
+          },
+          {
+            "bytes": 7237,
+            "lines": 166,
+            "path": "src/lib/threshold.ts",
+            "role": "source",
+            "sha256": "sha256:5928f2b4d16c652940c9b9c4363be9f4f5c99be4559c1a187443b31bd92d76e4"
+          },
+          {
+            "bytes": 4311,
+            "lines": 97,
+            "path": "src/lib/tree.test.ts",
+            "role": "source",
+            "sha256": "sha256:3234262c18a6d357b23441a50fe7bb689f47e19c65d37194afd66ce9a5350883"
+          },
+          {
+            "bytes": 9292,
+            "lines": 276,
+            "path": "src/lib/tree.ts",
+            "role": "source",
+            "sha256": "sha256:af4aecd24ffb97f036b13f5d3707492d1e4c20a055ad9c863e1afe6e372d9551"
+          },
+          {
+            "bytes": 9261,
+            "lines": 176,
+            "path": "src/lib/treeLenses.test.ts",
+            "role": "source",
+            "sha256": "sha256:7f3e904e774e6ef5d3d2e2b1124b4821761e662312d5b59169b7abfbba88e333"
+          },
+          {
+            "bytes": 9584,
+            "lines": 223,
+            "path": "src/lib/treeLenses.ts",
+            "role": "source",
+            "sha256": "sha256:807bdeb14576f1d750a4ee063d24dba953bb501211829edbc716d3fe378a0f05"
+          },
+          {
+            "bytes": 8564,
+            "lines": 195,
+            "path": "src/lib/universe.test.ts",
+            "role": "source",
+            "sha256": "sha256:a36a8649e03bdd1444444a083afb0627ba110a7384060b7d0bbafb04b91f2217"
+          },
+          {
+            "bytes": 9406,
+            "lines": 232,
+            "path": "src/lib/universe.ts",
+            "role": "source",
+            "sha256": "sha256:6cdc04e2376993540f5e4448e36cf458d2384df6ecc60c87fb73bf3a4d10dd71"
+          },
+          {
+            "bytes": 3729,
+            "lines": 77,
+            "path": "src/lib/viewedBrain.test.ts",
+            "role": "source",
+            "sha256": "sha256:6faaa7f83c00b9d99d545f247ec01c4c7eb2b9761ccdf7c6fce3ba67a7430da5"
+          },
+          {
+            "bytes": 3471,
+            "lines": 72,
+            "path": "src/lib/viewedBrain.ts",
+            "role": "source",
+            "sha256": "sha256:03b5b7a390fa734bc1fb792391c3e61d4744f3c327e5e859e196b21e518b5a6b"
+          },
+          {
+            "bytes": 237,
+            "lines": 10,
+            "path": "src/main.tsx",
+            "role": "source",
+            "sha256": "sha256:2ed12a1457cd60b31c0f44f3ea59b8bbc2ddd4a49add3165228d093878fb7c24"
+          },
+          {
+            "bytes": 8882,
+            "lines": 289,
+            "path": "src/stores/graphStore.ts",
+            "role": "source",
+            "sha256": "sha256:2c7d769c69769ebcecae8c7fd6fa091e944f62612cd750665d93bb35e3a4827d"
+          },
+          {
+            "bytes": 2053,
+            "lines": 61,
+            "path": "src/stores/replayStore.ts",
+            "role": "source",
+            "sha256": "sha256:b0b76f1f4e7e72080a5347ba8467da1a5561c8c8cd2ee46ba4c9898f3033f33f"
+          },
+          {
+            "bytes": 923,
+            "lines": 35,
+            "path": "src/stores/toastStore.ts",
+            "role": "source",
+            "sha256": "sha256:376b65b58664c615250f61da9848b48b255f64915b59fbdbb3fbcc734e77006c"
+          },
+          {
+            "bytes": 15737,
+            "lines": 445,
+            "path": "src/types.ts",
+            "role": "source",
+            "sha256": "sha256:39781e25597deb832d91b9f35759eca048accff576ae0777eb85cc5eae4edaaf"
+          },
+          {
+            "bytes": 38,
+            "lines": 1,
+            "path": "src/vite-env.d.ts",
+            "role": "source",
+            "sha256": "sha256:65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+          },
+          {
+            "bytes": 2651,
+            "lines": 73,
+            "path": "tailwind.config.ts",
+            "role": "source",
+            "sha256": "sha256:3aaf24ac3a2ee8a41b732b2d6815ec3fb2dd99b1f8715b9cb15e769407a92b7d"
+          },
+          {
+            "bytes": 808,
+            "lines": 27,
+            "path": "vite.config.ts",
+            "role": "source",
+            "sha256": "sha256:4e8bc3660bedf1b5bba6ca277b607140790ed08b8fa95905ce057280541865c0"
+          }
+        ],
+        "git_tree": "57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+        "primary_language": "typescript",
+        "repo_id": "m1nd-ui",
+        "repo_size_band": "medium",
+        "searched_file_count": 185,
+        "size_band_definition": {
+          "large": "100000 or more source lines",
+          "medium": "10000 through 99999 source lines",
+          "small": "fewer than 10000 source lines"
+        },
+        "source_file_count": 184,
+        "source_line_count": 34585,
+        "source_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+        "source_root": "m1nd-ui"
+      }
+    ],
+    "schema": "m1nd10-g6-source-manifest-v1",
+    "snapshot_kind": "immutable_git_objects",
+    "source_commit": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+    "worktree_state_excluded": true
+  },
+  "task_count": 220,
+  "tasks": [
+    {
+      "language": "rust",
+      "query": "Which handler parses a project handoff into claims, verifies machine-checkable anchors, and prices fresh versus stale evidence?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-15dfe7623ca8da6c"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the graph persisted in RocksDB with column families for nodes, edges, and provenance?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-35430750351319c3"
+    },
+    {
+      "language": "typescript",
+      "query": "Which formatter translates a retrieval trust verdict into concise language for the results panel?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-9c6437df9ce17324"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are shared member paths converted into seam choices for one candidate block?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-74c2202d6b12171e"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the external request contract defined for an agent-authored mission letter and its optional synthetic escape?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-90b50acc81a6a607"
+    },
+    {
+      "language": "rust",
+      "query": "Where does the active domain choose a temporal half-life for each graph node type?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-d0f85b9fb7e60f63"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the handoff body or one requested section returned without implicitly treating declared vision as verified code truth?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-bb9c37e7a0ecbbe1"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is a service worker registered to provide an offline application cache?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-6d11460f80e08302"
+    },
+    {
+      "language": "typescript",
+      "query": "Which ordering rule places failed mission heads separately while keeping the remaining heads newest first?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-7b4b7e502097012f"
+    },
+    {
+      "language": "rust",
+      "query": "Which overlay operation maps observed trace spans onto graph nodes and accumulates normalized runtime heat?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-e498e9dad14ea368"
+    },
+    {
+      "language": "rust",
+      "query": "Where are commit-level node groups replayed into the co-change matrix under a work budget?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-36d632ac73cc5763"
+    },
+    {
+      "language": "rust",
+      "query": "Which code combines available route-evidence signals into one bounded confidence value without fabricating missing factors?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-ddbf3652607f673a"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a requested runner matched to an announced live endpoint and a capability-pinned target?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-cada4b3440044dab"
+    },
+    {
+      "language": "typescript",
+      "query": "Which presentation helper maps semantic node-kind buckets to their visual icons?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-17bc1c24f05aa64c"
+    },
+    {
+      "language": "rust",
+      "query": "Which migration code classifies live claims, ghost pointers, and destinations before any shared-memory files are moved?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-1d281bdecba3780c"
+    },
+    {
+      "language": "python",
+      "query": "Which utility reserves an available loopback port for an isolated HTTP smoke process?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-b303f1b2d88107af"
+    },
+    {
+      "language": "rust",
+      "query": "Where does a Kubernetes lease elect one owner replica as leader before it may accept mutations?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-b19f2cfa6d6bd332"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is candidate-map status summarized with naming provenance and review controls before owner ratification?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-1768f5b8e3c7cbd5"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are command completions ranked from a user's partial text?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-69b334bb8574059c"
+    },
+    {
+      "language": "python",
+      "query": "Where are remote fixture repositories cloned or refreshed into the benchmark's controlled source directory?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-b82c15cbd6c9d9c7"
+    },
+    {
+      "language": "typescript",
+      "query": "Where does the client suppress duplicate refresh work while still recovering when the event stream is unavailable?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-d5bee021f97eabea"
+    },
+    {
+      "language": "python",
+      "query": "Where are benchmark records migrated through Django ORM models and schema migrations?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-65ee35fcf90cab70"
+    },
+    {
+      "language": "rust",
+      "query": "Which file-reading path canonicalizes the target, enforces allowed roots, rejects binary data, caps output, and reports staleness?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-cb324f7a2ad2cd8e"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is the contract defined that separates brain facts from the callbacks permitted by its hall card?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-87e47f6fe9c10769"
+    },
+    {
+      "language": "rust",
+      "query": "Which code reads commit history at a requested depth and turns changed-file groups into structured commit records?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-6e0e9b1fb5a5ba5b"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is a mission head classified as stagnant from its phase and elapsed time since the latest update?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-a083b66e90f99658"
+    },
+    {
+      "language": "python",
+      "query": "Which reducer computes throughput, timing, progress, and error totals from a sequence of normalized events?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-70b58f3f2bc8dcd5"
+    },
+    {
+      "language": "rust",
+      "query": "Which stateful navigation operation advances along a selected route while recording provenance and checkpoint history?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-c2aab62dacd8b0a4"
+    },
+    {
+      "language": "rust",
+      "query": "Where is repeated randomized damage used to estimate whether a graph degrades gracefully or gains concentration risk?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-514ffee648f7e024"
+    },
+    {
+      "language": "rust",
+      "query": "Which component publishes committed graph-change events to Kafka for downstream consumers?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-07bbd3a30b1f32c5"
+    },
+    {
+      "language": "rust",
+      "query": "Which code derives a deterministic live-agent identity from the agent and brain names?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-2e2ec4cda902ba76"
+    },
+    {
+      "language": "typescript",
+      "query": "Which overlay component filters available commands, manages keyboard selection, and hands parsed execution back to its parent?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-6fbd5affb181bb02"
+    },
+    {
+      "language": "typescript",
+      "query": "Which helper derives the display-name brain reference carried by a mission packet without leaking a host-local path?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-ad01703c3f0c90cf"
+    },
+    {
+      "language": "rust",
+      "query": "Which preset defines relation weights, decay behavior, and node handling for source-code graphs?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-349dea1a817db6fe"
+    },
+    {
+      "language": "python",
+      "query": "Which routine joins the answer key, lane submissions, and event evidence into the bug-hunt round report?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-1709578f86cecaa3"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the allow-list of safe menu navigation verbs declared so the cockpit never exposes a write gesture?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-757e7f0aab3fa83a"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is the selected node's metadata, connections, and available graph actions assembled into a side panel?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-bb57e3fdb41444b0"
+    },
+    {
+      "language": "rust",
+      "query": "Where is interned provenance expanded into readable source paths, adapters, revisions, and evidence metadata?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-cd9531b22990b921"
+    },
+    {
+      "language": "typescript",
+      "query": "Where does the interface collect payments with Stripe Elements and confirm a payment intent?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-1df1a6c7cc2abc00"
+    },
+    {
+      "language": "rust",
+      "query": "Where can a watcher deliberately accept the current graph as its new baseline after staleness or reviewed changes?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-021ef405f754ce84"
+    },
+    {
+      "language": "rust",
+      "query": "Where are temporal graph facts projected into an ordered history with an explicit proof state and recommended next move?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-36789c6f2d70383f"
+    },
+    {
+      "language": "rust",
+      "query": "Which module runs Raft consensus and handles append-entry requests for a distributed graph cluster?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-19cf7cfdceb5cb98"
+    },
+    {
+      "language": "python",
+      "query": "Where is the operator-only adjudication packet assembled from primary lane results without exposing it to those lanes?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-4c494e71f59fb875"
+    },
+    {
+      "language": "rust",
+      "query": "Where does a navigation session restore its prior checkpoint rather than recomputing an unrelated route?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-b0d65874f4fee2c7"
+    },
+    {
+      "language": "python",
+      "query": "Which scoring routine converts one submitted reliability task into its bounded numeric result?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-f5954b020c35e845"
+    },
+    {
+      "language": "rust",
+      "query": "Where are nodes with sufficiently similar structural fingerprints returned as topology-equivalent candidates?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-f7712d1fab91cb48"
+    },
+    {
+      "language": "python",
+      "query": "Where does the documentation gate obtain the repository paths changed relative to a supplied base revision?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-2d9fe118a740c7a6"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is an optional viewed-brain selector added to API paths without changing callers that use the bound brain?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-feb695672a1813cc"
+    },
+    {
+      "language": "rust",
+      "query": "Where does a detached bridge recover an expired remote session by replaying initialization before retrying the caller request?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-d00cde5b10a54f7b"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a validated mission update appended durably only after its transition and head preconditions pass?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f23b6f719fe9034a"
+    },
+    {
+      "language": "rust",
+      "query": "Which renderer decides whether a compact human-facing status card should exist and composes it from measured trust, graph, bell, and coherence facts?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-4bd00fe4c89df8ed"
+    },
+    {
+      "language": "rust",
+      "query": "Where does the migration refuse to proceed while the owner service is still reachable, protecting against concurrent mutation?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-bf0cb76d2a47a0e4"
+    },
+    {
+      "language": "python",
+      "query": "Where are configured namespaces iterated, reported, and folded into the smart-ingestion command's exit status?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-371b8bc039e6ec14"
+    },
+    {
+      "language": "python",
+      "query": "Where is the final allow-or-block decision made from touched surfaces, matching docs, labels, and instruction-only status?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6ca0bce203307e74"
+    },
+    {
+      "language": "rust",
+      "query": "Where does a live instance persist that its health has degraded without discarding its ownership record?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-ae820203c58f9026"
+    },
+    {
+      "language": "python",
+      "query": "Which adjudication helper decides whether a source-backed finding corresponds to one of the hidden seeded defects?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-c61a524cdad2f7c8"
+    },
+    {
+      "language": "typescript",
+      "query": "Which async loader fetches mission heads for the selected brain and ignores stale completions after a brain switch?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-66d0438268a71491"
+    },
+    {
+      "language": "rust",
+      "query": "Where is one tool's usage, avoidance, parameters, recovery, and handoff guidance rendered for a human reader?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-c560ce7a3d8972d5"
+    },
+    {
+      "language": "rust",
+      "query": "Which orchestration path combines retrieval signals without mutating plasticity or query memory?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-1e4e27d537b5dc86"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is global client state managed by Redux Toolkit slices and a configured Redux store?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-729886937413cf4c"
+    },
+    {
+      "language": "typescript",
+      "query": "Which component establishes a WebRTC peer connection for direct agent-to-agent video or data channels?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-c972ba893ab54ab9"
+    },
+    {
+      "language": "rust",
+      "query": "Which code copies a verified project claim into shared doctrine while enforcing hygiene, provenance, and evidence re-anchoring?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-aad90ee6faf43516"
+    },
+    {
+      "language": "rust",
+      "query": "Which retrieval handler combines semantic candidates, structural signals, trust factors, deduplication, and a sufficiency stop signal?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-290004096c8a7dd7"
+    },
+    {
+      "language": "rust",
+      "query": "Which code applies a whole candidate-map edit batch against one expected version so a bad operation leaves the original untouched?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-eb4c0eebb9d8e0fc"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are the system map and graph snapshot fetched together, guarded against stale responses, and committed through supplied sinks?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-0288c1ad78566415"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a disconnected region represented with the reason it cannot be reached from the seeded propagation?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-0a49a18569d8fad4"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are directory, kind, and layer lenses combined with filters, keyboard navigation, meaning search, and preflight state?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-74e5c99bc4b8d5ad"
+    },
+    {
+      "language": "rust",
+      "query": "Which analysis scores architectural-layer health from violations, upward edges, and utility-node placement?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-ef613f155d514949"
+    },
+    {
+      "language": "typescript",
+      "query": "Which data layer queries the owner through Apollo GraphQL and an Apollo provider?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-2a3b16d30bc8c5d5"
+    },
+    {
+      "language": "rust",
+      "query": "Where are learned synaptic weights serialized with graph identity checks for later restoration?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-5d379ccb1127ba13"
+    },
+    {
+      "language": "rust",
+      "query": "Which code turns a candidate system map into the bounded block-and-confidence packet sent to an external naming hand?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-4e117fa3dacf1b60"
+    },
+    {
+      "language": "rust",
+      "query": "Which code ranks likely intended commands when an agent asks for an unknown tool name?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-cf4a0d7a038e14ad"
+    },
+    {
+      "language": "rust",
+      "query": "Where does an operator acknowledge selected structural alerts while preserving the daemon's durable alert history?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-0900491428d52b72"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are semantic hits restricted to the viewed brain and rendered with sufficiency and trust context?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-013c752ece0c03ff"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a canonical file path refused unless it is contained by one of the configured viewing roots?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-96f70474e1e465f9"
+    },
+    {
+      "language": "rust",
+      "query": "Which decision rule maps confidence against high and low thresholds into act, reverify, or abstain?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-f029b15ec949bfdc"
+    },
+    {
+      "language": "python",
+      "query": "Where is a fixture repository bound to its exact commit and dirty-state metadata before a round is issued?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-fe3bd88340fe9074"
+    },
+    {
+      "language": "rust",
+      "query": "Where are empty, root-like, or escaping relative scopes rejected instead of being treated as a valid narrow target?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-850c5d19bcb0f503"
+    },
+    {
+      "language": "python",
+      "query": "Which loader validates that an input path contains a readable benchmark-run payload?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-e6159f043903902a"
+    },
+    {
+      "language": "rust",
+      "query": "Where are weakly connected gaps inferred from activated neighborhoods and missing expected relationships?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-3c9502db8a8da1e0"
+    },
+    {
+      "language": "rust",
+      "query": "Which handler owns durable startup key reads and writes while returning the current boot-memory status contract?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-a6c687b6f43177e5"
+    },
+    {
+      "language": "python",
+      "query": "Which analysis combines multiple run artifacts into aggregate latency, throughput, quality, and optional economics?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-419288cb933ce50b"
+    },
+    {
+      "language": "python",
+      "query": "Which check distinguishes edits to the embedded agent-instructions region from unrelated documentation changes?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6b82893e8a1b7f9f"
+    },
+    {
+      "language": "typescript",
+      "query": "Where is asynchronous syntax highlighting memoized and disabled cleanly when content or language support is unavailable?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-57cd4ca3a5838777"
+    },
+    {
+      "language": "rust",
+      "query": "Where are relative evidence paths qualified back to their origin repository before a claim crosses stores?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-e64340ab66fe2078"
+    },
+    {
+      "language": "rust",
+      "query": "Where can measured runtime heat raise graph edge weights by a controlled strength after observation?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-bd5f118b5747b72f"
+    },
+    {
+      "language": "rust",
+      "query": "Where does the owner expose a tonic gRPC server and register generated protocol-buffer services?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-9cf155506fddae77"
+    },
+    {
+      "language": "typescript",
+      "query": "Which client-side routine restores the set of temporarily dismissed mission cards from local storage?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-a53bb04172539999"
+    },
+    {
+      "language": "typescript",
+      "query": "Which parser turns palette text into a normalized command name and argument list while reporting incomplete input?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-cd4a759d9770206d"
+    },
+    {
+      "language": "python",
+      "query": "Which protocol response advertises the proxy's server identity and capabilities during client initialization?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-0c32dd9817a4623d"
+    },
+    {
+      "language": "rust",
+      "query": "Where is structured claim input serialized into the canonical semantic-markdown marker format?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-5f47316297b0853c"
+    },
+    {
+      "language": "typescript",
+      "query": "Where does the graph surface recover from a rendering failure by clearing its error state and requesting fresh data?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-cf1804cf9424227b"
+    },
+    {
+      "language": "rust",
+      "query": "Where are overlapping mutation signals from two live agents compared to surface a concrete path collision?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-02c93e12d3d50798"
+    },
+    {
+      "language": "rust",
+      "query": "Which implementation attaches concise workflow guidance, next actions, and personality metadata to a tool result?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-bc3b70994b0970bf"
+    },
+    {
+      "language": "rust",
+      "query": "Where is degraded-state guidance turned into a concrete recovery route with parameters and next-step framing?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-ea32288df2f341f4"
+    },
+    {
+      "language": "rust",
+      "query": "Which graph simulation advances susceptible, exposed, infected, and recovered compartments along weighted relations?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-3afeef222a3790ea"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a workspace-reception mismatch translated into a bounded plain-language card instead of the normal pulse display?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-9df6ce8fe3c5f219"
+    },
+    {
+      "language": "rust",
+      "query": "Where is multi-harmonic structural resonance analysis configured around a reusable wave propagator?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-d23a1346b33c5634"
+    },
+    {
+      "language": "rust",
+      "query": "Where is an ONNX model session loaded to compute transformer embeddings inside the core engine?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-24e32290bc2d3962"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are unknown request failures normalized into a readable detail string for the letter drawer?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-5776aae73837b2e4"
+    },
+    {
+      "language": "typescript",
+      "query": "Which source viewer coordinates file loading, syntax highlighting, symbol outlines, folding, and navigation history?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-b5928b0af66220e5"
+    },
+    {
+      "language": "python",
+      "query": "Which renderer turns the demo summary and user question into a compact Markdown walkthrough?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-cbe8e6e2e88ced3e"
+    },
+    {
+      "language": "rust",
+      "query": "Which query-memory operation derives a bounded priming vector from recent related activations?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-8c4aa7fb70e887f4"
+    },
+    {
+      "language": "python",
+      "query": "Where are benchmark binaries, tool surfaces, fixture locks, and lane prerequisites checked before auditors start?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-c73a172ad85f0c1c"
+    },
+    {
+      "language": "python",
+      "query": "Where are categorical counts normalized into deterministic key order for reproducible reports?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-ee3e8041e9dcbb5a"
+    },
+    {
+      "language": "rust",
+      "query": "Which handler assembles a bounded repository health report from graph structure, trust, temporal, and hotspot evidence?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-d7eb10c3dfd34721"
+    },
+    {
+      "language": "rust",
+      "query": "Which exact-text retrieval handler validates patterns, respects scope, truncates safely, and returns guided next-step metadata?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f6c1711359d8b796"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the request shape defined for selecting a startup-memory operation, key, and optional value?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-897bd7d5498fc746"
+    },
+    {
+      "language": "typescript",
+      "query": "Where does expanded-tray state control periodic mission polling and expose a manual reload gesture?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-e7c6decbf1c3fc07"
+    },
+    {
+      "language": "rust",
+      "query": "Which mutation workflow computes a proposed text edit, diff, and optimistic-concurrency token without writing the file?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-b69b5779b922fa80"
+    },
+    {
+      "language": "rust",
+      "query": "Which transport dispatcher handles initialization, tool listing, calls, session identity, and JSON-RPC error shaping over HTTP?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-3a3cf379539f1e35"
+    },
+    {
+      "language": "rust",
+      "query": "Which exporter writes graph analytics as Apache Arrow record batches or Parquet files?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-247dcc41ac261309"
+    },
+    {
+      "language": "python",
+      "query": "Where is verbose smoke output reduced to the trust, ingest, retrieval, and recovery facts needed by the demo?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-3bc1f83cf32f056a"
+    },
+    {
+      "language": "python",
+      "query": "Which assertion rejects a health response that omits the expected tool-surface and host-binding truth?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-a564a4987fb0f8a3"
+    },
+    {
+      "language": "python",
+      "query": "Which policy helper maps a changed-file list to the agent-facing product surfaces that require documentation review?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-f48e3b0ed63f7128"
+    },
+    {
+      "language": "rust",
+      "query": "Which temporal update records that two nodes changed together while preserving bounded pair counts and strength?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-9f7054cf5ab32273"
+    },
+    {
+      "language": "python",
+      "query": "Which compatibility shim checks whether the local owner is reachable and starts it when necessary?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-de87a22530c2765f"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are escape, arrow, and enter keystrokes translated into closing, selection movement, or command execution?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-c18cbc06962fc3bb"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are live mission heads polled, filtered by dismissals, and connected to expansion and provenance gestures?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-b1760715cd7dbe6e"
+    },
+    {
+      "language": "typescript",
+      "query": "Which empty-state surface distinguishes missing data, loading, and the action needed to create a candidate map?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-b80108830b34319e"
+    },
+    {
+      "language": "rust",
+      "query": "Which operation exposes a bounded standing-wave pattern so later analysis can inspect activated amplitudes and phases?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-137c1d090c117157"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a deterministic key derived from both embedding model identity and input text?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-8d586a02a711c117"
+    },
+    {
+      "language": "rust",
+      "query": "Which code derives whether an operator letter is fresh, in flight, answered, or external from its causal answer relationships?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-4f846c4ca0db9cda"
+    },
+    {
+      "language": "python",
+      "query": "Where does the benchmark-summary command parse inputs, write the aggregate artifact, and select its exit status?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-b7e14de4857c7e94"
+    },
+    {
+      "language": "typescript",
+      "query": "Which lens projects tree leaves into ordered architectural layers and preserves an explicit unassigned residue?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-2f5f58df082d31a8"
+    },
+    {
+      "language": "python",
+      "query": "Which event parser estimates the character volume represented by one streamed benchmark update?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-8f1a75b867205017"
+    },
+    {
+      "language": "python",
+      "query": "Which setup step copies locked fixtures into separate lane workspaces and applies any task-specific seeding?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-4d27dce2a14e3350"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a stored graph reconstructed with format validation, provenance, tags, and finalized indexes?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-7b4effc0781fdd79"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a multi-file write batch preflighted and committed with rollback-oriented evidence and failure accounting?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-44117a71ef978171"
+    },
+    {
+      "language": "rust",
+      "query": "Which code rejects unsafe, token-like, or oversized proposed block names and purposes before they reach the candidate map?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f06e9337aca910b3"
+    },
+    {
+      "language": "rust",
+      "query": "Which tool handler validates and imports a proof receipt so block state changes only from accepted evidence?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-7ed154438ed54881"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are language, node-kind, trust-band, and text filters combined to decide whether one tree row remains visible?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-f1b7c28d65b47fd1"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the finite-sample conformal cutoff selected from nonconformity scores and a risk level?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-0aa2b31bff20da0b"
+    },
+    {
+      "language": "rust",
+      "query": "Which pipeline clusters graph members into a candidate system map, applies naming policy, and emits phase progress?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-444ec87c28c37ea3"
+    },
+    {
+      "language": "rust",
+      "query": "Which implementation checks previously grounded claims against current repository evidence and reports stale or unresolved support?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-257fbde6028a8323"
+    },
+    {
+      "language": "python",
+      "query": "Where does the macOS bridge translate a tool invocation into an HTTP request and decode the owner's response?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-0ea720629c145040"
+    },
+    {
+      "language": "python",
+      "query": "Which background worker executes benchmark lanes as Celery tasks through a broker?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-ee060f88886f4186"
+    },
+    {
+      "language": "python",
+      "query": "Where is one reliability lane's human-readable prompt assembled from the round contract and lane assignment?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-a58b304e4afb84df"
+    },
+    {
+      "language": "typescript",
+      "query": "Which view groups operator letters by day, derives their visible fate, and supports jumping among causal references?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-464f33adcdecded2"
+    },
+    {
+      "language": "rust",
+      "query": "Which server entry point binds the local HTTP surface, installs routes and shared state, and enforces the configured remote-listen policy?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-449c9fccff80030a"
+    },
+    {
+      "language": "rust",
+      "query": "Which owner-side function authenticates a runner announcement and updates liveness without granting new capabilities?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-0b17e9e98aed9c54"
+    },
+    {
+      "language": "rust",
+      "query": "Where are repository file patterns expanded with ingest-root awareness and explicit invalid-pattern diagnostics?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-635b2a3849545fc4"
+    },
+    {
+      "language": "rust",
+      "query": "Which analysis derives structural fingerprints for nodes from their neighborhoods under a bounded comparison budget?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-c28e2800b891f143"
+    },
+    {
+      "language": "python",
+      "query": "Which demonstration step launches the diagnostic harness for a repository and captures its structured output?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6b04253d2aae88d7"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a curation proposal sanitized, applied under optimistic concurrency, and summarized without granting ratification authority?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-508418be994c993f"
+    },
+    {
+      "language": "rust",
+      "query": "Where are spooled letters routed to a project box or shared box without allowing project-addressed material to leak into the shared store?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-58da6ab1765e697d"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a committed graph mutation converted into a server-to-client notification with its generation metadata?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-cfb9d8d6c86682df"
+    },
+    {
+      "language": "rust",
+      "query": "Which path-normalization code maps absolute, relative, and file-prefixed scopes into the same repository-relative form?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-d7f5feacb96ace4d"
+    },
+    {
+      "language": "rust",
+      "query": "Which ranking utility removes near-duplicate families while preserving the strongest and most specific candidates?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f6b7710e30e7b546"
+    },
+    {
+      "language": "python",
+      "query": "Where are run measurements converted into a pandas data frame and exported as Parquet?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-e86d83aabf61b6d6"
+    },
+    {
+      "language": "typescript",
+      "query": "Which row resolves a neighboring graph node and renders its relation, direction, and weight?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-22445cf8e17c543d"
+    },
+    {
+      "language": "rust",
+      "query": "Where are ranked entries packed under a token budget with explicit truncation and omitted-count accounting?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-df2f9bae858ab6e1"
+    },
+    {
+      "language": "typescript",
+      "query": "Which hook combines server-sent mutation events with periodic fallback polling and cleans both up on unmount?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-24b8b86a2bc77300"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the OAuth 2.0 authorization-code exchange performed before a remote client receives an access token?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-cd9c1562353e7916"
+    },
+    {
+      "language": "rust",
+      "query": "Where are historical co-change observations added to temporal state and surfaced as non-static ghost relationships?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-6f1da438c4a0575d"
+    },
+    {
+      "language": "typescript",
+      "query": "Which hall card presents one project brain's status, freshness, counts, and available open or forget gestures?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-41140ed89610369b"
+    },
+    {
+      "language": "rust",
+      "query": "Which mission-control step checks a proposed conclusion against recorded events and direct evidence references before marking it verified?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f10eced179a72e90"
+    },
+    {
+      "language": "rust",
+      "query": "Which cache loader refuses persisted vectors when their model identity or dimensionality differs from the active embedder?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-2169b07600f4b985"
+    },
+    {
+      "language": "rust",
+      "query": "Which registry operation creates or warms a project brain, applies overlap guards, and binds the resulting session state?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-86a2969a3b3e6f60"
+    },
+    {
+      "language": "rust",
+      "query": "Where are queued filesystem changes coalesced and applied during one explicit automatic-ingestion cycle?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-fb4c7dc44e6f5d66"
+    },
+    {
+      "language": "rust",
+      "query": "Which code multiplexes an HTTP response with server-pushed JSON-RPC frames while preserving their stdout delivery order?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-7414477ed7038196"
+    },
+    {
+      "language": "rust",
+      "query": "Which persistence path writes a versioned graph snapshot and protects against catastrophic node-count shrinkage?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-083331b99b3a29a6"
+    },
+    {
+      "language": "rust",
+      "query": "Which propagation engine dispatches graph activation to a CUDA or WebGPU compute pipeline?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-54ca633b0bee6f77"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a candidate map checked for foreign-root contamination, unmapped members, and internal consistency?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-c0d0da6f68fa8cb8"
+    },
+    {
+      "language": "python",
+      "query": "Which projection strips adjudicator-only fields before a real-world task is exposed to benchmark agents?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6ef3fc5a0f91fdcd"
+    },
+    {
+      "language": "rust",
+      "query": "Where are successful external naming responses converted into candidate-edit operations while failures remain explicitly reported?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-54ace4618ef6819e"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a negative learning event converted into a reusable topology pattern with constraints and provenance?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-6513da3eb49997c3"
+    },
+    {
+      "language": "rust",
+      "query": "Where are block-to-block socket references rewritten after merges so absorbed identifiers cannot survive in connectivity metadata?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-f6fbc9bdcfe8c783"
+    },
+    {
+      "language": "rust",
+      "query": "Which handler validates and writes a graph-native knowledge claim while respecting merge mode and evidence fields?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-6fcdf7210b3da6ee"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a returned child diff classified against predicted paths and converted into attributed outcomes and learning evidence?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-48dbb66250f08742"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a concurrency hotspot represented with colliding arrivals, severity, and explanatory evidence?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-4767b535ba887568"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a broad structural view scoped to an ingest root and made honest when the graph is empty?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-63a15a90f9814c92"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the breadth-first activation strategy represented that propagates weighted signal under hop and budget limits?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-1a0ed1eb571814f9"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a taint path's risk computed from boundary coverage, path length, and leak characteristics?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-d5849f1f2b7a6e62"
+    },
+    {
+      "language": "rust",
+      "query": "Which membership check gives the propagation engine a bounded false-positive test for whether a node was already visited?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-4f1302e7f53f80b4"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the activation request budget defined, including depth, result cap, and optional edge or node constraints?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-1842cc1961ee0201"
+    },
+    {
+      "language": "typescript",
+      "query": "Which canvas binds graph-store nodes and edges to the interactive flow renderer with selection and context-menu callbacks?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-27359f2d8c8135d3"
+    },
+    {
+      "language": "typescript",
+      "query": "Where can an operator choose evidence toggles and send a prepared block mission either directly or through a runner?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-b279ed2a4e1bbbf8"
+    },
+    {
+      "language": "python",
+      "query": "Where is the advertised tool list checked for required capabilities and condensed into a compatibility report?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-70f384e22b4c6d77"
+    },
+    {
+      "language": "rust",
+      "query": "Where are strongly connected components computed to prevent cycles from being mistaken for clean architectural layers?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-6b5a5158b08e847c"
+    },
+    {
+      "language": "rust",
+      "query": "Which planner finds cohesive extraction communities, their interface edges, and the risks of separating them?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-1a40a90078f896ea"
+    },
+    {
+      "language": "python",
+      "query": "Where is a complete benchmark-run artifact constructed from input events and optional cost assumptions?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6caa1140d521a8eb"
+    },
+    {
+      "language": "rust",
+      "query": "Which owner-side entry point establishes watched paths, normalized format filters, and persistent state for automatic incremental ingestion?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-db4f0fcedd245c12"
+    },
+    {
+      "language": "rust",
+      "query": "Which validator enforces causal sequence and previous-letter identity against the current mission head?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-a1e692be379b2ec5"
+    },
+    {
+      "language": "typescript",
+      "query": "Which data adapter reads graph tags into a path-indexed map of member proof states?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-3219ebc1662fbac9"
+    },
+    {
+      "language": "rust",
+      "query": "Which tool-facing handler checks the addressed brain and block before accepting a mission-state letter?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-e4bfd413c71e54ef"
+    },
+    {
+      "language": "rust",
+      "query": "Which read-only engine entry point propagates activation from seed nodes and ranks the connected neighborhood under a bounded configuration?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-d06b90bd82ac49d7"
+    },
+    {
+      "language": "rust",
+      "query": "Where is advisory candidate-map ownership acquired, refreshed, or released without trapping the human owner?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-846a0ce5b79cfe37"
+    },
+    {
+      "language": "python",
+      "query": "Where are heterogeneous progress events converted into a stable, indexed record shape for later aggregation?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-6ef4b1bc05122b60"
+    },
+    {
+      "language": "rust",
+      "query": "Which matcher binds a stored structural defect pattern against a graph while respecting a timeout?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-46c56aaf57f938bf"
+    },
+    {
+      "language": "python",
+      "query": "Which setup code creates isolated per-lane repository copies while preserving the seeded fixture source?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-758f225089b9107a"
+    },
+    {
+      "language": "rust",
+      "query": "Where is an append-only event file tailed into broadcast updates for connected status-stream clients?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-e6f6dcea63deab7e"
+    },
+    {
+      "language": "rust",
+      "query": "Which handler compares watched inventory, git state, and reconciliation signals during one explicit monitoring heartbeat?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-9f2ea1bde1cd8fe9"
+    },
+    {
+      "language": "rust",
+      "query": "Where is verified state, rejected paths, remaining gaps, and the next move serialized for a successor agent?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-e3a1d685e1fe0d31"
+    },
+    {
+      "language": "rust",
+      "query": "Which graph mutation merges incoming source provenance without discarding previously known origins?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-ce36908cc28db278"
+    },
+    {
+      "language": "typescript",
+      "query": "Where are timestamped letters partitioned and ordered into calendar-day sections for display?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-52682163da823e98"
+    },
+    {
+      "language": "rust",
+      "query": "Where is a multi-repository investigation assembled automatically from discovered external references without pretending one graph covers every root?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-b63550b58177f6b4"
+    },
+    {
+      "language": "typescript",
+      "query": "Which browser client wrapper sends JSON requests, decodes structured errors, and preserves typed success responses?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-91abf8b1d72be5d6"
+    },
+    {
+      "language": "python",
+      "query": "Where are command-line options for repository, binary, query, transport, and output mode declared?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-c9bf2a2e50652d64"
+    },
+    {
+      "language": "rust",
+      "query": "Where is one proposed module extraction annotated with coupling, boundary, and confidence risk?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-633f3c4bd5630fab"
+    },
+    {
+      "language": "python",
+      "query": "Which benchmark function declares the fixed experimental lanes and their assigned task mix?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-dc91f4f5a8231910"
+    },
+    {
+      "language": "python",
+      "query": "Which utility uploads benchmark artifacts to Amazon S3 through the boto3 client?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-35b62050f62155b8"
+    },
+    {
+      "language": "rust",
+      "query": "Which read-only controller builds the navigable operator menu from live facts, optional drill selection, and reception state?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-84cac76cfbfa6b28"
+    },
+    {
+      "language": "python",
+      "query": "Where is the diagnostic sequence orchestrated across initialization, trust checks, ingestion, retrieval, help, and recovery?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-bfff700629d12bdb"
+    },
+    {
+      "language": "rust",
+      "query": "Where are exact, parent, child, and worktree root relationships classified before a new project store can be minted?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-a4276406af013f90"
+    },
+    {
+      "language": "python",
+      "query": "Where are agent events condensed into measured command counts, graph-tool use, and source-proof behavior?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-8c90c76c40a077d2"
+    },
+    {
+      "language": "rust",
+      "query": "Which routine identifies likely ingress nodes before sending particles through the dependency graph?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-ca0b687a747ddae3"
+    },
+    {
+      "language": "rust",
+      "query": "Which implementation composes a child-agent packet from the current brain binding, ranked anchors, scoped memory, and honest gaps?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-a04faac15b2e9657"
+    },
+    {
+      "language": "rust",
+      "query": "Which implementation snapshots a scoped graph baseline and starts watching it under an agent-owned lock identifier?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-862c761aa27b9f54"
+    },
+    {
+      "language": "rust",
+      "query": "Which code claims an owner instance with stale-process checks, mode metadata, and a recoverable registry handle?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-811acd188f3a9d79"
+    },
+    {
+      "language": "python",
+      "query": "Which smoke harness drives a real browser through Selenium WebDriver?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-10b693952844c2d7"
+    },
+    {
+      "language": "rust",
+      "query": "Which simulation measures how total activation and reachability change when selected nodes or edges are masked out?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-d68356e5cf4f8645"
+    },
+    {
+      "language": "python",
+      "query": "Which top-level harness chooses the transport, manages the temporary runtime, and returns the complete smoke evidence packet?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-a8f8fd4cf9a06848"
+    },
+    {
+      "language": "rust",
+      "query": "Which persistence layer stores owner state in PostgreSQL through an asynchronous SQL connection pool?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-3865586f43561904"
+    },
+    {
+      "language": "typescript",
+      "query": "Which pure function explains a letter's current fate from in-box answers, external answers, and causal closure?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-1abddd095b1ee2d3"
+    },
+    {
+      "language": "rust",
+      "query": "Which routine classifies a node as a validation, authorization, sanitization, or other trust boundary from its evidence?",
+      "repo_id": "m1nd-core",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:a793f47eaac54e72becb837f466d6db033d51da4",
+      "repo_size_band": "medium",
+      "task_id": "g6-core-0bb55abf17fc3c66"
+    },
+    {
+      "language": "rust",
+      "query": "Where is the weakest-link coherence of a navigation path derived from its edge weights?",
+      "repo_id": "m1nd-mcp",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:e0164f9da50c5467a43e61122bc06c62e22a6ff6",
+      "repo_size_band": "large",
+      "task_id": "g6-mcp-7ef9e037c67835d1"
+    },
+    {
+      "language": "python",
+      "query": "Which helper converts one configured namespace into a full or incremental ingestion request and returns its result?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-37200374d6da1bc3"
+    },
+    {
+      "language": "typescript",
+      "query": "Which edit builder validates a selected member partition and emits a two-way block split only when both sides remain nonempty?",
+      "repo_id": "m1nd-ui",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:57fbf6cdf8bd7baa44afce1e1b7bb5d4148e041c",
+      "repo_size_band": "medium",
+      "task_id": "g6-ui-68515034f09d1586"
+    },
+    {
+      "language": "python",
+      "query": "Where are all lane artifacts validated and rolled up into the final reliability-round report?",
+      "repo_id": "m1nd-python-tools",
+      "repo_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee:tree:b43e71abc557173e529ef1c23a07eea089cf95bf",
+      "repo_size_band": "small",
+      "task_id": "g6-py-df699fea105f3382"
+    }
+  ],
+  "version": 1
+}

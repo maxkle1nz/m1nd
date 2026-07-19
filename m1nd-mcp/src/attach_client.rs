@@ -7,7 +7,7 @@
 // standard Streamable-HTTP MCP client. It loads NO graph, builds NO engines, and
 // takes NO lease. Two such clients pointed at one `--serve` owner SHARE that
 // owner's single live graph: agent A's mutation is visible to agent B with no
-// reload — because both ultimately drive the SAME `Arc<Mutex<SessionState>>`
+// reload — because both ultimately drive the SAME shared `BrainSessionCell`
 // inside the owner process (via `POST /mcp`).
 //
 // STDOUT FRAMING FIDELITY is the single biggest risk: if this bridge's stdout
@@ -113,6 +113,9 @@ async fn run_stdout_writer(mut rx: mpsc::UnboundedReceiver<StdoutFrame>) {
 /// transparent re-init the host never sees.
 #[derive(Clone, Default)]
 pub struct AttachSession {
+    /// Owner-local HTTP bearer credential. It authenticates the transport only;
+    /// sovereign authority is still evaluated separately by the owner.
+    pub bearer_token: Option<String>,
     /// `Mcp-Session-Id` minted by the owner at `initialize`.
     pub mcp_session_id: Option<String>,
     /// `result.protocolVersion` negotiated at `initialize`.
@@ -262,6 +265,10 @@ where
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(payload.to_string());
 
+    if let Some(token) = &session.bearer_token {
+        builder = builder.bearer_auth(token);
+    }
+
     if let Some(sid) = &session.mcp_session_id {
         builder = builder.header(MCP_SESSION_HEADER, sid.clone());
     }
@@ -350,6 +357,8 @@ pub async fn reinitialize(
     // Re-run initialize with a CLEAN session (no stale id) so the owner mints a
     // brand-new one from the replayed host params.
     let clean = AttachSession {
+        bearer_token: session.bearer_token.clone(),
+        caller_root: session.caller_root.clone(),
         initialize_payload: Some(init_payload.clone()),
         ..AttachSession::default()
     };
@@ -484,7 +493,7 @@ fn resolve_caller_root() -> Option<String> {
 /// Loop: read one JSON-RPC frame from stdin (preserving its detected
 /// `TransportMode`), POST it to `<base_url>/mcp`, and relay the response frame to
 /// stdout in the SAME mode. Exits cleanly on stdin EOF.
-pub async fn run_attach_client(base_url: String) {
+pub async fn run_attach_client(base_url: String, bearer_token: String) {
     let endpoint = format!("{}/mcp", base_url.trim_end_matches('/'));
     eprintln!(
         "[m1nd-mcp][attach] bridging stdio MCP host ↔ {} (no graph / no lease loaded)",
@@ -502,6 +511,7 @@ pub async fn run_attach_client(base_url: String) {
     // Resolve the caller root ONCE (§9.5.4 hop-2): the bridge inherits the host
     // session env at spawn, so this is the caller's truth for the session.
     let mut session = AttachSession {
+        bearer_token: Some(bearer_token),
         caller_root: resolve_caller_root(),
         ..AttachSession::default()
     };
@@ -632,6 +642,7 @@ pub async fn run_attach_client(base_url: String) {
                                 &endpoint,
                                 sid,
                                 session.protocol_version.clone(),
+                                session.bearer_token.clone(),
                                 &sink,
                                 mode,
                             ));
@@ -692,6 +703,7 @@ pub async fn run_attach_client(base_url: String) {
                     &endpoint,
                     sid,
                     session.protocol_version.clone(),
+                    session.bearer_token.clone(),
                     &sink,
                     mode,
                 ));
@@ -734,6 +746,7 @@ fn spawn_push_relay(
     endpoint: &str,
     session_id: String,
     protocol_version: Option<String>,
+    bearer_token: Option<String>,
     sink: &StdoutSink,
     mode: TransportMode,
 ) -> tokio::task::JoinHandle<()> {
@@ -742,6 +755,7 @@ fn spawn_push_relay(
         endpoint.to_string(),
         session_id,
         protocol_version,
+        bearer_token,
         sink.clone(),
         mode,
     ))
@@ -767,6 +781,7 @@ async fn run_push_relay(
     endpoint: String,
     session_id: String,
     protocol_version: Option<String>,
+    bearer_token: Option<String>,
     sink: StdoutSink,
     mode: TransportMode,
 ) {
@@ -785,6 +800,9 @@ async fn run_push_relay(
             .get(&endpoint)
             .header(reqwest::header::ACCEPT, "text/event-stream")
             .header(MCP_SESSION_HEADER, session_id.clone());
+        if let Some(token) = &bearer_token {
+            builder = builder.bearer_auth(token);
+        }
         if let Some(pv) = &protocol_version {
             builder = builder.header(MCP_PROTOCOL_VERSION_HEADER, pv.clone());
         }

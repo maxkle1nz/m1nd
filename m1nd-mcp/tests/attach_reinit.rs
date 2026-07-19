@@ -49,20 +49,38 @@ fn free_port() -> u16 {
 /// `tmp`, so the test never touches the developer's real runtime. Waits until the
 /// owner answers an `initialize` before returning.
 fn spawn_owner(port: u16, tmp: &std::path::Path) -> Child {
+    let runtime = tmp.join("runtime");
     let child = Command::new(BIN)
         .arg("--serve")
         .arg("--port")
         .arg(port.to_string())
         .arg("--no-gui")
         // Hermetic runtime: never bind the real one, never open a browser.
-        .env("M1ND_RUNTIME_DIR", tmp.join("runtime"))
+        .env("M1ND_RUNTIME_DIR", &runtime)
         .env("M1ND_REGISTRY_DIR", tmp.join("registry"))
-        .env("M1ND_GRAPH_SOURCE", tmp.join("graph.snapshot"))
-        .env("M1ND_PLASTICITY_STATE", tmp.join("plasticity.json"))
+        .env("M1ND_GRAPH_SOURCE", runtime.join("graph.snapshot"))
+        .env("M1ND_PLASTICITY_STATE", runtime.join("plasticity.json"))
         .env("M1ND_NO_GUI", "1")
         .spawn()
         .expect("spawn --serve owner");
     child
+}
+
+fn wait_for_owner_token(tmp: &std::path::Path) -> String {
+    let token_path = tmp
+        .join("runtime")
+        .join(m1nd_mcp::http_security::HTTP_AUTH_TOKEN_FILE_NAME);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(token) = m1nd_mcp::http_security::read_existing_bearer_token(&token_path) {
+            return token;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "owner never created its HTTP bearer token within 30s"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 /// Build the initialize payload the host would send, carrying the distinctive
@@ -85,11 +103,19 @@ fn initialize_payload() -> String {
 /// don't race the child's bind. Returns a fresh [`AttachSession`] with the
 /// captured session id + negotiated protocol version + retained init payload,
 /// exactly like the bridge's first-initialize path.
-async fn wait_and_initialize(client: &reqwest::Client, endpoint: &str) -> AttachSession {
+async fn wait_and_initialize(
+    client: &reqwest::Client,
+    endpoint: &str,
+    tmp: &std::path::Path,
+) -> AttachSession {
     let init = initialize_payload();
+    let bearer_token = wait_for_owner_token(tmp);
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let mut session = AttachSession::default();
+        let mut session = AttachSession {
+            bearer_token: Some(bearer_token.clone()),
+            ..AttachSession::default()
+        };
         match post_and_demux(client, endpoint, &session, &init).await {
             Ok(outcome) => {
                 if let Some(v) = outcome.value {
@@ -124,11 +150,20 @@ fn tools_list_payload(id: i64) -> String {
 /// the caller's real bridge session is left untouched) until the owner answers a
 /// `result`, or panic after `timeout`. Used to know a (re)spawned owner is serving
 /// before driving the stale-session bridge through it — without racing the bind.
-async fn wait_until_serving(client: &reqwest::Client, endpoint: &str, timeout: Duration) {
+async fn wait_until_serving(
+    client: &reqwest::Client,
+    endpoint: &str,
+    timeout: Duration,
+    tmp: &std::path::Path,
+) {
     let probe = initialize_payload();
+    let bearer_token = wait_for_owner_token(tmp);
     let deadline = Instant::now() + timeout;
     loop {
-        let fresh = AttachSession::default();
+        let fresh = AttachSession {
+            bearer_token: Some(bearer_token.clone()),
+            ..AttachSession::default()
+        };
         if let Ok(o) = post_and_demux(client, endpoint, &fresh, &probe).await {
             if o.value.and_then(|v| v.get("result").cloned()).is_some() {
                 return;
@@ -156,7 +191,7 @@ async fn restart_owner(
     // Give the OS a moment to release the port before rebinding.
     tokio::time::sleep(Duration::from_millis(300)).await;
     let fresh = spawn_owner(port, tmp);
-    wait_until_serving(client, endpoint, Duration::from_secs(30)).await;
+    wait_until_serving(client, endpoint, Duration::from_secs(30), tmp).await;
     fresh
 }
 
@@ -170,7 +205,7 @@ async fn bridge_survives_owner_restart_transparently() {
 
     // --- 1. Owner up; bridge initializes and captures the session. ---
     let mut owner = spawn_owner(port, tmp.path());
-    let mut session = wait_and_initialize(&client, &endpoint).await;
+    let mut session = wait_and_initialize(&client, &endpoint, tmp.path()).await;
     let first_session_id = session
         .mcp_session_id
         .clone()
@@ -198,7 +233,10 @@ async fn bridge_survives_owner_restart_transparently() {
         let probe = initialize_payload();
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            let fresh = AttachSession::default();
+            let fresh = AttachSession {
+                bearer_token: session.bearer_token.clone(),
+                ..AttachSession::default()
+            };
             if let Ok(o) = post_and_demux(&client, &endpoint, &fresh, &probe).await {
                 if o.value.and_then(|v| v.get("result").cloned()).is_some() {
                     break;
@@ -259,7 +297,7 @@ async fn bridge_survives_two_restarts_including_binary_swap() {
     let client = reqwest::Client::builder().build().expect("reqwest client");
 
     let mut owner = spawn_owner(port, tmp.path());
-    let mut session = wait_and_initialize(&client, &endpoint).await;
+    let mut session = wait_and_initialize(&client, &endpoint, tmp.path()).await;
     let mut last_sid = session.mcp_session_id.clone().expect("initial session id");
 
     // A live call works before any restart.
@@ -324,11 +362,12 @@ async fn owner_unknown_session_wire_shape_is_recoverable() {
     let client = reqwest::Client::builder().build().expect("reqwest client");
 
     let mut owner = spawn_owner(port, tmp.path());
-    wait_until_serving(&client, &endpoint, Duration::from_secs(30)).await;
+    wait_until_serving(&client, &endpoint, Duration::from_secs(30), tmp.path()).await;
 
     // Drive a post-init request carrying a BOGUS session id (exactly what a stale
     // bridge holds after an owner restart) and inspect the RAW outcome.
     let bogus = AttachSession {
+        bearer_token: Some(wait_for_owner_token(tmp.path())),
         mcp_session_id: Some("00000000-0000-0000-0000-deadbeefdead".to_string()),
         protocol_version: Some("2025-06-18".to_string()),
         initialize_payload: None,

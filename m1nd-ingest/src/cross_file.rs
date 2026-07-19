@@ -16,10 +16,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use m1nd_core::error::M1ndResult;
+use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
 use m1nd_core::types::*;
 use regex::Regex;
+
+use crate::ownership::{graph_has_edge, OwnedEdgeClaimV1, OwnershipDeltaV1};
 
 // ---------------------------------------------------------------------------
 // CrossFileStats — result statistics for the cross-file resolution pass
@@ -40,6 +42,182 @@ pub struct CrossFileStats {
     pub total_edges_created: u64,
     /// Python files indexed in the module index.
     pub files_indexed: u64,
+    /// File corpus accounted before any cross-file edge mutation.  A governed
+    /// pass returns an error unless all four counters are equal.
+    pub source_files_expected: u64,
+    pub source_metadata_verified: u64,
+    pub source_files_read: u64,
+    pub source_files_parsed: u64,
+    /// Exact source-file ownership for every edge this pass produced, including
+    /// an already-represented shared edge.
+    pub ownership: OwnershipDeltaV1,
+}
+
+/// Immutable UTF-8 corpus consumed by the regex-based cross-file scanners.
+/// Building it is a preflight: metadata/read/UTF-8 failures are accumulated in
+/// the error boundary before a single cross-file edge can be installed.
+struct CrossFileCorpus {
+    contents: HashMap<String, String>,
+    expected: u64,
+    metadata_verified: u64,
+    read: u64,
+    parsed: u64,
+}
+
+impl CrossFileCorpus {
+    fn build(graph: &Graph, root: &Path) -> M1ndResult<Self> {
+        let canonical_root = root.canonicalize().map_err(|error| {
+            M1ndError::IngestError(format!(
+                "cross-file corpus root canonicalization failed for {}: {error}",
+                root.display()
+            ))
+        })?;
+        if !canonical_root.is_dir() {
+            return Err(M1ndError::IngestError(format!(
+                "cross-file corpus root is not a directory: {}",
+                canonical_root.display()
+            )));
+        }
+
+        let mut candidates = Vec::<(String, String)>::new();
+        for index in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[index] != NodeType::File {
+                continue;
+            }
+            let node = NodeId::new(index as u32);
+            let external_id = find_external_id(graph, node).ok_or_else(|| {
+                M1ndError::IngestError(format!(
+                    "cross-file corpus cannot account file node slot {index}: external identity missing"
+                ))
+            })?;
+            let Some(relative_path) = external_id.strip_prefix("file::") else {
+                continue;
+            };
+            if !is_scanned_source_path(relative_path) {
+                continue;
+            }
+            if !crate::is_valid_relative_file_path(relative_path) {
+                return Err(M1ndError::IngestError(format!(
+                    "cross-file corpus rejected non-bijective source identity {relative_path:?}"
+                )));
+            }
+            let relative_path = relative_path.to_string();
+            candidates.push((external_id, relative_path));
+        }
+        candidates.sort();
+        if candidates.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(M1ndError::IngestError(
+                "cross-file corpus contains duplicate file identities".into(),
+            ));
+        }
+
+        let expected = candidates.len() as u64;
+        let mut corpus = Self {
+            contents: HashMap::with_capacity(candidates.len()),
+            expected,
+            metadata_verified: 0,
+            read: 0,
+            parsed: 0,
+        };
+        for (external_id, relative_path) in candidates {
+            let candidate = canonical_root.join(&relative_path);
+            let metadata = std::fs::symlink_metadata(&candidate)
+                .map_err(|error| corpus.failure("metadata", &relative_path, error))?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(corpus.failure(
+                    "metadata",
+                    &relative_path,
+                    "source is not a regular non-symlink file",
+                ));
+            }
+            let canonical_candidate = candidate
+                .canonicalize()
+                .map_err(|error| corpus.failure("metadata", &relative_path, error))?;
+            if !canonical_candidate.starts_with(&canonical_root) {
+                return Err(corpus.failure(
+                    "metadata",
+                    &relative_path,
+                    "source escaped the immutable corpus root",
+                ));
+            }
+            corpus.metadata_verified += 1;
+
+            let bytes = std::fs::read(&canonical_candidate)
+                .map_err(|error| corpus.failure("read", &relative_path, error))?;
+            corpus.read += 1;
+            let content = String::from_utf8(bytes)
+                .map_err(|error| corpus.failure("parse_utf8", &relative_path, error))?;
+            corpus.parsed += 1;
+            corpus.contents.insert(external_id, content);
+        }
+        if corpus.expected != corpus.metadata_verified
+            || corpus.expected != corpus.read
+            || corpus.expected != corpus.parsed
+            || corpus.contents.len() as u64 != corpus.expected
+        {
+            return Err(corpus.failure("accounting", "<corpus>", "counter mismatch"));
+        }
+        Ok(corpus)
+    }
+
+    fn failure(
+        &self,
+        stage: &str,
+        relative_path: &str,
+        detail: impl std::fmt::Display,
+    ) -> M1ndError {
+        M1ndError::IngestError(format!(
+            "cross-file corpus incomplete: stage={stage}, source={relative_path:?}, expected={}, metadata_verified={}, read={}, parsed={}: {detail}",
+            self.expected, self.metadata_verified, self.read, self.parsed
+        ))
+    }
+
+    fn content<'a>(&'a self, external_id: &str, scanner: &str) -> M1ndResult<&'a str> {
+        self.contents
+            .get(external_id)
+            .map(String::as_str)
+            .ok_or_else(|| {
+                self.failure(
+                    "accounting",
+                    external_id,
+                    format!("scanner {scanner} requested an unaccounted source"),
+                )
+            })
+    }
+}
+
+pub(crate) fn is_scanned_source_path(relative_path: &str) -> bool {
+    let extension = relative_path
+        .rsplit_once('.')
+        .map(|(_, extension)| extension);
+    extension.is_some_and(|extension| {
+        matches!(
+            extension,
+            "py" | "ts"
+                | "tsx"
+                | "js"
+                | "jsx"
+                | "mjs"
+                | "cjs"
+                | "go"
+                | "java"
+                | "rs"
+                | "h"
+                | "hpp"
+                | "hxx"
+                | "hh"
+                | "c"
+                | "cc"
+                | "cpp"
+                | "cxx"
+                | "kt"
+                | "kts"
+                | "php"
+                | "scala"
+                | "sc"
+                | "rb"
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1550,6 +1728,11 @@ fn join_path(base_dir: &str, relative: &str) -> String {
 /// All edges are Forward direction with appropriate causal strengths.
 pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<CrossFileStats> {
     let mut stats = CrossFileStats::default();
+    let corpus = CrossFileCorpus::build(graph, root)?;
+    stats.source_files_expected = corpus.expected;
+    stats.source_metadata_verified = corpus.metadata_verified;
+    stats.source_files_read = corpus.read;
+    stats.source_files_parsed = corpus.parsed;
 
     // Step 1: Build the Python module index from file nodes already in the graph.
     let module_index = PythonModuleIndex::build(graph);
@@ -1565,7 +1748,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Alternative approach: scan all existing file nodes and reconstruct
     // import relationships by examining the source files on disk.
     // This is cleaner and avoids coupling to the extraction pipeline.
-    let import_edges = collect_import_edges_from_files(graph, root, &module_index);
+    let import_edges = collect_import_edges_from_files(graph, &corpus, &module_index)?;
 
     for (source_file_id, target_file_id, relation) in &import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
@@ -1584,7 +1767,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     }
 
     // Step 4: Route registration edges from include_router() in source.
-    let register_edges = detect_route_registrations(graph, root, &module_index);
+    let register_edges = detect_route_registrations(graph, &corpus, &module_index)?;
     for (main_file_id, route_file_id) in &register_edges {
         if add_cross_file_edge(graph, main_file_id, route_file_id, "registers", &mut stats) {
             stats.register_edges_created += 1;
@@ -1594,7 +1777,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Step 5: JS/TS cross-file import resolution via JsModuleIndex.
     let js_index = JsModuleIndex::build(graph);
     stats.files_indexed += js_index.path_to_file.len() as u64;
-    let js_import_edges = collect_js_import_edges_from_files(graph, root, &js_index);
+    let js_import_edges = collect_js_import_edges_from_files(graph, &corpus, &js_index)?;
     for (source_file_id, target_file_id, relation) in &js_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1606,7 +1789,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Step 6: Go cross-file import resolution via GoModuleIndex.
     let go_index = GoModuleIndex::build(graph);
     stats.files_indexed += go_index.segment_to_files.len() as u64;
-    let go_import_edges = collect_go_import_edges_from_files(graph, root, &go_index);
+    let go_import_edges = collect_go_import_edges_from_files(graph, &corpus, &go_index)?;
     for (source_file_id, target_file_id, relation) in &go_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1618,7 +1801,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Step 7: Java cross-file import resolution via JavaPackageIndex.
     let java_index = JavaPackageIndex::build(graph);
     stats.files_indexed += java_index.stem_to_files.len() as u64;
-    let java_import_edges = collect_java_import_edges_from_files(graph, root, &java_index);
+    let java_import_edges = collect_java_import_edges_from_files(graph, &corpus, &java_index)?;
     for (source_file_id, target_file_id, relation) in &java_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1630,7 +1813,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Step 8: Rust cross-file import/module resolution via RustModuleIndex.
     let rust_index = RustModuleIndex::build(graph);
     stats.files_indexed += rust_index.path_to_file.len() as u64;
-    let rust_import_edges = collect_rust_import_edges_from_files(graph, root, &rust_index);
+    let rust_import_edges = collect_rust_import_edges_from_files(graph, &corpus, &rust_index)?;
     for (source_file_id, target_file_id, relation) in &rust_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1653,7 +1836,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // C# imports are left unresolved until a proper namespace index is available.
     let c_index = CHeaderIndex::build(graph);
     stats.files_indexed += c_index.path_to_file.len() as u64;
-    let c_import_edges = collect_c_import_edges_from_files(graph, root, &c_index);
+    let c_import_edges = collect_c_import_edges_from_files(graph, &corpus, &c_index)?;
     for (source_file_id, target_file_id, relation) in &c_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1668,7 +1851,8 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // External / stdlib imports stay unresolved.
     let kotlin_index = KotlinPackageIndex::build(graph);
     stats.files_indexed += kotlin_index.stem_to_files.len() as u64;
-    let kotlin_import_edges = collect_kotlin_import_edges_from_files(graph, root, &kotlin_index);
+    let kotlin_import_edges =
+        collect_kotlin_import_edges_from_files(graph, &corpus, &kotlin_index)?;
     for (source_file_id, target_file_id, relation) in &kotlin_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1687,7 +1871,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // Step 11 (continued): PHP cross-file import resolution (unchanged).
     let php_index = PhpNamespaceIndex::build(graph);
     stats.files_indexed += php_index.stem_to_files.len() as u64;
-    let php_import_edges = collect_php_import_edges_from_files(graph, root, &php_index);
+    let php_import_edges = collect_php_import_edges_from_files(graph, &corpus, &php_index)?;
     for (source_file_id, target_file_id, relation) in &php_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1702,7 +1886,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // in that package dir. External/stdlib imports (scala.*, java.*) stay unresolved.
     let scala_index = ScalaPackageIndex::build(graph);
     stats.files_indexed += scala_index.stem_to_files.len() as u64;
-    let scala_import_edges = collect_scala_import_edges_from_files(graph, root, &scala_index);
+    let scala_import_edges = collect_scala_import_edges_from_files(graph, &corpus, &scala_index)?;
     for (source_file_id, target_file_id, relation) in &scala_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1737,7 +1921,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     //   a test pinning callee names + no-call-on-definition — deferred to a separate pass.
     let ruby_index = RubyFileIndex::build(graph);
     stats.files_indexed += ruby_index.path_to_file.len() as u64;
-    let ruby_import_edges = collect_ruby_import_edges_from_files(graph, root, &ruby_index);
+    let ruby_import_edges = collect_ruby_import_edges_from_files(graph, &corpus, &ruby_index)?;
     for (source_file_id, target_file_id, relation) in &ruby_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
@@ -1759,9 +1943,9 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     module_index: &PythonModuleIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     let re_import = Regex::new(r"^\s*import\s+([\w.]+)").unwrap();
     let re_from_import = Regex::new(r"^\s*from\s+([\w.]+)\s+import").unwrap();
 
@@ -1832,11 +2016,7 @@ fn collect_import_edges_from_files(
         };
 
         // Read the source file from disk
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "python-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -1880,7 +2060,7 @@ fn collect_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -1948,9 +2128,9 @@ fn infer_test_edges(graph: &Graph, module_index: &PythonModuleIndex) -> Vec<(Str
 /// Returns Vec<(main_file_id, route_file_id)>.
 fn detect_route_registrations(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     module_index: &PythonModuleIndex,
-) -> Vec<(String, String)> {
+) -> M1ndResult<Vec<(String, String)>> {
     // Match: app.include_router(module_name.router)
     // Captures the module name before the dot
     let re_include_router =
@@ -1975,11 +2155,7 @@ fn detect_route_registrations(
         };
 
         // Read the source file
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "python-route-registrations")?;
 
         // Scan for include_router calls
         for line in content.lines() {
@@ -2000,7 +2176,7 @@ fn detect_route_registrations(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2014,9 +2190,9 @@ fn detect_route_registrations(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_js_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     js_index: &JsModuleIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // ES module: import ... from "./specifier"
     let re_esm_import = Regex::new(r#"^\s*import\s+.*from\s+['"]([^'"]+)['"]"#).unwrap();
     // CJS: require("./specifier") or require('./specifier')
@@ -2055,11 +2231,7 @@ fn collect_js_import_edges_from_files(
         };
 
         // Read the source file from disk
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "javascript-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2101,7 +2273,7 @@ fn collect_js_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2119,9 +2291,9 @@ fn collect_js_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_go_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     go_index: &GoModuleIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches the quoted path inside an import statement or block line.
     // Captures group 1: the raw import path string (without quotes).
     // Handles optional alias prefix: `alias "pkg/path"` or just `"pkg/path"`.
@@ -2145,11 +2317,7 @@ fn collect_go_import_edges_from_files(
             _ => continue,
         };
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "go-imports")?;
 
         let mut in_import_block = false;
 
@@ -2213,7 +2381,7 @@ fn collect_go_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2232,9 +2400,9 @@ fn collect_go_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_java_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     java_index: &JavaPackageIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: import [static] <path>;
     // Group 1 captures the path (may end with .* for wildcards).
     let re_import = Regex::new(r"^\s*import\s+(?:static\s+)?([\w.*]+)\s*;").unwrap();
@@ -2257,11 +2425,7 @@ fn collect_java_import_edges_from_files(
             _ => continue,
         };
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "java-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2294,7 +2458,7 @@ fn collect_java_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2313,9 +2477,9 @@ fn collect_java_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_rust_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     rust_index: &RustModuleIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: mod NAME; (not inline mod NAME { ... })
     // We detect the semicolon at end-of-statement to distinguish file-module decls
     // from inline module blocks.
@@ -2364,11 +2528,7 @@ fn collect_rust_import_edges_from_files(
             }
         };
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "rust-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2485,7 +2645,7 @@ fn collect_rust_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2503,9 +2663,9 @@ fn collect_rust_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_c_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     c_index: &CHeaderIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: #include "path"  (quoted — project-local)
     // Group 1: the path string without quotes.
     let re_quoted = Regex::new(r#"^\s*#\s*include\s+"([^"]+)""#).unwrap();
@@ -2542,11 +2702,7 @@ fn collect_c_import_edges_from_files(
             None => "",
         };
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "c-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2579,7 +2735,7 @@ fn collect_c_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2598,9 +2754,9 @@ fn collect_c_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_kotlin_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     kotlin_index: &KotlinPackageIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: import <path>  or  import <path> as <alias>
     // Group 1: the dotted import path (before optional `as` alias).
     let re_import = Regex::new(r"^\s*import\s+([\w.*]+)(?:\s+as\s+\w+)?\s*;?\s*$").unwrap();
@@ -2631,11 +2787,7 @@ fn collect_kotlin_import_edges_from_files(
             continue;
         }
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "kotlin-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2667,7 +2819,7 @@ fn collect_kotlin_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2686,9 +2838,9 @@ fn collect_kotlin_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_php_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     php_index: &PhpNamespaceIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: use <namespace_path>[as <alias>];
     // Group 1 captures the namespace path (before optional `as` alias or semicolon).
     // Backslashes are allowed in the path; the path ends at whitespace, `{`, or `;`.
@@ -2712,11 +2864,7 @@ fn collect_php_import_edges_from_files(
             _ => continue,
         };
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "php-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2752,7 +2900,7 @@ fn collect_php_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2771,9 +2919,9 @@ fn collect_php_import_edges_from_files(
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_scala_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     scala_index: &ScalaPackageIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Matches: import <dotted.path>[optional alias or braces]
     // Group 1: the dotted import path (before optional whitespace, `{`, or end of line).
     // We capture the leading dotted path; braces/aliases are not expanded here — grouped
@@ -2806,11 +2954,7 @@ fn collect_scala_import_edges_from_files(
             continue;
         }
 
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "scala-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -2846,7 +2990,7 @@ fn collect_scala_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -2951,9 +3095,9 @@ impl RubyFileIndex {
 /// Returns Vec<(source_file_id, target_file_id, relation)>.
 fn collect_ruby_import_edges_from_files(
     graph: &Graph,
-    root: &Path,
+    corpus: &CrossFileCorpus,
     ruby_index: &RubyFileIndex,
-) -> Vec<(String, String, String)> {
+) -> M1ndResult<Vec<(String, String, String)>> {
     // Pattern 1: require_relative "PATH" or require_relative 'PATH'
     // Captures the path string (without quotes).
     let re_require_relative = Regex::new(r#"^\s*require_relative\s+['"]([^'"]+)['"]"#).unwrap();
@@ -2988,11 +3132,7 @@ fn collect_ruby_import_edges_from_files(
         };
 
         // Read the source file from disk
-        let file_path = root.join(rel_path);
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        let content = corpus.content(&ext_id, "ruby-imports")?;
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -3035,7 +3175,7 @@ fn collect_ruby_import_edges_from_files(
         }
     }
 
-    edges
+    Ok(edges)
 }
 
 /// Minimal expansion of Rust use path specs (without pulling in extractor).
@@ -3157,34 +3297,66 @@ fn add_cross_file_edge(
         _ => (0.5, 0.4),
     };
 
-    match graph.add_edge(
+    let represented = if graph_has_edge(
+        graph,
         source,
         target,
         relation,
-        FiniteF32::new(weight),
         EdgeDirection::Forward,
         false,
-        FiniteF32::new(causal_strength),
     ) {
-        Ok(_) => {
-            stats.total_edges_created += 1;
-            true
+        true
+    } else {
+        match graph.add_edge(
+            source,
+            target,
+            relation,
+            FiniteF32::new(weight),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(causal_strength),
+        ) {
+            Ok(_) => {
+                stats.total_edges_created += 1;
+                true
+            }
+            Err(_) => graph_has_edge(
+                graph,
+                source,
+                target,
+                relation,
+                EdgeDirection::Forward,
+                false,
+            ),
         }
-        Err(_) => false,
+    };
+
+    if represented {
+        if let Some(source_key) = source_id.strip_prefix("file::") {
+            stats.ownership.claim_edge(OwnedEdgeClaimV1::forward(
+                source_key, source_id, target_id, relation,
+            ));
+        }
     }
+
+    represented
 }
 
 /// Find the external ID string for a node.
 ///
-/// Iterates the id_to_node map to find the interned string matching
-/// the given NodeId. Returns None if not found.
+/// Iterates the id_to_node map to find the single interned string matching the
+/// given NodeId. Anonymous and multiply-identified slots both return None.
 fn find_external_id(graph: &Graph, node: NodeId) -> Option<String> {
+    let mut found = None;
     for (interned, &nid) in &graph.id_to_node {
         if nid == node {
-            return Some(graph.strings.resolve(*interned).to_string());
+            if found.is_some() {
+                return None;
+            }
+            found = Some(graph.strings.resolve(*interned).to_string());
         }
     }
-    None
+    found
 }
 
 // ===========================================================================
@@ -3196,6 +3368,34 @@ mod tests {
     use super::*;
     use m1nd_core::graph::Graph;
     use m1nd_core::types::*;
+    use std::path::PathBuf;
+
+    struct TempCorpus(PathBuf);
+
+    impl TempCorpus {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "m1nd-cross-file-{label}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&path).expect("temp corpus");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempCorpus {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     /// Helper: add a Python file node to the graph.
     fn add_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
@@ -3204,6 +3404,56 @@ mod tests {
         graph
             .add_node(&ext_id, label, NodeType::File, &["python"], 0.0, 0.3)
             .unwrap()
+    }
+
+    #[test]
+    fn missing_cross_file_source_is_accounted_and_fatal_before_mutation() {
+        let corpus = TempCorpus::new("missing-source");
+        let mut graph = Graph::new();
+        add_file_node(&mut graph, "missing.py");
+
+        let error = resolve_cross_file_edges(&mut graph, corpus.path())
+            .expect_err("missing governed source must fail");
+        let detail = error.to_string();
+        assert!(detail.contains("stage=metadata"), "{detail}");
+        assert!(detail.contains("expected=1"), "{detail}");
+        assert!(detail.contains("metadata_verified=0"), "{detail}");
+        assert!(detail.contains("read=0"), "{detail}");
+        assert!(detail.contains("parsed=0"), "{detail}");
+        assert!(graph.csr.pending_edges.is_empty());
+    }
+
+    #[test]
+    fn non_utf8_cross_file_source_is_accounted_and_fatal_before_mutation() {
+        let corpus = TempCorpus::new("invalid-utf8");
+        std::fs::write(corpus.path().join("invalid.py"), [0xff, 0xfe])
+            .expect("write invalid UTF-8 fixture");
+        let mut graph = Graph::new();
+        add_file_node(&mut graph, "invalid.py");
+
+        let error = resolve_cross_file_edges(&mut graph, corpus.path())
+            .expect_err("UTF-8 parse failure must fail");
+        let detail = error.to_string();
+        assert!(detail.contains("stage=parse_utf8"), "{detail}");
+        assert!(detail.contains("expected=1"), "{detail}");
+        assert!(detail.contains("metadata_verified=1"), "{detail}");
+        assert!(detail.contains("read=1"), "{detail}");
+        assert!(detail.contains("parsed=0"), "{detail}");
+        assert!(graph.csr.pending_edges.is_empty());
+    }
+
+    #[test]
+    fn successful_cross_file_corpus_counters_are_exact() {
+        let corpus = TempCorpus::new("exact-counters");
+        std::fs::write(corpus.path().join("source.py"), "import os\n").expect("write source");
+        let mut graph = Graph::new();
+        add_file_node(&mut graph, "source.py");
+
+        let stats = resolve_cross_file_edges(&mut graph, corpus.path()).expect("cross-file pass");
+        assert_eq!(stats.source_files_expected, 1);
+        assert_eq!(stats.source_metadata_verified, 1);
+        assert_eq!(stats.source_files_read, 1);
+        assert_eq!(stats.source_files_parsed, 1);
     }
 
     // -----------------------------------------------------------------------

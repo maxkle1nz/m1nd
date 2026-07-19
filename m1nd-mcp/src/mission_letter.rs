@@ -728,7 +728,7 @@ pub struct PostOutcome {
 /// that resolves `box_path` from the session and maps the error onto the MCP
 /// surface. It NEVER opens the SystemBlockStore (§1c — a letter is state, not
 /// evidence).
-pub fn post_mission_letter(
+pub(crate) fn post_mission_letter(
     box_path: &std::path::Path,
     agent_id: &str,
     letter: &MissionLetter,
@@ -998,7 +998,7 @@ mod tests {
 
     #[test]
     fn brain_ref_absolute_path_is_rejected() {
-        for path in ["/Users/someone/repo", "~/repo", "C:\\repo"] {
+        for path in ["/Users/<name>/repo", "~/repo", "C:\\repo"] {
             let mut l = base_letter(1, Phase::Judging);
             l.brain_ref = path.to_string();
             assert!(

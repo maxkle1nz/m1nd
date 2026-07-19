@@ -6,95 +6,201 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
 
-# Cancel superseded runs so rapid fix-pushes to a PR don't each hold a full 3-OS
-# matrix. Keyed by ref: on a PR (github.ref = refs/pull/N/merge) a newer push
-# cancels the in-flight run; on the protected branch (refs/heads/main|master) we
-# keep every run so main's CI history stays complete. Biggest recurring saving,
-# zero coverage loss. Other PRs (different refs) are never touched.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace
-
-  test:
-    name: Test (${{ matrix.os }})
+  rust-gates:
+    name: Rust gates (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - if: runner.os != 'Windows'
-        run: cargo test --workspace
-      - if: runner.os == 'Windows'
-        run: cargo test -p m1nd-core -p m1nd-ingest -p m1nd-mcp
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: rust-gates-${{ matrix.os }}
+      - name: Check every target
+        run: cargo check --locked --workspace --all-targets
+      - name: Test every target
+        run: cargo test --locked --workspace --all-targets
+      - name: Deny clippy warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify formatting
+        run: cargo fmt --all --check
+      - name: Build the complete release workspace
+        run: cargo build --locked --release --workspace
 
   test-status:
     name: Test
     runs-on: ubuntu-latest
-    needs: test
+    needs: [rust-gates, ui-gates, host-pack-gates, python-gates, security-gates, contract-gates]
+    if: always()
     steps:
-      - run: echo "All matrix test jobs passed"
+      - name: Require every cumulative gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
 
-  clippy:
-    name: Clippy
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {
+              name: data["result"]
+              for name, data in needs.items()
+              if data["result"] != "success"
+          }
+          if failed:
+              print(json.dumps({"status": "FAIL", "jobs": failed}, sort_keys=True))
+              sys.exit(1)
+          print(json.dumps({"status": "PASS", "jobs": sorted(needs)}, sort_keys=True))
+          PY
+
+  ui-gates:
+    name: UI unit, static, build, and fixture-browser gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: m1nd-ui
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace -- -D warnings
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: m1nd-ui/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Semantic and icon lint
+        run: npm run lint:soft
+      - name: Production build
+        run: npm run build
+      - name: Install fixture-browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Fixture browser tests (not a live-owner proof)
+        run: npm run test:e2e
 
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
+  host-pack-gates:
+    name: npm host, pack, update, and rollback gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          components: rustfmt
-      - run: cargo fmt --check
+          node-version: "22"
+      - run: npm test
+      - run: npm run m1nd:pack-check
+      - run: npm run m1nd:pack-routing-check
+      - name: Prove the publish file set is packable
+        run: npm pack --dry-run
 
-  # The release-mode build (cargo build --release across 3 OSes) is intentionally
-  # NOT in the PR/push path: it was never a required check (required = Test, Clippy,
-  # Format), cargo check/test/clippy already compile the whole workspace on every
-  # PR, and release.yml builds + ships the release binaries per target on tag. The
-  # cross-OS macos/windows coverage that caught the port flake stays in `test`.
-
-  # Fails a PR that changes agent-workflow surfaces (MCP instructions/schemas,
-  # verb dispatch, skills/, the npm host installer) without also updating the
-  # agent-facing docs in the SAME PR. Anti-cry-wolf: arms only on those surfaces;
-  # satisfied by any skills//docs/ change, an instructions-only edit, or the
-  # `agent-docs-exempt` label. PR-only (not run on push). See
-  # scripts/agent_docs_gate.py.
-  agent-docs-gate:
-    name: Agent Docs Gate
-    if: github.event_name == 'pull_request'
+  python-gates:
+    name: Python proof harnesses
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  security-gates:
+    name: Dependency and supply-chain gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
+      - name: Refuse private, operator-only, secret, or cache paths in the candidate commit
+        run: |
+          python3 scripts/m1nd10_candidate_source_guard.py \
+            --repo . \
+            --revision "${GITHUB_SHA}"
+      - name: Scan the complete candidate history for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_NOTIFY_USER_LIST: ""
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Root wrapper must remain dependency-free
+        run: |
+          node - <<'NODE'
+          const pkg = require('./package.json');
+          for (const key of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+            if (pkg[key] && Object.keys(pkg[key]).length) {
+              throw new Error(\`root package unexpectedly has ${key}\`);
+            }
+          }
+          NODE
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: m1nd-ui/package-lock.json
+      - name: UI package high/critical audit
+        working-directory: m1nd-ui
+        run: npm audit --audit-level=high
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+
+  contract-gates:
+    name: Frozen contracts and documentation coupling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Verify ratified M1ND-10 contract bytes
+        shell: bash
+        run: |
+          printf '%s  %s\n' \
+            '00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38' \
+            'docs/M1ND-10-PRD.md' \
+            '8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b' \
+            'docs/M1ND-10-UML.md' | sha256sum --check --strict
       - name: Ensure base ref is present
+        if: github.event_name == 'pull_request'
         run: git fetch --no-tags origin "${{ github.base_ref }}"
-      - name: Check agent-workflow docs coupling
+      - name: Enforce agent-workflow documentation coupling
+        if: github.event_name == 'pull_request'
         run: |
           python3 scripts/agent_docs_gate.py \
             --base-ref "${{ github.base_ref }}" \

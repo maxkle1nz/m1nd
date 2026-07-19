@@ -1,0 +1,250 @@
+{
+  "schema": "m1nd-ground-snapshot-receipt-v1",
+  "receipt_id": "g0:m1nd:b59a1c2:20260718",
+  "captured_at": "2026-07-18T07:04:59Z",
+  "ratification": {
+    "authority": "human",
+    "decision": "APPROVE",
+    "effective_mode": "HUMAN_GATED",
+    "scope": "implementation of docs/M1ND-10-PRD.md and docs/M1ND-10-UML.md"
+  },
+  "frozen_inputs": [
+    {
+      "kind": "ratified_spec",
+      "path": "docs/M1ND-10-PRD.md",
+      "sha256": "sha256:00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38"
+    },
+    {
+      "kind": "ratified_spec",
+      "path": "docs/M1ND-10-UML.md",
+      "sha256": "sha256:8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b"
+    },
+    {
+      "kind": "golden_replay",
+      "path": "docs/assets/demo-replay.sh",
+      "sha256": "sha256:b625e2d37d56a4022a9e232e1e7fcab6c7fb4ff0803456ad2c0ba10ec2352b2b"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/am_i_stale.json",
+      "sha256": "sha256:7b30f1adc302bc3914022f8b00f049fde843b1bcd69d4bf3bdf788fb3a03871b"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/delete_refusal.json",
+      "sha256": "sha256:60c780c67d81d0926981aaa6849bc1038307ec71fe0807a68e2da6d2043ced87"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/impact.json",
+      "sha256": "sha256:31ab88e49ab6d2d2203ac08360e64f23edcdaa6b6d53e410b7969412620cc93a"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/impact_small.json",
+      "sha256": "sha256:569243b8a44e81cf84aa03ca42de4121f566056bb20805e09f16ee2adc0c61d7"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/instance_self.json",
+      "sha256": "sha256:7f76a102b83bfea8701cbf444057e97ffc8d35962a2b8b41425534d00c7964cf"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/instances.json",
+      "sha256": "sha256:7705ac9a52ebc04e5aae3184707cdd45fb729ceb6967e6422b13487112406d4a"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/layers.json",
+      "sha256": "sha256:bb517dd86312e6afd199da2045f2edc9e8e7bce40a21063abfbccf166c7c80d2"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/mailbox_box_a.json",
+      "sha256": "sha256:dd56f70377625730eaa58fab8faa18172309991f67b02763726b3ed7c9e291b9"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/mailbox_box_b.json",
+      "sha256": "sha256:5ef3272c7b0f5bf08441c6d0c200c7213e364849741dbaf05d78adc4bdcd8152"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/mailbox_dangling.json",
+      "sha256": "sha256:7db6df052c04fd568bcbd5c70d44d301a317c0086c0ed7322a809fe7556deb1f"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/mailbox_medulla.json",
+      "sha256": "sha256:f53a8961157650a7b6048781f263a0f1aba8a9e53b38d9b6edf0476a30629556"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/mailbox_wrong_echo.json",
+      "sha256": "sha256:586e036e186d12b63dde41bba6d46738d190b4585d4334293b81ab5000471f9f"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/missions_heads.json",
+      "sha256": "sha256:3308a9eb80e181f733f541958e007c2c7a484226ec94dc5bc4b555620b5ae7da"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/north_cold.json",
+      "sha256": "sha256:890551f7587ee29fe14ae1b5f60a2e26e77abe4eef09780a021703771631b2fa"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/north_warm.json",
+      "sha256": "sha256:9e7b8bfda7108954c165566473386084cd18f18db74cc3156f913e6900bdfa8a"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/predict_calibration.json",
+      "sha256": "sha256:fbd7cc6e6660e086a132965e664531c2aa143642bf8cbc9ca8760e1c5fe78970"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/preflight_north.json",
+      "sha256": "sha256:1b9904c74feff74b8550d47382b88d2a9a579e1efd84567f468df5d8016f0d11"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/preflight_north_degraded.json",
+      "sha256": "sha256:f825572a487741adc86e7491df6cd1545b896b91437851816786d5146419f42e"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/reader_snapshot.json",
+      "sha256": "sha256:c637e025964679557050b2b76fa0df5d61a3a478604c8d90d90fc89080fa1d0a"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/seek.json",
+      "sha256": "sha256:e3496b9126280cb4136a15ab8e8f700f8c7dba0803927d0929d6f696bbc2bd3d"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/seek_empty.json",
+      "sha256": "sha256:c817b2566e58a931a9fddf1c13c71d084d538f4358e64288fc83ff644ce3cd41"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/seek_meaning.json",
+      "sha256": "sha256:0bca9cd9fc91f6e4613ab774961a9e3d84248ceeb8ad25029e29f03e09344ffc"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/snapshot.compact.json",
+      "sha256": "sha256:71019c9ec812bdce801e9de3bac440f7ba709a1bbcdebfb4b5718b24c62d8106"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/system_blocks_reconciled.json",
+      "sha256": "sha256:c9092c601637895e213c16e2791a2bbeea71f637c348ba9d70b5aacf63f68e36"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/system_blocks_snapshot.json",
+      "sha256": "sha256:b9275f4bd0415c34d7be14ed6347bc3cc3315257c03c13bb84732a8788ef8bdd"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/tools.json",
+      "sha256": "sha256:d5cf5872edfdaf3745e6e5e8216e7fe6bb42f01f05b80d5939c4a538c3c215b6"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/tremor.json",
+      "sha256": "sha256:2c30a393a90ec23a971fa959ab6ab206a40dc2f0a5bf6b48795a36b95bcf7f53"
+    },
+    {
+      "kind": "golden_fixture",
+      "path": "m1nd-ui/src/__fixtures__/trust.json",
+      "sha256": "sha256:c34f3839df9981875dcdb06b3b99a755ee19f18d583a6b9ccb9af428508c486e"
+    }
+  ],
+  "observations": {
+    "source": {
+      "authority": "git",
+      "head": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+      "tree": "2e643f66213765d5a1ed311d26ae79aeac020822",
+      "version": "1.4.0",
+      "dirty_at_capture": true,
+      "dirty_paths": [
+        "docs/M1ND-10-PRD.md",
+        "docs/M1ND-10-UML.md"
+      ],
+      "status": "DRIFT"
+    },
+    "runtime": {
+      "authority": "running_binary",
+      "binary_version": "1.4.0",
+      "binary_git_sha": "f1c025b",
+      "binary_sha256": "sha256:9dbd25c39f5709e2843664ae7bae811c2d726d544d1a5d7581cf2d8228a92be7",
+      "owner_endpoint": "loopback:1338",
+      "status": "DRIFT",
+      "reason": "running binary git sha differs from adopted source HEAD"
+    },
+    "graph": {
+      "authority": "served_owner",
+      "generation": 51,
+      "node_count": 15007,
+      "edge_count": 41400,
+      "status": "OBSERVED",
+      "non_claim": "counts include the two ratified documents ingested during implementation intake"
+    },
+    "architecture": {
+      "authority": "SystemBlockStore",
+      "schema": "m1nd-system-block-store-v0",
+      "store_version": 61,
+      "skeleton_id": "sk_m1nd_seed_2026_07",
+      "block_count": 12,
+      "state": "ratified",
+      "status": "OBSERVED"
+    },
+    "ui": {
+      "authority": "m1nd-ui/dist bytes",
+      "bundle_tree_sha256": "sha256:3759b7ddec83e70cceb054c727761355af865db0ddf690e1f2c5f4bb007e5911",
+      "file_count": 24,
+      "status": "DEGRADED",
+      "reason": "bundle is observable but is not bound to a promoted release candidate"
+    },
+    "h4nd": {
+      "authority": "external_repo",
+      "repo": "god-hud",
+      "head": "d31c36753a6b962398dd8133f13e68b5e37698ae",
+      "dirty_at_capture": true,
+      "status": "NOT_PROVEN",
+      "reason": "external dirty source is not yet pinned, version-aligned, attested, or release-bound"
+    },
+    "autonomy": {
+      "active_mode": "HUMAN_GATED",
+      "authority_record": "ABSENT",
+      "status": "UNKNOWN",
+      "non_claim": "ratification authorizes implementation but does not activate FULL_AUTONOMY"
+    }
+  },
+  "accepted_backlog": {
+    "source": "docs/M1ND-10-PRD.md#4.3",
+    "p0_count": 9,
+    "p1_count": 12,
+    "waivers": 0,
+    "status": "BINDING"
+  },
+  "known_divergences": [
+    "source HEAD and running binary git SHA differ",
+    "ratified PRD/UML are present in the worktree but not yet represented by the baseline commit",
+    "UI bundle has no promoted-candidate attestation",
+    "h4nd/god-hud is dirty and not version-bound to m1nd",
+    "authoritative AutonomyEpochV1 does not exist at G0",
+    "manifest, identity, policy, WAL, checkpoint, safety and release V1 contracts are not implemented at G0"
+  ],
+  "proof": {
+    "verifier": "scripts/m1nd10_ground_snapshot.py",
+    "frozen_input_count": 31,
+    "policy": "frozen input drift fails; later source/runtime/UI observations report drift without rewriting baseline"
+  },
+  "receipt_sha256": "sha256:4bd6270256e081ad1dc55a99374d6e1586a3d682c3177f9b81e660bb5b61e86e"
+}

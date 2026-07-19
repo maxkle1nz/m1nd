@@ -34,12 +34,132 @@ pub struct SynapticState {
     pub source_label: String,
     pub target_label: String,
     pub relation: String,
+    /// Complete edge identity for current sidecars. `None` marks a legacy
+    /// triple-only row and is accepted only when that triple is unambiguous.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<u8>,
+    /// Complete edge identity for current sidecars. See [`Self::direction`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inhibitory: Option<bool>,
     pub original_weight: f32,
     pub current_weight: f32,
     pub strengthen_count: u16,
     pub weaken_count: u16,
     pub ltp_applied: bool,
     pub ltd_applied: bool,
+    #[serde(default)]
+    pub last_used_query: u32,
+}
+
+fn validate_synaptic_state(state: &SynapticState) -> M1ndResult<()> {
+    if !state.original_weight.is_finite() || !state.current_weight.is_finite() {
+        return Err(M1ndError::CorruptState {
+            reason: format!(
+                "non-finite weight in synaptic state: {}->{}",
+                state.source_label, state.target_label
+            ),
+        });
+    }
+    match (state.direction, state.inhibitory) {
+        (None, None) => {}
+        (Some(direction), Some(_)) if direction <= EdgeDirection::Bidirectional as u8 => {}
+        (Some(direction), Some(_)) => {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "unknown synaptic direction {direction} for {}->{}",
+                    state.source_label, state.target_label
+                ),
+            });
+        }
+        _ => {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "partial synaptic identity for {}->{}",
+                    state.source_label, state.target_label
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Encode synaptic state using the existing pretty-JSON sidecar format.
+///
+/// The historical NaN firewall is preserved: a non-finite current weight falls
+/// back to its finite original weight. A non-finite original has no trustworthy
+/// fallback and is rejected.
+pub fn encode_plasticity_state_json(states: &[SynapticState]) -> M1ndResult<Vec<u8>> {
+    let mut safe_states = Vec::with_capacity(states.len());
+    for state in states {
+        let mut safe = state.clone();
+        if !safe.original_weight.is_finite() {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "non-finite original weight in synaptic state: {}->{}",
+                    safe.source_label, safe.target_label
+                ),
+            });
+        }
+        if !safe.current_weight.is_finite() {
+            safe.current_weight = safe.original_weight;
+        }
+        validate_synaptic_state(&safe)?;
+        safe_states.push(safe);
+    }
+    serde_json::to_vec_pretty(&safe_states).map_err(M1ndError::Serde)
+}
+
+/// Decode a current checkpoint plasticity payload. Unlike the compatibility
+/// file loader, this boundary requires the complete edge identity and every
+/// current field, and rejects unknown fields rather than defaulting them.
+pub fn decode_plasticity_state_json(bytes: &[u8]) -> M1ndResult<Vec<SynapticState>> {
+    const CURRENT_FIELDS: &[&str] = &[
+        "source_label",
+        "target_label",
+        "relation",
+        "direction",
+        "inhibitory",
+        "original_weight",
+        "current_weight",
+        "strengthen_count",
+        "weaken_count",
+        "ltp_applied",
+        "ltd_applied",
+        "last_used_query",
+    ];
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(M1ndError::Serde)?;
+    let rows = value.as_array().ok_or_else(|| M1ndError::CorruptState {
+        reason: "current plasticity checkpoint is not a JSON array".into(),
+    })?;
+    for (index, row) in rows.iter().enumerate() {
+        let object = row.as_object().ok_or_else(|| M1ndError::CorruptState {
+            reason: format!("plasticity row {index} is not an object"),
+        })?;
+        if object.len() != CURRENT_FIELDS.len()
+            || CURRENT_FIELDS
+                .iter()
+                .any(|field| !object.contains_key(*field))
+        {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "plasticity row {index} is not the complete current checkpoint schema"
+                ),
+            });
+        }
+    }
+    let states: Vec<SynapticState> = serde_json::from_slice(bytes).map_err(M1ndError::Serde)?;
+    for state in &states {
+        validate_synaptic_state(state)?;
+        if state.direction.is_none() || state.inhibitory.is_none() {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "legacy plasticity identity is not authoritative for {}->{}",
+                    state.source_label, state.target_label
+                ),
+            });
+        }
+    }
+    Ok(states)
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +698,23 @@ impl PlasticityEngine {
         let n = graph.num_nodes() as usize;
         let num_plasticity = graph.edge_plasticity.original_weight.len();
         let num_csr = graph.csr.num_edges();
+        if num_plasticity != num_csr
+            || graph.edge_plasticity.current_weight.len() != num_csr
+            || graph.edge_plasticity.strengthen_count.len() != num_csr
+            || graph.edge_plasticity.weaken_count.len() != num_csr
+            || graph.edge_plasticity.ltp_applied.len() != num_csr
+            || graph.edge_plasticity.ltd_applied.len() != num_csr
+            || graph.edge_plasticity.last_used_query.len() != num_csr
+            || graph.csr.weights.len() != num_csr
+            || graph.csr.targets.len() != num_csr
+            || graph.csr.relations.len() != num_csr
+            || graph.csr.directions.len() != num_csr
+            || graph.csr.inhibitory.len() != num_csr
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "cannot export a partial CSR/plasticity ownership set".into(),
+            });
+        }
 
         // Build reverse map: NodeId -> external_id string
         let mut node_ext_id = vec![String::new(); n];
@@ -600,7 +737,7 @@ impl PlasticityEngine {
             }
         }
 
-        let cap = num_plasticity.min(num_csr);
+        let cap = num_csr;
         let mut states = Vec::with_capacity(cap);
 
         #[allow(clippy::needless_range_loop)]
@@ -636,12 +773,15 @@ impl PlasticityEngine {
                 source_label,
                 target_label,
                 relation,
+                direction: Some(graph.csr.directions[j] as u8),
+                inhibitory: Some(graph.csr.inhibitory[j]),
                 original_weight: original,
                 current_weight: current,
                 strengthen_count: graph.edge_plasticity.strengthen_count[j],
                 weaken_count: graph.edge_plasticity.weaken_count[j],
                 ltp_applied: graph.edge_plasticity.ltp_applied[j],
                 ltd_applied: graph.edge_plasticity.ltd_applied[j],
+                last_used_query: graph.edge_plasticity.last_used_query[j],
             });
         }
 
@@ -650,12 +790,27 @@ impl PlasticityEngine {
 
     /// Import synaptic state from persistence.
     /// FM-PL-007 fix: validates JSON schema, wraps in try/catch.
-    /// FM-PL-009 fix: validates relation match for edge identity via label-triple matching.
+    /// Current sidecars match the complete structural identity
+    /// `(source, target, relation, direction, inhibitory)`. Legacy triple-only
+    /// rows are migrated only when exactly one live edge owns that triple.
     /// Replaces: plasticity.py PlasticityEngine.import_state()
     pub fn import_state(&mut self, graph: &mut Graph, states: &[SynapticState]) -> M1ndResult<u32> {
         let n = graph.num_nodes() as usize;
         let num_csr = graph.csr.num_edges();
         let num_plasticity = graph.edge_plasticity.original_weight.len();
+        if num_plasticity != num_csr
+            || graph.edge_plasticity.current_weight.len() != num_csr
+            || graph.edge_plasticity.strengthen_count.len() != num_csr
+            || graph.edge_plasticity.weaken_count.len() != num_csr
+            || graph.edge_plasticity.ltp_applied.len() != num_csr
+            || graph.edge_plasticity.ltd_applied.len() != num_csr
+            || graph.edge_plasticity.last_used_query.len() != num_csr
+            || graph.csr.weights.len() != num_csr
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "CSR and edge-plasticity arrays have different lengths".into(),
+            });
+        }
 
         // Build reverse map: NodeId -> external_id
         let mut node_ext_id = vec![String::new(); n];
@@ -678,10 +833,14 @@ impl PlasticityEngine {
             }
         }
 
-        // Build triple -> CSR edge index lookup
-        use std::collections::HashMap;
-        let cap = num_plasticity.min(num_csr);
-        let mut triple_to_edge: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(cap);
+        // Build both legacy and complete identity indexes. Values stay vectors:
+        // silently taking the last parallel edge would corrupt another synapse.
+        use std::collections::{HashMap, HashSet};
+        type Triple = (String, String, String);
+        type FullKey = (String, String, String, u8, bool);
+        let cap = num_csr;
+        let mut triple_to_edges: HashMap<Triple, Vec<usize>> = HashMap::with_capacity(cap);
+        let mut full_to_edges: HashMap<FullKey, Vec<usize>> = HashMap::with_capacity(cap);
         #[allow(clippy::needless_range_loop)]
         for j in 0..cap {
             let src_idx = edge_source[j] as usize;
@@ -691,56 +850,168 @@ impl PlasticityEngine {
                     .strings
                     .try_resolve(graph.csr.relations[j])
                     .unwrap_or("");
-                triple_to_edge.insert((&node_ext_id[src_idx], &node_ext_id[tgt_idx], rel), j);
+                let triple = (
+                    node_ext_id[src_idx].clone(),
+                    node_ext_id[tgt_idx].clone(),
+                    rel.to_string(),
+                );
+                triple_to_edges.entry(triple.clone()).or_default().push(j);
+                full_to_edges
+                    .entry((
+                        triple.0,
+                        triple.1,
+                        triple.2,
+                        graph.csr.directions[j] as u8,
+                        graph.csr.inhibitory[j],
+                    ))
+                    .or_default()
+                    .push(j);
             }
         }
 
-        let mut applied = 0u32;
+        struct RestorePlan {
+            slot: usize,
+            original_weight: f32,
+            current_weight: f32,
+            strengthen_count: u16,
+            weaken_count: u16,
+            ltp_applied: bool,
+            ltd_applied: bool,
+            last_used_query: u32,
+        }
+
+        // Resolve and validate the entire sidecar before mutating one slot.
+        let mut seen_full_keys = HashSet::<FullKey>::new();
+        let mut selected_slots = HashSet::<usize>::new();
+        let mut plans = Vec::with_capacity(states.len());
 
         for state in states {
-            // FM-PL-009: match by (source, target, relation) triple
-            let rel_str = state.relation.as_str();
-            let j = match triple_to_edge.get(&(
-                state.source_label.as_str(),
-                state.target_label.as_str(),
-                rel_str,
-            )) {
-                Some(&idx) => idx,
-                None => continue, // Edge no longer exists in graph
-            };
-
-            // Validate weight is finite (FM-PL-001)
-            let weight = if state.current_weight.is_finite() {
+            if !state.original_weight.is_finite() {
+                return Err(M1ndError::CorruptState {
+                    reason: format!(
+                        "non-finite original weight for {} -> {} ({})",
+                        state.source_label, state.target_label, state.relation
+                    ),
+                });
+            }
+            let current_weight = if state.current_weight.is_finite() {
                 state.current_weight
             } else {
                 state.original_weight
             };
+            let triple = (
+                state.source_label.clone(),
+                state.target_label.clone(),
+                state.relation.clone(),
+            );
 
-            // Clamp to valid range
-            let clamped = weight
-                .max(self.config.weight_floor.get())
-                .min(self.config.weight_cap.get());
+            let slot = match (state.direction, state.inhibitory) {
+                (Some(direction), Some(inhibitory)) => {
+                    if direction > EdgeDirection::Bidirectional as u8 {
+                        return Err(M1ndError::CorruptState {
+                            reason: format!(
+                                "unknown synaptic direction {direction} for {} -> {}",
+                                state.source_label, state.target_label
+                            ),
+                        });
+                    }
+                    let key = (
+                        triple.0.clone(),
+                        triple.1.clone(),
+                        triple.2.clone(),
+                        direction,
+                        inhibitory,
+                    );
+                    if !seen_full_keys.insert(key.clone()) {
+                        return Err(M1ndError::CorruptState {
+                            reason: format!(
+                                "duplicate full synaptic key for {} -> {} ({}, direction={direction}, inhibitory={inhibitory})",
+                                state.source_label, state.target_label, state.relation
+                            ),
+                        });
+                    }
+                    match full_to_edges.get(&key).map(Vec::as_slice) {
+                        None | Some([]) => continue,
+                        Some([slot]) => *slot,
+                        Some(matches) => {
+                            return Err(M1ndError::CorruptState {
+                                reason: format!(
+                                    "full synaptic key for {} -> {} ({}) is ambiguous across {} parallel edges",
+                                    state.source_label,
+                                    state.target_label,
+                                    state.relation,
+                                    matches.len()
+                                ),
+                            });
+                        }
+                    }
+                }
+                (None, None) => match triple_to_edges.get(&triple).map(Vec::as_slice) {
+                    None | Some([]) => continue,
+                    Some([slot]) => *slot,
+                    Some(matches) => {
+                        return Err(M1ndError::CorruptState {
+                            reason: format!(
+                                "legacy triple-only synaptic state for {} -> {} ({}) is ambiguous across {} edges",
+                                state.source_label,
+                                state.target_label,
+                                state.relation,
+                                matches.len()
+                            ),
+                        });
+                    }
+                },
+                _ => {
+                    return Err(M1ndError::CorruptState {
+                        reason: format!(
+                            "partial synaptic identity for {} -> {} ({})",
+                            state.source_label, state.target_label, state.relation
+                        ),
+                    });
+                }
+            };
 
-            graph.edge_plasticity.current_weight[j] = FiniteF32::new(clamped);
-            graph.edge_plasticity.strengthen_count[j] = state.strengthen_count;
-            graph.edge_plasticity.weaken_count[j] = state.weaken_count;
-            graph.edge_plasticity.ltp_applied[j] = state.ltp_applied;
-            graph.edge_plasticity.ltd_applied[j] = state.ltd_applied;
-
-            // Update CSR weight
-            let edge_idx = EdgeIdx::new(j as u32);
-            if j < graph.csr.weights.len() {
-                let _ = graph.csr.atomic_write_weight(
-                    edge_idx,
-                    FiniteF32::new(clamped),
-                    self.config.cas_retry_limit,
-                );
+            if !selected_slots.insert(slot) {
+                return Err(M1ndError::CorruptState {
+                    reason: format!(
+                        "multiple synaptic rows resolve to CSR slot {slot} for {} -> {}",
+                        state.source_label, state.target_label
+                    ),
+                });
             }
-
-            applied += 1;
+            plans.push(RestorePlan {
+                slot,
+                original_weight: state.original_weight,
+                current_weight,
+                strengthen_count: state.strengthen_count,
+                weaken_count: state.weaken_count,
+                ltp_applied: state.ltp_applied,
+                ltd_applied: state.ltd_applied,
+                last_used_query: state.last_used_query,
+            });
         }
 
-        Ok(applied)
+        let mut max_last_used_query = self.query_count;
+        for plan in &plans {
+            // `&mut Graph` excludes concurrent writers. The restore plan is
+            // completely validated, so an infallible atomic store avoids a
+            // spurious-CAS failure after an earlier slot was already applied.
+            graph.csr.weights[plan.slot].store(
+                plan.current_weight.to_bits(),
+                std::sync::atomic::Ordering::Release,
+            );
+            graph.edge_plasticity.original_weight[plan.slot] = FiniteF32::new(plan.original_weight);
+            graph.edge_plasticity.current_weight[plan.slot] = FiniteF32::new(plan.current_weight);
+            graph.edge_plasticity.strengthen_count[plan.slot] = plan.strengthen_count;
+            graph.edge_plasticity.weaken_count[plan.slot] = plan.weaken_count;
+            graph.edge_plasticity.ltp_applied[plan.slot] = plan.ltp_applied;
+            graph.edge_plasticity.ltd_applied[plan.slot] = plan.ltd_applied;
+            graph.edge_plasticity.last_used_query[plan.slot] = plan.last_used_query;
+            max_last_used_query = max_last_used_query.max(plan.last_used_query);
+        }
+        self.query_count = max_last_used_query;
+
+        Ok(plans.len() as u32)
     }
 
     /// Get priming signal from query memory.
@@ -757,6 +1028,102 @@ impl PlasticityEngine {
     /// no seeds required, O(num_nodes) time with a single pass.
     pub fn top_node_access_frequencies(&self, n: usize) -> Vec<(NodeId, u32)> {
         self.memory.top_node_frequencies(n)
+    }
+}
+
+#[cfg(test)]
+mod codec_tests {
+    use super::*;
+
+    fn sample_state() -> SynapticState {
+        SynapticState {
+            source_label: "source".to_string(),
+            target_label: "target".to_string(),
+            relation: "calls".to_string(),
+            direction: Some(EdgeDirection::Forward as u8),
+            inhibitory: Some(false),
+            original_weight: 0.5,
+            current_weight: 0.8,
+            strengthen_count: 2,
+            weaken_count: 1,
+            ltp_applied: true,
+            ltd_applied: false,
+            last_used_query: 7,
+        }
+    }
+
+    #[test]
+    fn plasticity_memory_codec_matches_file_format_and_nan_firewall() {
+        let mut state = sample_state();
+        state.current_weight = f32::NAN;
+        let states = vec![state];
+
+        let encoded = encode_plasticity_state_json(&states).expect("encode");
+        assert_eq!(
+            encoded,
+            encode_plasticity_state_json(&states).expect("repeat encode")
+        );
+        let decoded = decode_plasticity_state_json(&encoded).expect("decode");
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].current_weight, decoded[0].original_weight);
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("plasticity_state.json");
+        crate::snapshot::save_plasticity_state(&states, &path).expect("file save");
+        assert_eq!(std::fs::read(path).expect("saved bytes"), encoded);
+    }
+
+    #[test]
+    fn plasticity_checkpoint_codec_rejects_legacy_identity_defaults() {
+        let legacy = serde_json::to_vec_pretty(&serde_json::json!([{
+            "source_label": "source",
+            "target_label": "target",
+            "relation": "calls",
+            "original_weight": 0.5,
+            "current_weight": 0.8,
+            "strengthen_count": 2,
+            "weaken_count": 1,
+            "ltp_applied": true,
+            "ltd_applied": false
+        }]))
+        .expect("legacy json");
+        assert!(decode_plasticity_state_json(&legacy).is_err());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("legacy-plasticity.json");
+        std::fs::write(&path, &legacy).expect("write legacy fixture");
+        let decoded = crate::snapshot::load_plasticity_state(&path)
+            .expect("friendly file loader keeps legacy compatibility");
+        assert_eq!(decoded[0].direction, None);
+        assert_eq!(decoded[0].inhibitory, None);
+        assert_eq!(decoded[0].last_used_query, 0);
+    }
+
+    #[test]
+    fn plasticity_memory_codec_rejects_corruption_and_nonfinite_original() {
+        assert!(decode_plasticity_state_json(b"{").is_err());
+
+        let mut nonfinite = sample_state();
+        nonfinite.original_weight = f32::INFINITY;
+        assert!(encode_plasticity_state_json(&[nonfinite]).is_err());
+
+        let mut partial = serde_json::to_value([sample_state()]).expect("value");
+        partial[0]
+            .as_object_mut()
+            .expect("state object")
+            .remove("inhibitory");
+        let partial = serde_json::to_vec_pretty(&partial).expect("partial json");
+        assert!(decode_plasticity_state_json(&partial).is_err());
+
+        let mut unknown_direction = sample_state();
+        unknown_direction.direction = Some(u8::MAX);
+        let bytes = serde_json::to_vec_pretty(&[unknown_direction]).expect("json");
+        assert!(decode_plasticity_state_json(&bytes).is_err());
+
+        let mut unknown_field = serde_json::to_value([sample_state()]).expect("value");
+        unknown_field[0]["future_field"] = serde_json::json!(true);
+        let bytes = serde_json::to_vec_pretty(&unknown_field).expect("json");
+        assert!(decode_plasticity_state_json(&bytes).is_err());
     }
 }
 

@@ -79,7 +79,7 @@ These cross every system; no sheet may invent a fifth word for any of them.
 - **The capture loop.** `memorize` (the sole L1GHT writer) → `.light.md` with Origin-Brain → ingest → graph node → next session's recall → `cross_verify` freshness — read → prove → write, closed.
 - **`finalize` is the universal materialization gate.** Every ingest adapter, snapshot load and merge funnels through it; PageRank exists only downstream of it (and goes stale between finalizes — see ledger).
 - **Delegation + mailbox extend the spine from one agent to a tree.** `delegate` composes the retrieval half of a child's spec from the same graph the spine reads; `debrief` grades the real diff back into `learn`; field letters distribute into per-project boxes the same cwd-routing the calls use.
-- **The medulla law (pull, never push).** A brain's default beat = its own store + the medulla, nothing else; crossing happens only through the audited `promote` (verified-only, evidence re-anchored). *Realized fully only on the HTTP transport today — see ledger.*
+- **The medulla law (pull, never push).** A brain's default beat = its own store + the medulla, nothing else. The public `promote` crossing is now fail-closed at `POSITIVE_SOVEREIGN` until an exact typed G2 consumer exists; verification/source labels are content evidence, not authority. Owner-resolved internal promotion preserves the provenance/evidence model meanwhile.
 
 ## 4. The twenty-two sheets
 
@@ -93,8 +93,8 @@ These cross every system; no sheet may invent a fifth word for any of them.
 | [search-surgical](uml/search-surgical.md) | search/glob/seek/activate + surgical_context + edit_preview/commit | class·seq | 14 verbs; incremental merge is additive-only (no prune) — ledger |
 | [ingest-light](uml/ingest-light.md) | Code extractors, universal docs, L1GHT reader, memorize write-path | class·seq·flow | Five core extractors are regex (docs overclaim tree-sitter); pdf lanes silently zero — ledger |
 | [spine-north](uml/spine-north.md) | The north packet composer | class·seq·state | Pure fan-out; MED-INV-6 honesty proven; medulla fold HTTP-only — ledger |
-| [medulla](uml/medulla.md) | Per-project brains, tier recall, promotion, M5a migration | class·2×seq·2×state | Promotion gates live; migration CLI wired + data-safe (six REDs + brain-registration + code-graph option B closed); classifier heuristic is the residual — ledger |
-| [routing-reception](uml/routing-reception.md) | Served owner, attach bridges, reception, reconnect-rebind, lease | class·2×seq·2×state | The outermost shell; 0.0.0.0 exposure is the top security item — ledger |
+| [medulla](uml/medulla.md) | Per-project brains, tier recall, promotion, M5a migration | class·2×seq·2×state | Public promotion is sovereign-frozen pending a typed G2 consumer; owner-internal crossing and migration remain data-safe; classifier heuristic is residual — ledger |
+| [routing-reception](uml/routing-reception.md) | Served owner, attach bridges, reception, reconnect-rebind, lease | class·2×seq·2×state | The outermost shell; non-loopback binds now fail closed, authenticated remote transport remains future work |
 | [soul](uml/soul.md) | PATHOS as verified claims, freshness receipt, curator | class·seq·2×state | Receipt live; `Superseded` now produced by a cross-claim duplicate-per-anchor pass (hardening wave 4) |
 | [delegation](uml/delegation.md) | delegate/debrief, conformance algebra, outcomes.jsonl | class·seq·2×state | Loop closes at edge level; calibration flywheel now MEASURES from the ledger (hardening wave 4) — scoping constants still untuned |
 | [mailbox](uml/mailbox.md) | Letters, boxes, derived fates, sweep, case intelligence | class·seq·2×state | Substrate live + idempotent; R11 design-only; in_flight dead — ledger |
@@ -114,7 +114,7 @@ These cross every system; no sheet may invent a fifth word for any of them.
 Severity order: security > data-loss > correctness > fragility > honesty/cleanup. Each entry carries its home sheet; fixes land RED-first or not at all.
 
 ### SECURITY
-1. **Unauthenticated network mutation surface.** `--serve` on `0.0.0.0` exposes graph mutation to the LAN with only a stderr warning, no refusal, no auth. *(routing-reception)* — **CLOSED** (hardening wave 1): a non-loopback bind is now REFUSED at startup unless `--allow-remote` is passed (with the flag, a strong unauthenticated-exposure warning remains). Residual: token auth remains future work — the flag only makes remote exposure a deliberate opt-in, it does not authenticate callers.
+1. **Unauthenticated network mutation surface.** `--serve` on `0.0.0.0` exposed graph mutation to the LAN with only a stderr warning, no refusal, no auth. *(routing-reception)* — **CLOSED** (hardening wave 1, strengthened): every non-loopback bind is now REFUSED at startup, including when the legacy `--allow-remote` flag is passed. Residual: authenticated TLS remote transport and scoped authorization remain future work; until they exist, remote exposure has no direct bind escape hatch.
 
 ### DATA-LOSS
 2. **M5a migration cluster** *(medulla)* — **CLOSED**: the data-safety cluster is fixed RED-first. The six data-loss vectors — collision-overwrite (now a hard refusal), destination-scanning rollback (now manifest-authoritative, never scans the destination), cardinality-only conservation (now content-level too), destructive-first rollback (now snapshot-first into `pre-rollback-live/`), unrestored `ingest_roots.json` (now backed up + restored), and the missing live-owner guard (now refuses while `:1338` listens) — each carry a battery case. The last two architectural sub-notes closed 2026-07-06: apply now **registers the destination brain** (`ensure_registered` writes `project_brain.json` + `brain_kind:project`, reusing the bootstrap birth path — no more orphan store), and the **code graph stays at the medulla root by design** (option B: the runtime owner is both the medulla and its own home brain; migration is memory-only, pinned by a regression guard). Residual is medium/low only (classifier is heuristic substring-matching; `restore_tree` doesn't delete files the backup lacks) — see the medulla sheet.
@@ -153,6 +153,75 @@ Severity order: security > data-loss > correctness > fragility > honesty/cleanup
 Per family: **graph-core** — JSON↔bin cross-format equivalence, unfinalized-query rejection (RED), Wavefront-as-oracle vs Heap harness to pin the re-expansion bug, loom/concurrency for the CAS weights. **semantic** — deterministic fake Embedder so the blend, the 0.40 floor, warm-cache reuse and corruption-tolerance are CI-proven blobless. **trust** — a learn→seek test asserting defects change ORDER, the catch-all fix test, a production `calibrate_envelope` writer + a test proving `act` is reachable. **write-side** — the silent-zero contract test (no provider ⇒ zero nodes AND a surfaced warning), memorize race + WouldDowngrade tests. **migration** — the six data-safety REDs (collision-refusal, bystander-preservation, manifest rollback, snapshot-first, roots-restore, live-owner refusal). **mailbox/spine** — corpus-replay batteries (the false-absence trilogy groups; the fold reaches stdio or is honestly gapped).
 
 **Multi-environment stress (where the real stress lives).** One served owner; attach in sequence from **Claude Code, Codex CLI, Gemini CLI, Cursor**: per host prove — reception fires from a foreign cwd; `north` composes with the medulla fold (or the gap is stamped); memorize refuses brainless roots; two hosts writing concurrently serialize on the single-writer lease; owner kickstart mid-session and the bridge re-recovers; the shim injects on SessionStart where the host has one. Every failure is a field letter first, a battery case second, a fix third — the triage law, unchanged.
+
+## 7. M1ND-10 G2→G3 authority seam (2026-07-18 working-tree supplement)
+
+This supplement records implemented working-tree structure, not a published or live-machine
+deployment. The body supplies signed authority artifacts; the served owner supplies wire identity,
+caller-root/brain routing, ingress context, key registry, owner time, policy, and current safety state.
+The 2026-07-12 receipt above still covers its original 78 Mermaid blocks; the two supplement blocks
+below require re-count/parser validation in the final whole-doc gate and are not folded into that
+historical claim yet.
+
+```mermaid
+flowchart LR
+    HOST["Platform authority signer"] --> CH["Session challenge<br/>owner-bound correlation context"]
+    CH --> AUTHN["Authenticate signed<br/>runtime.session.handshake capability"]
+    AUTHN --> SESSION["Authenticated G2 session<br/>process-memory; restart re-authenticates"]
+    SESSION --> AUTHZ["authority_authorize<br/>exact action, object, effects, policy"]
+    AUTHZ --> LEASE["Durable one-shot lease<br/>UNUSED → RESERVED"]
+    LEASE --> MS["Typed MissionService facade"]
+    MS --> PREP["FINALIZATION_PREPARED<br/>current authority revalidated"]
+    PREP --> WAL["Signed AuthorityWAL COMMIT<br/>sovereign commit point"]
+    WAL --> USED["Lease CONSUMED + fsync"]
+    PREP -.->|callback result uncertain| WAIT["Remain FINALIZATION_PREPARED"]
+    WAIT -.->|exact COMMIT witness| USED
+    WAIT -.->|expired and no witness| ABORT["Lease ABORTED"]
+```
+
+`Land` has a mandatory read-before-write binding. An Ordinary lease authorizes the canonical
+`mission.service.land_intent` READ; the returned `LandIntent` core digest is then signed into the
+Positive `mission.service.land` capability and bound again by the authorization receipt and
+`AuthorityTransactionV1`. A different head, payload, intent, session, brain, root, policy snapshot,
+or effect set fails closed.
+
+The in-process lock and durability order is fixed:
+
+```mermaid
+sequenceDiagram
+    participant F as MissionService facade operation lock
+    participant O as Shared broker-operation mutex
+    participant B as Broker writer/journal lock
+    participant S as Current AuthorityRuntime status
+    participant L as OWNER_AUTHORITY_TRANSACTION_V1 lock
+    participant W as Signed AuthorityWAL
+
+    F->>O: serialize issuance/consumption coordinator
+    O->>B: open exact durable lease journal
+    B->>S: re-read freeze, RED, mode, policy, epochs, roots, expiry
+    S->>L: enter named finalization boundary
+    L->>B: fsync FINALIZATION_PREPARED snapshot
+    L->>W: append + fsync exact COMMIT (commit point)
+    W-->>B: committed witness bound to transaction + receipt snapshot
+    B->>B: fsync CONSUMED terminal snapshot
+```
+
+Issuance and consumption share the broker-operation mutex, so their different internal runtime/
+broker reads cannot interleave across the owner authority transaction. Crash recovery never infers
+success: `FINALIZATION_PREPARED` becomes `CONSUMED` only with the exact committed WAL witness;
+otherwise an expired reservation becomes `ABORTED`, while an unexpired reservation remains
+reserved. A WAL callback error is deliberately treated as uncertain and never writes an immediate
+ABORT that could contradict a COMMIT whose fsync acknowledgement was lost. Terminal lease GC
+additionally requires retention expiry and caller-supplied proof of no
+checkpoint, mission, release, WAL, or idempotency reference.
+
+The production assembly and atomic AppState install seam exist, but concrete platform adapters are
+deliberately absent until injected hardware-protected config/runtime roots, domain-separated protected
+broker/WAL journal heads, a production signer/verifier, attestation, and operator-owned key material
+exist. The authorization receipt, sealed outer transaction, execution result, review result, and WAL
+record each have a separate domain-signature boundary; REST/MCP transport session ids remain
+correlation labels and never authenticate the subject. Software fixture backends are test-only and
+rejected by the production loader; h4nd is a caller of the ceremony, never an authority or key source.
 
 ---
 

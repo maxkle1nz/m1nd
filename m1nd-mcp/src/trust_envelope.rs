@@ -27,8 +27,77 @@
 //   * ALL factors unknown (or a zero/degenerate weighted denominator, or a
 //     non-finite score) ⇒ `unprovable` — never a fake number, never `act`.
 
-use crate::protocol::layers::{TrustEnvelope, TrustFactor};
+use crate::protocol::layers::{SeekCalibrationReceipt, TrustEnvelope, TrustFactor};
+use m1nd_control::digest_canonical;
 use m1nd_core::calibration::{self, CalibrationRow};
+use serde::Serialize;
+
+/// Stable wire identity for seek's non-label-bearing calibration projection.
+pub const SEEK_CALIBRATION_RECEIPT_SCHEMA: &str = "m1nd-seek-calibration-receipt-v1";
+pub const SEEK_CALIBRATION_RECEIPT_STATUS: &str = "calibrated";
+const SEEK_CALIBRATION_RECEIPT_DIGEST_DOMAIN: &str = "m1nd-seek-calibration-receipt-digest-v1";
+
+/// Exact digest preimage.  Keeping the complete persisted row nested here
+/// prevents a future wire projection from silently dropping a decision-bearing
+/// field while retaining the same receipt identity.
+#[derive(Serialize)]
+struct SeekCalibrationReceiptDigestProjection<'a> {
+    schema: &'static str,
+    status: &'static str,
+    signal: &'static str,
+    calibration_row: &'a CalibrationRow,
+}
+
+/// Recompute the domain-separated receipt digest from the exact row stored
+/// under the stable `envelope` signal. Invalid rows have no receipt identity.
+pub fn seek_calibration_receipt_digest(row: &CalibrationRow) -> Option<String> {
+    row.validate_for_signal(calibration::CALIBRATION_SIGNAL_ENVELOPE)
+        .ok()?;
+    digest_canonical(
+        SEEK_CALIBRATION_RECEIPT_DIGEST_DOMAIN,
+        &SeekCalibrationReceiptDigestProjection {
+            schema: SEEK_CALIBRATION_RECEIPT_SCHEMA,
+            status: SEEK_CALIBRATION_RECEIPT_STATUS,
+            signal: calibration::CALIBRATION_SIGNAL_ENVELOPE,
+            calibration_row: row,
+        },
+    )
+    .ok()
+}
+
+fn project_seek_calibration_receipt(row: &CalibrationRow) -> Option<SeekCalibrationReceipt> {
+    Some(SeekCalibrationReceipt {
+        schema: SEEK_CALIBRATION_RECEIPT_SCHEMA.to_string(),
+        status: SEEK_CALIBRATION_RECEIPT_STATUS.to_string(),
+        signal: calibration::CALIBRATION_SIGNAL_ENVELOPE.to_string(),
+        receipt_digest: seek_calibration_receipt_digest(row)?,
+        tau: row.tau,
+        sample_size: row.n,
+        measured_precision: row.measured_precision,
+        coverage: row.coverage,
+        target_alpha: row.target_alpha,
+        calibrated_at_ms: row.calibrated_at_ms,
+    })
+}
+
+/// Verify both the digest binding and the human-readable projection. This lets
+/// a blind runner reject a tampered receipt or a row that drifted after the
+/// envelope was produced without consulting any calibration labels.
+pub fn verify_seek_calibration_receipt(
+    receipt: &SeekCalibrationReceipt,
+    row: &CalibrationRow,
+) -> bool {
+    receipt.schema == SEEK_CALIBRATION_RECEIPT_SCHEMA
+        && receipt.status == SEEK_CALIBRATION_RECEIPT_STATUS
+        && receipt.signal == calibration::CALIBRATION_SIGNAL_ENVELOPE
+        && receipt.tau.to_bits() == row.tau.to_bits()
+        && receipt.sample_size == row.n
+        && receipt.measured_precision.to_bits() == row.measured_precision.to_bits()
+        && receipt.coverage.to_bits() == row.coverage.to_bits()
+        && receipt.target_alpha.to_bits() == row.target_alpha.to_bits()
+        && receipt.calibrated_at_ms == row.calibrated_at_ms
+        && seek_calibration_receipt_digest(row).as_deref() == Some(receipt.receipt_digest.as_str())
+}
 
 /// Verdict string for the honest "no provable signal" state. Sibling of
 /// calibration's `VERDICT_ACT`/`VERDICT_REVERIFY`/`VERDICT_ABSTAIN`; the envelope
@@ -111,6 +180,9 @@ pub fn binding_reliability(band: &str) -> Option<f32> {
 /// conjunction. See the module honesty invariants for the degradation rules.
 pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) -> TrustEnvelope {
     let factor_receipts: Vec<TrustFactor> = factors.iter().map(FactorInput::to_factor).collect();
+    let calibration_receipt = cal_row.and_then(project_seek_calibration_receipt);
+    let validated_cal_row = calibration_receipt.as_ref().and(cal_row);
+    let invalid_calibration_row = cal_row.is_some() && calibration_receipt.is_none();
 
     // Accumulate ONLY the known factors into the weighted score. Unknown factors
     // never touch either sum (the honest UNPROVABLE-per-factor invariant).
@@ -138,7 +210,8 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         return TrustEnvelope {
             verdict: VERDICT_UNPROVABLE.to_string(),
             score: 0.0,
-            calibrated: cal_row.is_some(),
+            calibrated: calibration_receipt.is_some(),
+            calibration_receipt,
             factors: factor_receipts,
             reasons: vec![
                 "no provable trust factor was available on this path — the answer is UNPROVABLE, not trusted; re-verify against local files".to_string(),
@@ -154,7 +227,8 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         return TrustEnvelope {
             verdict: VERDICT_UNPROVABLE.to_string(),
             score: 0.0,
-            calibrated: cal_row.is_some(),
+            calibrated: calibration_receipt.is_some(),
+            calibration_receipt,
             factors: factor_receipts,
             reasons: vec![
                 "the weighted trust score was non-finite — reporting UNPROVABLE rather than a fabricated verdict".to_string(),
@@ -167,7 +241,7 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
     // τ/τ_low `predict` uses. WITHOUT a row, the envelope is honestly
     // uncalibrated: `act` is UNREACHABLE and the verdict is capped at `reverify`
     // (softened from predict's None→abstain, because some factors ARE known here).
-    let (verdict, calibrated) = match cal_row {
+    let (verdict, calibrated) = match validated_cal_row {
         Some(row) => (
             calibration::verdict_for(score, row.tau, row.tau_low()).to_string(),
             true,
@@ -183,6 +257,12 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         false => reasons.push(format!(
             "weighted trust score {score:.2} over {known_count} known factor(s), but the `envelope` signal is UNCALIBRATED — `act` is unreachable and the verdict is capped at `reverify` until a calibration row is measured"
         )),
+    }
+    if invalid_calibration_row {
+        reasons.push(
+            "the `envelope` calibration row failed finite/range/sample validation — its receipt was withheld and `act` remains unreachable"
+                .to_string(),
+        );
     }
     // Name any known factor that fell below a middling reliability so the agent
     // sees WHY the verdict is not `act`, not just THAT it is not.
@@ -213,6 +293,7 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         verdict,
         score,
         calibrated,
+        calibration_receipt,
         factors: factor_receipts,
         reasons,
         next_repair_call,
@@ -438,6 +519,15 @@ mod tests {
         assert_eq!(env.score, 0.90, "exact weighted score");
         assert_eq!(env.verdict, "act");
         assert!(env.calibrated);
+        let receipt = env
+            .calibration_receipt
+            .as_ref()
+            .expect("calibrated act carries receipt");
+        assert_eq!(receipt.schema, SEEK_CALIBRATION_RECEIPT_SCHEMA);
+        assert_eq!(receipt.status, SEEK_CALIBRATION_RECEIPT_STATUS);
+        assert_eq!(receipt.signal, calibration::CALIBRATION_SIGNAL_ENVELOPE);
+        assert_eq!(receipt.sample_size, 100);
+        assert!(verify_seek_calibration_receipt(receipt, &cal_row()));
         assert!(env.next_repair_call.is_none(), "act ⇒ no repair call");
     }
 
@@ -490,8 +580,84 @@ mod tests {
         assert_eq!(env.score, 1.0, "score still computed");
         assert_eq!(env.verdict, "reverify", "uncalibrated ⇒ capped at reverify");
         assert!(!env.calibrated);
+        assert!(env.calibration_receipt.is_none());
         assert_ne!(env.verdict, "act", "act is UNREACHABLE without calibration");
         assert!(env.next_repair_call.is_some());
+        let wire = serde_json::to_value(&env).expect("serialize envelope");
+        assert!(
+            wire.get("calibration_receipt").is_none(),
+            "serde compatibility: absent optional receipt stays absent"
+        );
+    }
+
+    #[test]
+    fn calibration_receipt_is_canonical_deterministic_and_wire_complete() {
+        let row = cal_row();
+        let first = seek_calibration_receipt_digest(&row).expect("valid row digest");
+        let second = seek_calibration_receipt_digest(&row).expect("repeat digest");
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+        let env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&row));
+        let receipt = env.calibration_receipt.as_ref().expect("receipt");
+        assert_eq!(receipt.receipt_digest, first);
+        assert!(verify_seek_calibration_receipt(receipt, &row));
+
+        let wire = serde_json::to_value(&env).expect("serialize envelope");
+        let projected = &wire["calibration_receipt"];
+        assert_eq!(projected["schema"], SEEK_CALIBRATION_RECEIPT_SCHEMA);
+        assert_eq!(projected["status"], SEEK_CALIBRATION_RECEIPT_STATUS);
+        assert_eq!(
+            projected["signal"],
+            calibration::CALIBRATION_SIGNAL_ENVELOPE
+        );
+        assert_eq!(projected["receipt_digest"], first);
+        assert_eq!(projected["sample_size"], row.n);
+        assert_eq!(projected["measured_precision"], row.measured_precision);
+        assert_eq!(projected["coverage"], row.coverage);
+        assert_eq!(projected["target_alpha"], row.target_alpha);
+        assert_eq!(projected["calibrated_at_ms"], row.calibrated_at_ms);
+    }
+
+    #[test]
+    fn calibration_receipt_rejects_tamper_row_drift_and_invalid_rows() {
+        let row = cal_row();
+        let env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&row));
+        let receipt = env.calibration_receipt.expect("receipt");
+
+        let mut tampered = receipt.clone();
+        tampered.receipt_digest.replace_range(0..1, "f");
+        if tampered.receipt_digest == receipt.receipt_digest {
+            tampered.receipt_digest.replace_range(0..1, "e");
+        }
+        assert!(!verify_seek_calibration_receipt(&tampered, &row));
+
+        let mut drifted = row.clone();
+        drifted.coverage = 0.5;
+        assert_ne!(
+            seek_calibration_receipt_digest(&row),
+            seek_calibration_receipt_digest(&drifted)
+        );
+        assert!(!verify_seek_calibration_receipt(&receipt, &drifted));
+
+        let mut invalid = row;
+        invalid.measured_precision = f32::NAN;
+        let invalid_env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&invalid));
+        assert!(!invalid_env.calibrated);
+        assert!(invalid_env.calibration_receipt.is_none());
+        assert_ne!(invalid_env.verdict, calibration::VERDICT_ACT);
+        assert!(invalid_env
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("failed finite/range/sample validation")));
+
+        let mut empty = cal_row();
+        empty.n = 0;
+        let empty_env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&empty));
+        assert!(!empty_env.calibrated);
+        assert!(empty_env.calibration_receipt.is_none());
+        assert_ne!(empty_env.verdict, calibration::VERDICT_ACT);
     }
 
     // ── All factors unknown ⇒ unprovable (never a fake number, never act). ──

@@ -1311,6 +1311,7 @@ mod tests {
             serde_json::to_string_pretty(&persisted_git).expect("serialize"),
         )
         .expect("write daemon state");
+        drop(state);
         let state2 = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session 2");
         assert_eq!(

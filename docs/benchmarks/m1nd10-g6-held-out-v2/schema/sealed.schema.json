@@ -1,0 +1,63 @@
+{
+  "$id": "m1nd10-g6-held-out-v2-sealed.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adjudication_sealed_at": {
+      "const": "2026-07-19T08:00:00Z"
+    },
+    "author_review_status": {
+      "const": "AUTHOR_ONLY_AWAITING_INDEPENDENT_REVIEW"
+    },
+    "blinded": {
+      "const": true
+    },
+    "corpus_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "corpus_id": {
+      "type": "string"
+    },
+    "counts": {
+      "type": "object"
+    },
+    "methodology": {
+      "type": "object"
+    },
+    "schema": {
+      "const": "m1nd10-g6-held-out-corpus-v2"
+    },
+    "self_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_manifest": {
+      "type": "object"
+    },
+    "tasks": {
+      "maxItems": 220,
+      "minItems": 220,
+      "type": "array"
+    },
+    "version": {
+      "const": 2
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "corpus_id",
+    "corpus_digest",
+    "blinded",
+    "adjudication_sealed_at",
+    "author_review_status",
+    "source_manifest",
+    "counts",
+    "methodology",
+    "tasks",
+    "self_digest"
+  ],
+  "title": "M1ND-10 G6 held-out V2 sealed corpus",
+  "type": "object"
+}

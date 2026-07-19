@@ -232,8 +232,6 @@ struct SearchFileCandidate {
 #[derive(Clone, Debug)]
 struct AutoIngestScopeCandidate {
     resolved_path: PathBuf,
-    ingest_root: PathBuf,
-    scope_override: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -376,7 +374,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                         if !input.count_only && results.len() < collect_limit {
                             let (file_path, line_number) = extract_provenance(&graph, ext_id);
                             let (ctx_before, ctx_after) =
-                                get_context_lines(&file_path, line_number, context_lines);
+                                get_context_lines(state, &file_path, line_number, context_lines);
                             results.push(SearchResultEntry {
                                 node_id: ext_id.to_string(),
                                 label: ext_id.to_string(),
@@ -450,7 +448,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                         if !input.count_only && results.len() < collect_limit {
                             let (file_path, line_number) = extract_provenance(&graph, ext_id);
                             let (ctx_before, ctx_after) =
-                                get_context_lines(&file_path, line_number, context_lines);
+                                get_context_lines(state, &file_path, line_number, context_lines);
 
                             results.push(SearchResultEntry {
                                 node_id: ext_id.to_string(),
@@ -809,32 +807,25 @@ fn maybe_auto_ingest_search_scope(
     }
 
     let candidate = candidates.remove(0);
-    let scope_path = candidate.resolved_path;
-
-    if !scope_path.exists() || path_within_roots(state, &scope_path) {
-        return Ok(AutoIngestSearchState::default());
-    }
-
-    let ingest_target = candidate.ingest_root;
-
-    crate::tools::handle_ingest(
-        state,
-        crate::protocol::IngestInput {
-            path: ingest_target.to_string_lossy().to_string(),
-            agent_id: input.agent_id.clone(),
-            mode: "merge".to_string(),
-            incremental: true,
-            adapter: "code".to_string(),
-            namespace: None,
-            include_dotfiles: false,
-            dotfile_patterns: Vec::new(),
-            project_root: None,
-        },
+    let authorized = crate::scope::authorize_existing_path(
+        &candidate.resolved_path,
+        &state.ingest_roots,
+        state.workspace_root.as_deref(),
+        "m1nd_search",
     )?;
+    let relative = authorized
+        .path
+        .strip_prefix(&authorized.root)
+        .ok()
+        .and_then(normalize_relative_scope_for_search);
+    let bounded_scope = relative.or_else(|| Some(authorized.path.to_string_lossy().into_owned()));
 
+    // Search is a read surface. It may use a canonical, already-authorized
+    // workspace path as a bounded disk fallback, but it must never call ingest,
+    // mutate the graph, or widen `ingest_roots`.
     Ok(AutoIngestSearchState {
-        auto_ingested_paths: vec![ingest_target.to_string_lossy().to_string()],
-        scope_override: candidate.scope_override,
+        auto_ingested_paths: Vec::new(),
+        scope_override: bounded_scope,
     })
 }
 
@@ -847,53 +838,18 @@ fn resolve_auto_ingest_scope_candidates(
     let candidates = Path::new(scope);
 
     if candidates.is_absolute() {
-        let ingest_root = if candidates.is_dir() {
-            candidates.to_path_buf()
-        } else {
-            candidates
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| candidates.to_path_buf())
-        };
         return vec![AutoIngestScopeCandidate {
             resolved_path: candidates.to_path_buf(),
-            ingest_root: ingest_root.clone(),
-            scope_override: candidates
-                .strip_prefix(&ingest_root)
-                .ok()
-                .and_then(normalize_relative_scope_for_search),
         }];
     }
 
     let mut resolved = Vec::new();
     let mut seen = HashSet::new();
-    let first_component = candidates
-        .components()
-        .next()
-        .map(|component| component.as_os_str().to_os_string());
-
     for root in &state.ingest_roots {
         let base_root = Path::new(root);
         let resolved_path = base_root.join(scope);
         if resolved_path.exists() && seen.insert(resolved_path.clone()) {
-            let ingest_root = first_component
-                .as_ref()
-                .map(|component| base_root.join(component))
-                .unwrap_or_else(|| resolved_path.clone());
-            resolved.push(AutoIngestScopeCandidate {
-                resolved_path,
-                ingest_root,
-                scope_override: candidates
-                    .strip_prefix(
-                        first_component
-                            .as_ref()
-                            .map(PathBuf::from)
-                            .as_deref()
-                            .unwrap_or(candidates),
-                    )
-                    .ok()
-                    .and_then(normalize_relative_scope_for_search),
-            });
+            resolved.push(AutoIngestScopeCandidate { resolved_path });
         }
     }
 
@@ -901,24 +857,7 @@ fn resolve_auto_ingest_scope_candidates(
         let base_root = Path::new(workspace_root);
         let resolved_path = base_root.join(scope);
         if resolved_path.exists() && seen.insert(resolved_path.clone()) {
-            let ingest_root = first_component
-                .as_ref()
-                .map(|component| base_root.join(component))
-                .unwrap_or_else(|| resolved_path.clone());
-            resolved.push(AutoIngestScopeCandidate {
-                resolved_path,
-                ingest_root,
-                scope_override: candidates
-                    .strip_prefix(
-                        first_component
-                            .as_ref()
-                            .map(PathBuf::from)
-                            .as_deref()
-                            .unwrap_or(candidates),
-                    )
-                    .ok()
-                    .and_then(normalize_relative_scope_for_search),
-            });
+            resolved.push(AutoIngestScopeCandidate { resolved_path });
         }
     }
 
@@ -972,7 +911,8 @@ fn search_file_contents(
                     if !count_only && results.len() < top_k {
                         let ln = (line_idx + 1) as u32;
                         let fp = candidate.full_path.to_string_lossy().to_string();
-                        let (ctx_before, ctx_after) = get_context_lines(&fp, ln, context_lines);
+                        let (ctx_before, ctx_after) =
+                            get_context_lines(state, &fp, ln, context_lines);
                         results.push(SearchResultEntry {
                             node_id: format!("file::{}", candidate.rel_path),
                             label: candidate.rel_path.clone(),
@@ -1038,7 +978,8 @@ fn search_file_contents_multiline(
                         if !count_only && results.len() < top_k {
                             let ln = (line_idx + 1) as u32;
                             let fp = candidate.full_path.to_string_lossy().to_string();
-                            let (ctx_before, ctx_after) = get_context_lines(&fp, ln, context_lines);
+                            let (ctx_before, ctx_after) =
+                                get_context_lines(state, &fp, ln, context_lines);
                             results.push(SearchResultEntry {
                                 node_id: format!("file::{}", candidate.rel_path),
                                 label: candidate.rel_path.clone(),
@@ -1067,7 +1008,7 @@ fn search_file_contents_multiline(
                         let display_text = compact_search_text(mat.as_str());
                         let fp = candidate.full_path.to_string_lossy().to_string();
                         let (ctx_before, ctx_after) =
-                            get_context_lines(&fp, line_number, context_lines);
+                            get_context_lines(state, &fp, line_number, context_lines);
                         results.push(SearchResultEntry {
                             node_id: format!("file::{}", candidate.rel_path),
                             label: candidate.rel_path.clone(),
@@ -1146,7 +1087,15 @@ fn collect_graph_files(
                 }
                 seen_files.push(SearchFileCandidate {
                     rel_path: path.to_string(),
-                    full_path: resolve_full_path(state, path),
+                    full_path: match crate::scope::authorize_existing_path(
+                        &resolve_full_path(state, path),
+                        &state.ingest_roots,
+                        state.workspace_root.as_deref(),
+                        "m1nd_search",
+                    ) {
+                        Ok(authorized) => authorized.path,
+                        Err(_) => continue,
+                    },
                     graph_linked: true,
                 });
             }
@@ -1181,28 +1130,49 @@ fn collect_disk_fallback_files(
 }
 
 fn candidate_search_roots(state: &SessionState, scope: Option<&str>) -> Vec<PathBuf> {
+    let authorized_roots =
+        crate::scope::canonical_read_roots(&state.ingest_roots, state.workspace_root.as_deref());
     if let Some(scope_value) = scope {
         let scope_path = Path::new(scope_value);
         if scope_path.is_absolute() {
-            return vec![scope_path.to_path_buf()];
+            return crate::scope::authorize_existing_path(
+                scope_path,
+                &state.ingest_roots,
+                state.workspace_root.as_deref(),
+                "m1nd_search",
+            )
+            .map(|authorized| vec![authorized.path])
+            .unwrap_or_default();
         }
 
         let mut roots = Vec::new();
-        for root in &state.ingest_roots {
-            let candidate = Path::new(root).join(scope_value);
+        for root in &authorized_roots {
+            if !root.is_dir() {
+                continue;
+            }
+            let candidate = root.join(scope_value);
             if candidate.exists() {
-                roots.push(candidate);
+                if let Ok(authorized) = crate::scope::authorize_existing_path(
+                    &candidate,
+                    &state.ingest_roots,
+                    state.workspace_root.as_deref(),
+                    "m1nd_search",
+                ) {
+                    if !roots.contains(&authorized.path) {
+                        roots.push(authorized.path);
+                    }
+                }
             }
         }
 
         if roots.is_empty() {
-            roots.extend(state.ingest_roots.iter().map(PathBuf::from));
+            roots.extend(authorized_roots);
         }
 
         return roots;
     }
 
-    state.ingest_roots.iter().map(PathBuf::from).collect()
+    authorized_roots
 }
 
 fn collect_disk_fallback_files_recursive(
@@ -1267,19 +1237,25 @@ fn build_disk_fallback_candidate(
     scope: Option<&str>,
     filename_glob: Option<&glob::Pattern>,
 ) -> Option<SearchFileCandidate> {
-    if !path_within_roots(state, full_path) {
-        return None;
-    }
+    let authorized = crate::scope::authorize_existing_path(
+        full_path,
+        &state.ingest_roots,
+        state.workspace_root.as_deref(),
+        "m1nd_search",
+    )
+    .ok()?;
+    let full_path = authorized.path;
 
-    if path_policy::is_noise_path(full_path) {
+    if path_policy::is_noise_path(&full_path) {
         return None;
     }
 
     let rel_path = full_path
-        .strip_prefix(root)
+        .strip_prefix(&authorized.root)
         .ok()
-        .and_then(|p| relativize_against_ingest_roots_slice(&state.ingest_roots, &root.join(p)))
-        .or_else(|| relativize_against_ingest_roots_slice(&state.ingest_roots, full_path))
+        .map(|path| normalize_path_text(&path.to_string_lossy()))
+        .filter(|path| !path.is_empty())
+        .or_else(|| relativize_against_ingest_roots_slice(&state.ingest_roots, &full_path))
         .unwrap_or_else(|| full_path.to_string_lossy().to_string());
 
     if !scope_matches_path(&rel_path, scope, &state.ingest_roots)
@@ -1300,7 +1276,7 @@ fn build_disk_fallback_candidate(
 
     Some(SearchFileCandidate {
         rel_path,
-        full_path: full_path.to_path_buf(),
+        full_path,
         graph_linked: false,
     })
 }
@@ -1324,15 +1300,13 @@ fn relativize_against_ingest_roots(state: &SessionState, full_path: &Path) -> Op
 }
 
 fn path_within_roots(state: &SessionState, full_path: &Path) -> bool {
-    if state.ingest_roots.is_empty() {
-        return true;
-    }
-
-    state
-        .ingest_roots
-        .iter()
-        .map(Path::new)
-        .any(|root| full_path.starts_with(root))
+    crate::scope::authorize_existing_path(
+        full_path,
+        &state.ingest_roots,
+        state.workspace_root.as_deref(),
+        "m1nd_search",
+    )
+    .is_ok()
 }
 
 fn rank_search_results(query: &str, mode: SearchRankingMode, results: &mut Vec<SearchResultEntry>) {
@@ -1511,6 +1485,7 @@ fn extract_provenance(graph: &m1nd_core::graph::Graph, ext_id: &str) -> (String,
 
 /// Get context lines around a match from the filesystem.
 fn get_context_lines(
+    state: &SessionState,
     file_path: &str,
     line_number: u32,
     context_lines: u32,
@@ -1520,7 +1495,17 @@ fn get_context_lines(
     }
 
     // Try to read the file
-    let content = match std::fs::read_to_string(file_path) {
+    let resolved = resolve_full_path(state, file_path);
+    let authorized = match crate::scope::authorize_existing_path(
+        &resolved,
+        &state.ingest_roots,
+        state.workspace_root.as_deref(),
+        "m1nd_search",
+    ) {
+        Ok(authorized) => authorized,
+        Err(_) => return (vec![], vec![]),
+    };
+    let content = match std::fs::read_to_string(authorized.path) {
         Ok(c) => c,
         Err(_) => return (vec![], vec![]),
     };
@@ -1971,7 +1956,11 @@ mod tests {
             output.results[0].matched_line,
             "pub const FALLBACK_TOKEN: &str = \"disk-search-still-works\";"
         );
-        assert_eq!(output.results[0].file_path, file_path.to_string_lossy());
+        let canonical_file = std::fs::canonicalize(&file_path).expect("canonical fallback file");
+        assert_eq!(
+            output.results[0].file_path,
+            canonical_file.to_string_lossy()
+        );
         assert!(!output.results[0].graph_linked);
     }
 
@@ -2172,21 +2161,26 @@ mod tests {
     }
 
     #[test]
-    fn search_auto_ingests_absolute_scope_outside_existing_roots() {
+    fn search_auto_ingest_rejects_external_absolute_scope_without_mutation() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path().join("workspace");
         std::fs::create_dir_all(&root).expect("workspace dir");
-        let external = root.join("external-site");
         let outside = temp.path().join("outside-site");
         let src_dir = outside.join("src");
         std::fs::create_dir_all(&src_dir).expect("external src dir");
         std::fs::write(
             src_dir.join("site.rs"),
-            "pub const MADE_IN_ITALY: &str = \"madeinitalycars.com\";\n",
+            "pub const EXTERNAL_SENTINEL_MUST_NOT_LEAK: &str = \"madeinitalycars.com\";\n",
         )
         .expect("write file");
 
         let mut state = build_state(&root);
+        let roots_before = state.ingest_roots.clone();
+        let workspace_before = state.workspace_root.clone();
+        let graph_before = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
         let input = SearchInput {
             agent_id: "jimi-codex".into(),
             query: "madeinitalycars.com".into(),
@@ -2204,17 +2198,19 @@ mod tests {
             token_budget: None,
         };
 
-        let output = handle_search(&mut state, input).expect("search output");
-        assert!(output.auto_ingested);
-        assert_eq!(
-            output.auto_ingested_paths,
-            vec![outside.to_string_lossy().to_string()]
-        );
-        assert_eq!(output.total_matches, 1);
-        assert_eq!(output.results.len(), 1);
-        assert!(state
-            .ingest_roots
-            .contains(&outside.to_string_lossy().to_string()));
+        let error = handle_search(&mut state, input)
+            .expect_err("external absolute auto-ingest scope must fail closed");
+        assert!(error.to_string().contains("outside authorized"));
+        assert!(!error
+            .to_string()
+            .contains("EXTERNAL_SENTINEL_MUST_NOT_LEAK"));
+        assert_eq!(state.ingest_roots, roots_before);
+        assert_eq!(state.workspace_root, workspace_before);
+        let graph_after = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+        assert_eq!(graph_after, graph_before);
     }
 
     #[test]
@@ -2233,6 +2229,12 @@ mod tests {
 
         let mut state = build_state(&root);
         state.workspace_root = Some(workspace.to_string_lossy().to_string());
+        let roots_before = state.ingest_roots.clone();
+        let workspace_before = state.workspace_root.clone();
+        let graph_before = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
 
         let input = SearchInput {
             agent_id: "jimi-codex".into(),
@@ -2252,16 +2254,71 @@ mod tests {
         };
 
         let output = handle_search(&mut state, input).expect("search output");
-        assert!(output.auto_ingested);
-        assert_eq!(
-            output.auto_ingested_paths,
-            vec![external.to_string_lossy().to_string()]
-        );
+        assert!(!output.auto_ingested);
+        assert!(output.auto_ingested_paths.is_empty());
         assert_eq!(output.total_matches, 1);
         assert_eq!(output.results.len(), 1);
-        assert!(state
-            .ingest_roots
-            .contains(&external.to_string_lossy().to_string()));
+        assert_eq!(state.ingest_roots, roots_before);
+        assert_eq!(state.workspace_root, workspace_before);
+        let graph_after = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+        assert_eq!(graph_after, graph_before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn search_auto_ingest_rejects_symlink_escape_without_mutation() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&root).expect("workspace dir");
+        std::fs::create_dir_all(&outside).expect("outside dir");
+        std::fs::write(
+            outside.join("sentinel.rs"),
+            "pub const EXTERNAL_SYMLINK_SENTINEL: &str = \"escape\";\n",
+        )
+        .expect("outside file");
+        let escape = root.join("escape");
+        symlink(&outside, &escape).expect("escape symlink");
+
+        let mut state = build_state(&root);
+        let roots_before = state.ingest_roots.clone();
+        let graph_before = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+        let error = handle_search(
+            &mut state,
+            SearchInput {
+                agent_id: "jimi-codex".into(),
+                query: "EXTERNAL_SYMLINK_SENTINEL".into(),
+                mode: SearchMode::Literal,
+                scope: Some(escape.to_string_lossy().into_owned()),
+                top_k: 10,
+                case_sensitive: true,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: true,
+                filename_pattern: Some("*.rs".into()),
+                max_output_chars: None,
+                token_budget: None,
+            },
+        )
+        .expect_err("symlink escape must fail closed");
+        assert!(error.to_string().contains("outside authorized"));
+        assert!(!error.to_string().contains("EXTERNAL_SYMLINK_SENTINEL"));
+        assert_eq!(state.ingest_roots, roots_before);
+        let graph_after = {
+            let graph = state.graph.read();
+            (graph.num_nodes(), graph.num_edges())
+        };
+        assert_eq!(graph_after, graph_before);
     }
 
     #[test]
@@ -2658,7 +2715,8 @@ mod tests {
             format!("file::{}", src_dir.to_string_lossy()),
         ];
 
-        assert_search_equivalence(&mut state, &scopes, &file_path.to_string_lossy());
+        let canonical_file = std::fs::canonicalize(&file_path).expect("canonical example file");
+        assert_search_equivalence(&mut state, &scopes, &canonical_file.to_string_lossy());
     }
 
     #[test]

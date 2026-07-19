@@ -643,27 +643,21 @@ claims (each with an `evidence` path) — the exact input your `debrief` grades.
 ## Promotion — the audited crossing
 
 `memorize` is ALWAYS project-private; a finding does NOT become shared doctrine
-by being written. The manual crossing, deliberately and rarely:
+by being written. The public crossing syntax is:
 
 ```json
 promote {"brain": "<project_root>", "claim": "<slug>", "reason": "<one line>"}
 ```
 
-It COPIES a verified claim UP into the medulla with the full readable chain
-(`Origin-Brain`, `Origin-Claim`, `Promoted-By`, `Promotion-Reason`); the project
-original stays in place stamped `Promoted-To` — promotion ELEVATES, never moves.
-Gates it enforces for you: only `State: verified` (or a founder claim) may
-promote (C8.3); a secret or a conflict-marker is refused at the hygiene floor
-(the medulla is the most-read store); a promoted claim's code evidence is
-origin-qualified so freshness delegates back to its home brain, or the claim is
-marked `evidence_unverifiable` (C8.2 — a medulla claim never reads fresher than
-it can prove). Etiquette: promotion is an ORCHESTRATOR act — a maker PROPOSES
-("candidate for promotion" is just a claim it memorizes), the orchestrator
-executes. Any id CAN call it (not a security boundary), but every promotion is
-auditably attributed by `Promoted-By`, so do not promote an unverified hunch.
-DEMOTE by `learn wrong` on the MEDULLA copy (or supersede it with a `moved_to:`
-medulla `memorize`) — this never touches the project witness (un-share, never
-destroy). The verb is served at the routed HTTP door; a fresh live verb needs
+It is currently fail-closed at `POSITIVE_SOVEREIGN` until an exact typed G2
+authority consumer is installed. `State: verified`, founder/source labels,
+caller identity, and arbitrary lease strings are evidence or metadata — never
+authority. The intended operation copies a transversal claim into the medulla
+with the full readable provenance chain while retaining the project witness, but
+only an owner-resolved internal path may perform that crossing until the public
+authority contract is mechanically proved. A maker may record “candidate for
+promotion”; that is a proposal, never permission. The verb is served at the
+routed HTTP door; a fresh live verb needs
 the served owner rebuilt/kickstarted.
 
 ## Memory Honesty and the Soul Receipt

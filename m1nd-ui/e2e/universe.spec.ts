@@ -8,8 +8,8 @@
  * Proven, in a real browser against the real bundle:
  *  1. the entry rule: ≥1 world → the Universe leads; a labelled world disc + the
  *     serif FACTS header render (never a cross-brain vital);
- *  2. the entry rule falls through UNCHANGED with zero worlds: zero brains → the
- *     Threshold onboarding, a bound-brain skeleton → the Build Map front door;
+ *  2. the entry rule falls through with zero worlds: zero brains → the honest
+ *     fail-closed Threshold, a bound-brain skeleton → the Build Map front door;
  *  3. the Landing lists a merge_wait stamp and a click NAVIGATES to that world's
  *     room (its tray card), composing no write;
  *  4. anti-regression: a world click reaches the map; the existing rooms stay live.
@@ -260,11 +260,19 @@ test('with ≥1 world the Universe surface renders — a labelled disc + the ser
 });
 
 // ── 2. the entry rule falls through UNCHANGED with zero worlds ─────────────────
-test('zero worlds + zero brains → the first-run Threshold, exactly as before', async ({ page }) => {
+test('zero worlds + zero brains → the Threshold is fail-closed with no mutation affordance', async ({ page }) => {
+  let ingestCalls = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/tools/ingest') ingestCalls += 1;
+  });
   await mockOwner(page, { universe: EMPTY_UNIVERSE, instances: [], skeletonPresent: false });
   await page.goto('/');
 
-  await expect(page.locator('[data-role="read-first-repo"]')).toBeVisible();
+  const threshold = page.locator('[data-surface="threshold"]');
+  await expect(threshold.locator('[data-role="bootstrap-unavailable"]')).toBeVisible();
+  await expect(threshold).toContainText('brain_bootstrap_consumer_not_installed');
+  await expect(threshold.locator('[data-role="read-first-repo"], [data-role="threshold-path"], form')).toHaveCount(0);
+  expect(ingestCalls).toBe(0);
   await expect(page.locator('[data-role="universe"]')).toHaveCount(0);
 });
 

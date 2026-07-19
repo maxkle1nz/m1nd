@@ -17,9 +17,9 @@
 // the binned verdict (`act` | `reverify` | `abstain`) is emitted. A signal with
 // no calibration row is honestly `abstain`/uncalibrated, never `act`.
 
-use crate::error::M1ndResult;
+use crate::error::{M1ndError, M1ndResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 // ── Constants ──
@@ -54,6 +54,7 @@ pub const VERDICT_ABSTAIN: &str = "abstain";
 /// remaining fields are the measured evidence behind that threshold, kept so a
 /// recalled row can self-describe its standing instead of being a bare number.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CalibrationRow {
     /// Conformal threshold τ: live confidence ≥ τ ⇒ `act`.
     pub tau: f32,
@@ -70,6 +71,15 @@ pub struct CalibrationRow {
 }
 
 impl CalibrationRow {
+    /// Validate this row as calibrated evidence for `signal`.
+    ///
+    /// A row that cannot be represented as a finite bounded calibration result
+    /// is not allowed to arm a runtime decision gate.  This is public so wire
+    /// projections can apply the exact same fail-closed rule as persistence.
+    pub fn validate_for_signal(&self, signal: &str) -> M1ndResult<()> {
+        validate_calibration_row(signal, self)
+    }
+
     /// The lower band edge: below this, the gate `abstain`s. Predictions in
     /// `[tau_low, tau)` are the borderline band → `reverify`. We anchor the band
     /// width to a fraction of the conformal threshold so the `reverify` zone
@@ -194,9 +204,105 @@ impl CalibrationTable {
 // ── Persistence (clone of trust.rs save/load: atomic temp + rename, versioned) ──
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CalibrationPersistenceFormat {
     version: u32,
-    rows: HashMap<String, CalibrationRow>,
+    rows: BTreeMap<String, CalibrationRow>,
+}
+
+const CALIBRATION_PERSISTENCE_VERSION: u32 = 1;
+
+fn validate_calibration_row(signal: &str, row: &CalibrationRow) -> M1ndResult<()> {
+    if signal.trim().is_empty() {
+        return Err(M1ndError::CorruptState {
+            reason: "calibration table contains an empty signal id".into(),
+        });
+    }
+    if !row.tau.is_finite()
+        || !row.target_alpha.is_finite()
+        || !row.measured_precision.is_finite()
+        || !row.coverage.is_finite()
+    {
+        return Err(M1ndError::CorruptState {
+            reason: format!("calibration row '{signal}' contains non-finite fields"),
+        });
+    }
+    if !(0.0..=1.0).contains(&row.tau)
+        || !(0.0..=1.0).contains(&row.target_alpha)
+        || !(0.0..=1.0).contains(&row.measured_precision)
+        || !(0.0..=1.0).contains(&row.coverage)
+    {
+        return Err(M1ndError::CorruptState {
+            reason: format!("calibration row '{signal}' contains values outside [0,1]"),
+        });
+    }
+    if row.n == 0 {
+        return Err(M1ndError::CorruptState {
+            reason: format!("calibration row '{signal}' has zero labeled samples"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_calibration_rows<'a>(
+    rows: impl IntoIterator<Item = (&'a str, &'a CalibrationRow)>,
+) -> M1ndResult<()> {
+    for (signal, row) in rows {
+        validate_calibration_row(signal, row)?;
+    }
+    Ok(())
+}
+
+/// Encode the calibration table as deterministic, versioned pretty JSON bytes.
+pub fn encode_calibration_state_json(table: &CalibrationTable) -> M1ndResult<Vec<u8>> {
+    validate_calibration_rows(
+        table
+            .rows
+            .iter()
+            .map(|(signal, row)| (signal.as_str(), row)),
+    )?;
+    let format = CalibrationPersistenceFormat {
+        version: CALIBRATION_PERSISTENCE_VERSION,
+        rows: table
+            .rows
+            .iter()
+            .map(|(signal, row)| (signal.clone(), row.clone()))
+            .collect(),
+    };
+    serde_json::to_vec_pretty(&format).map_err(M1ndError::Serde)
+}
+
+/// Decode calibration JSON bytes and reject malformed, unsupported, or
+/// non-finite state as one fail-closed unit.
+pub fn decode_calibration_state_json(bytes: &[u8]) -> M1ndResult<CalibrationTable> {
+    let format: CalibrationPersistenceFormat =
+        serde_json::from_slice(bytes).map_err(M1ndError::Serde)?;
+    if format.version != CALIBRATION_PERSISTENCE_VERSION {
+        return Err(M1ndError::CorruptState {
+            reason: format!(
+                "unsupported calibration persistence version {}",
+                format.version
+            ),
+        });
+    }
+    validate_calibration_rows(
+        format
+            .rows
+            .iter()
+            .map(|(signal, row)| (signal.as_str(), row)),
+    )?;
+    let table = CalibrationTable {
+        rows: format.rows.into_iter().collect(),
+    };
+    let projected = encode_calibration_state_json(&table)?;
+    if serde_json::from_slice::<serde_json::Value>(bytes)?
+        != serde_json::from_slice::<serde_json::Value>(&projected)?
+    {
+        return Err(M1ndError::CorruptState {
+            reason: "calibration checkpoint is not the complete current schema".into(),
+        });
+    }
+    Ok(table)
 }
 
 /// Persist a `CalibrationTable` to disk using an atomic write (temp + rename).
@@ -205,12 +311,7 @@ struct CalibrationPersistenceFormat {
 /// Returns `M1ndError::Serde` on serialisation failure or `M1ndError::Io` on
 /// filesystem errors.
 pub fn save_calibration_state(table: &CalibrationTable, path: &Path) -> M1ndResult<()> {
-    let format = CalibrationPersistenceFormat {
-        version: 1,
-        rows: table.rows.clone(),
-    };
-
-    let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
+    let json = encode_calibration_state_json(table)?;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -220,7 +321,7 @@ pub fn save_calibration_state(table: &CalibrationTable, path: &Path) -> M1ndResu
         use std::io::Write;
         let file = std::fs::File::create(&temp_path)?;
         let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
+        writer.write_all(&json)?;
         writer.flush()?;
     }
     std::fs::rename(&temp_path, path)?;
@@ -233,7 +334,9 @@ pub fn save_calibration_state(table: &CalibrationTable, path: &Path) -> M1ndResu
 /// Corrupt rows (non-finite τ) are silently dropped with a diagnostic to stderr.
 ///
 /// # Errors
-/// Returns `M1ndError::Io` on read failure or `M1ndError::Serde` on malformed JSON.
+/// Returns `M1ndError::Io` on read failure, `M1ndError::Serde` on malformed
+/// JSON, or `M1ndError::CorruptState` when the persisted schema version is not
+/// the exact version this runtime understands.
 pub fn load_calibration_state(path: &Path) -> M1ndResult<CalibrationTable> {
     if !path.exists() {
         return Ok(CalibrationTable::new());
@@ -241,8 +344,18 @@ pub fn load_calibration_state(path: &Path) -> M1ndResult<CalibrationTable> {
 
     let data = std::fs::read_to_string(path)?;
     let format: CalibrationPersistenceFormat =
-        serde_json::from_str(&data).map_err(crate::error::M1ndError::Serde)?;
+        serde_json::from_str(&data).map_err(M1ndError::Serde)?;
+    if format.version != CALIBRATION_PERSISTENCE_VERSION {
+        return Err(M1ndError::CorruptState {
+            reason: format!(
+                "unsupported calibration persistence version {}",
+                format.version
+            ),
+        });
+    }
 
+    // Preserve the historical disk-loader behavior. Checkpoint restoration
+    // uses the strict `decode_calibration_state_json` API instead.
     let mut valid_rows = HashMap::new();
     for (signal, row) in format.rows {
         if !row.tau.is_finite() || !row.measured_precision.is_finite() {
@@ -371,5 +484,95 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let table = load_calibration_state(&path).expect("load failed");
         assert!(table.is_empty());
+    }
+
+    #[test]
+    fn disk_loader_refuses_unknown_schema_version() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("calibration_state.json");
+        std::fs::write(&path, br#"{"version":2,"rows":{}}"#).expect("fixture");
+
+        let error = load_calibration_state(&path).expect_err("future schema must fail closed");
+        assert!(matches!(error, M1ndError::CorruptState { .. }));
+    }
+
+    #[test]
+    fn calibration_memory_codec_is_deterministic_and_matches_save() {
+        let mut table = CalibrationTable::new();
+        table.set("zeta", sample_row());
+        table.set("alpha", sample_row());
+
+        let first = encode_calibration_state_json(&table).expect("encode");
+        assert_eq!(
+            first,
+            encode_calibration_state_json(&table).expect("repeat encode")
+        );
+        let text = std::str::from_utf8(&first).expect("utf8");
+        assert!(text.find("alpha").unwrap() < text.find("zeta").unwrap());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("calibration_state.json");
+        save_calibration_state(&table, &path).expect("save");
+        assert_eq!(std::fs::read(path).expect("saved bytes"), first);
+
+        let decoded = decode_calibration_state_json(&first).expect("decode");
+        assert_eq!(decoded.len(), table.len());
+        assert_eq!(decoded.get("alpha"), Some(&sample_row()));
+    }
+
+    #[test]
+    fn calibration_memory_codec_rejects_corruption_version_and_nonfinite() {
+        assert!(decode_calibration_state_json(b"{").is_err());
+        assert!(decode_calibration_state_json(br#"{"version":2,"rows":{}}"#).is_err());
+
+        let mut row = sample_row();
+        row.coverage = f32::INFINITY;
+        let mut table = CalibrationTable::new();
+        table.set("bad", row);
+        assert!(encode_calibration_state_json(&table).is_err());
+    }
+
+    #[test]
+    fn calibration_checkpoint_codec_rejects_ranges_empty_ids_and_schema_drift() {
+        for (signal, mutate) in [
+            ("tau", 1.1_f32),
+            ("target_alpha", -0.1_f32),
+            ("measured_precision", 1.1_f32),
+            ("coverage", -0.1_f32),
+        ] {
+            let mut row = sample_row();
+            match signal {
+                "tau" => row.tau = mutate,
+                "target_alpha" => row.target_alpha = mutate,
+                "measured_precision" => row.measured_precision = mutate,
+                "coverage" => row.coverage = mutate,
+                _ => unreachable!(),
+            }
+            let mut table = CalibrationTable::new();
+            table.set("bad", row);
+            assert!(encode_calibration_state_json(&table).is_err(), "{signal}");
+        }
+
+        let mut empty_signal = CalibrationTable::new();
+        empty_signal.set(" ", sample_row());
+        assert!(encode_calibration_state_json(&empty_signal).is_err());
+
+        let mut zero_samples = CalibrationTable::new();
+        let mut zero_sample_row = sample_row();
+        zero_sample_row.n = 0;
+        zero_samples.set("envelope", zero_sample_row);
+        assert!(encode_calibration_state_json(&zero_samples).is_err());
+
+        let mut valid = CalibrationTable::new();
+        valid.set("predict", sample_row());
+        let mut value: serde_json::Value = serde_json::from_slice(
+            &encode_calibration_state_json(&valid).expect("valid checkpoint"),
+        )
+        .expect("value");
+        value["rows"]["predict"]["future_field"] = serde_json::json!(true);
+        assert!(
+            decode_calibration_state_json(&serde_json::to_vec_pretty(&value).expect("json"))
+                .is_err()
+        );
     }
 }

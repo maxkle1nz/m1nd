@@ -67,6 +67,7 @@ function proofRequirementsForRoute(routeKind) {
     case "first_minute":
       return [
         "Use the first-minute output as repo orientation, not final proof.",
+        "If the bound brain is empty, stop at needs_authority/NOT_PROVEN; the npm CLI never calls generic ingest or legacy bootstrap.",
         "Read the listed anchors directly before behavior or architecture claims.",
         "After one bounded graph pass, switch to source reads, tests, compiler/runtime output, or focused probes.",
       ];
@@ -395,6 +396,137 @@ function trustNeedsIngest(result) {
   return Number.isInteger(graphState.node_count) && graphState.node_count === 0;
 }
 
+function graphHasIngestedContent(payload) {
+  const graphState = extractGraphState(payload);
+  const nodeCount = graphState.node_count;
+  const ingestRootCount = graphState.ingest_root_count;
+  if (!Number.isInteger(nodeCount) || nodeCount <= 0) return false;
+  if (graphState.finalized === false) return false;
+  return !Number.isInteger(ingestRootCount) || ingestRootCount > 0;
+}
+
+function availableToolNames(response) {
+  const tools = response && response.result && Array.isArray(response.result.tools)
+    ? response.result.tools
+    : [];
+  return new Set(
+    tools
+      .map((entry) => (entry && typeof entry.name === "string" ? entry.name : null))
+      .filter(Boolean)
+  );
+}
+
+async function inspectToolSurface(client) {
+  try {
+    const response = await client.tools();
+    const names = availableToolNames(response);
+    return {
+      names,
+      summary: {
+        tool: "tools/list",
+        isError: false,
+        available_tool_count: names.size,
+      },
+    };
+  } catch (error) {
+    return {
+      names: null,
+      summary: {
+        tool: "tools/list",
+        isError: true,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+function authorityRequirement(repo) {
+  return {
+    schema: "m1nd-agent-authority-requirement-v0",
+    status: "needs_authority",
+    proof_state: "NOT_PROVEN",
+    reason_code: "bound_brain_has_no_ingested_graph_and_no_governed_provider",
+    provider: {
+      configured: false,
+      kind: "typed_governed_owner_http",
+      required_capability: "graph_ingest_existing_brain",
+      transport_seam: "not_installed_in_npm_agent_cli",
+      production_authority_assembly_required: true,
+    },
+    prohibited_fallbacks: [
+      "generic_ingest",
+      "legacy_brain_bootstrap",
+      "software_test_authority",
+      "embedded_or_ambient_keys",
+    ],
+    mutation_attempted: false,
+    recovery_instructions: [
+      {
+        id: "configure_governed_provider",
+        action: `Connect an authenticated typed governed owner provider already bound to ${repo}; the npm CLI does not install or synthesize one.`,
+      },
+      {
+        id: "prove_authorized_ingest",
+        action: "Complete provider preview, authority authorization, execute, checkpoint, and signed receipt verification before claiming the graph is ingested.",
+      },
+      {
+        id: "rerun_read_only_orientation",
+        action: "Only after that receipt proves the bound brain has a graph, rerun the requested agent command for read-only orientation.",
+      },
+      {
+        id: "direct_proof_until_available",
+        action: "Until a governed provider is configured and proven, use direct source reads, tests, compiler/runtime output, logs, or focused probes.",
+      },
+    ],
+  };
+}
+
+function authorityEvidence(sequence) {
+  return [sequence.trustBefore, sequence.handshake]
+    .filter(Boolean)
+    .map((result) => {
+      const payload = payloadDict(result);
+      const evidence = {
+        schema: payload.schema,
+        verdict: payload.verdict,
+        trust_mode: payload.trust_mode,
+        status: payload.status,
+        graph_state: extractGraphState(payload),
+      };
+      return Object.fromEntries(
+        Object.entries(evidence).filter(([, value]) => {
+          if (value === undefined || value === null) return false;
+          if (value && typeof value === "object" && Object.keys(value).length === 0) return false;
+          return true;
+        })
+      );
+    });
+}
+
+function applyNeedsAuthority(envelope, repo) {
+  envelope.ok = false;
+  envelope.status = "needs_authority";
+  envelope.proof_state = "NOT_PROVEN";
+  envelope.trust = {
+    verdict: "needs_authority",
+    needs_ingest: true,
+  };
+  envelope.authority = authorityRequirement(repo);
+  envelope.m1nd_usage_mode = "authority_required_before_orientation";
+  envelope.switch_to_direct_proof = true;
+  envelope.proof_boundary = {
+    m1nd_proved: "the bound brain has no ingested graph and the npm CLI has no configured governed authority provider",
+    still_needs_direct_proof: [
+      "a production authority assembly and typed governed provider",
+      "an authorized ingest execution and signed checkpoint receipt",
+      "read-only orientation after the graph exists",
+    ],
+  };
+  envelope.action = buildDirectProofAction("needs_authority_not_proven");
+  envelope.next_actions = envelope.authority.recovery_instructions.map((step) => step.action);
+  return envelope;
+}
+
 function runtimeInfo(binary, deps) {
   return {
     binary: binary || null,
@@ -712,7 +844,7 @@ function buildFirstMinuteAction(repo, query, mode, triggerKind, binary = null, r
         ["query", query],
         ["mode", mode],
       ], binary),
-      summary: "Run the agent first-minute loop: scope, trust, one orientation pass, then direct proof.",
+      summary: "Run scope/trust, then read-only orientation only if a graph already exists; otherwise stop at needs_authority/NOT_PROVEN.",
     },
     proofRequirements: proofRequirementsForRoute("first_minute"),
   });
@@ -885,22 +1017,41 @@ async function withClient(args, deps, repo, fn) {
   }
 }
 
-async function runTrustSequence(client, repo, agentId, ensureIngest) {
-  const calls = [];
-  const trustBefore = await callToolSafely(client, "trust_selftest", { agent_id: agentId });
-  calls.push(callSummary("trust_selftest", trustBefore));
-  let ingest = null;
+async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequested) {
+  const toolSurface = await inspectToolSurface(client);
+  const calls = [toolSurface.summary];
+  const supports = (name) => toolSurface.names === null || toolSurface.names.has(name);
+
+  // Compatibility is read-only: older runtimes may expose only one of these
+  // trust surfaces.  Generic `ingest` can appear in tools/list, but its mere
+  // presence is never authority and this CLI deliberately never calls it.
+  let trustBefore = null;
+  if (supports("trust_selftest")) {
+    trustBefore = await callToolSafely(client, "trust_selftest", { agent_id: agentId });
+    calls.push(callSummary("trust_selftest", trustBefore));
+  }
   let handshake = null;
-  if (ensureIngest && trustNeedsIngest(trustBefore)) {
-    ingest = await callToolSafely(client, "ingest", { agent_id: agentId, path: repo });
-    calls.push(callSummary("ingest", ingest));
-    handshake = await callToolSafely(client, "session_handshake", { agent_id: agentId, scope: repo });
-    calls.push(callSummary("session_handshake", handshake));
-  } else {
+  if (supports("session_handshake")) {
     handshake = await callToolSafely(client, "session_handshake", { agent_id: agentId, scope: repo });
     calls.push(callSummary("session_handshake", handshake));
   }
-  return { trustBefore, ingest, handshake, calls };
+
+  const trustPayload = payloadDict(trustBefore);
+  const handshakePayload = payloadDict(handshake);
+  const graphAvailable = graphHasIngestedContent(handshakePayload) || graphHasIngestedContent(trustPayload);
+  const explicitlyNeedsIngest = trustNeedsIngest(trustBefore) || trustNeedsIngest(handshake);
+  const needsAuthority = explicitlyNeedsIngest && !graphAvailable;
+  return {
+    trustBefore,
+    ingest: null,
+    handshake,
+    calls,
+    graphAvailable,
+    needsAuthority,
+    requestedIngest: Boolean(legacyEnsureIngestRequested),
+    genericMutationCalled: false,
+    availableTools: toolSurface.names ? [...toolSurface.names].sort() : null,
+  };
 }
 
 async function agentScope(args, deps, repo, agentId) {
@@ -932,11 +1083,11 @@ async function agentScope(args, deps, repo, agentId) {
       kind: "run_command",
       subcommand: "trust",
       command: buildAgentCliCommand("trust", repo, [["ensure-ingest", true]], binary),
-      summary: "Establish trust on the isolated repo-bound runtime before retrieval.",
+      summary: "Inspect trust on the isolated repo-bound runtime; an empty graph returns needs_authority without a generic mutation.",
     },
     proofRequirements: proofRequirementsForRoute("orient"),
   });
-  envelope.next_actions.push("Run m1nd agent trust --repo <repo> --ensure-ingest --json before relying on retrieval.");
+  envelope.next_actions.push("Run m1nd agent trust --repo <repo> --ensure-ingest --json; an empty graph will stop at needs_authority/NOT_PROVEN.");
   return envelope;
 }
 
@@ -958,50 +1109,36 @@ async function agentTrust(args, deps, repo, agentId) {
       },
     });
     envelope.calls = sequence.calls;
-    envelope.results = [payload];
-    if (trustNeedsIngest(sequence.trustBefore) && !args["ensure-ingest"]) {
-      envelope.action = buildActionEnvelope({
-        trigger: {
-          kind: "needs_ingest",
-          source: "trust_sequence",
-        },
-        route: {
-          kind: "trust",
-        },
-        action: {
-          kind: "run_command",
-          subcommand: "trust",
-          command: buildAgentCliCommand("trust", repo, [["ensure-ingest", true]], binary),
-          summary: "Re-run trust with ingest enabled before relying on retrieval.",
-        },
-        proofRequirements: proofRequirementsForRoute("recover"),
-      });
-      envelope.next_actions.push("Re-run with --ensure-ingest or call ingest before retrieval.");
-    } else {
-      envelope.action = buildActionEnvelope({
-        trigger: {
-          kind: "trust_ready",
-          source: "trust_sequence",
-        },
-        route: {
-          kind: "orient",
-          tool: "seek",
-          mode: "short",
-        },
-        action: {
-          kind: "run_command",
-          subcommand: "orient",
-          command: buildAgentCliCommand("orient", repo, [
-            ["query", "<focused task>"],
-            ["mode", "short"],
-            ["tool", "seek"],
-          ], binary),
-          summary: "Run one bounded orientation pass, then switch back to direct proof.",
-        },
-        proofRequirements: proofRequirementsForRoute("orient"),
-      });
-      envelope.next_actions.push("Use m1nd agent orient for one bounded orientation pass, then prove directly.");
-    }
+    envelope.results = sequence.needsAuthority ? authorityEvidence(sequence) : [payload];
+    envelope.mutation_policy = {
+      generic_ingest_called: sequence.genericMutationCalled,
+      ensure_ingest_flag_requested: sequence.requestedIngest,
+      ensure_ingest_flag_semantics: "compatibility_only_never_generic_mutation",
+    };
+    if (sequence.needsAuthority) return applyNeedsAuthority(envelope, repo);
+    envelope.action = buildActionEnvelope({
+      trigger: {
+        kind: "trust_ready",
+        source: "trust_sequence",
+      },
+      route: {
+        kind: "orient",
+        tool: "seek",
+        mode: "short",
+      },
+      action: {
+        kind: "run_command",
+        subcommand: "orient",
+        command: buildAgentCliCommand("orient", repo, [
+          ["query", "<focused task>"],
+          ["mode", "short"],
+          ["tool", "seek"],
+        ], binary),
+        summary: "Run one bounded read-only orientation pass, then switch back to direct proof.",
+      },
+      proofRequirements: proofRequirementsForRoute("orient"),
+    });
+    envelope.next_actions.push("Use m1nd agent orient for one bounded read-only orientation pass, then prove directly.");
     return envelope;
   });
 }
@@ -1016,6 +1153,28 @@ async function agentOrient(args, deps, repo, agentId) {
   const topK = Number(args["top-k"] || args.topK || 5);
   return withClient(args, deps, repo, async (client, binary) => {
     const sequence = await runTrustSequence(client, repo, agentId, !args["skip-ingest"]);
+    if (sequence.needsAuthority) {
+      const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);
+      const envelope = baseAgentEnvelope({
+        command: "orient",
+        repo,
+        agentId,
+        runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+        scopeAlignment: buildScopeAlignment(repo),
+        graphState: extractGraphState(trustPayload),
+        trust: { verdict: "needs_authority", needs_ingest: true },
+      });
+      envelope.query = query;
+      envelope.mode = mode;
+      envelope.orientation_tool = tool;
+      envelope.calls = sequence.calls;
+      envelope.results = authorityEvidence(sequence);
+      envelope.mutation_policy = {
+        generic_ingest_called: sequence.genericMutationCalled,
+        ensure_ingest_flag_semantics: "compatibility_only_never_generic_mutation",
+      };
+      return attachCapabilityGuidance(applyNeedsAuthority(envelope, repo), query);
+    }
     const orientation = await callToolSafely(
       client,
       tool,
@@ -1054,6 +1213,10 @@ async function agentOrient(args, deps, repo, agentId) {
     envelope.switch_to_direct_proof = mode === "short" || !useful;
     envelope.calls = [...sequence.calls, callSummary(tool, orientation)];
     envelope.results = [orientationPayload];
+    envelope.mutation_policy = {
+      generic_ingest_called: sequence.genericMutationCalled,
+      orientation_read_only: true,
+    };
     if (envelope.switch_to_direct_proof) {
       envelope.action = buildDirectProofAction(useful ? "orientation_short_handoff" : "orientation_not_useful");
       envelope.next_actions.push("Switch to direct source reads, tests, compiler/runtime output, or focused probes for final truth.");
@@ -1092,6 +1255,35 @@ async function agentFirstMinute(args, deps, repo, agentId) {
   const topK = Number(args["top-k"] || args.topK || 8);
   return withClient(args, deps, repo, async (client, binary) => {
     const sequence = await runTrustSequence(client, repo, agentId, true);
+    if (sequence.needsAuthority) {
+      const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);
+      const envelope = baseAgentEnvelope({
+        command: "first-minute",
+        repo,
+        agentId,
+        runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+        scopeAlignment: buildScopeAlignment(repo),
+        graphState: extractGraphState(trustPayload),
+        trust: { verdict: "needs_authority", needs_ingest: true },
+      });
+      envelope.query = query;
+      envelope.mode = mode;
+      envelope.orientation_tool = tool;
+      envelope.calls = sequence.calls;
+      envelope.results = authorityEvidence(sequence);
+      envelope.anchors = [];
+      envelope.anchor_groups = {};
+      envelope.do_not = [
+        "do not call generic ingest or legacy bootstrap",
+        "do not use a software-test authority adapter in production",
+        "do not claim orientation or graph proof before an authorized ingest receipt exists",
+      ];
+      envelope.mutation_policy = {
+        generic_ingest_called: sequence.genericMutationCalled,
+        ensure_ingest_flag_semantics: "compatibility_only_never_generic_mutation",
+      };
+      return attachCapabilityGuidance(applyNeedsAuthority(envelope, repo), query);
+    }
     const orientation = await callToolSafely(
       client,
       tool,
@@ -1122,6 +1314,10 @@ async function agentFirstMinute(args, deps, repo, agentId) {
     envelope.switch_to_direct_proof = true;
     envelope.calls = [...sequence.calls, callSummary(tool, orientation)];
     envelope.results = [orientationPayload];
+    envelope.mutation_policy = {
+      generic_ingest_called: sequence.genericMutationCalled,
+      orientation_read_only: true,
+    };
     envelope.anchors = anchors;
     envelope.anchor_groups = groupAnchors(anchors);
     envelope.do_not = [
@@ -1202,6 +1398,14 @@ async function agentContext(args, deps, repo, agentId) {
     envelope.query = query;
     envelope.max_output_chars = maxOutputChars;
     envelope.calls = [...sequence.calls];
+    envelope.mutation_policy = {
+      generic_ingest_called: sequence.genericMutationCalled,
+      ensure_ingest_flag_semantics: "compatibility_only_never_generic_mutation",
+    };
+    if (sequence.needsAuthority) {
+      envelope.results = authorityEvidence(sequence);
+      return attachCapabilityGuidance(applyNeedsAuthority(envelope, repo), query);
+    }
     if (!selectedFile && !allowDiscovery && !hasStrongIdentifier) {
       envelope.ok = false;
       envelope.needs_orientation_first = true;
@@ -1312,6 +1516,7 @@ async function agentAuto(args, deps, repo, agentId, requestedCommand = "auto") {
   envelope.operating_contract = {
     first_move: "scope/trust before retrieval; one bounded orientation before direct proof",
     context_rule: "agent context requires a concrete anchor unless --allow-discovery is explicit",
+    empty_graph_rule: "return needs_authority/NOT_PROVEN without generic ingest, legacy bootstrap, or software-test authority",
     final_truth: "source reads, tests, compiler/runtime output, logs, browser smoke, or focused probes",
   };
   return attachCapabilityGuidance(envelope, args.query);
@@ -1450,6 +1655,41 @@ async function agentKickstart(args, deps) {
       const tTrust0 = Date.now();
       const sequence = await runTrustSequence(client, repo, agentId, true);
       trustMs = Date.now() - tTrust0;
+
+      if (sequence.needsAuthority) {
+        const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);
+        const graphState = extractGraphState(trustPayload);
+        return {
+          schema: KICKSTART_SCHEMA,
+          ok: false,
+          status: "needs_authority",
+          proof_state: "NOT_PROVEN",
+          trust_verdict: "needs_authority",
+          node_count: Number(graphState.node_count || 0),
+          edge_count: Number(graphState.edge_count || 0),
+          ingest: { performed: false, files_parsed: 0 },
+          mutation_policy: {
+            generic_ingest_called: sequence.genericMutationCalled,
+            software_test_authority_used: false,
+          },
+          authority: authorityRequirement(repo),
+          audit_summary: "Audit was not run because the bound brain has no authorized ingested graph.",
+          next_action: "needs_authority",
+          calls: sequence.calls,
+          non_claims: [
+            "does not prove runtime or production behavior",
+            "does not authorize or perform generic ingest",
+            "does not use legacy bootstrap or software-test authority",
+            "does not claim graph orientation before an authorized ingest receipt exists",
+          ],
+          timing_ms: {
+            trust: trustMs,
+            ingest: 0,
+            audit: 0,
+            total: Date.now() - t0,
+          },
+        };
+      }
 
       const trustPayload = payloadDict(sequence.trustBefore);
       const handshakePayload = payloadDict(sequence.handshake);

@@ -3,9 +3,9 @@
 // Per-module trust scores from defect history.
 // Actuarial risk assessment: more confirmed bugs = lower trust = higher risk.
 
-use crate::error::M1ndResult;
+use crate::error::{M1ndError, M1ndResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 // ── Constants ──
@@ -25,6 +25,7 @@ pub const PRIOR_CAP: f32 = 0.95;
 
 /// Raw defect event counters for a single node, stored in the ledger.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TrustEntry {
     /// Number of confirmed defects (from `learn("correct")`).
     pub defect_count: u32,
@@ -551,9 +552,103 @@ impl TrustLedger {
 // ── Persistence ──
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TrustPersistenceFormat {
     version: u32,
-    entries: HashMap<String, TrustEntry>,
+    entries: BTreeMap<String, TrustEntry>,
+}
+
+const TRUST_PERSISTENCE_VERSION: u32 = 1;
+
+fn validate_trust_entries<'a>(
+    entries: impl IntoIterator<Item = (&'a str, &'a TrustEntry)>,
+) -> M1ndResult<()> {
+    for (external_id, entry) in entries {
+        if external_id.trim().is_empty() {
+            return Err(M1ndError::CorruptState {
+                reason: "trust ledger contains an empty external id".into(),
+            });
+        }
+        if !entry.last_defect_timestamp.is_finite() || !entry.first_defect_timestamp.is_finite() {
+            return Err(M1ndError::CorruptState {
+                reason: format!("trust entry '{external_id}' contains non-finite timestamps"),
+            });
+        }
+        let counted_events = entry
+            .defect_count
+            .checked_add(entry.false_alarm_count)
+            .and_then(|count| count.checked_add(entry.partial_count))
+            .ok_or_else(|| M1ndError::CorruptState {
+                reason: format!("trust entry '{external_id}' event counters overflow"),
+            })?;
+        if counted_events == 0 || counted_events != entry.total_learn_events {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "trust entry '{external_id}' declares {} events but counters total {counted_events}",
+                    entry.total_learn_events
+                ),
+            });
+        }
+        let timestamps_are_coherent = if entry.defect_count == 0 {
+            entry.first_defect_timestamp == 0.0 && entry.last_defect_timestamp == 0.0
+        } else {
+            entry.first_defect_timestamp >= 0.0 && entry.last_defect_timestamp >= 0.0
+        };
+        if !timestamps_are_coherent {
+            return Err(M1ndError::CorruptState {
+                reason: format!("trust entry '{external_id}' has incoherent defect timestamps"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Encode a trust ledger as deterministic, versioned pretty JSON bytes.
+pub fn encode_trust_state_json(ledger: &TrustLedger) -> M1ndResult<Vec<u8>> {
+    validate_trust_entries(
+        ledger
+            .entries
+            .iter()
+            .map(|(external_id, entry)| (external_id.as_str(), entry)),
+    )?;
+    let format = TrustPersistenceFormat {
+        version: TRUST_PERSISTENCE_VERSION,
+        entries: ledger
+            .entries
+            .iter()
+            .map(|(external_id, entry)| (external_id.clone(), entry.clone()))
+            .collect(),
+    };
+    serde_json::to_vec_pretty(&format).map_err(M1ndError::Serde)
+}
+
+/// Decode trust-state JSON bytes and reject malformed, unsupported, or
+/// non-finite state as one fail-closed unit.
+pub fn decode_trust_state_json(bytes: &[u8]) -> M1ndResult<TrustLedger> {
+    let format: TrustPersistenceFormat = serde_json::from_slice(bytes).map_err(M1ndError::Serde)?;
+    if format.version != TRUST_PERSISTENCE_VERSION {
+        return Err(M1ndError::CorruptState {
+            reason: format!("unsupported trust persistence version {}", format.version),
+        });
+    }
+    validate_trust_entries(
+        format
+            .entries
+            .iter()
+            .map(|(external_id, entry)| (external_id.as_str(), entry)),
+    )?;
+    let ledger = TrustLedger {
+        entries: format.entries.into_iter().collect(),
+    };
+    let projected = encode_trust_state_json(&ledger)?;
+    if serde_json::from_slice::<serde_json::Value>(bytes)?
+        != serde_json::from_slice::<serde_json::Value>(&projected)?
+    {
+        return Err(M1ndError::CorruptState {
+            reason: "trust checkpoint is not the complete current schema".into(),
+        });
+    }
+    Ok(ledger)
 }
 
 /// Persist a `TrustLedger` to disk using an atomic write (temp file + rename).
@@ -566,12 +661,7 @@ struct TrustPersistenceFormat {
 /// Returns `M1ndError::Serde` if JSON serialisation fails, or `M1ndError::Io` on
 /// filesystem errors.
 pub fn save_trust_state(ledger: &TrustLedger, path: &Path) -> M1ndResult<()> {
-    let format = TrustPersistenceFormat {
-        version: 1,
-        entries: ledger.entries.clone(),
-    };
-
-    let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
+    let json = encode_trust_state_json(ledger)?;
 
     // Atomic write: temp file + rename
     if let Some(parent) = path.parent() {
@@ -582,7 +672,7 @@ pub fn save_trust_state(ledger: &TrustLedger, path: &Path) -> M1ndResult<()> {
         use std::io::Write;
         let file = std::fs::File::create(&temp_path)?;
         let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
+        writer.write_all(&json)?;
         writer.flush()?;
     }
     std::fs::rename(&temp_path, path)?;
@@ -605,10 +695,11 @@ pub fn load_trust_state(path: &Path) -> M1ndResult<TrustLedger> {
     }
 
     let data = std::fs::read_to_string(path)?;
-    let format: TrustPersistenceFormat =
-        serde_json::from_str(&data).map_err(crate::error::M1ndError::Serde)?;
+    let format: TrustPersistenceFormat = serde_json::from_str(&data).map_err(M1ndError::Serde)?;
 
-    // Validate entries: reject corrupt (NaN/Inf) entries
+    // Preserve the historical disk-loader behavior: tolerate a partially
+    // corrupt legacy file by dropping only invalid entries. The in-memory
+    // `decode_trust_state_json` API is deliberately strict for checkpoints.
     let mut valid_entries = HashMap::new();
     for (key, entry) in format.entries {
         if !entry.last_defect_timestamp.is_finite() || !entry.first_defect_timestamp.is_finite() {
@@ -842,6 +933,72 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trust_memory_codec_is_deterministic_and_matches_save() {
+        let mut ledger = make_ledger();
+        ledger.record_defect("file::z.py", NOW);
+        ledger.record_defect("file::a.py", NOW - 1.0);
+
+        let first = encode_trust_state_json(&ledger).expect("encode");
+        assert_eq!(first, encode_trust_state_json(&ledger).expect("repeat"));
+        let text = std::str::from_utf8(&first).expect("utf8");
+        assert!(text.find("file::a.py").unwrap() < text.find("file::z.py").unwrap());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("trust_state.json");
+        save_trust_state(&ledger, &path).expect("save");
+        assert_eq!(std::fs::read(path).expect("saved bytes"), first);
+
+        let decoded = decode_trust_state_json(&first).expect("decode");
+        assert_eq!(decoded.len(), ledger.len());
+    }
+
+    #[test]
+    fn trust_memory_codec_rejects_corruption_version_and_nonfinite() {
+        assert!(decode_trust_state_json(b"{").is_err());
+        assert!(decode_trust_state_json(br#"{"version":2,"entries":{}}"#).is_err());
+
+        let mut ledger = make_ledger();
+        ledger.record_defect("file::bad.py", NOW);
+        ledger
+            .entries
+            .get_mut("file::bad.py")
+            .expect("entry")
+            .last_defect_timestamp = f64::NAN;
+        assert!(encode_trust_state_json(&ledger).is_err());
+    }
+
+    #[test]
+    fn trust_checkpoint_codec_rejects_counter_timestamp_and_schema_drift() {
+        let mut ledger = make_ledger();
+        ledger.record_defect("file::bad.py", NOW);
+        ledger
+            .entries
+            .get_mut("file::bad.py")
+            .expect("entry")
+            .total_learn_events = 2;
+        assert!(encode_trust_state_json(&ledger).is_err());
+
+        let mut no_defect = make_ledger();
+        no_defect.record_false_alarm("file::bad.py", NOW);
+        no_defect
+            .entries
+            .get_mut("file::bad.py")
+            .expect("entry")
+            .last_defect_timestamp = NOW;
+        assert!(encode_trust_state_json(&no_defect).is_err());
+
+        let mut valid = make_ledger();
+        valid.record_defect("file::valid.py", NOW);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&encode_trust_state_json(&valid).expect("valid checkpoint"))
+                .expect("value");
+        value["entries"]["file::valid.py"]["future_field"] = serde_json::json!(true);
+        assert!(
+            decode_trust_state_json(&serde_json::to_vec_pretty(&value).expect("json")).is_err()
+        );
     }
 
     // Extra: cold start returns Unknown tier and 0.5 score

@@ -125,6 +125,30 @@ pub struct Sufficiency {
     pub why: String,
 }
 
+/// Non-label-bearing projection of the exact persisted calibration row that
+/// armed a seek verdict.  The digest binds the complete row (including `tau`)
+/// plus the stable schema/status/signal identities; the remaining fields let a
+/// blind runner report measured calibration evidence without opening labels.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeekCalibrationReceipt {
+    pub schema: String,
+    /// Always `calibrated` when this projection is present.
+    pub status: String,
+    /// Stable calibration-table key (`envelope`).
+    pub signal: String,
+    /// Domain-separated SHA-256 over the canonical receipt projection.
+    pub receipt_digest: String,
+    /// Exact conformal threshold from the persisted row.
+    pub tau: f32,
+    /// `CalibrationRow::n`, renamed for an unambiguous wire contract.
+    pub sample_size: usize,
+    pub measured_precision: f32,
+    pub coverage: f32,
+    pub target_alpha: f32,
+    pub calibrated_at_ms: u64,
+}
+
 /// Per-answer TRUST RECEIPT (OMEGA Move 1 — the trust-gated answer envelope).
 ///
 /// Wraps a `seek` answer in a mechanically-actionable verdict so an agent can
@@ -156,6 +180,10 @@ pub struct TrustEnvelope {
     /// Whether an `envelope` calibration row backed the verdict. `false` ⇒ the
     /// verdict is capped at `reverify` and `act` is unreachable.
     pub calibrated: bool,
+    /// Present iff a finite, bounded persisted `envelope` calibration row armed
+    /// this verdict.  Its absence mechanically keeps `act` unreachable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_receipt: Option<SeekCalibrationReceipt>,
     /// The per-factor breakdown the score was weighted from (known and unknown).
     pub factors: Vec<TrustFactor>,
     /// Plain-English reasons for the verdict, phrased for an agent reader.
@@ -184,10 +212,37 @@ pub struct TrustFactor {
     pub known: bool,
 }
 
+/// Query-entity grounding receipt for `seek`.
+///
+/// This is deliberately separate from relevance: a ranker can always find a
+/// vaguely similar node, while the named technology or API in the question may
+/// not exist in the bound graph at all.  `entity_absent` is therefore a hard
+/// trust stop (`trust_envelope.verdict == "abstain"`), not a low score dressed
+/// up as an answer.
+#[derive(Clone, Debug, Serialize)]
+pub struct SeekGrounding {
+    /// "entity_grounded" | "entity_absent" | "not_applicable".
+    pub state: String,
+    /// Salient technical names extracted from the original, case-preserving
+    /// query (for example `RocksDB`, `WebRTC`, or `BootMemoryInput`).
+    pub salient_entities: Vec<String>,
+    /// Salient entities for which no token-bound occurrence exists in the
+    /// active graph scope. Empty unless `state == "entity_absent"`.
+    pub missing_entities: Vec<String>,
+    /// Plain-language explanation of what was (or was not) mechanically checked.
+    pub reason: String,
+}
+
 /// Output for seek.
 #[derive(Clone, Debug, Serialize)]
 pub struct SeekOutput {
     pub query: String,
+    /// "node" for explicit identifier/path queries and compact lookups;
+    /// "file_group" for narrative intent queries, where at most one
+    /// representative node is returned per ranked source file.
+    pub result_granularity: String,
+    /// Mechanical query-entity presence receipt. Always present.
+    pub grounding: SeekGrounding,
     pub results: Vec<SeekResultEntry>,
     pub total_candidates_scanned: usize,
     /// How many of the scanned nodes actually cleared the relevance threshold
@@ -3070,6 +3125,10 @@ pub struct MissionStartInput {
     pub risk: String,
     #[serde(default)]
     pub parent_mission_id: Option<String>,
+    /// Optional owner-emitted G5 link. Mission Control may project against it
+    /// only after the evidence spine proves the exact G3 head/transaction anchor.
+    #[serde(default)]
+    pub evidence_link: Option<crate::evidence_spine::EvidenceCorrelationLinkV1>,
 }
 
 /// Input for mission_event — record one observed mission action.

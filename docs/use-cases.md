@@ -19,6 +19,8 @@ Every pipeline, metric, and example below is from real execution. Not a demo. No
 6. [Proven Pipelines — Real Session Data](#6-proven-pipelines--real-session-data)
 7. [Comparative Benchmarks](#7-comparative-benchmarks)
 8. [HTTP Server + GUI Mode](#8-http-server--gui-mode)
+9. [Verified Writes](#9-verified-writes--apply-and-apply_batch-with-verifytrue-v050)
+10. [Sovereign Landing via the G2/G3 Authority Bridge](#10-sovereign-landing-via-the-g2g3-authority-bridge)
 
 ---
 
@@ -1121,7 +1123,7 @@ transport share the same graph state.
 |-----------|------|---------|
 | Claude Code, Cursor, Windsurf integration | stdio | `./m1nd-mcp` (default) |
 | Human developer exploring a new codebase | HTTP + GUI | `./m1nd-mcp --serve --open` |
-| Sharing graph exploration with a team | HTTP | `./m1nd-mcp --serve --bind 0.0.0.0` |
+| Sharing graph exploration with a team | HTTP over an authenticated tunnel | `./m1nd-mcp --serve` (tunnel terminates at `127.0.0.1:1337`) |
 | AI agent + human browser simultaneously | Both | `./m1nd-mcp --serve --stdio` |
 | Development of the UI itself | dev mode | `./m1nd-mcp --serve --dev` |
 | CI/CD dashboard / monitoring | HTTP | `./m1nd-mcp --serve` (sidecar) |
@@ -1177,7 +1179,7 @@ instead of spawning a new process. Graph accumulates history across jobs.
 services:
   m1nd:
     image: m1nd-mcp:latest
-    command: ["--serve", "--bind", "0.0.0.0", "--port", "1337"]
+    command: ["--serve", "--bind", "127.0.0.1", "--port", "1337"]
     volumes:
       - m1nd-state:/data
     environment:
@@ -1185,18 +1187,20 @@ services:
 
   ci-job:
     depends_on: [m1nd]
+    # Share m1nd's network namespace so its loopback-only listener remains local.
+    network_mode: "service:m1nd"
     environment:
-      - M1ND_URL=http://m1nd:1337
+      - M1ND_URL=http://127.0.0.1:1337
 ```
 
 ```bash
 # In CI job:
 # Re-index after checkout
-curl -s -X POST http://$M1ND_URL/api/tools/ingest \
+curl -s -X POST "$M1ND_URL/api/tools/ingest" \
   -d '{"agent_id":"ci","path":"/workspace","incremental":true}'
 
 # Check for known bug patterns
-curl -s -X POST http://$M1ND_URL/api/tools/antibody_scan \
+curl -s -X POST "$M1ND_URL/api/tools/antibody_scan" \
   -d '{"agent_id":"ci","scope":"changed_files","min_severity":"high"}'
 
 # Block merge if antibody matches > 0
@@ -1206,28 +1210,36 @@ MATCHES=$(curl -s ... | jq '.total_matches')
 
 ### Security Note
 
-The HTTP server has no authentication. When binding to `0.0.0.0`, m1nd logs a warning:
-> WARNING: Binding to 0.0.0.0 exposes the server to the network. No authentication is configured.
+The HTTP server has no authenticated remote transport. Every non-loopback bind,
+including `0.0.0.0`, concrete LAN addresses, and hostnames, is refused before the
+owner boots. The legacy `--allow-remote` flag is retained for command-line
+compatibility but cannot override this fail-closed gate.
 
-For team use: put behind a reverse proxy with auth (nginx, Caddy, Tailscale funnel).
-For CI use: bind to `127.0.0.1` (default) and use Docker networking for service-to-service access.
-For local development: default `127.0.0.1:1337` is safe.
+For team use: keep m1nd on `127.0.0.1` and expose it only through an authenticated,
+encrypted tunnel whose owner-side target is `127.0.0.1:1337` (for example SSH local
+forwarding). For CI use: run the job in the same network namespace as m1nd, as above,
+or start both processes in one job container. For local development, the default
+listener is reachable only through the host's loopback interface; it still does not
+authenticate other local processes.
 
 ---
 
 ## 9. Verified Writes — apply and apply_batch with verify=true (v0.5.0)
 
 `apply` and `apply_batch` gained a `verify` flag in v0.5.0. When set, the
-server performs a post-write ingest round-trip to confirm the graph stays coherent after
-the edit. This is the recommended mode for CI pipelines and multi-agent swarms.
+server performs static/graph post-write checks. It does **not** execute repository
+tests, compilers, build scripts, plugins, or PATH-resolved tools in the owner
+process. Until an isolated verification runner exists, dynamic fields report
+`NOT_RUN` and the overall verdict cannot be safer than `RISKY`.
 
 ### Use Case: Agent Swarm with Zero Silent Failures
 
 5 agents are decomposing a god object in parallel. Each agent writes its output file via
-`apply_batch`. Without verify, a syntax error in one file produces no error at write time
-— the broken file sits in the graph until the next full ingest.
+`apply_batch`. Without verify, a graph or known static defect produces no signal at write
+time — the broken file sits in the graph until the next full ingest.
 
-With `verify=true`, the error surfaces immediately at write time:
+With `verify=true`, graph incoherence, layer violations, and known static
+antibodies surface immediately at write time:
 
 ```bash
 # Agent calls apply_batch with verify=true
@@ -1239,29 +1251,32 @@ curl -s -X POST http://localhost:1337/api/tools/apply_batch \
       {"file_path": "/project/backend/chat_handler_ws.py", "new_content": "..."}
     ]
   }' | jq '.result.verify'
-# → {"passed": true, "files_verified": 1, "node_delta": 23, "edge_delta": 41}
+# → {"verdict":"RISKY","tests_run":null,
+#    "test_output":"NOT_RUN: repository code execution requires an isolated verification runner",
+#    "compile_check":"not_run: repository compilation requires an isolated verification runner"}
 ```
 
-If `verify.passed` is `false`, the orchestrator (the orchestrator) sees the failure immediately via
-the pulse SSE stream and can re-queue the failing agent before the rest of the swarm
-merges. No broken files silently accumulate in the graph.
+The orchestrator can reject `BROKEN` immediately and must treat `RISKY` as
+requiring a separately isolated test/build receipt before merge. Static/graph
+verification is useful evidence, but it is not runtime or compiler proof.
 
 ### Use Case: CI Gate — Block Merge on Graph Incoherence
 
-Add m1nd as a CI gate that verifies every file touched by a PR stays ingest-clean:
+Add m1nd as one CI input that verifies every file touched by a PR stays
+ingest-clean; keep the repository's compiler/test jobs as separate required gates:
 
 ```bash
 # For each changed file in the PR:
 for f in $(git diff --name-only origin/main); do
   RESULT=$(curl -s -X POST http://localhost:1337/api/tools/apply \
     -d "{\"agent_id\":\"ci\",\"file_path\":\"$(pwd)/$f\",\"new_content\":\"$(cat $f | jq -Rs .)\",\"verify\":true}")
-  PASSED=$(echo "$RESULT" | jq -r '.result.verify.passed')
-  if [ "$PASSED" != "true" ]; then
-    echo "FAIL: $f failed m1nd verify — $(echo $RESULT | jq -r '.result.verify.reason')"
+  VERDICT=$(echo "$RESULT" | jq -r '.result.verify.verdict')
+  if [ "$VERDICT" = "BROKEN" ]; then
+    echo "FAIL: $f failed static/graph verification"
     exit 1
   fi
 done
-echo "All files verified by m1nd graph."
+echo "Static/graph pass complete; run isolated compiler and tests next."
 ```
 
 ### Latency Profile
@@ -1272,5 +1287,73 @@ echo "All files verified by m1nd graph."
 | Single file (large, 1K nodes) | 2.4ms | 5.7ms | +3.3ms |
 | Batch 5 files | 3.2ms | 9.8ms | +6.6ms |
 
-The overhead is proportional to file size (ingest cost). For most files, it is under
-3ms — acceptable for CI gates and agent harnesses where correctness is critical.
+The table measures static/graph ingest overhead only; it is not test or compile
+latency. Treat the historical measurements as illustrative until the benchmark is
+rerun against the current working tree.
+
+---
+
+## 10. Sovereign Landing via the G2/G3 Authority Bridge
+
+> **Status:** implemented and fixture-proven in the 2026-07-18 working tree; not published,
+> not installed in the live owner, and not a claim that real hardware authority exists.
+
+A platform client may request a sovereign mission landing, but it never self-asserts transport
+identity, owner time, the selected brain, the verification registry, or policy. Those facts are
+injected by the served owner. The client supplies signed capabilities made by a key already pinned
+in the owner security config; h4nd or another agent must not fabricate one.
+
+### REST sequence
+
+1. `POST /api/authority/session/challenge?brain=<absolute-root>` with
+   `M1nd-Transport-Session-Id` and, when present for that session, `M1nd-Caller-Root`. The strict
+   `m1nd-authority-session-challenge-request-v1` body names the subject, pinned key, app-host
+   identity, nonce, and a non-zero TTL no greater than five minutes.
+2. Sign the returned challenge as a `runtime.session.handshake` `AuthorityCapabilityV1`, then
+   `POST /api/authority/session/authenticate` on the exact same wire/root/brain context. The owner
+   returns an authenticated G2 authority session; it is distinct from the REST/MCP transport
+   session and must be re-created after owner restart.
+3. Canonically digest the intended `LandIntent` request. Call `POST /api/authority/authorize`
+   for Ordinary action `mission.service.land_intent` and exact effects `[READ]`, bound to the G2
+   session and session-context digest.
+4. Call `POST /api/tools/mission_service?brain=<absolute-root>` with the transport-session,
+   caller-root, and `M1nd-Authority-Lease-Id` headers. The one-shot lease returns the canonical
+   `LandIntent`; replay is refused.
+5. Sign a Positive Sovereign capability for `mission.service.land`, with the exact LandIntent core
+   digest, payload, mission/head binding, and effects
+   `[MISSION_STATE_WRITE, RUNTIME_STORE_WRITE, COORDINATION_RECORD, SOVEREIGN_MUTATION]`.
+   Authorize it through `/api/authority/authorize` to receive a new one-shot lease and receipt.
+6. Build the `PositiveAuthorityTransaction` with
+   `authorization_snapshot_digest = authorization_receipt.receipt_digest`, sign the complete
+   sealed outer transaction, then call the typed `mission_service` Land request with the new
+   lease. The owner verifies the receipt and outer-transaction signatures against its pinned key
+   registry before execution. Success becomes visible only at the signed AuthorityWAL `COMMIT`;
+   signed `ExecutionResult` and `ReviewResult` artifacts are verified before acceptance, and the
+   broker then durably marks the lease `CONSUMED`.
+
+Streamable-HTTP MCP uses the same semantics via tools `authority_session_challenge`,
+`authority_session_authenticate`, `authority_authorize`, and `mission_service`. `Mcp-Session-Id`
+and the REST `m1nd-transport-session-id` header are owner-observed correlation labels, not proof of
+subject identity. Authentication comes only from the signed G2 capability and owner-pinned public
+key; authority consumption still uses `M1nd-Authority-Lease-Id`.
+
+### Fail-closed outcomes
+
+- HTTP `401`: required transport/G2 session facts are missing, unknown, or expired.
+- HTTP `403`: brain, wire context, receipt, operation, policy, or cryptographic binding differs.
+- HTTP `409`: a challenge/lease was expired, consumed, or replayed, authority is frozen, or the durable
+  mission/authorization snapshot is stale.
+- HTTP `429`: a bounded authority registry has reached its configured capacity.
+- HTTP `410`: a legacy direct mission mutation path was attempted.
+- HTTP `503`: the production authority assembly, runtime, broker, verifier, or typed MissionService
+  is `NOT_INSTALLED` or unavailable.
+- HTTP `500`: durable authority/MissionService state is corrupt, a protected journal head detects
+  rollback, or an I/O/CAS invariant failed.
+
+Production startup remains fail-closed until the operator provides independently protected
+OwnerSecurityConfig and AuthorityRuntime epoch roots, an injected production AuthorityWAL signer,
+domain-separated protected broker/WAL journal heads, and pinned public verification keys. The atomic assembly/install
+API exists, but no concrete CLI/LaunchAgent platform adapter in this checkout supplies that hardware
+ceremony. No key is synthesized from environment variables or by an agent. Until the ceremony is
+installed and accepted, the correct product behavior is a visible `HUMAN_GATED` / `NOT_INSTALLED`
+refusal before an authority-required HTTP bind.
