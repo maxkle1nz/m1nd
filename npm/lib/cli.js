@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -11,6 +12,33 @@ const SKILLS_ROOT = path.join(PACKAGE_ROOT, "skills");
 const UNIVERSAL_PACK = path.join(SKILLS_ROOT, "m1nd-universal-agent-pack.md");
 const NPM_PACKAGE = "@maxkle1nz/m1nd";
 const SELF_UPDATE_SCHEMA = "m1nd-self-update-v0";
+const UPDATE_STATE_SCHEMA = "m1nd-self-update-rollback-state-v0";
+const RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-v1";
+const CANONICAL_RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-manifest-v1";
+const CANONICAL_RELEASE_CANDIDATE_DOMAIN = CANONICAL_RELEASE_CANDIDATE_SCHEMA;
+const CANONICAL_GATE_RECEIPT_SCHEMA = "m1nd-gate-receipt-v1";
+const CANONICAL_REVIEW_RECEIPT_SCHEMA = "m1nd-independent-adversarial-review-receipt-v1";
+const CANONICAL_EVIDENCE_SET_EXTENSION_SCHEMA = "m1nd-release-evidence-set-json-extension-v1";
+const CANONICALIZATION_VERSION = "m1nd-canonical-json-v1";
+const CANONICAL_DIGEST_PREFIX = Buffer.from("m1nd-domain-separated-sha256-v1\0", "utf8");
+const CANONICAL_COMPATIBILITY_SCHEMA = "m1nd-release-compatibility-manifest-v1";
+const CANONICAL_COMPATIBILITY_FILE = "RELEASE-COMPATIBILITY.json";
+const CANONICAL_COMPATIBILITY_ARTIFACT_KEY = "release_compatibility_manifest_v1";
+const CANONICAL_ROLLBACK_ARTIFACT_KEY = "release_rollback_plan_v1";
+const CANONICAL_RELEASE_ASSET_PREFIX = "release_asset:";
+const CANONICAL_RELEASE_ARTIFACT_PREFIX = "release_artifact:";
+const STRUCTURAL_RELEASE_STATUS = "STRUCTURALLY_VALID_NOT_CRYPTOGRAPHICALLY_VERIFIED";
+const RELEASE_REPOSITORY = "maxkle1nz/m1nd";
+const RELEASE_WORKFLOW = "release.yml";
+const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
+const UPDATE_PHASES = new Set(["prepared", "installed", "rolled_back"]);
+const SHA256_RE = /^[0-9a-f]{64}$/;
+const RELEASE_DOWNLOAD_LIMITS = Object.freeze({
+  "CANDIDATE.json": 16 * 1024 * 1024,
+  "CANDIDATE.json.sigstore.json": 16 * 1024 * 1024,
+  [CANONICAL_COMPATIBILITY_FILE]: 16 * 1024 * 1024,
+  runtime: 256 * 1024 * 1024,
+});
 const HOST_READINESS_SCHEMA = "m1nd-host-readiness-v0";
 const HOST_REBIND_PLAN_SCHEMA = "m1nd-host-rebind-plan-v0";
 const HOST_APPLY_SCHEMA = "m1nd-host-apply-v0";
@@ -92,8 +120,10 @@ deep architecture, hidden coupling, security/taint, duplication/refactor, or
 runtime-heat tasks, it emits RETROBUILDER capability_suggestions.
 
 agent first-minute is the safest first contact for a new repo. It scopes,
-trusts, ingests when needed, runs one bounded orientation pass, returns anchors,
-and then tells the agent to prove directly. It can also surface RETROBUILDER
+checks trust, and runs one bounded read-only orientation pass only when the bound
+brain already has an ingested graph. An empty graph returns deterministic
+needs_authority/NOT_PROVEN recovery instructions; the npm CLI never calls generic
+ingest, legacy bootstrap, or a software-test authority fallback. It can also surface RETROBUILDER
 tools such as ghost_edges, taint_trace, twins, refactor_plan, and
 runtime_overlay when the query asks for those deeper lenses.
 
@@ -201,6 +231,55 @@ function which(binary) {
     }
   }
   return null;
+}
+
+// Release verification is a privileged mutation path.  It must not inherit an
+// executable from an arbitrary repository-controlled PATH entry.  Search only
+// fixed operating-system/package-manager locations and return the canonical
+// regular executable.  General discovery keeps using `which`; updater trust
+// decisions never do.
+function trustedUpdateTool(binary) {
+  if (typeof binary !== "string" || !/^[A-Za-z0-9._+-]+$/.test(binary)) return null;
+  const directories =
+    process.platform === "win32"
+      ? [
+          process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32") : null,
+          process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "cosign") : null,
+        ]
+      : ["/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin", "/snap/bin"];
+  const extensions = process.platform === "win32" ? [".exe", ".cmd"] : [""];
+  for (const directory of directories.filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `${binary}${extension}`);
+      try {
+        const canonical = fs.realpathSync.native(candidate);
+        const stat = fs.statSync(canonical);
+        if (!path.isAbsolute(canonical) || !stat.isFile()) continue;
+        if (process.platform !== "win32" && (stat.mode & 0o111) === 0) continue;
+        if (process.platform !== "win32" && (stat.mode & 0o002) !== 0) continue;
+        return canonical;
+      } catch (_) {
+        // Missing, dangling, unreadable, or non-regular candidates are not
+        // updater authorities. Continue to the next fixed location.
+      }
+    }
+  }
+  return null;
+}
+
+function trustedNodePackageManager() {
+  const node = trustedUpdateTool("node");
+  const npm = trustedUpdateTool("npm");
+  if (!node || !npm) return null;
+  // Unix npm launchers are JavaScript entry points with an env-based shebang.
+  // Execute the canonical script with the separately trusted Node binary so a
+  // hostile PATH cannot choose the interpreter. Windows `.cmd` launchers are
+  // intentionally refused until a fixed-path, non-shell npm entry point is
+  // resolved and proven there.
+  if (process.platform === "win32" || path.extname(npm).toLowerCase() === ".cmd") {
+    return null;
+  }
+  return { node, prefix: [npm], source: "trusted-fixed-node-and-npm" };
 }
 
 function runtimeBinaryName(platform = process.platform) {
@@ -1892,8 +1971,20 @@ function readNpmRegistry(channel) {
     };
   }
 
-  const tagsResult = runCommand("npm", ["view", NPM_PACKAGE, "dist-tags", "--json"], { timeout: 7000 });
-  const versionResult = runCommand("npm", ["view", NPM_PACKAGE, "version", "--json"], { timeout: 7000 });
+  const npm = trustedNodePackageManager();
+  if (!npm) {
+    return {
+      ok: false,
+      package: NPM_PACKAGE,
+      dist_tags: {},
+      version: null,
+      latest_version: null,
+      source: "trusted-npm-unavailable",
+      error: "fixed-path node/npm pair unavailable; updater will not execute an ambient PATH package manager",
+    };
+  }
+  const tagsResult = runCommand(npm.node, [...npm.prefix, "view", NPM_PACKAGE, "dist-tags", "--json"], { timeout: 7000 });
+  const versionResult = runCommand(npm.node, [...npm.prefix, "view", NPM_PACKAGE, "version", "--json"], { timeout: 7000 });
   const tags = tagsResult.ok ? safeJsonParse(tagsResult.stdout) || {} : {};
   const parsedVersion = versionResult.ok ? safeJsonParse(versionResult.stdout) : null;
   const version = typeof parsedVersion === "string" ? parsedVersion : null;
@@ -1918,14 +2009,12 @@ function readCrateVersion(crateName = "m1nd-mcp") {
       error: null,
     };
   }
-  const result = runCommand("cargo", ["search", crateName, "--limit", "1"], { timeout: 10000 });
-  const match = result.stdout.match(new RegExp(`^${crateName}\\s*=\\s*"([^"]+)"`, "m"));
   return {
-    ok: result.ok && Boolean(match),
+    ok: false,
     crate: crateName,
-    version: match ? match[1] : null,
-    source: "cargo-search",
-    error: result.ok ? null : (result.stderr || result.error || "").trim(),
+    version: null,
+    source: "cargo-fallback-disabled",
+    error: "unverified Cargo fallback is disabled; only a signed release candidate may update the runtime",
   };
 }
 
@@ -1933,6 +2022,15 @@ function githubReleaseAssetName(platform = process.platform, arch = process.arch
   if (platform === "darwin" && arch === "arm64") return "m1nd-mcp-macos-aarch64";
   if (platform === "darwin" && arch === "x64") return "m1nd-mcp-macos-x86_64";
   if (platform === "linux" && arch === "x64") return "m1nd-mcp-linux-x86_64";
+  if (platform === "win32" && arch === "x64") return "m1nd-mcp-windows-x86_64.exe";
+  return null;
+}
+
+function githubReleaseTargetName(platform = process.platform, arch = process.arch) {
+  if (platform === "darwin" && arch === "arm64") return "macos-aarch64";
+  if (platform === "darwin" && arch === "x64") return "macos-x86_64";
+  if (platform === "linux" && arch === "x64") return "linux-x86_64";
+  if (platform === "win32" && arch === "x64") return "windows-x86_64";
   return null;
 }
 
@@ -1942,7 +2040,12 @@ function githubReleaseAssetUrl(version, platform = process.platform, arch = proc
   return `https://github.com/maxkle1nz/m1nd/releases/download/v${version}/${asset}`;
 }
 
-function githubReleaseAvailability(version, platform = process.platform, arch = process.arch) {
+function githubReleaseAvailability(
+  version,
+  platform = process.platform,
+  arch = process.arch,
+  testDependencies = null
+) {
   const asset = githubReleaseAssetName(platform, arch);
   const url = githubReleaseAssetUrl(version, platform, arch);
   if (!asset || !url) {
@@ -1955,14 +2058,16 @@ function githubReleaseAvailability(version, platform = process.platform, arch = 
       error: `no v0 release asset is mapped for ${platform}-${arch}`,
     };
   }
-  if (process.env.M1ND_TEST_RELEASE_ASSET_PATH) {
+  if (testDependencies && testDependencies.releaseDirectory) {
+    const fixture = path.join(testDependencies.releaseDirectory, asset);
+    const available = fs.existsSync(fixture) && fs.statSync(fixture).isFile();
     return {
       ok: true,
-      available: true,
+      available,
       asset,
       url,
-      source: "M1ND_TEST_RELEASE_ASSET_PATH",
-      error: null,
+      source: "test-release-directory",
+      error: available ? null : `test release raw asset is missing: ${asset}`,
     };
   }
   if (process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE) {
@@ -1976,7 +2081,7 @@ function githubReleaseAvailability(version, platform = process.platform, arch = 
       error: available ? null : "test override reported unavailable",
     };
   }
-  const curl = which("curl");
+  const curl = trustedUpdateTool("curl");
   if (!curl) {
     return {
       ok: false,
@@ -1987,14 +2092,57 @@ function githubReleaseAvailability(version, platform = process.platform, arch = 
       error: "curl not found; cannot probe GitHub release asset",
     };
   }
-  const result = runCommand(curl, ["-fsI", "-L", url], { timeout: 8000 });
+  const result = runCommand(
+    curl,
+    [
+      "-fsIL",
+      "--proto",
+      "=https",
+      "--proto-redir",
+      "=https",
+      "--max-redirs",
+      "5",
+      "--connect-timeout",
+      "5",
+      "--write-out",
+      "%{url_effective}",
+      "--output",
+      os.devNull,
+      url,
+    ],
+    { timeout: 8000 }
+  );
+  const effectiveUrl = result.stdout.trim();
+  const transportAllowed = result.ok && allowedReleaseTransportUrl(effectiveUrl);
   return {
-    ok: result.ok,
-    available: result.ok,
+    ok: transportAllowed,
+    available: transportAllowed,
     asset,
     url,
     source: "github-release-head",
-    error: result.ok ? null : (result.stderr || result.error || "").trim(),
+    error: transportAllowed
+      ? null
+      : result.ok
+        ? `release redirect escaped the accepted HTTPS host policy: ${effectiveUrl || "missing effective URL"}`
+        : (result.stderr || result.error || "").trim(),
+  };
+}
+
+function updateTestOverrides(testDependencies = null) {
+  const active = [];
+  if (testDependencies && testDependencies.releaseDirectory) active.push("release-transport-directory");
+  if (testDependencies && testDependencies.cosignPath) active.push("cosign-executable-path");
+  return {
+    active: active.length > 0,
+    release_transport:
+      testDependencies && testDependencies.releaseDirectory
+        ? "local-test-directory"
+        : "github-release-https",
+    verifier_source:
+      testDependencies && testDependencies.cosignPath
+        ? "explicit-test-executable"
+        : "trusted-fixed-path",
+    overrides: active,
   };
 }
 
@@ -2007,6 +2155,56 @@ function updateBackupPath(targetBinary, beforeVersion) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupRoot = process.env.M1ND_UPDATE_BACKUP_DIR || path.join(homeDir(), ".m1nd", "backups");
   return path.join(backupRoot, `${path.basename(targetBinary)}-${safeVersion}-${stamp}`);
+}
+
+function sha256File(file) {
+  const digest = crypto.createHash("sha256");
+  digest.update(fs.readFileSync(file));
+  return digest.digest("hex");
+}
+
+function fsyncFile(file) {
+  const descriptor = fs.openSync(file, "r");
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function fsyncDirectory(directory) {
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch (_) {
+    // Windows and some filesystems do not permit fsync on directory handles.
+    // The file itself is still fsynced before the same-directory rename.
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+  }
+}
+
+function writeJsonAtomic(file, value) {
+  const directory = path.dirname(file);
+  ensureDir(directory);
+  const temporary = path.join(
+    directory,
+    `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
+  );
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fs.renameSync(temporary, file);
+    fsyncDirectory(directory);
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 function selectTargetVersion(packageVersion, registryVersion) {
@@ -2036,7 +2234,7 @@ function action(id, kind, description, extra = {}) {
   return { id, kind, description, ...extra };
 }
 
-function buildSelfUpdateProof(args, command = "check") {
+function buildSelfUpdateProof(args, command = "check", testDependencies = null) {
   const channel = normalizeChannel(args.channel);
   const packageVersion = readPackageVersion();
   const registry = readNpmRegistry(channel);
@@ -2051,7 +2249,13 @@ function buildSelfUpdateProof(args, command = "check") {
   const pathRuntimeText = pathBinary ? runtimeVersion(pathBinary) : null;
   const pack = assertPackShape();
   const crate = readCrateVersion("m1nd-mcp");
-  const release = githubReleaseAvailability(targetVersion);
+  const release = githubReleaseAvailability(
+    targetVersion,
+    process.platform,
+    process.arch,
+    testDependencies
+  );
+  const testOverrides = updateTestOverrides(testDependencies);
   const plannedActions = [];
   const blockedActions = [];
   const staleSurfaces = [];
@@ -2061,11 +2265,13 @@ function buildSelfUpdateProof(args, command = "check") {
     const npmComparison = compareSemver(packageVersion, registry.latest_version);
     if (npmComparison !== null && npmComparison < 0 && !args["no-npm"]) {
       staleSurfaces.push("npm-package");
-      plannedActions.push(action("npm-install", "npm", `install ${NPM_PACKAGE}@${channel}`, {
+      blockedActions.push(action("npm-signed-artifact-required", "npm", `refuse registry-only install of ${NPM_PACKAGE}@${registry.latest_version}`, {
         package: NPM_PACKAGE,
         channel,
         target_version: registry.latest_version,
-        command: `npm install -g ${NPM_PACKAGE}@${channel}`,
+        source: "signed-release-required",
+        reason: "the npm tarball digest is not yet bound to the signed release candidate",
+        next_action: "publish a candidate-bound npm tarball and install those exact verified bytes",
       }));
     } else if (npmComparison !== null && npmComparison < 0 && args["no-npm"]) {
       staleSurfaces.push("npm-package");
@@ -2092,7 +2298,8 @@ function buildSelfUpdateProof(args, command = "check") {
         target_binary: targetBinary,
       }));
     } else {
-      plannedActions.push(runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime missing"));
+      const install = runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime missing");
+      (install.id === "runtime-install-github-release" ? plannedActions : blockedActions).push(install);
     }
   } else if (!runtimeParsedVersion || (targetVersion && !runtimeText.includes(targetVersion))) {
     staleSurfaces.push("runtime");
@@ -2103,7 +2310,8 @@ function buildSelfUpdateProof(args, command = "check") {
         target_binary: targetBinary,
       }));
     } else {
-      plannedActions.push(runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime stale or unknown"));
+      const install = runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime stale or unknown");
+      (install.id === "runtime-install-github-release" ? plannedActions : blockedActions).push(install);
     }
   }
 
@@ -2175,6 +2383,7 @@ function buildSelfUpdateProof(args, command = "check") {
       m1nd_mcp: crate,
     },
     github_release: release,
+    test_overrides: testOverrides,
     runtime: {
       platform: process.platform,
       arch: process.arch,
@@ -2194,7 +2403,12 @@ function buildSelfUpdateProof(args, command = "check") {
     blocked_actions: blockedActions,
     requires_host_rebind: plannedActions.some((planned) => ["npm", "runtime", "agent-pack", "process"].includes(planned.kind)),
     dry_run: true,
-    non_claims: selfUpdateNonClaims(),
+    non_claims: [
+      ...selfUpdateNonClaims(),
+      ...(testOverrides.active
+        ? ["This proof used explicit local test transport or verifier seams and is not a live GitHub/Sigstore receipt."]
+        : []),
+    ],
     next_actions: [],
   };
 }
@@ -2210,79 +2424,1202 @@ function runtimeInstallAction(release, crate, targetVersion, targetBinary, reaso
       target_version: targetVersion,
     });
   }
-  return action("runtime-install-cargo", "runtime", `install native runtime ${targetVersion} with cargo fallback`, {
+  return action("runtime-release-unavailable", "runtime", `signed release candidate unavailable for native runtime ${targetVersion}; refusing unverified fallback`, {
     reason,
-    source: "cargo-install",
-    crate: "m1nd-mcp",
+    source: "signed-release-required",
+    candidate_verification: "required-before-any-runtime-effect",
+    rollback_available: false,
+    crate: crate.crate,
     crate_version: crate.version,
     target_binary: targetBinary,
     target_version: targetVersion,
     release_error: release.error,
+    next_action: "publish or restore the exact signed GitHub release candidate, then retry",
   });
 }
 
-function installRuntimeBinaryWithBackup(sourceBinary, targetBinary) {
+function canonicalJson(value) {
+  function order(candidate) {
+    if (Array.isArray(candidate)) return candidate.map(order);
+    if (candidate && typeof candidate === "object") {
+      return Object.keys(candidate)
+        .sort()
+        .reduce((result, key) => {
+          result[key] = order(candidate[key]);
+          return result;
+        }, {});
+    }
+    return candidate;
+  }
+  return `${JSON.stringify(order(value))}\n`;
+}
+
+function requireUnicodeScalarString(value, location) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new Error(`unpaired high surrogate at ${location}`);
+      }
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new Error(`unpaired low surrogate at ${location}`);
+    }
+  }
+  return value;
+}
+
+function parseIntegerJson(text, description = "JSON") {
+  let index = 0;
+
+  function fail(detail) {
+    throw new Error(`invalid ${description} at byte ${index}: ${detail}`);
+  }
+
+  function whitespace() {
+    while (index < text.length && /[\t\n\r ]/.test(text[index])) index += 1;
+  }
+
+  function stringValue() {
+    const start = index;
+    index += 1;
+    while (index < text.length) {
+      const character = text[index];
+      if (character === '"') {
+        index += 1;
+        try {
+          return requireUnicodeScalarString(
+            JSON.parse(text.slice(start, index)),
+            `${description} string`
+          );
+        } catch (error) {
+          fail(error.message);
+        }
+      }
+      if (character === "\\") {
+        index += 2;
+      } else {
+        index += 1;
+      }
+    }
+    fail("unterminated string");
+  }
+
+  function numberValue() {
+    const rest = text.slice(index);
+    const match = rest.match(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/);
+    if (!match) fail("invalid number");
+    const source = match[0];
+    index += source.length;
+    if (/[.eE]/.test(source)) {
+      throw new Error(`invalid ${description}: non-integer JSON number refused: ${source}`);
+    }
+    const exact = BigInt(source);
+    if (exact >= BigInt(Number.MIN_SAFE_INTEGER) && exact <= BigInt(Number.MAX_SAFE_INTEGER)) {
+      return Number(source);
+    }
+    return exact;
+  }
+
+  function arrayValue() {
+    index += 1;
+    const result = [];
+    whitespace();
+    if (text[index] === "]") {
+      index += 1;
+      return result;
+    }
+    while (index < text.length) {
+      result.push(value());
+      whitespace();
+      if (text[index] === "]") {
+        index += 1;
+        return result;
+      }
+      if (text[index] !== ",") fail("expected ',' or ']' in array");
+      index += 1;
+      whitespace();
+    }
+    fail("unterminated array");
+  }
+
+  function objectValue() {
+    index += 1;
+    const result = {};
+    whitespace();
+    if (text[index] === "}") {
+      index += 1;
+      return result;
+    }
+    while (index < text.length) {
+      if (text[index] !== '"') fail("object key must be a string");
+      const key = stringValue();
+      if (Object.prototype.hasOwnProperty.call(result, key)) {
+        fail(`duplicate object key refused: ${JSON.stringify(key)}`);
+      }
+      whitespace();
+      if (text[index] !== ":") fail("expected ':' after object key");
+      index += 1;
+      const item = value();
+      Object.defineProperty(result, key, {
+        value: item,
+        configurable: true,
+        enumerable: true,
+        writable: true,
+      });
+      whitespace();
+      if (text[index] === "}") {
+        index += 1;
+        return result;
+      }
+      if (text[index] !== ",") fail("expected ',' or '}' in object");
+      index += 1;
+      whitespace();
+    }
+    fail("unterminated object");
+  }
+
+  function literal(expected, result) {
+    if (text.slice(index, index + expected.length) !== expected) fail(`expected ${expected}`);
+    index += expected.length;
+    return result;
+  }
+
+  function value() {
+    whitespace();
+    const character = text[index];
+    if (character === "{") return objectValue();
+    if (character === "[") return arrayValue();
+    if (character === '"') return stringValue();
+    if (character === "t") return literal("true", true);
+    if (character === "f") return literal("false", false);
+    if (character === "n") return literal("null", null);
+    if (character === "-" || /[0-9]/.test(character || "")) return numberValue();
+    fail("unexpected token");
+  }
+
+  try {
+    const result = value();
+    whitespace();
+    if (index !== text.length) fail("trailing content");
+    return result;
+  } catch (error) {
+    if (String(error.message).startsWith(`invalid ${description}`)) throw error;
+    throw new Error(`invalid ${description}: ${error.message}`);
+  }
+}
+
+function canonicalJsonV1(value) {
+  function encode(candidate, location) {
+    if (candidate === null) return "null";
+    if (typeof candidate === "string") {
+      requireUnicodeScalarString(candidate, location);
+      return JSON.stringify(candidate);
+    }
+    if (typeof candidate === "boolean") {
+      return JSON.stringify(candidate);
+    }
+    if (typeof candidate === "bigint") return candidate.toString(10);
+    if (typeof candidate === "number") {
+      if (!Number.isSafeInteger(candidate)) {
+        throw new Error(`canonical JSON number at ${location} is not a safe integer`);
+      }
+      return JSON.stringify(candidate);
+    }
+    if (Array.isArray(candidate)) {
+      return `[${candidate.map((item, index) => encode(item, `${location}[${index}]`)).join(",")}]`;
+    }
+    if (candidate && typeof candidate === "object") {
+      const prototype = Object.getPrototypeOf(candidate);
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new Error(`canonical JSON value at ${location} is not a plain object`);
+      }
+      return `{${Object.keys(candidate)
+        .map((key) => requireUnicodeScalarString(key, `${location}.<key>`))
+        // Rust String/BTreeMap ordering is UTF-8 byte ordering.  JavaScript's
+        // default UTF-16 sort diverges for astral keys versus high BMP keys.
+        .sort((left, right) => Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")))
+        .map((key) => `${JSON.stringify(key)}:${encode(candidate[key], `${location}.${key}`)}`)
+        .join(",")}}`;
+    }
+    throw new Error(`unsupported canonical JSON value at ${location}: ${typeof candidate}`);
+  }
+  return encode(value, "$");
+}
+
+function domainSeparatedDigest(domain, value) {
+  const domainBytes = Buffer.from(domain, "utf8");
+  const payload = Buffer.from(canonicalJsonV1(value), "utf8");
+  const domainLength = Buffer.alloc(8);
+  const payloadLength = Buffer.alloc(8);
+  domainLength.writeBigUInt64BE(BigInt(domainBytes.length));
+  payloadLength.writeBigUInt64BE(BigInt(payload.length));
+  return crypto
+    .createHash("sha256")
+    .update(CANONICAL_DIGEST_PREFIX)
+    .update(domainLength)
+    .update(domainBytes)
+    .update(payloadLength)
+    .update(payload)
+    .digest("hex");
+}
+
+const CANONICAL_HEX_64_RE = /^[0-9A-Fa-f]{64}$/;
+const CANONICAL_GATE_IDS = Array.from({ length: 11 }, (_unused, index) => `G${index}`);
+const CANONICAL_GATE_VERDICTS = new Set(["PASS", "FAIL", "NOT_RUN", "NOT_PROVEN"]);
+const CANONICAL_FINDING_SEVERITIES = new Set(["P0", "P1", "P2", "P3", "Info"]);
+const CANONICAL_FINDING_STATUSES = new Set(["OPEN", "CLOSED"]);
+const CANONICAL_ACTIVE_MODES = new Set(["HUMAN_GATED", "POLICY_AUTONOMOUS", "FULL_AUTONOMY"]);
+
+function requireExactFields(value, fields, description) {
+  requireCandidateObject(value, description);
+  const expected = [...fields].sort();
+  const actual = Object.keys(value).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${description} fields differ: expected=${expected.join(",")}, actual=${actual.join(",")}`);
+  }
+  return value;
+}
+
+function requireCanonicalText(value, field, trim = true) {
+  if (typeof value !== "string" || (trim ? value.trim().length === 0 : value.length === 0)) {
+    throw new Error(`required field ${field} is empty or not text`);
+  }
+  return value;
+}
+
+function requireCanonicalDigest(value, field) {
+  if (typeof value !== "string" || !CANONICAL_HEX_64_RE.test(value)) {
+    throw new Error(`required digest ${field} is not 64 hexadecimal characters`);
+  }
+  return value;
+}
+
+function requireCanonicalU64(value, field) {
+  const integer = typeof value === "bigint" ? value : Number.isSafeInteger(value) ? BigInt(value) : null;
+  if (integer === null || integer < 0n || integer > 18446744073709551615n) {
+    throw new Error(`${field} must be a u64 integer`);
+  }
+  return integer;
+}
+
+function requireCanonicalI32OrNull(value, field) {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < -2147483648 || value > 2147483647) {
+    throw new Error(`${field} must be null or an i32 integer`);
+  }
+  return value;
+}
+
+function requireCanonicalMap(value, field, digestValues) {
+  requireCandidateObject(value, field);
+  const names = Object.keys(value);
+  if (names.length === 0) throw new Error(`required map ${field} is empty`);
+  for (const name of names) {
+    requireCanonicalText(name, `${field}.key`);
+    if (digestValues) requireCanonicalDigest(value[name], `${field}.${name}`);
+    else requireCanonicalText(value[name], `${field}.${name}`);
+  }
+  return value;
+}
+
+function validateCanonicalFinding(value) {
+  const finding = requireExactFields(
+    value,
+    ["finding_id", "severity", "status", "statement", "evidence_digest"],
+    "release finding"
+  );
+  requireCanonicalText(finding.finding_id, "finding_id");
+  if (!CANONICAL_FINDING_SEVERITIES.has(finding.severity)) {
+    throw new Error(`invalid finding severity: ${String(finding.severity)}`);
+  }
+  if (!CANONICAL_FINDING_STATUSES.has(finding.status)) {
+    throw new Error(`invalid finding status: ${String(finding.status)}`);
+  }
+  requireCanonicalText(finding.statement, "finding.statement");
+  requireCanonicalDigest(finding.evidence_digest, "finding.evidence_digest");
+  return finding;
+}
+
+function validateCanonicalFindings(value) {
+  if (!Array.isArray(value)) throw new Error("findings must be an array");
+  const ids = new Set();
+  for (const finding of value.map(validateCanonicalFinding)) {
+    if (ids.has(finding.finding_id)) throw new Error(`duplicate finding id ${finding.finding_id}`);
+    ids.add(finding.finding_id);
+  }
+  return value;
+}
+
+const CANONICAL_CANDIDATE_CORE_FIELDS = [
+  "repo_commits",
+  "artifact_digests",
+  "schema_policy_versions",
+  "tool_catalog_digest",
+  "safety_kernel_digest",
+  "previous_governance_runtime_digest",
+  "constitution_epoch_digest",
+  "autonomy_epoch_grants_digest",
+  "independence_quorum_policy_digest",
+  "intended_active_mode",
+  "compatibility_manifest_digest",
+  "rollback_plan_digest",
+  "harness_fixture_threat_digests",
+  "build_environment_digest",
+  "built_at",
+];
+
+function validateCanonicalCandidateCore(value) {
+  const core = requireExactFields(value, CANONICAL_CANDIDATE_CORE_FIELDS, "release candidate core");
+  requireCanonicalMap(core.repo_commits, "repo_commits", false);
+  requireCanonicalMap(core.artifact_digests, "artifact_digests", true);
+  requireCanonicalMap(core.schema_policy_versions, "schema_policy_versions", false);
+  requireCanonicalMap(core.harness_fixture_threat_digests, "harness_fixture_threat_digests", true);
+  for (const field of [
+    "tool_catalog_digest",
+    "safety_kernel_digest",
+    "previous_governance_runtime_digest",
+    "constitution_epoch_digest",
+    "autonomy_epoch_grants_digest",
+    "independence_quorum_policy_digest",
+    "compatibility_manifest_digest",
+    "rollback_plan_digest",
+    "build_environment_digest",
+  ]) {
+    requireCanonicalDigest(core[field], field);
+  }
+  if (!CANONICAL_ACTIVE_MODES.has(core.intended_active_mode)) {
+    throw new Error(`invalid intended_active_mode: ${String(core.intended_active_mode)}`);
+  }
+  requireCanonicalU64(core.built_at, "built_at");
+  return core;
+}
+
+function validateCanonicalCandidate(value) {
+  const candidate = requireExactFields(
+    value,
+    ["schema", "core", "candidate_digest", "provenance_signature"],
+    "canonical release candidate"
+  );
+  if (candidate.schema !== CANONICAL_RELEASE_CANDIDATE_SCHEMA) {
+    throw new Error(`unexpected canonical release candidate schema: ${String(candidate.schema)}`);
+  }
+  const core = validateCanonicalCandidateCore(candidate.core);
+  requireCanonicalDigest(candidate.candidate_digest, "candidate_digest");
+  // Exact Rust structural law: non-empty opaque bytes; no prefix is required.
+  requireCanonicalText(candidate.provenance_signature, "provenance_signature", false);
+  const expected = domainSeparatedDigest(CANONICAL_RELEASE_CANDIDATE_DOMAIN, core);
+  if (candidate.candidate_digest !== expected) {
+    throw new Error(`canonical candidate digest mismatch: expected ${expected}, got ${candidate.candidate_digest}`);
+  }
+  return candidate;
+}
+
+function validateCanonicalCompatibility(value) {
+  const manifest = requireExactFields(
+    value,
+    ["schema", "version", "commit", "source_ref", "targets"],
+    "canonical release compatibility manifest"
+  );
+  if (manifest.schema !== CANONICAL_COMPATIBILITY_SCHEMA) {
+    throw new Error(`unexpected release compatibility schema: ${String(manifest.schema)}`);
+  }
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(String(manifest.version))) {
+    throw new Error("canonical compatibility version is invalid");
+  }
+  if (!/^[0-9a-f]{40}$/.test(String(manifest.commit))) {
+    throw new Error("canonical compatibility commit must be a full lowercase SHA-1");
+  }
+  if (manifest.source_ref !== `refs/tags/v${manifest.version}`) {
+    throw new Error("canonical compatibility source_ref does not match its version");
+  }
+  if (!Array.isArray(manifest.targets) || manifest.targets.length === 0) {
+    throw new Error("canonical compatibility targets must be a non-empty array");
+  }
+  const seen = new Set();
+  for (const target of manifest.targets) {
+    requireExactFields(target, ["target", "asset", "sha256", "size_bytes"], "canonical compatibility target");
+    requireCanonicalText(target.target, "compatibility.target");
+    if (!/^[a-z0-9_-]+$/.test(target.target)) {
+      throw new Error(`canonical compatibility target is invalid: ${String(target.target)}`);
+    }
+    requireCanonicalText(target.asset, "compatibility.asset");
+    const expectedAsset = `m1nd-mcp-${target.target}${target.target.startsWith("windows-") ? ".exe" : ""}`;
+    if (target.asset !== expectedAsset) {
+      throw new Error(`canonical compatibility asset ${String(target.asset)} does not match ${expectedAsset}`);
+    }
+    requireCanonicalDigest(target.sha256, "compatibility.sha256");
+    const size = requireCanonicalU64(target.size_bytes, "compatibility.size_bytes");
+    if (size === 0n) throw new Error("compatibility.size_bytes must be positive");
+    if (seen.has(target.target)) throw new Error(`duplicate compatibility target ${target.target}`);
+    seen.add(target.target);
+  }
+  return manifest;
+}
+
+function validateCanonicalRollback(value) {
+  const plan = requireExactFields(
+    value,
+    ["schema", "version", "commit", "source_ref", "runtime_bindings", "activation", "rollback"],
+    "canonical release rollback plan"
+  );
+  if (plan.schema !== "m1nd-release-rollback-plan-v1") {
+    throw new Error(`unexpected release rollback schema: ${String(plan.schema)}`);
+  }
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(String(plan.version))) {
+    throw new Error("canonical rollback version is invalid");
+  }
+  if (!/^[0-9a-f]{40}$/.test(String(plan.commit))) {
+    throw new Error("canonical rollback commit must be a full lowercase SHA-1");
+  }
+  if (plan.source_ref !== `refs/tags/v${plan.version}`) {
+    throw new Error("canonical rollback source_ref does not match its version");
+  }
+  if (!Array.isArray(plan.runtime_bindings) || plan.runtime_bindings.length === 0) {
+    throw new Error("canonical rollback plan requires runtime bindings");
+  }
+  const seen = new Set();
+  for (const binding of plan.runtime_bindings) {
+    requireExactFields(
+      binding,
+      ["archive", "archive_member", "artifact_smoke_receipt", "raw_binary", "runtime_sha256", "size_bytes", "target"],
+      "canonical rollback runtime binding"
+    );
+    requireCanonicalText(binding.target, "rollback.target");
+    if (!/^[a-z0-9_-]+$/.test(binding.target)) {
+      throw new Error(`canonical rollback target is invalid: ${String(binding.target)}`);
+    }
+    if (seen.has(binding.target)) throw new Error(`duplicate canonical rollback target ${binding.target}`);
+    seen.add(binding.target);
+    const windows = binding.target.startsWith("windows-");
+    const expectedArchive = `m1nd-mcp-${binding.target}.${windows ? "zip" : "tar.gz"}`;
+    const expectedMember = windows ? "m1nd-mcp.exe" : "m1nd-mcp";
+    const expectedRaw = `m1nd-mcp-${binding.target}${windows ? ".exe" : ""}`;
+    const expectedReceipt = `GATE-ARTIFACT-SMOKE-${binding.target}.json`;
+    if (binding.archive !== expectedArchive) throw new Error(`canonical rollback archive mismatch for ${binding.target}`);
+    if (binding.archive_member !== expectedMember) throw new Error(`canonical rollback archive member mismatch for ${binding.target}`);
+    if (binding.raw_binary !== expectedRaw) throw new Error(`canonical rollback raw runtime mismatch for ${binding.target}`);
+    if (binding.artifact_smoke_receipt !== expectedReceipt) {
+      throw new Error(`canonical rollback smoke receipt mismatch for ${binding.target}`);
+    }
+    requireCanonicalDigest(binding.runtime_sha256, "rollback.runtime_sha256");
+    const size = requireCanonicalU64(binding.size_bytes, "rollback.size_bytes");
+    if (size === 0n) throw new Error("rollback.size_bytes must be positive");
+  }
+  const activation = requireExactFields(plan.activation, ["automatic", "command"], "canonical activation plan");
+  if (activation.automatic !== false || activation.command !== "m1nd update apply --yes") {
+    throw new Error("canonical activation must remain explicit and non-automatic");
+  }
+  const rollback = requireExactFields(
+    plan.rollback,
+    ["automatic", "command", "requires_local_state_schema", "source"],
+    "canonical rollback action"
+  );
+  if (rollback.automatic !== false || rollback.command !== "m1nd update rollback") {
+    throw new Error("canonical rollback must remain explicit and non-automatic");
+  }
+  if (rollback.requires_local_state_schema !== UPDATE_STATE_SCHEMA) {
+    throw new Error("canonical rollback state schema drifted");
+  }
+  if (rollback.source !== "pre-activation local runtime backup") {
+    throw new Error("canonical rollback source drifted");
+  }
+  return plan;
+}
+
+function validateCanonicalOperationalPair(compatibility, rollback) {
+  for (const field of ["version", "commit", "source_ref"]) {
+    if (compatibility[field] !== rollback[field]) {
+      throw new Error(`compatibility and rollback ${field} differ`);
+    }
+  }
+  const compatibleTargets = new Map(compatibility.targets.map((target) => [target.target, target]));
+  const rollbackTargets = new Map(rollback.runtime_bindings.map((binding) => [binding.target, binding]));
+  if (
+    compatibleTargets.size !== rollbackTargets.size ||
+    [...compatibleTargets.keys()].some((target) => !rollbackTargets.has(target))
+  ) {
+    throw new Error("compatibility and rollback target sets differ");
+  }
+  for (const [target, compatible] of compatibleTargets) {
+    const binding = rollbackTargets.get(target);
+    if (
+      binding.raw_binary !== compatible.asset ||
+      binding.runtime_sha256 !== compatible.sha256 ||
+      requireCanonicalU64(binding.size_bytes, "rollback.size_bytes") !==
+        requireCanonicalU64(compatible.size_bytes, "compatibility.size_bytes")
+    ) {
+      throw new Error(`compatibility and rollback runtime bytes differ for ${target}`);
+    }
+  }
+}
+
+function validateCanonicalGateReceipt(value) {
+  const receipt = requireExactFields(
+    value,
+    ["schema", "core", "receipt_id", "receipt_digest", "signature"],
+    "canonical gate receipt"
+  );
+  if (receipt.schema !== CANONICAL_GATE_RECEIPT_SCHEMA) throw new Error("invalid canonical gate receipt schema");
+  const core = requireExactFields(
+    receipt.core,
+    [
+      "candidate_digest", "gate_id", "spec_version", "metric_spec_digest",
+      "harness_fixture_digest", "environment_digest", "provider_id", "provider_key_version",
+      "input_digests", "command", "started_at", "ended_at", "exit_code", "verdict",
+      "findings", "artifact_digests",
+    ],
+    "canonical gate receipt core"
+  );
+  requireCanonicalDigest(core.candidate_digest, "candidate_digest");
+  if (!CANONICAL_GATE_IDS.includes(core.gate_id)) throw new Error(`invalid gate_id: ${String(core.gate_id)}`);
+  requireCanonicalText(core.spec_version, "spec_version");
+  if (core.metric_spec_digest !== null) requireCanonicalDigest(core.metric_spec_digest, "metric_spec_digest");
+  requireCanonicalDigest(core.harness_fixture_digest, "harness_fixture_digest");
+  requireCanonicalDigest(core.environment_digest, "environment_digest");
+  requireCanonicalText(core.provider_id, "provider_id");
+  requireCanonicalText(core.provider_key_version, "provider_key_version");
+  requireCanonicalMap(core.input_digests, "input_digests", true);
+  requireCanonicalText(core.command, "command");
+  const started = requireCanonicalU64(core.started_at, "started_at");
+  const ended = requireCanonicalU64(core.ended_at, "ended_at");
+  if (ended < started) throw new Error("invalid gate time window");
+  const exitCode = requireCanonicalI32OrNull(core.exit_code, "exit_code");
+  if (!CANONICAL_GATE_VERDICTS.has(core.verdict)) throw new Error(`invalid gate verdict: ${String(core.verdict)}`);
+  if (core.verdict === "PASS" && exitCode !== 0) throw new Error("PASS requires exit_code=0");
+  if (core.verdict === "NOT_RUN" && exitCode !== null) throw new Error("NOT_RUN cannot claim an exit code");
+  validateCanonicalFindings(core.findings);
+  requireCanonicalMap(core.artifact_digests, "artifact_digests", true);
+  requireCanonicalDigest(receipt.receipt_digest, "receipt_digest");
+  if (receipt.receipt_id !== `gate:${receipt.receipt_digest}`) throw new Error("canonical gate receipt_id mismatch");
+  requireCanonicalText(receipt.signature, "signature", false);
+  const expected = domainSeparatedDigest(CANONICAL_GATE_RECEIPT_SCHEMA, core);
+  if (receipt.receipt_digest !== expected) throw new Error("canonical gate receipt digest mismatch");
+  return receipt;
+}
+
+function validateCanonicalReviewReceipt(value) {
+  const receipt = requireExactFields(
+    value,
+    ["schema", "core", "receipt_id", "receipt_digest", "signature"],
+    "canonical independent review receipt"
+  );
+  if (receipt.schema !== CANONICAL_REVIEW_RECEIPT_SCHEMA) throw new Error("invalid canonical review schema");
+  const core = requireExactFields(
+    receipt.core,
+    [
+      "candidate_digest", "threat_matrix_digest", "provider_id", "provider_model_version",
+      "provider_key_version", "reviewed_inputs_digest", "binding_changes", "started_at",
+      "ended_at", "verdict", "findings",
+    ],
+    "canonical independent review core"
+  );
+  requireCanonicalDigest(core.candidate_digest, "candidate_digest");
+  requireCanonicalDigest(core.threat_matrix_digest, "threat_matrix_digest");
+  requireCanonicalText(core.provider_id, "provider_id");
+  requireCanonicalText(core.provider_model_version, "provider_model_version");
+  requireCanonicalText(core.provider_key_version, "provider_key_version");
+  requireCanonicalDigest(core.reviewed_inputs_digest, "reviewed_inputs_digest");
+  if (!Array.isArray(core.binding_changes) || !core.binding_changes.every((entry) => typeof entry === "string")) {
+    throw new Error("binding_changes must be an array of strings");
+  }
+  const started = requireCanonicalU64(core.started_at, "started_at");
+  const ended = requireCanonicalU64(core.ended_at, "ended_at");
+  if (ended < started) throw new Error("invalid independent review time window");
+  if (!CANONICAL_GATE_VERDICTS.has(core.verdict)) throw new Error(`invalid review verdict: ${String(core.verdict)}`);
+  validateCanonicalFindings(core.findings);
+  requireCanonicalDigest(receipt.receipt_digest, "receipt_digest");
+  if (receipt.receipt_id !== `iar:${receipt.receipt_digest}`) throw new Error("canonical review receipt_id mismatch");
+  requireCanonicalText(receipt.signature, "signature", false);
+  const expected = domainSeparatedDigest(CANONICAL_REVIEW_RECEIPT_SCHEMA, core);
+  if (receipt.receipt_digest !== expected) throw new Error("canonical independent review digest mismatch");
+  return receipt;
+}
+
+function hasCanonicalOpenP0P1(findings) {
+  return findings.some((finding) => finding.status === "OPEN" && ["P0", "P1"].includes(finding.severity));
+}
+
+function validateCanonicalEvidenceSet(value) {
+  const evidence = requireExactFields(
+    value,
+    ["schema", "contract_status", "candidate", "gate_receipts", "independent_review"],
+    "canonical evidence-set JSON extension"
+  );
+  if (evidence.schema !== CANONICAL_EVIDENCE_SET_EXTENSION_SCHEMA) {
+    throw new Error("invalid evidence-set JSON extension schema");
+  }
+  if (evidence.contract_status !== STRUCTURAL_RELEASE_STATUS) {
+    throw new Error("evidence-set does not disclose structural-only validation");
+  }
+  const candidate = validateCanonicalCandidate(evidence.candidate);
+  const review = validateCanonicalReviewReceipt(evidence.independent_review);
+  if (review.core.candidate_digest !== candidate.candidate_digest) throw new Error("review candidate mismatch");
+  if (review.core.verdict !== "PASS") throw new Error("independent review is not PASS");
+  if (hasCanonicalOpenP0P1(review.core.findings)) throw new Error("independent review has open P0/P1");
+  if (!Array.isArray(evidence.gate_receipts)) throw new Error("gate_receipts must be an array");
+  const observed = new Set();
+  for (const receipt of evidence.gate_receipts.map(validateCanonicalGateReceipt)) {
+    const gate = receipt.core.gate_id;
+    if (receipt.core.candidate_digest !== candidate.candidate_digest) throw new Error(`${gate} candidate mismatch`);
+    if (observed.has(gate)) throw new Error(`duplicate gate ${gate}`);
+    observed.add(gate);
+    if (receipt.core.verdict !== "PASS") throw new Error(`${gate} is not PASS`);
+    if (hasCanonicalOpenP0P1(receipt.core.findings)) throw new Error(`${gate} has open P0/P1`);
+  }
+  const missing = CANONICAL_GATE_IDS.filter((gate) => !observed.has(gate));
+  if (missing.length > 0) throw new Error(`missing gates: ${missing.join(",")}`);
+  return evidence;
+}
+
+function verifyCanonicalReleaseVectors(file) {
+  const vectors = parseIntegerJson(fs.readFileSync(file, "utf8"), "canonical release vectors");
+  if (vectors.schema !== "m1nd-release-cross-language-vectors-v1") throw new Error("invalid vector schema");
+  if (vectors.canonicalization_version !== CANONICALIZATION_VERSION) throw new Error("canonicalization version drifted");
+  if (vectors.digest_prefix_hex !== CANONICAL_DIGEST_PREFIX.toString("hex")) throw new Error("digest prefix drifted");
+  requireExactFields(
+    vectors.artifact_digest_keys,
+    ["compatibility", "release_artifact_prefix", "release_asset_prefix", "rollback"],
+    "artifact digest key vectors"
+  );
+  if (
+    vectors.artifact_digest_keys.compatibility !== CANONICAL_COMPATIBILITY_ARTIFACT_KEY ||
+    vectors.artifact_digest_keys.rollback !== CANONICAL_ROLLBACK_ARTIFACT_KEY ||
+    vectors.artifact_digest_keys.release_asset_prefix !== CANONICAL_RELEASE_ASSET_PREFIX ||
+    vectors.artifact_digest_keys.release_artifact_prefix !== CANONICAL_RELEASE_ARTIFACT_PREFIX
+  ) {
+    throw new Error("artifact digest key vectors drifted");
+  }
+  for (const vector of vectors.canonical_cases) {
+    if (canonicalJsonV1(vector.value) !== vector.canonical_json) throw new Error(`canonical text mismatch: ${vector.name}`);
+    if (domainSeparatedDigest(vector.domain, vector.value) !== vector.digest) throw new Error(`canonical digest mismatch: ${vector.name}`);
+  }
+  for (const vector of vectors.refusal_cases) {
+    let refused = false;
+    try {
+      parseIntegerJson(vector.json, vector.name);
+    } catch (_error) {
+      refused = true;
+    }
+    if (!refused) throw new Error(`refusal vector accepted: ${vector.name}`);
+  }
+  const compatibility = vectors.operational_manifests.compatibility;
+  validateCanonicalCompatibility(compatibility);
+  const compatibilityDigest = sha256Text(canonicalJsonV1(compatibility));
+  if (compatibilityDigest !== vectors.operational_manifests.compatibility_sha256) {
+    throw new Error("compatibility vector digest mismatch");
+  }
+  const rollback = vectors.operational_manifests.rollback;
+  validateCanonicalRollback(rollback);
+  validateCanonicalOperationalPair(compatibility, rollback);
+  const rollbackDigest = sha256Text(canonicalJsonV1(rollback));
+  if (rollbackDigest !== vectors.operational_manifests.rollback_sha256) {
+    throw new Error("rollback vector digest mismatch");
+  }
+  const vectorCore = vectors.evidence_set.candidate.core;
+  if (
+    vectorCore.artifact_digests[CANONICAL_COMPATIBILITY_ARTIFACT_KEY] !==
+      vectorCore.compatibility_manifest_digest ||
+    vectorCore.artifact_digests[CANONICAL_ROLLBACK_ARTIFACT_KEY] !==
+      vectorCore.rollback_plan_digest
+  ) {
+    throw new Error("operational artifact key vectors drifted");
+  }
+  validateCanonicalEvidenceSet(vectors.evidence_set);
+  return { ok: true, status: STRUCTURAL_RELEASE_STATUS };
+}
+
+function sha256Text(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function fileSha256OrNull(file) {
+  if (!fs.existsSync(file)) return null;
+  if (!fs.statSync(file).isFile()) throw new Error(`runtime target is not a regular file: ${file}`);
+  return sha256File(file);
+}
+
+function requireCandidateObject(value, description) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${description} must be a JSON object`);
+  }
+  return value;
+}
+
+function requireCandidateDigest(value, description) {
+  if (typeof value !== "string" || !SHA256_RE.test(value)) {
+    throw new Error(`${description} must be a lowercase SHA-256 digest`);
+  }
+  return value;
+}
+
+function requireCandidateSize(value, description) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${description} must be a positive safe integer`);
+  }
+  return value;
+}
+
+function releaseCertificateIdentity(version) {
+  return `https://github.com/${RELEASE_REPOSITORY}/.github/workflows/${RELEASE_WORKFLOW}@refs/tags/v${version}`;
+}
+
+function releaseFileUrl(planned, name) {
+  const expectedAssetUrl = githubReleaseAssetUrl(planned.target_version);
+  if (planned.url !== expectedAssetUrl) {
+    throw new Error(`release asset URL does not match the exact repository/tag/target contract: ${planned.url}`);
+  }
+  return `${planned.url.slice(0, planned.url.lastIndexOf("/") + 1)}${name}`;
+}
+
+function releaseDownloadLimit(name, planned) {
+  if (Object.prototype.hasOwnProperty.call(RELEASE_DOWNLOAD_LIMITS, name)) {
+    return RELEASE_DOWNLOAD_LIMITS[name];
+  }
+  if (name === planned.asset) return RELEASE_DOWNLOAD_LIMITS.runtime;
+  throw new Error(`release file has no bounded download policy: ${name}`);
+}
+
+function allowedReleaseTransportUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      parsed.protocol === "https:" &&
+      !parsed.username &&
+      !parsed.password &&
+      (hostname === "github.com" || hostname.endsWith(".githubusercontent.com"))
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function requireBoundedReleaseFile(file, limit, description) {
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`${description} is not a regular non-symlink file`);
+  }
+  if (stat.size <= 0 || stat.size > limit) {
+    throw new Error(`${description} size ${stat.size} is outside the accepted range 1..${limit}`);
+  }
+}
+
+function copyOrDownloadReleaseFile(planned, name, destination, testDependencies = null) {
+  const limit = releaseDownloadLimit(name, planned);
+  if (testDependencies && testDependencies.releaseDirectory) {
+    const root = fs.realpathSync.native(testDependencies.releaseDirectory);
+    const requested = path.join(root, name);
+    if (!fs.existsSync(requested)) {
+      throw new Error(`required test release file is missing: ${name}`);
+    }
+    if (fs.lstatSync(requested).isSymbolicLink()) {
+      throw new Error(`symlink test release file refused: ${name}`);
+    }
+    const source = fs.realpathSync.native(requested);
+    const relative = path.relative(root, source);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`test release file escapes the explicit fixture directory: ${name}`);
+    }
+    requireBoundedReleaseFile(source, limit, `test release file ${name}`);
+    fs.copyFileSync(source, destination);
+    requireBoundedReleaseFile(destination, limit, `staged release file ${name}`);
+    return "local-test-directory";
+  }
+  const curl = trustedUpdateTool("curl");
+  if (!curl) throw new Error("curl not found; cannot download the verified GitHub release candidate");
+  const sourceUrl = releaseFileUrl(planned, name);
+  if (!allowedReleaseTransportUrl(sourceUrl)) {
+    throw new Error(`release download source is outside the fixed HTTPS host policy: ${sourceUrl}`);
+  }
+  const result = runCommand(
+    curl,
+    [
+      "-fsSL",
+      "--proto",
+      "=https",
+      "--proto-redir",
+      "=https",
+      "--max-redirs",
+      "5",
+      "--connect-timeout",
+      "15",
+      "--speed-limit",
+      "1024",
+      "--speed-time",
+      "30",
+      "--max-filesize",
+      String(limit),
+      "--write-out",
+      "%{url_effective}",
+      sourceUrl,
+      "-o",
+      destination,
+    ],
+    { timeout: 120000 }
+  );
+  if (!result.ok) {
+    throw new Error((result.stderr || result.error || `GitHub release download failed for ${name}`).trim());
+  }
+  const effectiveUrl = result.stdout.trim();
+  if (!allowedReleaseTransportUrl(effectiveUrl)) {
+    fs.rmSync(destination, { force: true });
+    throw new Error(`release redirect escaped the accepted HTTPS host policy: ${effectiveUrl || "missing effective URL"}`);
+  }
+  requireBoundedReleaseFile(destination, limit, `downloaded release file ${name}`);
+  return "github-release-https";
+}
+
+function resolveCosignBinary(testDependencies = null) {
+  if (testDependencies && testDependencies.cosignPath) {
+    const candidate = path.resolve(testDependencies.cosignPath);
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+      throw new Error(`configured test cosign executable is missing: ${candidate}`);
+    }
+    return { binary: candidate, source: "explicit-test-executable" };
+  }
+  const binary = trustedUpdateTool("cosign");
+  if (!binary) {
+    throw new Error(
+      "cosign not found; install cosign, then retry the verified release update (the unverified Cargo fallback is disabled)"
+    );
+  }
+  return { binary, source: "trusted-fixed-path" };
+}
+
+function validateLegacyReleaseCandidateManifest(manifest, planned, rawBinary) {
+  requireCandidateObject(manifest, "release candidate");
+  if (manifest.schema !== RELEASE_CANDIDATE_SCHEMA) {
+    throw new Error(`unexpected release candidate schema: ${String(manifest.schema)}`);
+  }
+  if (manifest.version !== planned.target_version) {
+    throw new Error(`release candidate version ${String(manifest.version)} does not match planned ${planned.target_version}`);
+  }
+  const expectedRef = `refs/tags/v${planned.target_version}`;
+  if (manifest.source_ref !== expectedRef) {
+    throw new Error(`release candidate source_ref ${String(manifest.source_ref)} does not match ${expectedRef}`);
+  }
+  if (typeof manifest.commit !== "string" || !/^[0-9a-f]{40}$/.test(manifest.commit)) {
+    throw new Error("release candidate commit must be a full lowercase 40-character SHA-1");
+  }
+  if (!Array.isArray(manifest.artifacts) || !Array.isArray(manifest.runtime_bindings)) {
+    throw new Error("release candidate artifacts and runtime_bindings must be arrays");
+  }
+  const buildPolicy = requireCandidateObject(manifest.build_policy, "release candidate build_policy");
+  if (!Array.isArray(buildPolicy.targets) || new Set(buildPolicy.targets).size !== buildPolicy.targets.length) {
+    throw new Error("release candidate build_policy.targets must be a unique array");
+  }
+  const target = githubReleaseTargetName();
+  const expectedAsset = githubReleaseAssetName();
+  if (!target || !expectedAsset || planned.asset !== expectedAsset || !buildPolicy.targets.includes(target)) {
+    throw new Error(`release candidate does not authorize platform target ${target || "unmapped"}`);
+  }
+
+  const bindings = manifest.runtime_bindings.filter((entry) => entry && entry.target === target);
+  if (bindings.length !== 1) {
+    throw new Error(`release candidate must contain exactly one runtime binding for ${target}`);
+  }
+  const binding = requireCandidateObject(bindings[0], `runtime binding ${target}`);
+  if (binding.raw_binary !== expectedAsset) {
+    throw new Error(`release candidate runtime binding names ${String(binding.raw_binary)}, expected ${expectedAsset}`);
+  }
+  const bindingDigest = requireCandidateDigest(binding.runtime_sha256, `runtime binding ${target} digest`);
+  const bindingSize = requireCandidateSize(binding.size_bytes, `runtime binding ${target} size`);
+
+  const artifacts = manifest.artifacts.filter(
+    (entry) => entry && entry.kind === "runtime_binary" && entry.target === target
+  );
+  if (artifacts.length !== 1) {
+    throw new Error(`release candidate must contain exactly one runtime_binary artifact for ${target}`);
+  }
+  const artifact = requireCandidateObject(artifacts[0], `runtime artifact ${target}`);
+  if (artifact.name !== expectedAsset) {
+    throw new Error(`release candidate runtime artifact names ${String(artifact.name)}, expected ${expectedAsset}`);
+  }
+  const artifactDigest = requireCandidateDigest(artifact.sha256, `runtime artifact ${target} digest`);
+  const artifactSize = requireCandidateSize(artifact.size_bytes, `runtime artifact ${target} size`);
+  if (artifactDigest !== bindingDigest || artifactSize !== bindingSize) {
+    throw new Error(`release candidate artifact/binding mismatch for ${target}`);
+  }
+
+  const rawDigest = sha256File(rawBinary);
+  const rawSize = fs.statSync(rawBinary).size;
+  if (rawDigest !== bindingDigest || rawSize !== bindingSize) {
+    throw new Error(`downloaded runtime bytes do not match signed candidate for ${target}`);
+  }
+
+  const seed = {
+    artifacts: manifest.artifacts,
+    commit: manifest.commit,
+    runtime_bindings: manifest.runtime_bindings,
+    source_ref: manifest.source_ref,
+    version: manifest.version,
+  };
+  const expectedCandidateId = `sha256:${sha256Text(canonicalJson(seed))}`;
+  if (manifest.candidate_id !== expectedCandidateId) {
+    throw new Error(
+      `release candidate id mismatch: expected ${expectedCandidateId}, got ${String(manifest.candidate_id)}`
+    );
+  }
+  return {
+    artifact: expectedAsset,
+    candidate_id: expectedCandidateId,
+    commit: manifest.commit,
+    manifest_sha256: sha256File(path.join(path.dirname(rawBinary), "CANDIDATE.json")),
+    raw_sha256: rawDigest,
+    raw_size_bytes: rawSize,
+    source_ref: manifest.source_ref,
+    target,
+    version: manifest.version,
+  };
+}
+
+function validateCanonicalReleaseCandidateManifest(manifest, compatibility, compatibilityPath, planned, rawBinary) {
+  validateCanonicalCandidate(manifest);
+  validateCanonicalCompatibility(compatibility);
+  const expectedCompatibilityBytes = canonicalJsonV1(compatibility);
+  const observedCompatibilityBytes = fs.readFileSync(compatibilityPath, "utf8");
+  if (observedCompatibilityBytes !== expectedCompatibilityBytes) {
+    throw new Error("RELEASE-COMPATIBILITY.json is not exact canonical UTF-8/no-newline JSON");
+  }
+  const compatibilityDigest = sha256File(compatibilityPath);
+  if (manifest.core.compatibility_manifest_digest !== compatibilityDigest) {
+    throw new Error("signed canonical candidate does not bind RELEASE-COMPATIBILITY.json bytes");
+  }
+  if (manifest.core.artifact_digests[CANONICAL_COMPATIBILITY_ARTIFACT_KEY] !== compatibilityDigest) {
+    throw new Error("signed canonical candidate compatibility artifact key drifted");
+  }
+  if (
+    manifest.core.artifact_digests[CANONICAL_ROLLBACK_ARTIFACT_KEY] !==
+    manifest.core.rollback_plan_digest
+  ) {
+    throw new Error("signed canonical candidate rollback artifact key drifted");
+  }
+  if (compatibility.version !== planned.target_version) {
+    throw new Error(
+      `canonical release candidate version ${String(compatibility.version)} does not match planned ${planned.target_version}`
+    );
+  }
+  const expectedRef = `refs/tags/v${planned.target_version}`;
+  if (compatibility.source_ref !== expectedRef) {
+    throw new Error(`canonical release candidate source_ref ${String(compatibility.source_ref)} does not match ${expectedRef}`);
+  }
+  if (manifest.core.repo_commits.m1nd !== compatibility.commit) {
+    throw new Error("canonical candidate repo_commits.m1nd does not match compatibility commit");
+  }
+  const target = githubReleaseTargetName();
+  const expectedAsset = githubReleaseAssetName();
+  if (!target || !expectedAsset || planned.asset !== expectedAsset) {
+    throw new Error(`canonical release candidate cannot map platform target ${target || "unmapped"}`);
+  }
+  const targets = compatibility.targets.filter((entry) => entry && entry.target === target);
+  if (targets.length !== 1) {
+    throw new Error(`canonical compatibility must contain exactly one target ${target}`);
+  }
+  const binding = targets[0];
+  if (binding.asset !== expectedAsset) {
+    throw new Error(`canonical compatibility asset ${String(binding.asset)} does not match ${expectedAsset}`);
+  }
+  const rawDigest = sha256File(rawBinary);
+  const rawSize = BigInt(fs.statSync(rawBinary).size);
+  const declaredSize = requireCanonicalU64(binding.size_bytes, "compatibility.size_bytes");
+  if (binding.sha256 !== rawDigest || declaredSize !== rawSize) {
+    throw new Error(`downloaded runtime bytes do not match canonical compatibility for ${target}`);
+  }
+  const artifactKey = `${CANONICAL_RELEASE_ASSET_PREFIX}${expectedAsset}`;
+  if (manifest.core.artifact_digests[artifactKey] !== rawDigest) {
+    throw new Error(`signed canonical candidate does not bind runtime artifact key ${artifactKey}`);
+  }
+  return {
+    artifact: expectedAsset,
+    candidate_digest: manifest.candidate_digest,
+    // Operational compatibility alias for the existing rollback journal.  Its
+    // kind is explicit so callers cannot confuse it with the legacy sha256: id.
+    candidate_id: manifest.candidate_digest,
+    candidate_identity_kind: "canonical-domain-separated-digest",
+    candidate_schema: CANONICAL_RELEASE_CANDIDATE_SCHEMA,
+    commit: compatibility.commit,
+    manifest_sha256: sha256File(path.join(path.dirname(rawBinary), "CANDIDATE.json")),
+    raw_sha256: rawDigest,
+    raw_size_bytes: Number(rawSize),
+    source_ref: compatibility.source_ref,
+    target,
+    version: compatibility.version,
+  };
+}
+
+function validateReleaseCandidateManifest(manifest, planned, rawBinary, compatibility, compatibilityPath) {
+  if (manifest && manifest.schema === RELEASE_CANDIDATE_SCHEMA) {
+    return validateLegacyReleaseCandidateManifest(manifest, planned, rawBinary);
+  }
+  if (manifest && manifest.schema === CANONICAL_RELEASE_CANDIDATE_SCHEMA) {
+    if (!compatibility || !compatibilityPath) {
+      throw new Error("canonical release candidate requires RELEASE-COMPATIBILITY.json");
+    }
+    return validateCanonicalReleaseCandidateManifest(
+      manifest,
+      compatibility,
+      compatibilityPath,
+      planned,
+      rawBinary
+    );
+  }
+  throw new Error(`unexpected release candidate schema: ${String(manifest && manifest.schema)}`);
+}
+
+function stageVerifiedReleaseCandidate(planned, testDependencies = null) {
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(String(planned.target_version || ""))) {
+    throw new Error(`planned release version is not an exact semantic version: ${String(planned.target_version)}`);
+  }
+  const cosign = resolveCosignBinary(testDependencies);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-update-verified-"));
+  try {
+    const rawBinary = path.join(directory, planned.asset);
+    const manifestPath = path.join(directory, "CANDIDATE.json");
+    const bundlePath = path.join(directory, "CANDIDATE.json.sigstore.json");
+    const transportSource = copyOrDownloadReleaseFile(
+      planned,
+      "CANDIDATE.json",
+      manifestPath,
+      testDependencies
+    );
+    copyOrDownloadReleaseFile(
+      planned,
+      "CANDIDATE.json.sigstore.json",
+      bundlePath,
+      testDependencies
+    );
+    copyOrDownloadReleaseFile(planned, planned.asset, rawBinary, testDependencies);
+
+    const certificateIdentity = releaseCertificateIdentity(planned.target_version);
+    const verified = runCommand(
+      cosign.binary,
+      [
+        "verify-blob",
+        "--bundle",
+        bundlePath,
+        "--certificate-identity",
+        certificateIdentity,
+        "--certificate-oidc-issuer",
+        GITHUB_OIDC_ISSUER,
+        manifestPath,
+      ],
+      { timeout: 120000 }
+    );
+    if (!verified.ok) {
+      throw new Error((verified.stderr || verified.error || "cosign refused CANDIDATE.json").trim());
+    }
+    let manifest;
+    try {
+      manifest = parseIntegerJson(fs.readFileSync(manifestPath, "utf8"), "signed CANDIDATE.json");
+    } catch (error) {
+      throw new Error(`signed CANDIDATE.json is invalid JSON: ${error.message}`);
+    }
+    let compatibility = null;
+    let compatibilityPath = null;
+    if (manifest.schema === CANONICAL_RELEASE_CANDIDATE_SCHEMA) {
+      compatibilityPath = path.join(directory, CANONICAL_COMPATIBILITY_FILE);
+      const compatibilityTransport = copyOrDownloadReleaseFile(
+        planned,
+        CANONICAL_COMPATIBILITY_FILE,
+        compatibilityPath,
+        testDependencies
+      );
+      if (compatibilityTransport !== transportSource) {
+        throw new Error("candidate and compatibility manifests arrived through different transports");
+      }
+      compatibility = parseIntegerJson(
+        fs.readFileSync(compatibilityPath, "utf8"),
+        CANONICAL_COMPATIBILITY_FILE
+      );
+    }
+    const candidate = validateReleaseCandidateManifest(
+      manifest,
+      planned,
+      rawBinary,
+      compatibility,
+      compatibilityPath
+    );
+    if (process.platform !== "win32") fs.chmodSync(rawBinary, 0o755);
+    return {
+      source_binary: rawBinary,
+      staging_directory: directory,
+      verification: {
+        ...candidate,
+        certificate_identity: certificateIdentity,
+        certificate_oidc_issuer: GITHUB_OIDC_ISSUER,
+        transport_source: transportSource,
+        verifier_source: cosign.source,
+      },
+    };
+  } catch (error) {
+    fs.rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function installRuntimeBinaryWithBackup(sourceBinary, targetBinary, verification) {
   const beforeVersion = runtimeVersion(targetBinary);
+  const beforeSha256 = fileSha256OrNull(targetBinary);
+  const candidateSha256 = sha256File(sourceBinary);
+  if (!verification || verification.raw_sha256 !== candidateSha256) {
+    throw new Error("verified candidate metadata is missing or does not bind the staged runtime bytes");
+  }
   let backup = null;
-  if (fs.existsSync(targetBinary)) {
+  if (beforeSha256 !== null) {
     backup = updateBackupPath(targetBinary, beforeVersion);
     ensureDir(path.dirname(backup));
     fs.copyFileSync(targetBinary, backup);
     if (process.platform !== "win32") fs.chmodSync(backup, 0o755);
+    fsyncFile(backup);
+    fsyncDirectory(path.dirname(backup));
+    if (sha256File(backup) !== beforeSha256) {
+      throw new Error("runtime backup digest does not match the observed pre-update target");
+    }
   }
-  installRuntimeBinary(sourceBinary, targetBinary);
   const state = {
-    schema: "m1nd-self-update-rollback-state-v0",
+    schema: UPDATE_STATE_SCHEMA,
     created_at: new Date().toISOString(),
+    phase: "prepared",
+    install_kind: "verified-github-release",
+    rollback_available: true,
     target_binary: targetBinary,
     backup_binary: backup,
+    backup_sha256: backup ? sha256File(backup) : null,
     before_version: beforeVersion,
-    after_version: runtimeVersion(targetBinary),
+    before_sha256: beforeSha256,
+    candidate_sha256: candidateSha256,
+    candidate_id: verification.candidate_id,
+    candidate_manifest_sha256: verification.manifest_sha256,
+    candidate_source_ref: verification.source_ref,
+    candidate_target: verification.target,
+    after_version: null,
+    after_sha256: null,
   };
-  ensureDir(path.dirname(updateStatePath()));
-  fs.writeFileSync(updateStatePath(), `${JSON.stringify(state, null, 2)}\n`);
+  writeJsonAtomic(updateStatePath(), state);
+  const currentBeforeInstall = fileSha256OrNull(targetBinary);
+  if (currentBeforeInstall !== beforeSha256) {
+    throw new Error(
+      `runtime target drifted after backup: expected ${String(beforeSha256)}, observed ${String(currentBeforeInstall)}`
+    );
+  }
+  installRuntimeBinary(sourceBinary, targetBinary);
+  state.after_version = runtimeVersion(targetBinary);
+  state.after_sha256 = sha256File(targetBinary);
+  if (state.after_sha256 !== candidateSha256) {
+    throw new Error(
+      `installed runtime digest ${state.after_sha256} does not match candidate ${candidateSha256}`
+    );
+  }
+  state.phase = "installed";
+  state.installed_at = new Date().toISOString();
+  writeJsonAtomic(updateStatePath(), state);
   return state;
 }
 
-function stageReleaseAsset(planned) {
-  if (process.env.M1ND_TEST_RELEASE_ASSET_PATH) {
-    return process.env.M1ND_TEST_RELEASE_ASSET_PATH;
-  }
-  const curl = which("curl");
-  if (!curl) throw new Error("curl not found; cannot download GitHub release asset");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-update-"));
-  const target = path.join(dir, runtimeBinaryName());
-  const result = runCommand(curl, ["-fL", planned.url, "-o", target], { timeout: 120000 });
-  if (!result.ok) {
-    throw new Error((result.stderr || result.error || "GitHub release download failed").trim());
-  }
-  if (process.platform !== "win32") fs.chmodSync(target, 0o755);
-  return target;
-}
-
-function cargoInstallRuntime(planned) {
-  const targetBinary = path.resolve(planned.target_binary);
-  const rootDir = path.dirname(path.dirname(targetBinary));
-  const binDir = path.basename(path.dirname(targetBinary));
-  if (binDir !== "bin") {
-    return {
-      ok: false,
-      error: "cargo fallback only supports targets inside a <root>/bin directory",
-    };
-  }
-  const args = ["install", "m1nd-mcp", "--version", planned.target_version, "--force", "--root", rootDir];
-  const result = runCommand("cargo", args, { timeout: 300000 });
-  return {
-    ok: result.ok,
-    status: result.status,
-    stderr: result.stderr.trim(),
-    stdout: result.stdout.trim(),
-    command: `cargo ${args.join(" ")}`,
-  };
-}
-
-function applySelfUpdate(args) {
-  const proof = buildSelfUpdateProof(args, "apply");
+function applySelfUpdate(args, testDependencies = null) {
+  const proof = buildSelfUpdateProof(args, "apply", testDependencies);
   const yes = Boolean(args.yes);
   proof.dry_run = !yes;
   if (!yes) {
@@ -2292,36 +3629,32 @@ function applySelfUpdate(args) {
   }
 
   for (const planned of proof.planned_actions) {
-    if (planned.id === "npm-install") {
-      if (args["no-npm"]) continue;
-      const result = runCommand("npm", ["install", "-g", `${NPM_PACKAGE}@${proof.channel}`], { timeout: 180000 });
-      const applied = {
-        id: planned.id,
-        kind: planned.kind,
-        ok: result.ok,
-        status: result.status,
-        stderr: result.stderr.trim(),
-      };
-      proof.applied_actions.push(applied);
-      if (!result.ok) proof.blocked_actions.push(action("npm-install-failed", "npm", "npm global package update failed", applied));
-    }
-
     if (planned.id === "runtime-install-github-release") {
       if (args["no-runtime"]) continue;
+      let staged = null;
       try {
-        const source = stageReleaseAsset(planned);
-        const state = installRuntimeBinaryWithBackup(source, planned.target_binary);
+        staged = stageVerifiedReleaseCandidate(planned, testDependencies);
+        const state = installRuntimeBinaryWithBackup(
+          staged.source_binary,
+          planned.target_binary,
+          staged.verification
+        );
+        const versionVerified = Boolean(
+          state.after_version && state.after_version.includes(planned.target_version)
+        );
         proof.applied_actions.push({
           id: planned.id,
           kind: planned.kind,
-          ok: Boolean(process.env.M1ND_TEST_RELEASE_ASSET_PATH) || Boolean(state.after_version && state.after_version.includes(planned.target_version)),
-          source,
+          ok: versionVerified,
+          installed: true,
+          source: planned.url,
           target_binary: planned.target_binary,
           rollback_state: updateStatePath(),
           backup_binary: state.backup_binary,
           before_version: state.before_version,
           after_version: state.after_version,
-          version_verified: Boolean(state.after_version && state.after_version.includes(planned.target_version)),
+          candidate_verification: staged.verification,
+          version_verified: versionVerified,
         });
         const applied = proof.applied_actions[proof.applied_actions.length - 1];
         if (!applied.ok) {
@@ -2334,36 +3667,10 @@ function applySelfUpdate(args) {
         proof.blocked_actions.push(action("runtime-install-failed", "runtime", "runtime release install failed", {
           error: error instanceof Error ? error.message : String(error),
         }));
-      }
-    }
-
-    if (planned.id === "runtime-install-cargo") {
-      if (args["no-runtime"]) continue;
-      const result = cargoInstallRuntime(planned);
-      if (result.ok && fs.existsSync(planned.target_binary)) {
-        const state = {
-          schema: "m1nd-self-update-rollback-state-v0",
-          created_at: new Date().toISOString(),
-          target_binary: planned.target_binary,
-          backup_binary: null,
-          before_version: proof.runtime_version,
-          after_version: runtimeVersion(planned.target_binary),
-        };
-        ensureDir(path.dirname(updateStatePath()));
-        fs.writeFileSync(updateStatePath(), `${JSON.stringify(state, null, 2)}\n`);
-      }
-      proof.applied_actions.push({
-        id: planned.id,
-        kind: planned.kind,
-        ...result,
-        version_verified: result.ok ? Boolean(runtimeVersion(planned.target_binary) && runtimeVersion(planned.target_binary).includes(planned.target_version)) : false,
-      });
-      if (!result.ok) proof.blocked_actions.push(action("runtime-cargo-install-failed", "runtime", "cargo runtime install failed", result));
-      if (result.ok && !proof.applied_actions[proof.applied_actions.length - 1].version_verified) {
-        proof.blocked_actions.push(action("runtime-version-mismatch-after-install", "runtime", "installed cargo runtime did not report the target version", {
-          target_version: planned.target_version,
-          after_version: runtimeVersion(planned.target_binary),
-        }));
+      } finally {
+        if (staged && staged.staging_directory) {
+          fs.rmSync(staged.staging_directory, { recursive: true, force: true });
+        }
       }
     }
 
@@ -2385,6 +3692,19 @@ function applySelfUpdate(args) {
 
     if (planned.id === "stop-runtime-processes") {
       if (args["no-kill"]) continue;
+      const runtimeApplied = proof.applied_actions.some(
+        (applied) => applied.kind === "runtime" && (applied.ok || applied.installed === true)
+      );
+      if (!runtimeApplied) {
+        proof.blocked_actions.push(
+          action(
+            "stop-runtime-processes-skipped",
+            "process",
+            "runtime processes were not stopped because no runtime install completed"
+          )
+        );
+        continue;
+      }
       proof.applied_actions.push({
         id: planned.id,
         kind: planned.kind,
@@ -2395,9 +3715,11 @@ function applySelfUpdate(args) {
   }
 
   proof.runtime_version_after = runtimeVersion(proof.runtime.target_binary);
-  proof.requires_host_rebind =
-    proof.requires_host_rebind ||
-    proof.applied_actions.some((applied) => ["npm", "runtime", "agent-pack", "process"].includes(applied.kind));
+  proof.requires_host_rebind = proof.applied_actions.some(
+    (applied) =>
+      ["npm", "runtime", "agent-pack", "process"].includes(applied.kind) &&
+      (applied.ok === true || applied.installed === true)
+  );
   if (proof.requires_host_rebind) {
     proof.next_actions.push("Restart or rebind each MCP host/client so it launches the updated runtime and refreshes its cached tool list.");
   }
@@ -2405,8 +3727,8 @@ function applySelfUpdate(args) {
   return proof;
 }
 
-function verifySelfUpdate(args) {
-  const proof = buildSelfUpdateProof(args, "verify");
+function verifySelfUpdate(args, testDependencies = null) {
+  const proof = buildSelfUpdateProof(args, "verify", testDependencies);
   const repo = path.resolve(args.repo || process.cwd());
   const transport = args.transport || "stdio";
   const script = path.join(repo, "scripts", "m1nd_agent_demo.py");
@@ -2440,8 +3762,8 @@ function verifySelfUpdate(args) {
   return proof;
 }
 
-function buildSelfUpdateStatus(args) {
-  const proof = buildSelfUpdateProof(args, "status");
+function buildSelfUpdateStatus(args, testDependencies = null) {
+  const proof = buildSelfUpdateProof(args, "status", testDependencies);
   const doctorResult = doctor();
   const liveRuntimeProcesses = listRuntimeProcesses();
   const nonBlockingActionIds = new Set(["npm-registry-lag", "kill-disabled"]);
@@ -2502,54 +3824,260 @@ function buildSelfUpdateStatus(args) {
   return proof;
 }
 
-function rollbackSelfUpdate(args) {
-  const proof = buildSelfUpdateProof(args, "rollback");
-  proof.requires_host_rebind = true;
+function rollbackSelfUpdate(args, testDependencies = null) {
+  const proof = buildSelfUpdateProof(args, "rollback", testDependencies);
+  proof.requires_host_rebind = false;
   const statePath = updateStatePath();
-  if (!fs.existsSync(statePath)) {
-    proof.blocked_actions.push(action("rollback-state-missing", "rollback", "no local update rollback state exists", {
-      state_path: statePath,
-    }));
+  const refuse = (id, description, extra = {}) => {
+    proof.blocked_actions.push(action(id, "rollback", description, { state_path: statePath, ...extra }));
     return proof;
+  };
+  if (!fs.existsSync(statePath)) {
+    return refuse("rollback-state-missing", "no local update rollback state exists");
   }
   const state = safeJsonParse(fs.readFileSync(statePath, "utf8"));
-  if (!state || !state.backup_binary || !fs.existsSync(state.backup_binary)) {
-    proof.blocked_actions.push(action("rollback-backup-missing", "rollback", "rollback state has no usable runtime backup", {
-      state_path: statePath,
-      backup_binary: state ? state.backup_binary : null,
-    }));
+  if (!state || state.schema !== UPDATE_STATE_SCHEMA) {
+    return refuse("rollback-state-invalid", "local update rollback state has an invalid schema", {
+      schema: state ? state.schema : null,
+    });
+  }
+  if (!UPDATE_PHASES.has(state.phase)) {
+    return refuse("rollback-state-phase-invalid", "rollback journal has an unknown or legacy phase and cannot be recovered automatically", {
+      phase: state.phase || null,
+      allowed_phases: Array.from(UPDATE_PHASES),
+      suggested_action: "inspect the legacy journal and runtime bytes manually; automatic rollback will not guess",
+    });
+  }
+  if (typeof state.target_binary !== "string" || !path.isAbsolute(state.target_binary)) {
+    return refuse("rollback-state-target-invalid", "rollback journal target must be an absolute path", {
+      state_target_binary: state.target_binary || null,
+    });
+  }
+  if (
+    args.binary &&
+    path.resolve(args.binary) !== path.resolve(state.target_binary || "")
+  ) {
+    return refuse("rollback-target-mismatch", "requested runtime does not match the journaled update target", {
+      requested_binary: path.resolve(args.binary),
+      state_target_binary: state.target_binary || null,
+    });
+  }
+  const cargoFallbackJournal =
+    state.install_kind === "cargo-fallback-unverified" ||
+    (state.rollback_available === false && !state.backup_binary && !state.candidate_sha256);
+  if (cargoFallbackJournal) {
+    return refuse("rollback-unavailable-cargo-fallback", "Cargo fallback installs are not verified release candidates and have no automatic rollback backup", {
+      install_kind: state.install_kind || "legacy-cargo-fallback-unverified",
+      rollback_available: false,
+    });
+  }
+  if (!SHA256_RE.test(String(state.candidate_sha256 || ""))) {
+    return refuse("rollback-state-digest-invalid", "rollback journal lacks a valid verified candidate digest", {
+      field: "candidate_sha256",
+    });
+  }
+  if (state.before_sha256 !== null && !SHA256_RE.test(String(state.before_sha256 || ""))) {
+    return refuse("rollback-state-digest-invalid", "rollback journal has an invalid pre-update digest", {
+      field: "before_sha256",
+    });
+  }
+  if (
+    state.phase === "installed" &&
+    (!SHA256_RE.test(String(state.after_sha256 || "")) || state.after_sha256 !== state.candidate_sha256)
+  ) {
+    return refuse("rollback-state-digest-invalid", "installed journal must bind identical candidate and after digests", {
+      candidate_sha256: state.candidate_sha256,
+      after_sha256: state.after_sha256 || null,
+    });
+  }
+  let currentTargetSha256;
+  try {
+    currentTargetSha256 = fileSha256OrNull(state.target_binary);
+  } catch (error) {
+    return refuse("rollback-target-unreadable", "rollback target cannot be safely inspected", {
+      target_binary: state.target_binary,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const rollbackStartPhase = state.phase;
+
+  if (state.phase === "rolled_back") {
+    if (currentTargetSha256 !== state.before_sha256) {
+      return refuse("rollback-target-digest-mismatch", "rolled-back target drifted after rollback; refusing to overwrite it", {
+        phase: state.phase,
+        target_binary: state.target_binary,
+        expected_sha256: state.before_sha256,
+        observed_sha256: currentTargetSha256,
+      });
+    }
+    proof.applied_actions.push({
+      id: "runtime-rollback",
+      kind: "rollback",
+      ok: true,
+      idempotent: true,
+      phase: "rolled_back",
+      target_binary: state.target_binary,
+      restored_sha256: currentTargetSha256,
+      rollback_state: statePath,
+    });
+    proof.next_actions.push("Rollback was already complete; no runtime or journal bytes changed.");
     return proof;
   }
-  installRuntimeBinary(state.backup_binary, state.target_binary);
+
+  if (
+    (state.phase === "prepared" || state.phase === "installed") &&
+    currentTargetSha256 === state.before_sha256
+  ) {
+    const recovery =
+      state.phase === "prepared"
+        ? "prepared-target-still-before"
+        : "installed-target-already-before";
+    state.phase = "rolled_back";
+    state.rolled_back_at = new Date().toISOString();
+    state.restored_sha256 = state.before_sha256;
+    state.restored_version = runtimeVersion(state.target_binary);
+    state.recovery = recovery;
+    writeJsonAtomic(statePath, state);
+    proof.applied_actions.push({
+      id: "runtime-rollback",
+      kind: "rollback",
+      ok: true,
+      idempotent: true,
+      recovery: state.recovery,
+      target_binary: state.target_binary,
+      restored_sha256: state.restored_sha256,
+      rollback_state: statePath,
+    });
+    proof.next_actions.push(
+      recovery === "prepared-target-still-before"
+        ? "Prepared update had not replaced the runtime; the journal was closed without rewriting the target."
+        : "Rollback had already restored the pre-update runtime; crash recovery closed the journal without rewriting the target."
+    );
+    return proof;
+  }
+
+  if (currentTargetSha256 !== state.candidate_sha256) {
+    return refuse("rollback-target-digest-mismatch", "current runtime bytes do not match the journal phase; refusing stale rollback overwrite", {
+      phase: state.phase,
+      target_binary: state.target_binary,
+      expected_sha256: state.candidate_sha256,
+      observed_sha256: currentTargetSha256,
+    });
+  }
+
+  let backupSha256 = null;
+  if (state.before_sha256 === null) {
+    if (state.backup_binary !== null || state.backup_sha256 !== null) {
+      return refuse("rollback-state-backup-invalid", "first-install journal must not claim pre-update backup bytes", {
+        backup_binary: state.backup_binary || null,
+        backup_sha256: state.backup_sha256 || null,
+      });
+    }
+  } else {
+    if (!state.backup_binary || !path.isAbsolute(state.backup_binary) || !fs.existsSync(state.backup_binary)) {
+      return refuse("rollback-backup-missing", "rollback state has no usable runtime backup", {
+        backup_binary: state.backup_binary || null,
+      });
+    }
+    backupSha256 = sha256File(state.backup_binary);
+    if (
+      !SHA256_RE.test(String(state.backup_sha256 || "")) ||
+      backupSha256 !== state.backup_sha256 ||
+      backupSha256 !== state.before_sha256
+    ) {
+      return refuse("rollback-backup-digest-mismatch", "rollback backup bytes differ from the journaled pre-update digest", {
+        backup_binary: state.backup_binary,
+        expected_sha256: state.before_sha256,
+        journaled_backup_sha256: state.backup_sha256 || null,
+        observed_sha256: backupSha256,
+      });
+    }
+  }
+
+  if (state.before_sha256 === null) {
+    fs.rmSync(state.target_binary, { force: true });
+    fsyncDirectory(path.dirname(state.target_binary));
+  } else {
+    installRuntimeBinary(state.backup_binary, state.target_binary);
+  }
+  const restoredSha256 = fileSha256OrNull(state.target_binary);
+  if (restoredSha256 !== state.before_sha256) {
+    return refuse("rollback-restore-digest-mismatch", "restored runtime bytes differ from the pre-update digest", {
+      target_binary: state.target_binary,
+      expected_sha256: state.before_sha256,
+      observed_sha256: restoredSha256,
+    });
+  }
+  state.phase = "rolled_back";
+  state.rolled_back_at = new Date().toISOString();
+  state.restored_sha256 = restoredSha256;
+  state.restored_version = runtimeVersion(state.target_binary);
+  if (rollbackStartPhase === "prepared") state.recovery = "prepared-target-was-candidate";
+  writeJsonAtomic(statePath, state);
   proof.applied_actions.push({
     id: "runtime-rollback",
     kind: "rollback",
     ok: true,
     target_binary: state.target_binary,
     backup_binary: state.backup_binary,
-    restored_version: runtimeVersion(state.target_binary),
+    restored_sha256: restoredSha256,
+    restored_version: state.restored_version,
+    rollback_state: statePath,
   });
+  proof.requires_host_rebind = true;
   proof.next_actions.push("Restart or rebind each MCP host/client so it launches the restored runtime.");
   return proof;
 }
 
-function selfUpdate(args) {
+function selfUpdateInternal(args, testDependencies = null) {
   const subcommand = args._[1] || "check";
   switch (subcommand) {
     case "check":
     case "plan":
-      return buildSelfUpdateProof(args, subcommand);
+      return buildSelfUpdateProof(args, subcommand, testDependencies);
     case "status":
-      return buildSelfUpdateStatus(args);
+      return buildSelfUpdateStatus(args, testDependencies);
     case "apply":
-      return applySelfUpdate(args);
+      return applySelfUpdate(args, testDependencies);
     case "verify":
-      return verifySelfUpdate(args);
+      return verifySelfUpdate(args, testDependencies);
     case "rollback":
-      return rollbackSelfUpdate(args);
+      return rollbackSelfUpdate(args, testDependencies);
     default:
       throw new Error(`unknown update subcommand '${subcommand}'`);
   }
+}
+
+function selfUpdate(args) {
+  const forbiddenAmbientOverrides = [
+    "M1ND_TEST_RELEASE_DIR",
+    "M1ND_TEST_COSIGN_PATH",
+  ].filter((name) => Object.prototype.hasOwnProperty.call(process.env, name));
+  if (forbiddenAmbientOverrides.length > 0) {
+    throw new Error(
+      `unsafe self-update test overrides are not accepted by the production updater: ${forbiddenAmbientOverrides.join(
+        ", "
+      )}`
+    );
+  }
+  return selfUpdateInternal(args, null);
+}
+
+// Tests need deterministic local release bytes and a fake verifier, but those
+// capabilities must never be ambient production environment variables.  The
+// harness is available only from a source checkout; packed/installed clients
+// always execute `selfUpdate` with immutable production dependencies.
+function createSelfUpdateTestHarness() {
+  if (!fs.existsSync(path.join(PACKAGE_ROOT, ".git"))) {
+    throw new Error("self-update test harness is unavailable outside a source checkout");
+  }
+  return (args, dependencies = {}) => {
+    const releaseDirectory = dependencies.releaseDirectory
+      ? path.resolve(dependencies.releaseDirectory)
+      : null;
+    const cosignPath = dependencies.cosignPath ? path.resolve(dependencies.cosignPath) : null;
+    return selfUpdateInternal(args, Object.freeze({ releaseDirectory, cosignPath }));
+  };
 }
 
 function sourceReleaseBinary(sourceDir) {
@@ -2624,11 +4152,17 @@ function installRuntimeBinary(sourceBinary, targetBinary) {
   ensureDir(path.dirname(targetBinary));
   const tempTarget = path.join(
     path.dirname(targetBinary),
-    `.${path.basename(targetBinary)}.${process.pid}.tmp`
+    `.${path.basename(targetBinary)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
   );
-  fs.copyFileSync(sourceBinary, tempTarget);
-  if (process.platform !== "win32") fs.chmodSync(tempTarget, 0o755);
-  fs.renameSync(tempTarget, targetBinary);
+  try {
+    fs.copyFileSync(sourceBinary, tempTarget);
+    if (process.platform !== "win32") fs.chmodSync(tempTarget, 0o755);
+    fsyncFile(tempTarget);
+    fs.renameSync(tempTarget, targetBinary);
+    fsyncDirectory(path.dirname(targetBinary));
+  } finally {
+    fs.rmSync(tempTarget, { force: true });
+  }
 }
 
 // Ad-hoc codesign a freshly-installed binary on macOS. A binary written by a
@@ -3226,12 +4760,24 @@ module.exports = {
   packRoutingCheck,
   restart,
   selfUpdate,
+  createSelfUpdateTestHarness,
   agentCommand,
   agentKickstart,
   mcpConfig,
   runtimeBinaryName,
   commandLooksLikeRuntime,
   githubReleaseAssetName,
+  canonicalJson,
+  canonicalJsonV1,
+  parseIntegerJson,
+  domainSeparatedDigest,
+  validateCanonicalCandidate,
+  validateCanonicalGateReceipt,
+  validateCanonicalReviewReceipt,
+  validateCanonicalEvidenceSet,
+  validateCanonicalCompatibility,
+  validateCanonicalRollback,
+  verifyCanonicalReleaseVectors,
   versionFromText,
   compareSemver,
   parseLaunchctlLabel,

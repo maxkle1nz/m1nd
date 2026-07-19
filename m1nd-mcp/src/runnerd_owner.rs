@@ -25,6 +25,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,10 @@ pub const RUNNERD_SECRET_FILE: &str = "runnerd.secret";
 
 /// The HTTP header carrying the shared secret on every runnerd request (§5a).
 pub const RUNNERD_SECRET_HEADER: &str = "x-runnerd-secret";
+const RUNNERD_LIVENESS_TTL: Duration = Duration::from_secs(75);
+const MAX_RUNNER_IDS: usize = 128;
+const MAX_RUNNER_IDS_PER_ANNOUNCE: usize = 64;
+const MAX_RUNNER_ID_BYTES: usize = 128;
 
 /// One registered runner's LIVENESS (§5a) — the loopback port it serves and when
 /// it last announced. Never a capability: the pins live in the runner's own config.
@@ -45,6 +50,8 @@ pub const RUNNERD_SECRET_HEADER: &str = "x-runnerd-secret";
 pub struct RunnerEntry {
     pub port: u16,
     pub last_seen_ms: u64,
+    #[serde(skip)]
+    observed_at: Instant,
 }
 
 /// The owner's in-memory runnerd liveness registry (§5a) — process-global owner
@@ -60,23 +67,42 @@ pub struct RunnerdRegistry {
 impl RunnerdRegistry {
     /// Register (or refresh) the liveness of every `runner_id` a daemon announces
     /// at `port`, stamping `now_ms`. Re-announce updates the port + last_seen.
-    pub fn register(&self, runner_ids: &[String], port: u16, now_ms: u64) {
+    pub fn register(&self, runner_ids: &[String], port: u16, now_ms: u64) -> bool {
+        if port == 0
+            || runner_ids.is_empty()
+            || runner_ids.len() > MAX_RUNNER_IDS_PER_ANNOUNCE
+            || runner_ids.iter().any(|id| !valid_runner_id(id))
+        {
+            return false;
+        }
         let mut g = self.runners.lock();
+        evict_stale(&mut g);
+        let new_ids = runner_ids
+            .iter()
+            .filter(|id| !g.contains_key(id.as_str()))
+            .count();
+        if g.len().saturating_add(new_ids) > MAX_RUNNER_IDS {
+            return false;
+        }
         for id in runner_ids {
             g.insert(
                 id.clone(),
                 RunnerEntry {
                     port,
                     last_seen_ms: now_ms,
+                    observed_at: Instant::now(),
                 },
             );
         }
+        true
     }
 
     /// The loopback port a live `runner_id` serves, or `None` when no daemon has
     /// announced it (the spawn proxy refuses that honestly).
     pub fn port_for(&self, runner_id: &str) -> Option<u16> {
-        self.runners.lock().get(runner_id).map(|e| e.port)
+        let mut runners = self.runners.lock();
+        evict_stale(&mut runners);
+        runners.get(runner_id).map(|entry| entry.port)
     }
 
     /// The DISTINCT loopback ports of every announced daemon (sorted, deduped).
@@ -84,7 +110,8 @@ impl RunnerdRegistry {
     /// (§5a), so the owner cannot know which announced id is a naming-runner — it
     /// asks each daemon's `/name` and lets the daemon resolve its own pin.
     pub fn live_ports(&self) -> Vec<u16> {
-        let g = self.runners.lock();
+        let mut g = self.runners.lock();
+        evict_stale(&mut g);
         let mut ports: Vec<u16> = g.values().map(|e| e.port).collect();
         ports.sort_unstable();
         ports.dedup();
@@ -95,7 +122,8 @@ impl RunnerdRegistry {
     /// port + last_seen, deterministically ordered (BTreeMap). The UI reads this to
     /// UN-disable the spawn radio and list the pinned-live runner ids.
     pub fn status_json(&self) -> Value {
-        let g = self.runners.lock();
+        let mut g = self.runners.lock();
+        evict_stale(&mut g);
         let runners: Vec<Value> = g
             .iter()
             .map(|(id, e)| {
@@ -111,6 +139,18 @@ impl RunnerdRegistry {
             "count": g.len(),
         })
     }
+}
+
+fn valid_runner_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_RUNNER_ID_BYTES
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn evict_stale(runners: &mut BTreeMap<String, RunnerEntry>) {
+    runners.retain(|_, entry| entry.observed_at.elapsed() <= RUNNERD_LIVENESS_TTL);
 }
 
 /// The owner-process facts the F11-b naming path needs, threaded into every
@@ -134,10 +174,20 @@ pub fn secret_path(runtime_root: &Path) -> PathBuf {
 /// Read the shared runnerd secret from the runtime root (§5a). `None` when absent
 /// or empty — no daemon has booted here, so announce/proxy cannot be authenticated.
 pub fn read_secret(runtime_root: &Path) -> Option<String> {
-    std::fs::read_to_string(secret_path(runtime_root))
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    let path = secret_path(runtime_root);
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return None;
+        }
+    }
+    let secret = std::fs::read_to_string(path).ok()?.trim().to_string();
+    (secret.len() == 64 && secret.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(secret)
 }
 
 /// Constant-time-ish equality for the shared secret. The secrets are short random
@@ -203,7 +253,9 @@ pub fn apply_announce(
     if !ok {
         return AnnounceOutcome::Unauthorized;
     }
-    registry.register(&input.runner_ids, input.port, now_ms);
+    if !registry.register(&input.runner_ids, input.port, now_ms) {
+        return AnnounceOutcome::Unauthorized;
+    }
     AnnounceOutcome::Registered(json!({
         "ok": true,
         // The liveness echo (§5a per-boot challenge): the daemon proves the owner
@@ -329,6 +381,9 @@ pub fn map_runnerd_response(status: u16, body: &Value) -> Result<Value, M1ndErro
 }
 
 #[cfg(test)]
+const SECRET: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -349,7 +404,14 @@ mod tests {
             Self { dir }
         }
         fn write_secret(&self, s: &str) {
-            std::fs::write(secret_path(&self.dir), s).expect("write secret");
+            let path = secret_path(&self.dir);
+            std::fs::write(&path, s).expect("write secret");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                    .expect("secure secret permissions");
+            }
         }
     }
     impl Drop for Scratch {
@@ -392,7 +454,7 @@ mod tests {
     #[test]
     fn announce_wrong_secret_is_unauthorized_correct_registers_and_echoes() {
         let s = Scratch::new("announce");
-        s.write_secret("s3cr3t");
+        s.write_secret(SECRET);
         let reg = RunnerdRegistry::default();
         let input = AnnounceInput {
             runner_ids: vec!["build-1".to_string(), "name-1".to_string()],
@@ -408,7 +470,7 @@ mod tests {
         assert!(reg.port_for("build-1").is_none());
 
         // Right secret → registered + challenge echoed.
-        let out = apply_announce(&reg, &s.dir, Some("s3cr3t"), &input, 42);
+        let out = apply_announce(&reg, &s.dir, Some(SECRET), &input, 42);
         match out {
             AnnounceOutcome::Registered(body) => {
                 assert_eq!(body["echo"], "chal-xyz", "the liveness challenge is echoed");
@@ -436,14 +498,14 @@ mod tests {
         assert!(err.to_string().contains("no live runner"), "got {err}");
 
         // Make the runner live.
-        reg.register(&["build-1".to_string()], 61999, 1);
+        assert!(reg.register(&["build-1".to_string()], 61999, 1));
 
         // (b) live runner but NO secret file → honest refusal.
         let err = resolve_spawn_target(&reg, &s.dir, &input, Some("/repo")).expect_err("no secret");
         assert!(err.to_string().contains("runnerd.secret"), "got {err}");
 
         // (c) secret present but no workspace root → honest refusal.
-        s.write_secret("s3cr3t");
+        s.write_secret(SECRET);
         let err = resolve_spawn_target(&reg, &s.dir, &input, None).expect_err("no workspace");
         assert!(err.to_string().contains("no workspace root"), "got {err}");
     }
@@ -451,15 +513,15 @@ mod tests {
     #[test]
     fn resolve_spawn_builds_the_run_request_with_the_secret_out_of_band() {
         let s = Scratch::new("resolve-ok");
-        s.write_secret("s3cr3t");
+        s.write_secret(SECRET);
         let reg = RunnerdRegistry::default();
-        reg.register(&["build-1".to_string()], 61999, 1);
+        assert!(reg.register(&["build-1".to_string()], 61999, 1));
         let input = spawn_input();
 
         let target = resolve_spawn_target(&reg, &s.dir, &input, Some("/repo/root")).unwrap();
         assert_eq!(target.url, "http://127.0.0.1:61999/run");
         assert_eq!(
-            target.secret, "s3cr3t",
+            target.secret, SECRET,
             "the secret is out-of-band, never in the body"
         );
         assert_eq!(target.body["runner_id"], "build-1");
@@ -470,7 +532,50 @@ mod tests {
             "the workspace/routing is threaded"
         );
         // The secret NEVER appears in the forwarded body (the browser proxy law).
-        assert!(!target.body.to_string().contains("s3cr3t"));
+        assert!(!target.body.to_string().contains(SECRET));
+    }
+
+    #[test]
+    fn stale_and_over_capacity_runner_entries_are_refused() {
+        let registry = RunnerdRegistry::default();
+        assert!(registry.register(&["build-1".to_string()], 61999, 1));
+        registry
+            .runners
+            .lock()
+            .get_mut("build-1")
+            .unwrap()
+            .observed_at = Instant::now() - RUNNERD_LIVENESS_TTL - Duration::from_secs(1);
+        assert_eq!(registry.port_for("build-1"), None);
+
+        let first = (0..64)
+            .map(|index| format!("runner-{index}"))
+            .collect::<Vec<_>>();
+        let second = (64..128)
+            .map(|index| format!("runner-{index}"))
+            .collect::<Vec<_>>();
+        assert!(registry.register(&first, 62000, 2));
+        assert!(registry.register(&second, 62001, 3));
+        assert!(!registry.register(&["runner-128".to_string()], 62002, 4));
+        assert_eq!(registry.status_json()["count"], MAX_RUNNER_IDS);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_refuses_insecure_or_symlinked_runner_secret() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let insecure = Scratch::new("insecure-secret");
+        let insecure_path = secret_path(&insecure.dir);
+        std::fs::write(&insecure_path, SECRET).unwrap();
+        std::fs::set_permissions(&insecure_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(read_secret(&insecure.dir).is_none());
+
+        let linked = Scratch::new("linked-secret");
+        let target = linked.dir.join("target-secret");
+        std::fs::write(&target, SECRET).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&target, secret_path(&linked.dir)).unwrap();
+        assert!(read_secret(&linked.dir).is_none());
     }
 
     #[test]

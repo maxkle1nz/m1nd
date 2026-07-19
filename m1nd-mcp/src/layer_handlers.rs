@@ -9,11 +9,12 @@
 use crate::protocol::layers;
 use crate::result_shaping::dedupe_ranked;
 use crate::scope::normalize_scope_path;
-use crate::session::SessionState;
+use crate::session::{SeekFileIndexCache, SeekFileIndexDocument, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_core::graph::Graph;
 use m1nd_core::seed::source_path_bias;
 use m1nd_core::types::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -36,6 +37,567 @@ const L2_SEEK_STOPWORDS: &[&str] = &[
     "should", "could", "would", "about", "need", "needs", "want", "wants", "show", "tell", "there",
     "here", "really", "just", "like",
 ];
+
+// Narrative queries and explicit identifier queries have different useful
+// answer units. A human sentence normally asks "which part of the code owns
+// this behavior?"; returning five symbols from one file wastes four of five
+// recall slots. Explicit code/path lookups, however, must retain symbol-level
+// precision. The mode switch is deterministic and visible on SeekOutput.
+const L2_FILE_GROUP_MIN_QUERY_TOKENS: usize = 6;
+const L2_FILE_RRF_K: f32 = 10.0;
+const L2_FILE_RRF_LEXICAL_WEIGHT: f32 = 1.25;
+const L2_FILE_RRF_SEMANTIC_WEIGHT: f32 = 0.75;
+
+#[derive(Clone, Debug)]
+struct L2FileGroupRank {
+    path: String,
+    representative_idx: usize,
+    fused_score: f32,
+    lexical_score: f32,
+}
+
+#[derive(Clone, Copy)]
+struct L2FileScope<'a> {
+    normalized: Option<&'a String>,
+    ingest_roots: &'a [String],
+}
+
+/// Case-preserving word scan shared by entity grounding and explicit-symbol
+/// detection. `_`, `-`, `.`, `+`, and `#` are retained because they carry
+/// technical identity (`JSON-RPC`, `OAuth_2`, `C++`, `C#`).
+fn l2_case_preserving_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        if ch.is_alphanumeric() || matches!(ch, '_' | '-' | '.' | '+' | '#') {
+            current.push(ch);
+        } else if !current.is_empty() {
+            let trimmed = current
+                .trim_matches(|c: char| matches!(c, '_' | '-' | '.' | '+' | '#'))
+                .to_string();
+            if !trimmed.is_empty() {
+                words.push(trimmed);
+            }
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        let trimmed = current
+            .trim_matches(|c: char| matches!(c, '_' | '-' | '.' | '+' | '#'))
+            .to_string();
+        if !trimmed.is_empty() {
+            words.push(trimmed);
+        }
+    }
+    words
+}
+
+/// Extract named technical entities without a product/vendor allow-list. The
+/// signal comes only from orthography: acronyms, camel/Pascal case, digits, or
+/// identifier punctuation. Sentence-leading question words are intentionally
+/// excluded, and a plain initial-capital word is considered salient only after
+/// the first two tokens. This makes the rule auditable and corpus-independent.
+fn l2_salient_technical_entities(query: &str) -> Vec<String> {
+    let words = l2_case_preserving_words(query);
+    let mut entities = Vec::new();
+    let mut seen = HashSet::new();
+
+    for (idx, word) in words.into_iter().enumerate() {
+        let alpha: Vec<char> = word.chars().filter(|ch| ch.is_alphabetic()).collect();
+        if alpha.is_empty() {
+            continue;
+        }
+        let first = alpha[0];
+        let all_upper = alpha.len() > 1 && alpha.iter().all(|ch| ch.is_uppercase());
+        let inner_upper = alpha.iter().skip(1).any(|ch| ch.is_uppercase());
+        let has_digit = word.chars().any(|ch| ch.is_ascii_digit());
+        let identifier_punctuation = word.contains('_') || word.contains('#') || word.contains('+');
+        let later_initial_cap = idx > 1 && first.is_uppercase();
+        if !(all_upper || inner_upper || has_digit || identifier_punctuation || later_initial_cap) {
+            continue;
+        }
+
+        let key = word.to_lowercase();
+        if seen.insert(key) {
+            entities.push(word);
+        }
+    }
+    entities
+}
+
+fn l2_token_bound_contains(haystack: &str, needle: &str) -> bool {
+    let haystack = haystack.to_lowercase();
+    let needle = needle.to_lowercase();
+    if needle.is_empty() {
+        return false;
+    }
+
+    let mut variants = vec![needle.clone()];
+    for variant in [
+        needle.replace('-', "_"),
+        needle.replace('_', "-"),
+        needle.replace(['-', '_'], ""),
+    ] {
+        if !variants.contains(&variant) {
+            variants.push(variant);
+        }
+    }
+
+    variants.into_iter().any(|variant| {
+        haystack.match_indices(&variant).any(|(start, _)| {
+            let left_ok = haystack[..start]
+                .chars()
+                .next_back()
+                .is_none_or(|ch| !ch.is_alphanumeric());
+            let end = start + variant.len();
+            let right_ok = haystack[end..]
+                .chars()
+                .next()
+                .is_none_or(|ch| !ch.is_alphanumeric());
+            left_ok && right_ok
+        })
+    })
+}
+
+fn l2_node_is_in_scope(
+    idx: usize,
+    node_to_ext: &[String],
+    normalized_scope: Option<&String>,
+    ingest_roots: &[String],
+) -> bool {
+    let Some(scope) = normalized_scope else {
+        return true;
+    };
+    let ext = l7_normalize_path_hint(&node_to_ext[idx], ingest_roots);
+    ext.is_empty() || ext.starts_with(scope.as_str())
+}
+
+fn l2_file_document_is_in_scope(
+    path: &str,
+    normalized_scope: Option<&String>,
+    ingest_roots: &[String],
+) -> bool {
+    let Some(scope) = normalized_scope else {
+        return true;
+    };
+    let external = format!("file::{path}");
+    let normalized = l7_normalize_path_hint(&external, ingest_roots);
+    normalized.is_empty() || normalized.starts_with(scope.as_str())
+}
+
+fn l2_entity_lookup_keys(entity: &str) -> Vec<String> {
+    let lower = entity.to_lowercase();
+    let mut keys = vec![lower.clone()];
+    for key in [
+        lower.replace('-', "_"),
+        lower.replace('_', "-"),
+        lower.replace(['-', '_'], ""),
+    ] {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+fn l2_index_contains_entity(
+    index: &SeekFileIndexCache,
+    entity: &str,
+    normalized_scope: Option<&String>,
+    ingest_roots: &[String],
+) -> bool {
+    let keys = l2_entity_lookup_keys(entity);
+    index.documents.iter().any(|document| {
+        l2_file_document_is_in_scope(&document.path, normalized_scope, ingest_roots)
+            && keys.iter().any(|key| document.entity_terms.contains(key))
+    })
+}
+
+fn l2_seek_grounding(
+    index: &SeekFileIndexCache,
+    salient_entities: Vec<String>,
+    normalized_scope: Option<&String>,
+    ingest_roots: &[String],
+) -> layers::SeekGrounding {
+    if salient_entities.is_empty() {
+        return layers::SeekGrounding {
+            state: "not_applicable".into(),
+            salient_entities,
+            missing_entities: Vec::new(),
+            reason: "the query contains no orthographically salient technical entity to ground"
+                .into(),
+        };
+    }
+
+    let missing_entities: Vec<String> = salient_entities
+        .iter()
+        .filter(|entity| !l2_index_contains_entity(index, entity, normalized_scope, ingest_roots))
+        .cloned()
+        .collect();
+    if missing_entities.is_empty() {
+        layers::SeekGrounding {
+            state: "entity_grounded".into(),
+            reason: format!(
+                "all {} salient technical entit{} occur in the active graph scope",
+                salient_entities.len(),
+                if salient_entities.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                }
+            ),
+            salient_entities,
+            missing_entities,
+        }
+    } else {
+        layers::SeekGrounding {
+            state: "entity_absent".into(),
+            reason: format!(
+                "the active graph scope contains no token-bound occurrence of: {}",
+                missing_entities.join(", ")
+            ),
+            salient_entities,
+            missing_entities,
+        }
+    }
+}
+
+fn l2_query_has_explicit_identifier(query: &str, graph: &Graph) -> bool {
+    if query.contains('`') || query.contains("::") || query.contains('/') || query.contains('\\') {
+        return true;
+    }
+    let words = l2_case_preserving_words(query);
+    if words.iter().any(|word| {
+        let lower = word.to_lowercase();
+        word.contains('_')
+            || word.ends_with("()")
+            || [".rs", ".py", ".ts", ".tsx", ".js", ".json", ".toml", ".md"]
+                .iter()
+                .any(|suffix| lower.ends_with(suffix))
+    }) {
+        return true;
+    }
+
+    // A bare CamelCase/PascalCase token is treated as an explicit identifier
+    // only when it resolves to an actual graph label. An absent named technology
+    // must remain a narrative query so the grounding gate can abstain.
+    words.iter().any(|word| {
+        let has_inner_upper = word
+            .chars()
+            .skip(1)
+            .any(|ch| ch.is_alphabetic() && ch.is_uppercase());
+        has_inner_upper
+            && (0..graph.num_nodes() as usize).any(|idx| {
+                graph
+                    .strings
+                    .resolve(graph.nodes.label[idx])
+                    .eq_ignore_ascii_case(word)
+            })
+    })
+}
+
+fn l2_should_group_files(
+    input: &layers::SeekInput,
+    query_tokens: &[String],
+    graph: &Graph,
+) -> bool {
+    let narrative_lead = l2_case_preserving_words(&input.query)
+        .first()
+        .map(|word| word.to_lowercase())
+        .is_some_and(|word| {
+            matches!(
+                word.as_str(),
+                "which"
+                    | "where"
+                    | "what"
+                    | "when"
+                    | "who"
+                    | "why"
+                    | "how"
+                    | "find"
+                    | "show"
+                    | "tell"
+                    | "locate"
+                    | "identify"
+                    | "code"
+                    | "implementation"
+                    | "handler"
+                    | "component"
+                    | "function"
+                    | "module"
+            )
+        });
+    let file_compatible_filter = input.node_types.is_empty()
+        || input
+            .node_types
+            .iter()
+            .all(|node_type| node_type.eq_ignore_ascii_case("file"));
+    file_compatible_filter
+        && narrative_lead
+        && query_tokens.len() >= L2_FILE_GROUP_MIN_QUERY_TOKENS
+        && !l2_query_has_explicit_identifier(&input.query, graph)
+}
+
+fn l2_source_file_for_node(graph: &Graph, node_to_ext: &[String], idx: usize) -> Option<String> {
+    if let Some(path) = graph.nodes.provenance[idx]
+        .source_path
+        .and_then(|value| graph.strings.try_resolve(value))
+        .filter(|path| !path.is_empty())
+    {
+        return Some(path.to_string());
+    }
+    let external = node_to_ext.get(idx)?.strip_prefix("file::")?;
+    let path = external.split("::").next().unwrap_or(external);
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+fn l2_bm25_terms(text: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    for raw in text.split(|ch: char| !ch.is_alphanumeric() && ch != '_') {
+        if raw.len() <= 1 {
+            continue;
+        }
+        let lower = raw.to_lowercase();
+        terms.push(lower.clone());
+        for part in l2_split_identifier(raw) {
+            if part.len() > 1 && part != lower {
+                terms.push(part);
+            }
+        }
+    }
+    terms
+}
+
+fn l2_add_entity_text(document: &mut SeekFileIndexDocument, text: &str) {
+    for word in l2_case_preserving_words(text) {
+        for key in l2_entity_lookup_keys(&word) {
+            document.entity_terms.insert(key);
+        }
+    }
+    // Identifier parts make `HTTP` ground against `http_server`, while the
+    // full keys above retain compound identities such as `JSON-RPC`.
+    document.entity_terms.extend(l2_bm25_terms(text));
+}
+
+fn l2_add_index_text(document: &mut SeekFileIndexDocument, text: &str, repetitions: usize) {
+    let terms = l2_bm25_terms(text);
+    document.length = document
+        .length
+        .saturating_add(terms.len().saturating_mul(repetitions));
+    for term in terms {
+        let count = document.term_counts.entry(term).or_default();
+        *count = count.saturating_add(repetitions.min(u32::MAX as usize) as u32);
+    }
+    l2_add_entity_text(document, text);
+}
+
+fn l2_build_file_index(
+    graph: &Graph,
+    node_to_ext: &[String],
+    graph_generation: u64,
+) -> SeekFileIndexCache {
+    let mut documents: BTreeMap<String, SeekFileIndexDocument> = BTreeMap::new();
+    for idx in 0..graph.num_nodes() as usize {
+        let Some(path) = l2_source_file_for_node(graph, node_to_ext, idx) else {
+            continue;
+        };
+        let document = documents
+            .entry(path.clone())
+            .or_insert_with(|| SeekFileIndexDocument {
+                path: path.clone(),
+                ..SeekFileIndexDocument::default()
+            });
+        if graph.nodes.node_type[idx] == NodeType::File {
+            document.file_idx = Some(idx);
+        }
+        l2_add_index_text(document, graph.strings.resolve(graph.nodes.label[idx]), 4);
+        l2_add_index_text(document, &path, 2);
+        l2_add_entity_text(document, &node_to_ext[idx]);
+        for tag in &graph.nodes.tags[idx] {
+            l2_add_index_text(document, graph.strings.resolve(*tag), 1);
+        }
+        let provenance = &graph.nodes.provenance[idx];
+        if let Some(namespace) = provenance
+            .namespace
+            .and_then(|value| graph.strings.try_resolve(value))
+        {
+            l2_add_entity_text(document, namespace);
+        }
+        if let Some(excerpt) = provenance
+            .excerpt
+            .and_then(|value| graph.strings.try_resolve(value))
+        {
+            let bounded: String = excerpt.chars().take(320).collect();
+            l2_add_index_text(document, &bounded, 1);
+        }
+    }
+    SeekFileIndexCache {
+        graph_generation,
+        documents: documents.into_values().collect(),
+    }
+}
+
+/// Rank source files with BM25 over labels, paths, tags, and bounded excerpts,
+/// then fuse that lexical rank with the existing semantic rank using weighted
+/// reciprocal-rank fusion. Lexical intent remains primary (1.25) while semantic
+/// rank carries enough weight (0.75) to recover concept matches whose owner file
+/// does not repeat the question vocabulary; RRF k=10 limits rank-one confidence.
+fn l2_rank_file_groups(
+    graph: &Graph,
+    node_to_ext: &[String],
+    index: &SeekFileIndexCache,
+    scope: L2FileScope<'_>,
+    query_tokens: &[String],
+    semantic_node_order: &[usize],
+    file_only: bool,
+) -> Vec<L2FileGroupRank> {
+    let query_terms: HashSet<String> = query_tokens.iter().cloned().collect();
+    let documents: Vec<&SeekFileIndexDocument> = index
+        .documents
+        .iter()
+        .filter(|document| {
+            l2_file_document_is_in_scope(&document.path, scope.normalized, scope.ingest_roots)
+        })
+        .collect();
+    if documents.is_empty() || query_terms.is_empty() {
+        return Vec::new();
+    }
+
+    let document_count = documents.len() as f32;
+    let average_length = documents
+        .iter()
+        .map(|document| document.length.max(1) as f32)
+        .sum::<f32>()
+        / document_count;
+    let mut document_frequency: HashMap<String, usize> = HashMap::new();
+    for term in &query_terms {
+        document_frequency.insert(
+            term.clone(),
+            documents
+                .iter()
+                .filter(|document| document.term_counts.contains_key(term))
+                .count(),
+        );
+    }
+
+    let mut lexical: Vec<(String, f32)> = documents
+        .iter()
+        .filter_map(|document| {
+            let length = document.length.max(1) as f32;
+            let score = query_terms.iter().fold(0.0, |sum, term| {
+                let tf = document.term_counts.get(term).copied().unwrap_or(0) as f32;
+                if tf == 0.0 {
+                    return sum;
+                }
+                let df = document_frequency.get(term).copied().unwrap_or(0) as f32;
+                let idf = ((document_count - df + 0.5) / (df + 0.5) + 1.0).ln();
+                let denominator = tf + 1.2 * (1.0 - 0.75 + 0.75 * length / average_length);
+                sum + idf * (tf * 2.2 / denominator)
+            });
+            (score > 0.0).then(|| (document.path.clone(), score))
+        })
+        .collect();
+    lexical.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let max_lexical = lexical
+        .first()
+        .map(|entry| entry.1)
+        .unwrap_or(1.0)
+        .max(f32::EPSILON);
+    let mut lexical_rank: HashMap<String, (usize, f32)> = HashMap::new();
+    let mut previous_score: Option<f32> = None;
+    let mut tied_rank = 1usize;
+    for (idx, (path, score)) in lexical.into_iter().enumerate() {
+        // BM25 differences below 2% are operationally ties: they are commonly
+        // caused by an unrelated path/identifier-length token, not extra query
+        // evidence. Dense-ranking that near-tie lets the semantic/graph rank do
+        // its intended corroborating work instead of allowing path spelling to
+        // decide the result.
+        if previous_score.is_none_or(|previous| {
+            (previous - score).abs() > previous.abs().max(score.abs()).max(1.0) * 0.02
+        }) {
+            tied_rank = idx + 1;
+        }
+        previous_score = Some(score);
+        lexical_rank.insert(path, (tied_rank, score / max_lexical));
+    }
+
+    let mut semantic_rank: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut next_semantic_rank = 1usize;
+    for idx in semantic_node_order {
+        let Some(path) = l2_source_file_for_node(graph, node_to_ext, *idx) else {
+            continue;
+        };
+        if semantic_rank.contains_key(&path) {
+            continue;
+        }
+        semantic_rank.insert(path, (next_semantic_rank, *idx));
+        next_semantic_rank += 1;
+    }
+
+    let max_rrf =
+        (L2_FILE_RRF_LEXICAL_WEIGHT + L2_FILE_RRF_SEMANTIC_WEIGHT) / (L2_FILE_RRF_K + 1.0);
+    let mut ranks = Vec::new();
+    for document in documents {
+        let path = &document.path;
+        let lexical_entry = lexical_rank.get(path);
+        let semantic_entry = semantic_rank.get(path);
+        if lexical_entry.is_none() && semantic_entry.is_none() {
+            continue;
+        }
+        let fused = lexical_entry.map_or(0.0, |(rank, _)| {
+            L2_FILE_RRF_LEXICAL_WEIGHT / (L2_FILE_RRF_K + *rank as f32)
+        }) + semantic_entry.map_or(0.0, |(rank, _)| {
+            L2_FILE_RRF_SEMANTIC_WEIGHT / (L2_FILE_RRF_K + *rank as f32)
+        });
+        let representative_idx = if file_only {
+            document.file_idx
+        } else {
+            // File-group answers carry the stable file anchor as `node_id`;
+            // concrete symbols remain visible through the file node's `contains`
+            // edges. Legacy/synthetic graphs without file nodes fall back to
+            // their best semantic node instead of fabricating one.
+            document
+                .file_idx
+                .or_else(|| semantic_entry.map(|(_, idx)| *idx))
+        };
+        let Some(representative_idx) = representative_idx else {
+            continue;
+        };
+        ranks.push(L2FileGroupRank {
+            path: path.clone(),
+            representative_idx,
+            fused_score: (fused / max_rrf).clamp(0.0, 1.0),
+            lexical_score: lexical_entry.map(|(_, score)| *score).unwrap_or(0.0),
+        });
+    }
+    ranks.sort_by(|a, b| {
+        b.fused_score
+            .total_cmp(&a.fused_score)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    ranks
+}
+
+fn l2_apply_grounding_gate(
+    mut envelope: layers::TrustEnvelope,
+    grounding: &layers::SeekGrounding,
+) -> layers::TrustEnvelope {
+    if grounding.state != "entity_absent" {
+        return envelope;
+    }
+    envelope.verdict = "abstain".into();
+    envelope.score = 0.0;
+    envelope.factors.push(layers::TrustFactor {
+        name: "entity_grounding".into(),
+        band: "entity_absent".into(),
+        weight: 1.0,
+        known: true,
+    });
+    envelope.reasons.insert(0, grounding.reason.clone());
+    envelope.next_repair_call = Some("cross_verify".into());
+    envelope
+}
 
 fn l2_seek_heuristic_reason(
     trust_factor: f32,
@@ -193,6 +755,7 @@ pub fn handle_seek(
 ) -> M1ndResult<layers::SeekOutput> {
     let start = Instant::now();
     let query_tokens = l2_seek_tokenize(&input.query);
+    let salient_entities = l2_salient_technical_entities(&input.query);
     let normalized_scope = normalize_scope_path(input.scope.as_deref(), &state.ingest_roots);
     // Snapshot the workspace root BEFORE taking the graph read borrow below, so
     // resolving the conformance manifesto does not conflict with the borrow.
@@ -250,6 +813,18 @@ pub fn handle_seek(
         );
         return Ok(layers::SeekOutput {
             query: input.query,
+            result_granularity: "node".into(),
+            grounding: layers::SeekGrounding {
+                state: "not_applicable".into(),
+                salient_entities,
+                missing_entities: Vec::new(),
+                reason: if n == 0 {
+                    "entity grounding was not attempted because the graph is empty".into()
+                } else {
+                    "entity grounding was not attempted because the query has no searchable tokens"
+                        .into()
+                },
+            },
             results: vec![],
             total_candidates_scanned: 0,
             relevance_clearing_total: 0,
@@ -286,6 +861,30 @@ pub fn handle_seek(
             node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
         }
     }
+    let graph_generation = state.graph_generation;
+    let index_is_stale = state
+        .seek_file_index
+        .as_ref()
+        .is_none_or(|index| index.graph_generation != graph_generation);
+    if index_is_stale {
+        state.seek_file_index = Some(l2_build_file_index(&graph, &node_to_ext, graph_generation));
+    }
+    let seek_file_index = state
+        .seek_file_index
+        .as_ref()
+        .expect("seek file index initialized for non-empty graph");
+    let file_group_mode = l2_should_group_files(&input, &query_tokens, &graph);
+    let result_granularity = if file_group_mode {
+        "file_group"
+    } else {
+        "node"
+    };
+    let grounding = l2_seek_grounding(
+        seek_file_index,
+        salient_entities,
+        normalized_scope.as_ref(),
+        &state.ingest_roots,
+    );
 
     // Conformance-aware attention (Subsystem 5): resolve the workspace X-RAY
     // manifesto ONCE and classify every node, only when the caller opts in (the
@@ -519,6 +1118,37 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    if file_group_mode {
+        let semantic_node_order: Vec<usize> = base_ranked.iter().map(|entry| entry.idx).collect();
+        let file_only = !input.node_types.is_empty();
+        base_ranked = l2_rank_file_groups(
+            &graph,
+            &node_to_ext,
+            seek_file_index,
+            L2FileScope {
+                normalized: normalized_scope.as_ref(),
+                ingest_roots: &state.ingest_roots,
+            },
+            &all_tokens,
+            &semantic_node_order,
+            file_only,
+        )
+        .into_iter()
+        .filter(|group| group.fused_score >= input.min_score)
+        .map(|group| BaseRankedNode {
+            idx: group.representative_idx,
+            base_score: group.fused_score,
+            keyword: group.lexical_score,
+            graph_act: graph.nodes.pagerank[group.representative_idx].get(),
+            trigram: trigram_scores[group.representative_idx],
+        })
+        .collect();
+        base_ranked.sort_by(|a, b| {
+            b.base_score
+                .total_cmp(&a.base_score)
+                .then_with(|| a.idx.cmp(&b.idx))
+        });
+    }
     // Honesty accounting, part 1 — captured BEFORE the heuristic-window cut:
     //  * `relevance_clearing_total`: every node that cleared `min_score` (the full
     //    relevant pool size), so `ignored` reflects all of it, not just budget
@@ -725,6 +1355,10 @@ pub fn handle_seek(
                     }
                 }
             }
+            let file_path = prov
+                .source_path
+                .clone()
+                .or_else(|| l2_source_file_for_node(&graph, &node_to_ext, i));
 
             layers::SeekResultEntry {
                 node_id: if ext_id.is_empty() {
@@ -742,7 +1376,7 @@ pub fn handle_seek(
                 },
                 heuristic_signals: Some(r.heuristic_signals),
                 intent_summary: l2_intent_summary(&label, nt, &tags),
-                file_path: prov.source_path,
+                file_path,
                 line_start: prov.line_start,
                 line_end: prov.line_end,
                 excerpt: prov.excerpt,
@@ -801,7 +1435,19 @@ pub fn handle_seek(
         tail_best_base
     };
     let top_score = results.first().map(|e| e.score).unwrap_or(0.0);
-    let sufficiency = compute_sufficiency(top_score, captured, marginal_score, results.len());
+    let sufficiency = if grounding.state == "entity_absent" {
+        layers::Sufficiency {
+            state: "saturated".into(),
+            top_score,
+            captured,
+            why: format!(
+                "retrieval may show lexical neighbors, but the named technical grounding is absent: {}",
+                grounding.missing_entities.join(", ")
+            ),
+        }
+    } else {
+        compute_sufficiency(top_score, captured, marginal_score, results.len())
+    };
 
     drop(graph);
 
@@ -917,14 +1563,19 @@ pub fn handle_seek(
         .calibration_table
         .get(m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE)
         .cloned();
-    let trust_envelope = crate::trust_envelope::compose_seek_trust_envelope(
-        &top_trust_bands,
-        binding_band,
-        envelope_cal.as_ref(),
+    let trust_envelope = l2_apply_grounding_gate(
+        crate::trust_envelope::compose_seek_trust_envelope(
+            &top_trust_bands,
+            binding_band,
+            envelope_cal.as_ref(),
+        ),
+        &grounding,
     );
 
     Ok(layers::SeekOutput {
         query: input.query,
+        result_granularity: result_granularity.into(),
+        grounding,
         results,
         total_candidates_scanned: candidates_scanned,
         relevance_clearing_total,
@@ -9218,17 +9869,10 @@ pub fn handle_calibrate_predict(
     state
         .calibration_table
         .set(CALIBRATION_SIGNAL_PREDICT, outcome.row.clone());
-    // Calibration is a deliberate, infrequent checkpoint — its result must be
-    // durable, so persist the table directly rather than relying on the
-    // per-query persist throttle. Read-only sessions are skipped honestly.
-    if !state.read_only {
-        if let Err(e) = m1nd_core::calibration::save_calibration_state(
-            &state.calibration_table,
-            &state.calibration_path,
-        ) {
-            eprintln!("[m1nd] WARNING: calibration persist failed: {e}");
-        }
-    }
+    // Route deliberate durability through SessionState's single choke point.
+    // The brain actor stages this request without publishing working files;
+    // direct/legacy owners still perform the strict full-state persist.
+    state.persist()?;
     state.queries_processed += 1;
 
     let row = &outcome.row;
@@ -9405,15 +10049,8 @@ pub fn handle_calibrate_envelope(
         m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
         outcome.row.clone(),
     );
-    // Deliberate, durable checkpoint — persist directly (skip on read-only).
-    if !state.read_only {
-        if let Err(e) = m1nd_core::calibration::save_calibration_state(
-            &state.calibration_table,
-            &state.calibration_path,
-        ) {
-            eprintln!("[m1nd] WARNING: calibration persist failed: {e}");
-        }
-    }
+    // Deliberate durability uses the actor-aware persistence choke point.
+    state.persist()?;
     state.queries_processed += 1;
 
     let row = &outcome.row;
@@ -11219,6 +11856,13 @@ mod tests {
         let env = &out.trust_envelope;
         assert!(!out.results.is_empty(), "precondition: real results");
         assert!(env.calibrated, "seeded envelope row ⇒ calibrated");
+        let receipt = env
+            .calibration_receipt
+            .as_ref()
+            .expect("calibrated seek carries receipt");
+        assert_eq!(receipt.status, "calibrated");
+        assert_eq!(receipt.signal, "envelope");
+        assert_eq!(receipt.sample_size, 100);
         assert_eq!(
             env.verdict, "act",
             "clean binding + seeded calibration must reach `act`, got {:?} (score {})",
@@ -11321,6 +11965,7 @@ mod tests {
 
         let env = &out.trust_envelope;
         assert!(!env.calibrated, "no envelope row ⇒ calibrated:false");
+        assert!(env.calibration_receipt.is_none());
         assert_eq!(
             env.verdict, "reverify",
             "uncalibrated envelope must cap at `reverify`, never `act`"
@@ -11514,13 +12159,72 @@ mod tests {
         .expect("calibrate ok");
         assert_eq!(out["calibrated"], serde_json::json!(true));
 
-        // Reload the persisted table from disk and confirm the envelope row survived.
+        let first_seek = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek after calibration");
+        let first_receipt = first_seek
+            .trust_envelope
+            .calibration_receipt
+            .expect("receipt after calibration");
+
+        // Reload the persisted table from disk and confirm the envelope row and
+        // its canonical receipt binding survived exactly.
         let reloaded = m1nd_core::calibration::load_calibration_state(&state.calibration_path)
             .expect("reload");
-        assert!(
-            reloaded.get("envelope").is_some(),
-            "the envelope calibration row must be persisted to calibration_state.json"
+        let reloaded_row = reloaded
+            .get("envelope")
+            .expect("the envelope calibration row must be persisted");
+        assert!(crate::trust_envelope::verify_seek_calibration_receipt(
+            &first_receipt,
+            reloaded_row,
+        ));
+
+        drop(state);
+        let mut restarted = build_layer_state(temp.path());
+        let restarted_row = restarted
+            .calibration_table
+            .get("envelope")
+            .expect("restart restores envelope row")
+            .clone();
+        let restarted_seek = handle_seek(
+            &mut restarted,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek after restart");
+        let restarted_receipt = restarted_seek
+            .trust_envelope
+            .calibration_receipt
+            .expect("restart seek receipt");
+        assert_eq!(
+            restarted_receipt.receipt_digest, first_receipt.receipt_digest,
+            "the exact persisted row must reproduce the same receipt digest"
         );
+        assert!(crate::trust_envelope::verify_seek_calibration_receipt(
+            &restarted_receipt,
+            &restarted_row,
+        ));
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that
@@ -13306,6 +14010,32 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
     }
 
     #[test]
+    fn seek_entity_extraction_is_orthographic_and_not_vendor_hardcoded() {
+        let entities = super::l2_salient_technical_entities(
+            "Where does a client combine NimbusDB, gRPC, OAuth_2 and boto7 safely?",
+        );
+        assert_eq!(entities, vec!["NimbusDB", "gRPC", "OAuth_2", "boto7"]);
+
+        let ordinary = super::l2_salient_technical_entities(
+            "Which handler builds durable startup state from current evidence?",
+        );
+        assert!(
+            ordinary.is_empty(),
+            "ordinary sentence capitalization must not manufacture an entity: {ordinary:?}"
+        );
+    }
+
+    #[test]
+    fn seek_token_bound_presence_does_not_confuse_a_name_with_a_substring() {
+        assert!(super::l2_token_bound_contains("src/http_server.rs", "HTTP"));
+        assert!(super::l2_token_bound_contains(
+            "uses json_rpc frames",
+            "JSON-RPC"
+        ));
+        assert!(!super::l2_token_bound_contains("draft_policy", "Raft"));
+    }
+
+    #[test]
     fn seek_normalizes_relative_absolute_and_file_scopes_equivalently() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -13485,6 +14215,150 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
         );
         assert_eq!(output.results[0].node_type, "function");
+        assert_eq!(output.result_granularity, "file_group");
+        let unique_files: std::collections::HashSet<_> = output
+            .results
+            .iter()
+            .filter_map(|result| result.file_path.as_deref())
+            .collect();
+        assert_eq!(
+            unique_files.len(),
+            output.results.len(),
+            "narrative retrieval must spend at most one result slot per file"
+        );
+    }
+
+    #[test]
+    fn seek_explicit_identifier_preserves_node_granularity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_seek_natural_language_state(temp.path());
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "normalize_dispatch_tool_name".into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert_eq!(output.result_granularity, "node");
+        assert_eq!(
+            output.results.first().map(|result| result.node_id.as_str()),
+            Some("file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name")
+        );
+    }
+
+    #[test]
+    fn seek_file_index_cache_rebuilds_after_graph_generation_changes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_seek_natural_language_state(temp.path());
+        let input = SeekInput {
+            query:
+                "Where do we normalize alias tool names into the canonical dispatch status name?"
+                    .into(),
+            agent_id: "test".into(),
+            top_k: 5,
+            scope: None,
+            node_types: vec![],
+            min_score: 0.0,
+            graph_rerank: true,
+            conformance_aware: true,
+            token_budget: None,
+        };
+
+        handle_seek(&mut state, input.clone()).expect("first seek should build the cache");
+        let first_generation = state.graph_generation;
+        let first_document_count = state
+            .seek_file_index
+            .as_ref()
+            .expect("cache initialized")
+            .documents
+            .len();
+        assert!(first_document_count > 0);
+
+        // A poisoned same-generation cache proves the next call really
+        // rebuilds after the authoritative generation fence advances.
+        state
+            .seek_file_index
+            .as_mut()
+            .expect("cache initialized")
+            .documents
+            .clear();
+        state.bump_graph_generation();
+        handle_seek(&mut state, input).expect("seek should rebuild a stale cache");
+
+        let rebuilt = state.seek_file_index.as_ref().expect("cache rebuilt");
+        assert_eq!(rebuilt.graph_generation, state.graph_generation);
+        assert_eq!(state.graph_generation, first_generation + 1);
+        assert_eq!(rebuilt.documents.len(), first_document_count);
+    }
+
+    #[test]
+    fn seek_absent_named_entity_forces_transparent_abstention() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        seed_envelope_calibration(&mut state);
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Where does NimbusDB persist graph state across durable column families?"
+                    .into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert_eq!(output.grounding.state, "entity_absent");
+        assert_eq!(output.grounding.missing_entities, vec!["NimbusDB"]);
+        assert_eq!(output.trust_envelope.verdict, "abstain");
+        assert_eq!(output.trust_envelope.score, 0.0);
+        assert_eq!(output.sufficiency.state, "saturated");
+        assert!(output
+            .trust_envelope
+            .factors
+            .iter()
+            .any(|factor| factor.name == "entity_grounding" && factor.known));
+    }
+
+    #[test]
+    fn seek_present_named_entity_does_not_auto_authorize() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        // `core.rs` is mechanically present, but no envelope calibration is
+        // installed; grounding must never bypass the existing reverify cap.
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Which implementation reads Core from durable state?".into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert_eq!(output.grounding.state, "entity_grounded");
+        assert_ne!(output.trust_envelope.verdict, "act");
+        assert_eq!(output.trust_envelope.verdict, "reverify");
     }
 
     #[test]

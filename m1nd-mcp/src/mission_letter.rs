@@ -728,7 +728,7 @@ pub struct PostOutcome {
 /// that resolves `box_path` from the session and maps the error onto the MCP
 /// surface. It NEVER opens the SystemBlockStore (§1c — a letter is state, not
 /// evidence).
-pub fn post_mission_letter(
+pub(crate) fn post_mission_letter(
     box_path: &std::path::Path,
     agent_id: &str,
     letter: &MissionLetter,

@@ -1,0 +1,103 @@
+{
+  "$id": "m1nd10-g6-held-out-v2-public.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "author_review_status": {
+      "const": "AUTHOR_ONLY_AWAITING_INDEPENDENT_REVIEW"
+    },
+    "blinded": {
+      "const": true
+    },
+    "corpus_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "corpus_id": {
+      "pattern": "^m1nd10-g6-held-out-v2-[0-9a-f]{16}$",
+      "type": "string"
+    },
+    "runner_contract": {
+      "type": "object"
+    },
+    "schema": {
+      "const": "m1nd10-g6-public-query-corpus-v2"
+    },
+    "self_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_manifest": {
+      "type": "object"
+    },
+    "task_count": {
+      "const": 220
+    },
+    "tasks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "enum": [
+              "rust",
+              "python",
+              "typescript"
+            ]
+          },
+          "query": {
+            "minLength": 55,
+            "pattern": "\\?$",
+            "type": "string"
+          },
+          "repo_id": {
+            "type": "string"
+          },
+          "repo_revision": {
+            "type": "string"
+          },
+          "repo_size_band": {
+            "enum": [
+              "small",
+              "medium",
+              "large"
+            ]
+          },
+          "task_id": {
+            "pattern": "^g6-(mcp|core|py|ui)-[0-9a-f]{16}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "repo_id",
+          "repo_revision",
+          "language",
+          "repo_size_band",
+          "query"
+        ],
+        "type": "object"
+      },
+      "maxItems": 220,
+      "minItems": 220,
+      "type": "array"
+    },
+    "version": {
+      "const": 2
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "corpus_id",
+    "corpus_digest",
+    "blinded",
+    "author_review_status",
+    "source_manifest",
+    "task_count",
+    "runner_contract",
+    "tasks",
+    "self_digest"
+  ],
+  "title": "M1ND-10 G6 held-out V2 public corpus",
+  "type": "object"
+}

@@ -112,8 +112,8 @@ pub fn handle_mission_post(state: &mut SessionState, input: MissionPostInput) ->
                 tool: "mission_post".to_string(),
                 detail: format!(
                     "brain_mismatch: the letter names brain_ref '{}' but this session is bound \
-                     to '{}' — bind to the right brain (ingest project_root=<its root>) or fix \
-                     the letter; nothing was appended",
+                     to '{}' — reconnect through an owner that already hosts the right brain or \
+                     fix the letter; brain_bootstrap_consumer_not_installed, and nothing was appended",
                     input.letter.brain_ref, bound
                 ),
             });

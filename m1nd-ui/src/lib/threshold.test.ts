@@ -1,12 +1,14 @@
 /*
  * Threshold logic — INV-12/11/05 proof (HUMAN-LAYER-PRD §4A.2).
  * Pure, DOM-free. A tiny in-memory KV stands in for localStorage.
- * Fixtures: the real tools schema is captured live; north fixtures are the
- * shipped captured envelopes (INV-01).
+ * Fixtures: tools-current.json is the evolving live-schema capture; tools.json
+ * remains the byte-frozen G0 baseline. North fixtures are the shipped captured
+ * envelopes (INV-01).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
@@ -17,9 +19,6 @@ import {
   allBeatsDismissed,
   rememberLastBrain,
   lastBrain,
-  ingestSupportsProjectRoot,
-  bootstrapParams,
-  mayOfferForeignIngest,
   progressCopy,
   orientationBeats,
   ORIENTATION_BEATS,
@@ -67,36 +66,44 @@ test('INV-12: last-visited brain is remembered (the tree-landing signal)', () =>
   assert.equal(lastBrain(kv), 'inst_abc');
 });
 
-// ── INV-11: feature-detect project_root; clobber ban ──────────────────────────
-test('INV-11: ingestSupportsProjectRoot reads the REAL tools schema', () => {
-  const tools = load<{ tools: ToolSchema[] }>('tools.json').tools;
-  // The live owner (post-#260) advertises project_root.
-  assert.equal(ingestSupportsProjectRoot(tools), true, 'the captured schema advertises project_root');
-  // Absent / empty / no-ingest all read false (honest, never assumed).
-  assert.equal(ingestSupportsProjectRoot(null), false);
-  assert.equal(ingestSupportsProjectRoot([]), false);
-  const noProjectRoot: ToolSchema[] = [
-    { name: 'ingest', description: '', inputSchema: { type: 'object', properties: { path: {} }, required: ['path'] } },
-  ];
-  assert.equal(ingestSupportsProjectRoot(noProjectRoot), false);
+// ── INV-11: closed bootstrap surface + evolving registry fixture ─────────────
+test('INV-11: current tools keep bound ingest but expose no bootstrap arguments', () => {
+  const tools = load<{ tools: ToolSchema[] }>('tools-current.json').tools;
+  const ingest = tools.find((tool) => tool.name === 'ingest');
+  assert.ok(ingest, 'the compatibility ingest name remains in the current registry');
+  assert.match(ingest.description, /POLICY-DISABLED/);
+  const properties = ingest.inputSchema?.properties ?? {};
+  assert.ok(Object.prototype.hasOwnProperty.call(properties, 'path'));
+  assert.equal(Object.prototype.hasOwnProperty.call(properties, 'project_root'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(properties, 'allow_overlap'), false);
+  assert.doesNotMatch(JSON.stringify(tools), /brain\.bootstrap|ONE-CALL BOOTSTRAP/);
 });
 
-test('INV-11: bootstrapParams uses the one-call envelope only when advertised', () => {
-  const withPr = bootstrapParams('/repo', true);
-  assert.equal(withPr.path, '/repo');
-  assert.equal(withPr.project_root, '/repo', 'the one-call bootstrap sets project_root=path');
-  const plain = bootstrapParams('/repo', false);
-  assert.equal(plain.path, '/repo');
-  assert.equal('project_root' in plain, false, 'the fallback is a plain ingest (no project_root)');
-});
+test('INV-11: the evolving fixture is the complete unique registry and preserves the frozen baseline', () => {
+  const current = load<{ tools: ToolSchema[] }>('tools-current.json').tools;
+  const frozen = load<{ tools: ToolSchema[] }>('tools.json').tools;
+  const currentNames = current.map((tool) => tool.name);
+  const frozenNames = frozen.map((tool) => tool.name);
 
-test('INV-11 (clobber ban): a bare foreign ingest is offered ONLY on an empty owner or via the isolated bootstrap', () => {
-  // Empty owner: nothing to clobber → allowed.
-  assert.equal(mayOfferForeignIngest({ ownerHasGraph: false, supportsProjectRoot: false }), true);
-  // Non-empty owner WITHOUT project_root: the clobber ban → forbidden.
-  assert.equal(mayOfferForeignIngest({ ownerHasGraph: true, supportsProjectRoot: false }), false);
-  // Non-empty owner WITH project_root: the bootstrap isolates → allowed.
-  assert.equal(mayOfferForeignIngest({ ownerHasGraph: true, supportsProjectRoot: true }), true);
+  assert.equal(current.length, 138, 'all_tool_schemas registry count');
+  assert.equal(new Set(currentNames).size, current.length, 'tool names are unique');
+  for (const name of frozenNames) assert.ok(currentNames.includes(name), `current registry retains ${name}`);
+
+  const preview = current.find((tool) => tool.name === 'graph_ingest_preview');
+  assert.ok(preview, 'the governed read-only preview is advertised');
+  assert.equal(
+    preview.inputSchema.properties.schema &&
+      (preview.inputSchema.properties.schema as { const?: string }).const,
+    'm1nd-graph-ingest-preview-request-v1',
+  );
+  assert.equal((preview.inputSchema as { additionalProperties?: boolean }).additionalProperties, false);
+
+  const frozenBytes = readFileSync(join(FIX, 'tools.json'));
+  assert.equal(
+    createHash('sha256').update(frozenBytes).digest('hex'),
+    'd5cf5872edfdaf3745e6e5e8216e7fe6bb42f01f05b80d5939c4a538c3c215b6',
+    'the G0 tools fixture remains byte-frozen',
+  );
 });
 
 // ── INV-05: progress is words, never a fabricated percent ─────────────────────

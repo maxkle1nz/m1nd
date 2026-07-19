@@ -19,6 +19,12 @@ const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("M1ND_G
     long_version = LONG_VERSION
 )]
 pub struct Cli {
+    /// Read one bounded authorization-receipt verification request from stdin,
+    /// emit one closed proof JSON object, and exit without booting an owner,
+    /// opening a port, or touching runtime/home state.
+    #[arg(long, exclusive = true)]
+    pub verify_authorization_receipt: bool,
+
     /// Start HTTP server with embedded web UI
     #[arg(long)]
     pub serve: bool,
@@ -27,24 +33,27 @@ pub struct Cli {
     #[arg(long, default_value = "1337")]
     pub port: u16,
 
-    /// Bind address override (default: 127.0.0.1). A non-loopback bind (e.g.
-    /// 0.0.0.0 or a concrete LAN IP) exposes graph mutation to the network and is
-    /// REFUSED at startup unless `--allow-remote` is also given — there is no
-    /// authentication yet, so an unguarded remote bind must be an explicit,
-    /// deliberate opt-in, never the default.
+    /// Bind address override (default: 127.0.0.1). Every non-loopback bind (for
+    /// example 0.0.0.0 or a concrete LAN IP) is refused because authenticated
+    /// TLS remote transport and scoped authorization are not implemented.
     #[arg(long, default_value = "127.0.0.1")]
     pub bind: String,
 
-    /// Explicitly allow binding the HTTP server to a non-loopback address.
-    /// Without this flag a non-loopback `--bind` is refused at startup (there is
-    /// no auth: an open bind would expose graph mutation to the LAN). With it the
-    /// bind proceeds and a strong unauthenticated-exposure warning is printed.
+    /// Legacy compatibility flag. It cannot override the fail-closed refusal of
+    /// non-loopback binds; retained so older launch commands fail honestly at the
+    /// network gate instead of at argument parsing.
     #[arg(long)]
     pub allow_remote: bool,
 
     /// Serve frontend from disk instead of embedded (dev mode)
     #[arg(long)]
     pub dev: bool,
+
+    /// Serve this UI directory verbatim instead of the bundled UI. Its runtime
+    /// tree digest is attested on every manifest read; drift never reuses the
+    /// binary's build-time digest.
+    #[arg(long, value_name = "PATH")]
+    pub ui_dir: Option<String>,
 
     /// Also run JSON-RPC stdio server alongside HTTP
     #[arg(long)]

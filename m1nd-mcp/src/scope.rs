@@ -1,4 +1,113 @@
-use std::path::Path;
+use m1nd_core::error::{M1ndError, M1ndResult};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
+/// One existing path resolved beneath the immutable read roots captured by a
+/// tool call. `root` is the canonical allow-root that authorized `path`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AuthorizedExistingPath {
+    pub path: PathBuf,
+    pub root: PathBuf,
+}
+
+/// Canonicalize the configured workspace/ingest roots without widening them.
+/// Invalid or disappearing roots never become authority.
+pub(crate) fn canonical_read_roots(
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut configured = ingest_roots.to_vec();
+    if let Some(workspace) = workspace_root
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+    {
+        configured.push(workspace.to_string());
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut roots = Vec::new();
+    for configured_root in configured {
+        let Ok(canonical) = std::fs::canonicalize(&configured_root) else {
+            continue;
+        };
+        let Ok(metadata) = std::fs::metadata(&canonical) else {
+            continue;
+        };
+        if (metadata.is_dir() || metadata.is_file()) && seen.insert(canonical.clone()) {
+            roots.push(canonical);
+        }
+    }
+    roots
+}
+
+/// Resolve an existing path and prove that its canonical target is beneath an
+/// already-authorized workspace/ingest root. A file root authorizes only that
+/// exact file. Canonicalizing both sides makes `..` and symlinks that escape a
+/// root fail closed.
+pub(crate) fn authorize_existing_path(
+    candidate: &Path,
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+    tool: &str,
+) -> M1ndResult<AuthorizedExistingPath> {
+    let canonical = std::fs::canonicalize(candidate).map_err(|error| {
+        M1ndError::InvalidParams {
+            tool: tool.to_string(),
+            detail: format!(
+                "path '{}' could not be canonicalized inside authorized workspace/ingest roots: {error}",
+                candidate.display()
+            ),
+        }
+    })?;
+
+    let roots = canonical_read_roots(ingest_roots, workspace_root);
+    if roots.is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.to_string(),
+            detail: format!(
+                "path '{}' denied: no usable authorized workspace/ingest roots are configured",
+                canonical.display()
+            ),
+        });
+    }
+
+    // Prefer the narrowest/deepest matching root so relative identities remain
+    // stable when a workspace root contains a more specific ingest root.
+    let mut selected: Option<PathBuf> = None;
+    for root in roots {
+        let root_is_file = std::fs::metadata(&root)
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false);
+        let allowed = if root_is_file {
+            canonical == root
+        } else {
+            canonical.starts_with(&root)
+        };
+        if allowed
+            && selected
+                .as_ref()
+                .map(|current| root.components().count() > current.components().count())
+                .unwrap_or(true)
+        {
+            selected = Some(root);
+        }
+    }
+
+    let Some(root) = selected else {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.to_string(),
+            detail: format!(
+                "path '{}' is outside authorized workspace/ingest roots",
+                canonical.display()
+            ),
+        });
+    };
+
+    Ok(AuthorizedExistingPath {
+        path: canonical,
+        root,
+    })
+}
 
 pub(crate) fn normalize_path_text(value: &str) -> String {
     let normalized = value.replace('\\', "/");
@@ -124,7 +233,7 @@ fn normalize_relative_scope(scope: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_path_text, normalize_scope_path};
+    use super::{authorize_existing_path, normalize_path_text, normalize_scope_path};
 
     #[test]
     fn normalizes_windows_extended_path_prefixes() {
@@ -165,5 +274,51 @@ mod tests {
         assert_eq!(normalize_scope_path(Some(""), &roots), None);
         assert_eq!(normalize_scope_path(Some("file::"), &roots), None);
         assert_eq!(normalize_scope_path(Some("/workspace"), &roots), None);
+    }
+
+    #[test]
+    fn authorized_existing_path_accepts_only_canonical_targets_under_existing_roots() {
+        let container = tempfile::tempdir().expect("container");
+        let allowed = container.path().join("allowed");
+        let outside = container.path().join("outside");
+        std::fs::create_dir_all(&allowed).expect("allowed root");
+        std::fs::create_dir_all(&outside).expect("outside root");
+        let inside_file = allowed.join("inside.rs");
+        let outside_file = outside.join("sentinel.rs");
+        std::fs::write(&inside_file, "inside").expect("inside file");
+        std::fs::write(&outside_file, "sentinel").expect("outside file");
+        let roots = vec![allowed.to_string_lossy().into_owned()];
+
+        let authorized = authorize_existing_path(&inside_file, &roots, None, "test")
+            .expect("in-root file must be authorized");
+        assert_eq!(
+            authorized.path,
+            std::fs::canonicalize(&inside_file).unwrap()
+        );
+
+        let denied = authorize_existing_path(&outside_file, &roots, None, "test")
+            .expect_err("external file must be denied");
+        assert!(denied.to_string().contains("outside authorized"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authorized_existing_path_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let container = tempfile::tempdir().expect("container");
+        let allowed = container.path().join("allowed");
+        let outside = container.path().join("outside");
+        std::fs::create_dir_all(&allowed).expect("allowed root");
+        std::fs::create_dir_all(&outside).expect("outside root");
+        let sentinel = outside.join("sentinel.rs");
+        std::fs::write(&sentinel, "sentinel").expect("outside file");
+        let escape = allowed.join("escape.rs");
+        symlink(&sentinel, &escape).expect("escape symlink");
+        let roots = vec![allowed.to_string_lossy().into_owned()];
+
+        let denied = authorize_existing_path(&escape, &roots, None, "test")
+            .expect_err("symlink resolving outside the root must be denied");
+        assert!(denied.to_string().contains("outside authorized"));
     }
 }

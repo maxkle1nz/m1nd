@@ -1,0 +1,48 @@
+{
+  "captured_at_ms": 1784361361419,
+  "checks": {
+    "h4nd_boundary_disclaims_same_uid_isolation": true,
+    "h4nd_boundary_disclaims_sovereign_identity": true,
+    "h4nd_invalid_host_refused": true,
+    "h4nd_listener_loopback_only": true,
+    "h4nd_manifest_schema": true,
+    "h4nd_matches_owner_projection": true,
+    "installed_binary_matches_manifest": true,
+    "issuance_is_frozen": true,
+    "owner_listener_loopback_only": true,
+    "owner_manifest_schema": true,
+    "owner_manifest_self_digest": true
+  },
+  "observed": {
+    "active_mode": "UNKNOWN",
+    "binary_sha256": "sha256:c5d1b96857efa367cb99f5f1ae74dcbb82be02c9f4deef895107fbc6d860366d",
+    "coherence": "DRIFT",
+    "h4nd_listener": "COMMAND   PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nnode    13646 kle1nz   17u  IPv4 0x243341e771f206e1      0t0  TCP 127.0.0.1:3000 (LISTEN)",
+    "hostile_host_status": 403,
+    "issuance_frozen": true,
+    "issue_count": 26,
+    "owner_listener": "COMMAND   PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nm1nd-mcp 5972 kle1nz    9u  IPv4 0xc6d40e4a1cfa652f      0t0  TCP 127.0.0.1:1338 (LISTEN)",
+    "source_commit": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+    "ui_bundle_sha256": "sha256:7c99d06c89cebd1b9dcd5f5ab7334a3211d2c861c7801dadd5219e41aa6cffab"
+  },
+  "proof_boundary": {
+    "does_not_prove": [
+      "manifest coherence or release provenance",
+      "cryptographic client, human, policy, quorum, or safety authority",
+      "same-UID isolation",
+      "protected anti-rollback storage",
+      "autonomous mode activation"
+    ],
+    "proves": [
+      "live owner serves the G1 manifest",
+      "live h4nd consumes the owner projection",
+      "owner and h4nd listen only on loopback",
+      "h4nd rejects an invalid Host header",
+      "h4nd does not label its browser cookie as sovereign identity",
+      "the installed owner binary digest matches the manifest",
+      "sovereign issuance remains frozen"
+    ]
+  },
+  "schema": "m1nd10-g1-live-proof-v1",
+  "status": "PASS"
+}

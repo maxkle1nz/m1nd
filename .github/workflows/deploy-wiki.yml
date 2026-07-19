@@ -6,77 +6,58 @@ on:
     branches:
       - main
     paths:
-      - 'docs/**'
-      - 'm1nd-demo/**'
-      - '.github/workflows/deploy-wiki.yml'
+      - "docs/**"
+      - "m1nd-demo/**"
+      - ".github/workflows/deploy-wiki.yml"
 
-# Allow only one concurrent deployment
+permissions:
+  contents: read
+
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    name: Read-only Pages build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: m1nd-demo/package-lock.json
+      - name: Build the locked landing in an unprivileged job
+        working-directory: m1nd-demo
+        run: |
+          npm ci
+          npm run build
+      - name: Refuse an unpinned wiki or Pages supply chain
+        shell: bash
+        run: |
+          echo "::error title=Pages supply chain NOT_PROVEN::TODO: record verified immutable SHAs for actions/configure-pages, actions/upload-pages-artifact, and actions/deploy-pages, plus exact mdbook and mdbook-mermaid versions/digests. Mutable tags and latest cargo installs are forbidden."
+          exit 1
+
+  deploy:
+    name: Privileged Pages deploy (fail-closed placeholder)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
       pages: write
       id-token: write
-
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install mdBook toolchain
+      # No checkout, package install, or repository script may run in this job.
+      # TODO: replace this literal refusal only after the three Pages action SHAs
+      # are independently verified and recorded in the repository.
+      - name: Refuse deployment while action pins are NOT_PROVEN
+        shell: bash
         run: |
-          cargo install --locked mdbook
-          cargo install --locked mdbook-mermaid
-
-      - name: Install landing dependencies
-        working-directory: ./m1nd-demo
-        run: npm ci
-
-      - name: Install Rollup Linux binary
-        if: runner.os == 'Linux'
-        working-directory: ./m1nd-demo
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu
-
-      - name: Build landing
-        working-directory: ./m1nd-demo
-        run: npm run build
-
-      - name: Build wiki
-        run: mdbook build docs/wiki
-
-      - name: Compose Pages artifact
-        run: |
-          rm -rf site-dist
-          mkdir -p site-dist/wiki
-          cp -R m1nd-demo/dist/. site-dist/
-          cp -R wiki-build/. site-dist/wiki/
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './site-dist'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          echo "::error title=Pages deploy NOT_PROVEN::Immutable Pages action SHAs are not recorded locally; deployment remains fail-closed."
+          exit 1

@@ -1,12 +1,13 @@
 // === crates/m1nd-core/src/temporal.rs ===
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use crate::domain::DomainConfig;
 use crate::error::{M1ndError, M1ndResult};
 use crate::graph::Graph;
 use crate::types::*;
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
 // Constants from temporal_v2.py
@@ -56,7 +57,7 @@ pub const RAW_DECAY_FLOOR: f32 = 1e-6;
 // ---------------------------------------------------------------------------
 
 /// Entry in the co-change matrix: (target_node, coupling_strength).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CoChangeEntry {
     pub target: NodeId,
     pub strength: FiniteF32,
@@ -65,6 +66,41 @@ pub struct CoChangeEntry {
     /// pair has been seen changing together.
     pub co_count: u32,
 }
+
+/// Stable, versioned persistence contract for one [`CoChangeMatrix`].
+///
+/// NodeIds are process-local array offsets, so persisting raw integers would
+/// silently attach observations to the wrong nodes after a reordered graph
+/// load. The state therefore binds every row and target to the graph's exact
+/// NodeId -> external-id ordering. Restore refuses a different graph instead
+/// of partially applying stale temporal evidence.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CoChangeMatrixStateV1 {
+    pub schema: String,
+    pub version: u32,
+    pub node_external_ids: Vec<String>,
+    pub rows: Vec<Vec<CoChangeEntryStateV1>>,
+    pub node_counts: Vec<u32>,
+    pub total_entries: u64,
+    pub budget: u64,
+    pub is_learned: bool,
+    /// SHA-256 over the canonical JSON representation of every field above,
+    /// with a domain separator. Restore verifies this before interpreting any
+    /// row so torn or tampered state can never be partially accepted.
+    pub state_digest: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CoChangeEntryStateV1 {
+    pub target_external_id: String,
+    pub strength: f32,
+    pub co_count: u32,
+}
+
+pub const CO_CHANGE_STATE_SCHEMA: &str = "m1nd-co-change-state-v1";
+pub const CO_CHANGE_STATE_VERSION: u32 = 1;
 
 /// Sparse co-change matrix with bounded entry count.
 /// Bootstrapped from graph structure (BFS depth 3 from each node),
@@ -277,6 +313,187 @@ impl CoChangeMatrix {
         self.total_entries
     }
 
+    /// Export the complete sparse matrix, including marginal counts and raw
+    /// observation counts. This is the evidence required to reproduce the
+    /// smoothed-Jaccard strengths after restart; metadata-only snapshots are
+    /// deliberately insufficient.
+    pub fn export_state(&self, graph: &Graph) -> M1ndResult<CoChangeMatrixStateV1> {
+        let node_external_ids = graph_external_ids(graph)?;
+        if self.rows.len() != node_external_ids.len()
+            || self.node_counts.len() != node_external_ids.len()
+        {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "co-change matrix/graph size mismatch: rows={}, counts={}, graph_nodes={}",
+                    self.rows.len(),
+                    self.node_counts.len(),
+                    node_external_ids.len()
+                ),
+            });
+        }
+
+        let rows = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|entry| {
+                        let target_external_id = node_external_ids
+                            .get(entry.target.as_usize())
+                            .filter(|value| !value.is_empty())
+                            .cloned()
+                            .ok_or_else(|| M1ndError::CorruptState {
+                                reason: format!(
+                                    "co-change target {:?} is outside the graph",
+                                    entry.target
+                                ),
+                            })?;
+                        Ok(CoChangeEntryStateV1 {
+                            target_external_id,
+                            strength: entry.strength.get(),
+                            co_count: entry.co_count,
+                        })
+                    })
+                    .collect::<M1ndResult<Vec<_>>>()
+            })
+            .collect::<M1ndResult<Vec<_>>>()?;
+
+        let mut state = CoChangeMatrixStateV1 {
+            schema: CO_CHANGE_STATE_SCHEMA.to_string(),
+            version: CO_CHANGE_STATE_VERSION,
+            node_external_ids,
+            rows,
+            node_counts: self.node_counts.clone(),
+            total_entries: self.total_entries,
+            budget: self.budget,
+            is_learned: self.is_learned,
+            state_digest: String::new(),
+        };
+        state.state_digest = co_change_state_digest(&state)?;
+        Ok(state)
+    }
+
+    /// Restore a complete matrix only when its graph binding and all internal
+    /// accounting invariants are exact. Unknown versions, duplicate targets,
+    /// non-finite strengths, impossible counts, or a different graph are
+    /// corruption errors; none degrade to an empty matrix.
+    pub fn from_state(graph: &Graph, state: CoChangeMatrixStateV1) -> M1ndResult<Self> {
+        if state.schema != CO_CHANGE_STATE_SCHEMA || state.version != CO_CHANGE_STATE_VERSION {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "unsupported co-change state schema/version: schema={}, version={}",
+                    state.schema, state.version
+                ),
+            });
+        }
+        let actual_digest = co_change_state_digest(&state)?;
+        if state.state_digest != actual_digest {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "co-change state digest mismatch: declared={}, actual={actual_digest}",
+                    state.state_digest
+                ),
+            });
+        }
+
+        let expected_external_ids = graph_external_ids(graph)?;
+        if state.node_external_ids != expected_external_ids {
+            return Err(M1ndError::SchemaDrift {
+                reason: "co-change state graph binding differs from the loaded graph".into(),
+            });
+        }
+        let node_count = expected_external_ids.len();
+        if state.rows.len() != node_count || state.node_counts.len() != node_count {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "co-change state dimensions are invalid: rows={}, counts={}, nodes={node_count}",
+                    state.rows.len(),
+                    state.node_counts.len()
+                ),
+            });
+        }
+        if state.budget == 0 || state.total_entries > state.budget {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "co-change state budget invalid: entries={}, budget={}",
+                    state.total_entries, state.budget
+                ),
+            });
+        }
+
+        let mut rows = Vec::with_capacity(node_count);
+        let mut computed_total = 0u64;
+        let mut any_learned = false;
+        for (source_idx, persisted_row) in state.rows.into_iter().enumerate() {
+            if persisted_row.len() > CO_CHANGE_MAX_ROW {
+                return Err(M1ndError::CorruptState {
+                    reason: format!(
+                        "co-change row {source_idx} exceeds max entries: {} > {CO_CHANGE_MAX_ROW}",
+                        persisted_row.len()
+                    ),
+                });
+            }
+            let mut seen = HashSet::with_capacity(persisted_row.len());
+            let mut row = Vec::with_capacity(persisted_row.len());
+            for entry in persisted_row {
+                if !entry.strength.is_finite() || !(0.0..=1.0).contains(&entry.strength) {
+                    return Err(M1ndError::CorruptState {
+                        reason: format!(
+                            "co-change row {source_idx} has invalid strength {}",
+                            entry.strength
+                        ),
+                    });
+                }
+                let target = graph.resolve_id(&entry.target_external_id).ok_or_else(|| {
+                    M1ndError::SchemaDrift {
+                        reason: format!(
+                            "co-change target '{}' is absent from the loaded graph",
+                            entry.target_external_id
+                        ),
+                    }
+                })?;
+                if !seen.insert(target) {
+                    return Err(M1ndError::CorruptState {
+                        reason: format!(
+                            "co-change row {source_idx} repeats target '{}'",
+                            entry.target_external_id
+                        ),
+                    });
+                }
+                any_learned |= entry.co_count > 0;
+                row.push(CoChangeEntry {
+                    target,
+                    strength: FiniteF32::new(entry.strength),
+                    co_count: entry.co_count,
+                });
+            }
+            computed_total = computed_total.saturating_add(row.len() as u64);
+            rows.push(row);
+        }
+
+        if computed_total != state.total_entries {
+            return Err(M1ndError::CorruptState {
+                reason: format!(
+                    "co-change entry count mismatch: declared={}, actual={computed_total}",
+                    state.total_entries
+                ),
+            });
+        }
+        if any_learned && !state.is_learned {
+            return Err(M1ndError::CorruptState {
+                reason: "co-change state contains learned observations but is_learned=false".into(),
+            });
+        }
+
+        Ok(Self {
+            rows,
+            node_counts: state.node_counts,
+            total_entries: state.total_entries,
+            budget: state.budget,
+            is_learned: state.is_learned,
+        })
+    }
+
     /// Populate co-change data from git commit groups.
     /// Each group is a list of external_ids (e.g. "file::src/main.rs") that changed together.
     /// Resolves IDs via the graph, then records co-change for each pair in the group.
@@ -318,6 +535,59 @@ impl CoChangeMatrix {
         }
         Ok(())
     }
+}
+
+#[derive(serde::Serialize)]
+struct CoChangeMatrixDigestView<'a> {
+    schema: &'a str,
+    version: u32,
+    node_external_ids: &'a [String],
+    rows: &'a [Vec<CoChangeEntryStateV1>],
+    node_counts: &'a [u32],
+    total_entries: u64,
+    budget: u64,
+    is_learned: bool,
+}
+
+fn co_change_state_digest(state: &CoChangeMatrixStateV1) -> M1ndResult<String> {
+    let view = CoChangeMatrixDigestView {
+        schema: &state.schema,
+        version: state.version,
+        node_external_ids: &state.node_external_ids,
+        rows: &state.rows,
+        node_counts: &state.node_counts,
+        total_entries: state.total_entries,
+        budget: state.budget,
+        is_learned: state.is_learned,
+    };
+    let bytes = serde_json::to_vec(&view)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"m1nd/co-change-state/v1\0");
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn graph_external_ids(graph: &Graph) -> M1ndResult<Vec<String>> {
+    let mut external_ids = vec![String::new(); graph.num_nodes() as usize];
+    for (interned, &node_id) in &graph.id_to_node {
+        let idx = node_id.as_usize();
+        if idx >= external_ids.len() {
+            return Err(M1ndError::CorruptState {
+                reason: format!("graph external-id index {idx} is outside node storage"),
+            });
+        }
+        external_ids[idx] = graph.strings.resolve(*interned).to_string();
+    }
+    if let Some((index, _)) = external_ids
+        .iter()
+        .enumerate()
+        .find(|(_, value)| value.is_empty())
+    {
+        return Err(M1ndError::CorruptState {
+            reason: format!("graph node {index} has no external-id binding"),
+        });
+    }
+    Ok(external_ids)
 }
 
 // ---------------------------------------------------------------------------

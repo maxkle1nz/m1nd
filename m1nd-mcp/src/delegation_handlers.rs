@@ -347,6 +347,12 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
             detail: "delegate `task` must be non-empty".into(),
         });
     }
+    let evidence_link = crate::evidence_spine_owner::parse_optional_link("delegate", params)?;
+    if let Some(link) = &evidence_link {
+        // A caller may carry coordinates, never authority: require the exact G3
+        // anchor before spending work composing or persisting the packet.
+        crate::evidence_spine_owner::validate_link(state, "delegate", link)?;
+    }
 
     // Optional scope + budget.
     let declared_paths: Vec<String> = params
@@ -671,6 +677,18 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
         "honest_gaps": honest_gaps,
         "non_claims": non_claims,
     });
+    if let Some(link) = &evidence_link {
+        packet["evidence_link"] = serde_json::to_value(link).map_err(M1ndError::Serde)?;
+    } else {
+        packet["evidence_projection"] = crate::evidence_spine_owner::gap_status(
+            "canonical_evidence_link_absent",
+            "delegate has no owner-emitted G3 evidence_link; the packet remains canonical but is not cross-surface correlated",
+        );
+        packet["honest_gaps"]
+            .as_array_mut()
+            .expect("delegate honest_gaps is an array")
+            .push(json!("No owner-emitted G3 evidence_link was supplied; delegation-to-mission correlation is NOT_PROVEN."));
+    }
     if let Some(hint) = &subagent_hint {
         packet["mission"]["subagent_hint"] = json!(hint);
     }
@@ -689,6 +707,18 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
     // 13. REGISTRY WRITE — the dumb record, the debrief join key. Status `live`.
     let mut record = packet.clone();
     record["status"] = json!("live");
+    save_delegation(state, &record)?;
+
+    let projection = crate::evidence_spine_owner::record_delegation_packet(
+        state,
+        evidence_link.as_ref(),
+        &record,
+        created_ms,
+    );
+    packet["evidence_projection"] = projection.clone();
+    record["evidence_projection"] = projection;
+    // Projection is non-authoritative. Persist its honest status next to the
+    // canonical packet, but never roll back or rewrite the packet itself.
     save_delegation(state, &record)?;
 
     Ok(packet)
@@ -1268,6 +1298,7 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
 
     // (1) LOAD — unknown id is a hard error, no guessing.
     let record = load_delegation(state, &delegation_id)?;
+    let evidence_link = crate::evidence_spine_owner::parse_optional_link("debrief", &record)?;
 
     // (2) STALENESS RE-CHECK — did the graph move under the packet? Compare the
     //     packet's recorded graph_generation against the current one.
@@ -1391,7 +1422,6 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                     evidence: Vec::new(),
                     depends_on: Vec::new(),
                 }],
-                output_path: None,
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
@@ -1441,7 +1471,6 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                     evidence: unpredicted_paths.iter().map(|s| s.to_string()).collect(),
                     depends_on: Vec::new(),
                 }],
-                output_path: None,
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
@@ -1526,9 +1555,10 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
         .and_then(|c| c.get("sufficiency"))
         .cloned()
         .unwrap_or(Value::Null);
+    let outcome_ts = now_ms();
     let ledger_row = json!({
         "schema": "m1nd-delegation-outcome-v0",
-        "ts": now_ms(),
+        "ts": outcome_ts,
         "delegation_id": delegation_id,
         "grader": agent_id,
         "subagent": subagent_id,
@@ -1548,6 +1578,14 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
         "graph_drifted": graph_drifted,
     });
     append_outcome_row(state, &ledger_row)?;
+    let projection = crate::evidence_spine_owner::record_delegation_outcome(
+        state,
+        evidence_link.as_ref(),
+        &ledger_row,
+        outcome_ts,
+    );
+    updated["debrief_evidence_projection"] = projection.clone();
+    save_delegation(state, &updated)?;
 
     // OUTPUT — two gradings separated. conformance grades subagent-vs-map; the
     // map-grade grades m1nd-vs-reality.
@@ -1594,6 +1632,7 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
         },
         "outcome": outcome,
         "outcome_unverified": outcome_unverified,
+        "evidence_projection": projection,
         "learned": {
             "memorized": memorized,
             "taught": taught,

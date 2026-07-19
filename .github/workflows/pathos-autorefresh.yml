@@ -1,88 +1,69 @@
-# Auto-refresh do PATHOS.md no push da main.
-# Copie para .github/workflows/pathos-autorefresh.yml do repo alvo.
-#
-# O que faz: regenera as seções auto-* do PATHOS.md (changelog via git-cliff + overview)
-# e, se o arquivo mudou, commita de volta como Max Kle1nz com [skip ci] (evita loop).
-# Sem secrets: usa o GITHUB_TOKEN default.
-
-name: pathos-autorefresh
+name: pathos-autorefresh-proposal
 
 on:
   push:
     branches: [main]
-    # Evita re-disparar no commit que a própria Action faz (o [skip ci] já cobre,
-    # isto é cinto-e-suspensório) e em mudanças irrelevantes ao norte.
     paths-ignore:
-      - 'docs/internal/PATHOS.md'
-      - 'docs/PATHOS.md'
-      - 'PATHOS.md'
+      - "docs/internal/PATHOS.md"
+      - "docs/PATHOS.md"
+      - "PATHOS.md"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pathos-autorefresh-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  prepare:
+    name: Prepare inert PATHOS PR artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          fetch-depth: 0 # git-cliff precisa do histórico completo
-          # A main deste repo exige status checks; o GITHUB_TOKEN não pode dar push
-          # direto (GH006). Um fine-grained PAT de admin (contents: read/write) no
-          # secret PATHOS_REFRESH_TOKEN destrava o push-back; sem ele, o push cai no
-          # fail-soft abaixo (warning + step summary, nunca um run vermelho perpétuo).
-          token: ${{ secrets.PATHOS_REFRESH_TOKEN || github.token }}
-
-      - uses: actions/setup-node@v4
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22'
-
-      - name: Instala git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
-
-      - name: Regenera as seções auto-* do PATHOS
-        # Ajuste o caminho se você não usar .github/scripts/
+          node-version: "22"
+      - name: Prove generated commit metadata remains inert
+        run: node --test .github/scripts/pathos-autorefresh.test.mjs
+      - name: Generate the local PATHOS proposal
         run: node .github/scripts/pathos-autorefresh.mjs
-
-      - name: Commita o PATHOS (se mudou) como Max Kle1nz
+      - name: Seal a review-only PR preparation artifact
+        shell: bash
         run: |
-          git config user.name "Max Kle1nz"
-          git config user.email "kleinz@cosmophonix.com"
-          # Tenta os 3 caminhos suportados; ignora os que não existem.
-          # NÃO usar um único `git add a b c`: pathspec inexistente é erro ATÔMICO
-          # (nada é adicionado e o refresh se perde em silêncio — provado no primeiro run, 2026-07-03).
-          for f in docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md; do
-            if [ -f "$f" ]; then git add "$f"; fi
-          done
-          if git diff --cached --quiet; then
-            echo "Nada para commitar (PATHOS já alinhado)."
+          mkdir -p pathos-pr-prep
+          git diff --binary -- \
+            docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md \
+            > pathos-pr-prep/PATHOS.patch
+          if git diff --quiet -- docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md; then
+            STATUS="NO_CHANGES"
           else
-            git commit -m "docs(norte): auto-refresh PATHOS [skip ci]"
-            # Fail-soft: com required status checks na main, o GITHUB_TOKEN é rejeitado
-            # (GH006, provado 2026-07-03). Não deixar o workflow vermelho a cada push
-            # (cry-wolf); avisar alto e documentar o destravamento no summary.
-            if git push; then
-              echo "PATHOS auto-refresh aterrissou na main."
-            else
-              echo "::warning title=PATHOS auto-refresh bloqueado::O refresh foi gerado e commitado no runner, mas o push na main foi rejeitado pela branch protection (required status checks). O refresh NAO aterrissou. Destrave: secret PATHOS_REFRESH_TOKEN (fine-grained PAT de admin, contents read/write) — o workflow ja o usa se existir."
-              {
-                echo "## PATHOS auto-refresh — push bloqueado pela branch protection"
-                echo ""
-                echo "O refresh foi **gerado** e **commitado** (como Max Kle1nz) no runner, mas o push"
-                echo "direto na \`main\` foi rejeitado: required status checks + \`GITHUB_TOKEN\` sem bypass."
-                echo ""
-                echo "**Destravar (decisão do dono do repo):**"
-                echo "- **Opção A (preferida):** criar um fine-grained PAT (repo m1nd, Contents: read/write)"
-                echo "  e salvá-lo no secret \`PATHOS_REFRESH_TOKEN\` — este workflow já o usa se existir."
-                echo "- **Opção B:** permitir bypass dos required checks para o app \`github-actions\`"
-                echo "  (mudança de branch protection)."
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
+            STATUS="CHANGES_PROPOSED"
           fi
+          PATHOS_PROPOSAL_STATUS="${STATUS}" node - <<'NODE'
+          const fs = require("node:fs");
+          const receipt = {
+            schema: "m1nd-pathos-pr-prep-v1",
+            source_commit: process.env.GITHUB_SHA,
+            status: process.env.PATHOS_PROPOSAL_STATUS,
+            authority: "REVIEW_ONLY_NO_COMMIT_NO_PUSH",
+          };
+          fs.writeFileSync(
+            "pathos-pr-prep/RECEIPT.json",
+            `${JSON.stringify(receipt, null, 2)}\n`,
+          );
+          NODE
+          echo "PATHOS proposal status: ${STATUS}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "No commit, push, PAT, branch bypass, or repository mutation was attempted." >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pathos-pr-prep-${{ github.sha }}
+          path: pathos-pr-prep/
+          if-no-files-found: error
+          retention-days: 14

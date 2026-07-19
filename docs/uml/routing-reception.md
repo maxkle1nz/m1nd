@@ -117,7 +117,7 @@ sequenceDiagram
     alt (1) ingest + project_root
         RR->>BRAIN: run_bootstrap (overlap-guard the mint, create/warm-resolve, ingest, bind sticky)
     else (2) promote
-        RR->>BRAIN: run_promote (cross-store write to medulla)
+        RR->>BRAIN: refuse at POSITIVE_SOVEREIGN until typed G2 authority exists
     else (3) sticky bound_project_root set
         RR->>BRAIN: serve_and_compose on that brain
     else (4) caller_root not covered by bound graph BUT a project brain resolves
@@ -212,7 +212,7 @@ stateDiagram-v2
 
 ## Gaps
 
-- **[high] No authentication; 0.0.0.0 exposes full tool surface**: the served owner runs with no auth and, when bound to 0.0.0.0, exposes graph mutation to the network — only a stderr WARNING, not a refusal (http_server.rs:409-412; build_router has no auth layer). Any host reaching the port can POST /mcp and mutate the shared graph.
+- **[closed/high] No authentication; 0.0.0.0 exposed the full tool surface**: every non-loopback bind is now refused before owner boot, including when the legacy `--allow-remote` flag is present (`remote_bind_verdict`; battery-pinned for wildcard, LAN IP, hostname, and both flag values). The residual is explicit: the loopback HTTP surface still has no client authentication, and authenticated TLS remote transport plus scoped authorization remain future work.
 - **[medium] MCP wire sessions never expire / never GC'd in-process**: the mcp_sessions map only grows (insert on initialize, remove on explicit DELETE). The re-init path mints a NEW id and abandons the old one -> a McpTransportSession leaks forever (handle_mcp_post inserts L1398; only handle_mcp_delete removes L1670; reinitialize mints fresh id, never DELETEs old — attach_client.rs:352-356).
 - **[medium] caller_root trusted verbatim from the header**: no validation the caller owns that path — any HTTP client can claim to be rooted in any repo and be routed to (or bootstrap) that brain (caller_root_from_headers L1330 -> route_and_run uses it directly). Combined with the no-auth gap this is a routing-confusion surface.
 - **[medium] Deployment drift**: the live :1338 owner is documented as NOT restarted onto the current binary, so proven-in-code behaviors (medulla re-scope, unified registry, R13) are not guaranteed live (docs/PATHOS.md L165, docs/ORGANISM-PRD.md L778/795/835/856). %% [unverified against running deployment]

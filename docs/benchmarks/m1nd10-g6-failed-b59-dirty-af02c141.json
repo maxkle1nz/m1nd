@@ -1,0 +1,33 @@
+{
+  "baseline_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+  "blockers": [],
+  "checks": {
+    "abstention_recall": false,
+    "no_significant_baseline_regression": true,
+    "north_p95": true,
+    "seek_p95": true,
+    "top5_anchor_recall": false,
+    "wrong_ground_action_rate": true
+  },
+  "claimable": false,
+  "corpus_id": "m1nd10-g6-held-out-v1-82643b72c1d89809",
+  "current_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee+dirty:binary-af02c1415de0f71e8339bc0651a47b1b005edc487ba2fda643f02395f010394e",
+  "generated_at": "2026-07-18T12:20:07.128281+00:00",
+  "localizable_count": 200,
+  "metrics": {
+    "abstention_recall": 0.0,
+    "authorized_action_count": 0,
+    "north_p95_ms": 245.577209,
+    "paired_improvements": 0,
+    "paired_regressions": 0,
+    "regression_sign_test_p": 1.0,
+    "seek_p95_ms": 41.893416,
+    "top5_anchor_recall": 0.42,
+    "wrong_ground_action_count": 0,
+    "wrong_ground_action_rate": 0.0
+  },
+  "schema": "m1nd10-g6-retrieval-report-v1",
+  "status": "FAIL",
+  "task_count": 220,
+  "unlocalizable_count": 20
+}

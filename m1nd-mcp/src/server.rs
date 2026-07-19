@@ -1,14 +1,15 @@
 // === crates/m1nd-mcp/src/server.rs ===
 
 use crate::auto_ingest;
+use crate::brain_runtime::BrainSessionCell;
 use crate::help_guidance;
-use crate::instance_registry::InstanceHandle;
 use crate::layer_handlers;
 use crate::mission_handlers;
 use crate::personality;
 use crate::protocol::layers;
 use crate::protocol::*;
 use crate::report_handlers;
+use crate::runtime_jobs::RuntimeJobFailure;
 use crate::search_handlers;
 use crate::session::SessionState;
 use crate::surgical_handlers;
@@ -20,7 +21,7 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
@@ -41,23 +42,20 @@ what one agent proves and memorizes, the next agent reads. Operate in a loop.
 A response may carry a `reception` block. `reception.match == \"caller_root_mismatch\"` \
 means the bound graph does NOT cover your current repo (its root ≠ your resolved \
 `caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
-ONE call sets you up: `ingest` with `project_root=<your repo root>` creates your \
-per-project brain inside this owner, ingests your repo into it, binds this session to \
-it, and returns its north packet in the same response — thereafter every call from \
-your root routes to YOUR brain automatically, including brand-new sessions. Absent \
-`reception` = your root matches the brain serving you (silent bind is legal only on a \
-match, TT-INV-12).
+The public brain-bootstrap consumer is NOT installed. Do not call generic `ingest` \
+with `project_root`: cross-root bootstrap is POSITIVE_SOVEREIGN and intentionally fails \
+closed until an exact typed G2/G3 consumer exists. Continue only against the bound \
+graph (with the mismatch warning intact), or reconnect to an owner that already hosts \
+the intended repo. Absent `reception` = your root matches the brain serving you \
+(silent bind is legal only on a match, TT-INV-12).
 
 **Reception governs WRITES, not just reads.** A read under `caller_root_mismatch` is a \
 warning; a WRITE under it is PROHIBITED by doctrine — `memorize`, `skeleton_candidate`, \
 `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`, and `mission_post` would \
 each land in the WRONG brain (this is exactly how a foreign skeleton once overwrote a bound \
-brain). Run the one bootstrap `ingest project_root=<your repo root>` FIRST, then write. That \
-bootstrap is OVERLAP-GUARDED: minting a brain for a root that is the PARENT, CHILD, or WORKTREE \
-of an existing brain is refused (`overlap_parent`/`overlap_child`/`overlap_worktree`) with the \
-two ways forward — bind to the existing brain (`ingest project_root=<existing>`), or pass \
-`allow_overlap:true` only when you know exactly why. It holds on BOTH seams (the MCP wire and \
-REST `POST /api/tools/ingest`); a burst worktree does NOT get its own brain.
+brain). Do not attempt a write from this mismatched session. The honest recovery code is \
+`brain_bootstrap_consumer_not_installed`; no public one-call bootstrap or overlap escape hatch \
+is advertised while that sovereign consumer is absent.
 
 ## 1. PRE-ORIENT — never start cold
 
@@ -67,8 +65,11 @@ binding trust (`trust_mode`; the repair travels with it when degraded), task con
 age + author — absent, never faked, when unknown), a sufficiency signal, one \
 `next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
 await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
-line, absent when none do). If it returns \
-`needs_ingest` (empty/unbound graph), `ingest` the repo, then `north` again. `north` \
+line, absent when none do). If it returns `needs_ingest`, do not call generic \
+`ingest`: every generic graph mutation is policy-disabled. For an existing brain, \
+use the exact authority flow plus `external_mutation_service`; under \
+`caller_root_mismatch`, creating or rebinding a brain remains unavailable until the \
+typed bootstrap consumer is installed. `north` \
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
 
@@ -112,8 +113,8 @@ step. This is how knowledge compounds instead of being lost between sessions.
 Every `memorize` is stamped with an `Origin-Brain` (the project root it was born in, or \
 `medulla` for the owner's own doctrine store) so recall can always say WHICH brain a claim \
 came from. If your session's root has no project brain, a `memorize` is REFUSED (not \
-silently written into the shared medulla) — the refusal hands you the one-call bootstrap \
-(`ingest project_root=<your repo>`); run it, then your memory lands project-private.
+silently written into the shared medulla). Its refusal reports \
+`brain_bootstrap_consumer_not_installed`; it never fabricates an executable repair call.
 
 **PROMOTION — the audited crossing (do it deliberately, rarely).** A `memorize` is ALWAYS \
 project-private; a finding does NOT become shared doctrine by being written. When a VERIFIED \
@@ -211,11 +212,9 @@ edits it — six typed ops (rename/merge/split/move_member/resolve_seam/assign_u
 atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), and it REFUSES on a \
 ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
 blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever (mechanically \
-enforced: `system_blocks_ratify` requires the `ratified_via:\"human-ui\"` origin token the owner's \
-screen stamps; an agent never composes it, so a bare ratify is refused `human_gesture_required` — \
-and `receipt_import`, the OTHER human write that bumps `store_version`, now carries the SAME gate \
-under `imported_via` against a closed server-side allow-list, closing a step-0 hole where it \
-previously had NO origin check at all), and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
+enforced: generic `system_blocks_ratify` is closed because a client-authored origin string proves \
+nothing; ratification requires a future exact typed G2/G3 sovereign lease path — \
+and raw `receipt_import` is a permanent external G3 tombstone), and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
 curation mission edits via `candidate_edit`), the human signs. CURATION IS PROPOSE-APPLY (F12): the \
 `curation_spawn` verb sends the candidate to a pinned hand-runner that PROPOSES `candidate_edit` ops \
 as data; the OWNER sanitizes (o5, seat `runner`) and applies them under OCC — the hand never holds a \
@@ -287,7 +286,8 @@ savings (G1).
 - `am_i_stale(claim)` — check BEFORE editing on the strength of remembered/cached knowledge.
 - `soul_check` / `soul_read` — verify (freshness receipt) / pull the project's PATHOS handoff soul.
 - `coverage_session` — surface the blind spots in what you have and haven't looked at this session.
-- `ingest` — (re)load the repo when the graph is empty or the code changed under you.
+- `ingest` — compatibility name only; generic graph mutation is policy-disabled and must not be called.
+- `external_mutation_service` — governed elevated graph ingest for an existing brain after the exact authority flow; it does not create project brains.
 ";
 
 /// Stdio MCP framing mode auto-detected on the inbound stream. The matching
@@ -441,10 +441,86 @@ impl Default for McpConfig {
 
 /// MCP server over JSON-RPC stdio. Single process, shared PropertyGraph.
 /// Replaces: 03-MCP server architecture
+///
+/// Raw dispatch functions are an internal actor implementation detail, not a
+/// Rust embedding API.
+///
+/// ```compile_fail,E0603
+/// use m1nd_mcp::server::dispatch_tool;
+/// ```
+///
+/// ```compile_fail,E0603
+/// use m1nd_mcp::server::handle_mcp_method;
+/// ```
 pub struct McpServer {
     config: McpConfig,
-    state: SessionState,
+    /// Raw construction state exists only until [`Self::start`] installs it in
+    /// the bound per-brain actor. No transport dispatch can reach this value.
+    boot_state: Option<SessionState>,
+    actor_runtime: Option<StdioActorRuntime>,
     daemon_runtime: Option<DaemonRuntimeControl>,
+    offline_context: (PathBuf, Option<String>),
+    shutdown_requested: Arc<AtomicBool>,
+    shutdown_wake: Arc<std::sync::Mutex<Option<mpsc::SyncSender<ServerEvent>>>>,
+    stopped: bool,
+}
+
+struct StdioActorRuntime {
+    session: Arc<BrainSessionCell>,
+    project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
+}
+
+/// Opaque cooperative stop capability for the blocking stdio loop.
+///
+/// It can only ask the transport loop to return. It exposes no session, actor,
+/// instance lease, callback, lock, or lifecycle-release capability.
+#[derive(Clone)]
+pub struct McpShutdownHandle {
+    requested: Arc<AtomicBool>,
+    wake: Arc<std::sync::Mutex<Option<mpsc::SyncSender<ServerEvent>>>>,
+}
+
+impl McpShutdownHandle {
+    pub fn request_shutdown(&self) {
+        self.requested.store(true, Ordering::Release);
+        if let Ok(wake) = self.wake.lock() {
+            if let Some(sender) = wake.as_ref() {
+                let _ = sender.try_send(ServerEvent::Shutdown);
+            }
+        }
+    }
+}
+
+/// Cloneable, actor-backed embedding surface for in-process tool callers.
+///
+/// The server remains the lifecycle owner. This client exposes only one complete
+/// tool transaction and cannot yield a session, callback, actor, lock, instance
+/// lease, or shutdown capability.
+#[derive(Clone)]
+pub struct McpToolClient {
+    session: std::sync::Weak<BrainSessionCell>,
+    project_brains: std::sync::Weak<crate::project_brains::ProjectBrainRegistry>,
+}
+
+impl McpToolClient {
+    pub fn call_tool(&self, tool: &str, args: &serde_json::Value) -> M1ndResult<serde_json::Value> {
+        let session = self.session.upgrade().ok_or_else(|| {
+            M1ndError::PersistenceFailed(
+                "stdio tool client lost its McpServer lifecycle owner".to_string(),
+            )
+        })?;
+        let project_brains = self.project_brains.upgrade().ok_or_else(|| {
+            M1ndError::PersistenceFailed(
+                "stdio tool client lost its McpServer lifecycle owner".to_string(),
+            )
+        })?;
+        let mutating = read_only_denied(tool, args);
+        let tool = tool.to_string();
+        let args = args.clone();
+        project_brains.execute_target_m1nd(session, None, true, mutating, move |state| {
+            dispatch_generic_tool(state, &tool, &args)
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -453,6 +529,7 @@ enum ServerEvent {
     StdinClosed,
     WatchNotice,
     WatchError(String),
+    Shutdown,
 }
 
 struct LiveDaemonWatcher {
@@ -465,11 +542,95 @@ struct DaemonRuntimeControl {
     watcher: Option<LiveDaemonWatcher>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+struct DaemonLoopView {
+    active: bool,
+    read_only: bool,
+    watch_paths: Vec<String>,
+    git_root_present: bool,
+    watch_backend: String,
+    watch_backend_error: Option<String>,
+    coalesce_window_ms: u64,
+    wait_duration_ms: u64,
+}
+
+struct CoalescedWatchBurst {
+    watch_events_seen: u64,
+    coalesced_at_ms: u64,
+    backend_error: Option<String>,
+    watch_errors: u64,
+    pending_request: Option<(String, TransportMode)>,
+    stdin_closed: bool,
+    shutdown: bool,
+}
+
+fn coalesce_watch_burst(
+    rx: &mpsc::Receiver<ServerEvent>,
+    coalesce_window_ms: u64,
+) -> CoalescedWatchBurst {
+    let mut burst = CoalescedWatchBurst {
+        watch_events_seen: 1,
+        coalesced_at_ms: now_ms(),
+        backend_error: None,
+        watch_errors: 0,
+        pending_request: None,
+        stdin_closed: false,
+        shutdown: false,
+    };
+    loop {
+        // A sliding silence window alone can starve under continuous churn.
+        if now_ms().saturating_sub(burst.coalesced_at_ms)
+            >= crate::daemon_handlers::BURST_COALESCE_CAP_MS
+        {
+            break;
+        }
+        match rx.recv_timeout(Duration::from_millis(coalesce_window_ms.max(1))) {
+            Ok(ServerEvent::WatchNotice) => {
+                burst.watch_events_seen = burst.watch_events_seen.saturating_add(1);
+            }
+            Ok(ServerEvent::WatchError(error)) => {
+                burst.watch_errors = burst.watch_errors.saturating_add(1);
+                burst.backend_error = Some(error);
+            }
+            Ok(ServerEvent::Request(payload, mode)) => {
+                burst.pending_request = Some((payload, mode));
+                break;
+            }
+            Ok(ServerEvent::StdinClosed) => {
+                burst.stdin_closed = true;
+                break;
+            }
+            Ok(ServerEvent::Shutdown) => {
+                burst.shutdown = true;
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                burst.stdin_closed = true;
+                break;
+            }
+        }
+    }
+    burst
+}
+
+struct ShutdownWakeRegistration {
+    wake: Arc<std::sync::Mutex<Option<mpsc::SyncSender<ServerEvent>>>>,
+}
+
+impl Drop for ShutdownWakeRegistration {
+    fn drop(&mut self) {
+        if let Ok(mut wake) = self.wake.lock() {
+            *wake = None;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tool tier gate
 // ---------------------------------------------------------------------------
 
-/// The curated ESSENTIAL tool set (42 tools) advertised by default.
+/// The curated ESSENTIAL tool set (48 tools) advertised by default.
 ///
 /// These are the high-frequency tools agents need for orientation, trust, and
 /// everyday graph queries. All other tools are "advanced" and are hidden from
@@ -511,6 +672,12 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "mission_start",
     "mission_next",
     "mission_close",
+    "mission_service",
+    "external_mutation_service",
+    "graph_ingest_preview",
+    "authority_session_challenge",
+    "authority_session_authenticate",
+    "authority_authorize",
     "persist",
     "memorize",
     "promote",
@@ -524,8 +691,8 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
 ///
-/// - Unset or `essential` (case-insensitive) → `"essential"` (curated 42)
-/// - `full` (case-insensitive) → `"full"` (all 118 tools)
+/// - Unset or `essential` (case-insensitive) → `"essential"` (curated 43)
+/// - `full` (case-insensitive) → `"full"` (all 132 external tools)
 /// - Any unrecognized value → defaults to `"essential"`
 pub fn active_tool_tier() -> &'static str {
     match std::env::var("M1ND_TOOL_TIER")
@@ -554,19 +721,21 @@ pub fn response_envelope_enabled() -> bool {
 
 /// Whether the M1ND_PROOF_GATE write guard is active.
 ///
-/// Opt-in safety flag (default OFF), mirroring the `M1ND_READ_ONLY` parsing:
-/// any value other than `"0"`/`"false"`/empty turns it ON; unset is OFF. When
-/// ON, code-writing tools (`apply`/`apply_batch`/`edit_commit`) are refused at
-/// dispatch unless the agent has already driven each target to
-/// `proof_state == "ready_to_edit"` (via `surgical_context_v2`) this session.
+/// Default-on safety flag. Only explicit `"0"` or `"false"` disables it. The
+/// guard is selected by semantic effect union, not tool name: every action with
+/// `SOURCE_FILESYSTEM_WRITE` must consume an exact one-shot proof mark.
 pub fn proof_gate_enabled() -> bool {
-    std::env::var("M1ND_PROOF_GATE")
-        .map(|v| v != "0" && v != "false" && !v.is_empty())
-        .unwrap_or(false)
+    match std::env::var("M1ND_PROOF_GATE") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            value != "0" && value != "false"
+        }
+        Err(_) => true,
+    }
 }
 
 /// Returns ALL registered MCP tool schemas regardless of tier.
-/// Use this when you always need the full 118-tool registry (e.g., health
+/// Use this when you always need the full 132-tool registry (e.g., health
 /// contract counts, internal tests that verify advanced tool registration).
 pub fn all_tool_schemas() -> serde_json::Value {
     all_tool_schemas_inner()
@@ -606,9 +775,10 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
     serde_json::json!({ "tools": filtered })
 }
 
-/// Internal: the complete static tool registry (all 118 tools). Never filtered.
+/// Internal: the complete external tool registry. Legacy raw mission writes
+/// remain tombstoned in dispatch but are never advertised.
 fn all_tool_schemas_inner() -> serde_json::Value {
-    serde_json::json!({
+    let mut registry = serde_json::json!({
         "tools": [
             {
                 "name": "orient",
@@ -676,7 +846,20 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                 "max_nodes": { "type": "integer", "default": 40, "description": "Blast-radius cap for the dependents pass." }
                             }
                         },
-                        "subagent_hint": { "type": "string", "description": "Optional free-form hint about which subagent this packet is for (carried into mission, never a gate)." }
+                        "subagent_hint": { "type": "string", "description": "Optional free-form hint about which subagent this packet is for (carried into mission, never a gate)." },
+                        "evidence_link": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "Optional owner-emitted G5 correlation link from a prior MissionService result. It is accepted only when the exact G3 mission/head/iteration/transaction anchor already exists; it never creates authority.",
+                            "properties": {
+                                "schema": { "const": crate::evidence_spine::EVIDENCE_CORRELATION_LINK_SCHEMA },
+                                "mission_id": { "type": "string" },
+                                "iteration_id": { "type": "integer", "minimum": 1 },
+                                "mission_head_id": { "type": "string" },
+                                "transaction_id": { "type": ["string", "null"] }
+                            },
+                            "required": ["schema", "mission_id", "iteration_id", "mission_head_id", "transaction_id"]
+                        }
                     },
                     "required": ["agent_id", "task"]
                 }
@@ -704,6 +887,23 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "subagent_id": { "type": "string", "description": "The subagent's id (findings memorize under it). Falls back to agent_id when omitted." }
                     },
                     "required": ["agent_id", "delegation_id", "outcome"]
+                }
+            },
+            {
+                "name": "evidence_query",
+                "description": "Read-only G5 EvidenceQuery over the owner-selected brain. Verifies the persisted identity and committed hash-chain prefix, filters correlation records, and never creates a lock, repairs a torn tail, writes cache state, or accepts client-authored evidence events. REST and Streamable MCP share this exact handler.",
+                "inputSchema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "correlation_id": { "type": "string" },
+                        "mission_id": { "type": "string" },
+                        "mission_head_id": { "type": "string" },
+                        "transaction_id": { "type": "string" },
+                        "receipt_id": { "type": "string" },
+                        "delegation_id": { "type": "string" },
+                        "mission_control_id": { "type": "string" }
+                    }
                 }
             },
             {
@@ -896,11 +1096,11 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "ingest",
-                "description": "Ingest or re-ingest a codebase, descriptor, or memory corpus",
+                "description": "POLICY-DISABLED generic graph mutation compatibility surface. Do not call it: use the exact authority flow plus external_mutation_service for an existing brain. Cross-root project-brain bootstrap is unavailable until an exact typed G2/G3 consumer is installed.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string", "description": "Filesystem path to the source root or memory corpus" },
+                        "path": { "type": "string", "description": "Filesystem path within the already bound brain's project root" },
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "incremental": { "type": "boolean", "default": false, "description": "Incremental ingest (code adapter only)" },
                         "adapter": {
@@ -913,7 +1113,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "type": "string",
                             "default": "replace",
                             "enum": ["replace", "merge"],
-                            "description": "Replace the active graph or merge the ingest into it"
+                            "description": "Replace the bound graph or merge the ingest into it"
                         },
                         "namespace": {
                             "type": "string",
@@ -929,15 +1129,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "items": { "type": "string" },
                             "default": [],
                             "description": "Allowed dotfile patterns when include_dotfiles=true (for example '.codex/**')"
-                        },
-                        "project_root": {
-                            "type": "string",
-                            "description": "ONE-CALL BOOTSTRAP (Two-Tier interim): set to your repo root when this owner's graph does not cover your repo (reception said caller_root_mismatch). Creates a per-project brain inside the served owner, ingests your repo into it, binds this session to it, and returns its north packet — one call, then every call from your root routes to YOUR brain automatically. Honored on BOTH served-owner doors through the same guarded bootstrap: the MCP wire and the REST POST /api/tools/ingest route (which returns the same bootstrap packet; a refusal is an HTTP 400). Inert on a plain stdio server. The owner's bound graph is never replaced."
-                        },
-                        "allow_overlap": {
-                            "type": "boolean",
-                            "default": false,
-                            "description": "ONE-CALL BOOTSTRAP escape hatch. By default a bootstrap REFUSES to mint a second brain for a project_root that OVERLAPS an existing project brain — a child/parent directory of one, or a git worktree of a repo that already has a brain — and returns an overlap_<class> error naming the conflicting root and telling you to bind to the existing brain instead (usually you just opened in the wrong directory: call ingest with project_root=<that existing root>). Set true ONLY when you truly want a SEPARATE brain for the overlapping root. Duplicated brains double auto-ingest cost and fragment memories."
                         }
                     },
                     "required": ["path", "agent_id"]
@@ -2194,7 +2385,20 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "default": "medium",
                             "description": "Risk level for routing"
                         },
-                        "parent_mission_id": { "type": "string", "description": "Optional parent mission id for handoff or sub-mission tracking" }
+                        "parent_mission_id": { "type": "string", "description": "Optional parent mission id for handoff or sub-mission tracking" },
+                        "evidence_link": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "Optional owner-emitted G5 correlation link. Mission Control accepts it only when the exact G3 anchor already exists; the record cannot create mission authority.",
+                            "properties": {
+                                "schema": { "const": crate::evidence_spine::EVIDENCE_CORRELATION_LINK_SCHEMA },
+                                "mission_id": { "type": "string" },
+                                "iteration_id": { "type": "integer", "minimum": 1 },
+                                "mission_head_id": { "type": "string" },
+                                "transaction_id": { "type": ["string", "null"] }
+                            },
+                            "required": ["schema", "mission_id", "iteration_id", "mission_head_id", "transaction_id"]
+                        }
                     },
                     "required": ["agent_id", "repo", "task"]
                 }
@@ -2430,23 +2634,23 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 "description": "Persist/load graph and plasticity state; supports binary snapshots",
                 "inputSchema": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "action": { "type": "string", "enum": ["save", "load", "checkpoint", "status"], "description": "Action to perform" },
-                        "format": { "type": "string", "enum": ["json", "bin"], "default": "json", "description": "Snapshot format" },
-                        "path": { "type": "string", "description": "Override snapshot path (optional)" }
+                        "format": { "type": "string", "enum": ["json", "bin"], "default": "json", "description": "Snapshot format" }
                     },
                     "required": ["agent_id", "action"]
                 }
             },
             {
                 "name": "boot_memory",
-                "description": "Persist a small canonical boot/state memory on disk and keep it hot in runtime cache",
+                "description": "Read the migrated legacy Boot KV projection. set/delete are retained only as explicit compatibility tombstones and refuse after migration; use typed Boot Config for configuration or memorize/L1GHT for durable knowledge.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "action": { "type": "string", "enum": ["set", "get", "list", "delete", "status"], "description": "Action to perform" },
+                        "action": { "type": "string", "enum": ["set", "get", "list", "delete", "status"], "description": "Read action to perform; set/delete are retired compatibility requests and do not mutate after migration" },
                         "key": { "type": "string", "description": "Canonical boot memory key" },
                         "value": { "description": "JSON value to persist for the boot memory entry" },
                         "tags": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional tags for organization" },
@@ -2518,6 +2722,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 "description": "Write structured knowledge claims as a valid .light.md (L1GHT protocol) file, then ingest it so evidence markers bridge to real code nodes. Returns path + ingest counts. The first tool that generates L1GHT markdown rather than only parsing it.",
                 "inputSchema": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "node_label": { "type": "string", "description": "Entity name — becomes the Node: frontmatter header and # title" },
@@ -2540,7 +2745,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                 "required": ["label"]
                             }
                         },
-                        "output_path": { "type": "string", "description": "Override output file path; default <runtime_root>/agent-memory/<slug>.light.md" },
                         "namespace": { "type": "string", "description": "Graph namespace for ingest (default 'light')" },
                         "ingest_after": { "type": "boolean", "default": true, "description": "Run ingest after writing (default true)" },
                         "mode": { "type": "string", "default": "merge", "description": "Ingest merge mode: 'merge' (default) or 'replace'" }
@@ -2675,7 +2879,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "required": ["kind"]
                         },
                         "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies the atomic 2-phase swap" },
-                        "expect_version": { "type": "string", "description": "Optional cross-call OCC token from a prior dry_run's `version`. On commit the planned-files fingerprint is recomputed after SELECT; if it no longer matches, the commit ABORTS BEFORE staging (status 'aborted_conflicts', applied 0, NO file written) so a concurrent edit between dry_run and commit cannot clobber work. Complements the within-call stage→rehash guard. Omit for an unconditional commit." }
+                        "expect_version": { "type": "string", "description": "Cross-call OCC token from a prior dry_run's `version`; REQUIRED when mode='commit'. On commit the SHA-256 planned-files fingerprint is recomputed after SELECT; if it no longer matches, the commit ABORTS BEFORE staging (status 'aborted_conflicts', applied 0, NO file written) so a concurrent edit between dry_run and commit cannot clobber work. Unconditional source commits are refused by owner dispatch." }
                     },
                     "required": ["agent_id", "selector", "transform"]
                 }
@@ -2766,17 +2970,16 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "system_blocks_ratify",
-                "description": "Human View v2 F0a WRITE verb. Ratifies blocks in the live store: each targeted block flips state `candidate -> ratified` and membership_source `proposed -> ratified`, the skeleton records the ratification (method `verb`, the given `ratifier`, the current time), and `store_version` is bumped by one. `block_ids` names the blocks to ratify; omit it to ratify EVERY block. Optimistic-concurrency (PRD §3.1): pass the `expected_store_version` you read from a snapshot — if the store moved since, the call is REJECTED with a version `conflict` and NOTHING is applied (reload the snapshot and retry). An unknown block_id is a hard error, never a silent skip. RATIFY IS THE HUMAN GESTURE: the call must carry `ratified_via:\"human-ui\"`, the origin token the owner's screen stamps — an agent never composes it, and a call without it is refused (`human_gesture_required`). Mutation — refused under a read-only attach.",
+                "description": "Sovereign ratification action. Generic REST/MCP dispatch is disabled: a client-authored origin string is not authority. The action remains unavailable until an exact typed G2/G3 ratification lease consumer is installed.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the write with a conflict; nothing is applied." },
                         "block_ids": { "type": "array", "items": { "type": "string" }, "description": "Blocks to ratify. Omit to ratify every block. An unknown id is a hard error." },
-                        "ratifier": { "type": "string", "description": "Who ratified — stamped into the skeleton's ratification record." },
-                        "ratified_via": { "type": "string", "description": "Origin token — must be \"human-ui\", stamped only by the owner's screen. Absent or any other value refuses the call: ratify is the human gesture, never an agent's write." }
+                        "ratifier": { "type": "string", "description": "Claimed ratifier identity; it grants no authority on generic ingress." }
                     },
-                    "required": ["agent_id", "expected_store_version", "ratifier", "ratified_via"]
+                    "required": ["agent_id", "expected_store_version", "ratifier"]
                 }
             },
             {
@@ -2935,6 +3138,892 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             }
         ]
+    });
+    let tools = registry["tools"]
+        .as_array_mut()
+        .expect("static tool registry must be an array");
+    tools.retain(|tool| {
+        !matches!(
+            tool.get("name").and_then(serde_json::Value::as_str),
+            Some("mission_post" | "receipt_import")
+        )
+    });
+    tools.push(mission_service_tool_schema());
+    tools.push(external_mutation_service_tool_schema());
+    tools.push(graph_ingest_preview_tool_schema());
+    tools.push(authority_session_challenge_tool_schema());
+    tools.push(authority_session_authenticate_tool_schema());
+    tools.push(authority_authorize_tool_schema());
+    registry
+}
+
+fn authority_session_challenge_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "name": "authority_session_challenge",
+        "description": "Start the production G2 owner-session ceremony. Owner time, brain, wire session, and session-context digest are injected by the served owner; no key material is generated or accepted here.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "schema": { "const": crate::authority_transport::AUTHORITY_SESSION_CHALLENGE_REQUEST_SCHEMA },
+                "request_id": { "type": "string", "minLength": 1 },
+                "subject_id": { "type": "string", "minLength": 1 },
+                "key_id": { "type": "string", "minLength": 1 },
+                "app_host_identity": { "type": "string", "minLength": 1 },
+                "nonce": { "type": "string", "minLength": 1 },
+                "requested_ttl_ms": { "type": "integer", "minimum": 1, "maximum": crate::authority_transport::MAX_AUTHORITY_SESSION_CHALLENGE_TTL_MS }
+            },
+            "required": ["schema", "request_id", "subject_id", "key_id", "app_host_identity", "nonce", "requested_ttl_ms"]
+        }
+    })
+}
+
+fn authority_session_authenticate_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "name": "authority_session_authenticate",
+        "description": "Complete one pending G2 session challenge using a cryptographically signed runtime.session.handshake AuthorityCapabilityV1. The owner verifies the pinned key and consumes the challenge exactly once.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "schema": { "const": crate::authority_transport::AUTHORITY_SESSION_AUTHENTICATE_REQUEST_SCHEMA },
+                "request_id": { "type": "string", "minLength": 1 },
+                "challenge_id": { "type": "string", "minLength": 1 },
+                "capability": authority_capability_tool_schema()
+            },
+            "required": ["schema", "request_id", "challenge_id", "capability"]
+        }
+    })
+}
+
+fn authority_authorize_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "name": "authority_authorize",
+        "description": "M1ND-10 G2 distinct authorization ingress. Verifies a server-pinned authority path and returns one one-shot lease; it never executes the target action. Owner time, wire session, ingress context, brain, and verification keys are injected by the served owner.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "schema": { "const": crate::authority_transport::AUTHORITY_AUTHORIZE_REQUEST_SCHEMA },
+                "request_id": { "type": "string", "minLength": 1 },
+                "authority_session_id": { "type": ["string", "null"] },
+                "authority_session_context_digest": { "type": ["string", "null"] },
+                "target_action": { "type": "string", "minLength": 1 },
+                "payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "requested_effects": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": authority_effect_tool_schema()
+                },
+                "mission_id": { "type": ["string", "null"] },
+                "mission_head_id": { "type": ["string", "null"] },
+                "input": authority_authorize_input_tool_schema()
+            },
+            "required": ["schema", "request_id", "target_action", "payload_digest", "requested_effects", "input"]
+        }
+    })
+}
+
+fn authority_capability_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "const": m1nd_control::AUTHORITY_CAPABILITY_SCHEMA },
+            "capability_id": { "type": "string", "minLength": 1 },
+            "issuer_subject_id": { "type": "string", "minLength": 1 },
+            "issuer_key_id": { "type": "string", "minLength": 1 },
+            "algorithm": {
+                "enum": [
+                    m1nd_control::ED25519_ALGORITHM,
+                    m1nd_control::ECDSA_P256_SHA256_X962_ALGORITHM
+                ]
+            },
+            "subject_id": { "type": "string", "minLength": 1 },
+            "audience": { "type": "string", "minLength": 1 },
+            "organism_id": { "type": "string", "minLength": 1 },
+            "brain_id": { "type": "string", "minLength": 1 },
+            "mission_id": { "type": ["string", "null"], "minLength": 1 },
+            "mission_head_id": { "type": ["string", "null"], "minLength": 1 },
+            "action": { "type": "string", "minLength": 1 },
+            "authority_variant": {
+                "enum": ["ORDINARY", "HUMAN", "POLICY", "AGENT_QUORUM", "SAFETY_KERNEL"]
+            },
+            "active_mode": {
+                "enum": ["HUMAN_GATED", "POLICY_AUTONOMOUS", "FULL_AUTONOMY"]
+            },
+            "payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "policy_registry_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "constitution_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "key_registry_epoch": { "type": "integer", "minimum": 0 },
+            "issued_at": { "type": "integer", "minimum": 0 },
+            "expires_at": { "type": "integer", "minimum": 0 },
+            "nonce": { "type": "string", "minLength": 1 },
+            "signature": { "type": "string", "minLength": 1 }
+        },
+        "required": [
+            "schema", "capability_id", "issuer_subject_id", "issuer_key_id", "algorithm",
+            "subject_id", "audience", "organism_id", "brain_id", "action",
+            "authority_variant", "active_mode", "payload_digest", "policy_registry_digest",
+            "constitution_digest", "key_registry_epoch", "issued_at", "expires_at", "nonce",
+            "signature"
+        ]
+    })
+}
+
+fn authority_effect_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "enum": [
+            "READ", "GRAPH_MUTATION", "RUNTIME_STORE_WRITE", "SOURCE_FILESYSTEM_WRITE",
+            "HOST_FILESYSTEM_WRITE", "COORDINATION_RECORD", "MISSION_STATE_WRITE",
+            "SOVEREIGN_MUTATION", "PROCESS_SPAWN", "PROCESS_SIGNAL",
+            "EXECUTABLE_REPLACEMENT", "NETWORK_ACCESS", "NETWORK_EXPOSE",
+            "FREEZE_ISSUANCE", "EPOCH_FENCE", "EPOCH_BUMP", "REVOKE_CAPABILITY",
+            "ABORT_PREPARED", "DEMOTE_GRANT", "ROLLBACK_SIGNED_CANDIDATE"
+        ]
+    })
+}
+
+fn authority_owner_role_tool_schema() -> serde_json::Value {
+    serde_json::json!({ "enum": ["author", "reviewer", "runner"] })
+}
+
+fn autonomy_digest_tool_schema() -> serde_json::Value {
+    serde_json::json!({ "type": "string", "pattern": "^[0-9a-f]{64}$" })
+}
+
+fn autonomy_nullable_string_tool_schema() -> serde_json::Value {
+    serde_json::json!({ "type": ["string", "null"], "minLength": 1 })
+}
+
+fn autonomy_nullable_digest_tool_schema() -> serde_json::Value {
+    serde_json::json!({ "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" })
+}
+
+fn autonomy_intent_ref_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "intent_digest": autonomy_digest_tool_schema(),
+            "canonicalization_version": { "type": "string", "minLength": 1 },
+            "content_address": { "type": "string", "minLength": 1 }
+        },
+        "required": ["intent_digest", "canonicalization_version", "content_address"]
+    })
+}
+
+fn autonomy_decision_binding_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "decision_id": { "type": "string", "minLength": 1 },
+            "intent_digest": autonomy_digest_tool_schema(),
+            "intent_core_ref": autonomy_intent_ref_tool_schema(),
+            "intent_canonicalization_version": { "type": "string", "minLength": 1 },
+            "required_authority_variant": { "enum": ["POLICY", "AGENT_QUORUM"] },
+            "issuer_subject_id": { "type": "string", "minLength": 1 },
+            "decision_subject_id": { "type": "string", "minLength": 1 },
+            "caller_subject_id": { "type": "string", "minLength": 1 },
+            "audience": { "type": "string", "minLength": 1 },
+            "proposer_subject_id": { "type": "string", "minLength": 1 },
+            "executor_subject_id": autonomy_nullable_string_tool_schema(),
+            "promotion_target_subject_id": autonomy_nullable_string_tool_schema(),
+            "ratification_target_subject_id": autonomy_nullable_string_tool_schema(),
+            "delegation_grant_digest": autonomy_nullable_digest_tool_schema(),
+            "action_policy_registry_digest": autonomy_digest_tool_schema(),
+            "classifier_decision_digest": autonomy_digest_tool_schema(),
+            "constitution_digest": autonomy_digest_tool_schema(),
+            "constitution_epoch": { "type": "integer", "minimum": 0 },
+            "autonomy_epoch": { "type": "integer", "minimum": 0 },
+            "active_mode": { "enum": ["HUMAN_GATED", "POLICY_AUTONOMOUS", "FULL_AUTONOMY"] },
+            "grant_id": autonomy_nullable_string_tool_schema(),
+            "effective_tier": {
+                "type": ["string", "null"],
+                "enum": [null, "A0_OBSERVE", "A1_PROPOSE", "A2_EXECUTE", "A3_AUTONOMOUS_LAND", "A4_AUTONOMOUS_GOVERN", "A5_FULL_AUTONOMY"]
+            },
+            "action_class": { "type": "string", "minLength": 1 },
+            "semantic_action_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$" },
+            "risk_class": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+            "risk_scope_digest": autonomy_digest_tool_schema(),
+            "resource_environment_scope_digest": autonomy_digest_tool_schema(),
+            "requested_budget": { "type": "integer", "minimum": 0 },
+            "sentinel_required": { "type": "boolean" },
+            "sentinel_verdict_digest": autonomy_nullable_digest_tool_schema(),
+            "action_payload_digest": autonomy_digest_tool_schema()
+        },
+        "required": [
+            "decision_id", "intent_digest", "intent_core_ref", "intent_canonicalization_version",
+            "required_authority_variant", "issuer_subject_id", "decision_subject_id",
+            "caller_subject_id", "audience", "proposer_subject_id", "action_policy_registry_digest",
+            "classifier_decision_digest", "constitution_digest", "constitution_epoch",
+            "autonomy_epoch", "active_mode", "action_class", "semantic_action_id", "risk_class",
+            "risk_scope_digest", "resource_environment_scope_digest", "requested_budget",
+            "sentinel_required", "action_payload_digest"
+        ]
+    })
+}
+
+fn autonomy_independence_spec_tool_schema() -> serde_json::Value {
+    let seat = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "principal_id": { "type": "string", "minLength": 1 },
+            "key_id": { "type": "string", "minLength": 1 },
+            "failure_domain": { "type": "string", "minLength": 1 },
+            "parent_session_context_digest": autonomy_digest_tool_schema()
+        },
+        "required": ["principal_id", "key_id", "failure_domain", "parent_session_context_digest"]
+    });
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "type": "string", "minLength": 1 },
+            "core": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "constitution_epoch": { "type": "integer", "minimum": 0 },
+                    "voting_verifiers": { "type": "array", "items": seat },
+                    "quorum_threshold": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                    "minimum_failure_domains": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                    "blind_isolation_policy_digest": autonomy_digest_tool_schema(),
+                    "nonvoting_sentinel_id": { "type": "string", "minLength": 1 },
+                    "proposer_executor_nonvoting": { "type": "boolean" },
+                    "sentinel_nonvoting": { "type": "boolean" }
+                },
+                "required": [
+                    "constitution_epoch", "voting_verifiers", "quorum_threshold",
+                    "minimum_failure_domains", "blind_isolation_policy_digest",
+                    "nonvoting_sentinel_id", "proposer_executor_nonvoting", "sentinel_nonvoting"
+                ]
+            },
+            "independence_spec_digest": autonomy_digest_tool_schema()
+        },
+        "required": ["schema", "core", "independence_spec_digest"]
+    })
+}
+
+fn autonomy_quorum_evidence_tool_schema() -> serde_json::Value {
+    let vote = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "verifier_principal_id": { "type": "string", "minLength": 1 },
+            "verifier_key_id": { "type": "string", "minLength": 1 },
+            "failure_domain": { "type": "string", "minLength": 1 },
+            "parent_session_context_digest": autonomy_digest_tool_schema(),
+            "intent_digest": autonomy_digest_tool_schema(),
+            "constitution_digest": autonomy_digest_tool_schema(),
+            "candidate_digest": autonomy_nullable_digest_tool_schema(),
+            "evidence_digest": autonomy_digest_tool_schema(),
+            "rollout_plan_digest": autonomy_digest_tool_schema(),
+            "rollback_plan_digest": autonomy_digest_tool_schema(),
+            "disposition": { "enum": ["APPROVE", "DISSENT", "ABSTAIN"] },
+            "signature": { "type": "string", "minLength": 1 }
+        },
+        "required": [
+            "verifier_principal_id", "verifier_key_id", "failure_domain",
+            "parent_session_context_digest", "intent_digest", "constitution_digest",
+            "evidence_digest", "rollout_plan_digest", "rollback_plan_digest",
+            "disposition", "signature"
+        ]
+    });
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "independence_spec": autonomy_independence_spec_tool_schema(),
+            "votes": { "type": "array", "items": vote },
+            "sentinel_verdict_digest": autonomy_digest_tool_schema()
+        },
+        "required": ["independence_spec", "votes", "sentinel_verdict_digest"]
+    })
+}
+
+fn autonomy_authority_decision_tool_schema() -> serde_json::Value {
+    let policy = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority_kind": { "const": "POLICY" },
+            "authority_decision": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "schema": { "type": "string", "minLength": 1 },
+                    "core": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "binding": autonomy_decision_binding_tool_schema(),
+                            "policy_digest": autonomy_digest_tool_schema(),
+                            "matched_clauses_digest": autonomy_digest_tool_schema(),
+                            "risk_budget_scope_digest": autonomy_digest_tool_schema(),
+                            "proof_receipts_digest": autonomy_digest_tool_schema(),
+                            "sentinel_exemption_clause_digest": autonomy_nullable_digest_tool_schema()
+                        },
+                        "required": [
+                            "binding", "policy_digest", "matched_clauses_digest",
+                            "risk_budget_scope_digest", "proof_receipts_digest"
+                        ]
+                    },
+                    "decision_digest": autonomy_digest_tool_schema(),
+                    "owner_signature": { "type": "string", "minLength": 1 }
+                },
+                "required": ["schema", "core", "decision_digest", "owner_signature"]
+            }
+        },
+        "required": ["authority_kind", "authority_decision"]
+    });
+    let quorum = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority_kind": { "const": "AGENT_QUORUM" },
+            "authority_decision": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "schema": { "type": "string", "minLength": 1 },
+                    "core": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "binding": autonomy_decision_binding_tool_schema(),
+                            "quorum": autonomy_quorum_evidence_tool_schema(),
+                            "evidence_rollout_rollback_digest": autonomy_digest_tool_schema()
+                        },
+                        "required": ["binding", "quorum", "evidence_rollout_rollback_digest"]
+                    },
+                    "decision_digest": autonomy_digest_tool_schema(),
+                    "owner_signature": { "type": "string", "minLength": 1 }
+                },
+                "required": ["schema", "core", "decision_digest", "owner_signature"]
+            }
+        },
+        "required": ["authority_kind", "authority_decision"]
+    });
+    serde_json::json!({ "oneOf": [policy, quorum] })
+}
+
+fn autonomy_capability_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "type": "string", "minLength": 1 },
+            "core": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "capability_id": { "type": "string", "minLength": 1 },
+                    "intent_digest": autonomy_digest_tool_schema(),
+                    "intent_core_ref": autonomy_intent_ref_tool_schema(),
+                    "intent_canonicalization_version": { "type": "string", "minLength": 1 },
+                    "decision_digest": autonomy_digest_tool_schema(),
+                    "decision_policy_digest": autonomy_digest_tool_schema(),
+                    "required_authority_variant": { "enum": ["POLICY", "AGENT_QUORUM"] },
+                    "action_policy_registry_digest": autonomy_digest_tool_schema(),
+                    "classifier_decision_digest": autonomy_digest_tool_schema(),
+                    "constitution_digest": autonomy_digest_tool_schema(),
+                    "constitution_epoch": { "type": "integer", "minimum": 0 },
+                    "autonomy_epoch": { "type": "integer", "minimum": 0 },
+                    "organism_id": { "type": "string", "minLength": 1 },
+                    "repo_id": { "type": "string", "minLength": 1 },
+                    "issuer_subject_id": { "type": "string", "minLength": 1 },
+                    "decision_subject_id": { "type": "string", "minLength": 1 },
+                    "caller_subject_id": { "type": "string", "minLength": 1 },
+                    "proposer_subject_id": { "type": "string", "minLength": 1 },
+                    "executor_subject_id": autonomy_nullable_string_tool_schema(),
+                    "promotion_target_subject_id": autonomy_nullable_string_tool_schema(),
+                    "ratification_target_subject_id": autonomy_nullable_string_tool_schema(),
+                    "delegation_grant_digest": autonomy_nullable_digest_tool_schema(),
+                    "audience": { "type": "string", "minLength": 1 },
+                    "active_mode": { "enum": ["POLICY_AUTONOMOUS", "FULL_AUTONOMY"] },
+                    "activation_receipt_id": autonomy_nullable_string_tool_schema(),
+                    "grant_id": { "type": "string", "minLength": 1 },
+                    "grant_digest": autonomy_digest_tool_schema(),
+                    "effective_tier": { "enum": ["A0_OBSERVE", "A1_PROPOSE", "A2_EXECUTE", "A3_AUTONOMOUS_LAND", "A4_AUTONOMOUS_GOVERN", "A5_FULL_AUTONOMY"] },
+                    "action_class": { "type": "string", "minLength": 1 },
+                    "semantic_action_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$" },
+                    "risk_class": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+                    "risk_scope_digest": autonomy_digest_tool_schema(),
+                    "sentinel_verdict_digest": autonomy_nullable_digest_tool_schema(),
+                    "brain_id": { "type": "string", "minLength": 1 },
+                    "mission_id": autonomy_nullable_string_tool_schema(),
+                    "mission_head_id": autonomy_nullable_string_tool_schema(),
+                    "block_id": autonomy_nullable_string_tool_schema(),
+                    "candidate_digest": autonomy_nullable_digest_tool_schema(),
+                    "promotion_subject_id": autonomy_nullable_string_tool_schema(),
+                    "resource_environment_scope_digest": autonomy_digest_tool_schema(),
+                    "requested_budget": { "type": "integer", "minimum": 0 },
+                    "expected_store_epoch": { "type": "integer", "minimum": 0 },
+                    "expected_store_version": { "type": "integer", "minimum": 0 },
+                    "expected_boundary_version": { "type": "integer", "minimum": 0 },
+                    "expected_contract_version": { "type": "integer", "minimum": 0 },
+                    "idempotency_key": { "type": "string", "minLength": 1 },
+                    "payload_digest": autonomy_digest_tool_schema(),
+                    "nonce": { "type": "string", "minLength": 1 },
+                    "issued_at": { "type": "integer", "minimum": 0 },
+                    "expires_at": { "type": "integer", "minimum": 0 }
+                },
+                "required": [
+                    "capability_id", "intent_digest", "intent_core_ref",
+                    "intent_canonicalization_version", "decision_digest", "decision_policy_digest",
+                    "required_authority_variant", "action_policy_registry_digest",
+                    "classifier_decision_digest", "constitution_digest", "constitution_epoch",
+                    "autonomy_epoch", "organism_id", "repo_id", "issuer_subject_id",
+                    "decision_subject_id", "caller_subject_id", "proposer_subject_id", "audience",
+                    "active_mode", "grant_id", "grant_digest", "effective_tier", "action_class",
+                    "semantic_action_id", "risk_class", "risk_scope_digest", "brain_id",
+                    "resource_environment_scope_digest", "requested_budget", "expected_store_epoch",
+                    "expected_store_version", "expected_boundary_version", "expected_contract_version",
+                    "idempotency_key", "payload_digest", "nonce", "issued_at", "expires_at"
+                ]
+            },
+            "capability_digest": autonomy_digest_tool_schema(),
+            "owner_signature": { "type": "string", "minLength": 1 }
+        },
+        "required": ["schema", "core", "capability_digest", "owner_signature"]
+    })
+}
+
+fn autonomy_sentinel_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "type": "string", "minLength": 1 },
+            "core": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "verdict_id": { "type": "string", "minLength": 1 },
+                    "sentinel_identity_key_binary_policy_digest": autonomy_digest_tool_schema(),
+                    "intent_digest": autonomy_digest_tool_schema(),
+                    "intent_core_ref": autonomy_intent_ref_tool_schema(),
+                    "intent_canonicalization_version": { "type": "string", "minLength": 1 },
+                    "metric_evidence_rollback_digest": autonomy_digest_tool_schema(),
+                    "risk_scope_digest": autonomy_digest_tool_schema(),
+                    "constitution_epoch": { "type": "integer", "minimum": 0 },
+                    "autonomy_epoch": { "type": "integer", "minimum": 0 },
+                    "nonce": { "type": "string", "minLength": 1 },
+                    "issued_at": { "type": "integer", "minimum": 0 },
+                    "expires_at": { "type": "integer", "minimum": 0 },
+                    "verdict": { "enum": ["GREEN", "RED"] }
+                },
+                "required": [
+                    "verdict_id", "sentinel_identity_key_binary_policy_digest", "intent_digest",
+                    "intent_core_ref", "intent_canonicalization_version",
+                    "metric_evidence_rollback_digest", "risk_scope_digest", "constitution_epoch",
+                    "autonomy_epoch", "nonce", "issued_at", "expires_at", "verdict"
+                ]
+            },
+            "verdict_digest": autonomy_digest_tool_schema(),
+            "signature": { "type": "string", "minLength": 1 }
+        },
+        "required": ["schema", "core", "verdict_digest", "signature"]
+    })
+}
+
+fn autonomy_authority_evidence_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "intent_digest": autonomy_digest_tool_schema(),
+            "decision": autonomy_authority_decision_tool_schema(),
+            "capability": autonomy_capability_tool_schema(),
+            "sentinel": { "oneOf": [{ "type": "null" }, autonomy_sentinel_tool_schema()] }
+        },
+        "required": ["intent_digest", "decision", "capability", "sentinel"]
+    })
+}
+
+fn authority_authorize_input_tool_schema() -> serde_json::Value {
+    let ordinary = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority": { "const": "ordinary_session" },
+            "role": authority_owner_role_tool_schema()
+        },
+        "required": ["authority", "role"]
+    });
+    let positive = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority": { "const": "positive_sovereign" },
+            "capability": authority_capability_tool_schema(),
+            "role": authority_owner_role_tool_schema(),
+            "capability_kind": { "enum": ["HUMAN", "AUTONOMY", "SAFETY"] },
+            "authority_decision_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "applicable_grant_id": { "type": ["string", "null"], "minLength": 1 },
+            "applicable_tier": {
+                "type": ["string", "null"],
+                "enum": [null, "A0_OBSERVE", "A1_PROPOSE", "A2_EXECUTE", "A3_AUTONOMOUS_LAND", "A4_AUTONOMOUS_GOVERN", "A5_FULL_AUTONOMY"]
+            },
+            "autonomy_evidence": {
+                "oneOf": [{ "type": "null" }, autonomy_authority_evidence_tool_schema()]
+            }
+        },
+        "required": [
+            "authority", "capability", "role", "capability_kind",
+            "authority_decision_digest"
+        ]
+    });
+    let service = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority": { "const": "service_identity" },
+            "assertion": service_identity_assertion_tool_schema()
+        },
+        "required": ["authority", "assertion"]
+    });
+    let safety = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "authority": { "const": "safety" },
+            "attempt": safety_actuator_attempt_tool_schema()
+        },
+        "required": ["authority", "attempt"]
+    });
+    serde_json::json!({
+        "description": "Closed authority union. Owner-session roles are assertions checked against the owner-pinned subject map.",
+        "oneOf": [ordinary, positive, service, safety]
+    })
+}
+
+fn service_identity_assertion_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "const": crate::authority_runtime::SERVICE_IDENTITY_ASSERTION_SCHEMA },
+            "core": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "service_id": { "type": "string", "minLength": 1 },
+                    "subject_id": { "type": "string", "minLength": 1 },
+                    "key_id": { "type": "string", "minLength": 1 },
+                    "role": { "enum": ["mission_service", "author", "reviewer", "runner"] },
+                    "organism_id": { "type": "string", "minLength": 1 },
+                    "brain_id": { "type": "string", "minLength": 1 },
+                    "audience": { "type": "string", "minLength": 1 },
+                    "identity_key_binary_policy_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "action": { "type": "string", "minLength": 1 },
+                    "object_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "mission_id": { "type": ["string", "null"], "minLength": 1 },
+                    "mission_head_id": { "type": ["string", "null"], "minLength": 1 },
+                    "transport_session_id": { "type": "string", "minLength": 1 },
+                    "ingress_context_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "nonce": { "type": "string", "minLength": 1 },
+                    "issued_at": { "type": "integer", "minimum": 0 },
+                    "expires_at": { "type": "integer", "minimum": 0 }
+                },
+                "required": [
+                    "service_id", "subject_id", "key_id", "role", "organism_id", "brain_id",
+                    "audience", "identity_key_binary_policy_digest", "action", "object_digest",
+                    "transport_session_id", "ingress_context_digest", "nonce", "issued_at",
+                    "expires_at"
+                ]
+            },
+            "signature": { "type": "string", "minLength": 1 }
+        },
+        "required": ["schema", "core", "signature"]
+    })
+}
+
+fn safety_actuator_attempt_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema": { "const": crate::authority_runtime::SAFETY_ACTUATOR_ATTEMPT_SCHEMA },
+            "core": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "attempt_id": { "type": "string", "minLength": 1 },
+                    "actuator_subject_id": { "type": "string", "minLength": 1 },
+                    "actuator_key_id": { "type": "string", "minLength": 1 },
+                    "actuator_identity_key_binary_policy_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "action": { "type": "string", "minLength": 1 },
+                    "payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "negative_effects": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": { "enum": ["FREEZE_ISSUANCE", "EPOCH_FENCE", "EPOCH_BUMP", "REVOKE_CAPABILITY", "ABORT_PREPARED", "DEMOTE_GRANT", "ROLLBACK_SIGNED_CANDIDATE"] }
+                    },
+                    "constitution_epoch": { "type": "integer", "minimum": 0 },
+                    "autonomy_epoch": { "type": "integer", "minimum": 0 },
+                    "nonce": { "type": "string", "minLength": 1 },
+                    "issued_at": { "type": "integer", "minimum": 0 },
+                    "expires_at": { "type": "integer", "minimum": 0 }
+                },
+                "required": [
+                    "attempt_id", "actuator_subject_id", "actuator_key_id",
+                    "actuator_identity_key_binary_policy_digest", "action", "payload_digest",
+                    "negative_effects", "constitution_epoch", "autonomy_epoch", "nonce",
+                    "issued_at", "expires_at"
+                ]
+            },
+            "signature": { "type": "string", "minLength": 1 }
+        },
+        "required": ["schema", "core", "signature"]
+    })
+}
+
+fn mission_service_tool_schema() -> serde_json::Value {
+    let common = serde_json::json!({
+        "schema": { "const": crate::mission_service_transport::MISSION_SERVICE_TRANSPORT_REQUEST_SCHEMA },
+        "request_id": { "type": "string", "minLength": 1 }
+    });
+    let variant = |action: &'static str, fields: serde_json::Value, required: &[&str]| {
+        let mut properties = common.clone();
+        properties["action"] = serde_json::json!({ "const": action });
+        if let (Some(target), Some(source)) = (properties.as_object_mut(), fields.as_object()) {
+            target.extend(source.clone());
+        }
+        let mut required_fields = vec!["action", "schema", "request_id"];
+        required_fields.extend_from_slice(required);
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": properties,
+            "required": required_fields,
+        })
+    };
+    serde_json::json!({
+        "name": "mission_service",
+        "description": "M1ND-10 G3 sole external mission mutation boundary. Accepts the closed v1 action union; authority and owner time are injected by the owner and are forbidden in the body. Legacy mission_post, receipt_import, and raw landed are permanent tombstones.",
+        "inputSchema": {
+            "oneOf": [
+                variant(
+                    "land_intent",
+                    serde_json::json!({
+                        "mission_id": { "type": "string" },
+                        "expected_head_id": { "type": "string" },
+                        "candidate_id": { "type": "string" },
+                        "expected_candidate_digest": { "type": "string" },
+                        "expected_store_version": { "type": "integer", "minimum": 1 },
+                        "idempotency_key": { "type": "string" }
+                    }),
+                    &["mission_id", "expected_head_id", "candidate_id", "expected_candidate_digest", "expected_store_version", "idempotency_key"]
+                ),
+                variant(
+                    "mission_transition",
+                    serde_json::json!({ "intent": { "type": "object" }, "payload": { "type": "object" } }),
+                    &["intent", "payload"]
+                ),
+                variant(
+                    "execution_dispatch",
+                    serde_json::json!({ "intent": { "type": "object" }, "payload": { "type": "object" } }),
+                    &["intent", "payload"]
+                ),
+                variant(
+                    "execution_started",
+                    serde_json::json!({ "snapshot": { "type": "object" }, "intent": { "type": "object" }, "payload": { "type": "object" } }),
+                    &["snapshot", "intent", "payload"]
+                ),
+                variant(
+                    "execution_terminal",
+                    serde_json::json!({ "snapshot": { "type": "object" }, "intent": { "type": "object" }, "payload": { "type": "object" } }),
+                    &["snapshot", "intent", "payload"]
+                ),
+                variant(
+                    "land",
+                    serde_json::json!({ "request": { "type": "object" } }),
+                    &["request"]
+                )
+            ]
+        }
+    })
+}
+
+fn external_mutation_service_tool_schema() -> serde_json::Value {
+    let common = serde_json::json!({
+        "schema": { "const": crate::external_mutation_service::EXTERNAL_MUTATION_REQUEST_SCHEMA },
+        "request_id": { "type": "string", "minLength": 1 }
+    });
+    let variant = |action: &'static str, fields: serde_json::Value, required: &[&str]| {
+        let mut properties = common.clone();
+        properties["action"] = serde_json::json!({ "const": action });
+        if let (Some(target), Some(source)) = (properties.as_object_mut(), fields.as_object()) {
+            target.extend(source.clone());
+        }
+        let mut required_fields = vec!["action", "schema", "request_id"];
+        required_fields.extend_from_slice(required);
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": properties,
+            "required": required_fields,
+        })
+    };
+    let graph_ingest_parent = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "operation_id": { "type": "string", "minLength": 1 },
+            "lease_id": { "type": "string", "minLength": 1 },
+            "reservation_id": { "type": "string", "minLength": 1 },
+            "operation_object_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "semantic_payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "outcome_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "published_result_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "required": [
+            "operation_id", "lease_id", "reservation_id", "operation_object_digest",
+            "semantic_payload_digest", "outcome_digest", "published_result_digest"
+        ]
+    });
+    let graph_ingest_request = |parent: serde_json::Value, require_parent: bool| {
+        let mut required = vec![
+            "preview_id",
+            "root",
+            "expected_graph_generation",
+            "expected_source_projection_digest",
+        ];
+        if require_parent {
+            required.push("parent");
+        }
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "preview_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "root": { "type": "string", "minLength": 1 },
+                "expected_graph_generation": { "type": "integer", "minimum": 0 },
+                "expected_source_projection_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "include_dotfiles": { "type": "boolean", "default": false },
+                "dotfile_patterns": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
+                },
+                "parent": parent
+            },
+            "required": required
+        })
+    };
+    serde_json::json!({
+        "name": "external_mutation_service",
+        "description": "M1ND-10 closed MCP-only consumer for exact elevated system-block ratification, brain promotion, source-edit commit, and governed full-root code ingestion. Action, effects, authority identity, and owner time are derived or injected owner-side; lease labels never authorize generic tools.",
+        "inputSchema": {
+            "oneOf": [
+                variant(
+                    "system_blocks_ratify",
+                    serde_json::json!({
+                        "expected_store_version": { "type": "integer", "minimum": 1 },
+                        "block_ids": {
+                            "type": ["array", "null"],
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": { "type": "string", "minLength": 1 }
+                        }
+                    }),
+                    &["expected_store_version"]
+                ),
+                variant(
+                    "brain_promote",
+                    serde_json::json!({
+                        "source_brain": { "type": "string", "minLength": 1 },
+                        "claim": { "type": "string", "minLength": 1 },
+                        "reason": { "type": "string", "minLength": 1 },
+                        "expected_source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                        "expected_medulla_sha256": {
+                            "type": ["string", "null"],
+                            "pattern": "^[0-9a-f]{64}$"
+                        }
+                    }),
+                    &["source_brain", "claim", "reason", "expected_source_sha256", "expected_medulla_sha256"]
+                ),
+                variant(
+                    "source_edit_commit",
+                    serde_json::json!({
+                        "request": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "schema": { "const": crate::external_mutation_service::SOURCE_EDIT_COMMIT_REQUEST_SCHEMA },
+                                "preview_id": { "type": "string", "minLength": 1 }
+                            },
+                            "required": ["schema", "preview_id"]
+                        }
+                    }),
+                    &["request"]
+                ),
+                variant(
+                    "graph_ingest_replace",
+                    serde_json::json!({
+                        "request": graph_ingest_request(
+                            serde_json::json!({ "type": "null" }),
+                            false
+                        )
+                    }),
+                    &["request"]
+                ),
+                variant(
+                    "graph_ingest_merge_existing",
+                    serde_json::json!({
+                        "request": graph_ingest_request(graph_ingest_parent, true)
+                    }),
+                    &["request"]
+                )
+            ]
+        }
+    })
+}
+
+fn graph_ingest_preview_tool_schema() -> serde_json::Value {
+    serde_json::json!({
+        "name": "graph_ingest_preview",
+        "description": "Read-only owner-derived preview for governed full-root ingestion of the already selected brain. It returns the exact action/effects, current OCC and candidate bindings, authority object digest, and execute request template. It does not create/rebind a brain, consume a lease, or mutate graph/store state.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "schema": { "const": crate::external_mutation_service::GRAPH_INGEST_PREVIEW_REQUEST_SCHEMA },
+                "request_id": { "type": "string", "minLength": 1 },
+                "mode": { "enum": ["REPLACE", "MERGE_EXISTING"] },
+                "include_dotfiles": { "type": "boolean", "default": false },
+                "dotfile_patterns": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
+                },
+                "parent": {
+                    "type": ["object", "null"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "operation_id": { "type": "string", "minLength": 1 },
+                        "lease_id": { "type": "string", "minLength": 1 },
+                        "reservation_id": { "type": "string", "minLength": 1 },
+                        "operation_object_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                        "semantic_payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                        "outcome_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                        "published_result_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                    },
+                    "required": [
+                        "operation_id", "lease_id", "reservation_id",
+                        "operation_object_digest", "semantic_payload_digest",
+                        "outcome_digest", "published_result_digest"
+                    ]
+                }
+            },
+            "required": ["schema", "request_id", "mode", "parent"]
+        }
     })
 }
 
@@ -3042,42 +4131,54 @@ pub(crate) fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> b
     false
 }
 
-/// Real code-writing tools the M1ND_PROOF_GATE guards. These are exactly the
-/// tools that perform an on-disk write of agent-supplied content. `edit_preview`
-/// is deliberately excluded: it only stages an in-memory preview and never
-/// writes — same stance as the read-only gate.
-const PROOF_GATED_WRITE_TOOLS: &[&str] = &["apply", "apply_batch", "edit_commit"];
+/// Resolve the complete semantic effect set before proof gating. Exact branches
+/// are preferred; when classification depends on a trusted owner fact not yet
+/// computed, conservatively union every reachable branch. Catalog/route drift
+/// is a refusal, never a weaker default.
+fn source_write_effect_required(
+    tool_name: &str,
+    params: &serde_json::Value,
+    normalized_tool: &str,
+) -> M1ndResult<bool> {
+    use crate::action_routes::TrustedMcpRouteFacts;
+    use m1nd_control::Effect;
 
-/// Returns the normalized (prefix-stripped) tool name if `tool_name` is a
-/// proof-gated code-writing tool, else `None`. Mirrors the prefix handling in
-/// [`read_only_denied`].
-fn proof_gated_write_tool(tool_name: &str) -> Option<&'static str> {
-    let bare = tool_name
-        .strip_prefix("m1nd.")
-        .or_else(|| tool_name.strip_prefix("m1nd_"))
-        .unwrap_or(tool_name);
-    PROOF_GATED_WRITE_TOOLS.iter().copied().find(|&t| t == bare)
+    match crate::action_routes::classify_mcp_action(
+        tool_name,
+        params,
+        TrustedMcpRouteFacts::default(),
+    ) {
+        Ok(classified) => Ok(classified.effects.contains(&Effect::SourceFilesystemWrite)),
+        Err(exact_error) => crate::action_routes::possible_mcp_effects(tool_name)
+            .map(|effects| effects.contains(&Effect::SourceFilesystemWrite))
+            .map_err(|union_error| M1ndError::InvalidParams {
+                tool: normalized_tool.to_string(),
+                detail: format!(
+                    "cannot conservatively resolve action effects (exact={exact_error}; union={union_error})"
+                ),
+            }),
+    }
 }
 
-/// Collect the raw target file path(s) a write call will touch, exactly as the
-/// agent supplied them (pre-normalization). For `apply`/`edit_preview` this is
-/// `params["file_path"]`; for `apply_batch` it is every `params["edits"][*]
-/// ["file_path"]`; for `edit_commit` there is no path in params, so it is
-/// recovered from the staged preview (`state.edit_previews[preview_id]
-/// .file_path`). Returns the gathered raw targets (may be empty if params are
-/// malformed — the gate treats an empty/unresolvable target set as unproven).
+/// Extract exact physical targets after the semantic effect union says a source
+/// write is reachable. A future source-write action without an extractor fails
+/// closed automatically instead of silently escaping a name allow-list.
 fn proof_gate_targets(
     bare_tool: &str,
     params: &serde_json::Value,
     state: &SessionState,
-) -> Vec<String> {
+) -> M1ndResult<Vec<String>> {
     match bare_tool {
-        "apply" => params
+        "apply" => Ok(params
             .get("file_path")
             .and_then(|v| v.as_str())
             .map(|s| vec![s.to_string()])
-            .unwrap_or_default(),
-        "apply_batch" => params
+            .filter(|targets| !targets[0].trim().is_empty())
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: bare_tool.to_string(),
+                detail: "source write has no resolvable file_path target".to_string(),
+            })?),
+        "apply_batch" => Ok(params
             .get("edits")
             .and_then(|v| v.as_array())
             .map(|edits| {
@@ -3087,14 +4188,45 @@ fn proof_gate_targets(
                     .map(|s| s.to_string())
                     .collect()
             })
-            .unwrap_or_default(),
-        "edit_commit" => params
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: bare_tool.to_string(),
+                detail: "source write has no edits array".to_string(),
+            })?),
+        "edit_commit" => Ok(params
             .get("preview_id")
             .and_then(|v| v.as_str())
             .and_then(|pid| state.edit_previews.get(pid))
             .map(|preview| vec![preview.file_path.clone()])
-            .unwrap_or_default(),
-        _ => Vec::new(),
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: bare_tool.to_string(),
+                detail: "edit_commit preview target is missing or expired".to_string(),
+            })?),
+        "xray_apply" => {
+            let input: crate::xray_handlers::XrayApplyInput =
+                serde_json::from_value(params.clone()).map_err(|error| M1ndError::InvalidParams {
+                    tool: bare_tool.to_string(),
+                    detail: error.to_string(),
+                })?;
+            if input.mode == crate::xray_handlers::XrayMode::Commit
+                && input
+                    .expect_version
+                    .as_deref()
+                    .is_none_or(|version| version.trim().is_empty())
+            {
+                return Err(M1ndError::InvalidParams {
+                    tool: bare_tool.to_string(),
+                    detail: "xray_apply commit requires expect_version from a fresh dry_run; unconditional source commits are disabled"
+                        .to_string(),
+                });
+            }
+            crate::xray_handlers::xray_apply_proof_targets(state, &input)
+        }
+        _ => Err(M1ndError::InvalidParams {
+            tool: bare_tool.to_string(),
+            detail: format!(
+                "semantic action includes SOURCE_FILESYSTEM_WRITE but no exact target resolver exists for '{bare_tool}'"
+            ),
+        }),
     }
 }
 
@@ -4530,17 +5662,168 @@ where
     }
 }
 
+fn generic_dispatch_floor_is_available(floor: m1nd_control::AuthorityFloor) -> bool {
+    use m1nd_control::AuthorityFloor;
+
+    match floor {
+        AuthorityFloor::Ordinary => true,
+        AuthorityFloor::ScopedGrantA2
+        | AuthorityFloor::PositiveSovereign
+        | AuthorityFloor::ServiceIdentity
+        | AuthorityFloor::SafetyOnly => false,
+    }
+}
+
+fn authority_floor_name(floor: m1nd_control::AuthorityFloor) -> &'static str {
+    use m1nd_control::AuthorityFloor;
+
+    match floor {
+        AuthorityFloor::Ordinary => "ORDINARY",
+        AuthorityFloor::ScopedGrantA2 => "SCOPED_GRANT_A2",
+        AuthorityFloor::PositiveSovereign => "POSITIVE_SOVEREIGN",
+        AuthorityFloor::ServiceIdentity => "SERVICE_IDENTITY",
+        AuthorityFloor::SafetyOnly => "SAFETY_ONLY",
+    }
+}
+
+/// Mandatory generic REST/MCP action-policy boundary.
+///
+/// This decision is pure and must run before brain resolution, presence
+/// tracking, freshness ticks, proof-permit consumption, or handler dispatch.
+/// Only ORDINARY actions can currently use the existing authenticated generic
+/// ingress. Every stronger floor stays closed until that exact semantic action
+/// has a typed, action-bound G2/G3 lease consumer. `mission_service` is not a
+/// generic call: the served transports intercept it before invoking this gate.
+pub(crate) fn enforce_generic_action_policy(
+    tool_name: &str,
+    params: &serde_json::Value,
+) -> M1ndResult<()> {
+    use crate::action_routes::{McpActionRouteError, TrustedMcpRouteFacts};
+
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+
+    // Preserve permanent G3 tombstone precedence. Payload shape and authority
+    // claims cannot revive the retired raw mutation primitives.
+    if let Some(refusal) = crate::mission_service_transport::legacy_mutation_refusal(bare) {
+        return Err(M1ndError::InvalidParams {
+            tool: bare.to_string(),
+            detail: format!("{}: {}", refusal.code, refusal.detail),
+        });
+    }
+
+    let (action, floors) = match crate::action_routes::classify_mcp_action(
+        bare,
+        params,
+        TrustedMcpRouteFacts::default(),
+    ) {
+        Ok(classified) => (
+            Some(classified.action.to_string()),
+            std::collections::BTreeSet::from([classified.authority_floor]),
+        ),
+        Err(McpActionRouteError::MissingTrustedFact { .. }) => {
+            let floors = crate::action_routes::possible_mcp_authority_floors(bare).map_err(
+                |error| M1ndError::InvalidParams {
+                    tool: bare.to_string(),
+                    detail: format!(
+                        "generic_action_policy_unresolved: cannot conservatively resolve authority floor: {error}"
+                    ),
+                },
+            )?;
+            (None, floors)
+        }
+        Err(error) => {
+            return Err(M1ndError::InvalidParams {
+                tool: bare.to_string(),
+                detail: format!(
+                "generic_action_policy_unresolved: semantic action classification refused: {error}"
+            ),
+            })
+        }
+    };
+
+    let unavailable: Vec<&'static str> = floors
+        .iter()
+        .copied()
+        .filter(|floor| !generic_dispatch_floor_is_available(*floor))
+        .map(authority_floor_name)
+        .collect();
+    if unavailable.is_empty() {
+        return Ok(());
+    }
+
+    Err(M1ndError::InvalidParams {
+        tool: bare.to_string(),
+        detail: format!(
+            "generic_action_authority_required: semantic_action={} authority_floor={} cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease consumer is installed for this action",
+            action.as_deref().unwrap_or("<owner-fact-dependent>"),
+            unavailable.join("|")
+        ),
+    })
+}
+
+/// Defense-in-depth wrapper for generic transport calls. Transport seams still
+/// invoke the pure policy gate before any of their own tracking/routing effects.
+pub(crate) fn dispatch_generic_tool(
+    state: &mut SessionState,
+    tool_name: &str,
+    params: &serde_json::Value,
+) -> M1ndResult<serde_json::Value> {
+    enforce_generic_action_policy(tool_name, params)?;
+    dispatch_tool(state, tool_name, params)
+}
+
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
 /// v0.4.0: wraps all responses with _m1nd metadata.
-pub fn dispatch_tool(
+pub(crate) fn dispatch_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,
 ) -> M1ndResult<serde_json::Value> {
     let normalized = tool_name.to_string();
     let start = std::time::Instant::now();
+    let bare = normalized
+        .strip_prefix("m1nd.")
+        .or_else(|| normalized.strip_prefix("m1nd_"))
+        .unwrap_or(&normalized);
+
+    // G3 tombstones are selected by the wire action name alone. This precedes
+    // read-only, proof, authority, and payload classification: no capability or
+    // body shape can revive the former raw mission/receipt write primitives.
+    if let Some(refusal) = crate::mission_service_transport::legacy_mutation_refusal(bare) {
+        return Err(M1ndError::InvalidParams {
+            tool: bare.to_string(),
+            detail: format!("{}: {}", refusal.code, refusal.detail),
+        });
+    }
+    if bare == "mission_service" {
+        return Err(M1ndError::InvalidParams {
+            tool: bare.to_string(),
+            detail: "mission_service_unavailable: the stdio-only dispatcher has no sovereign authority provider; use the served owner's authenticated REST or Streamable-HTTP MCP ingress"
+                .to_string(),
+        });
+    }
+    if matches!(bare, "external_mutation_service" | "graph_ingest_preview") {
+        return Err(M1ndError::InvalidParams {
+            tool: bare.to_string(),
+            detail: "external_mutation_service_policy_disabled: stdio has no owner-observed Streamable-HTTP session, selected actor, or typed consumer; use the served owner's authenticated MCP ingress"
+                .to_string(),
+        });
+    }
+    if matches!(
+        bare,
+        "authority_session_challenge" | "authority_session_authenticate" | "authority_authorize"
+    ) {
+        return Err(M1ndError::InvalidParams {
+            tool: bare.to_string(),
+            detail: "authority_service_unavailable: the stdio dispatcher has no owner-observed wire correlation/ingress context; use the served owner's authenticated REST or Streamable-HTTP MCP ingress"
+                .to_string(),
+        });
+    }
 
     // Read-only attach gate: refuse mutating tools BEFORE any dispatch or
     // side-effecting tick so the writer's on-disk state can never be touched.
@@ -4569,9 +5852,9 @@ pub fn dispatch_tool(
                         "this session's caller root '{caller_root}' does not resolve to the brain being written at '{brain_root}' — implicit routing would write the wrong brain"
                     ),
                     "fix": {
-                        "call": format!(
-                            "ingest project_root={caller_root} first — one call creates and binds your brain"
-                        ),
+                        "action": "bootstrap_unavailable",
+                        "code": "brain_bootstrap_consumer_not_installed",
+                        "note": "no public bootstrap mutation was attempted",
                         "explicit_rest_selector": format!(
                             "for a deliberate cross-brain write, use the explicit REST ?brain={brain_root} selector"
                         ),
@@ -4594,42 +5877,6 @@ pub fn dispatch_tool(
     // carries it to the sidecar. Never a write here, never able to break dispatch.
     if read_only_denied(&normalized, params) {
         state.note_mutation_observed(&agent_id);
-    }
-
-    // M1ND_PROOF_GATE: when ON, refuse a real code-writing tool BEFORE any write
-    // unless every target it will touch was driven to proof_state ==
-    // "ready_to_edit" this session (via surgical_context_v2). edit_preview is
-    // allowed (it only stages). All targets are normalized through the same
-    // scope normalizer the recorder used, so proved==edited keys compare equal.
-    if proof_gate_enabled() {
-        if let Some(bare_tool) = proof_gated_write_tool(&normalized) {
-            let targets = proof_gate_targets(bare_tool, params, state);
-            let unproven: Vec<String> = if targets.is_empty() {
-                // Malformed/unresolvable target set: refuse rather than allow an
-                // unverifiable write through. Surface the tool itself.
-                vec![format!("<unresolved target for {bare_tool}>")]
-            } else {
-                targets
-                    .iter()
-                    .filter(|t| !state.is_proof_ready(&agent_id, t))
-                    .cloned()
-                    .collect()
-            };
-            if !unproven.is_empty() {
-                let unproven_list = unproven.join(", ");
-                let first = unproven.first().cloned().unwrap_or_default();
-                return Err(M1ndError::InvalidParams {
-                    tool: normalized.clone(),
-                    detail: format!(
-                        "M1ND_PROOF_GATE is on: {count} target(s) not proven ready_to_edit for agent_id='{agent}': {unproven_list}. \
-Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven target to gather context and reach proof_state==ready_to_edit, then retry '{tool}'.",
-                        count = unproven.len(),
-                        agent = agent_id,
-                        tool = normalized,
-                    ),
-                });
-            }
-        }
     }
 
     let query_preview = params
@@ -4680,6 +5927,7 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
             | "mission_verify"
             | "mission_handoff"
             | "mission_close"
+            | "evidence_query"
     ) {
         // FAIL-OPEN (gardener v1). The inline auto-ingest tick is a background
         // VIGIL, not part of the agent's request. Before, the `?` here turned a
@@ -4693,12 +5941,38 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
         });
     }
 
+    // G5 proof spine: after every background freshness tick and immediately
+    // before the handler, classify the semantic action by its complete effects.
+    // Source writes atomically consume agent+scope+generation+digest+TTL marks.
+    // Empty exact plans (apply_batch/xray idempotent no-op) need no permit.
+    let mut proof_cleanup_identities = Vec::new();
+    if proof_gate_enabled() && source_write_effect_required(&normalized, params, &normalized)? {
+        let bare_tool = normalized
+            .strip_prefix("m1nd.")
+            .or_else(|| normalized.strip_prefix("m1nd_"))
+            .unwrap_or(&normalized);
+        let targets = proof_gate_targets(bare_tool, params, state)?;
+        if !targets.is_empty() {
+            proof_cleanup_identities = state
+                .consume_proof_ready_targets(&agent_id, &targets)
+                .map_err(|detail| M1ndError::InvalidParams {
+                    tool: normalized.clone(),
+                    detail: format!(
+                        "M1ND_PROOF_GATE refused SOURCE_FILESYSTEM_WRITE for agent_id='{agent_id}': {detail}. Run surgical_context_v2 for each exact target against the current graph/disk state, then retry once."
+                    ),
+                })?;
+        }
+    }
+
     let result = match normalized.as_str() {
         name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
         name if name.starts_with("lock_") => dispatch_lock_tool(state, name, params),
         _ => dispatch_core_tool(state, &normalized, params),
+    };
+    if !proof_cleanup_identities.is_empty() {
+        state.clear_active_proof_permits(&agent_id, &proof_cleanup_identities);
     }
-    .map_err(|error| match error {
+    let result = result.map_err(|error| match error {
         M1ndError::Serde(detail) => M1ndError::InvalidParams {
             tool: normalized.clone(),
             detail: help_guidance::runtime_error_guidance_hint(&normalized, &detail.to_string()),
@@ -4796,6 +6070,7 @@ fn dispatch_core_tool(
         "cockpit" => crate::cockpit::handle_cockpit(state, params),
         "delegate" => crate::delegation_handlers::handle_delegate(state, params),
         "debrief" => crate::delegation_handlers::handle_debrief(state, params),
+        "evidence_query" => crate::evidence_spine_owner::handle_evidence_query(state, params),
         "am_i_stale" => handle_am_i_stale(state, params),
         "activate" => {
             let input: ActivateInput =
@@ -4811,7 +6086,11 @@ fn dispatch_core_tool(
         "xray_apply" => {
             let input: crate::xray_handlers::XrayApplyInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
-            crate::xray_handlers::handle_xray_apply(state, input)
+            if proof_gate_enabled() {
+                crate::xray_handlers::handle_xray_apply_authorized(state, input)
+            } else {
+                crate::xray_handlers::handle_xray_apply(state, input)
+            }
         }
         "xray_orient" => {
             let input: crate::xray_handlers::XrayOrientInput =
@@ -5355,7 +6634,11 @@ fn dispatch_core_tool(
                     tool: "apply".into(),
                     detail: e.to_string(),
                 })?;
-            let output = surgical_handlers::handle_apply(state, input)?;
+            let output = if proof_gate_enabled() {
+                surgical_handlers::handle_apply_authorized(state, input)?
+            } else {
+                surgical_handlers::handle_apply(state, input)?
+            };
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         // -----------------------------------------------------------------
@@ -5376,7 +6659,11 @@ fn dispatch_core_tool(
                     tool: "apply_batch".into(),
                     detail: e.to_string(),
                 })?;
-            let output = surgical_handlers::handle_apply_batch(state, input)?;
+            let output = if proof_gate_enabled() {
+                surgical_handlers::handle_apply_batch_authorized(state, input)?
+            } else {
+                surgical_handlers::handle_apply_batch(state, input)?
+            };
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "edit_preview" => {
@@ -5394,7 +6681,11 @@ fn dispatch_core_tool(
                     tool: "edit_commit".into(),
                     detail: e.to_string(),
                 })?;
-            let output = surgical_handlers::handle_edit_commit(state, input)?;
+            let output = if proof_gate_enabled() {
+                surgical_handlers::handle_edit_commit_authorized(state, input)?
+            } else {
+                surgical_handlers::handle_edit_commit(state, input)?
+            };
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         // -----------------------------------------------------------------
@@ -5495,6 +6786,17 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 /// otherwise we reply with our preferred [`MCP_PROTOCOL_VERSION`].
 const MCP_SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// Presence is a durable coordination side effect, so the strictly read-only
+/// EvidenceQuery must not inherit per-seam `agent_id` tracking before its
+/// deny-unknown-fields payload is decoded. This also covers prefixed tool names.
+pub(crate) fn tool_tracks_agent_presence(tool_name: &str) -> bool {
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+    bare != "evidence_query"
+}
+
 /// Negotiate the protocol version: honor the client's requested version when we
 /// support it, otherwise fall back to our preferred version.
 fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
@@ -5521,7 +6823,10 @@ fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
 /// Note: the stdio-only live FS watcher refresh for `daemon_start`/`daemon_stop`
 /// is NOT performed here — the caller (`McpServer::dispatch`) handles that after
 /// this returns, since it requires `&mut McpServer`, not just `&mut SessionState`.
-pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> JsonRpcResponse {
+pub(crate) fn handle_mcp_method(
+    state: &mut SessionState,
+    request: &JsonRpcRequest,
+) -> JsonRpcResponse {
     let method = request.method.as_str();
 
     match method {
@@ -5557,61 +6862,20 @@ pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> 
                 error: None,
             }
         }
+        "ping" => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: request.id.clone(),
+            result: Some(serde_json::json!({})),
+            error: None,
+        },
         "tools/list" => JsonRpcResponse {
             jsonrpc: "2.0".into(),
             id: request.id.clone(),
             result: Some(tool_schemas()),
             error: None,
         },
-        "tools/call" => {
-            // Extract tool name and arguments from params
-            let tool_name = request
-                .params
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let arguments = request
-                .params
-                .get("arguments")
-                .cloned()
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-            // Track agent session from arguments. The freshness-by-traffic daemon
-            // tick used to fire HERE (MCP-wire only); it now rides dispatch_tool so
-            // ALL seams get it (REST, stdio side-loop, mcp_http). track_agent stays
-            // per-seam — moving it into dispatch_tool would double-count query
-            // traffic on the seams that already call it.
-            if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
-                state.track_agent(agent_id);
-            }
-
-            // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
-            match dispatch_tool(state, tool_name, &arguments) {
-                Ok(result) => JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id: request.id.clone(),
-                    result: Some(serde_json::json!({
-                        "content": [{
-                            "type": "text",
-                            "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
-                        }]
-                    })),
-                    error: None,
-                },
-                Err(e) => JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id: request.id.clone(),
-                    result: Some(serde_json::json!({
-                        "content": [{
-                            "type": "text",
-                            "text": format!("Error: {}", e),
-                        }],
-                        "isError": true
-                    })),
-                    error: None,
-                },
-            }
-        }
+        "tools/call" => handle_mcp_method_transactional(state, request)
+            .unwrap_or_else(|error| mcp_tool_error_response(request.id.clone(), error.to_string())),
         _ => {
             // Method not found — JSON-RPC protocol error
             JsonRpcResponse {
@@ -5625,6 +6889,71 @@ pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> 
                 }),
             }
         }
+    }
+}
+
+/// Execute one MCP method while leaving a `tools/call` domain failure as a real
+/// callback error. Actor-backed transports MUST use this seam: the actor can
+/// then roll back a partial mutation before the transport converts the error to
+/// MCP `isError` content. Pure protocol methods delegate to the wire handler.
+pub(crate) fn handle_mcp_method_transactional(
+    state: &mut SessionState,
+    request: &JsonRpcRequest,
+) -> M1ndResult<JsonRpcResponse> {
+    if request.method != "tools/call" {
+        return Ok(handle_mcp_method(state, request));
+    }
+
+    let tool_name = request
+        .params
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let arguments = request
+        .params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+
+    // Authority is decided before presence, freshness, proof consumption, or
+    // handler effects.
+    enforce_generic_action_policy(tool_name, &arguments)?;
+    if tool_tracks_agent_presence(tool_name) {
+        if let Some(agent_id) = arguments.get("agent_id").and_then(|value| value.as_str()) {
+            state.track_agent(agent_id);
+        }
+    }
+
+    let payload = dispatch_generic_tool(state, tool_name, &arguments)?;
+    Ok(mcp_tool_result_response(request.id.clone(), &payload))
+}
+
+pub(crate) fn mcp_tool_result_response(
+    id: serde_json::Value,
+    payload: &serde_json::Value,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(payload).unwrap_or_default(),
+            }]
+        })),
+        error: None,
+    }
+}
+
+pub(crate) fn mcp_tool_error_response(id: serde_json::Value, message: String) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{ "type": "text", "text": format!("Error: {message}") }],
+            "isError": true
+        })),
+        error: None,
     }
 }
 
@@ -5646,6 +6975,7 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "mission_verify"
             | "mission_handoff"
             | "mission_close"
+            | "evidence_query"
     )
 }
 
@@ -5969,48 +7299,125 @@ fn dispatch_lock_tool(
 }
 
 impl McpServer {
-    fn sync_watcher_drop_counter(&mut self) {
-        if let Some(runtime) = &self.daemon_runtime {
-            if let Some(watcher) = &runtime.watcher {
-                self.state.daemon_state.watch_events_dropped =
-                    watcher.dropped_counter.load(Ordering::Relaxed);
-            }
-        }
+    fn actor_runtime(&self) -> M1ndResult<&StdioActorRuntime> {
+        self.actor_runtime.as_ref().ok_or_else(|| {
+            M1ndError::PersistenceFailed(
+                "stdio brain actor is unavailable; call McpServer::start first".to_string(),
+            )
+        })
     }
 
-    fn refresh_daemon_watcher(&mut self) {
-        let Some(runtime) = &mut self.daemon_runtime else {
-            return;
+    fn actor_execute<R, Execute>(&self, mutating: bool, execute: Execute) -> M1ndResult<R>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> Result<R, RuntimeJobFailure> + Send + 'static,
+    {
+        let runtime = self.actor_runtime()?;
+        runtime.project_brains.execute_target_runtime(
+            Arc::clone(&runtime.session),
+            None,
+            true,
+            mutating,
+            execute,
+        )
+    }
+
+    fn actor_execute_m1nd<R, Execute>(&self, mutating: bool, execute: Execute) -> M1ndResult<R>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> M1ndResult<R> + Send + 'static,
+    {
+        let runtime = self.actor_runtime()?;
+        runtime.project_brains.execute_target_m1nd(
+            Arc::clone(&runtime.session),
+            None,
+            true,
+            mutating,
+            execute,
+        )
+    }
+
+    fn daemon_loop_view(&self) -> M1ndResult<DaemonLoopView> {
+        let dropped = self
+            .daemon_runtime
+            .as_ref()
+            .and_then(|runtime| runtime.watcher.as_ref())
+            .map(|watcher| watcher.dropped_counter.load(Ordering::Relaxed));
+        self.actor_execute(false, move |state| {
+            if !state.read_only {
+                if let Some(dropped) = dropped {
+                    state.daemon_state.watch_events_dropped =
+                        state.daemon_state.watch_events_dropped.max(dropped);
+                }
+            }
+            Ok(DaemonLoopView {
+                active: state.daemon_state.active,
+                read_only: state.read_only,
+                watch_paths: state.daemon_state.watch_paths.clone(),
+                git_root_present: state.daemon_state.git_root.is_some(),
+                watch_backend: state.daemon_state.watch_backend.clone(),
+                watch_backend_error: state.daemon_state.watch_backend_error.clone(),
+                coalesce_window_ms: state.daemon_state.coalesce_window_ms,
+                wait_duration_ms: daemon_wait_duration_ms(state),
+            })
+        })
+    }
+
+    fn refresh_daemon_watcher(&mut self) -> M1ndResult<()> {
+        let Some(event_tx) = self
+            .daemon_runtime
+            .as_ref()
+            .map(|runtime| runtime.event_tx.clone())
+        else {
+            return Ok(());
         };
-
-        runtime.watcher = None;
-        if !self.state.daemon_state.active {
-            self.state.daemon_state.watch_backend = "polling".into();
-            self.state.daemon_state.watch_backend_error = None;
-            let _ = self.state.persist_daemon_state();
-            return;
+        let view = self.daemon_loop_view()?;
+        if let Some(runtime) = self.daemon_runtime.as_mut() {
+            runtime.watcher = None;
         }
 
-        match LiveDaemonWatcher::start(
-            &self.state.daemon_state.watch_paths,
-            runtime.event_tx.clone(),
-        ) {
-            Ok(watcher) => {
-                runtime.watcher = Some(watcher);
-                self.state.daemon_state.watch_backend =
-                    if self.state.daemon_state.git_root.is_some() {
-                        "git_native_fs".into()
+        if view.read_only {
+            return Ok(());
+        }
+
+        if !view.active {
+            if view.watch_backend != "polling" || view.watch_backend_error.is_some() {
+                self.actor_execute(true, |state| {
+                    state.daemon_state.watch_backend = "polling".into();
+                    state.daemon_state.watch_backend_error = None;
+                    Ok(())
+                })?;
+            }
+            return Ok(());
+        }
+
+        let (watcher, backend, backend_error) =
+            match LiveDaemonWatcher::start(&view.watch_paths, event_tx) {
+                Ok(watcher) => {
+                    let backend = if view.git_root_present {
+                        "git_native_fs"
                     } else {
-                        "native_fs".into()
+                        "native_fs"
                     };
-                self.state.daemon_state.watch_backend_error = None;
-            }
-            Err(error) => {
-                self.state.daemon_state.watch_backend = "polling".into();
-                self.state.daemon_state.watch_backend_error = Some(error);
-            }
+                    (Some(watcher), backend.to_string(), None)
+                }
+                Err(error) => (None, "polling".to_string(), Some(error)),
+            };
+
+        let published_backend = backend.clone();
+        let published_error = backend_error.clone();
+        if let Err(error) = self.actor_execute(true, move |state| {
+            state.daemon_state.watch_backend = published_backend;
+            state.daemon_state.watch_backend_error = published_error;
+            Ok(())
+        }) {
+            drop(watcher);
+            return Err(error);
         }
-        let _ = self.state.persist_daemon_state();
+        if let Some(runtime) = self.daemon_runtime.as_mut() {
+            runtime.watcher = watcher;
+        }
+        Ok(())
     }
 
     /// Create server with config. Does not start serving yet.
@@ -6110,22 +7517,68 @@ impl McpServer {
         // session and surfaced verbatim in session_handshake — never hidden.
         state.agent_memory_boot = crate::tools::reload_agent_memory(&mut state);
 
+        let offline_context = (state.runtime_root.clone(), state.project_root_display());
+
         Ok(Self {
             config,
-            state,
+            boot_state: Some(state),
+            actor_runtime: None,
             daemon_runtime: None,
+            offline_context,
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
+            shutdown_wake: Arc::new(std::sync::Mutex::new(None)),
+            stopped: false,
         })
     }
 
-    /// Consume the McpServer and return the SessionState.
-    /// Used by the HTTP server to take ownership of the session state
-    /// and wrap it in Arc<Mutex<>> for shared concurrent access.
-    pub fn into_session_state(self) -> SessionState {
-        self.state
+    /// Internal transport handoff into the brain actor boundary.
+    ///
+    /// External callers must never obtain the raw mutable session or its
+    /// process-lifecycle capability. Transports inside this crate consume the
+    /// server and immediately install the state into a [`BrainSessionCell`].
+    ///
+    /// ```compile_fail
+    /// use m1nd_mcp::server::{McpConfig, McpServer};
+    ///
+    /// let _raw = McpServer::new(McpConfig::default())
+    ///     .unwrap()
+    ///     .into_session_state();
+    /// ```
+    pub(crate) fn into_session_state(mut self) -> SessionState {
+        self.boot_state
+            .take()
+            .expect("raw SessionState is available only before McpServer::start")
     }
 
-    pub fn instance_handle(&self) -> InstanceHandle {
-        self.state.instance.clone()
+    /// Start the stdio owner's revocable heartbeat without exposing the unique
+    /// instance handle to the binary crate or any library consumer.
+    pub fn spawn_instance_heartbeat(&self) -> M1ndResult<tokio::task::JoinHandle<()>> {
+        let permit = self.actor_execute(false, |state| Ok(state.instance.heartbeat_permit()))?;
+        Ok(crate::instance_registry::spawn_heartbeat(permit))
+    }
+
+    /// Return an opaque cooperative stop handle for a running stdio loop.
+    pub fn shutdown_handle(&self) -> McpShutdownHandle {
+        McpShutdownHandle {
+            requested: Arc::clone(&self.shutdown_requested),
+            wake: Arc::clone(&self.shutdown_wake),
+        }
+    }
+
+    /// Return the safe in-process tool facade after actor startup.
+    pub fn tool_client(&self) -> M1ndResult<McpToolClient> {
+        let runtime = self.actor_runtime()?;
+        Ok(McpToolClient {
+            session: Arc::downgrade(&runtime.session),
+            project_brains: Arc::downgrade(&runtime.project_brains),
+        })
+    }
+
+    /// Narrow, copy-only projection used by offline operator subcommands. It
+    /// deliberately returns no mutable session, lock, actor, or lifecycle
+    /// capability.
+    pub fn offline_operator_context(&self) -> (PathBuf, Option<String>) {
+        self.offline_context.clone()
     }
 
     /// Startup sequence (03-MCP Section 1.2):
@@ -6137,10 +7590,39 @@ impl McpServer {
     /// 6. Register MCP tools (13 tools)
     /// 7. Ready for connections
     pub fn start(&mut self) -> M1ndResult<()> {
+        if self.actor_runtime.is_none() {
+            let state = self.boot_state.take().ok_or_else(|| {
+                M1ndError::PersistenceFailed(
+                    "stdio server has no construction state to install".to_string(),
+                )
+            })?;
+            let runtime_root = state.runtime_root.clone();
+            let session = Arc::new(BrainSessionCell::new(state));
+            let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+                runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+                self.config.registry_dir.clone(),
+            ));
+            self.actor_runtime = Some(StdioActorRuntime {
+                session,
+                project_brains,
+            });
+        }
+
+        let runtime = self.actor_runtime()?;
+        let snapshot = runtime.project_brains.read_target_runtime_snapshot(
+            Arc::clone(&runtime.session),
+            None,
+            true,
+            |state| {
+                Ok((
+                    state.graph.read().num_nodes(),
+                    state.graph.read().num_edges(),
+                ))
+            },
+        )?;
         eprintln!(
             "[m1nd-mcp] Server ready. {} nodes, {} edges",
-            self.state.graph.read().num_nodes(),
-            self.state.graph.read().num_edges(),
+            snapshot.value.0, snapshot.value.1,
         );
 
         Ok(())
@@ -6149,6 +7631,10 @@ impl McpServer {
     /// Main event loop: read JSON-RPC from stdin, dispatch, write response to stdout.
     /// Blocks until EOF or shutdown signal.
     pub fn serve(&mut self) -> M1ndResult<()> {
+        self.actor_runtime()?;
+        if self.shutdown_requested.load(Ordering::Acquire) {
+            return Ok(());
+        }
         let stdout = std::io::stdout();
         let mut writer = stdout.lock();
         let (tx, rx) = mpsc::sync_channel(1024);
@@ -6156,7 +7642,17 @@ impl McpServer {
             event_tx: tx.clone(),
             watcher: None,
         });
-        self.refresh_daemon_watcher();
+        if let Ok(mut wake) = self.shutdown_wake.lock() {
+            *wake = Some(tx.clone());
+        }
+        let _wake_registration = ShutdownWakeRegistration {
+            wake: Arc::clone(&self.shutdown_wake),
+        };
+        self.refresh_daemon_watcher()?;
+
+        if self.shutdown_requested.load(Ordering::Acquire) {
+            return Ok(());
+        }
 
         thread::spawn(move || {
             let stdin = std::io::stdin();
@@ -6182,80 +7678,78 @@ impl McpServer {
         });
 
         let mut pending_request: Option<(String, TransportMode)> = None;
-        loop {
-            self.sync_watcher_drop_counter();
+        'serve: loop {
+            if self.shutdown_requested.load(Ordering::Acquire) {
+                break;
+            }
+            let daemon_view = self.daemon_loop_view()?;
 
             let next_event = if let Some((payload, mode)) = pending_request.take() {
                 Ok(ServerEvent::Request(payload, mode))
             } else {
-                rx.recv_timeout(Duration::from_millis(daemon_wait_duration_ms(&self.state)))
+                rx.recv_timeout(Duration::from_millis(daemon_view.wait_duration_ms))
             };
 
             let (payload, transport_mode) = match next_event {
                 Ok(ServerEvent::Request(payload, mode)) => (payload, mode),
                 Ok(ServerEvent::StdinClosed) => break,
+                Ok(ServerEvent::Shutdown) => break,
                 Ok(ServerEvent::WatchNotice) => {
-                    let mut watch_events_seen = 1u64;
-                    let coalesced_at_ms = now_ms();
-                    self.state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
-                    loop {
-                        // BURST CAP (gardener v1): the sliding silence window
-                        // alone can starve under continuous churn — bound one
-                        // coalescing pass so the tick runs even during a storm.
-                        if now_ms().saturating_sub(coalesced_at_ms)
-                            >= crate::daemon_handlers::BURST_COALESCE_CAP_MS
-                        {
-                            break;
+                    let burst = coalesce_watch_burst(&rx, daemon_view.coalesce_window_ms);
+                    let watch_events_seen = burst.watch_events_seen;
+                    let coalesced_at_ms = burst.coalesced_at_ms;
+                    let coalesced_error = burst.backend_error;
+                    let coalesced_watch_errors = burst.watch_errors;
+                    pending_request = burst.pending_request;
+                    let stop_after_coalesce = burst.stdin_closed || burst.shutdown;
+                    let dropped = self
+                        .daemon_runtime
+                        .as_ref()
+                        .and_then(|runtime| runtime.watcher.as_ref())
+                        .map(|watcher| watcher.dropped_counter.load(Ordering::Relaxed));
+                    self.actor_execute(true, move |state| {
+                        if state.read_only {
+                            return Ok(());
                         }
-                        match rx.recv_timeout(Duration::from_millis(
-                            self.state.daemon_state.coalesce_window_ms.max(1),
-                        )) {
-                            Ok(ServerEvent::WatchNotice) => {
-                                watch_events_seen = watch_events_seen.saturating_add(1);
-                            }
-                            Ok(ServerEvent::WatchError(error)) => {
-                                self.state.daemon_state.watch_events_dropped = self
-                                    .state
-                                    .daemon_state
-                                    .watch_events_dropped
-                                    .saturating_add(1);
-                                self.state.daemon_state.watch_backend_error = Some(error);
-                            }
-                            Ok(ServerEvent::Request(payload, mode)) => {
-                                pending_request = Some((payload, mode));
-                                break;
-                            }
-                            Ok(ServerEvent::StdinClosed) => {
-                                pending_request = None;
-                                break;
-                            }
-                            Err(mpsc::RecvTimeoutError::Timeout)
-                            | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
+                        state.daemon_state.watch_events_seen = state
+                            .daemon_state
+                            .watch_events_seen
+                            .saturating_add(watch_events_seen);
+                        state.daemon_state.last_coalesced_event_ms = Some(coalesced_at_ms);
+                        state.daemon_state.coalesced_event_count = state
+                            .daemon_state
+                            .coalesced_event_count
+                            .saturating_add(watch_events_seen);
+                        state.daemon_state.watch_events_dropped = state
+                            .daemon_state
+                            .watch_events_dropped
+                            .max(dropped.unwrap_or(0))
+                            .saturating_add(coalesced_watch_errors);
+                        if coalesced_error.is_some() {
+                            state.daemon_state.watch_backend_error = coalesced_error;
                         }
+                        run_daemon_tick(state, "watch_event");
+                        Ok(())
+                    })?;
+                    if stop_after_coalesce {
+                        break 'serve;
                     }
-                    self.state.daemon_state.watch_events_seen = self
-                        .state
-                        .daemon_state
-                        .watch_events_seen
-                        .saturating_add(watch_events_seen);
-                    self.state.daemon_state.last_coalesced_event_ms = Some(coalesced_at_ms);
-                    self.state.daemon_state.coalesced_event_count = self
-                        .state
-                        .daemon_state
-                        .coalesced_event_count
-                        .saturating_add(watch_events_seen);
-                    run_daemon_tick(&mut self.state, "watch_event");
                     continue;
                 }
                 Ok(ServerEvent::WatchError(error)) => {
-                    self.state.daemon_state.watch_events_dropped = self
-                        .state
-                        .daemon_state
-                        .watch_events_dropped
-                        .saturating_add(1);
-                    self.state.daemon_state.watch_backend_error = Some(error);
-                    self.state.daemon_state.last_watch_event_ms = Some(now_ms());
-                    run_daemon_tick(&mut self.state, "reconciliation");
+                    let observed_at = now_ms();
+                    self.actor_execute(true, move |state| {
+                        if state.read_only {
+                            return Ok(());
+                        }
+                        state.daemon_state.watch_events_dropped =
+                            state.daemon_state.watch_events_dropped.saturating_add(1);
+                        state.daemon_state.watch_backend_error = Some(error);
+                        state.daemon_state.last_watch_event_ms = Some(observed_at);
+                        run_daemon_tick(state, "reconciliation");
+                        Ok(())
+                    })?;
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -6265,23 +7759,27 @@ impl McpServer {
                     // maybe_tick short-circuits when read-only / not running / empty,
                     // so this stays cheap and must run BEFORE the daemon-inactive
                     // early continue below.
-                    let _ = auto_ingest::pump_auto_ingest_if_due(&mut self.state);
-                    let trigger = if self.state.daemon_state.watch_backend == "native_fs" {
-                        "reconciliation"
-                    } else {
-                        "idle_timeout"
-                    };
-                    if !self.state.daemon_state.active
-                        || self.state.daemon_state.poll_interval_ms == 0
-                    {
-                        continue;
-                    }
-                    let due = self.state.daemon_state.last_tick_ms.is_none_or(|last| {
-                        now_ms().saturating_sub(last) >= daemon_wait_duration_ms(&self.state)
-                    });
-                    if due {
-                        run_daemon_tick(&mut self.state, trigger);
-                    }
+                    self.actor_execute(false, |state| {
+                        if state.read_only {
+                            return Ok(());
+                        }
+                        let _ = auto_ingest::pump_auto_ingest_if_due(state);
+                        let trigger = if state.daemon_state.watch_backend == "native_fs" {
+                            "reconciliation"
+                        } else {
+                            "idle_timeout"
+                        };
+                        if !state.daemon_state.active || state.daemon_state.poll_interval_ms == 0 {
+                            return Ok(());
+                        }
+                        let due = state.daemon_state.last_tick_ms.is_none_or(|last| {
+                            now_ms().saturating_sub(last) >= daemon_wait_duration_ms(state)
+                        });
+                        if due {
+                            run_daemon_tick(state, trigger);
+                        }
+                        Ok(())
+                    })?;
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -6346,10 +7844,42 @@ impl McpServer {
 
     /// Graceful shutdown: persist state, flush writes, close connections.
     pub fn shutdown(&mut self) -> M1ndResult<()> {
+        if self.stopped {
+            return Ok(());
+        }
         eprintln!("[m1nd-mcp] Shutting down...");
-        let _ = self.state.persist();
-        let _ = self.state.instance.release();
-        eprintln!("[m1nd-mcp] State persisted. Goodbye.");
+        self.daemon_runtime = None;
+
+        if let Some(runtime) = self.actor_runtime.as_ref() {
+            // A failed checkpoint/actor stop is NOT a release condition. Keep
+            // the unique process lease alive so an unacked postimage can never
+            // race a replacement writer.
+            let acks = runtime.project_brains.shutdown(Duration::from_secs(5))?;
+            {
+                let mut state = runtime.session.lock_mut_before_actor().map_err(|error| {
+                    M1ndError::PersistenceFailed(format!(
+                        "stdio actor stopped but session ownership was not restored: {error}"
+                    ))
+                })?;
+                state.instance.release()?;
+            }
+            self.actor_runtime = None;
+            self.stopped = true;
+            eprintln!(
+                "[m1nd-mcp] {} actor checkpoint ACK(s); owner released. Goodbye.",
+                acks.len()
+            );
+            return Ok(());
+        }
+
+        if let Some(state) = self.boot_state.as_mut() {
+            // Construction-only shutdown still obeys persist-before-release.
+            state.persist()?;
+            state.instance.release()?;
+        }
+        self.boot_state = None;
+        self.stopped = true;
+        eprintln!("[m1nd-mcp] State persisted; owner released. Goodbye.");
         Ok(())
     }
 
@@ -6360,7 +7890,31 @@ impl McpServer {
     /// watcher after a successful `daemon_start`/`daemon_stop`, which requires
     /// `&mut self` (the watcher lives on `McpServer`, not `SessionState`).
     fn dispatch(&mut self, request: &JsonRpcRequest) -> M1ndResult<JsonRpcResponse> {
-        let response = handle_mcp_method(&mut self.state, request);
+        let mutating = if request.method == "tools/call" {
+            let tool_name = request
+                .params
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let arguments = request
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+            read_only_denied(tool_name, &arguments)
+        } else {
+            false
+        };
+        let actor_request = request.clone();
+        let response = match self.actor_execute_m1nd(mutating, move |state| {
+            handle_mcp_method_transactional(state, &actor_request)
+        }) {
+            Ok(response) => response,
+            Err(error) if request.method == "tools/call" => {
+                mcp_tool_error_response(request.id.clone(), error.to_string())
+            }
+            Err(error) => return Err(error),
+        };
 
         // stdio-only: if this was a successful daemon_start/daemon_stop tool call,
         // rebind the live FS watcher to match the new daemon state.
@@ -6380,30 +7934,22 @@ impl McpServer {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 if !is_error {
-                    self.refresh_daemon_watcher();
+                    self.refresh_daemon_watcher()?;
                 }
             }
         }
 
         Ok(response)
     }
-
-    /// Dispatch a tool call by name. Delegates to the free dispatch_tool() function.
-    fn dispatch_tool_call(
-        &mut self,
-        tool_name: &str,
-        params: &serde_json::Value,
-    ) -> M1ndResult<serde_json::Value> {
-        dispatch_tool(&mut self.state, tool_name, params)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms,
-        light_recall_freshness_key, run_daemon_tick, should_autotick_daemon, tool_schemas,
-        tool_schemas_for_tier, DaemonRuntimeControl, McpServer, ESSENTIAL_TOOLS,
+        all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms, handle_mcp_method,
+        handle_mcp_method_transactional, light_recall_freshness_key, read_request_payload,
+        run_daemon_tick, should_autotick_daemon, tool_schemas, tool_schemas_for_tier,
+        write_response, DaemonRuntimeControl, McpServer, TransportMode, ESSENTIAL_TOOLS,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -6442,6 +7988,201 @@ mod tests {
         (temp, server)
     }
 
+    #[test]
+    fn stdio_start_moves_raw_state_behind_the_bound_actor() {
+        let (_temp, mut server) = build_server();
+        assert!(server.boot_state.is_some());
+
+        server.start().expect("start stdio actor");
+
+        assert!(server.boot_state.is_none());
+        let runtime = server.actor_runtime.as_ref().expect("actor runtime");
+        assert!(
+            runtime.session.try_lock().is_none(),
+            "raw SessionState access must be fenced while the actor is active"
+        );
+        server.shutdown().expect("actor checkpoint shutdown");
+    }
+
+    #[test]
+    fn stdio_protocol_dispatch_runs_initialize_and_tools_list_through_actor() {
+        let (_temp, mut server) = build_server();
+        server.start().expect("start stdio actor");
+
+        let initialize = server
+            .dispatch(&crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(1),
+                method: "initialize".into(),
+                params: serde_json::json!({"protocolVersion": super::MCP_PROTOCOL_VERSION}),
+            })
+            .expect("initialize dispatch");
+        assert_eq!(
+            initialize
+                .result
+                .as_ref()
+                .and_then(|value| value.get("serverInfo"))
+                .and_then(|value| value.get("name")),
+            Some(&serde_json::json!("m1nd-mcp"))
+        );
+
+        let tools = server
+            .dispatch(&crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(2),
+                method: "tools/list".into(),
+                params: serde_json::json!({}),
+            })
+            .expect("tools/list dispatch");
+        assert!(tools.result.as_ref().is_some_and(|result| result["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty())));
+
+        let ping = server
+            .dispatch(&crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(3),
+                method: "ping".into(),
+                params: serde_json::json!({}),
+            })
+            .expect("ping dispatch");
+        assert_eq!(ping.result, Some(serde_json::json!({})));
+        server.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn transactional_mcp_handler_keeps_tool_failure_as_callback_error() {
+        let (_temp, mut state) = build_state();
+        let request = crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(9),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "definitely_unknown_tool",
+                "arguments": {"agent_id": "transactional-error-test"}
+            }),
+        };
+        let error = handle_mcp_method_transactional(&mut state, &request)
+            .expect_err("actor seam must observe the domain error");
+        assert!(!error.to_string().is_empty());
+
+        let wire = handle_mcp_method(&mut state, &request);
+        assert_eq!(
+            wire.result
+                .as_ref()
+                .and_then(|value| value.get("isError"))
+                .and_then(|value| value.as_bool()),
+            Some(true),
+            "only the wire compatibility wrapper converts the error to MCP content"
+        );
+    }
+
+    #[test]
+    fn stdio_framing_round_trips_line_and_content_length_modes() {
+        let payload = r#"{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}"#;
+        let framed = format!("Content-Length: {}\r\n\r\n{}", payload.len(), payload);
+        let mut framed_reader = std::io::Cursor::new(framed.into_bytes());
+        let (decoded, mode) = read_request_payload(&mut framed_reader)
+            .expect("read framed request")
+            .expect("framed payload");
+        assert_eq!(decoded, payload);
+        assert!(matches!(mode, TransportMode::Framed));
+
+        let response = crate::protocol::JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            result: Some(serde_json::json!({})),
+            error: None,
+        };
+        let mut framed_output = Vec::new();
+        write_response(&mut framed_output, &response, mode).expect("write framed response");
+        let framed_output = String::from_utf8(framed_output).expect("framed UTF-8");
+        assert!(framed_output.starts_with("Content-Length: "));
+        assert!(framed_output.contains("\r\n\r\n{"));
+
+        let mut line_reader = std::io::Cursor::new(format!("{payload}\n").into_bytes());
+        let (decoded, mode) = read_request_payload(&mut line_reader)
+            .expect("read line request")
+            .expect("line payload");
+        assert_eq!(decoded, payload);
+        assert!(matches!(mode, TransportMode::Line));
+        let mut line_output = Vec::new();
+        write_response(&mut line_output, &response, mode).expect("write line response");
+        assert!(line_output.ends_with(b"\n"));
+    }
+
+    #[test]
+    fn safe_tool_client_is_available_only_after_start_and_uses_actor_dispatch() {
+        let (_temp, mut server) = build_server();
+        assert!(server.tool_client().is_err());
+        server.start().expect("start stdio actor");
+
+        let client = server.tool_client().expect("safe tool client");
+        let health = client
+            .call_tool("health", &serde_json::json!({"agent_id": "embed-test"}))
+            .expect("actor-backed health");
+        assert!(health.is_object());
+        server.shutdown().expect("shutdown");
+        assert!(client
+            .call_tool("health", &serde_json::json!({"agent_id": "after-stop"}))
+            .is_err());
+    }
+
+    #[test]
+    fn actor_mutation_classification_preserves_persist_status_exception() {
+        assert!(!super::read_only_denied(
+            "persist",
+            &serde_json::json!({"action": "status"})
+        ));
+        assert!(super::read_only_denied(
+            "persist",
+            &serde_json::json!({"action": "save"})
+        ));
+        assert!(super::read_only_denied(
+            "m1nd.persist",
+            &serde_json::json!({"action": "checkpoint"})
+        ));
+    }
+
+    #[test]
+    fn stdin_closed_consumed_during_watch_coalescing_is_terminal() {
+        let (tx, rx) = mpsc::sync_channel(2);
+        tx.send(super::ServerEvent::StdinClosed)
+            .expect("queue stdin close behind the already-consumed watch notice");
+
+        let burst = super::coalesce_watch_burst(&rx, 1);
+
+        assert!(burst.stdin_closed);
+        assert!(burst.pending_request.is_none());
+        assert_eq!(burst.watch_events_seen, 1);
+    }
+
+    #[test]
+    fn failed_prestart_persist_keeps_instance_registered() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        let registry_dir = runtime_dir.join("registry");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let poison = temp.path().join("not-a-directory");
+        std::fs::write(&poison, "poison").expect("poison file");
+        let config = McpConfig {
+            graph_source: poison.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(registry_dir.clone()),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut server = McpServer::new(config).expect("server");
+
+        assert!(server.shutdown().is_err(), "poisoned persist must fail");
+        assert!(
+            !crate::instance_registry::list_instances(Some(&registry_dir))
+                .expect("list live owner")
+                .is_empty(),
+            "persist failure must not release the owner lease"
+        );
+    }
+
     fn build_state_read_only() -> (tempfile::TempDir, SessionState) {
         let temp = tempfile::tempdir().expect("tempdir");
         let runtime_dir = temp.path().join("runtime");
@@ -6457,6 +8198,333 @@ mod tests {
         let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session");
         (temp, state)
+    }
+
+    fn digest_bytes(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+
+        format!("sha256:{:x}", Sha256::digest(bytes))
+    }
+
+    fn directory_digest(root: &std::path::Path) -> String {
+        fn collect(
+            root: &std::path::Path,
+            current: &std::path::Path,
+            records: &mut Vec<(String, u8, Vec<u8>)>,
+        ) {
+            let Ok(entries) = std::fs::read_dir(current) else {
+                return;
+            };
+            let mut paths: Vec<std::path::PathBuf> = entries
+                .map(|entry| entry.expect("read directory entry").path())
+                .collect();
+            paths.sort();
+            for path in paths {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("path under digest root")
+                    .to_string_lossy()
+                    .to_string();
+                let metadata = std::fs::symlink_metadata(&path).expect("digest metadata");
+                if metadata.file_type().is_symlink() {
+                    records.push((
+                        relative,
+                        b'L',
+                        std::fs::read_link(&path)
+                            .expect("digest symlink")
+                            .to_string_lossy()
+                            .as_bytes()
+                            .to_vec(),
+                    ));
+                } else if metadata.is_dir() {
+                    records.push((relative, b'D', Vec::new()));
+                    collect(root, &path, records);
+                } else {
+                    records.push((relative, b'F', std::fs::read(&path).expect("digest file")));
+                }
+            }
+        }
+
+        use sha2::{Digest, Sha256};
+        let mut records = Vec::new();
+        if root.exists() {
+            collect(root, root, &mut records);
+        }
+        let mut hasher = Sha256::new();
+        for (relative, kind, bytes) in records {
+            hasher.update((relative.len() as u64).to_le_bytes());
+            hasher.update(relative.as_bytes());
+            hasher.update([kind]);
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        }
+        format!("sha256:{:x}", hasher.finalize())
+    }
+
+    fn graph_digest(state: &SessionState) -> String {
+        let scratch = tempfile::tempdir().expect("graph digest scratch");
+        let path = scratch.path().join("graph.json");
+        m1nd_core::snapshot::save_graph(&state.graph.read(), &path)
+            .expect("serialize graph for digest");
+        digest_bytes(&std::fs::read(path).expect("read graph digest snapshot"))
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct DeniedActionStateDigest {
+        graph: String,
+        store: String,
+        filesystem: String,
+        graph_generation: u64,
+        plasticity_generation: u64,
+        cache_generation: u64,
+        queries_processed: u64,
+        tracked_agents: Vec<String>,
+    }
+
+    fn denied_action_state_digest(
+        state: &SessionState,
+        filesystem_root: &std::path::Path,
+    ) -> DeniedActionStateDigest {
+        let mut tracked_agents: Vec<String> = state.sessions.keys().cloned().collect();
+        tracked_agents.sort();
+        DeniedActionStateDigest {
+            graph: graph_digest(state),
+            store: directory_digest(&crate::system_blocks_handlers::store_dir(state)),
+            filesystem: directory_digest(filesystem_root),
+            graph_generation: state.graph_generation,
+            plasticity_generation: state.plasticity_generation,
+            cache_generation: state.cache_generation,
+            queries_processed: state.queries_processed,
+            tracked_agents,
+        }
+    }
+
+    /// Exercise the retired receipt primitive's domain laws without reopening
+    /// it on any external dispatcher. External ingress tests must continue to
+    /// call `dispatch_tool` and observe the permanent G3 tombstone.
+    fn call_receipt_import_handler(
+        state: &mut SessionState,
+        params: &serde_json::Value,
+    ) -> super::M1ndResult<serde_json::Value> {
+        let input: crate::system_blocks_handlers::ReceiptImportInput =
+            serde_json::from_value(params.clone()).map_err(super::M1ndError::Serde)?;
+        crate::system_blocks_handlers::handle_receipt_import(state, input)
+    }
+
+    /// Exercise mission-letter validation/persistence as a domain unit. The
+    /// helper is test-only and deliberately bypasses no production ingress.
+    fn call_mission_post_handler(
+        state: &mut SessionState,
+        params: &serde_json::Value,
+    ) -> super::M1ndResult<serde_json::Value> {
+        let input: crate::mission_letter_handlers::MissionPostInput =
+            serde_json::from_value(params.clone()).map_err(super::M1ndError::Serde)?;
+        crate::mission_letter_handlers::handle_mission_post(state, input)
+    }
+
+    #[test]
+    fn generic_dispatch_floor_table_is_exhaustive_and_fail_closed() {
+        use m1nd_control::AuthorityFloor;
+
+        assert!(super::generic_dispatch_floor_is_available(
+            AuthorityFloor::Ordinary
+        ));
+        for floor in [
+            AuthorityFloor::ScopedGrantA2,
+            AuthorityFloor::PositiveSovereign,
+            AuthorityFloor::ServiceIdentity,
+            AuthorityFloor::SafetyOnly,
+        ] {
+            assert!(
+                !super::generic_dispatch_floor_is_available(floor),
+                "{floor:?} must never be available on generic dispatch"
+            );
+        }
+
+        // Every registered MCP tool has a catalog-backed floor union. Routes
+        // whose every branch is elevated must refuse even with an empty or
+        // otherwise incomplete body; malformed selectors cannot weaken them.
+        for tool in crate::action_routes::MCP_TOOL_ROUTE_NAMES {
+            let floors =
+                crate::action_routes::possible_mcp_authority_floors(tool).unwrap_or_else(|error| {
+                    panic!("authority-floor route missing for {tool}: {error}")
+                });
+            assert!(!floors.is_empty(), "empty floor union for {tool}");
+            if floors
+                .iter()
+                .all(|floor| !super::generic_dispatch_floor_is_available(*floor))
+            {
+                assert!(
+                    super::enforce_generic_action_policy(tool, &serde_json::json!({})).is_err(),
+                    "all-elevated route {tool} admitted an incomplete generic call"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generic_dispatch_allows_exact_ordinary_branches_and_denies_elevated_branches() {
+        for (tool, params) in [
+            ("health", serde_json::json!({"agent_id": "ordinary"})),
+            (
+                "persist",
+                serde_json::json!({"agent_id": "ordinary", "action": "status"}),
+            ),
+            (
+                "boot_memory",
+                serde_json::json!({"agent_id": "ordinary", "action": "get"}),
+            ),
+            (
+                "memorize",
+                serde_json::json!({"agent_id": "ordinary", "node_label": "default path", "claims": []}),
+            ),
+        ] {
+            super::enforce_generic_action_policy(tool, &params)
+                .unwrap_or_else(|error| panic!("ORDINARY branch {tool} refused: {error}"));
+        }
+
+        let elevated = [
+            (
+                "apply",
+                serde_json::json!({"agent_id": "a", "file_path": "/tmp/never-write.rs", "new_content": "denied", "reingest": false}),
+                "SCOPED_GRANT_A2",
+            ),
+            (
+                "system_blocks_ratify",
+                serde_json::json!({"agent_id": "a", "expected_store_version": 1, "ratifier": "a", "ratified_via": "human-ui"}),
+                "POSITIVE_SOVEREIGN",
+            ),
+            (
+                "daemon_tick",
+                serde_json::json!({"agent_id": "a"}),
+                "SERVICE_IDENTITY",
+            ),
+            (
+                "ingest",
+                serde_json::json!({"agent_id": "a", "mode": "merge", "paths": ["."]}),
+                "SCOPED_GRANT_A2",
+            ),
+            (
+                "ingest",
+                serde_json::json!({
+                    "agent_id": "a",
+                    "path": "/tmp/never-bootstrap",
+                    "project_root": "/tmp/never-bootstrap"
+                }),
+                "POSITIVE_SOVEREIGN",
+            ),
+        ];
+        for (tool, params, expected_floor) in elevated {
+            for routed_name in [
+                tool.to_string(),
+                format!("m1nd.{tool}"),
+                format!("m1nd_{tool}"),
+            ] {
+                let error = super::enforce_generic_action_policy(&routed_name, &params)
+                    .expect_err("elevated generic action must refuse");
+                let rendered = error.to_string();
+                assert!(
+                    rendered.contains("generic_action_authority_required")
+                        && rendered.contains(expected_floor),
+                    "unexpected {routed_name} refusal: {rendered}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn denied_generic_actions_and_prefixed_aliases_change_no_state_digest() {
+        use crate::protocol::JsonRpcRequest;
+
+        let (temp, mut state) = build_state();
+        super::dispatch_tool(
+            &mut state,
+            "system_blocks_seed_import",
+            &serde_json::json!({
+                "agent_id": "fixture",
+                "seed_json": include_str!("../../docs/system-blocks/m1nd.seed.v0.json")
+            }),
+        )
+        .expect("seed fixture through the internal domain dispatch");
+
+        let denied_source = temp.path().join("must-not-change.rs");
+        std::fs::write(&denied_source, "pub const ORIGINAL: bool = true;\n")
+            .expect("seed denied source target");
+        let denied = [
+            (
+                "apply",
+                serde_json::json!({
+                    "agent_id": "attacker",
+                    "file_path": denied_source.to_string_lossy(),
+                    "new_content": "pub const COMPROMISED: bool = true;\n",
+                    "reingest": false
+                }),
+                "SCOPED_GRANT_A2",
+            ),
+            (
+                "system_blocks_ratify",
+                serde_json::json!({
+                    "agent_id": "attacker",
+                    "expected_store_version": 1,
+                    "ratifier": "attacker",
+                    "ratified_via": "human-ui"
+                }),
+                "POSITIVE_SOVEREIGN",
+            ),
+            (
+                "system_blocks_delete",
+                serde_json::json!({
+                    "agent_id": "attacker",
+                    "expected_store_version": 1,
+                    "block_id": "sb_m1nd_core_graph_kernel",
+                    "force": true
+                }),
+                "POSITIVE_SOVEREIGN",
+            ),
+            (
+                "daemon_tick",
+                serde_json::json!({"agent_id": "attacker"}),
+                "SERVICE_IDENTITY",
+            ),
+        ];
+        let baseline = denied_action_state_digest(&state, temp.path());
+
+        for (tool, arguments, expected_floor) in denied {
+            for name in [
+                tool.to_string(),
+                format!("m1nd.{tool}"),
+                format!("m1nd_{tool}"),
+            ] {
+                let response = super::handle_mcp_method(
+                    &mut state,
+                    &JsonRpcRequest {
+                        jsonrpc: "2.0".to_string(),
+                        id: serde_json::json!(name.clone()),
+                        method: "tools/call".to_string(),
+                        params: serde_json::json!({
+                            "name": name.clone(),
+                            "arguments": arguments.clone(),
+                        }),
+                    },
+                );
+                let rendered = response.result.expect("tool refusal result").to_string();
+                assert!(
+                    rendered.contains("generic_action_authority_required")
+                        && rendered.contains(expected_floor),
+                    "unexpected refusal: {rendered}"
+                );
+                assert_eq!(
+                    denied_action_state_digest(&state, temp.path()),
+                    baseline,
+                    "denied {name} changed graph/store/filesystem or tracking state"
+                );
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(denied_source).expect("read denied source target"),
+            "pub const ORIGINAL: bool = true;\n"
+        );
+        assert!(!state.sessions.contains_key("attacker"));
     }
 
     // === Gardener v1: FAIL-OPEN — a background vigil never breaks a tool call ===
@@ -6893,8 +8961,8 @@ mod tests {
         );
         assert_eq!(result["brain_root"], brain_root.to_string_lossy().as_ref());
         let rendered = result.to_string();
-        assert!(rendered.contains("ingest project_root="));
-        assert!(rendered.contains("one call creates and binds your brain"));
+        assert!(rendered.contains("brain_bootstrap_consumer_not_installed"));
+        assert!(!rendered.contains("ingest project_root="));
         assert!(rendered.contains("explicit REST ?brain="));
     }
 
@@ -6951,24 +9019,22 @@ mod tests {
         assert_eq!(snap2["present"], true);
         assert_eq!(snap2["block_count"], 12);
 
-        // A ratify with a stale expected version surfaces a conflict through dispatch.
-        // (Carries the human-origin token so it clears the origin gate and reaches OCC.)
+        // Direct ratification is closed before OCC: a forgeable origin string
+        // cannot reach the store transition.
         let err = super::dispatch_tool(
             &mut state,
             "system_blocks_ratify",
-            &serde_json::json!({"agent_id": "t", "expected_store_version": 99, "ratifier": "owner", "ratified_via": "human-ui"}),
+            &serde_json::json!({"agent_id": "t", "expected_store_version": 99, "ratifier": "owner"}),
         )
-        .expect_err("stale ratify must conflict");
-        assert!(err.to_string().contains("conflict"), "unexpected: {err}");
+        .expect_err("direct ratify must require sovereign authority");
+        assert!(
+            err.to_string().contains("sovereign_authority_required"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]
-    fn ratify_refuses_without_the_human_origin_and_reaches_the_store_with_it() {
-        // The mechanical mirror of "RATIFY IS HUMAN": a seat/agent call that does not
-        // carry the owner screen's `ratified_via:"human-ui"` is refused WITH the
-        // lesson and touches nothing (the cheap vector dies); the same call carrying
-        // the origin token ratifies. This is the guard the write-gate `?brain=`
-        // bypass previously left open (any local process could ratify via REST).
+    fn forgeable_human_ui_token_never_authorizes_direct_ratification() {
         let (_temp, mut state) = build_state();
         let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
         let imp = super::dispatch_tool(
@@ -6978,30 +9044,32 @@ mod tests {
         )
         .expect("seed_import ok");
         assert_eq!(imp["store_version"], 1);
-
-        // No origin token → soft refusal carrying the lesson, nothing ratified.
-        let refused = super::dispatch_tool(
-            &mut state,
-            "system_blocks_ratify",
-            &serde_json::json!({"agent_id": "runner", "expected_store_version": 1, "ratifier": "runner"}),
+        let before = crate::system_blocks::SystemBlockStore::load(
+            &crate::system_blocks_handlers::store_dir(&state),
         )
-        .expect("the origin gate is a soft refusal, not an error");
-        assert_eq!(refused["refused"], "human_gesture_required");
-        assert_eq!(
-            refused["lesson"],
-            "ratify is the human gesture — the owner's screen sends it; agents never do"
-        );
+        .expect("store readable before refusal")
+        .expect("seeded store present before refusal");
 
-        // The SAME call carrying the owner screen's origin token ratifies. Its OCC key
-        // is still 1 — proof the refusal above bumped nothing.
-        let ratified = super::dispatch_tool(
-            &mut state,
-            "system_blocks_ratify",
-            &serde_json::json!({"agent_id": "gui", "expected_store_version": 1, "ratifier": "gui", "ratified_via": "human-ui"}),
+        for params in [
+            serde_json::json!({"agent_id": "runner", "expected_store_version": 1, "ratifier": "runner"}),
+            serde_json::json!({"agent_id": "gui", "expected_store_version": 1, "ratifier": "gui", "ratified_via": "human-ui"}),
+        ] {
+            let error = super::dispatch_tool(&mut state, "system_blocks_ratify", &params)
+                .expect_err("client-authored origin values grant no authority");
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains("sovereign_authority_required")
+                    || rendered.contains("unknown field `ratified_via`"),
+                "unexpected: {rendered}"
+            );
+        }
+
+        let store = crate::system_blocks::SystemBlockStore::load(
+            &crate::system_blocks_handlers::store_dir(&state),
         )
-        .expect("human-origin ratify applies");
-        assert_eq!(ratified["skeleton_state"], "ratified");
-        assert_eq!(ratified["store_version"], 2);
+        .expect("store remains readable")
+        .expect("seeded store remains present");
+        assert_eq!(store, before);
     }
 
     /// A valid `spec` receipt for a real ratified seed block (boundary 1 / contract 1).
@@ -7027,8 +9095,7 @@ mod tests {
     fn receipt_import_refuses_without_the_human_origin_and_lands_with_it() {
         // Sovereign-stamp step 0: `receipt_import` is a human write exactly like ratify,
         // and until now it carried NO origin gate. This proves the mirror on the SHARED
-        // `dispatch_tool` seam (the MCP wire AND REST both route through it — the #333
-        // parity lesson): a call with no origin and one with an off-list origin are BOTH
+        // receipt handler: a call with no origin and one with an off-list origin are BOTH
         // refused and touch nothing; the `human-ui` call lands and bumps the OCC counter
         // exactly once.
         let (_temp, mut state) = build_state();
@@ -7043,9 +9110,8 @@ mod tests {
         let receipt = human_ui_seed_receipt();
 
         // No origin token → soft refusal naming the field + the allow-list, nothing landed.
-        let refused = super::dispatch_tool(
+        let refused = call_receipt_import_handler(
             &mut state,
-            "receipt_import",
             &serde_json::json!({
                 "agent_id": "runner",
                 "expected_store_version": 1,
@@ -7066,9 +9132,8 @@ mod tests {
         );
 
         // An off-list (invented) origin is refused identically — the allow-list is closed.
-        let refused2 = super::dispatch_tool(
+        let refused2 = call_receipt_import_handler(
             &mut state,
-            "receipt_import",
             &serde_json::json!({
                 "agent_id": "runner",
                 "expected_store_version": 1,
@@ -7082,9 +9147,8 @@ mod tests {
 
         // The SAME call carrying the owner screen's origin token lands. Its OCC key is
         // still 1 — proof both refusals above bumped nothing.
-        let landed = super::dispatch_tool(
+        let landed = call_receipt_import_handler(
             &mut state,
-            "receipt_import",
             &serde_json::json!({
                 "agent_id": "gui",
                 "expected_store_version": 1,
@@ -7099,15 +9163,9 @@ mod tests {
     }
 
     #[test]
-    fn agent_composed_receipt_import_dies_at_the_door() {
-        // The adversarial case the verdict named: an agent call to receipt_import —
-        // whether it sends NO origin, an EMPTY one, or INVENTS a plausible one — dies at
-        // the door before any mutation. On this host agents provably hold
-        // computer-use/Playwright, so a click is synthesizable; the cheap reflex vector
-        // (an agent simply calling the verb) is exactly what this gate closes. The gate is
-        // the ORIGIN check; proving the real biometric gesture behind `human-touchid` is the
-        // h4nd tray's job (Touch ID), not this server's — here we only prove the token is on
-        // the allow-list. Same-UID malware stays out of scope.
+    fn legacy_receipt_import_is_tombstoned_before_origin_or_body_parsing() {
+        // G3 owns the external boundary now. Neither a malformed body nor a formerly
+        // accepted human-origin token may revive the retired raw receipt primitive.
         let (_temp, mut state) = build_state();
         let seed = include_str!("../../docs/system-blocks/m1nd.seed.v0.json");
         super::dispatch_tool(
@@ -7118,47 +9176,39 @@ mod tests {
         .expect("seed_import ok");
         let receipt = human_ui_seed_receipt();
 
-        for forged in [
-            serde_json::json!(null), // absent field
-            serde_json::json!(""),   // empty string
-            serde_json::json!("runnerd"),
-            serde_json::json!("human-tray"), // a documented-but-unshipped future origin — still dead
-            serde_json::json!("human-touchid-x"), // a look-alike of the real token — still dead
-        ] {
-            let mut params = serde_json::json!({
-                "agent_id": "runner",
+        for params in [
+            serde_json::json!({}),
+            serde_json::json!({"imported_via": "human-ui"}),
+            serde_json::json!({
+                "agent_id": "gui",
                 "expected_store_version": 1,
                 "block_id": "sb_m1nd_core_graph_kernel",
                 "receipt": receipt.clone(),
-            });
-            if !forged.is_null() {
-                params["imported_via"] = forged.clone();
-            }
-            let refused = super::dispatch_tool(&mut state, "receipt_import", &params)
-                .expect("the agent gate is a soft refusal, not a crash");
-            assert_eq!(
-                refused["refused"], "human_gesture_required",
-                "an agent-composed import must die at the door: imported_via={forged}"
-            );
-        }
-
-        // The NEW native gesture (human-touchid, sovereign-stamp step 2) lands from the SAME
-        // start version — proof every forged attempt above bumped nothing, AND proof the
-        // Touch ID origin is now a first-class human token, not a forgeable future. The
-        // owner's web screen (human-ui) is proven to land in the sibling test above.
-        let landed = super::dispatch_tool(
-            &mut state,
-            "receipt_import",
-            &serde_json::json!({
+                "imported_via": "human-ui",
+            }),
+            serde_json::json!({
                 "agent_id": "h4nd-tray-touchid",
                 "expected_store_version": 1,
                 "block_id": "sb_m1nd_core_graph_kernel",
-                "receipt": receipt,
+                "receipt": receipt.clone(),
                 "imported_via": "human-touchid",
             }),
+        ] {
+            let error = super::dispatch_tool(&mut state, "receipt_import", &params)
+                .expect_err("raw receipt_import is a permanent external tombstone");
+            assert!(
+                error.to_string().contains("legacy_direct_mutation_refused"),
+                "unexpected refusal: {error}"
+            );
+        }
+
+        let store = crate::system_blocks::SystemBlockStore::load(
+            &crate::system_blocks_handlers::store_dir(&state),
         )
-        .expect("the native Touch ID gesture lands");
-        assert_eq!(landed["store_version"], 2);
+        .expect("store remains readable")
+        .expect("seeded store remains present");
+        assert_eq!(store.store_version, 1, "tombstones mutate nothing");
+        assert!(store.blocks.iter().all(|block| block.receipts.is_empty()));
     }
 
     #[test]
@@ -7189,26 +9239,23 @@ mod tests {
             })
         };
 
-        let err = super::dispatch_tool(
+        let err = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": letter("sb_ghost", false)}),
         )
         .expect_err("an unknown block is refused");
         assert!(err.to_string().contains("unknown_block"), "got: {err}");
 
-        super::dispatch_tool(
+        call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": letter("sb_ghost", true)}),
         )
         .expect("a synthetic probe posts despite the ghost block");
 
         let mut real = letter("sb_m1nd_ingest", false);
         real["mission_id"] = serde_json::json!("msn_abcdef012345");
-        super::dispatch_tool(
+        call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": real}),
         )
         .expect("a real block posts");
@@ -7275,9 +9322,8 @@ mod tests {
         };
 
         // A candidate proving the LIVE boundary (1) posts cleanly — the control.
-        super::dispatch_tool(
+        call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": letter(1, "msn_0123456789ab")}),
         )
         .expect("a candidate proving the live boundary posts");
@@ -7285,9 +9331,8 @@ mod tests {
         // A candidate proving a boundary the block is NOT at (3 != live 1) is
         // refused, naming both versions. On main (no gate) this posts silently —
         // the exact vector that birthed the orphan letter.
-        let err = super::dispatch_tool(
+        let err = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": letter(3, "msn_abcdef012345")}),
         )
         .expect_err("a stale-boundary candidate must be refused at post");
@@ -7351,21 +9396,43 @@ mod tests {
                 &serde_json::json!({"agent_id": "t"}),
             )
             .expect("bootstrap the hosted brain");
-        let mut state = brain.lock();
+        let repo_key = repo.to_string_lossy().to_string();
 
         // The store the dogfood had: the REAL candidate scan on the hosted brain
         // (skeleton id in the candidate form the UI must recognize).
-        super::dispatch_tool(
-            &mut state,
-            "skeleton_candidate",
-            &serde_json::json!({"agent_id": "t", "naming": "heuristic"}),
+        reg.execute_target_runtime(
+            std::sync::Arc::clone(&brain),
+            Some(&repo_key),
+            false,
+            true,
+            |state| {
+                super::dispatch_tool(
+                    state,
+                    "skeleton_candidate",
+                    &serde_json::json!({"agent_id": "t", "naming": "heuristic"}),
+                )
+                .map_err(|error| {
+                    crate::runtime_jobs::RuntimeJobFailure::new(
+                        "test_dispatch_failed",
+                        error.to_string(),
+                    )
+                })
+            },
         )
-        .expect("the hosted brain scans a candidate skeleton");
-        let store = crate::system_blocks::SystemBlockStore::load(
-            &crate::system_blocks_handlers::store_dir(&state),
-        )
-        .expect("store loads")
-        .expect("store exists after the scan");
+        .expect("the hosted brain actor scans a candidate skeleton");
+        let runtime_root = reg
+            .read_target_runtime_snapshot(
+                std::sync::Arc::clone(&brain),
+                Some(&repo_key),
+                false,
+                |state| Ok::<_, crate::runtime_jobs::RuntimeJobFailure>(state.runtime_root.clone()),
+            )
+            .expect("read hosted runtime root through actor")
+            .value;
+        let store =
+            crate::system_blocks::SystemBlockStore::load(std::path::Path::new(&runtime_root))
+                .expect("store loads")
+                .expect("store exists after the scan");
         let skeleton_id = store.skeleton.skeleton_id.clone();
         assert_eq!(
             skeleton_id, "sk_repo_b1_candidate",
@@ -7393,12 +9460,26 @@ mod tests {
         };
 
         // (1) THE TEST THAT WOULD HAVE CAUGHT THE BUG: the fixed letter posts.
-        let posted = super::dispatch_tool(
-            &mut state,
-            "mission_post",
-            &serde_json::json!({"agent_id": "gui", "letter": ui_letter("Repo-B1", &skeleton_id, "msn_0123456789ab")}),
-        )
-        .expect("the curation letter posts to the hosted brain it names");
+        let posted_params = serde_json::json!({
+            "agent_id": "gui",
+            "letter": ui_letter("Repo-B1", &skeleton_id, "msn_0123456789ab")
+        });
+        let posted = reg
+            .execute_target_runtime(
+                std::sync::Arc::clone(&brain),
+                Some(&repo_key),
+                false,
+                true,
+                move |state| {
+                    call_mission_post_handler(state, &posted_params).map_err(|error| {
+                        crate::runtime_jobs::RuntimeJobFailure::new(
+                            "test_mission_post_failed",
+                            error.to_string(),
+                        )
+                    })
+                },
+            )
+            .expect("the curation letter posts through the hosted brain actor");
         assert_eq!(posted["mission_seq"], 1);
         assert_eq!(posted["deduped"], false);
 
@@ -7412,8 +9493,7 @@ mod tests {
             box_text.contains("msn_0123456789ab"),
             "the letter lives in the hosted brain's own box: {box_text}"
         );
-        let owner_side_box =
-            crate::mailbox::medulla_box_path(std::path::Path::new(&state.runtime_root));
+        let owner_side_box = crate::mailbox::medulla_box_path(std::path::Path::new(&runtime_root));
         assert!(
             !owner_side_box.exists(),
             "nothing may land in the owner-side store box for a code-rooted brain"
@@ -7423,12 +9503,26 @@ mod tests {
         // brain_mismatch — the null-repoId fallback ("brain") and the sanitized
         // slug ("repo_b1", the case/sanitization drift).
         for wrong_ref in ["brain", "repo_b1"] {
-            let err = super::dispatch_tool(
-                &mut state,
-                "mission_post",
-                &serde_json::json!({"agent_id": "gui", "letter": ui_letter(wrong_ref, &skeleton_id, "msn_00000000dead")}),
-            )
-            .expect_err("a wrong brain_ref must still refuse");
+            let params = serde_json::json!({
+                "agent_id": "gui",
+                "letter": ui_letter(wrong_ref, &skeleton_id, "msn_00000000dead")
+            });
+            let err = reg
+                .execute_target_runtime(
+                    std::sync::Arc::clone(&brain),
+                    Some(&repo_key),
+                    false,
+                    true,
+                    move |state| {
+                        call_mission_post_handler(state, &params).map_err(|error| {
+                            crate::runtime_jobs::RuntimeJobFailure::new(
+                                "test_mission_post_refused",
+                                error.to_string(),
+                            )
+                        })
+                    },
+                )
+                .expect_err("a wrong brain_ref must still refuse");
             let msg = err.to_string();
             assert!(
                 msg.contains("brain_mismatch") && msg.contains("Repo-B1"),
@@ -7438,12 +9532,26 @@ mod tests {
 
         // (4) The skeleton anchor recognizes ONLY this store's skeleton id: a
         // foreign skeleton id still refuses as unknown_block.
-        let err = super::dispatch_tool(
-            &mut state,
-            "mission_post",
-            &serde_json::json!({"agent_id": "gui", "letter": ui_letter("Repo-B1", "sk_other_candidate", "msn_00000000beef")}),
-        )
-        .expect_err("a foreign skeleton id must refuse");
+        let foreign_params = serde_json::json!({
+            "agent_id": "gui",
+            "letter": ui_letter("Repo-B1", "sk_other_candidate", "msn_00000000beef")
+        });
+        let err = reg
+            .execute_target_runtime(
+                std::sync::Arc::clone(&brain),
+                Some(&repo_key),
+                false,
+                true,
+                move |state| {
+                    call_mission_post_handler(state, &foreign_params).map_err(|error| {
+                        crate::runtime_jobs::RuntimeJobFailure::new(
+                            "test_mission_post_refused",
+                            error.to_string(),
+                        )
+                    })
+                },
+            )
+            .expect_err("a foreign skeleton id must refuse");
         assert!(err.to_string().contains("unknown_block"), "got: {err}");
     }
 
@@ -7519,9 +9627,8 @@ mod tests {
             "started_at": "2026-07-09T00:00:00Z",
             "updated_at": "2026-07-09T00:00:00Z",
         });
-        let err = super::dispatch_tool(
+        let err = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": letter}),
         )
         .expect_err("a mismatched brain_ref must refuse");
@@ -7535,9 +9642,8 @@ mod tests {
         // The same letter naming the BOUND brain posts cleanly.
         let mut ok_letter = letter;
         ok_letter["brain_ref"] = serde_json::json!("project-a");
-        let out = super::dispatch_tool(
+        let out = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "t", "letter": ok_letter}),
         )
         .expect("a matching brain_ref posts");
@@ -7545,7 +9651,7 @@ mod tests {
     }
 
     #[test]
-    fn mission_post_is_wired_end_to_end_with_head_cas() {
+    fn mission_post_handler_enforces_head_cas_and_landed_law() {
         let (_temp, mut state) = build_state();
 
         // A helper to build a mission-letter JSON value at a given seq/phase.
@@ -7569,9 +9675,8 @@ mod tests {
         };
 
         // seq 1 (judging) posts cleanly and returns a letter_id.
-        let out1 = super::dispatch_tool(
+        let out1 = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "hand-a", "letter": letter(1, "judging", None)}),
         )
         .expect("seq 1 posts");
@@ -7580,27 +9685,24 @@ mod tests {
         assert_eq!(out1["deduped"], false);
 
         // seq 2 chained on seq 1's id posts cleanly.
-        let out2 = super::dispatch_tool(
+        let out2 = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some(&id1))}),
         )
         .expect("seq 2 extends the head");
         assert_eq!(out2["mission_seq"], 2);
 
         // seq 2 with the WRONG prev → stale_head surfaces through dispatch, nothing appended.
-        let err = super::dispatch_tool(
+        let err = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "hand-a", "letter": letter(2, "executing", Some("deadbeefdead"))}),
         )
         .expect_err("a stale head must be refused");
         assert!(err.to_string().contains("stale_head"), "unexpected: {err}");
 
         // The §1d landed law surfaces too: landed without an imported receipt.
-        let err2 = super::dispatch_tool(
+        let err2 = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "hand-a", "letter": letter(3, "landed", Some(&id1))}),
         )
         .expect_err("gate-zero cannot land");
@@ -7630,9 +9732,8 @@ mod tests {
             "gate": {"command": "cargo test -p m1nd-mcp", "exit_status": 0, "artifact_hash": "sha256:gatelog"},
             "started_at": "2026-07-13T00:00:00Z", "updated_at": "2026-07-13T00:00:00Z",
         });
-        let posted = super::dispatch_tool(
+        let posted = call_mission_post_handler(
             &mut state,
-            "mission_post",
             &serde_json::json!({"agent_id": "hand", "letter": merge_wait}),
         )
         .expect("the merge_wait head posts");
@@ -7665,9 +9766,8 @@ mod tests {
             Some(serde_json::json!("runnerd")),       // an agent origin
             Some(serde_json::json!("human-touchid")), // a future origin that does not exist yet
         ] {
-            let refused =
-                super::dispatch_tool(&mut state, "mission_post", &archived(forged.clone()))
-                    .expect("the archive gate is a soft refusal, not an error");
+            let refused = call_mission_post_handler(&mut state, &archived(forged.clone()))
+                .expect("the archive gate is a soft refusal, not an error");
             assert_eq!(
                 refused["refused"], "human_gesture_required",
                 "an agent-composed archive must die at the door: archived_via={forged:?}"
@@ -7678,34 +9778,28 @@ mod tests {
         }
 
         // The owner screen's origin token supersedes the merge_wait head.
-        let done = super::dispatch_tool(
-            &mut state,
-            "mission_post",
-            &archived(Some(serde_json::json!("human-ui"))),
-        )
-        .expect("a human-origin archive posts");
+        let done =
+            call_mission_post_handler(&mut state, &archived(Some(serde_json::json!("human-ui"))))
+                .expect("a human-origin archive posts");
         assert_eq!(done["mission_seq"], 2);
         assert_eq!(done["phase"], "archived");
         let _ = &temp;
     }
 
     #[test]
-    fn mission_post_is_refused_read_only() {
+    fn legacy_mission_post_tombstone_precedes_read_only_and_body_validation() {
         let (_temp, mut state) = build_state_read_only();
         let err = super::dispatch_tool(
             &mut state,
             "mission_post",
-            &serde_json::json!({"agent_id": "t", "letter": {
-                "schema": "m1nd-mission-letter-v0", "mission_id": "msn_0123456789ab",
-                "mission_seq": 1, "block_id": "sb_x", "brain_ref": "repo-a", "seat": "hand",
-                "capability": "build-runner", "phase": "judging",
-                "started_at": "t", "updated_at": "t"
-            }}),
+            &serde_json::json!({"body": "deliberately not a mission letter"}),
         )
-        .expect_err("mission_post must be refused in read-only");
+        .expect_err("raw mission_post must hit the permanent G3 tombstone");
+        let message = err.to_string();
         assert!(
-            err.to_string().contains("attached read-only")
-                && err.to_string().contains("mission_post"),
+            message.contains("legacy_direct_mutation_refused")
+                && message.contains("mission_post")
+                && !message.contains("attached read-only"),
             "unexpected: {err}"
         );
     }
@@ -7894,14 +9988,15 @@ mod tests {
             s.contains("agent_id"),
             "instructions must state the agent_id requirement"
         );
-        // 1. PRE-ORIENT: north is called first and needs_ingest is the honest empty-graph answer.
+        // 1. PRE-ORIENT: north is called first and needs_ingest is the honest
+        // empty-graph answer; it must not invent a public bootstrap repair.
         assert!(
             s.contains("north"),
             "instructions must lead with north (pre-orient)"
         );
         assert!(
             s.contains("needs_ingest"),
-            "instructions must document the needs_ingest -> ingest -> re-north path"
+            "instructions must document the needs_ingest state"
         );
         // 2. ACT ON VERDICTS: the calibrated gate and its honest answers.
         assert!(
@@ -7964,6 +10059,50 @@ mod tests {
     }
 
     #[test]
+    fn public_surface_does_not_advertise_the_unreachable_brain_bootstrap() {
+        let registry = all_tool_schemas();
+        let tools = registry["tools"].as_array().expect("tools array");
+        let ingest = tools
+            .iter()
+            .find(|tool| tool["name"] == "ingest")
+            .expect("compatibility ingest name remains in the registry");
+        assert!(
+            ingest["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("POLICY-DISABLED"),
+            "the compatibility schema must not claim generic ingest is executable"
+        );
+        let properties = ingest["inputSchema"]["properties"]
+            .as_object()
+            .expect("ingest properties");
+        assert!(properties.contains_key("path"));
+        assert!(!properties.contains_key("project_root"));
+        assert!(!properties.contains_key("allow_overlap"));
+        let rendered = serde_json::to_string(&registry).expect("serialize public registry");
+        assert!(
+            !rendered.contains("\"project_root\"") && !rendered.contains("allow_overlap"),
+            "public schemas must not expose the unreachable ingest/project_root bootstrap"
+        );
+
+        let instructions = super::M1ND_INSTRUCTIONS;
+        for stale_call in [
+            "ingest project_root=",
+            "`ingest` with `project_root=",
+            "brain.bootstrap",
+        ] {
+            assert!(
+                !instructions.contains(stale_call),
+                "instructions still advertise the unreachable call {stale_call:?}"
+            );
+        }
+        assert!(
+            instructions.contains("brain_bootstrap_consumer_not_installed"),
+            "instructions must name the fail-honest bootstrap state"
+        );
+    }
+
+    #[test]
     fn boot_auto_loads_agent_memory_and_reports_it() {
         let temp = tempfile::tempdir().expect("tempdir");
         let runtime_dir = temp.path().join("runtime");
@@ -7984,9 +10123,9 @@ mod tests {
             ..McpConfig::default()
         };
         let server = McpServer::new(config).expect("server");
+        let state = server.into_session_state();
 
-        let report = server
-            .state
+        let report = state
             .agent_memory_boot
             .as_ref()
             .expect("agent_memory_boot should be Some when the dir exists with files");
@@ -8003,7 +10142,7 @@ mod tests {
         );
         // The prior knowledge must now be in the live graph.
         assert!(
-            server.state.graph.read().num_nodes() >= 1,
+            state.graph.read().num_nodes() >= 1,
             "graph should contain the loaded memory nodes"
         );
     }
@@ -8057,6 +10196,117 @@ mod tests {
                 "all_tool_schemas should expose {expected} (handler registered in binary)"
             );
         }
+    }
+
+    #[test]
+    fn authority_tool_schemas_close_capability_and_authority_unions() {
+        let registry = all_tool_schemas();
+        let tools = registry["tools"].as_array().expect("tools array");
+        let tool = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap_or_else(|| panic!("missing authority tool {name}"))
+        };
+
+        let authenticate = tool("authority_session_authenticate");
+        let capability = &authenticate["inputSchema"]["properties"]["capability"];
+        assert_eq!(capability["additionalProperties"], false);
+        assert_eq!(
+            capability["properties"]["schema"]["const"],
+            m1nd_control::AUTHORITY_CAPABILITY_SCHEMA
+        );
+        assert!(capability["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "signature"));
+        assert_eq!(
+            capability["properties"]["payload_digest"]["pattern"],
+            "^[0-9a-f]{64}$"
+        );
+
+        let authorize = tool("authority_authorize");
+        let schema = &authorize["inputSchema"];
+        assert_eq!(schema["additionalProperties"], false);
+        assert!(schema["properties"]["requested_effects"]["items"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| effect == "SOVEREIGN_MUTATION"));
+        let variants = schema["properties"]["input"]["oneOf"]
+            .as_array()
+            .expect("closed authority oneOf");
+        assert_eq!(variants.len(), 4);
+        let tags: std::collections::BTreeSet<&str> = variants
+            .iter()
+            .map(|variant| {
+                assert_eq!(variant["additionalProperties"], false);
+                variant["properties"]["authority"]["const"]
+                    .as_str()
+                    .expect("authority tag")
+            })
+            .collect();
+        assert_eq!(
+            tags,
+            std::collections::BTreeSet::from([
+                "ordinary_session",
+                "positive_sovereign",
+                "safety",
+                "service_identity",
+            ])
+        );
+        let positive = variants
+            .iter()
+            .find(|variant| variant["properties"]["authority"]["const"] == "positive_sovereign")
+            .unwrap();
+        assert_eq!(
+            positive["properties"]["capability"]["additionalProperties"],
+            false
+        );
+        let autonomy = &positive["properties"]["autonomy_evidence"]["oneOf"][1];
+        assert_eq!(autonomy["additionalProperties"], false);
+        assert!(autonomy["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "sentinel"));
+        assert_eq!(
+            autonomy["properties"]["capability"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            autonomy["properties"]["capability"]["properties"]["core"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            autonomy["properties"]["capability"]["properties"]["core"]["properties"]["repo_id"]
+                ["type"],
+            "string"
+        );
+        assert_eq!(
+            autonomy["properties"]["capability"]["properties"]["core"]["properties"]
+                ["semantic_action_id"]["pattern"],
+            "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$"
+        );
+        let decision_variants = autonomy["properties"]["decision"]["oneOf"]
+            .as_array()
+            .expect("closed constitutional decision oneOf");
+        assert_eq!(decision_variants.len(), 2);
+        assert_eq!(
+            decision_variants
+                .iter()
+                .map(|variant| variant["properties"]["authority_kind"]["const"]
+                    .as_str()
+                    .unwrap())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["AGENT_QUORUM", "POLICY"])
+        );
+        assert_eq!(
+            autonomy["properties"]["sentinel"]["oneOf"][1]["properties"]["core"]
+                ["additionalProperties"],
+            false
+        );
     }
 
     #[test]
@@ -9258,23 +11508,32 @@ mod tests {
     #[test]
     fn native_watcher_refresh_falls_back_to_polling_for_invalid_path() {
         let (_temp, mut server) = build_server();
+        server.start().expect("start actor");
         let (tx, _rx) = mpsc::sync_channel(8);
         server.daemon_runtime = Some(DaemonRuntimeControl {
             event_tx: tx,
             watcher: None,
         });
-        server.state.daemon_state.active = true;
-        server.state.daemon_state.watch_paths = vec!["/definitely/not/present".into()];
+        server
+            .actor_execute(true, |state| {
+                state.daemon_state.active = true;
+                state.daemon_state.watch_paths = vec!["/definitely/not/present".into()];
+                Ok(())
+            })
+            .expect("configure daemon through actor");
 
-        server.refresh_daemon_watcher();
+        server.refresh_daemon_watcher().expect("refresh watcher");
 
-        assert_eq!(server.state.daemon_state.watch_backend, "polling");
-        assert!(server.state.daemon_state.watch_backend_error.is_some());
+        let view = server.daemon_loop_view().expect("daemon view");
+        assert_eq!(view.watch_backend, "polling");
+        assert!(view.watch_backend_error.is_some());
+        server.shutdown().expect("shutdown");
     }
 
     #[test]
     fn native_watcher_refresh_uses_native_fs_for_real_root() {
         let (temp, mut server) = build_server();
+        server.start().expect("start actor");
         let watch_root = temp.path().join("watch-root");
         std::fs::create_dir_all(&watch_root).expect("watch-root");
         let (tx, _rx) = mpsc::sync_channel(8);
@@ -9282,13 +11541,20 @@ mod tests {
             event_tx: tx,
             watcher: None,
         });
-        server.state.daemon_state.active = true;
-        server.state.daemon_state.watch_paths = vec![watch_root.to_string_lossy().to_string()];
+        server
+            .actor_execute(true, move |state| {
+                state.daemon_state.active = true;
+                state.daemon_state.watch_paths = vec![watch_root.to_string_lossy().to_string()];
+                Ok(())
+            })
+            .expect("configure daemon through actor");
 
-        server.refresh_daemon_watcher();
+        server.refresh_daemon_watcher().expect("refresh watcher");
 
-        assert_eq!(server.state.daemon_state.watch_backend, "native_fs");
-        assert!(server.state.daemon_state.watch_backend_error.is_none());
+        let view = server.daemon_loop_view().expect("daemon view");
+        assert_eq!(view.watch_backend, "native_fs");
+        assert!(view.watch_backend_error.is_none());
+        server.shutdown().expect("shutdown");
     }
 
     #[test]
@@ -9476,6 +11742,72 @@ mod tests {
         );
     }
 
+    #[test]
+    fn public_memorize_and_persist_schemas_expose_no_filesystem_override() {
+        let schemas = all_tool_schemas();
+        for (tool_name, forbidden_field) in [("memorize", "output_path"), ("persist", "path")] {
+            let schema = schemas["tools"]
+                .as_array()
+                .expect("tool registry")
+                .iter()
+                .find(|tool| tool["name"] == tool_name)
+                .unwrap_or_else(|| panic!("missing {tool_name} schema"));
+            assert_eq!(
+                schema["inputSchema"]["additionalProperties"], false,
+                "{tool_name} schema must advertise its fail-closed unknown-field contract"
+            );
+            assert!(
+                schema["inputSchema"]["properties"]
+                    .get(forbidden_field)
+                    .is_none(),
+                "{tool_name} must not advertise caller-controlled `{forbidden_field}`"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_public_path_fields_fail_before_handler_io() {
+        let (temp, mut state) = build_state();
+        let sentinel = temp.path().join("outside-sentinel");
+        std::fs::write(&sentinel, "sentinel\n").expect("sentinel");
+
+        for (tool, arguments, field) in [
+            (
+                "memorize",
+                serde_json::json!({
+                    "agent_id": "attacker",
+                    "node_label": "Escape",
+                    "claims": [{"label": "Escape"}],
+                    "output_path": sentinel,
+                    "ingest_after": false
+                }),
+                "output_path",
+            ),
+            (
+                "persist",
+                serde_json::json!({
+                    "agent_id": "attacker",
+                    "action": "load",
+                    "path": sentinel
+                }),
+                "path",
+            ),
+        ] {
+            let error = super::dispatch_tool(&mut state, tool, &arguments)
+                .expect_err("legacy path field must fail before its handler");
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("unknown field `{field}`")),
+                "unexpected {tool} refusal: {error}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(&sentinel).expect("read sentinel"),
+            "sentinel\n"
+        );
+    }
+
     /// resonate schema must be absent from ALL tiers and all_tool_schemas after surface removal.
     /// The dispatch handler is kept for back-compat but is not advertised.
     #[test]
@@ -9510,10 +11842,25 @@ mod tests {
     /// Build a SessionState backed by a small populated, finalized graph so
     /// PageRank is computed and spread-activation has nodes to land on.
     fn build_state_populated(read_only: bool) -> (tempfile::TempDir, SessionState) {
+        build_state_populated_with_legacy_boot_memory(read_only, None)
+    }
+
+    fn build_state_populated_with_legacy_boot_memory(
+        read_only: bool,
+        legacy_boot_memory: Option<crate::session::BootMemoryState>,
+    ) -> (tempfile::TempDir, SessionState) {
         use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
         let temp = tempfile::tempdir().expect("tempdir");
         let runtime_dir = temp.path().join("runtime");
         std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        if let Some(legacy_boot_memory) = legacy_boot_memory {
+            std::fs::write(
+                runtime_dir.join("boot_memory_state.json"),
+                serde_json::to_vec_pretty(&legacy_boot_memory)
+                    .expect("serialize legacy boot memory fixture"),
+            )
+            .expect("seed legacy boot memory before migration");
+        }
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
@@ -10399,22 +12746,22 @@ mod tests {
     /// (age present because the timestamp is present; source_agent carried).
     #[test]
     fn north_carries_boot_memory_with_age_and_author() {
-        let (_temp, mut state) = build_state_populated(false);
-
-        // Seed a durable memory via the real boot_memory verb.
-        super::dispatch_tool(
-            &mut state,
-            "boot_memory",
-            &serde_json::json!({
-                "agent_id": "jimi",
-                "action": "set",
-                "key": "lease_doctrine",
-                "value": {"rule": "leases expire after 30s"},
-                "tags": ["lease", "doctrine"],
-                "source_refs": ["src/lease.rs"],
-            }),
-        )
-        .expect("seed boot memory");
+        let legacy = crate::session::BootMemoryState {
+            entries: std::collections::HashMap::from([(
+                "lease_doctrine".to_string(),
+                crate::session::BootMemoryEntry {
+                    key: "lease_doctrine".to_string(),
+                    value: serde_json::json!({"rule": "leases expire after 30s"}),
+                    tags: vec!["lease".to_string(), "doctrine".to_string()],
+                    source_refs: vec!["src/lease.rs".to_string()],
+                    updated_at_ms: crate::util::now_ms(),
+                    updated_by_agent: "jimi".to_string(),
+                },
+            )]),
+        };
+        // The compatibility source must exist before initialize so the one-way
+        // migration conserves it into Boot Config/L1GHT and retires the writer.
+        let (_temp, mut state) = build_state_populated_with_legacy_boot_memory(false, Some(legacy));
 
         let out = super::dispatch_tool(
             &mut state,

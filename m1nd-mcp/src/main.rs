@@ -15,7 +15,6 @@
 
 use clap::Parser;
 use m1nd_mcp::cli::Cli;
-use m1nd_mcp::instance_registry::spawn_heartbeat;
 use m1nd_mcp::server::{McpConfig, McpServer};
 use std::path::PathBuf;
 
@@ -65,17 +64,44 @@ exec /usr/bin/bwrap "${args[@]}"
 /// the parent directory of `--graph` if given, else the current working dir. The
 /// discovery itself is read-only and takes NO lease.
 #[cfg(feature = "serve")]
-fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
-    let runtime_root: PathBuf = if let Some(dir) = &cli.runtime_dir {
-        PathBuf::from(dir)
-    } else if let Some(graph) = &cli.graph {
-        PathBuf::from(graph)
+fn resolve_attach_runtime_root(cli: &Cli) -> Result<PathBuf, String> {
+    if let Some(dir) = &cli.runtime_dir {
+        return Ok(PathBuf::from(dir));
+    }
+    if let Ok(dir) = std::env::var("M1ND_RUNTIME_DIR") {
+        if !dir.trim().is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
+    if let Some(config_path) = &cli.config {
+        if let Ok(contents) = std::fs::read_to_string(config_path) {
+            if let Ok(config) = serde_json::from_str::<McpConfig>(&contents) {
+                if let Some(runtime_dir) = config.runtime_dir {
+                    return Ok(runtime_dir);
+                }
+                if let Some(parent) = config.graph_source.parent() {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+        }
+    }
+    let graph = cli
+        .graph
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("M1ND_GRAPH_SOURCE").ok().map(PathBuf::from));
+    if let Some(graph) = graph {
+        return Ok(graph
             .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."))
-    } else {
-        std::env::current_dir().map_err(|e| format!("cannot read current dir: {e}"))?
-    };
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".")));
+    }
+    std::env::current_dir().map_err(|error| format!("cannot read current dir: {error}"))
+}
+
+#[cfg(feature = "serve")]
+fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
+    let runtime_root = resolve_attach_runtime_root(cli)?;
 
     let registry_dir = cli.registry_dir.as_ref().map(PathBuf::from);
 
@@ -90,6 +116,34 @@ fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
     )?;
     eprintln!("[m1nd-mcp][attach] auto-discovery resolved owner: {url}");
     Ok(url)
+}
+
+/// Resolve the owner-local HTTP transport credential without creating or
+/// rotating it. Explicit raw/file overrides support managed launchers; otherwise
+/// attach reads the token beside the exact runtime root used for owner discovery.
+#[cfg(feature = "serve")]
+fn resolve_attach_bearer_token(cli: &Cli) -> Result<String, String> {
+    if let Ok(token) = std::env::var("M1ND_HTTP_BEARER_TOKEN") {
+        let token = token.trim();
+        if token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(token.to_string());
+        }
+        return Err("M1ND_HTTP_BEARER_TOKEN must be exactly 64 hexadecimal characters".into());
+    }
+    let token_path = if let Ok(path) = std::env::var("M1ND_HTTP_BEARER_TOKEN_FILE") {
+        if path.trim().is_empty() {
+            return Err("M1ND_HTTP_BEARER_TOKEN_FILE is empty".into());
+        }
+        PathBuf::from(path)
+    } else {
+        resolve_attach_runtime_root(cli)?.join(m1nd_mcp::http_security::HTTP_AUTH_TOKEN_FILE_NAME)
+    };
+    m1nd_mcp::http_security::read_existing_bearer_token(&token_path).map_err(|error| {
+        format!(
+            "cannot read owner HTTP bearer token at {}: {error}",
+            token_path.display()
+        )
+    })
 }
 
 /// Resolve the graph-source path, honoring the `temp` sentinel.
@@ -235,17 +289,15 @@ fn run_inbox_sweep(config: McpConfig, no_distribute: bool) {
             std::process::exit(1);
         }
     };
-    let state = server.into_session_state();
-    let runtime_root = state.runtime_root.clone();
-    let worktree_base = state
-        .project_root_display()
+    let (runtime_root, project_root) = server.offline_operator_context();
+    let worktree_base = project_root
         .as_deref()
         .map(m1nd_mcp::mailbox::project_basename)
         .unwrap_or_default();
 
     // Known project roots: the bound root + every disk-roster brain store.
     let mut roots: Vec<String> = Vec::new();
-    if let Some(bound) = state.project_root_display() {
+    if let Some(bound) = project_root {
         roots.push(bound);
     }
     let registry = m1nd_mcp::project_brains::ProjectBrainRegistry::new(
@@ -350,8 +402,7 @@ fn run_medulla_migrate(
             std::process::exit(1);
         }
     };
-    let state = server.into_session_state();
-    let runtime_root = state.runtime_root.clone();
+    let (runtime_root, ambient_project_root) = server.offline_operator_context();
 
     // The medulla store IS the owner runtime root's `agent-memory/` (the tier is
     // the directory, §4.1 — no move). The project brain's store is the destination
@@ -392,7 +443,7 @@ fn run_medulla_migrate(
                  explicitly."
             );
             (
-                state.project_root_display().unwrap_or_default(),
+                ambient_project_root.unwrap_or_default(),
                 "ambient-binding (unsafe — pass --migrate-project-root)",
             )
         }
@@ -545,37 +596,66 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
         Ok(s) => s,
         Err(e) => {
             eprintln!("[m1nd-mcp] Failed to create server: {}", e);
-            std::process::exit(1);
+            return;
         }
     };
 
     if let Err(e) = server.start() {
         eprintln!("[m1nd-mcp] Failed to start server: {}", e);
-        std::process::exit(1);
+        if let Err(shutdown_error) = server.shutdown() {
+            eprintln!(
+                "[m1nd-mcp] Failed to shut down after startup refusal: {}",
+                shutdown_error
+            );
+        }
+        return;
     }
 
-    let _heartbeat = spawn_heartbeat(server.instance_handle());
+    let heartbeat = match server.spawn_instance_heartbeat() {
+        Ok(heartbeat) => heartbeat,
+        Err(error) => {
+            eprintln!("[m1nd-mcp] Failed to start owner heartbeat: {error}");
+            if let Err(shutdown_error) = server.shutdown() {
+                eprintln!(
+                    "[m1nd-mcp] Failed to shut down after heartbeat refusal: {}",
+                    shutdown_error
+                );
+            }
+            return;
+        }
+    };
+    let shutdown = server.shutdown_handle();
 
     // Spawn the serve loop in a blocking task (synchronous stdio I/O)
-    let serve_handle = tokio::task::spawn_blocking(move || {
-        let result = server.serve();
-        let _ = server.shutdown();
-        result
+    let mut serve_handle = tokio::task::spawn_blocking(move || {
+        let serve_result = server.serve();
+        let shutdown_result = server.shutdown();
+        match shutdown_result {
+            Err(error) => Err(error),
+            Ok(()) => serve_result,
+        }
     });
 
-    // Wait for either SIGINT or serve completion
-    tokio::select! {
+    // A signal requests cooperative return from the blocking loop, then awaits
+    // the same serve+checkpoint+release task. The heartbeat is revoked only
+    // after that lifecycle transaction has completed.
+    let result = tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             eprintln!("[m1nd-mcp] SIGINT received.");
+            shutdown.request_shutdown();
+            (&mut serve_handle).await
         }
-        result = serve_handle => {
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => eprintln!("[m1nd-mcp] Server error: {}", e),
-                Err(e) => eprintln!("[m1nd-mcp] Task error: {}", e),
-            }
+        result = &mut serve_handle => {
+            result
         }
+    };
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("[m1nd-mcp] Server error: {}", e),
+        Err(e) => eprintln!("[m1nd-mcp] Task error: {}", e),
     }
+    heartbeat.abort();
+    let _ = heartbeat.await;
 }
 
 /// Pure strict-version decision (no I/O, no exit) so it is unit-testable in
@@ -648,14 +728,23 @@ fn enforce_strict_version() {
 
 #[tokio::main]
 async fn main() {
-    #[cfg(unix)]
-    ensure_bwrap_compat_wrapper();
+    // Parse before every side-effecting compatibility/runtime path. The offline
+    // receipt verifier is intentionally an early mode: it reads stdin, consults
+    // the system clock, writes one JSON proof, and exits.
+    let cli = Cli::parse();
 
     // Version-honesty strict gate — refuse a mismatched binary before doing any
     // work (see `enforce_strict_version`). No-op unless M1ND_STRICT_VERSION is set.
     enforce_strict_version();
 
-    let cli = Cli::parse();
+    if cli.verify_authorization_receipt {
+        std::process::exit(
+            m1nd_mcp::authorization_receipt_verifier::run_authorization_receipt_verifier_stdio(),
+        );
+    }
+
+    #[cfg(unix)]
+    ensure_bwrap_compat_wrapper();
 
     // --attach: thin stdio↔HTTP bridge. This path loads NO graph, builds NO
     // engines, and takes NO lease — it must NEVER reach `McpServer::new`. It is
@@ -689,7 +778,14 @@ async fn main() {
                 }
                 _ => attach_arg,
             };
-            m1nd_mcp::attach_client::run_attach_client(base_url).await;
+            let bearer_token = match resolve_attach_bearer_token(&cli) {
+                Ok(token) => token,
+                Err(message) => {
+                    eprintln!("[m1nd-mcp][attach] authentication setup failed: {message}");
+                    std::process::exit(1);
+                }
+            };
+            m1nd_mcp::attach_client::run_attach_client(base_url, bearer_token).await;
             return;
         }
         #[cfg(not(feature = "serve"))]
@@ -735,6 +831,7 @@ async fn main() {
                 cli.bind,
                 cli.allow_remote,
                 cli.dev,
+                cli.ui_dir,
                 cli.open,
                 cli.stdio,
                 event_log,

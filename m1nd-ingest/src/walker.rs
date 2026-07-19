@@ -2,7 +2,30 @@
 
 use crate::path_policy::{is_noise_dir_name, is_noise_path};
 use m1nd_core::error::{M1ndError, M1ndResult};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+trait DiscoveryProbe {
+    fn is_binary(&self, path: &Path) -> M1ndResult<bool>;
+    fn path_metadata(&self, path: &Path) -> std::io::Result<std::fs::Metadata>;
+    fn entry_metadata(&self, entry: &ignore::DirEntry) -> Result<std::fs::Metadata, ignore::Error>;
+}
+
+struct OsDiscoveryProbe;
+
+impl DiscoveryProbe for OsDiscoveryProbe {
+    fn is_binary(&self, path: &Path) -> M1ndResult<bool> {
+        DirectoryWalker::is_binary(path)
+    }
+
+    fn path_metadata(&self, path: &Path) -> std::io::Result<std::fs::Metadata> {
+        path.metadata()
+    }
+
+    fn entry_metadata(&self, entry: &ignore::DirEntry) -> Result<std::fs::Metadata, ignore::Error> {
+        entry.metadata()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // DirectoryWalker — file discovery
@@ -30,6 +53,84 @@ pub struct WalkResult {
     pub files: Vec<DiscoveredFile>,
     /// Each inner Vec is a group of relative_paths that changed together in one commit.
     pub commit_groups: Vec<Vec<String>>,
+    /// Exact, fail-closed identity of the VCS producer/context used for temporal
+    /// enrichment. `unversioned` is an explicit observation, never a fallback
+    /// for a failed Git command.
+    pub vcs: VcsContextV1,
+}
+
+pub const VCS_CONTEXT_SCHEMA_V1: &str = "m1nd-vcs-context-v1";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VcsContextV1 {
+    pub schema: String,
+    pub kind: String,
+    pub git_version: Option<String>,
+    pub repository_root: Option<String>,
+    pub git_dir: Option<String>,
+    pub head_oid: Option<String>,
+    pub history_output_digest: Option<String>,
+}
+
+impl Default for VcsContextV1 {
+    fn default() -> Self {
+        Self {
+            schema: VCS_CONTEXT_SCHEMA_V1.into(),
+            kind: "unversioned".into(),
+            git_version: None,
+            repository_root: None,
+            git_dir: None,
+            head_oid: None,
+            history_output_digest: None,
+        }
+    }
+}
+
+impl VcsContextV1 {
+    pub fn is_git(&self) -> bool {
+        self.kind == "git"
+    }
+
+    pub fn valid(&self) -> bool {
+        if self.schema != VCS_CONTEXT_SCHEMA_V1 {
+            return false;
+        }
+        match self.kind.as_str() {
+            "unversioned" => {
+                self.git_version.is_none()
+                    && self.repository_root.is_none()
+                    && self.git_dir.is_none()
+                    && self.head_oid.is_none()
+                    && self.history_output_digest.is_none()
+            }
+            "git" => {
+                self.git_version
+                    .as_ref()
+                    .is_some_and(|value| !value.is_empty() && value == value.trim())
+                    && self
+                        .repository_root
+                        .as_ref()
+                        .is_some_and(|value| Path::new(value).is_absolute())
+                    && self
+                        .git_dir
+                        .as_ref()
+                        .is_some_and(|value| Path::new(value).is_absolute())
+                    && self.history_output_digest.as_ref().is_some_and(|value| {
+                        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+                    && self
+                        .head_oid
+                        .as_ref()
+                        .map(|value| {
+                            (value.len() == 40 || value.len() == 64)
+                                && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        })
+                        .unwrap_or(true)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Directory walker with skip rules and binary file detection.
@@ -57,18 +158,31 @@ impl DirectoryWalker {
     }
 
     fn normalize_rel_path(path: &Path, root: &Path) -> String {
-        path.strip_prefix(root)
+        let relative = path
+            .strip_prefix(root)
             .unwrap_or(path)
             .to_string_lossy()
-            .replace('\\', "/")
-            .trim_start_matches("./")
-            .trim_matches('/')
-            .to_string()
+            .into_owned();
+        #[cfg(windows)]
+        return relative.replace('\\', "/");
+        #[cfg(not(windows))]
+        relative
+    }
+
+    fn validate_rel_path(relative_path: &str) -> M1ndResult<()> {
+        if crate::is_valid_relative_file_path(relative_path) {
+            Ok(())
+        } else {
+            Err(M1ndError::InvalidParams {
+                tool: "directory_walk".into(),
+                detail: format!("walker discovered non-bijective relative path {relative_path:?}"),
+            })
+        }
     }
 
     fn dotfile_pattern_matches(pattern: &str, rel_path: &str) -> bool {
         let pattern = pattern.trim().trim_start_matches("./");
-        let rel_path = rel_path.trim().trim_start_matches("./").trim_matches('/');
+        let rel_path = rel_path.trim_start_matches("./").trim_matches('/');
         if pattern.is_empty() {
             return false;
         }
@@ -91,8 +205,14 @@ impl DirectoryWalker {
 
     /// Walk directory and return all non-binary, non-skipped files.
     /// FM-ING-004 fix: checks first 8KB for NUL bytes to detect binary files.
+    /// Traversal, binary-probe, and metadata I/O failures abort the governed
+    /// discovery; only explicit policy exclusions and proven binary files skip.
     /// Replaces: ingest.py directory walking logic
     pub fn walk(&self, root: &Path) -> M1ndResult<WalkResult> {
+        self.walk_with_probe(root, &OsDiscoveryProbe)
+    }
+
+    fn walk_with_probe<P: DiscoveryProbe>(&self, root: &Path, probe: &P) -> M1ndResult<WalkResult> {
         use ignore::WalkBuilder;
 
         if !root.exists() {
@@ -112,37 +232,41 @@ impl DirectoryWalker {
                 .map(|name| name.to_string())
                 .unwrap_or_else(|| root_canonical.to_string_lossy().replace('\\', "/"));
             if !rel_path.is_empty() {
-                match Self::is_binary(&root_canonical) {
+                Self::validate_rel_path(&rel_path)?;
+                match probe.is_binary(&root_canonical) {
                     Ok(true) => {}
                     Ok(false) => {
-                        if let Ok(metadata) = root_canonical.metadata() {
-                            files.push(DiscoveredFile {
-                                path: root_canonical.clone(),
-                                relative_path: rel_path,
-                                extension: root_canonical
-                                    .extension()
-                                    .map(|ext| ext.to_string_lossy().to_string()),
-                                size_bytes: metadata.len(),
-                                last_modified: metadata
-                                    .modified()
-                                    .ok()
-                                    .and_then(|time| {
-                                        time.duration_since(std::time::UNIX_EPOCH).ok()
-                                    })
-                                    .map(|duration| duration.as_secs_f64())
-                                    .unwrap_or(0.0),
-                                commit_count: 0,
-                                last_commit_time: 0.0,
-                            });
-                        }
+                        let metadata = probe
+                            .path_metadata(&root_canonical)
+                            .map_err(M1ndError::Io)?;
+                        let last_modified = metadata
+                            .modified()
+                            .map_err(M1ndError::Io)?
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|duration| duration.as_secs_f64())
+                            .unwrap_or(0.0);
+                        files.push(DiscoveredFile {
+                            path: root_canonical.clone(),
+                            relative_path: rel_path,
+                            extension: root_canonical
+                                .extension()
+                                .map(|ext| ext.to_string_lossy().to_string()),
+                            size_bytes: metadata.len(),
+                            last_modified,
+                            commit_count: 0,
+                            last_commit_time: 0.0,
+                        });
                     }
-                    Err(_) => {}
+                    Err(error) => return Err(error),
                 }
             }
 
+            let vcs_root = root_canonical.parent().unwrap_or(&root_canonical);
+            let (commit_groups, vcs) = Self::enrich_with_git(vcs_root, &mut files)?;
             return Ok(WalkResult {
                 files,
-                commit_groups: Vec::new(),
+                commit_groups,
+                vcs,
             });
         }
 
@@ -181,10 +305,7 @@ impl DirectoryWalker {
             .build();
 
         for entry in walk {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue, // permission error, broken symlink, etc.
-            };
+            let entry = Self::require_walk_entry(&root_canonical, entry)?;
 
             // ignore::DirEntry::file_type is Option (None for stdin/errors) — skip non-files.
             if !entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -203,6 +324,7 @@ impl DirectoryWalker {
             }
 
             let rel_path = Self::normalize_rel_path(entry.path(), &root_canonical);
+            Self::validate_rel_path(&rel_path)?;
 
             // Skip hidden files unless explicitly allowed.
             if file_name.starts_with('.') && !self.allow_hidden_path(&rel_path) {
@@ -212,15 +334,21 @@ impl DirectoryWalker {
             let path = entry.path().to_path_buf();
 
             // FM-ING-004: skip binary files
-            match Self::is_binary(&path) {
+            match probe.is_binary(&path) {
                 Ok(true) => continue,
                 Ok(false) => {}
-                Err(_) => continue, // can't read -> skip
+                Err(error) => return Err(error),
             }
 
-            let metadata = match entry.metadata() {
+            let metadata = match probe.entry_metadata(&entry) {
                 Ok(m) => m,
-                Err(_) => continue,
+                Err(error) => {
+                    return Err(M1ndError::Io(std::io::Error::other(format!(
+                        "metadata read failed for {} under {}: {error}",
+                        path.display(),
+                        root_canonical.display()
+                    ))));
+                }
             };
 
             let relative_path = rel_path;
@@ -229,8 +357,9 @@ impl DirectoryWalker {
 
             let last_modified = metadata
                 .modified()
+                .map_err(M1ndError::Io)?
+                .duration_since(std::time::UNIX_EPOCH)
                 .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
 
@@ -246,73 +375,225 @@ impl DirectoryWalker {
         }
 
         // Enrich with git history if available, and collect commit groups
-        let commit_groups = Self::enrich_with_git(&root_canonical, &mut files);
+        let (commit_groups, vcs) = Self::enrich_with_git(&root_canonical, &mut files)?;
 
         Ok(WalkResult {
             files,
             commit_groups,
+            vcs,
+        })
+    }
+
+    fn require_walk_entry(
+        root: &Path,
+        entry: Result<ignore::DirEntry, ignore::Error>,
+    ) -> M1ndResult<ignore::DirEntry> {
+        entry.map_err(|error| {
+            M1ndError::Io(std::io::Error::other(format!(
+                "directory walk failed under {}: {error}",
+                root.display()
+            )))
         })
     }
 
     /// Enrich discovered files with git history (commit count + last commit time).
-    /// Runs `git log --format='%at' --name-only` once and distributes to files.
-    /// Also collects commit groups: files that changed together in the same commit.
-    /// Gracefully returns empty groups if not in a git repo.
-    fn enrich_with_git(root: &Path, files: &mut [DiscoveredFile]) -> Vec<Vec<String>> {
+    /// A root with no `.git` marker is explicitly `unversioned`. Once a marker
+    /// exists, every Git discovery/parse failure is fatal: a broken repository
+    /// must never be represented by the same neutral zeros as a real non-repo.
+    fn enrich_with_git(
+        root: &Path,
+        files: &mut [DiscoveredFile],
+    ) -> M1ndResult<(Vec<Vec<String>>, VcsContextV1)> {
         use std::collections::HashMap;
         use std::process::Command;
 
-        // Run git log to get all commits with timestamps and affected files
-        let output = match Command::new("git")
-            .args(["log", "--format=%at", "--name-only", "--diff-filter=ACDMR"])
+        let explicit_git_environment = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"]
+            .iter()
+            .any(|name| std::env::var_os(name).is_some());
+        if !Self::git_marker_present(root)? && !explicit_git_environment {
+            return Ok((Vec::new(), VcsContextV1::default()));
+        }
+
+        let git_version_output = Command::new("git")
+            .arg("--version")
             .current_dir(root)
             .output()
-        {
-            Ok(o) if o.status.success() => o,
-            _ => return Vec::new(), // Not a git repo or git not available
+            .map_err(|error| Self::git_failure("git --version", root, error))?;
+        if !git_version_output.status.success() {
+            return Err(Self::git_status_failure(
+                "git --version",
+                root,
+                &git_version_output,
+            ));
+        }
+        let git_version = Self::single_utf8_line("git --version", &git_version_output.stdout)?;
+
+        let repository_root_output = Self::run_git(root, &["rev-parse", "--show-toplevel"])?;
+        let repository_root_raw = Self::single_utf8_line(
+            "git rev-parse --show-toplevel",
+            &repository_root_output.stdout,
+        )?;
+        let repository_root = PathBuf::from(&repository_root_raw)
+            .canonicalize()
+            .map_err(|error| Self::git_failure("canonicalize repository root", root, error))?;
+        let repository_root = repository_root
+            .to_str()
+            .ok_or_else(|| M1ndError::IngestError("Git repository root is not valid UTF-8".into()))?
+            .to_string();
+
+        let git_dir_output = Self::run_git(root, &["rev-parse", "--absolute-git-dir"])?;
+        let git_dir_raw =
+            Self::single_utf8_line("git rev-parse --absolute-git-dir", &git_dir_output.stdout)?;
+        let git_dir = PathBuf::from(&git_dir_raw)
+            .canonicalize()
+            .map_err(|error| Self::git_failure("canonicalize Git directory", root, error))?;
+        let git_dir = git_dir
+            .to_str()
+            .ok_or_else(|| M1ndError::IngestError("Git directory is not valid UTF-8".into()))?
+            .to_string();
+
+        let head_output = Command::new("git")
+            .args(["rev-parse", "--verify", "HEAD^{commit}"])
+            .current_dir(root)
+            .output()
+            .map_err(|error| Self::git_failure("git rev-parse HEAD", root, error))?;
+        let head_oid = if head_output.status.success() {
+            let oid = Self::single_utf8_line("git rev-parse HEAD", &head_output.stdout)?;
+            if !(oid.len() == 40 || oid.len() == 64)
+                || !oid.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(M1ndError::IngestError(format!(
+                    "Git HEAD has invalid object identity {oid:?}"
+                )));
+            }
+            Some(oid)
+        } else {
+            let count_output = Self::run_git(root, &["rev-list", "--all", "--count"])?;
+            let count = Self::single_utf8_line("git rev-list --all --count", &count_output.stdout)?
+                .parse::<u64>()
+                .map_err(|error| {
+                    M1ndError::IngestError(format!("Git revision count parse failed: {error}"))
+                })?;
+            if count == 0 {
+                None
+            } else {
+                return Err(Self::git_status_failure(
+                    "git rev-parse --verify HEAD^{commit}",
+                    root,
+                    &head_output,
+                ));
+            }
         };
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Parse: alternating timestamp lines and file path lines
+        // Run git log once to get all commits with timestamps and affected files.
+        let history_output = if head_oid.is_some() {
+            Self::run_git(
+                root,
+                &[
+                    "-c",
+                    "core.quotePath=false",
+                    "log",
+                    "--no-renames",
+                    "--relative",
+                    "-z",
+                    "--format=%x00%at%x00",
+                    "--name-only",
+                    "--diff-filter=ACDMR",
+                ],
+            )?
+        } else {
+            std::process::Output {
+                status: Self::success_exit_status(),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }
+        };
+        let history_output_digest = crate::ownership::sha256_bytes(&history_output.stdout);
+        // Parse NUL-framed commits. Empty NUL tokens are structural markers and
+        // cannot collide with a Git filename (NUL is forbidden in paths). This
+        // avoids treating a valid all-digit filename as a timestamp.
         let mut file_stats: HashMap<String, (u32, f64)> = HashMap::new(); // path -> (count, last_time)
-        let mut current_timestamp = 0.0f64;
         let mut commit_groups: Vec<Vec<String>> = Vec::new();
-        let mut current_group: Vec<String> = Vec::new();
+        let tokens = history_output
+            .stdout
+            .split(|byte| *byte == 0)
+            .collect::<Vec<_>>();
+        let mut cursor = 0usize;
+        while cursor < tokens.len() {
+            if !tokens[cursor].is_empty() {
+                return Err(M1ndError::IngestError(format!(
+                    "Git history framing failed at token {cursor}: expected commit boundary"
+                )));
+            }
+            cursor += 1;
+            if cursor == tokens.len() {
+                break;
+            }
 
-        for line in stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                // Empty line separates commits; flush current group
-                if current_group.len() >= 2 {
-                    commit_groups.push(std::mem::take(&mut current_group));
-                } else {
-                    current_group.clear();
-                }
-                continue;
+            let timestamp_text = std::str::from_utf8(tokens[cursor]).map_err(|error| {
+                M1ndError::IngestError(format!(
+                    "Git history timestamp is not valid UTF-8 at token {cursor}: {error}"
+                ))
+            })?;
+            if timestamp_text.is_empty()
+                || !timestamp_text.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return Err(M1ndError::IngestError(format!(
+                    "Git history timestamp token is invalid: {timestamp_text:?}"
+                )));
             }
-            // Is this a timestamp line? (all digits)
-            if line.chars().all(|c| c.is_ascii_digit()) && line.len() >= 8 {
-                // New commit: flush previous group if any
-                if current_group.len() >= 2 {
-                    commit_groups.push(std::mem::take(&mut current_group));
+            let current_timestamp = timestamp_text.parse::<u64>().map_err(|error| {
+                M1ndError::IngestError(format!(
+                    "Git history timestamp parse failed for {timestamp_text:?}: {error}"
+                ))
+            })? as f64;
+            cursor += 1;
+            if cursor >= tokens.len() || !tokens[cursor].is_empty() {
+                return Err(M1ndError::IngestError(
+                    "Git history framing omitted timestamp terminator".into(),
+                ));
+            }
+            cursor += 1;
+
+            let mut current_group = Vec::new();
+            let mut first_path = true;
+            while cursor < tokens.len() && !tokens[cursor].is_empty() {
+                let raw_path = if first_path {
+                    tokens[cursor].strip_prefix(b"\n").ok_or_else(|| {
+                        M1ndError::IngestError(
+                            "Git history framing omitted first-path separator".into(),
+                        )
+                    })?
                 } else {
-                    current_group.clear();
+                    tokens[cursor]
+                };
+                let path = std::str::from_utf8(raw_path).map_err(|error| {
+                    M1ndError::IngestError(format!(
+                        "Git history path is not valid UTF-8 at token {cursor}: {error}"
+                    ))
+                })?;
+                if !crate::is_valid_relative_file_path(path) {
+                    return Err(M1ndError::IngestError(format!(
+                        "Git history emitted non-bijective path identity {path:?}"
+                    )));
                 }
-                current_timestamp = line.parse::<f64>().unwrap_or(0.0);
-            } else if current_timestamp > 0.0 {
-                // File path line
-                let entry = file_stats.entry(line.to_string()).or_insert((0, 0.0));
-                entry.0 += 1; // commit count
+                if current_group.iter().any(|existing| existing == path) {
+                    return Err(M1ndError::IngestError(format!(
+                        "Git history repeated path {path:?} within one commit"
+                    )));
+                }
+                let entry = file_stats.entry(path.to_string()).or_insert((0, 0.0));
+                entry.0 += 1;
                 if current_timestamp > entry.1 {
-                    entry.1 = current_timestamp; // latest commit time
+                    entry.1 = current_timestamp;
                 }
-                current_group.push(line.to_string());
+                current_group.push(path.to_string());
+                first_path = false;
+                cursor += 1;
             }
-        }
-        // Flush final group
-        if current_group.len() >= 2 {
-            commit_groups.push(current_group);
+            if current_group.len() >= 2 {
+                commit_groups.push(current_group);
+            }
         }
 
         // Apply to discovered files
@@ -327,23 +608,306 @@ impl DirectoryWalker {
             }
         }
 
-        commit_groups
+        let vcs = VcsContextV1 {
+            schema: VCS_CONTEXT_SCHEMA_V1.into(),
+            kind: "git".into(),
+            git_version: Some(git_version),
+            repository_root: Some(repository_root),
+            git_dir: Some(git_dir),
+            head_oid,
+            history_output_digest: Some(history_output_digest),
+        };
+        if !vcs.valid() {
+            return Err(M1ndError::IngestError(
+                "Git context failed its exact identity invariant".into(),
+            ));
+        }
+        Ok((commit_groups, vcs))
+    }
+
+    fn git_marker_present(root: &Path) -> M1ndResult<bool> {
+        for ancestor in root.ancestors() {
+            match std::fs::symlink_metadata(ancestor.join(".git")) {
+                Ok(_) => return Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(M1ndError::IngestError(format!(
+                        "Git marker discovery failed under {}: {error}",
+                        ancestor.display()
+                    )));
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn run_git(root: &Path, args: &[&str]) -> M1ndResult<std::process::Output> {
+        let label = format!("git {}", args.join(" "));
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .map_err(|error| Self::git_failure(&label, root, error))?;
+        if !output.status.success() {
+            return Err(Self::git_status_failure(&label, root, &output));
+        }
+        Ok(output)
+    }
+
+    fn single_utf8_line(label: &str, bytes: &[u8]) -> M1ndResult<String> {
+        let value = String::from_utf8(bytes.to_vec()).map_err(|error| {
+            M1ndError::IngestError(format!("{label} output is not valid UTF-8: {error}"))
+        })?;
+        let value = value.strip_suffix('\n').unwrap_or(&value);
+        let value = value.strip_suffix('\r').unwrap_or(value);
+        if value.is_empty() || value.contains(['\n', '\r']) || value != value.trim() {
+            return Err(M1ndError::IngestError(format!(
+                "{label} output is not one exact non-empty line: {value:?}"
+            )));
+        }
+        Ok(value.to_string())
+    }
+
+    fn git_failure(label: &str, root: &Path, error: impl std::fmt::Display) -> M1ndError {
+        M1ndError::IngestError(format!(
+            "{label} failed under {} and cannot be represented as neutral VCS context: {error}",
+            root.display()
+        ))
+    }
+
+    fn git_status_failure(label: &str, root: &Path, output: &std::process::Output) -> M1ndError {
+        Self::git_failure(
+            label,
+            root,
+            format!(
+                "status {:?}, stderr {:?}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+    }
+
+    #[cfg(unix)]
+    fn success_exit_status() -> std::process::ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(0)
+    }
+
+    #[cfg(windows)]
+    fn success_exit_status() -> std::process::ExitStatus {
+        use std::os::windows::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(0)
     }
 
     /// Check if a file is binary (NUL byte in first 8KB).
     /// FM-ING-004 fix.
     pub fn is_binary(path: &Path) -> M1ndResult<bool> {
-        use std::io::Read;
         let mut file = std::fs::File::open(path).map_err(M1ndError::Io)?;
+        Self::is_binary_reader(&mut file)
+    }
+
+    fn is_binary_reader(reader: &mut impl std::io::Read) -> M1ndResult<bool> {
         let mut buf = [0u8; 8192];
-        let n = file.read(&mut buf).map_err(M1ndError::Io)?;
+        let n = reader.read(&mut buf).map_err(M1ndError::Io)?;
         Ok(buf[..n].contains(&0))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::DirectoryWalker;
+    use super::{DirectoryWalker, DiscoveryProbe, OsDiscoveryProbe};
+    use m1nd_core::error::{M1ndError, M1ndResult};
+    use std::path::{Path, PathBuf};
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum InjectedFailure {
+        BinaryProbe,
+        Metadata,
+    }
+
+    struct InjectedProbe {
+        fail_path: PathBuf,
+        failure: InjectedFailure,
+    }
+
+    impl InjectedProbe {
+        fn new(fail_path: PathBuf, failure: InjectedFailure) -> Self {
+            Self { fail_path, failure }
+        }
+
+        fn matches(&self, path: &Path, failure: InjectedFailure) -> bool {
+            path == self.fail_path && self.failure == failure
+        }
+
+        fn injected_io() -> std::io::Error {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected walker I/O failure",
+            )
+        }
+    }
+
+    impl DiscoveryProbe for InjectedProbe {
+        fn is_binary(&self, path: &Path) -> M1ndResult<bool> {
+            if self.matches(path, InjectedFailure::BinaryProbe) {
+                return Err(M1ndError::Io(Self::injected_io()));
+            }
+            OsDiscoveryProbe.is_binary(path)
+        }
+
+        fn path_metadata(&self, path: &Path) -> std::io::Result<std::fs::Metadata> {
+            if self.matches(path, InjectedFailure::Metadata) {
+                return Err(Self::injected_io());
+            }
+            OsDiscoveryProbe.path_metadata(path)
+        }
+
+        fn entry_metadata(
+            &self,
+            entry: &ignore::DirEntry,
+        ) -> Result<std::fs::Metadata, ignore::Error> {
+            if self.matches(entry.path(), InjectedFailure::Metadata) {
+                return Err(ignore::Error::WithPath {
+                    path: entry.path().to_path_buf(),
+                    err: Box::new(ignore::Error::Io(Self::injected_io())),
+                });
+            }
+            OsDiscoveryProbe.entry_metadata(entry)
+        }
+    }
+
+    struct TempTree(PathBuf);
+
+    impl TempTree {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "m1nd-walker-{label}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&path).expect("tempdir");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected binary read failure",
+            ))
+        }
+    }
+
+    fn assert_io_error<T: std::fmt::Debug>(result: M1ndResult<T>, expected: &str) {
+        match result {
+            Err(M1ndError::Io(error)) => assert!(
+                error.to_string().contains(expected),
+                "expected {expected:?} in {error}"
+            ),
+            other => panic!("expected I/O error containing {expected:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn walk_entry_error_is_fatal() {
+        let root = Path::new("/governed/root");
+        let error = ignore::Error::WithPath {
+            path: root.join("unreadable"),
+            err: Box::new(ignore::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected walk-entry failure",
+            ))),
+        };
+
+        assert_io_error(
+            DirectoryWalker::require_walk_entry(root, Err(error)),
+            "injected walk-entry failure",
+        );
+    }
+
+    #[test]
+    fn binary_reader_error_is_fatal() {
+        assert_io_error(
+            DirectoryWalker::is_binary_reader(&mut FailingReader),
+            "injected binary read failure",
+        );
+    }
+
+    #[test]
+    fn directory_walk_binary_probe_error_is_fatal() {
+        let temp = TempTree::new("directory-binary-error");
+        let file = temp.path().join("source.rs");
+        std::fs::write(&file, "pub fn source() {}\n").expect("write source");
+        let canonical_file = file.canonicalize().expect("canonical source");
+        let probe = InjectedProbe::new(canonical_file, InjectedFailure::BinaryProbe);
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        assert_io_error(
+            walker.walk_with_probe(temp.path(), &probe),
+            "injected walker I/O failure",
+        );
+    }
+
+    #[test]
+    fn directory_walk_metadata_error_is_fatal() {
+        let temp = TempTree::new("directory-metadata-error");
+        let file = temp.path().join("source.rs");
+        std::fs::write(&file, "pub fn source() {}\n").expect("write source");
+        let canonical_file = file.canonicalize().expect("canonical source");
+        let probe = InjectedProbe::new(canonical_file, InjectedFailure::Metadata);
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        assert_io_error(
+            walker.walk_with_probe(temp.path(), &probe),
+            "injected walker I/O failure",
+        );
+    }
+
+    #[test]
+    fn single_file_binary_probe_error_is_fatal() {
+        let temp = TempTree::new("single-binary-error");
+        let file = temp.path().join("source.rs");
+        std::fs::write(&file, "pub fn source() {}\n").expect("write source");
+        let canonical_file = file.canonicalize().expect("canonical source");
+        let probe = InjectedProbe::new(canonical_file, InjectedFailure::BinaryProbe);
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        assert_io_error(
+            walker.walk_with_probe(&file, &probe),
+            "injected walker I/O failure",
+        );
+    }
+
+    #[test]
+    fn single_file_metadata_error_is_fatal() {
+        let temp = TempTree::new("single-metadata-error");
+        let file = temp.path().join("source.rs");
+        std::fs::write(&file, "pub fn source() {}\n").expect("write source");
+        let canonical_file = file.canonicalize().expect("canonical source");
+        let probe = InjectedProbe::new(canonical_file, InjectedFailure::Metadata);
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        assert_io_error(
+            walker.walk_with_probe(&file, &probe),
+            "injected walker I/O failure",
+        );
+    }
 
     #[test]
     fn walk_single_file_uses_filename_as_relative_path() {
@@ -369,6 +933,115 @@ mod tests {
             file.canonicalize().expect("canonical file")
         );
         std::fs::remove_dir_all(temp).expect("cleanup tempdir");
+    }
+
+    #[test]
+    fn non_git_root_is_explicitly_unversioned() {
+        let temp = TempTree::new("explicit-unversioned");
+        std::fs::write(temp.path().join("source.rs"), "pub fn source() {}\n")
+            .expect("write source");
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        let result = walker.walk(temp.path()).expect("walk non-Git root");
+        assert_eq!(result.vcs.kind, "unversioned");
+        assert!(result.vcs.valid());
+        assert!(result.vcs.head_oid.is_none());
+    }
+
+    #[test]
+    fn broken_git_discovery_is_fatal_not_neutral() {
+        let temp = TempTree::new("broken-git");
+        std::fs::write(temp.path().join("source.rs"), "pub fn source() {}\n")
+            .expect("write source");
+        std::fs::write(
+            temp.path().join(".git"),
+            "gitdir: /definitely/missing/m1nd-git-dir\n",
+        )
+        .expect("write broken Git marker");
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+
+        let error = walker
+            .walk(temp.path())
+            .expect_err("broken Git marker must not become unversioned");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot be represented as neutral VCS context"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn unborn_git_repository_is_git_not_neutral() {
+        let temp = TempTree::new("unborn-git-context");
+        std::fs::write(temp.path().join("source.rs"), "pub fn source() {}\n")
+            .expect("write source");
+        let output = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(temp.path())
+            .output()
+            .expect("init Git fixture");
+        assert!(output.status.success());
+
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+        let result = walker.walk(temp.path()).expect("walk unborn Git root");
+        assert_eq!(result.vcs.kind, "git");
+        assert!(result.vcs.head_oid.is_none());
+        assert_eq!(
+            result.vcs.history_output_digest,
+            Some(crate::ownership::sha256_bytes(&[]))
+        );
+        assert!(result.vcs.valid());
+    }
+
+    #[test]
+    fn git_context_binds_exact_repository_head_and_history_producer() {
+        let temp = TempTree::new("exact-git-context");
+        std::fs::write(temp.path().join("source.rs"), "pub fn source() {}\n")
+            .expect("write source");
+        std::fs::write(temp.path().join("12345678"), "numeric filename\n")
+            .expect("write numeric filename");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "m1nd-test@example.invalid"],
+            vec!["config", "user.name", "m1nd test"],
+            vec!["add", "source.rs", "12345678"],
+            vec!["-c", "commit.gpgsign=false", "commit", "-qm", "fixture"],
+        ] {
+            let output = std::process::Command::new("git")
+                .args(&args)
+                .current_dir(temp.path())
+                .output()
+                .expect("run Git fixture command");
+            assert!(
+                output.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+        let result = walker.walk(temp.path()).expect("walk Git root");
+        assert_eq!(result.vcs.kind, "git");
+        assert!(result.vcs.valid());
+        assert_eq!(result.vcs.head_oid.as_deref().map(str::len), Some(40));
+        assert_eq!(
+            result.vcs.history_output_digest.as_deref().map(str::len),
+            Some(64)
+        );
+        assert!(result
+            .vcs
+            .git_version
+            .as_deref()
+            .unwrap()
+            .starts_with("git version "));
+        assert_eq!(result.files.len(), 2);
+        assert!(result.files.iter().all(|file| file.commit_count == 1));
+        assert!(result
+            .files
+            .iter()
+            .any(|file| file.relative_path == "12345678"));
     }
 
     #[test]

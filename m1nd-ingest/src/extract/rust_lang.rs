@@ -435,6 +435,14 @@ impl RustExtractor {
     /// … suffix so every distinct definition exists and is addressable. The
     /// node `label` stays `name`, so search/seek still match by label.
     fn unique_fn_id(result: &ExtractionResult, base_id: &str) -> String {
+        Self::unique_node_id(result, base_id)
+    }
+
+    /// Make any repeated symbol id unique in deterministic source order.
+    /// Mutually-exclusive `#[cfg]` definitions commonly repeat structs/enums,
+    /// not only functions; collapsing them would mix incompatible line/tag
+    /// evidence and violate the static ownership manifest.
+    fn unique_node_id(result: &ExtractionResult, base_id: &str) -> String {
         if !result.nodes.iter().any(|n| n.id == base_id) {
             return base_id.to_string();
         }
@@ -989,10 +997,11 @@ impl Extractor for RustExtractor {
         let mut in_impl_block = false; // true when inside impl { }
         let mut impl_is_trait = false; // true when `impl Trait for Type`
         let mut brace_depth: i32 = 0;
-        let mut block_start_depth: i32 = 0;
+        let mut enum_start_depth: i32 = 0;
+        let mut impl_start_depth: i32 = 0;
         // Depth at which a `#[cfg(test)] mod …` body opened, when we are inside one
-        // (None otherwise). Tracked INDEPENDENTLY of block_start_depth (which enum/
-        // impl share) because a test module nests impls/enums of its own. Every fn
+        // (None otherwise). Tracked independently of the enum/impl depths
+        // because a test module nests impls/enums of its own. Every fn
         // defined while this is `Some` is an in-file unit test and gets tagged
         // `"test"` — this is what catches `#[cfg(test)] mod tests` living in a
         // non-test path (e.g. src/result_shaping.rs), which the path-only
@@ -1026,10 +1035,10 @@ impl Extractor for RustExtractor {
             let depth_after = brace_depth + open_count - close_count;
 
             // Check if we're exiting the current enum or impl block
-            if in_enum.is_some() && depth_after <= block_start_depth {
+            if in_enum.is_some() && depth_after <= enum_start_depth {
                 in_enum = None;
             }
-            if in_impl_block && depth_after <= block_start_depth {
+            if in_impl_block && depth_after <= impl_start_depth {
                 in_impl_block = false;
                 impl_is_trait = false;
             }
@@ -1131,7 +1140,8 @@ impl Extractor for RustExtractor {
             // --- Standard extraction (struct, enum, trait, impl, fn, mod) ---
             if let Some(caps) = self.re_struct.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::struct::{}", file_id, name);
+                let node_id =
+                    Self::unique_node_id(&result, &format!("{}::struct::{}", file_id, name));
                 result.nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -1148,7 +1158,8 @@ impl Extractor for RustExtractor {
                 });
             } else if let Some(caps) = self.re_enum.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::enum::{}", file_id, name);
+                let node_id =
+                    Self::unique_node_id(&result, &format!("{}::enum::{}", file_id, name));
                 result.nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -1166,11 +1177,12 @@ impl Extractor for RustExtractor {
                 // Start tracking enum block for variant extraction
                 if line.contains('{') {
                     in_enum = Some(node_id);
-                    block_start_depth = brace_depth;
+                    enum_start_depth = brace_depth;
                 }
             } else if let Some(caps) = self.re_trait.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::trait::{}", file_id, name);
+                let node_id =
+                    Self::unique_node_id(&result, &format!("{}::trait::{}", file_id, name));
                 result.nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -1209,7 +1221,7 @@ impl Extractor for RustExtractor {
                 if line.contains('{') {
                     in_impl_block = true;
                     impl_is_trait = is_trait_impl;
-                    block_start_depth = brace_depth;
+                    impl_start_depth = brace_depth;
                 }
             } else if let Some(caps) = self.re_fn.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
@@ -1253,7 +1265,7 @@ impl Extractor for RustExtractor {
                 pending_fn = Some((node_id, brace_depth));
             } else if let Some(caps) = self.re_mod.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::mod::{}", file_id, name);
+                let node_id = Self::unique_node_id(&result, &format!("{}::mod::{}", file_id, name));
                 result.nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -1522,6 +1534,48 @@ mod tests {
     use super::RustExtractor;
     use crate::extract::Extractor;
     use m1nd_core::types::NodeType;
+
+    #[test]
+    fn enum_scope_ends_after_lifetime_bearing_struct_variants() {
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"enum E {\n    Named { field: &'static str },\n}\nfn sign() {\n    use_domain(OWNER_CHALLENGE_SIGNATURE_DOMAIN);\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.id == "file::src/lib.rs::enum::E::Named"));
+        assert!(!result.nodes.iter().any(|node| {
+            node.id == "file::src/lib.rs::enum::E::OWNER_CHALLENGE_SIGNATURE_DOMAIN"
+        }));
+    }
+
+    #[test]
+    fn mutually_exclusive_cfg_symbols_receive_distinct_stable_ids() {
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"#[cfg(unix)]\nstruct OwnerLease;\n#[cfg(not(unix))]\nstruct OwnerLease;\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+        let ids = result
+            .nodes
+            .iter()
+            .filter(|node| node.label == "OwnerLease")
+            .map(|node| node.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                "file::src/lib.rs::struct::OwnerLease",
+                "file::src/lib.rs::struct::OwnerLease#2"
+            ]
+        );
+    }
 
     #[test]
     fn rust_symbols_include_module_and_fq_tags() {

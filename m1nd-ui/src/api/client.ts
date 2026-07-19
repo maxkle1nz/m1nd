@@ -6,6 +6,11 @@ import type {
   SubgraphResponse,
   ToolCallResult,
   ToolsResponse,
+  OrganismManifestResponseV1,
+  AuthorityFreshness,
+  AuthorityStatus,
+  ManifestCoherence,
+  ManifestIssueKind,
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 import type { MailboxResponse } from '../lib/mailbox';
@@ -34,6 +39,21 @@ import type {
 } from '../lib/missions';
 import type { UniverseResponse } from '../lib/universe';
 import type { AlertsListResponse, AlertsAckResponse } from '../lib/alerts';
+
+// The owner-launched browser receives a one-shot bootstrap nonce in the query
+// string. The first document response has already exchanged it for an HttpOnly
+// cookie, so remove it before any navigation, copy, referrer, or history use.
+if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
+  const bootstrapUrl = new URL(window.location.href);
+  if (bootstrapUrl.searchParams.has('m1nd-bootstrap')) {
+    bootstrapUrl.searchParams.delete('m1nd-bootstrap');
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${bootstrapUrl.pathname}${bootstrapUrl.search}${bootstrapUrl.hash}`,
+    );
+  }
+}
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -73,6 +93,211 @@ export class ApiError extends Error {
   }
 }
 
+// The manifest is an authority projection, so its reader is deliberately strict:
+// malformed/missing facts make the whole read unavailable. It never fills defaults,
+// coerces values, recomputes authority, or rewrites the object returned by the owner.
+type JsonRecord = Record<string, unknown>;
+
+function manifestParseError(path: string, expected: string): never {
+  throw new TypeError(`invalid organism manifest at ${path}: expected ${expected}`);
+}
+
+function manifestRecord(value: unknown, path: string): JsonRecord {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    return manifestParseError(path, 'object');
+  }
+  return value as JsonRecord;
+}
+
+function manifestString(value: unknown, path: string): void {
+  if (typeof value !== 'string') manifestParseError(path, 'string');
+}
+
+function manifestBoolean(value: unknown, path: string): void {
+  if (typeof value !== 'boolean') manifestParseError(path, 'boolean');
+}
+
+function manifestU64(value: unknown, path: string): void {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    manifestParseError(path, 'non-negative safe integer');
+  }
+}
+
+function manifestLiteral<T extends string>(
+  value: unknown,
+  path: string,
+  allowed: readonly T[],
+): asserts value is T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    manifestParseError(path, allowed.map((item) => JSON.stringify(item)).join(' | '));
+  }
+}
+
+function manifestStringArray(value: unknown, path: string): void {
+  if (!Array.isArray(value)) manifestParseError(path, 'string[]');
+  value.forEach((item, index) => manifestString(item, `${path}[${index}]`));
+}
+
+function parseAuthorityFact(value: unknown, path: string): void {
+  const fact = manifestRecord(value, path);
+  manifestString(fact.revision, `${path}.revision`);
+  manifestString(fact.digest, `${path}.digest`);
+  manifestU64(fact.observed_at, `${path}.observed_at`);
+  manifestLiteral<AuthorityFreshness>(fact.freshness, `${path}.freshness`, [
+    'FRESH',
+    'STALE',
+    'UNKNOWN',
+  ]);
+  manifestLiteral<AuthorityStatus>(fact.status, `${path}.status`, [
+    'AVAILABLE',
+    'DEGRADED',
+    'UNAVAILABLE',
+    'DRIFT',
+    'UNKNOWN',
+  ]);
+}
+
+const CORE_MANIFEST_AUTHORITY_IDS = [
+  'source',
+  'runtime_binary',
+  'graph',
+  'architecture',
+  'ui_bundle',
+  'release_candidate',
+] as const;
+
+/**
+ * Parse the exact G1 response without deriving or replacing any fact. The same
+ * object reference is returned after validation so the UI remains a consumer,
+ * never a second manifest composer.
+ */
+export function parseOrganismManifestResponse(value: unknown): OrganismManifestResponseV1 {
+  const response = manifestRecord(value, '$');
+  manifestLiteral(response.schema, '$.schema', ['m1nd-organism-manifest-response-v1']);
+
+  const manifest = manifestRecord(response.manifest, '$.manifest');
+  manifestLiteral(manifest.schema, '$.manifest.schema', ['m1nd-organism-manifest-v1']);
+  for (const field of [
+    'organism_id',
+    'repo_id',
+    'brain_id',
+    'project_root_fingerprint',
+    'manifest_sha256',
+  ]) {
+    manifestString(manifest[field], `$.manifest.${field}`);
+  }
+
+  const source = manifestRecord(manifest.source, '$.manifest.source');
+  manifestString(source.commit, '$.manifest.source.commit');
+  manifestBoolean(source.dirty, '$.manifest.source.dirty');
+  manifestString(source.version, '$.manifest.source.version');
+
+  const runtime = manifestRecord(manifest.runtime, '$.manifest.runtime');
+  manifestString(runtime.owner_id, '$.manifest.runtime.owner_id');
+  manifestString(runtime.binary_version, '$.manifest.runtime.binary_version');
+  manifestString(runtime.binary_sha256, '$.manifest.runtime.binary_sha256');
+  manifestU64(runtime.started_at, '$.manifest.runtime.started_at');
+
+  const graph = manifestRecord(manifest.graph, '$.manifest.graph');
+  for (const field of ['generation', 'node_count', 'edge_count']) {
+    manifestU64(graph[field], `$.manifest.graph.${field}`);
+  }
+  manifestString(graph.snapshot_sha256, '$.manifest.graph.snapshot_sha256');
+
+  const architecture = manifestRecord(manifest.architecture, '$.manifest.architecture');
+  manifestU64(architecture.store_version, '$.manifest.architecture.store_version');
+  manifestString(architecture.skeleton_digest, '$.manifest.architecture.skeleton_digest');
+  manifestString(architecture.ratification_state, '$.manifest.architecture.ratification_state');
+
+  const ui = manifestRecord(manifest.ui, '$.manifest.ui');
+  manifestString(ui.bundle_version, '$.manifest.ui.bundle_version');
+  manifestString(ui.bundle_sha256, '$.manifest.ui.bundle_sha256');
+  manifestString(ui.mode, '$.manifest.ui.mode');
+
+  const capabilities = manifestRecord(manifest.capabilities, '$.manifest.capabilities');
+  manifestString(capabilities.policy_version, '$.manifest.capabilities.policy_version');
+  manifestStringArray(capabilities.enabled_effects, '$.manifest.capabilities.enabled_effects');
+
+  const autonomy = manifestRecord(manifest.autonomy, '$.manifest.autonomy');
+  manifestStringArray(autonomy.supported_modes, '$.manifest.autonomy.supported_modes');
+  manifestStringArray(
+    autonomy.mechanically_proven_modes,
+    '$.manifest.autonomy.mechanically_proven_modes',
+  );
+  for (const field of [
+    'active_mode',
+    'activation_receipt_id',
+    'constitution_digest',
+    'safety_kernel_digest',
+    'grants_digest',
+    'quorum_policy_digest',
+    'max_effective_tier_projection',
+    'sentinel_safety_state',
+  ]) {
+    manifestString(autonomy[field], `$.manifest.autonomy.${field}`);
+  }
+  for (const field of ['constitution_epoch', 'autonomy_epoch']) {
+    manifestU64(autonomy[field], `$.manifest.autonomy.${field}`);
+  }
+  manifestBoolean(autonomy.issuance_frozen, '$.manifest.autonomy.issuance_frozen');
+
+  const schemas = manifestRecord(manifest.schemas, '$.manifest.schemas');
+  for (const field of ['mission', 'receipt', 'checkpoint', 'light', 'system_blocks']) {
+    manifestString(schemas[field], `$.manifest.schemas.${field}`);
+  }
+
+  const authorities = manifestRecord(manifest.authorities, '$.manifest.authorities');
+  for (const authorityId of CORE_MANIFEST_AUTHORITY_IDS) {
+    parseAuthorityFact(
+      authorities[authorityId],
+      `$.manifest.authorities.${authorityId}`,
+    );
+  }
+  for (const [authorityId, fact] of Object.entries(authorities)) {
+    parseAuthorityFact(fact, `$.manifest.authorities.${authorityId}`);
+  }
+
+  const release = manifestRecord(manifest.release_provenance, '$.manifest.release_provenance');
+  manifestString(
+    release.release_candidate_digest,
+    '$.manifest.release_provenance.release_candidate_digest',
+  );
+  manifestString(release.signature, '$.manifest.release_provenance.signature');
+  manifestU64(manifest.generated_at, '$.manifest.generated_at');
+
+  const verification = manifestRecord(response.verification, '$.verification');
+  manifestLiteral<ManifestCoherence>(verification.coherence, '$.verification.coherence', [
+    'COHERENT',
+    'DRIFT',
+    'DEGRADED',
+    'UNKNOWN',
+  ]);
+  manifestString(
+    verification.computed_manifest_sha256,
+    '$.verification.computed_manifest_sha256',
+  );
+  if (verification.computed_manifest_sha256 !== manifest.manifest_sha256) {
+    manifestParseError(
+      '$.verification.computed_manifest_sha256',
+      'value equal to $.manifest.manifest_sha256',
+    );
+  }
+  if (!Array.isArray(verification.issues)) manifestParseError('$.verification.issues', 'array');
+  verification.issues.forEach((value, index) => {
+    const path = `$.verification.issues[${index}]`;
+    const issue = manifestRecord(value, path);
+    manifestLiteral<ManifestIssueKind>(issue.kind, `${path}.kind`, [
+      'DRIFT',
+      'DEGRADED',
+      'UNKNOWN',
+    ]);
+    if (issue.authority_id !== null) manifestString(issue.authority_id, `${path}.authority_id`);
+    manifestString(issue.detail, `${path}.detail`);
+  });
+
+  return value as OrganismManifestResponseV1;
+}
+
 /** The `/api/file` read (HUMAN-VIEW-V2 F2 Show Code viewer). Content is capped at
  *  `max_bytes` on the owner; `truncated` says so honestly and `bytes` is the true
  *  on-disk size. Repo-relative paths only — the owner refuses absolute/escape. */
@@ -99,6 +324,13 @@ function withBrain(path: string, brain?: string | null): string {
 
 export const api = {
   health: () => apiFetch<HealthResponse>('/api/health'),
+
+  /** G1 read-only truth projection. Parsing fails closed; no fact is defaulted. */
+  manifest: (brain?: string | null, signal?: AbortSignal) =>
+    apiFetch<unknown>(withBrain('/api/manifest', brain), {
+      cache: 'no-store',
+      ...(signal ? { signal } : {}),
+    }).then(parseOrganismManifestResponse),
 
   /**
    * The Hall presence strip's read (ORGANISM-INSIDE-PRD P1; P1-UI-CONTRACT). A
@@ -376,11 +608,9 @@ export const api = {
    * NOTHING is applied. WRITE verb — refused under a read-only attach. Bare tool
    * route, agent_id 'gui', unwrapping the `{result}` envelope. §4A.9: `brain` scopes it.
    *
-   * RATIFY IS THE HUMAN GESTURE: this screen is the owner's UI path, so it stamps the
-   * `ratified_via:'human-ui'` origin token the backend requires (HUMAN-VIEW-V2-F25-TECH
-   * § ratify). An agent/runner MCP client never composes it — a ratify without it is
-   * refused `human_gesture_required`. The token is forgeable on an unauthenticated
-   * loopback, so it closes the cheap reflex, not a same-UID process (§5d).
+   * This client supplies intent and OCC data only. It does not mint authority:
+   * generic ratification is refused until an exact typed G2/G3 sovereign lease
+   * path is installed.
    */
   systemBlocksRatify: (
     input: { expectedStoreVersion: number; ratifier: string; blockIds?: string[] },
@@ -392,7 +622,6 @@ export const api = {
         agent_id: 'gui',
         expected_store_version: input.expectedStoreVersion,
         ratifier: input.ratifier,
-        ratified_via: 'human-ui',
         ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
       }),
     }).then((r) => r.result),

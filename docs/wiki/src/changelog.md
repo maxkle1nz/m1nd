@@ -6,6 +6,58 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- **M1ND-10 G2→G3 owner authority bridge (working tree, not yet published).** Added strict
+  challenge/authenticate and authorization surfaces for REST and Streamable-HTTP MCP, owner-bound
+  wire/brain/context injection, exact policy/effect/mission bindings, durable one-shot leases,
+  restart-mandatory reauthentication with durable capability replay refusal, typed `MissionService`
+  consumption, and a signed AuthorityWAL whose `COMMIT` is the sovereign mutation commit point.
+  REST/MCP session ids are correlation labels only; signed capabilities checked against owner-pinned
+  subject/key/role mappings provide authentication.
+- **Fail-closed production authority assembly.** Added `OwnerSecurityConfigV1` with canonical
+  digest/epoch chaining, a distinct protected config root, symlink/rollback/tamper refusal, public
+  verification anchors only, domain-separated compare-and-advance broker/WAL journal heads, and all-at-once
+  installation of authority issuance plus MissionService consumption. Production requires injected
+  hardware-protected epoch/head providers and WAL crypto; software fixtures are explicitly test-only.
+- **Cryptographically sealed authority evidence.** The complete authorization receipt, outer
+  AuthorityTransaction, ExecutionResult, ReviewResult, and AuthorityWAL record now use independent
+  domain-separated signatures with non-circular canonical subsets. Deterministic real-crypto
+  batteries cover body/signature tamper, wrong subject/key, rotation, revocation, role drift, and
+  valid-prefix broker/WAL rollback.
+- **Crash/replay batteries and cross-source h4nd vectors.** Added tests for real Ed25519 fixture
+  sessions and positive landing, stale/replayed/expired/wrong-wire authority, freeze/RED/epoch drift,
+  broker/WAL crash recovery, and canonical LandIntent vectors shared with h4nd. Real-machine key
+  material and live hardware acceptance remain absent, so concrete adapters are `NOT_INSTALLED`,
+  the deployed owner stays fail-closed, and this working tree does not claim `FULL_AUTONOMY`.
+- **Integrated G2/G9 constitutional admission.** Generic positive dispatch now rejects non-human
+  authority variants; autonomous positive execution requires the exact G2 decision/capability and
+  G9 protected projection/evidence bindings before admission, plus a final post-authorization G9
+  witness before a receipt or lease can escape. Integrity drift freezes positive issuance and
+  safety globally. A bounded final askGOD/Fugu review returned `APPROVE` with high confidence and
+  no required changes; hardware custody, physical cross-store atomicity, and activation remain
+  unproven.
+- **Verified release updater and digest-fenced rollback (working tree, not yet published).**
+  GitHub-release installs now require `cosign` and an exact-tag `CANDIDATE.json` bundle signed by
+  this repository's release workflow. The updater validates candidate id, version, tag, target,
+  asset, digest, and size before any managed-runtime effect. Rollback is a closed, idempotent
+  `prepared → installed → rolled_back` machine that refuses stale-target overwrite, unknown phase,
+  or backup drift. The unverified Cargo fallback is removed; automatic npm mutation is also
+  fail-closed until a candidate-bound multi-surface rollback transaction exists.
+- **Post-sign cross-platform updater promotion gate.** Release CI now signs the candidate before
+  the public updater smoke, runs verified apply/rollback and stale-overwrite refusal on Linux,
+  macOS x64/arm64, and Windows x64, and keeps those receipts as CI-only promotion evidence rather
+  than creating a self-referential candidate. Test transport/verifier seams are always disclosed
+  in the proof and never count as live GitHub/Sigstore evidence.
+- **Owner-process verification no longer executes repository code.** `apply`/`apply_batch`
+  `verify:true` keeps static and graph evidence but reports compiler/tests as `NOT_RUN` and caps the
+  verdict at `RISKY` until an isolated runner exists. Repository-controlled build scripts, plugins,
+  test runners, and PATH tools no longer inherit owner credentials or filesystem authority.
+- **Public medulla promotion is sovereign-frozen.** Self-authored `verified` state, founder/source
+  labels, caller names, and arbitrary leases no longer authorize the cross-store mutation. The
+  public verb is refused at `POSITIVE_SOVEREIGN` pending an exact typed G2 consumer; owner-resolved
+  internal writers retain the audited provenance and hygiene mechanics.
+
 ---
 
 ## [1.4.0] — 2026-07-06
@@ -77,8 +129,8 @@ with a red-first proof.
 
 ### Fixed
 
-- **Security wave (hardening wave 1) — refuse the unsafe defaults.** A non-loopback HTTP bind is
-  now refused without an explicit `--allow-remote`; unknown `learn` feedback is rejected instead
+- **Security wave (hardening wave 1) — refuse the unsafe defaults.** Every non-loopback HTTP bind is
+  now refused, including with the legacy `--allow-remote` flag; unknown `learn` feedback is rejected instead
   of being charged as a defect; the launchd restart/reload path is scoped and gated; and broad
   L1GHT recall no longer returns results in an inverted (oldest-first) order.
 - **Migration data safety (hardening wave 2).** The M5a medulla migration data-loss cluster is
@@ -1129,7 +1181,8 @@ the same graph state via event log (`--event-log`) and watch (`--watch-events`).
 from either transport is broadcast to all SSE subscribers.
 
 Body limit: 1MB per tool call (FM-A-004). Request timeout: 30s (FM-C-004). CORS: permissive
-(disable in production). Binding to `0.0.0.0` emits a network exposure warning.
+(disable in production). At this release, binding to `0.0.0.0` emitted a network
+exposure warning; current builds refuse every non-loopback bind before owner boot.
 
 #### Other Additions
 

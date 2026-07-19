@@ -43,6 +43,10 @@ struct MissionState {
     risk: String,
     #[serde(default)]
     parent_mission_id: Option<String>,
+    #[serde(default)]
+    evidence_link: Option<crate::evidence_spine::EvidenceCorrelationLinkV1>,
+    #[serde(default)]
+    evidence_projection_gaps: Vec<String>,
     route: String,
     phase: String,
     status: String,
@@ -78,6 +82,14 @@ pub fn handle_mission_start(
     input: MissionStartInput,
 ) -> M1ndResult<Value> {
     validate_mission_start_input(&input)?;
+    if let Some(link) = &input.evidence_link {
+        crate::evidence_spine_owner::validate_record_workspace(
+            state,
+            "mission_start",
+            &input.repo,
+        )?;
+        crate::evidence_spine_owner::validate_link(state, "mission_start", link)?;
+    }
     let now = now_ms();
     let mission_id = build_mission_id(now, &input.agent_id, &input.task);
     let route = route_for(&input.mode, &input.budget, &input.risk);
@@ -99,6 +111,12 @@ pub fn handle_mission_start(
         budget: input.budget.clone(),
         risk: input.risk.clone(),
         parent_mission_id: input.parent_mission_id.clone(),
+        evidence_link: input.evidence_link.clone(),
+        evidence_projection_gaps: if input.evidence_link.is_none() {
+            vec!["canonical_evidence_link_absent: Mission Control remains an independent reasoning trail; G3 correlation is NOT_PROVEN".to_string()]
+        } else {
+            Vec::new()
+        },
         route: route.clone(),
         phase: "locate".into(),
         status: "active".into(),
@@ -115,6 +133,7 @@ pub fn handle_mission_start(
     };
 
     save_mission(state, &mission)?;
+    let evidence_projection = project_mission_control(state, &mission);
 
     Ok(json!({
         "schema": START_SCHEMA,
@@ -131,6 +150,7 @@ pub fn handle_mission_start(
         "starter_moves": starter_moves(&mission, &graph_state),
         "non_goals": non_goals_for(&mission.mode),
         "non_claims": non_claims,
+        "evidence_projection": evidence_projection,
     }))
 }
 
@@ -155,6 +175,7 @@ pub fn handle_mission_event(
     let event_id = append_event(&mut mission, event_value, "mission_event");
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
+    let evidence_projection = project_mission_control(state, &mission);
 
     let event = mission.events.last().cloned().unwrap_or_else(|| json!({}));
     Ok(json!({
@@ -166,6 +187,7 @@ pub fn handle_mission_event(
         "budget_consumed": budget_consumed(&mission),
         "event_digest": event_digest(&mission.events),
         "non_claims": mission.non_claims,
+        "evidence_projection": evidence_projection,
     }))
 }
 
@@ -184,6 +206,7 @@ pub fn handle_mission_next(state: &mut SessionState, input: MissionNextInput) ->
     mission.phase = phase.clone();
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
+    let evidence_projection = project_mission_control(state, &mission);
 
     Ok(json!({
         "schema": NEXT_SCHEMA,
@@ -202,6 +225,7 @@ pub fn handle_mission_next(state: &mut SessionState, input: MissionNextInput) ->
         "budget_consumed": budget_consumed(&mission),
         "event_count": mission.events.len(),
         "non_claims": mission.non_claims,
+        "evidence_projection": evidence_projection,
     }))
 }
 
@@ -278,6 +302,7 @@ pub fn handle_mission_verify(
     mission.phase = "verify".into();
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
+    let evidence_projection = project_mission_control(state, &mission);
 
     Ok(json!({
         "schema": VERIFY_SCHEMA,
@@ -288,6 +313,7 @@ pub fn handle_mission_verify(
         "missing": missing,
         "next_required_move": next_required_move,
         "non_claims": mission.non_claims,
+        "evidence_projection": evidence_projection,
     }))
 }
 
@@ -335,7 +361,11 @@ pub fn handle_mission_handoff(
     mission.handoffs.push(handoff.clone());
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
-
+    let evidence_projection = project_mission_control(state, &mission);
+    let mut handoff = handoff;
+    if let Some(object) = handoff.as_object_mut() {
+        object.insert("evidence_projection".to_string(), evidence_projection);
+    }
     Ok(handoff)
 }
 
@@ -351,6 +381,7 @@ pub fn handle_mission_close(
     mission.phase = "closed".into();
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
+    let evidence_projection = project_mission_control(state, &mission);
 
     let verified_claims = verified_claims_json(&mission);
     let rejected_claims = rejected_claims_json(&mission);
@@ -378,6 +409,7 @@ pub fn handle_mission_close(
         "handoff_count": mission.handoffs.len(),
         "gaps": input.gaps,
         "non_claims": non_claims,
+        "evidence_projection": evidence_projection,
     });
 
     // Optional: write verified claims as a .light.md and ingest.
@@ -453,7 +485,6 @@ fn try_write_light_memory(
         title: Some(mission.task.clone()),
         state: Some("closed".into()),
         claims,
-        output_path: None,
         namespace: Some("light".into()),
         ingest_after: true,
         mode: "merge".into(),
@@ -540,6 +571,21 @@ fn save_mission(state: &SessionState, mission: &MissionState) -> M1ndResult<()> 
     let path = mission_path(state, &mission.mission_id)?;
     let body = serde_json::to_string_pretty(mission).map_err(M1ndError::Serde)?;
     fs::write(path, body).map_err(M1ndError::Io)
+}
+
+fn project_mission_control(state: &SessionState, mission: &MissionState) -> Value {
+    match serde_json::to_value(mission) {
+        Ok(record) => crate::evidence_spine_owner::record_mission_control(
+            state,
+            mission.evidence_link.as_ref(),
+            &record,
+            mission.updated_at_ms,
+        ),
+        Err(error) => crate::evidence_spine_owner::gap_status(
+            "mission_control_projection_encoding_failed",
+            error.to_string(),
+        ),
+    }
 }
 
 /// The candidate repo roots a cited evidence path is resolved against when
@@ -1555,6 +1601,7 @@ mod tests {
             budget: "normal".into(),
             risk: "medium".into(),
             parent_mission_id: None,
+            evidence_link: None,
         };
         assert!(validate_mission_start_input(&input).is_err());
     }
@@ -1630,6 +1677,8 @@ mod tests {
             budget: "normal".into(),
             risk: "medium".into(),
             parent_mission_id: None,
+            evidence_link: None,
+            evidence_projection_gaps: Vec::new(),
             route: route_for(mode, "normal", "medium"),
             phase: "verify".into(),
             status: "active".into(),
@@ -1690,6 +1739,7 @@ mod tests {
                 budget: "normal".into(),
                 risk: "medium".into(),
                 parent_mission_id: None,
+                evidence_link: None,
             },
         )
         .expect("mission_start");
@@ -1762,19 +1812,10 @@ mod tests {
         assert_eq!(out["evidence_grade"], "direct");
     }
 
-    /// FIX 4b — the load→mutate→save is lock-serialized. `THREADS` independent
-    /// sessions on the SAME runtime_root each append `PER_THREAD` events to the
-    /// SAME mission concurrently. `save_mission` rewrites the whole file, so
-    /// without serialization a racing writer's read-modify-write would clobber the
-    /// other's appends and the final event count would fall short of the total.
-    ///
-    /// This asserts the property on EVERY platform (NOT `#[cfg(unix)]`): the
-    /// in-process registry mutex in [`LockGuard`] is the serializer here (all
-    /// sessions share one process), so this catches the Windows regression where
-    /// the old `#[cfg(not(unix))]` no-op guard let appends race and vanish. On
-    /// unix the cross-process `flock` additionally serializes sibling processes.
-    /// Many threads × many iterations widen the race window so a broken lock loses
-    /// events deterministically.
+    /// Concurrent callers append to one mission through the runtime's unique
+    /// writable brain actor. Each callback performs multiple load→mutate→save
+    /// cycles; the final count proves actor admission serialized the complete
+    /// turns without manufacturing forbidden sibling SessionState writers.
     #[test]
     fn concurrent_mission_writes_serialize_and_lose_no_events() {
         use std::sync::Arc;
@@ -1792,42 +1833,70 @@ mod tests {
             start_mission(&mut state, "jimi")
         };
 
-        // Build sessions sequentially (initialization is not the property under
-        // test); the per-mission lock is the only serializer of the racing RMW.
-        let sessions: Vec<SessionState> = (0..THREADS as u32)
-            .map(|_| build_session(root.as_path()))
-            .collect();
+        let state = build_session(root.as_path());
+        let runtime_root = state.runtime_root.clone();
+        let session = Arc::new(crate::brain_runtime::BrainSessionCell::new(state));
+        let actor = crate::brain_runtime::BrainActorHandle::start(
+            "mission-event-race".to_string(),
+            session,
+            runtime_root.join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(crate::brain_runtime::UnboundBrainCheckpointAuthority),
+            THREADS,
+            None,
+        )
+        .expect("start brain actor");
 
         let mut handles = Vec::new();
-        for (i, mut state) in sessions.into_iter().enumerate() {
+        for i in 0..THREADS {
             let mission_id = mission_id.clone();
+            let actor = Arc::clone(&actor);
             handles.push(thread::spawn(move || {
-                for j in 0..PER_THREAD {
-                    let _ = handle_mission_event(
-                        &mut state,
-                        MissionEventInput {
-                            agent_id: "jimi".into(),
-                            mission_id: mission_id.clone(),
-                            event: json!("file_read"),
-                            payload: Some(json!({"path": format!("t{i}_e{j}.rs")})),
-                            outcome: None,
-                            agent_confidence: None,
-                        },
-                    );
-                }
+                actor
+                    .try_execute(true, move |state| {
+                        for j in 0..PER_THREAD {
+                            handle_mission_event(
+                                state,
+                                MissionEventInput {
+                                    agent_id: "jimi".into(),
+                                    mission_id: mission_id.clone(),
+                                    event: json!("file_read"),
+                                    payload: Some(json!({"path": format!("t{i}_e{j}.rs")})),
+                                    outcome: None,
+                                    agent_confidence: None,
+                                },
+                            )
+                            .map_err(|error| {
+                                crate::runtime_jobs::RuntimeJobFailure::new(
+                                    "mission_event_failed",
+                                    error.to_string(),
+                                )
+                            })?;
+                        }
+                        Ok(())
+                    })
+                    .expect("serialized mission events");
             }));
         }
         for h in handles {
             h.join().expect("thread join");
         }
 
-        // Reload from a fresh session: every appended event survived.
-        let reader = build_session(root.as_path());
-        let mission = load_mission(&reader, &mission_id).expect("reload mission");
+        // Reload through the same owner actor: every appended event survived.
+        let mission = actor
+            .try_execute(false, move |state| {
+                load_mission(state, &mission_id).map_err(|error| {
+                    crate::runtime_jobs::RuntimeJobFailure::new(
+                        "mission_reload_failed",
+                        error.to_string(),
+                    )
+                })
+            })
+            .expect("reload mission");
         assert_eq!(
             mission.events.len(),
             THREADS * PER_THREAD,
             "the lock must serialize concurrent RMW so no appended event is lost"
         );
+        actor.stop().expect("stop brain actor");
     }
 }

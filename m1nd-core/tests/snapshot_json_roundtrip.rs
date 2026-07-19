@@ -18,7 +18,7 @@
 //! (Surfaced by the X-RAY proof-coverage pass.)
 
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
-use m1nd_core::snapshot::{load_graph, save_graph};
+use m1nd_core::snapshot::{decode_graph_json, encode_graph_json, load_graph, save_graph};
 use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
 
 /// Build a small but representative graph: two function nodes, distinctive tags,
@@ -78,6 +78,14 @@ fn first_out_edge_weight(graph: &Graph, node: NodeId) -> f32 {
         .csr
         .read_weight(m1nd_core::types::EdgeIdx::new(idx as u32))
         .get()
+}
+
+fn edge_slot(graph: &Graph, source: NodeId, target: NodeId) -> usize {
+    graph
+        .csr
+        .out_range(source)
+        .find(|&slot| graph.csr.targets[slot] == target)
+        .expect("edge slot")
 }
 
 #[test]
@@ -150,6 +158,154 @@ fn json_snapshot_round_trips_nodes_edges_tags_provenance_weights() {
         (weight - 0.75).abs() < 1e-6,
         "edge weight must survive the JSON round-trip, got {weight}"
     );
+}
+
+#[test]
+fn json_v4_restart_preserves_original_and_learned_weight_separately() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("learned.json");
+    let mut graph = sample_graph();
+    let alpha = graph.resolve_id("file::a.rs::fn::alpha").unwrap();
+    let beta = graph.resolve_id("file::a.rs::fn::beta").unwrap();
+    let slot = edge_slot(&graph, alpha, beta);
+    graph.edge_plasticity.current_weight[slot] = FiniteF32::new(1.37);
+    graph
+        .csr
+        .atomic_write_weight(
+            m1nd_core::types::EdgeIdx::new(slot as u32),
+            FiniteF32::new(1.37),
+            64,
+        )
+        .unwrap();
+
+    save_graph(&graph, &path).expect("save v4 learned graph");
+    let restored = load_graph(&path).expect("restore v4 learned graph");
+    let restored_alpha = restored.resolve_id("file::a.rs::fn::alpha").unwrap();
+    let restored_beta = restored.resolve_id("file::a.rs::fn::beta").unwrap();
+    let restored_slot = edge_slot(&restored, restored_alpha, restored_beta);
+    assert_eq!(
+        restored.edge_plasticity.original_weight[restored_slot].get(),
+        0.75
+    );
+    assert_eq!(
+        restored.edge_plasticity.current_weight[restored_slot].get(),
+        1.37
+    );
+    assert_eq!(
+        restored
+            .csr
+            .read_weight(m1nd_core::types::EdgeIdx::new(restored_slot as u32))
+            .get(),
+        1.37
+    );
+}
+
+#[test]
+fn detached_json_encode_decode_roundtrip_needs_no_filesystem() {
+    let graph = sample_graph();
+    let bytes = encode_graph_json(&graph).expect("encode detached candidate");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["version"],
+        4
+    );
+    let restored = decode_graph_json(&bytes).expect("decode detached candidate");
+    assert_eq!(restored.num_nodes(), graph.num_nodes());
+    assert_eq!(restored.num_edges(), graph.num_edges());
+    assert!(restored.resolve_id("file::a.rs::fn::alpha").is_some());
+}
+
+#[test]
+fn json_v4_preserves_asymmetric_bidirectional_slots() {
+    let mut graph = Graph::new();
+    let alpha = graph
+        .add_node("alpha", "alpha", NodeType::Function, &[], 0.0, 0.0)
+        .unwrap();
+    let beta = graph
+        .add_node("beta", "beta", NodeType::Function, &[], 0.0, 0.0)
+        .unwrap();
+    graph
+        .add_edge(
+            alpha,
+            beta,
+            "related",
+            FiniteF32::new(0.4),
+            EdgeDirection::Bidirectional,
+            false,
+            FiniteF32::new(0.2),
+        )
+        .unwrap();
+    graph.finalize().unwrap();
+    let forward = edge_slot(&graph, alpha, beta);
+    let reverse = edge_slot(&graph, beta, alpha);
+    graph.edge_plasticity.original_weight[forward] = FiniteF32::new(0.4);
+    graph.edge_plasticity.original_weight[reverse] = FiniteF32::new(0.6);
+    graph.edge_plasticity.current_weight[forward] = FiniteF32::new(1.2);
+    graph.edge_plasticity.current_weight[reverse] = FiniteF32::new(0.3);
+    graph
+        .csr
+        .atomic_write_weight(
+            m1nd_core::types::EdgeIdx::new(forward as u32),
+            FiniteF32::new(1.2),
+            64,
+        )
+        .unwrap();
+    graph
+        .csr
+        .atomic_write_weight(
+            m1nd_core::types::EdgeIdx::new(reverse as u32),
+            FiniteF32::new(0.3),
+            64,
+        )
+        .unwrap();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("bidir.json");
+    save_graph(&graph, &path).expect("save bidirectional graph");
+    let restored = load_graph(&path).expect("restore bidirectional graph");
+    let restored_alpha = restored.resolve_id("alpha").unwrap();
+    let restored_beta = restored.resolve_id("beta").unwrap();
+    let restored_forward = edge_slot(&restored, restored_alpha, restored_beta);
+    let restored_reverse = edge_slot(&restored, restored_beta, restored_alpha);
+    assert_eq!(
+        restored.edge_plasticity.original_weight[restored_forward].get(),
+        0.4
+    );
+    assert_eq!(
+        restored.edge_plasticity.original_weight[restored_reverse].get(),
+        0.6
+    );
+    assert_eq!(
+        restored.edge_plasticity.current_weight[restored_forward].get(),
+        1.2
+    );
+    assert_eq!(
+        restored.edge_plasticity.current_weight[restored_reverse].get(),
+        0.3
+    );
+}
+
+#[test]
+fn json_loader_migrates_v3_weight_as_both_original_and_current() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("legacy-v3.json");
+    let legacy = serde_json::json!({
+        "version": 3,
+        "nodes": [
+            {"external_id":"alpha","label":"alpha","node_type":2,"tags":[],"last_modified":0.0,"change_frequency":0.0},
+            {"external_id":"beta","label":"beta","node_type":2,"tags":[],"last_modified":0.0,"change_frequency":0.0}
+        ],
+        "edges": [{
+            "source_id":"alpha","target_id":"beta","relation":"calls","weight":0.66,
+            "direction":0,"inhibitory":false,"causal_strength":0.1
+        }]
+    });
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let restored = load_graph(&path).expect("load legacy v3 JSON");
+    let alpha = restored.resolve_id("alpha").unwrap();
+    let beta = restored.resolve_id("beta").unwrap();
+    let slot = edge_slot(&restored, alpha, beta);
+    assert_eq!(restored.edge_plasticity.original_weight[slot].get(), 0.66);
+    assert_eq!(restored.edge_plasticity.current_weight[slot].get(), 0.66);
 }
 
 #[test]

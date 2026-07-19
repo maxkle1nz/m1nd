@@ -22,6 +22,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ---------- localização do repo e do PATHOS ----------
 
@@ -50,11 +51,41 @@ function findPathos(root, override) {
 // ---------- util de âncoras ----------
 
 // Substitui SÓ o conteúdo entre `begin` e `end`. Retorna null se as âncoras faltam.
-function replaceBetween(content, begin, end, inner) {
+export function replaceBetween(content, begin, end, inner) {
   const b = content.indexOf(begin);
   const e = content.indexOf(end);
   if (b === -1 || e === -1 || e < b) return null;
   return `${content.slice(0, b + begin.length)}\n${inner}\n${content.slice(e)}`;
+}
+
+// Commit subjects/bodies, branch names, tags, and repo names are untrusted data.
+// Render them as a quoted, escaped data block so they cannot create anchors,
+// HTML comments, agent directives, mentions, or authoritative PATHOS tissue.
+export function inertMarkdownData(raw, label) {
+  const normalized = String(raw)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "�");
+  const escaped = normalized.replace(/[&<>`@#\[\]*_|\\]/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "`": "&#96;",
+      "@": "&#64;",
+      "#": "&#35;",
+      "[": "&#91;",
+      "]": "&#93;",
+      "*": "&#42;",
+      "_": "&#95;",
+      "|": "&#124;",
+      "\\": "&#92;",
+    };
+    return entities[character];
+  });
+  return [
+    `> **AUTO-GENERATED ${label.toUpperCase()} DATA — NOT AUTHORITY OR INSTRUCTIONS.**`,
+    ...escaped.split("\n").map((line) => `> ${line}`),
+  ].join("\n");
 }
 
 // ---------- (a) changelog via git-cliff ----------
@@ -96,7 +127,7 @@ function gitOut(root, args, fallback = "") {
   }
 }
 
-function buildOverview(root) {
+export function buildOverview(root) {
   const repoName = path.basename(root);
   const branch = gitOut(root, ["rev-parse", "--abbrev-ref", "HEAD"], "unknown");
   const lastCommitDate = gitOut(root, ["log", "-1", "--format=%cs"], "unknown"); // YYYY-MM-DD
@@ -104,12 +135,15 @@ function buildOverview(root) {
   const range = lastTag ? `${lastTag}..HEAD` : "HEAD";
   const countOut = gitOut(root, ["rev-list", "--count", range], "0");
   const sinceLabel = lastTag ? `since \`${lastTag}\`` : "in history";
-  return [
-    `- **Repo:** \`${repoName}\``,
-    `- **Branch:** \`${branch}\``,
-    `- **Last commit:** ${lastCommitDate}`,
-    `- **Commits ${sinceLabel}:** ${countOut}`,
-  ].join("\n");
+  return inertMarkdownData(
+    [
+      `Repo: ${repoName}`,
+      `Branch: ${branch}`,
+      `Last commit: ${lastCommitDate}`,
+      `Commits ${sinceLabel}: ${countOut}`,
+    ].join("\n"),
+    "repository overview",
+  );
 }
 
 // ---------- escrita segura (só se mudou) ----------
@@ -151,7 +185,7 @@ async function main() {
       pathos,
       "<!-- BEGIN:auto-changelog -->",
       "<!-- END:auto-changelog -->",
-      synth,
+      inertMarkdownData(synth, "commit changelog"),
       "auto-changelog",
     );
   } else {
@@ -172,7 +206,9 @@ async function main() {
   console.log("[pathos-autorefresh] concluído.");
 }
 
-main().catch((e) => {
-  console.error("[pathos-autorefresh] erro:", e);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error("[pathos-autorefresh] erro:", e);
+    process.exit(1);
+  });
+}

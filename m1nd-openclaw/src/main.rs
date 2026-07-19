@@ -1,10 +1,8 @@
 use clap::Parser;
-use m1nd_mcp::server::{dispatch_tool, McpConfig, McpServer};
-use parking_lot::Mutex;
+use m1nd_mcp::server::{McpConfig, McpServer, McpToolClient};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
@@ -74,7 +72,7 @@ fn inject_default_agent_id(arguments: &Value, default_agent_id: &str) -> Value {
 
 fn build_response(
     request: Result<BridgeRequest, serde_json::Error>,
-    state: &Arc<Mutex<m1nd_mcp::session::SessionState>>,
+    client: &McpToolClient,
     default_agent_id: &str,
 ) -> BridgeResponse {
     let started = std::time::Instant::now();
@@ -82,10 +80,7 @@ fn build_response(
         Ok(request) => {
             let tool = normalize_tool_name(&request.tool).to_string();
             let args = inject_default_agent_id(&request.arguments, default_agent_id);
-            let result = {
-                let mut session = state.lock();
-                dispatch_tool(&mut session, &tool, &args)
-            };
+            let result = client.call_tool(&tool, &args);
             match result {
                 Ok(value) => BridgeResponse {
                     id: request.id,
@@ -159,20 +154,39 @@ fn load_config(cli: &Cli) -> McpConfig {
 
 async fn handle_client(
     stream: UnixStream,
-    state: Arc<Mutex<m1nd_mcp::session::SessionState>>,
+    client: McpToolClient,
     default_agent_id: String,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> std::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
 
-    while let Some(line) = lines.next_line().await? {
+    loop {
+        let line = tokio::select! {
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    break;
+                }
+                continue;
+            }
+            line = lines.next_line() => line?,
+        };
+        let Some(line) = line else {
+            break;
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
 
         let request: Result<BridgeRequest, _> = serde_json::from_str(trimmed);
-        let response = build_response(request, &state, &default_agent_id);
+        let request_client = client.clone();
+        let request_agent_id = default_agent_id.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            build_response(request, &request_client, &request_agent_id)
+        })
+        .await
+        .map_err(std::io::Error::other)?;
 
         let encoded = serde_json::to_vec(&response)?;
         writer.write_all(&encoded).await?;
@@ -190,6 +204,28 @@ fn remove_stale_socket(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+async fn owner_shutdown_signal() -> Result<&'static str, String> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| format!("could not install SIGTERM watcher: {error}"))?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result.map(|()| "SIGINT").map_err(|error| error.to_string())
+        }
+        signal = terminate.recv() => {
+            signal.map(|()| "SIGTERM").ok_or_else(|| "SIGTERM watcher closed".to_string())
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn owner_shutdown_signal() -> Result<&'static str, String> {
+    tokio::signal::ctrl_c()
+        .await
+        .map(|()| "CTRL_C")
+        .map_err(|error| error.to_string())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -203,7 +239,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config(&cli);
     let mut server = McpServer::new(config)?;
     server.start()?;
-    let state = Arc::new(Mutex::new(server.into_session_state()));
+    let client = server.tool_client()?;
+    let heartbeat = server.spawn_instance_heartbeat()?;
     let default_agent_id = cli
         .default_agent_id
         .clone()
@@ -216,17 +253,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         socket_path.display()
     );
 
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let mut clients = tokio::task::JoinSet::new();
+    let shutdown_signal = owner_shutdown_signal();
+    tokio::pin!(shutdown_signal);
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            signal = &mut shutdown_signal => {
+                match signal {
+                    Ok(signal) => eprintln!("[m1nd-openclaw] {signal} received; draining clients..."),
+                    Err(error) => eprintln!("[m1nd-openclaw] shutdown signal watcher failed closed: {error}"),
+                }
                 break;
+            }
+            completed = clients.join_next(), if !clients.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    eprintln!("[m1nd-openclaw] client task failed: {error}");
+                }
             }
             accepted = listener.accept() => {
                 let (stream, _) = accepted?;
-                let state = Arc::clone(&state);
+                let client = client.clone();
                 let default_agent_id = default_agent_id.clone();
-                tokio::spawn(async move {
-                    if let Err(err) = handle_client(stream, state, default_agent_id).await {
+                let shutdown = shutdown_rx.clone();
+                clients.spawn(async move {
+                    if let Err(err) = handle_client(stream, client, default_agent_id, shutdown).await {
                         eprintln!("[m1nd-openclaw] client error: {}", err);
                     }
                 });
@@ -234,7 +285,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let _ = shutdown_tx.send(true);
+    drop(listener);
+    while let Some(completed) = clients.join_next().await {
+        if let Err(error) = completed {
+            eprintln!("[m1nd-openclaw] client task failed during drain: {error}");
+        }
+    }
     let _ = std::fs::remove_file(&socket_path);
+    server.shutdown()?;
+    heartbeat.abort();
+    let _ = heartbeat.await;
     Ok(())
 }
 

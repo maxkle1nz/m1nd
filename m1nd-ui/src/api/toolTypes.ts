@@ -143,8 +143,17 @@ export interface TrustEnvelope {
   next_repair_call?: string;
 }
 
+export interface SeekGrounding {
+  state: 'entity_grounded' | 'entity_absent' | 'not_applicable';
+  salient_entities: string[];
+  missing_entities: string[];
+  reason: string;
+}
+
 export interface SeekOutput {
   query: string;
+  result_granularity: 'node' | 'file_group';
+  grounding: SeekGrounding;
   results: SeekResultEntry[];
   sufficiency: Sufficiency;
   trust_envelope: TrustEnvelope;
