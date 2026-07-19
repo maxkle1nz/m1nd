@@ -2,7 +2,7 @@
 
 Date: 2026-07-18
 Mode: `verdict/full`, read-only
-Workspace: `/Users/kle1nz/m1nd`
+Workspace: `<repo-root>`
 
 ## Objective
 
@@ -64,3 +64,6 @@ Consequences:
   valid evidence-backed review, or an explicit owner decision to proceed across
   that proof boundary.
 
+---
+
+Redaction note (2026-07-20): machine-local paths replaced post-hoc with neutral placeholders; no finding or result altered.

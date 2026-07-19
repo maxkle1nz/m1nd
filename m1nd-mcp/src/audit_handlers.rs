@@ -182,7 +182,7 @@ fn is_placeholder_external_path(path: &Path) -> bool {
         || value == "/your/project"
         || value == "/your/docs"
         || value == "/your/domain.json"
-        || value.starts_with("/Users/youruser/")
+        || value.starts_with("/Users/<name>/")
         || value.starts_with("/path/")
         || value.starts_with("/path/to/")
         || value.starts_with("/app/")

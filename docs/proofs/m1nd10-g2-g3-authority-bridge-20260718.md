@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-18
 
-**Checkout:** `/Users/kle1nz/m1nd`
+**Checkout:** `<repo-root>`
 
 **Scope:** G2 AuthorityRuntime → durable owner authorization lease → G3 MissionService → signed
 AuthorityWAL `COMMIT`
@@ -397,3 +397,7 @@ Frozen design files were not edited by this lane. Immediately before final askGO
 
 **Final status: working-tree G2→G3 implementation DONE and focused-fixture PROVEN; overall release
 gate remains NOT_COMPLETE, HUMAN_GATED, fail-closed, and production adapters remain NOT_INSTALLED.**
+
+---
+
+Redaction note (2026-07-20): machine-local paths replaced post-hoc with neutral placeholders; no finding or result altered.

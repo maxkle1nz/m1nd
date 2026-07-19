@@ -119,6 +119,12 @@ class CiSecurityContractTests(unittest.TestCase):
             "credential_file",
             "opaque_archive",
             "personal_path_content",
+            # The ratified C6 frozen-PRD content-gate exception must stay bound to
+            # its exact digest; losing it would silently reopen the leak or drop
+            # the exception. see docs/proofs/
+            # m1nd10-public-path-migration-ratification-20260720.md
+            "FROZEN_PRD_SHA256",
+            "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38",
         ):
             self.assertIn(token, policy, f"guard lost hardened semantics: {token}")
 

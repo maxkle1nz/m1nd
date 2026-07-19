@@ -41,7 +41,7 @@ Create `~/Library/LaunchAgents/world.m1nd.mcp-server.plist` (a generic template 
     <string>world.m1nd.mcp-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/youruser/.m1nd/bin/m1nd-mcp</string>
+        <string>/Users/<name>/.m1nd/bin/m1nd-mcp</string>
         <string>--serve</string>
         <string>--no-gui</string>
         <string>--port</string>
@@ -50,7 +50,7 @@ Create `~/Library/LaunchAgents/world.m1nd.mcp-server.plist` (a generic template 
     <key>EnvironmentVariables</key>
     <dict>
         <key>M1ND_RUNTIME_DIR</key>
-        <string>/Users/youruser/.m1nd</string>
+        <string>/Users/<name>/.m1nd</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

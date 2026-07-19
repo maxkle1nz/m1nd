@@ -113,40 +113,40 @@ assert.strictEqual(
   "m1nd-mcp-windows-x86_64.exe"
 );
 assert.strictEqual(githubReleaseAssetName("win32", "arm64"), null);
-assert.strictEqual(commandLooksLikeRuntime("/Users/you/.m1nd/bin/m1nd-mcp --stdio"), true);
+assert.strictEqual(commandLooksLikeRuntime("/Users/<name>/.m1nd/bin/m1nd-mcp --stdio"), true);
 assert.strictEqual(commandLooksLikeRuntime("(m1nd-mcp)"), true);
 assert.strictEqual(commandLooksLikeRuntime("node codex prompt mentions m1nd-mcp"), false);
 
 assert.strictEqual(
-  defaultRuntimePath("win32", "C:\\Users\\you"),
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  defaultRuntimePath("win32", "C:\\Users\\<name>"),
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
 
 const codexWindowsConfig = mcpConfig(
   "codex",
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
-assert(codexWindowsConfig.includes('command = "C:\\\\Users\\\\you\\\\.m1nd\\\\bin\\\\m1nd-mcp.exe"'));
+assert(codexWindowsConfig.includes('command = "C:\\\\Users\\\\<name>\\\\.m1nd\\\\bin\\\\m1nd-mcp.exe"'));
 assert(codexWindowsConfig.includes('args = ["--stdio", "--no-gui"]'));
 const projectForConfig = path.resolve("project");
 const codexProjectConfig = mcpConfig(
   "codex",
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe",
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe",
   projectForConfig
 );
 assert(codexProjectConfig.includes("[mcp_servers.m1nd.env]"));
 assert(codexProjectConfig.includes(`M1ND_WORKSPACE_ROOT = "${projectForConfig.replace(/\\/g, "\\\\")}"`));
 
 const genericWindowsConfig = JSON.parse(
-  mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe")
+  mcpConfig("generic", "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe")
 );
 assert.strictEqual(
   genericWindowsConfig.mcpServers.m1nd.command,
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
 assert.deepStrictEqual(genericWindowsConfig.mcpServers.m1nd.args, ["--stdio", "--no-gui"]);
 const genericProjectConfig = JSON.parse(
-  mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe", projectForConfig)
+  mcpConfig("generic", "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe", projectForConfig)
 );
 assert.strictEqual(genericProjectConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, projectForConfig);
 
@@ -2526,14 +2526,14 @@ function homeForTest() {
   const withProgram = [
     "com.example.m1nd = {",
     "\tactive count = 1",
-    "\tprogram = /Users/x/.m1nd/bin/m1nd-mcp",
+    "\tprogram = /Users/<name>/.m1nd/bin/m1nd-mcp",
     "\targuments = {",
     "\t}",
     "}",
   ].join("\n");
   assert.strictEqual(
     parseLaunchctlProgramPath(withProgram),
-    "/Users/x/.m1nd/bin/m1nd-mcp",
+    "/Users/<name>/.m1nd/bin/m1nd-mcp",
     "the explicit program line is preferred"
   );
 

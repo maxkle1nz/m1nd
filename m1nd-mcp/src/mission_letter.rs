@@ -998,7 +998,7 @@ mod tests {
 
     #[test]
     fn brain_ref_absolute_path_is_rejected() {
-        for path in ["/Users/someone/repo", "~/repo", "C:\\repo"] {
+        for path in ["/Users/<name>/repo", "~/repo", "C:\\repo"] {
             let mut l = base_letter(1, Phase::Judging);
             l.brain_ref = path.to_string();
             assert!(

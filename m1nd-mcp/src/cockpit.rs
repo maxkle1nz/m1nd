@@ -810,9 +810,9 @@ mod tests {
         f.memory_count = 342;
         f.presences = (0..PRESENCE_DRILL_CAP)
             .map(|i| {
-                let mut p = presence(&format!("executor-agent-number-{i}"), "/Users/x/m1nd");
+                let mut p = presence(&format!("executor-agent-number-{i}"), "/Users/<name>/m1nd");
                 p.worktree = Some(format!("feat/some-longish-worktree-name-{i}"));
-                p.caller_root = Some(format!("/Users/x/m1nd-worktree-{i}"));
+                p.caller_root = Some(format!("/Users/<name>/m1nd-worktree-{i}"));
                 p.task_ref = Some(format!("msn_1783903278219_executoragent{i}"));
                 p.mutation.observed_at_ms = Some(crate::util::now_ms());
                 p

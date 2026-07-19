@@ -737,8 +737,8 @@ pub(crate) fn is_memory_sidecar(p: &str) -> bool {
 }
 
 /// The last path component of a filesystem root — the human name of a repo
-/// ("/Users/x/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
-/// so a Windows backslash path ("C:\\Users\\dev\\m1nd" → "m1nd") names its repo
+/// ("/Users/<name>/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
+/// so a Windows backslash path ("C:\\Users\\<name>\\m1nd" → "m1nd") names its repo
 /// the same as a POSIX one. Trailing separators are tolerated; a rootless or
 /// empty input returns the trimmed input unchanged (honest, never a panic).
 /// Shared by the bound-brain display name and the project-brain listing so both
@@ -1168,7 +1168,7 @@ impl SessionState {
     /// by plumbing: the bound dev graph's `workspace_root` is its `agent-memory`
     /// sidecar dir (inferred `graph_path_parent`), so naming from it leaks
     /// "agent-memory"/"claude". The true project is the primary *code* ingest
-    /// root (e.g. `/Users/kle1nz/m1nd`). Precedence, mirroring
+    /// root (e.g. `<repo-root>`). Precedence, mirroring
     /// `self_repo_declared_version`'s "which root is the repo" rule:
     ///
     /// 1. the first ingest root that is a real directory and is NOT a `.light.md`
@@ -4769,7 +4769,7 @@ mod tests {
         let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("initialize session");
         state.ingest_roots = vec![];
-        state.workspace_root = Some("/Users/x/solo-repo".to_string());
+        state.workspace_root = Some("/Users/<name>/solo-repo".to_string());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
     }
 
@@ -4891,12 +4891,12 @@ mod tests {
         // Windows backslash paths: the chronic red Windows CI case — a '\\'
         // separator must name the same repo a '/' separator does.
         assert_eq!(
-            basename_of(r"C:\Users\dev\m1nd"),
+            basename_of(r"C:\Users\<name>\m1nd"),
             "m1nd",
             "backslash path must yield the repo basename, not the whole string"
         );
         assert_eq!(
-            basename_of(r"C:\Users\dev\m1nd\"),
+            basename_of(r"C:\Users\<name>\m1nd\"),
             "m1nd",
             "trailing backslash tolerated"
         );
@@ -4904,7 +4904,7 @@ mod tests {
         assert_eq!(basename_of(r"\\server\share\repo"), "repo", "UNC path");
         // Mixed separators (some tools emit these on Windows).
         assert_eq!(
-            basename_of(r"C:\Users\dev/m1nd"),
+            basename_of(r"C:\Users\<name>/m1nd"),
             "m1nd",
             "mixed separators"
         );

@@ -2,7 +2,7 @@
 
 Date: 2026-07-18  
 Mode: `verdict`, march `full`, Fable (`claude-fable-5`)  
-Workspace judged: isolated snapshot of `/Users/kle1nz/m1nd` without build caches  
+Workspace judged: isolated snapshot of `<repo-root>` without build caches  
 Mutation check: second dispatch pre/post `git status --porcelain` SHA-256 was identical: `f793becc4b145d006bed330bff0ac8faca9428eaca7c3f96601b51b621b05056`.
 
 The first dispatch was discarded because its pre-dispatch snapshot-status hash was
@@ -50,3 +50,7 @@ RISKS_MISSED:
 `CHANGE` is binding on implementation. All six required changes are part of the
 implementation task. No authority bridge or G2/G3 gate may be marked complete
 until a final askGOD review of the real diff returns `APPROVE`.
+
+---
+
+Redaction note (2026-07-20): machine-local paths replaced post-hoc with neutral placeholders; no finding or result altered.

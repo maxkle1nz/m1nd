@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import stat
@@ -258,9 +259,26 @@ def merged_violations(*groups: Iterable[dict[str, str]]) -> list[dict[str, str]]
     return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]
 
 
-def scan_blob_for_personal_path(blob: bytes) -> str | None:
+# The frozen M1ND-10 PRD is a ratified invariant cited by every receipt; editing
+# it in place is forbidden, yet its documented machine-local paths would otherwise
+# fail the public-content gate. The owner ratified ONE narrowly defined content-gate
+# exception bound to the PRD's exact path AND its exact SHA-256. Any byte change
+# breaks the digest and the exception dies, restoring the normal
+# personal_path_content refusal. This is a digest-pinned single-document exception,
+# never a path allowlist.
+# see docs/proofs/m1nd10-public-path-migration-ratification-20260720.md
+FROZEN_PRD_PATH = "docs/M1ND-10-PRD.md"
+FROZEN_PRD_SHA256 = "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38"
+
+
+def scan_blob_for_personal_path(blob: bytes, path_text: str = "") -> str | None:
     """Refuse a public candidate blob that embeds a personal home-directory path."""
 
+    if (
+        path_text == FROZEN_PRD_PATH
+        and hashlib.sha256(blob).hexdigest() == FROZEN_PRD_SHA256
+    ):
+        return None
     return "personal_path_content" if PERSONAL_PATH_PATTERN.search(blob) else None
 
 
@@ -278,7 +296,7 @@ def commit_content_violations(
         except SourceBoundaryError:
             rejected[path] = "unreadable_candidate_content"
             continue
-        reason = scan_blob_for_personal_path(blob)
+        reason = scan_blob_for_personal_path(blob, path)
         if reason is not None:
             rejected[path] = reason
     return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]
@@ -296,7 +314,7 @@ def worktree_content_violations(
         except OSError:
             rejected[path] = "unreadable_candidate_content"
             continue
-        reason = scan_blob_for_personal_path(blob)
+        reason = scan_blob_for_personal_path(blob, path)
         if reason is not None:
             rejected[path] = reason
     return [{"path": path, "reason": rejected[path]} for path in sorted(rejected)]

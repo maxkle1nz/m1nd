@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import pathlib
 import subprocess
@@ -271,6 +272,93 @@ class CandidateSourceGuardTests(unittest.TestCase):
             report = GUARD.inspect_candidate(repo, "HEAD")
             self.assertEqual("FAIL", report["status"])
             self.assertEqual(offenders, {row["path"] for row in report["violations"]})
+            self.assertEqual(
+                {"personal_path_content"},
+                {row["reason"] for row in report["violations"]},
+            )
+
+    def test_frozen_prd_digest_exception_is_bound_to_exact_bytes(self) -> None:
+        # The owner-ratified C6 exception lets the frozen PRD's documented
+        # machine-local paths pass the content gate, but ONLY at its exact
+        # SHA-256. One byte of drift kills the exception and restores the normal
+        # personal_path_content refusal, in both the worktree projection and the
+        # enforced exact-commit mode. The real PRD bytes are read at runtime so
+        # this test source never embeds a personal path.
+        # see docs/proofs/m1nd10-public-path-migration-ratification-20260720.md
+        prd_bytes = (ROOT / "docs" / "M1ND-10-PRD.md").read_bytes()
+        self.assertEqual(
+            hashlib.sha256(prd_bytes).hexdigest(),
+            GUARD.FROZEN_PRD_SHA256,
+            "the real PRD bytes must match the ratified frozen digest",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = pathlib.Path(temporary)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "config",
+                    "user.email",
+                    "guard@example.invalid",
+                ],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.name", "Candidate Guard"],
+                check=True,
+            )
+            # Pin byte-exact blob identity so the exact-commit digest match is
+            # deterministic on every OS (Windows CRLF conversion would otherwise
+            # change the committed blob and mask the exception).
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "core.autocrlf", "false"],
+                check=True,
+            )
+            (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "seed.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qm", "seed"], check=True
+            )
+
+            prd = repo / "docs" / "M1ND-10-PRD.md"
+            prd.parent.mkdir(parents=True)
+
+            # (a) Exact frozen bytes → the digest-bound exception makes the guard
+            # PASS in both inspection modes, even though the PRD embeds documented
+            # machine-local paths.
+            prd.write_bytes(prd_bytes)
+            self.assertEqual("PASS", GUARD.inspect_worktree_projection(repo)["status"])
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qm", "frozen-prd"], check=True
+            )
+            self.assertEqual("PASS", GUARD.inspect_candidate(repo, "HEAD")["status"])
+
+            # (b) One byte of drift → the exception dies and the machine-local
+            # path inside the now non-canonical document is refused again.
+            prd.write_bytes(prd_bytes + b"\n")
+            self.assertNotEqual(
+                hashlib.sha256(prd.read_bytes()).hexdigest(),
+                GUARD.FROZEN_PRD_SHA256,
+            )
+            projection = GUARD.inspect_worktree_projection(repo)
+            self.assertEqual("FAIL", projection["status"])
+            self.assertEqual(
+                ["docs/M1ND-10-PRD.md"],
+                [row["path"] for row in projection["violations"]],
+            )
+            self.assertEqual(
+                {"personal_path_content"},
+                {row["reason"] for row in projection["violations"]},
+            )
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qm", "prd-drift"], check=True
+            )
+            report = GUARD.inspect_candidate(repo, "HEAD")
+            self.assertEqual("FAIL", report["status"])
             self.assertEqual(
                 {"personal_path_content"},
                 {row["reason"] for row in report["violations"]},

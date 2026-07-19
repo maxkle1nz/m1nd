@@ -286,12 +286,12 @@ fn repo_basename_is_separator_agnostic() {
     // This pins the exact input shape that broke #279/#280 without needing a
     // Windows runner to observe the failure.
     assert_eq!(
-        repo_basename(r"C:\Users\RUNNER~1\AppData\Local\Temp\xyz\project-repo"),
+        repo_basename(r"C:\Users\<name>\AppData\Local\Temp\xyz\project-repo"),
         "project-repo",
         "a Windows project_root must yield the repo basename, not the whole path"
     );
     assert_eq!(
-        repo_basename(r"C:\Users\RUNNER~1\AppData\Local\Temp\xyz\project-repo\"),
+        repo_basename(r"C:\Users\<name>\AppData\Local\Temp\xyz\project-repo\"),
         "project-repo",
         "trailing backslash tolerated"
     );
@@ -795,8 +795,8 @@ async fn dormant_project_brain_omits_live_session_counters_absent_honest() {
 // hall-render.test.tsx — keeps this captured SHAPE + the enriched fields
 // (display_name, project_root, brain_kind, counts, ordering) but with the
 // scratch tmp roots remapped to the real deployment roots they stand in for
-// (the tmpdir base is machine-specific and noisy): bound → /Users/kle1nz/m1nd
-// (runtime /Users/kle1nz/.m1nd/runtimes/claude, workspace .../agent-memory —
+// (the tmpdir base is machine-specific and noisy): bound → /Users/<name>/m1nd
+// (runtime /Users/<name>/.m1nd/runtimes/claude, workspace .../agent-memory —
 // the exact leak the fix must survive), project →
 // /path/to/project-b.
 // ---------------------------------------------------------------------------

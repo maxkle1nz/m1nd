@@ -864,7 +864,7 @@ mod tests {
         // BUG (field report L27/L29): the plist has no WorkingDirectory, so the
         // owner runs with cwd=/. The default `./graph_snapshot.json` then resolved
         // against `/` and every persist failed with os error 30 (read-only fs).
-        let runtime = PathBuf::from("/Users/kle1nz/.m1nd/runtimes/claude");
+        let runtime = PathBuf::from("/Users/<name>/.m1nd/runtimes/claude");
 
         let graph = anchor_persist_target(
             PathBuf::from("./graph_snapshot.json"),
@@ -893,7 +893,7 @@ mod tests {
     fn explicit_absolute_persist_target_is_never_rewritten() {
         // A real `--graph /abs/path` override must pass through untouched even
         // when a runtime dir is set: the operator asked for that exact location.
-        let runtime = PathBuf::from("/Users/kle1nz/.m1nd/runtimes/claude");
+        let runtime = PathBuf::from("/Users/<name>/.m1nd/runtimes/claude");
         let explicit = PathBuf::from("/data/snapshots/graph_snapshot.json");
         assert_eq!(
             anchor_persist_target(explicit.clone(), Some(runtime.as_path())),

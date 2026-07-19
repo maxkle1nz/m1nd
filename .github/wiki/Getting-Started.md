@@ -186,7 +186,7 @@ Any MCP-compatible editor uses the same config pattern:
       "command": "/path/to/m1nd-mcp",
       "args": [],
       "env": {
-        "M1ND_GRAPH_SOURCE": "/home/user/.m1nd/graph.json"
+        "M1ND_GRAPH_SOURCE": "/home/<user>/.m1nd/graph.json"
       }
     }
   }
