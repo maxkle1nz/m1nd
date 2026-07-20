@@ -2543,6 +2543,17 @@ impl SessionState {
         format!("preview_{}_{}", short_id, now_ms)
     }
 
+    /// Mint a staged-transplant handle (A2), mirroring [`Self::next_edit_preview_id`]
+    /// with a verb-naming prefix so an agent can tell the two handle families apart.
+    pub fn next_transplant_preview_id(&self, agent_id: &str) -> String {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let short_id = &agent_id[..agent_id.len().min(8)];
+        format!("transplant_preview_{}_{}", short_id, now_ms)
+    }
+
     /// Log a tool call to the query log ring buffer (max 1000 entries).
     pub fn log_query(
         &mut self,

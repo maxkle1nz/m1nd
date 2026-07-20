@@ -22,9 +22,10 @@
 //! PRD, never to fake a clean move.
 
 use crate::protocol::surgical::{
-    ApplyBatchInput, BatchEditItem, SharedDepReport, TransplantInput, TransplantOutput,
+    ApplyBatchInput, BatchEditItem, SharedDepReport, TransplantCommitInput, TransplantCommitOutput,
+    TransplantInput, TransplantOutput, TransplantPlannedFileReport, TransplantPreviewOutput,
 };
-use crate::session::SessionState;
+use crate::session::{PlannedTransplantWrite, SessionState, TransplantPreviewState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{NodeId, NodeType};
 use std::collections::BTreeSet;
@@ -60,8 +61,14 @@ struct GraphView {
 /// Build an `InvalidParams` refusal carrying `detail` (its Debug form is what the
 /// battery greps, so refusal reasons must be self-describing, e.g. "collision").
 fn refuse(detail: String) -> M1ndError {
+    refuse_for("transplant", detail)
+}
+
+/// [`refuse`] with an explicit tool label — the two-phase verbs refuse under
+/// their own names so the teaching error points at the right retry surface.
+fn refuse_for(tool: &str, detail: String) -> M1ndError {
     M1ndError::InvalidParams {
-        tool: "transplant".into(),
+        tool: tool.into(),
         detail,
     }
 }
@@ -112,10 +119,178 @@ pub fn proof_gate_touched_files(state: &SessionState, params: &serde_json::Value
     out
 }
 
+/// Staged-transplant TTL — same 5-minute window as the house `edit_preview`.
+pub const TRANSPLANT_PREVIEW_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// The computed-but-unwritten result of a transplant (A2): every file the verb
+/// will write with its FINAL content (fmt pass included) and base hash, the
+/// per-file diff reports, and the candidate receipt. Producing this writes
+/// nothing; landing it is [`apply_plan`].
+struct TransplantPlan {
+    planned: Vec<PlannedTransplantWrite>,
+    reports: Vec<TransplantPlannedFileReport>,
+    receipt: TransplantOutput,
+}
+
+/// The one-shot verb: plan + land in a single call (the original contract — the
+/// two-phase pair below is the same computation split at the write boundary).
 pub fn handle_transplant(
     state: &mut SessionState,
     input: TransplantInput,
 ) -> M1ndResult<TransplantOutput> {
+    let start = Instant::now();
+    let plan = plan_transplant(state, &input)?;
+    apply_plan(state, &input.agent_id, &plan.planned)?;
+    let mut receipt = plan.receipt;
+    receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    Ok(receipt)
+}
+
+/// A2 — `transplant_preview`: compute EVERYTHING (contents, referencers, fmt,
+/// candidate receipt), write NOTHING, stage the plan under a TTL'd handle.
+pub fn handle_transplant_preview(
+    state: &mut SessionState,
+    input: TransplantInput,
+) -> M1ndResult<TransplantPreviewOutput> {
+    let start = Instant::now();
+    let plan = plan_transplant(state, &input)?;
+    let preview_id = state.next_transplant_preview_id(&input.agent_id);
+    let created_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    state.transplant_previews.insert(
+        preview_id.clone(),
+        TransplantPreviewState {
+            preview_id: preview_id.clone(),
+            agent_id: input.agent_id.clone(),
+            symbol: input.symbol.trim().to_string(),
+            source_file: input.source_file.clone(),
+            dest_file: input.dest_file.clone(),
+            planned: plan.planned,
+            receipt: plan.receipt.clone(),
+            created_at_ms,
+        },
+    );
+    state.track_agent(&input.agent_id);
+    Ok(TransplantPreviewOutput {
+        preview_id,
+        ttl_ms: TRANSPLANT_PREVIEW_TTL_MS,
+        files: plan.reports,
+        candidate: plan.receipt,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+/// A2 — `transplant_commit`: redeem a staged plan. Re-validates the base hash of
+/// EVERY planned file (any drift → stale refusal, zero writes — the TOCTOU half
+/// of A5 closed at the write boundary), then lands atomically via the same batch
+/// path as the one-shot verb. The handle is consumed on success only.
+pub fn handle_transplant_commit(
+    state: &mut SessionState,
+    input: TransplantCommitInput,
+) -> M1ndResult<TransplantCommitOutput> {
+    let start = Instant::now();
+
+    if !input.confirm {
+        return Err(refuse_for(
+            "transplant_commit",
+            format!(
+                "confirm must be true to land a staged transplant. Hint: review the preview's files + candidate receipt, then resend the same preview_id with confirm=true. Example: {{\"preview_id\":\"{}\",\"agent_id\":\"{}\",\"confirm\":true}}",
+                input.preview_id, input.agent_id
+            ),
+        ));
+    }
+
+    // Garbage-collect expired handles (mirrors edit_commit's TTL sweep).
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    state
+        .transplant_previews
+        .retain(|_, v| now_ms.saturating_sub(v.created_at_ms) < TRANSPLANT_PREVIEW_TTL_MS);
+
+    let Some(staged) = state.transplant_previews.get(&input.preview_id).cloned() else {
+        return Err(refuse_for(
+            "transplant_commit",
+            format!(
+                "preview_id not found or expired (TTL=5min): {}. Hint: run transplant_preview again for the same symbol/source/dest to mint a fresh preview_id, then retry transplant_commit.",
+                input.preview_id
+            ),
+        ));
+    };
+    if staged.agent_id != input.agent_id {
+        return Err(refuse_for(
+            "transplant_commit",
+            "preview belongs to a different agent. Hint: retry with the agent_id that created the preview, or mint your own via transplant_preview.".to_string(),
+        ));
+    }
+
+    // TOCTOU gate: every file the plan will WRITE must be byte-stable since the
+    // preview — including the DERIVED referencers the caller never named. One
+    // drifted file refuses the WHOLE commit before any write.
+    for p in &staged.planned {
+        let current = std::fs::read_to_string(&p.file_path).unwrap_or_default();
+        if crate::surgical_handlers::content_hash(&current) != p.base_hash {
+            return Err(refuse_for(
+                "transplant_commit",
+                format!(
+                    "source_modified: '{}' changed since transplant_preview — the staged plan is stale and NOTHING was written. Hint: re-run transplant_preview against the current files, review the fresh diff, then commit.",
+                    p.file_path
+                ),
+            ));
+        }
+    }
+
+    apply_plan(state, &input.agent_id, &staged.planned)?;
+    state.transplant_previews.remove(&input.preview_id);
+    state.track_agent(&input.agent_id);
+
+    let mut receipt = staged.receipt;
+    receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    Ok(TransplantCommitOutput {
+        preview_id: input.preview_id,
+        receipt,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+/// Land a computed plan through the existing `apply_batch` machinery (atomic,
+/// re-ingesting) — the ONE write path both the one-shot verb and the commit use.
+fn apply_plan(
+    state: &mut SessionState,
+    agent_id: &str,
+    planned: &[PlannedTransplantWrite],
+) -> M1ndResult<()> {
+    let batch = ApplyBatchInput {
+        agent_id: agent_id.to_string(),
+        edits: planned
+            .iter()
+            .map(|p| BatchEditItem {
+                file_path: p.file_path.clone(),
+                new_content: p.new_content.clone(),
+                description: p.description.clone(),
+            })
+            .collect(),
+        atomic: true,
+        reingest: true,
+        verify: false,
+    };
+    let batch_out = crate::surgical_handlers::handle_apply_batch(state, batch)?;
+    if !batch_out.all_succeeded {
+        return Err(refuse(format!(
+            "atomic transplant write failed: only {}/{} files written",
+            batch_out.files_written, batch_out.files_total
+        )));
+    }
+    Ok(())
+}
+
+/// Phases 0–7.7: everything the verb computes BEFORE the write boundary. Pure
+/// read — every refusal here provably writes nothing, and both the one-shot verb
+/// and the two-phase preview are thin wrappers over this one function.
+fn plan_transplant(state: &SessionState, input: &TransplantInput) -> M1ndResult<TransplantPlan> {
     let start = Instant::now();
 
     // --- Phase 0: paths, same-file refusal, read both files from DISK ---------
@@ -441,7 +616,9 @@ pub fn handle_transplant(
     // clobber the insertion and DESTROY the item (proptest-found corruption).
     let mut refs_rewritten = 0usize;
     let mut refs_unresolved: Vec<String> = carried_notes;
-    let mut referencer_edits: Vec<BatchEditItem> = Vec::new();
+    // Planned referencer writes, each paired with the BASE text it was computed
+    // from (the hash is the commit's TOCTOU anchor; the text feeds the diff report).
+    let mut referencer_planned: Vec<(PlannedTransplantWrite, String)> = Vec::new();
     for rf in &referencing_files {
         if paths_equal(rf, &source_abs) {
             // The source's own remaining references were already re-pointed in
@@ -479,32 +656,41 @@ pub fn handle_transplant(
             continue; // detected-but-unresolved: reported above, file untouched
         }
         refs_rewritten += rw.rewritten;
-        referencer_edits.push(BatchEditItem {
-            file_path: rf.clone(),
-            new_content: rw.new_text,
-            description: Some(format!(
-                "transplant: re-point `{symbol}` to `{dest_module}`"
-            )),
-        });
+        referencer_planned.push((
+            PlannedTransplantWrite {
+                file_path: rf.clone(),
+                new_content: rw.new_text,
+                base_hash: crate::surgical_handlers::content_hash(&text),
+                description: Some(format!(
+                    "transplant: re-point `{symbol}` to `{dest_module}`"
+                )),
+            },
+            text,
+        ));
     }
 
-    let mut edits: Vec<BatchEditItem> = vec![
-        BatchEditItem {
+    // Assemble the plan in write order (source, dest, referencers), each entry
+    // hashed against the exact on-disk text its content was computed FROM.
+    let mut planned: Vec<PlannedTransplantWrite> = vec![
+        PlannedTransplantWrite {
             file_path: source_abs.clone(),
             new_content: new_source,
+            base_hash: crate::surgical_handlers::content_hash(&source_text),
             description: Some(format!("transplant: remove `{symbol}` (+ travelled deps)")),
         },
-        BatchEditItem {
+        PlannedTransplantWrite {
             file_path: dest_abs.clone(),
             new_content: new_dest,
+            base_hash: crate::surgical_handlers::content_hash(&dest_text),
             description: Some(format!("transplant: receive `{symbol}`")),
         },
     ];
-    let mut files_changed: Vec<String> = vec![source_abs.clone(), dest_abs.clone()];
-    for e in referencer_edits {
-        files_changed.push(e.file_path.clone());
-        edits.push(e);
+    let mut base_texts: Vec<String> = vec![source_text.clone(), dest_text.clone()];
+    for (pw, base) in referencer_planned {
+        planned.push(pw);
+        base_texts.push(base);
     }
+    let files_changed: Vec<String> = planned.iter().map(|p| p.file_path.clone()).collect();
 
     // --- Phase 7.7: rustfmt the COMPUTED contents before the write ------------
     // The oracle is `cargo check`, never fmt — but in a fmt-gated repo the verb's
@@ -514,12 +700,12 @@ pub fn handle_transplant(
     // Honest fallback: an unavailable/failing rustfmt writes the unformatted text
     // and the receipt carries the note instead of a silent skip.
     let mut fmt_notes: Vec<String> = Vec::new();
-    for e in edits.iter_mut() {
-        match rustfmt_content(&e.new_content) {
-            Ok(formatted) => e.new_content = formatted,
+    for p in planned.iter_mut() {
+        match rustfmt_content(&p.new_content) {
+            Ok(formatted) => p.new_content = formatted,
             Err(note) => {
                 let unavailable = note.starts_with("rustfmt unavailable");
-                fmt_notes.push(format!("{}: {note}", e.file_path));
+                fmt_notes.push(format!("{}: {note}", p.file_path));
                 if unavailable {
                     break; // spawning again cannot succeed; one note explains all
                 }
@@ -532,23 +718,24 @@ pub fn handle_transplant(
         fmt_notes.join("; ")
     };
 
-    // --- Phase 8: ATOMIC write through the existing apply_batch machinery ------
-    let batch = ApplyBatchInput {
-        agent_id: input.agent_id.clone(),
-        edits,
-        atomic: true,
-        reingest: true,
-        verify: false,
-    };
-    let batch_out = crate::surgical_handlers::handle_apply_batch(state, batch)?;
-    if !batch_out.all_succeeded {
-        return Err(refuse(format!(
-            "atomic transplant write failed: only {}/{} files written",
-            batch_out.files_written, batch_out.files_total
-        )));
-    }
+    // Per-file diff reports against the base texts, AFTER the fmt pass — the
+    // preview shows exactly the bytes the commit will land.
+    let reports: Vec<TransplantPlannedFileReport> = planned
+        .iter()
+        .zip(base_texts.iter())
+        .map(|(p, base)| {
+            let (lines_added, lines_removed) =
+                crate::surgical_handlers::diff_summary(base, &p.new_content);
+            TransplantPlannedFileReport {
+                file_path: p.file_path.clone(),
+                base_hash: p.base_hash.clone(),
+                lines_added,
+                lines_removed,
+            }
+        })
+        .collect();
 
-    Ok(TransplantOutput {
+    let receipt = TransplantOutput {
         moved_symbol: symbol,
         source_module,
         dest_module,
@@ -569,6 +756,12 @@ pub fn handle_transplant(
         referencer_source,
         rustfmt: rustfmt_status,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    };
+
+    Ok(TransplantPlan {
+        planned,
+        reports,
+        receipt,
     })
 }
 

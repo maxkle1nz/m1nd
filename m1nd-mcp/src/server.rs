@@ -3016,7 +3016,11 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "mission_spawn",
     // PROOF-OF-POSSIBILITY SPIKE: transplant writes source/dest/referencer files
     // atomically (through apply_batch), so a read-only attach must refuse it.
+    // `transplant_commit` lands a staged plan — the same write under a handle.
+    // `transplant_preview` is deliberately ABSENT (it stages in memory and never
+    // writes, mirroring the `edit_preview` exemption).
     "transplant",
+    "transplant_commit",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3049,7 +3053,13 @@ pub(crate) fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> b
 /// tools that perform an on-disk write of agent-supplied content. `edit_preview`
 /// is deliberately excluded: it only stages an in-memory preview and never
 /// writes — same stance as the read-only gate.
-const PROOF_GATED_WRITE_TOOLS: &[&str] = &["apply", "apply_batch", "edit_commit", "transplant"];
+const PROOF_GATED_WRITE_TOOLS: &[&str] = &[
+    "apply",
+    "apply_batch",
+    "edit_commit",
+    "transplant",
+    "transplant_commit",
+];
 
 /// Returns the normalized (prefix-stripped) tool name if `tool_name` is a
 /// proof-gated code-writing tool, else `None`. Mirrors the prefix handling in
@@ -3102,6 +3112,14 @@ fn proof_gate_targets(
         // discovery the verb itself runs) so the armed gate covers ALL of them —
         // a referencer without a permit refuses the whole call before any write.
         "transplant" => crate::transplant::proof_gate_touched_files(state, params),
+        // A2: a staged transplant already KNOWS its full touched set — recover it
+        // from the preview (mirrors the `edit_commit` arm above).
+        "transplant_commit" => params
+            .get("preview_id")
+            .and_then(|v| v.as_str())
+            .and_then(|pid| state.transplant_previews.get(pid))
+            .map(|p| p.planned.iter().map(|f| f.file_path.clone()).collect())
+            .unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -5394,6 +5412,24 @@ fn dispatch_core_tool(
                     detail: e.to_string(),
                 })?;
             let output = crate::transplant::handle_transplant(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_preview" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_preview".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_preview(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_commit" => {
+            let input: crate::protocol::surgical::TransplantCommitInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_commit".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_commit(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "edit_preview" => {

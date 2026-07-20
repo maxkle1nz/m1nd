@@ -837,3 +837,56 @@ pub struct TransplantOutput {
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }
+
+// ---------------------------------------------------------------------------
+// m1nd.transplant_preview / m1nd.transplant_commit (A2 — two-phase)
+// ---------------------------------------------------------------------------
+
+/// One planned file of a staged two-phase transplant. `base_hash` is the hash of
+/// the ON-DISK content the plan was computed from — the commit re-validates every
+/// one and refuses on any drift (the TOCTOU anchor), so a stale plan can never
+/// clobber a file that moved on since the preview.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantPlannedFileReport {
+    pub file_path: String,
+    pub base_hash: String,
+    pub lines_added: i32,
+    pub lines_removed: i32,
+}
+
+/// Output for m1nd.transplant_preview.
+///
+/// The preview computes EVERYTHING the one-shot verb would (all new contents,
+/// referencer discovery, fmt pass, candidate receipt) and writes NOTHING; the
+/// staged plan is redeemable via `transplant_commit{preview_id, confirm:true}`
+/// within `ttl_ms`.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantPreviewOutput {
+    pub preview_id: String,
+    /// Staged-plan time-to-live in milliseconds (5 min, mirroring edit_preview).
+    pub ttl_ms: u64,
+    /// Per-file plan: source + dest + every DERIVED referencer, in write order.
+    pub files: Vec<TransplantPlannedFileReport>,
+    /// The receipt the commit will finalize (timing re-stamped at commit).
+    pub candidate: TransplantOutput,
+    pub elapsed_ms: f64,
+}
+
+/// Input for m1nd.transplant_commit.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TransplantCommitInput {
+    pub preview_id: String,
+    pub agent_id: String,
+    /// The caller must explicitly set true to land the staged plan.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Output for m1nd.transplant_commit.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantCommitOutput {
+    pub preview_id: String,
+    /// The finalized transplant receipt (same shape as the one-shot verb's).
+    pub receipt: TransplantOutput,
+    pub elapsed_ms: f64,
+}

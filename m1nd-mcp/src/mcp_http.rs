@@ -85,8 +85,11 @@ const GRAPH_MUTATION_TOOLS: &[&str] = &[
     // verb where the GRAPH writes. It lands source/dest/referencer edits, so a
     // viewer (attached agent OR the served Living Tree / Build Map) must refetch —
     // naming it here replaces its accidental apply_batch_progress coverage with a
-    // proven relay. Confirmed present in `READ_ONLY_DENIED_TOOLS` (server.rs).
+    // proven relay. `transplant_commit` (A2) lands the same write from a staged
+    // plan. Both confirmed present in `READ_ONLY_DENIED_TOOLS` (server.rs);
+    // `transplant_preview` stages only and is deliberately absent.
     "transplant",
+    "transplant_commit",
     "memorize",
     "learn",
     "daemon_start",
@@ -1997,6 +2000,34 @@ mod tests {
         assert!(
             crate::server::read_only_denied("transplant", &serde_json::json!({})),
             "transplant must be read-only-denied (the subset law)"
+        );
+
+        // A2: `transplant_commit` lands the same write from a staged plan — same
+        // relay, same denial. `transplant_preview` stages only: NO relay, and a
+        // read-only attach may run it (the edit_preview exemption).
+        let commit = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant_commit", "success": true}),
+        );
+        assert!(
+            graph_changed_notification(&commit).is_some(),
+            "transplant_commit must relay as graph_changed"
+        );
+        assert!(
+            crate::server::read_only_denied("transplant_commit", &serde_json::json!({})),
+            "transplant_commit must be read-only-denied (the subset law)"
+        );
+        let preview = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant_preview", "success": true}),
+        );
+        assert!(
+            graph_changed_notification(&preview).is_none(),
+            "transplant_preview stages only — never a graph change"
+        );
+        assert!(
+            !crate::server::read_only_denied("transplant_preview", &serde_json::json!({})),
+            "transplant_preview writes nothing — read-only attach may run it"
         );
 
         // Prefixed forms resolve the same (mirrors prefixed_mutation_tool_is_relayed).
