@@ -2181,7 +2181,8 @@ function sha256File(file) {
 }
 
 function fsyncFile(file) {
-  const descriptor = fs.openSync(file, "r");
+  // Windows FlushFileBuffers requires a writable handle; "r+" works everywhere.
+  const descriptor = fs.openSync(file, "r+");
   try {
     fs.fsyncSync(descriptor);
   } finally {

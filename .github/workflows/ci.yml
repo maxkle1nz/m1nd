@@ -170,7 +170,7 @@ jobs:
           const pkg = require('./package.json');
           for (const key of ['dependencies', 'devDependencies', 'optionalDependencies']) {
             if (pkg[key] && Object.keys(pkg[key]).length) {
-              throw new Error(\`root package unexpectedly has ${key}\`);
+              throw new Error('root package unexpectedly has ' + key);
             }
           }
           NODE
