@@ -755,3 +755,74 @@ pub struct VerificationImpact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristics_surface_ref: Option<HeuristicsSurfaceRef>,
 }
+
+// ---------------------------------------------------------------------------
+// m1nd.transplant — graph-addressed cross-file move of a top-level `fn`
+// (proof-of-possibility spike; donors study §7.1). The verb resolves a symbol
+// via the graph, computes the dependency trichotomy from `calls` edges, and
+// writes source/dest/referencers atomically through the apply_batch machinery.
+// ---------------------------------------------------------------------------
+
+/// Input for m1nd.transplant.
+///
+/// Addresses the moved item by `symbol` + `source_file` (the PRD may later add a
+/// `node_id` form; the on-disk contract is what the battery pins). Paths are
+/// absolute or workspace-relative and resolved against the ingest roots.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TransplantInput {
+    /// Calling agent identifier (required by all m1nd tools).
+    pub agent_id: String,
+    /// Bare name of the top-level `fn` to move (matches the node label).
+    pub symbol: String,
+    /// File the symbol currently lives in.
+    pub source_file: String,
+    /// File the symbol is moved into (must already exist for the spike).
+    pub dest_file: String,
+}
+
+/// A dependency that STAYS in the source file but is shared by the moved item,
+/// so it gains a visibility bump and is back-imported into the destination.
+#[derive(Clone, Debug, Serialize)]
+pub struct SharedDepReport {
+    /// The dependency's symbol name.
+    pub name: String,
+    /// Visibility before the transplant (e.g. "private", "pub(crate)", "pub").
+    pub visibility_before: String,
+    /// Visibility after the transplant (bumped only when it was more private).
+    pub visibility_after: String,
+}
+
+/// Output for m1nd.transplant. Honest fields (`refs_unresolved`,
+/// `source_back_imported`) surface anything the verb could not confidently do,
+/// so a caller never mistakes a silent skip for a clean move.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantOutput {
+    /// The symbol that was moved.
+    pub moved_symbol: String,
+    /// Source module name (file stem) the symbol left.
+    pub source_module: String,
+    /// Destination module name (file stem) the symbol entered.
+    pub dest_module: String,
+    /// Absolute paths written by this transplant, in write order.
+    pub files_changed: Vec<String>,
+    /// Private dependencies that travelled with the moved item (trichotomy).
+    pub deps_travelled: Vec<String>,
+    /// Shared dependencies that stayed, with their visibility bumps (trichotomy).
+    pub deps_shared: Vec<SharedDepReport>,
+    /// Files whose references to the moved symbol were rewritten to the new home.
+    pub referencing_files: Vec<String>,
+    /// Total number of reference sites rewritten across all referencing files.
+    pub refs_rewritten: usize,
+    /// Reference sites the verb refused to rewrite (e.g. grouped `use` imports) —
+    /// surfaced honestly rather than silently skipped.
+    pub refs_unresolved: Vec<String>,
+    /// True when the source file kept a caller of the moved symbol and gained a
+    /// back-import `use crate::<dest_module>::<symbol>;` (the self-use case).
+    pub source_back_imported: bool,
+    /// How the dependency trichotomy was derived: "graph_edges" or "textual".
+    pub dependency_source: String,
+    /// How referencing files were discovered: "graph_edges", "textual", or "both".
+    pub referencer_source: String,
+    /// Elapsed milliseconds.
+    pub elapsed_ms: f64,
+}
