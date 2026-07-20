@@ -1958,6 +1958,55 @@ mod tests {
     }
 
     #[test]
+    fn transplant_relays_as_graph_changed_and_is_read_only_denied() {
+        // A6 (the #376 lesson): `transplant` is the first verb where the GRAPH
+        // writes. Its living-map coverage was ACCIDENTAL (via apply_batch_progress)
+        // and unproven — the exact class of #376. It must name ITSELF as a
+        // graph_changed relay so a viewer refetches on a move; before this it
+        // relayed NOTHING under its own name (the natural RED).
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant", "success": true, "agent_id": "surgeon"}),
+        );
+        let frame = graph_changed_notification(&e).expect("transplant must relay as graph_changed");
+        assert_eq!(
+            frame["params"]["event"], "transplant",
+            "transplant names itself"
+        );
+        assert_eq!(frame["method"], "notifications/m1nd/graph_changed");
+
+        // A failed transplant changed nothing → suppressed (mirrors failed_mutation).
+        let failed = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant", "success": false}),
+        );
+        assert!(
+            graph_changed_notification(&failed).is_none(),
+            "a failed transplant is not a graph change"
+        );
+
+        // The documented subset invariant: GRAPH_MUTATION_TOOLS ⊆
+        // READ_ONLY_DENIED_TOOLS — transplant is a write, so a read-only attach
+        // must refuse it.
+        assert!(
+            crate::server::read_only_denied("transplant", &serde_json::json!({})),
+            "transplant must be read-only-denied (the subset law)"
+        );
+
+        // Prefixed forms resolve the same (mirrors prefixed_mutation_tool_is_relayed).
+        for tool in ["m1nd.transplant", "m1nd_transplant"] {
+            let e = ev(
+                "tool_result",
+                serde_json::json!({"tool": tool, "success": true}),
+            );
+            assert!(
+                graph_changed_notification(&e).is_some(),
+                "{tool} should relay"
+            );
+        }
+    }
+
+    #[test]
     fn a_mailbox_write_is_read_only_denied_but_not_a_graph_change() {
         // The set is a curated SUBSET of READ_ONLY_DENIED_TOOLS, not a mirror:
         // `mission_post` is read-only-denied (a write) but writes the MAILBOX, not
