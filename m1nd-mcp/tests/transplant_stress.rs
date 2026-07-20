@@ -753,3 +753,58 @@ fn stress_a7_cross_crate_move_is_refused_and_teaches() {
         "dest must be byte-identical after a cross-crate refusal"
     );
 }
+
+// ===========================================================================
+// (l) A8 — full-namespace dest collision.
+// The collision preflight checked only `fn <symbol>` in the dest; a homonymous
+// struct/enum/trait/type/const/static/mod slips through and lands E0428 AFTER a
+// success receipt. Extend the dest scan to every top-level item kind and refuse,
+// naming the occupant kind. Struct homonym is the witness; byte-identity on refusal.
+// ===========================================================================
+
+#[test]
+fn stress_a8_dest_struct_homonym_is_refused_naming_the_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut state = make_state(root);
+    write(&root.join("Cargo.toml"), cargo_toml());
+    write(&root.join("src/lib.rs"), "pub mod alpha;\npub mod beta;\n");
+    write(&root.join("src/alpha.rs"), ALPHA);
+    // beta already defines a STRUCT named move_me — a full-namespace collision the
+    // fn-only preflight misses; moving `fn move_me` here is a duplicate definition.
+    let beta_poisoned = "//! Beta: destination with a struct homonym.\n\npub struct move_me {\n    pub x: u32,\n}\n\npub fn existing_resident(x: u32) -> u32 {\n    x - 1\n}\n";
+    write(&root.join("src/beta.rs"), beta_poisoned);
+    ingest(&mut state, root);
+
+    let before_alpha = std::fs::read_to_string(root.join("src/alpha.rs")).unwrap();
+    let before_beta = std::fs::read_to_string(root.join("src/beta.rs")).unwrap();
+
+    let err = dispatch_tool(
+        &mut state,
+        "transplant",
+        &params(root, "move_me", "src/alpha.rs", "src/beta.rs"),
+    )
+    .expect_err("a full-namespace dest collision must be refused (A8)");
+    let msg = format!("{err:?}").to_lowercase();
+    assert!(
+        msg.contains("collision") || msg.contains("already define"),
+        "must be a collision refusal: {msg}"
+    );
+    // The error must NAME the occupant kind so the caller knows what to move/rename.
+    assert!(
+        msg.contains("struct"),
+        "the refusal must name the occupant kind (struct): {msg}"
+    );
+
+    // Byte-identity: a refusal changes nothing.
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/alpha.rs")).unwrap(),
+        before_alpha,
+        "source must be byte-identical after an A8 refusal"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/beta.rs")).unwrap(),
+        before_beta,
+        "dest must be byte-identical after an A8 refusal"
+    );
+}
