@@ -510,7 +510,17 @@ fn stress_otel_1000_spans() {
         result.spans_unmapped > 0,
         "Garbage spans should be unmapped"
     );
-    assert!(elapsed.as_secs() < 5);
+    // Shared CI runners are far slower than any development machine; the
+    // local 5s budget is the product bar, the CI budget only guards runaway.
+    let budget_secs = if std::env::var_os("CI").is_some() {
+        30
+    } else {
+        5
+    };
+    assert!(
+        elapsed.as_secs() < budget_secs,
+        "ingest took {elapsed:?} (budget {budget_secs}s)"
+    );
 }
 
 #[test]

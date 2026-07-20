@@ -1,0 +1,35 @@
+{
+  "artifacts": [
+    {
+      "path": "manifest/source-manifest.json",
+      "sha256": "sha256:f576e85ebe44e9becee051641b186b072f7d12d6824c709f07d16278fec44af3"
+    },
+    {
+      "path": "operator-only/corpus.json",
+      "sha256": "sha256:b5714a40753878dd4e9309ad23708fdb145237a884c683cd9240bc1a3cdd418a"
+    },
+    {
+      "path": "operator-only/review.json",
+      "sha256": "sha256:3c0144d9b55f6b4990d84d5087e0ecd8ec89e863e098434ea8adb557b54390b6"
+    },
+    {
+      "path": "public/queries.json",
+      "sha256": "sha256:164ac4178cee9ec1f6465c7ca9362907608eb0414b634bd97cea1acdac445642"
+    }
+  ],
+  "binding": {
+    "corpus_digest": "sha256:53550cbe446b31e87f513d7d8af4c205dbd4305eb6a0e8f503b7d330ac1d64b7",
+    "label_set_digest": "sha256:d4835918aeceef3309d3b2941fd612defb2bfabe51216da641993fccd6fe8fc8",
+    "public_self_digest": "sha256:8fe8d240ccfe79a83a88288cf49f1cbd5b0133636e4ad203df3d6f7262436ebe",
+    "review_digest": "sha256:4b26c603cd5c849fac41371dfa763f9fc627298cfed3efcc8eea9f90497fc084",
+    "sealed_self_digest": "sha256:6e87c4dd3557c228b85a6f9ce7e82b14ab6377bd3b64281fcf991e8fabd1526f",
+    "snapshot_digest": "sha256:c7ef8c5fb854257606d4252ea470bc3eea4301c81d31681623921ad7fe9d413a",
+    "source_manifest_digest": "sha256:c6ce4203ed22db76f06e884d181c56111982107e506da1e98d1150530ce4d420"
+  },
+  "corpus_id": "m1nd10-g6-generalization-v2-53550cbe446b31e8",
+  "evaluation_role": "supplemental_generalization_guard",
+  "formal_r2_claim": "NOT_APPLICABLE",
+  "schema": "m1nd10-g6-generalization-v2-digests-v1",
+  "self_digest": "sha256:c7aaa71b160c17ba15630d40905364ae8507264aed798c6c323c80ec166510cb",
+  "version": 2
+}

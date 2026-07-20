@@ -59,13 +59,23 @@
 
 ## 60-second start
 
-Install the native runtime, confirm it is visible, print your host's exact wiring — then your agent takes over and you never run these by hand again. The npm package is the JS CLI + agent doctrine; the runtime is a separate prebuilt binary, so step 1 fetches it.
+Install the native runtime, confirm it is visible, print your host's exact wiring — then your agent takes over and you never run these by hand again. The npm package is the JS CLI + agent doctrine; the runtime is a separate prebuilt binary, so step 1 fetches it. Verified GitHub-release installs require [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/) in a trusted standard installation directory.
 
 ```bash
-# 1 · install the native runtime (prebuilt binary from GitHub Releases — no build, no config)
+# 1 · install the native runtime (signed candidate from GitHub Releases — no build, no config)
 npx -y @maxkle1nz/m1nd update apply --yes
-#    → or build from source instead: cargo install m1nd-mcp
+#    → source-registry alternative: cargo install m1nd-mcp (not a verified release candidate)
 ```
+
+`m1nd update` verifies the release's signed `CANDIDATE.json` with the exact tag-workflow
+identity, then checks the selected platform, asset name, version, tag, SHA-256, and byte size
+before it creates a backup or touches the managed runtime. Missing `cosign`, metadata, bundle,
+or a failed identity check refuses the release install; it never silently downgrades that
+failure to Cargo. Rollback is a digest-fenced `prepared → installed → rolled_back` state
+machine: a stale journal cannot overwrite a runtime changed after the update. The updater does
+not fall back to `cargo install`; without an exact signed release candidate it refuses. The Cargo
+command shown above remains a separate manual source-registry installation, outside the verified
+update/rollback contract.
 
 ```bash
 # 2 · confirm the runtime is visible
@@ -298,7 +308,7 @@ m1nd-mcp --attach auto --stdio                     # auto-discovers the live own
 m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or pin the URL; M1ND_ATTACH_URL overrides both
 ```
 
-Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. The write/execution lane — missions, runners, receipts — is an optional second daemon, `m1nd-runnerd` (port 1339); attached agents get the read/graph surface with or without it. To run the owner as an always-on service that starts on boot (launchd on macOS, systemd on Linux), see [docs/deployment.md](docs/deployment.md). Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
+Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. The write/execution lane — missions, runners, receipts — is an optional second daemon, `m1nd-runnerd` (port 1339); attached agents get the read/graph surface with or without it. To run the owner as an always-on service that starts on boot (launchd on macOS, systemd on Linux), see [docs/deployment.md](docs/deployment.md). Queries go over localhost, so it stays local-first: every non-loopback bind is refused until authenticated TLS transport and scoped authorization exist, and the legacy `--allow-remote` flag cannot override that gate. Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 
 The owner is not single-repo anymore: a session rooted in a repo the owner's graph does not cover gets an honest `reception` block instead of wrong answers, and ONE call — `ingest` with `project_root=<your repo>` — creates a per-project brain inside the same owner (own graph, own persistence), binds the session to it, and returns its `north` packet; from then on every call from that repo routes to its own brain automatically, while the owner's original graph stays untouched.
 
@@ -361,7 +371,7 @@ The proof of the commitment is what was killed for it: `savings` and `resonate` 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .            # installs the m1nd CLI (JavaScript) — not the native runtime
-m1nd update apply --yes     # fetches the native m1nd-mcp runtime (prebuilt binary; or: cargo install m1nd-mcp)
+m1nd update apply --yes     # verifies CANDIDATE.json with cosign, then installs its exact runtime bytes
 m1nd doctor                 # confirms the runtime is now visible
 ```
 
@@ -375,7 +385,7 @@ Then wire your host — the same two commands, one per host (`codex`, `claude`, 
 | Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
 | Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
-Or install the CLI from npm without cloning: `npm install -g @maxkle1nz/m1nd`, then `m1nd update apply --yes` for the native runtime. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
+Or install the CLI from npm without cloning: `npm install -g @maxkle1nz/m1nd`, ensure `cosign` is on `PATH`, then run `m1nd update apply --yes` for the native runtime. Release CI may replace only download transport with `M1ND_TEST_RELEASE_DIR` and the verifier executable with `M1ND_TEST_COSIGN_PATH`; every proof exposes those seams and states that it is not a live GitHub/Sigstore receipt. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
 
 Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn per-host **ambient recipes**: the SessionStart-family hook (`SessionStart` / `agentSpawn` / `TaskStart`, routed through the `m1nd-north-shim` command that injects the orientation packet as `additionalContext`) plus a per-host doctrine file, for the TIER-A and TIER-B hosts. `plan` is pure print; `apply --yes` merges owned hook JSON without clobbering existing hooks and prints the blocks for host-managed configs (Claude / Cline / Kiro) rather than writing them.
 

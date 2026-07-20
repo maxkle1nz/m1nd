@@ -616,7 +616,7 @@ mod tests {
         let mut mk = |agent: &str, wt: &str| {
             let mut r = rec(agent, "/m1nd", now);
             r.worktree = Some(wt.to_string());
-            r.caller_root = Some(format!("/Users/dev/{wt}"));
+            r.caller_root = Some(format!("/Users/<name>/{wt}"));
             r.mutation.declared_intent = Some("mutate".to_string());
             r
         };

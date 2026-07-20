@@ -2,7 +2,33 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-15 (**checkpoint 19 — THE HONEST FRONT DOOR, THE UNIVERSE, AND THE CI IS BORN: the critique became receipts, every project became a world, and the review tier grew its first judgment — with zero false approves**).
+> Last checkpoint: 2026-07-20 (**checkpoint 28 — ANTI-CEREMONY DOCTRINE RATIFIED: three owner-ratified rules now bound the program's rite — a meta-review ceiling, rite budgeted against real external exposure, and external gates before new internal gates**).
+> Checkpoint 28, condensed: a whole-portfolio workflow audit found the M1ND-10 rite growing self-referentially (gate-over-gate on the candidate's own source, re-reviews queuing while G6/LIVE/G10 stay `NOT_RUN`) and the owner confirmed the diagnosis ("ficou maquinoso"). An askGOD verdict (`CHANGE`, alta, medium gear, Fable seat) reshaped the proposed rules against local law before they were written: zero users ≠ zero blast radius for a public npm/crates repo with a served owner; "external gate" already has a mechanical definition in the proof vocabulary; placement belongs in the method (§5.1) and guardian skill, below the frozen contract, never in AGENTS.md above it. The corrected text was explicitly owner-ratified and is law: full text in `docs/M1ND-GUARDIAN-METHOD.md` §5.1 + `skills/m1nd-guardian/SKILL.md`; verdict receipt with the ratification record in `docs/proofs/m1nd10-anti-ceremony-doctrine-askgod-verdict-20260720.md`. Frozen G0-G10 contract, stop rules, and every existing gate are untouched — the rules govern NEW rite only. The session question changes from "what could still be impure?" to "what has not yet been proven against the world?".
+
+> Previous checkpoint: 2026-07-20 (**checkpoint 27 — THE BOUNDARY CLOSED HONESTLY: EVERY CHECKPOINT-26 REQUIRED CHANGE IMPLEMENTED, THE GOVERNED MIGRATION EXECUTED UNDER OWNER RATIFICATION, THE FRESH INDEPENDENT RE-REVIEW RETURNED `APPROVE`/NONE, AND THE OWNER AUTHORIZED FREEZE+PUSH+MERGE**).
+> Checkpoint 27, condensed: the checkpoint-26 `CHANGE` was answered in full and independently confirmed. The guard now casefolds all path matching, refuses credential/SSH/key-store classes (`credential_file`, extended `private_key_material`), denies `opaque_archive`, and carries a default-on public content gate (`personal_path_content`, raw-byte scan, fail-closed `unreadable_candidate_content`) that only ever opens path/metadata survivors — operator-only content is never read. The governed migration ran under the ratified plan: 246 historical benchmark files retired from the future candidate, 7 Rust sources + 6 operational docs + 2 executable fixtures scrubbed to neutral placeholders, 3 dated proofs redacted with explicit notes, and one owner-ratified digest-bound exception for the frozen PRD (path + exact SHA-256; one changed byte kills it; the PRD itself untouched). The legacy G6 gitignore contract was amended to the boundary-era law — public formal artifacts must never be gitignored, operator-only must be — and the re-review explicitly confirmed that design call. Evidence: guard worktree projection PASS 0 violations/1169 paths (was 265); 22 focused guard/CI tests; Python discovery 184/184; `m1nd-mcp` lib 1399/0/15 with strict clippy/fmt; npm CLI, Ruff, actionlint, diff-check green; frozen hashes exact; Semgrep one accepted pre-existing audit finding. The isolated read-only re-review (Fable seat — Fugu was down to a revoked codex CLI OAuth token, Sakana itself verified alive HTTP 200) returned `APPROVE`, alta, `REQUIRED_CHANGES: NONE`, with its own re-run of the decisive gates and matching pre/post fingerprints; preserved at `docs/proofs/m1nd10-candidate-source-boundary-askgod-rereview-20260720.md`. The boundary is back to `LOCAL_PROVEN`. Six named residual risks are registered in the proof — the material one: the 246 retired files remain published in public origin/main HISTORY (retirement protects future candidates; it does not unpublish), and accept-vs-rewrite-history is an open OWNER decision. The owner explicitly authorized candidate freeze, push, and merge in the 2026-07-20 guardian session (`docs/proofs/m1nd10-candidate-freeze-authorization-20260720.md`). Formal blind G6, native G4, real G7 LIVE, hosted G8, G9 custody, activation, and G10 remain `NOT_RUN`/`NOT_PROVEN`.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 26 — FUGU RETURNED `CHANGE`/HIGH: THE CANDIDATE-SOURCE ARCHITECTURE IS SOUND, BUT ITS POLICY IS NOT YET FAIL-CLOSED; REMEDIATION NOW BLOCKS CANDIDATE FREEZE**).
+> Checkpoint 26, condensed: the isolated read-only Fugu review completed without repository mutation, owner/1338 contact, or access to private benchmark content. The pre/post status, public-diff, and untracked-public fingerprints match exactly. Its verdict is `CHANGE`, high confidence, preserved in `docs/proofs/m1nd10-candidate-source-boundary-askgod-review-20260719.md`. The review reproduced case-variant bypasses for private/cache/secret names, found missing `.env.*`, package-manager/cloud credentials and SSH private-key classes, proved that opaque archives pass while Gitleaks does not unpack them, and found that the guard scans path/metadata but not public content. A machine-local absolute path in the public security assessment demonstrated the last gap and was removed from that report and this PATHOS surface. The subsequent repository-wide public census broadened the work: the same machine-local prefix still appears 509 times across 143 candidate-visible, non-private files, dominated by 134 historical benchmark files and including three occurrences in the frozen PRD. The frozen canon cannot be silently edited, so content-gate closure now requires a governed scrub/retirement plan and explicit ratification for any canonical amendment or exception; blanket allowlisting is forbidden. The sound seams remain: exact 40-hex commit resolution, non-mutating `git add -A` projection, symlink/gitlink/non-regular/oversized refusal, exact `${GITHUB_SHA}` workflow binding, pinned Gitleaks, and honest immutable/hosted `NOT_PROVEN` labels. Checkpoint 25's 18 tests and 1,410-path projection PASS are historical only; they do not prove the advertised universal boundary. The active front is now: casefold path policy; expand credential/key classes; deny opaque containers; plan and execute the governed public-path migration; add exact-candidate content scanning; add adversarial and semantic CI/release tests; rerun guard/Gitleaks/actionlint/Ruff/diff/frozen hashes; then obtain a fresh independent review. No candidate may be frozen before that returns green. Nothing is staged, committed, pushed, tagged, published, installed, activated, or sent to the owner. Formal G6, LIVE, release custody, activation, and G10 remain `NOT_PROVEN`/`NOT_RUN`.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 25 — THE ORIGINAL CANDIDATE-SOURCE PREFLIGHT PASSED ITS LOCAL TESTS, BUT ITS FAIL-CLOSED CLAIM IS SUPERSEDED BY CHECKPOINT 26 `CHANGE`**).
+> Checkpoint 25, condensed: `scripts/m1nd10_candidate_source_guard.py` was introduced to inspect an exact commit tree or a non-mutating `git add -A` worktree projection. It refused the initially enumerated private paths, label-generating source, secrets, keys, caches, symlinks/gitlinks/non-regular entries, and oversized blobs; CI/release binding, pinned Gitleaks, cleanup, and the original 18-test/1,410-path/Gitleaks evidence all passed. Fourteen legacy operator artifacts and generated state were removed from the future tree without opening private labels. Those facts remain valid, but the conclusion “fail closed” does not: checkpoint 26 independently demonstrated policy and content bypasses. This checkpoint is retained as history, not current approval.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 24 — THE G6 CORRECTIVE REVIEW IS CLOSED `APPROVE`, THE SCORER NOW FAILS CLOSED ON RAW FORMAL PROOF, AND THE AUTHORITY ROOT IS PINNED FOR ITS OWNER LIFETIME; THE FORMAL BLIND RUN, IMMUTABLE CANDIDATE, LIVE, RELEASE, AND AUTONOMY ACTIVATION REMAIN OPEN**).
+> Checkpoint 24, condensed: the first valid read-only Fugu review returned `CHANGE` because the scorer still trusted declared eligibility after the runner had derived formal completeness. The scorer now independently validates the closed proof rows for exact candidate binary, corpus repo set, source revision/file set, owner/session/lifecycle cleanup, every governed-ingest authority receipt, pre/post source equality, blind boundary, and path topology; declared summaries are comparison values only. Seven new adversarial scorer cases cover proof-thin declared eligibility, forged cleanup, a foreign readiness binary, missing receipt proof, post-ingest mismatch, absent blind proof, and overlapping topology. Current corrective evidence is 60 runner + 25 scorer = 85 Python PASS, 8/8 exact-binary Rust verifier PASS, and 149/149 `m1nd-control` PASS. A final isolated Fugu re-review ran read-only with zero configured MCP servers, did not contact port 1338, and returned `APPROVE`/high confidence/`REQUIRED_CHANGES: NONE`; both verdicts are preserved under `docs/proofs/`. Separately, the Unix authority owner now pins a no-follow directory descriptor plus device/inode identity and fails closed if its root is symlinked, renamed, or replaced; the deterministic replacement/second-owner test passes. The full current-tree aggregate remains green with `m1nd-mcp` 1399 PASS/15 ignored, all executed integrations green, repository Python discovery 174 PASS, strict workspace Clippy/check/fmt/diff-check, and a 3m38s release build. Frozen PRD/UML hashes remain unchanged. This closes the corrective review, not G6: the formal 220-task blind run is `NOT_RUN` and forbidden until one reviewed immutable candidate exists. Same-UID micro-TOCTOU/cross-process replacement, loopback peer identity, native cross-OS/power-loss, real browser/owner/h4nd LIVE, hosted release, production custody, publication, installation, activation, and G10 remain `NOT_PROVEN`/`NOT_RUN`. Active mode remains `HUMAN_GATED`.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 23 — THE CURRENT DIRTY WORKTREE NOW HAS ONE GREEN LOCAL AGGREGATE: authority fixtures carry the exact caller root, checkpoint fixtures obey the managed runtime root, concurrency survives the workspace load, and every static/build lane completed; immutable-candidate, LIVE, hosted release, and autonomy activation remain honestly open**).
+> Checkpoint 23, condensed: the production fail-closed authority and checkpoint laws were preserved while stale tests were repaired at their real seams: MissionService wire fixtures now carry the actor-bound `m1nd-caller-root`; the typed routing fixture supplies that exact root; persistent hosted-brain fixtures use the owner's existing five-second shutdown budget without relaxing dedicated deadline tests; attach fixtures place graph/plasticity state inside the managed runtime root; and the runtime-root proof seeds through the trusted in-process ingestor, closes stdio cooperatively, proves the owner recreates its checkpoint, then warm-boots it from a different cwd. The checkpoint-23 aggregate passed `cargo test --locked --workspace -- --test-threads=4`, including the then-current `m1nd-mcp` 1398/1398 with 15 intentional ignores, all 139 executed external MCP integrations with one explicit future-G2 ignore, RETROBUILDER real 5/5 and stress 17/17; full workspace check, strict all-target Clippy, fmt, diff-check, and release build also passed. Native Python `unittest` then passed 167 repository tests, 60 benchmark tests, and 4 Windows durability contracts; UI passed 646/646 units, 8/8 live-contract tests, build, and lint with zero errors/five recorded warnings; actionlint passed. Python 3.14 had no pytest and broad non-canonical Ruff exposed 99 legacy violations outside the scoped G6-clean files. The independent-review attempt at that checkpoint produced no verdict. Checkpoint 24 supersedes its aggregate counts and review status without erasing this history.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 22 — THE G7 LOCAL CONTRACT IS COHERENT: organism/binary/bundle versions agree, private UI provenance remains separate, and the locked dependency set replays offline; browser LIVE remains honestly unrun**).
+> Checkpoint 22, condensed: `m1nd-mcp/build.rs` now emits the enclosing Cargo organism version for `M1ND_UI_BUNDLE_VERSION`, so the embedded bundle reports `1.4.0` without erasing the private `m1nd-ui` package version `0.1.0`. The existing manifest divergence law remains intact and still classifies a `0.1.0` bundle projection as `DRIFT`. `UI-BUNDLE-PROVENANCE.json` continues to seal the private package version and package-lock SHA-256 separately. An authorized preparation ran only in temporary workspaces with lifecycle scripts and browser download disabled, then a fresh `npm ci --offline --ignore-scripts` replay passed over 285 dependencies; source bytes were unchanged and both temporaries were removed. Current non-LIVE evidence is 49 Python G7/bundle/release/CI tests, 18 additional release-contract/crate-upload tests, 15 focused Rust attestation/manifest tests, 8/8 UI live-contract tests, 646/646 UI unit tests, TypeScript, UI lint, Cargo check/clippy/fmt, diff/no-leak, and frozen PRD/UML hashes. The real isolated browser/owner/h4nd run is `NOT_RUN`; no installed owner, port 1338, release, candidate freeze, or autonomy state was touched. G7 advances only to `SOURCE_IMPLEMENTED + LOCAL_PROVEN + COMPONENT_PASS`.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 21 — THE G6 CORRECTIVE BURST IS LOCALLY GREEN: all five P1 and three P2/scorer findings are source-closed and adversarially tested, while independent review and the formal blind run remain honestly open**).
+> Checkpoint 21, condensed: the G6 runner now verifies real Ed25519 receipts through an exclusive offline mode of the exact pinned candidate binary, checks owner clock/key lifecycle against an independently pinned assembly, binds readiness to an OS-assigned port plus spawned PID/private registry/authenticated instance+manifest, captures the bearer once through no-follow identity checks, recomputes Rust-compatible ownership/lineage/resolution/pipeline/outcome digests, confines the authority provider in a deny-default filesystem sandbox, repeats the exact source snapshot proof after ingest, rejects non-finite deadlines, and closes scorer-facing result/measurement/run-metadata provenance. Current corrective evidence is 78/78 G6 runner+scorer tests, 8/8 Rust verifier tests, 149/149 `m1nd-control`, workspace `cargo check`, scoped `clippy -D warnings`, Rust/Python format, Ruff, diff/no-leak, and an isolated-HOME refusal smoke with zero state created. askGOD produced no verdict because both available oracle routes were unavailable, and quota-blocked subagents produced no substitute review; therefore independent corrective review is `NOT_PROVEN`, the 220-task formal blind run is `NOT_RUN`, G6 remains `COMPONENT_PASS`, and no release/live/autonomy claim advances. The canonical continuation document is `docs/M1ND-10-HANDOFF-20260719.md`; it supersedes older M1ND-10 status prose where facts differ, without erasing the history below.
+
+> Previous checkpoint: 2026-07-19 (**checkpoint 20 — M1ND-10 HAS A CONTROL PLANE, A DURABLE BRAIN, A CLOSED RELEASE PATH, AND AN HONEST HANDOFF: substantial source implementation exists; the remaining blockers are named, ordered, and forbidden from becoming a false 10/10**).
+
+> Previous checkpoint: 2026-07-15 (**checkpoint 19 — THE HONEST FRONT DOOR, THE UNIVERSE, AND THE CI IS BORN: the critique became receipts, every project became a world, and the review tier grew its first judgment — with zero false approves**).
 > Checkpoint 19, condensed: **The era where the organism turned its honesty outward and grew a mechanical reviewer.** An external skeptic's review of the public repo ("solo project disguised as product; calibration claimed, never measured; receipts buried") was answered the only honest way — by fixing the front door, not arguing: **#368** (runtime-install step that actually works, the false "already ships a SessionStart hook" claim ERADICATED, serve/attach promoted to the recommended path, versions trued to 1.4.0, the **"Proven today vs designed"** receipts table, calibration language downgraded to what is measured, `.mcp.json` shipped) and **#369** (the ambient shim v3 — the npm-shipped hook now opens with the north VOICE CARD when a served owner is live; cwd-independence proven from the #326 incident directory). The #326 flip class then died at the root: **#370** pinned the served owner's binding against foreign local runs (mechanism PROVEN live: any HTTP `ingest{path}` rebound the owner; registry hypothesis honestly REFUTED), after the live-proof chain overwrote the big snapshot 10,573→704 nodes — restored by full re-ingest, and **#375** added the persist catastrophic-shrink backup (`.bak-<ts>` before any <20% overwrite) + `mission_post` now refuses `stale_scope` candidates at the door (the orphan class's death certificate; the triage's "open P0" was found ALREADY CLOSED by #340 — a verify-before-declare catch logged as calibration honesty). **The Universe landed (#371, F30):** the SPA's entry door is now the panorama — every project brain a WORLD (mass=nodes, light=manifest freshness shown as age, satellites=live presences, amber ring=pending gestures), the **Landing** one queue for every world's human gestures — built verdict-first (sidecar-only aggregator with the anti-hydration HARD LAW proven `warm_len 0→0`; no cross-brain pulse — per-brain by written law; "the Threshold" name collision honestly renamed). **The doors got honest (#372):** two-step confirm on Reconcile (the map's only one-click write), the Hall owner-alerts panel (the Landing's owner item finally lands somewhere), presentation-only dismiss for stagnant judging heads, the block panel's ✕/ESC exit (owner-reported live), SSE dev base unified — plus **#373**: `universe_body` try_locks the session (vitals omitted honestly under gardener churn; the 15-20s post-boot stalls became 32ms, RED-proven <500ms under a held lock). **Pista A closed same-day:** **#374** the hash router (deep links + a real Back; ONE `navigate()`; brain keys are BASENAMES never abspaths — `instance_id` proven ephemeral-by-construction; deep-link beats landing; transients stay out of the URL) and **#376** the LIVING MAP (the freshness-theater trap caught by verdict: `graph_changed` existed but its classifier covered NO block verb — 9 verbs added, `GRAPH_MUTATION_TOOLS ⊆ READ_ONLY_DENIED_TOOLS` invariant tested; the map subscribes scoped via the idle `refreshKey`, composing with stale-while-revalidate) — and the owner's first candidate-mode click found **#377** the same day (a fresh-scan store mid-rewrite flickered `present:false` → the map REMOUNTED and dropped selection; fixed sticky-present-per-brain; the click was never broken — the executor corrected the orchestrator's own diagnosis and retitled the PR to the truth). **The h4nd side:** pool receipts now read the LIVE block boundary (`resolve_block_scope`, fail-closed — no more v1-scope lies), `first_real.py --ingest` target armed, the tray REBUILT with the native Touch ID stamp live in the menu bar. **And the CI was born (owner's order: "um GPT SOL 3×/dia, um CI do m1nd — o humano só assina o merge"):** PRD v2 post-verdict (the Reviewer never lands; bounce via INBOX rail never the item's chain — the verdict exposed that a chain seq+1 can SILENCE THE BELL, a hole that exists today and needs its own authorization-model slice; origin gates EXTENDED not untouched; the Train as reviewer sidecar `m1nd-train-v0`; roles never vendors), **S1 SHIPPED read-only in god-hud** (packet composer over the real queue, 4-verdict schema with `insufficient_evidence`, anti-hallucination validator, idempotency ledger, isolated CODEX_HOME with ZERO pens — a codex profile-layer gap caught: `mcp_servers={}` does NOT clear inherited servers) and **run 1 judged the real board: 15 verdicts, 0 hallucinated, 0 APPROVES** (both approve-eligible items had real defects; 7 textbook evidence-refusals; it even cross-referenced two packet items). Gate S1→S2 is numeric and asymmetric: ≥3 runs, ≥30 owner-sampled verdicts, ZERO reverted approves. Field: 133 reports triaged (95 cured by the era), calibration dataset at 14 honesty entries. **Next:** the owner's three gestures (archive the two stale merge_wait letters → the armed runner mints the fresh v3 letter → the FIRST full mirror-cycle Touch ID; sample the Reviewer runs; curate/ratify the redsky candidate skeleton), then S2 (bounce rail + wrapper, gated on the sampling), the alerts two-store unification (L130 battery case ready), Universe v1.1 (unlit worlds + the m1nd world in its own panorama + refetch-error last-good), the UML Atlas re-ground (+ Universe/CI sheets), the chain-write authorization slice (verdict-gated), and Pista C: the calibration STUDY, the **npm/crates 1.5.0 release** (none of this era reaches installers until published), the HN launch.
 
 > Previous checkpoint: 2026-07-12 (**checkpoint 18 — THE VOICE: m1nd speaks to the human in the conversation; the pulse is stamped, the cockpit ships, the scan wait is made honest**).
@@ -50,13 +76,356 @@ into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: clim
 rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
 same bar, applied to building the organism outward.
 
-## Current State (2026-07-15, checkpoint 19 — the honest front door, the Universe, the CI; dated blocks below are the era log)
+## Current State (2026-07-20, checkpoint 27 — boundary `LOCAL_PROVEN` after `APPROVE`/NONE; freeze+push+merge owner-authorized; candidate ceremony is the active front)
+
+### 2026-07-20 — Checkpoint-26 remediation closed and independently approved (BOUNDARY `LOCAL_PROVEN`)
+
+**What closed.** All five required changes of the checkpoint-26 verdict are implemented and
+adversarially tested in `scripts/m1nd10_candidate_source_guard.py` (casefold matching; credential/
+SSH/key-store denial; `opaque_archive`; default-on public content gate scanning only path/metadata
+survivors; fail-closed unreadable handling), the 265-file governed migration executed under the
+owner-ratified plan (246 retired, 18 scrubbed/redacted, one digest-bound PRD exception), and the
+G6 gitignore contract was amended to the two-layer law (public never ignored; operator-only always
+ignored) — a design call the re-review explicitly confirmed. Focused gates and the current
+aggregate lanes are green; frozen PRD/UML hashes exact.
+
+**Review binding.** `docs/proofs/m1nd10-candidate-source-boundary-askgod-rereview-20260720.md`:
+`APPROVE`, alta, `REQUIRED_CHANGES: NONE`, oracle-owned re-runs of the decisive gates, identical
+pre/post status-shape fingerprints. Voice note: Fable seat, because the Fugu route failed on a
+revoked codex CLI OAuth token (Sakana API verified alive; fix is an interactive `codex login`).
+
+**Open owner decision (risk 1).** The retired benchmark files remain published in the public
+origin/main history; retirement protects future candidates only. Accepting that exposure or
+rewriting public history is a separate owner ceremony, deliberately outside this cut.
+
+**Authorized next.** The owner authorized freeze + push + merge
+(`docs/proofs/m1nd10-candidate-freeze-authorization-20260720.md`): freeze one immutable candidate
+from this reviewed tree, re-run the matrix bound to its digest, then push, PR, and merge with
+green 3-OS CI. Publication, installation over the served owner, activation, and G10 remain
+separate authorities, untouched.
+
+### 2026-07-19 — M1ND-10 candidate-source review and canonical handoff (CHANGE REQUIRED; CANDIDATE FREEZE BLOCKED)
+
+**What the review proved.** The exact-commit identity, non-mutating worktree projection, Git-entry
+metadata checks, pinned Gitleaks workflow, and proof-level separation are sound. The surrounding
+policy is not yet fail-closed. Raw case-sensitive comparisons let trivial case variants bypass
+private, cache, generated, and secret names. Common environment/package-manager/cloud credentials,
+SSH private keys, and additional key-store extensions are not covered. Opaque archive/container
+formats can carry private material while neither the guard nor Gitleaks opens them. Finally, the
+guard never scans candidate blob text, so the public-no-leak law has no mechanical path-content
+enforcement. These are reproduced defects, not speculative risks.
+
+**Review binding.** The valid isolated Fugu retry returned `CHANGE`, high confidence, after the
+broader first process was stopped for repeated compaction without a verdict. It ran read-only,
+contacted neither the installed owner nor port 1338, opened no private benchmark content, and left
+all three source fingerprints unchanged. The public transcript is
+`docs/proofs/m1nd10-candidate-source-boundary-askgod-review-20260719.md`; its one machine-local path
+is redacted without changing the finding. Frozen PRD/UML hashes remain exact.
+
+**Continuation law.** Before any candidate freeze: casefold relevant comparisons; expand the
+credential, SSH, and key-store deny classes; deny opaque containers unless an enforced unpack-and-
+scan path exists; scan exact-candidate and worktree-projection public text for personal absolute
+paths. A post-review census found 509 occurrences of the current machine-local prefix in 143
+candidate-visible, non-private files: 134 historical benchmark files dominate the set, while the
+frozen PRD contains three. Scrub or retire noncanonical artifacts through a reviewed migration;
+do not silently edit the frozen canon or hide it behind a blanket allowlist. Any PRD amendment or
+digest-bound exception requires explicit owner ratification. Add adversarial tests for every
+demonstrated bypass and semantic workflow tests for the
+content gate; run the focused guard/CI suite, Gitleaks, actionlint, Ruff, diff-check, frozen hashes,
+and affected aggregate; then submit the corrected diff to a fresh independent review. Only a green
+review may restore `LOCAL_PROVEN` for this boundary. Immutable candidate, hosted enforcement,
+formal blind G6, real G7 LIVE, G8 release, G9 activation, and G10 remain open.
+
+### 2026-07-19 — M1ND-10 G6 corrective re-review and authority-root pinning (LOCAL_PROVEN; FORMAL RUN NOT RUN)
+
+**What changed.** The scorer-side bypass identified by the first Fugu `CHANGE` verdict is closed.
+`scripts/benchmark/m1nd10_g6_retrieval.py` now owns a self-contained derivation of formal proof;
+it does not import or call the runner validator. It binds every owner readiness row to the exact
+candidate binary, requires the sealed corpus repository set across topology/cleanup/ingest, checks
+source revision and file-set identity, owner/session/lifecycle cleanup, each governed-ingest
+authority proof row, pre/post source equality, blind-boundary coherence, and canonical disjoint
+path topology. `score_eligible`, `diagnostic_only`, `proof_state`, `formal_preflights.complete`, and
+per-stage summaries cannot authorize anything; any divergence from the derived proof blocks scoring.
+On Unix, `authority_runtime` also pins the authority root directory descriptor and device/inode
+identity for the owner's lifetime and refuses symlink, rename/recreate, and in-process second-owner
+replacement. This is a deterministic replacement defense, not an OS same-UID isolation claim.
+
+**Proof and boundary.** G6 runner/scorer is 85/85 (60 + 25), the Rust authorization verifier is
+8/8, and `m1nd-control` is 149/149. The final read-only Fugu re-review used an isolated profile with
+zero MCP servers, touched neither the installed owner nor port 1338, and returned `APPROVE`, high
+confidence, `REQUIRED_CHANGES: NONE`; the verbatim record is
+`docs/proofs/m1nd10-g6-corrective-askgod-final-20260719.md`. The focused authority group is 29/29,
+the full workspace aggregate records `m1nd-mcp` 1399 PASS with 15 ignores, repository Python is
+174 PASS, and the current release build passed in 3m38s. This approves the corrective source only.
+The 220-task formal blind run, operator labels, immutable candidate, live owner/browser/h4nd,
+release, publication, installation, activation, and G10 receipt were not exercised. G6 remains
+`SOURCE_IMPLEMENTED + LOCAL_PROVEN + COMPONENT_PASS`, not cumulative PASS.
+
+### 2026-07-19 — M1ND-10 G7 version and offline dependency closure (LOCAL_PROVEN; LIVE NOT RUN)
+
+**What changed.** The bundle projection now uses `CARGO_PKG_VERSION`, matching source and binary at
+the organism layer. The private UI package remains `0.1.0` and stays independently bound by the UI
+bundle provenance together with the package-lock digest. No manifest field or drift rule was
+weakened: an injected private-package version still produces visible source/binary/bundle drift.
+The local npm cache was prepared outside the formal gate in disposable workspaces with lifecycle
+scripts and browser downloads disabled. A second clean workspace then installed the same current
+lock using only `npm ci --offline --ignore-scripts`: 285 dependencies, including `zwitch@2.0.4`
+and `zustand@5.0.11`, produced installed-lock SHA-256
+`b90246cb0dc6bd2ff7d6e6fd1c045f36f4e91a5dc155542bcc2cab9a72dbeef1` from source lock SHA-256
+`cd84302b4f5f39106cb8cf2d05c16032f55c07a8fb867f77a2fddce47e07a2ca`.
+
+**Proof and boundary.** The current local slice passes 49 Python G7/bundle/release/CI tests, 18
+additional release-contract/crate-upload tests, 15 Rust attestation/manifest tests, 8 UI live
+contract tests, 646 UI unit tests, TypeScript, both UI linters, `cargo check -p m1nd-mcp`, scoped
+all-target clippy with `-D warnings`, Cargo fmt, scoped diff/no-leak, and frozen PRD/UML hashes.
+The source package and lock bytes were unchanged by cache preparation and all temporary workspaces
+were removed. The exact isolated browser, candidate binary, owner, and h4nd path was not run; the
+dirty working tree is not an immutable candidate. G7 is therefore
+`SOURCE_IMPLEMENTED + LOCAL_PROVEN + COMPONENT_PASS`, not cumulative PASS.
+
+### 2026-07-19 — M1ND-10 G6 corrective closure (LOCAL_PROVEN; REVIEW APPROVED; FORMAL RUN/LIVE NOT PROVEN)
+
+**What changed.** The eight findings recorded at checkpoint 20 are implemented in source. Production
+receipt proof now crosses the exact candidate binary's exclusive offline Ed25519 verifier and a
+separately pinned assembly/key registry; no ambient Python crypto can mint the production label.
+Owners launch on port `0` and are accepted only after the fresh private registry binds the spawned
+PID/start/root/endpoint, the bearer is captured once through a bounded no-follow private-file
+contract, and authenticated `/api/instance/self` plus `/api/manifest` bind the same owner and binary.
+The runner recomputes the typed Rust digest projections instead of trusting declared ownership,
+lineage, resolution, pipeline, or outcome values. The external authority provider executes from a
+fresh private cwd behind macOS `sandbox-exec` or Linux `bwrap` deny-default filesystem isolation;
+formal mode refuses when that proof is unavailable. The source snapshot is proved again immediately
+after governed ingest. Provider/verifier timeouts are finite and capped. The results-v2 validator
+closes top-level, measurement, trust/sufficiency, run-metadata, provenance, and score-proof coherence.
+
+**Proof and boundary.** `python3 -m unittest` over the corrective runner and scorer is 85/85; the
+offline Rust verifier is 8/8; `m1nd-control` is 149/149; workspace `cargo check`, scoped all-target
+clippy with `-D warnings`, `cargo fmt --check`, Ruff check/format, `git diff --check`, scoped public
+no-leak, and an isolated-HOME invalid-request smoke all pass. The frozen PRD/UML hashes remain exact.
+The final independent re-review returned `APPROVE` with no required changes, closing the corrective
+review only. No production assembly/signature ceremony, 220-task blind score, immutable candidate,
+installed-owner contact, release, activation, or G10 receipt was run. G6 is therefore
+`SOURCE_IMPLEMENTED + LOCAL_PROVEN + COMPONENT_PASS`, not cumulative PASS.
+
+### 2026-07-19 — M1ND-10 canonical implementation handoff (WORKING TREE; NOT RELEASED)
+
+**Canonical continuation.** The complete current map is
+`docs/M1ND-10-HANDOFF-20260719.md`: authority boundary, read order, architecture, subsystem/file
+map, G0-G10 status, exact local evidence, independent-review findings, the G7 version defect,
+safe rechecks, prohibitions, and the only admissible continuation order. Its current-state claims
+supersede older M1ND-10 paragraphs below when they differ; the older paragraphs remain as the
+historical evidence trail.
+
+**What now exists in source.** M1ND has a 169-action canonical control catalog; canonical identity
+and causal envelopes; Ed25519/P-256 authority contracts; a protected owner configuration seam;
+challenge/authenticate, one-shot leases, signed AuthorityWAL, typed MissionService and elevated
+consumers; per-brain actors, runtime jobs, OCC, persistence fencing, checkpoint ACK and recovery;
+universal ingest ownership; an evidence/receipt correlation spine; calibration receipts; a blind
+G6 runner/scorer; an isolated, supply-chain-attested G7 live-browser orchestrator; canonical
+release/update/rollback machinery; and A0-A5 constitutional admission, RED, grants, epochs, quorum,
+sentinel and activation contracts. Generic elevated dispatch stays closed. The served owner was
+not upgraded and is not candidate proof.
+
+**What current local evidence says.** `m1nd-control` is 149/149 with all-target clippy green;
+`m1nd-core` unit is 182 green; `m1nd-ingest` records 299 pass, 6 ignored, plus one integration;
+current G4 focus is 16 graph-ingest + 15 checkpoint + 4 Windows source-contract tests; the isolated
+Windows harness is green and the final review returned `APPROVE`/medium; G6 targeted runner/scorer
+tests are 85/85 plus 8/8 exact-binary verifier tests; G7 orchestrator/live-contract tests are 18+8
+with TypeScript green; G8 focused release tests are 25/25. The current full workspace records
+`m1nd-mcp` 1399 PASS/15 ignored, every executed external integration green, repository Python
+174 PASS, UI 646 + 8 PASS, strict static gates green, and a release build PASS. These are dirty-tree
+local receipts and must be repeated after one immutable candidate is frozen.
+
+**What blocks an admissible candidate.** The earlier G6 `CHANGE` findings are corrective-source
+implemented, locally green, and the final corrective re-review is `APPROVE`/none. The formal
+immutable-candidate blind run is still `NOT_RUN`; G6 therefore remains `COMPONENT_PASS`.
+G7's organism-version and offline-cache defects are locally closed at checkpoint 22, but its real
+isolated browser/owner/h4nd execution remains `NOT_RUN` and cannot be promoted from this dirty tree.
+
+**Nonclaims.** Native Windows/NTFS and physical power loss are `NOT_RUN`; a complete cross-target
+build is blocked by missing cross compiler/sysroot headers. The real blind benchmark, real isolated
+browser/h4nd path, hosted OIDC/Sigstore, registry publication, installed update/rollback, production
+hardware custody, quorum/sentinel/actuators, shadow/canary, and activation are not proven. There is
+no immutable candidate digest, no common G0-G10 receipt set, no `AutonomyActivationReceiptV1`, and
+no final authority ratification. Active mode remains `HUMAN_GATED`; `FULL_AUTONOMY`, G10, and a
+10/10 claim remain forbidden.
+
+### 2026-07-18 — M1ND-10 G8 verified release updater (WORKING TREE; NOT PUBLISHED)
+
+**What is implemented.** A GitHub-release install no longer trusts a raw HTTPS asset. The npm
+updater requires `cosign`, downloads `CANDIDATE.json`, its Sigstore bundle, and the selected raw
+runtime from the same immutable tag, verifies the exact
+`maxkle1nz/m1nd/.github/workflows/release.yml@refs/tags/v<version>` identity and GitHub OIDC
+issuer, then binds schema, candidate id, version, tag, target, asset name, SHA-256, and byte size
+before any backup, journal, or managed-runtime mutation. The old raw-asset test bypass is gone.
+Local fixtures may replace download transport and the cosign executable only through explicit
+source-checkout test seams; production mode rejects both ambient overrides. Trusted update tools
+resolve only through fixed, canonical, regular, executable, non-world-writable locations.
+Redirects remain HTTPS-only on the exact GitHub source family, and every downloaded release
+object is byte-capped before parsing or mutation.
+
+**Rollback and promotion are fail-closed.** The local journal is a closed
+`prepared → installed → rolled_back` phase machine. Rollback validates the current target digest
+before restoration, recovers a crash between install and the `installed` journal write, is
+idempotent after completion, and refuses unknown phases, target drift, tampered backups, and
+legacy journals it cannot classify. The ambient Cargo-registry fallback has been removed:
+production refuses `runtime-release-unavailable` rather than executing `cargo install`.
+Automatic npm-package mutation is also locked until a candidate-bound multi-surface transaction
+and rollback rehearsal exist; legacy Cargo-like journals remain refused. Release CI signs the
+candidate first, then runs the real public apply/rollback command on all four hosted targets with
+the signed bundle; those post-sign receipts are CI-only promotion gates, deliberately outside the
+already-signed candidate and published release file set.
+
+**Honesty boundary.** npm, Python candidate, syntax, workflow-static, and no-effects fixtures are
+locally runnable. GitHub OIDC issuance, Sigstore services, the four hosted updater jobs, live
+release download, tag promotion, registries, and host rebind remain `NOT_RUN`/`NOT_PROVEN` until a
+real immutable tag workflow succeeds. `workflow_dispatch` from a branch is deliberately refused
+by the tag guard because its signing identity cannot satisfy the client tag identity.
+Final askGOD review of the real G8 diff returned `APPROVE` with high confidence and no required
+changes; that source verdict does not promote any hosted or publication claim above.
+
+### 2026-07-18 — M1ND-10 G2→G3 authority bridge (WORKING TREE; NOT PUBLISHED)
+
+**What is implemented.** The new `m1nd-control` authority contracts and the served-owner
+integration now form one fail-closed G2→G3 seam: strict session challenge/authenticate
+ceremony, exact action-policy authorization, one-shot durable authorization leases, typed
+`MissionService` ingress, and a signed AuthorityWAL whose durable `COMMIT` is the sovereign
+mutation commit point. REST exposes `/api/authority/session/challenge`,
+`/api/authority/session/authenticate`, `/api/authority/authorize`, and
+`/api/tools/mission_service`; Streamable-HTTP MCP exposes the equivalent four tools. The
+selected brain, owner time, key registry, and ingress-context digest come from the owner/transport
+— never from request-body authority claims. REST/MCP session ids are correlation labels, not
+authentication; subject identity comes only from the signed capability and owner-pinned key.
+`LandIntent` is an
+authorized canonical READ that returns the digest later bound into `Land`.
+
+**The production assembly is explicit, not ambient.** `OwnerSecurityConfigV1` carries public
+trust anchors and relative durable roots only; it cannot contain private keys. Its canonical
+digest and monotonic epoch are pinned by a separate protected root, and config/root symlinks,
+rollback, tamper, non-extending updates, overlapping roots, or software-test assurance at the
+production loader are refused. `assemble_production_owner_authority_v1` requires injected
+hardware-protected config/runtime epoch providers, a hardware-protected broker/WAL journal head,
+and an injected production AuthorityWAL signer/verifier, then installs authorization issuance and
+MissionService consumption together. Required HTTP boot without that complete assembly returns
+`NOT_INSTALLED` before bind.
+No environment-derived or fabricated signing key is selected.
+
+**What focused fixtures prove on this macOS checkout.** Real Ed25519 fixture capabilities prove
+challenge → authenticated authority session → Ordinary `LandIntent` authorization → canonical
+read → Positive `mission.service.land` authorization → MissionService → exact AuthorityWAL
+`COMMIT` → lease `CONSUMED`. Negative batteries refuse wrong-wire and expired challenges,
+role drift, replay after restart, stale leases, revoked/rotated/wrong-subject keys,
+freeze/RED/epoch drift, symlinked or overlapping security roots, config rollback/tamper,
+valid-prefix broker/WAL rollback, corrupt/torn journals, and crash boundaries. The complete sealed
+outer AuthorityTransaction, authorization receipt, ExecutionResult, ReviewResult, and WAL record
+are independently domain-signed with explicit non-circular subsets and fixture-proven tamper
+refusal. The broker state machine is
+`UNUSED → RESERVED → FINALIZATION_PREPARED → CONSUMED|ABORTED`; consumption revalidates the
+current freeze/RED/mode/policy/epoch/expiry state at the finalization boundary. GC requires both
+the configured retention floor and an external proof that no durable artifact references the
+terminal lease.
+
+**Honesty boundary / current deployment truth.** Concrete hardware-protected config, runtime-epoch,
+broker/WAL-head, attestation, platform-signer, and production WAL-crypto adapters are
+`NOT_INSTALLED`; no real-machine owner key or live authority session exists. The assembly/install
+seam is wired fail-closed, but no live CLI/LaunchAgent platform adapter can supply the required
+hardware assembly. The running owner has not been upgraded by this working tree and therefore
+remains `HUMAN_GATED`/fail-closed; h4nd must remain visibly locked and must never invent keys,
+session ids, receipts, or authority. Sessions are process-memory state and require
+re-authentication after restart; the durable replay ledger still rejects a consumed capability
+nonce. Hardware/production assurance flags remain provider declarations until concrete adapters
+and attestation verification land. macOS focused gates are PROVEN. An earlier wide run recorded
+`1036 PASS / 3 FAIL / 1 ignored` and preserved all three cross-lane failures in the proof; after the
+audit/G4 repairs, the superseding full m1nd-mcp library run is `1049 PASS / 0 FAIL / 1 ignored`, and
+strict `--all-targets -D warnings` clippy is green. The earlier G2-only bounded Fable/Fugu review
+was unavailable and remains recorded as such; a later narrow review of the integrated G2/G9
+admission path returned `APPROVE` with high confidence and no required changes. Linux and Windows
+3OS execution, publication, live hardware ceremony, and real operator acceptance remain open;
+this slice is not a claim of FULL_AUTONOMY or production readiness.
+
+### 2026-07-18 — M1ND-10 integrated G2/G9 constitutional admission (WORKING TREE; NOT ACTIVATED)
+
+**What is implemented.** Autonomous positive authority has one explicit served-owner path. The
+generic positive branch rejects every non-human authority variant. A sovereign request must carry
+`PositiveSovereign`, an autonomy capability, the exact G2 decision/capability/session/policy
+bindings, an exact G9 projection and evidence set, and the same organism/repository/brain/action/
+payload/mission/head/epoch/grant tuple at every boundary. G9 admission occurs before G2 positive
+authorization; a final G9 witness is checked after authorization and before a receipt or lease can
+escape. Witness unavailability or state/root drift freezes positive issuance and safety globally.
+The production assembly accepts and retains one `ProtectedProduction` autonomy owner; software
+test assurance is refused. Bootstrap remains `HUMAN_GATED`, issuance-frozen, safety-frozen, and
+does not claim multi-artifact physical atomicity.
+
+**What is proven.** Focused Rust fixtures cover bootstrap, exact protected-owner synchronization,
+generic bypass refusal, missing/foreign evidence refusal, pre/post admission drift, full mirror
+binding, frozen liveness on integrity loss, and one-shot transport issuance. The final bounded
+askGOD/Fugu review returned `APPROVE` / high confidence / `NONE` required changes and independently
+confirmed the no-bypass and no-overclaim invariants. The durable receipt is
+`docs/proofs/m1nd10-g9-g2-constitutional-admission-20260718.md`.
+
+**Honesty boundary.** The G9 consume/project step is serialized under one G9 store lock, but G2
+and G9 are not one physically atomic storage transaction. Production hardware custody, live
+Touch ID, protected monotonic roots, real external verifier independence, hosted release,
+activation, and recovery from physical power loss remain `NOT_PROVEN`/`NOT_RUN`. This is secure
+fail-closed integration, not `FULL_AUTONOMY` activation.
+
+### 2026-07-18 — M1ND-10 elevated typed-consumer boundary (PREFLIGHT APPROVED; NOT IMPLEMENTED)
+
+**Current truth.** The generic MCP/REST dispatcher deliberately admits only exact `Ordinary`
+actions. `ScopedGrantA2`, `PositiveSovereign`, `ServiceIdentity`, and `SafetyOnly` routes are
+refused before legacy handlers can mutate state. The typed `MissionService` is the one installed
+elevated consumer. This is a valid no-confused-deputy boundary, but it means ratify, promote,
+source-edit, general service, and safety workflows outside that service are securely unavailable;
+therefore G10 and `FULL_AUTONOMY` cannot be claimed.
+
+**Approved next seam.** A read-only askGOD/Fugu preflight returned `APPROVE`, high confidence, and
+no required changes for a closed owner-derived mutation envelope, broker-resolved signed receipt,
+one-shot reserve/finalize, typed transactional adapters, and an exhaustive action/ingress/consumer
+matrix. Generic elevated dispatch remains closed. The first slice is ratify, promotion, and one A2
+edit; handler reuse may occur only behind the transactional boundary with no early visible effect.
+CLI/hooks/jobs/recovery/migrations require equivalent consumers or explicit `policy_disabled`.
+A2 filesystem writes also require target digest, proof mark, OCC, rollback/conservation, crash, and
+same-UID tamper evidence. The durable preflight is
+`docs/proofs/m1nd10-typed-consumer-preflight-20260718.md`; it approves architecture, not a gate,
+activation, or release.
+
+### 2026-07-18 — M1ND-10 G4/R6 runtime isolation and durability (WORKING TREE; NOT PUBLISHED)
+
+**What is implemented.** Every bound or hosted brain now has a bounded serial actor. A
+`BrainSessionCell` checks the complete `SessionState` out of a short-held storage mutex, releases
+that mutex before dispatch, persistence, checkpoint, or long analysis, and restores ownership by
+RAII. REST, stdio, Streamable-HTTP MCP, bootstrap, tier recall, promotion, shutdown, and eviction
+use the same actor seam. Health reads an independent cached snapshot. Mutating success crosses
+persist plus content-addressed checkpoint ACK; persistence failure keeps reads live, fences new
+mutations as `degraded_persistence`, and only a real retry ACK clears the fence. Dirty eviction
+requires the exact ACK. Runtime jobs expose bounded admission, deadlines, cancellation state,
+`running_after_timeout`, proposal preparation, and actor-side OCC commit.
+
+**What is mechanically proven on this macOS arm64 checkout.** The superseding full m1nd-mcp
+library run is `1049 PASS / 0 FAIL / 1 ignored`; strict serve/all-target clippy is green. The
+R6 battery measured 601 health samples during a real `31.277137958 s` owner stall: p99
+`0.838625 ms`, max `3.003625 ms`, and zero samples at or above 100 ms. The versioned 10,000-op
+workload across eight brains observed zero lost writes and zero cross-brain reads. Checkpoint
+fault injection, disk-full, corruption, concurrent GC, fallback, degraded-read/write-fence, stale
+proposal, overload, shutdown, and eviction-ACK fixtures pass. The conservative source audit scans
+73 production files and 23 remaining SessionState lock scopes with zero forbidden long/blocking
+operations; it remains lexical evidence, not a Rust model checker.
+
+**Honesty boundary.** This is `MACOS COMPONENT PASS`, not full G4. Windows and Linux were
+`NOT_RUN`, physical power loss was `NOT_RUN`, and frozen G4 explicitly requires Windows; the gate
+therefore remains `NOT_PROVEN_WINDOWS_NOT_RUN`. The tree is dirty/uncommitted and publication was
+not attempted. Bounded independent review was exhausted without a verdict: Fable returned
+`Credit balance is too low`; full Fugu and its single narrow retry each crossed the 10-minute bound
+without the required verdict contract. askGOD is recorded `UNAVAILABLE`; partial progress output
+was discarded and no approval or rejection was inferred. Canonical evidence lives in
+`docs/proofs/m1nd10-g4-r6-runtime-isolation-20260718.md` and the three
+`docs/benchmarks/m1nd10-g4-r6-*` artifacts.
 
 ### HANDOFF — the next agent starts HERE (2026-07-15, the whole-system panorama)
 
 **The two-house organism.** `m1nd` (this repo, `github.com/maxkle1nz/m1nd`, anchor checkout
-`/Users/kle1nz/m1nd` on `main`) is the MIND: graph, brains, board, UI. `god-hud`
-(`/Users/kle1nz/god-hud`, LOCAL — no remote, its own `docs/PATHOS.md`) is the HAND: cockpit
+`<repo-root>` on `main`) is the MIND: graph, brains, board, UI. `god-hud`
+(`<h4nd-root>`, LOCAL — no remote, its own `docs/PATHOS.md`) is the HAND: cockpit
 `:3000`, warm pool + `poold` daemon, the Touch ID tray (`~/Applications/h4nd.app`), and now the
 CI Reviewer (`h4nd-pool/reviewer/`). Law of the pair: agents propose and prove; NOTHING lands
 without the human's origin-gated gesture.
@@ -77,7 +446,7 @@ every fix; askGOD verdict before BIG; bursts = 1 PR with the doc-gate inside; co
 Max Kle1nz in English (never an AI identity); tests NEVER touch the live owner (ephemeral
 owners/fixtures only — the letters/cartas are the sanctioned exception); m1nd misbehavior →
 append `~/.m1nd/field-reports.jsonl`, never mid-mission surgery. Durable side records live in
-`/Users/kle1nz/m1nd-f0a/scratchpad/` (verdicts, `PRD-M1ND-CI-SOL.md`, `FIELD-TRIAGE-2026-07-15.md`);
+`<historical-scratchpad-root>` (verdicts, `PRD-M1ND-CI-SOL.md`, `FIELD-TRIAGE-2026-07-15.md`);
 Reviewer runs in `~/.god/runs/`, its ledger in `~/.god/reviewer/`, its isolated pen-free
 CODEX_HOME in `~/.god/reviewer-codex/`.
 
@@ -719,6 +1088,16 @@ levers above capture the waste without that risk.
 - git identity = Max Kle1nz <kleinz@cosmophonix.com>.
 
 ## Known Problems (honest, product-level)
+- **M1ND-10 has named candidate blockers; use the canonical handoff, not an older green summary.**
+  The former five G6 P1 and three P2/scorer findings are now corrective-source implemented and
+  locally green; the final independent corrective re-review is `APPROVE`/none. The formal 220-task
+  blind run is still absent and cannot run from the mutable tree.
+  G7's organism-version and offline-cache defects are locally closed at checkpoint 22; its real
+  isolated browser/owner/h4nd proof is still absent. The remaining blocking set also includes
+  an immutable candidate, native cross-OS/power-loss/hosted-release proof, production autonomy
+  custody, same-UID micro-race/peer-identity evidence, and same-candidate G10 receipts. Exact
+  findings and continuation order:
+  `docs/M1ND-10-HANDOFF-20260719.md` §§7–10.
 - **The medulla ladder R2→R4 (M5a → M5b → M6) is BUILT — CODE-LANDED, live HELD.** M5a (per-brain
   storage + `Origin-Brain` labels + reversible migration + brainless-root refusal), M5b (`tier` recall
   + the no-leak invariant proven + `all-brains` through the eviction gate), and M6 (the `promote` verb
@@ -753,13 +1132,11 @@ levers above capture the waste without that risk.
 - **The poisoned-oracle threat model is OPEN.** A poisoned eval set or co-change corpus makes the
   calibrator certify a wrong verdict with confidence — "who calibrates the calibrator?". Logged as
   unsolved; eval-set integrity is a prerequisite before any verb defaults on.
-- **PATHOS auto-refresh push-back to `main` is BLOCKED by branch protection.** The pattern is installed
-  and proven up to the last hop: the Action regenerates the auto sections and commits on the runner,
-  but the direct push is rejected (required status checks; `GITHUB_TOKEN` has no bypass). The workflow
-  fail-softs (warning + step summary, never a perpetually red run) and prefers a `PATHOS_REFRESH_TOKEN`
-  secret if present. Unblock = a maintainer call (a fine-grained admin PAT in `PATHOS_REFRESH_TOKEN`,
-  or a required-checks bypass for `github-actions`). Until then the auto sections refresh only when a
-  PR carries a regenerated copy.
+- **PATHOS auto-refresh is a review-only proposal, not an autonomous writer.** The workflow now has
+  `contents: read`, disables checkout credential persistence, renders commit-derived text as inert
+  quoted data, and uploads only `PATHOS.patch` plus a `REVIEW_ONLY_NO_COMMIT_NO_PUSH` receipt. It has
+  no PAT seam and does not commit, push, bypass branch protection, or mutate repository state. A
+  maintainer-reviewed PR remains the promotion boundary; hosted execution is still `NOT_RUN` here.
 - **Multi-session hygiene.** A served owner holds the live brain and sibling worktrees may hold
   parallel work — `git fetch` before acting, confirm `git branch --show-current` before commit, do
   feature work in an isolated worktree with the shared `CARGO_TARGET_DIR`
@@ -782,6 +1159,19 @@ battery gate → verify on the REAL diff → PR/merge → the UNIVERSAL DOC GATE
 current, agent surfaces updated in the SAME PR) → seed the next rung.
 
 ## Next Agent Prompt / next seeds
+
+**CURRENT OVERRIDE — M1ND-10.** Read `docs/M1ND-10-HANDOFF-20260719.md` in full and follow its
+continuation order. The five G6 P1, three P2, and scorer-audit findings are locally closed and the
+final independent corrective re-review is `APPROVE`/none. Preserve that boundary and the closed G7
+version/offline-dependency contract. The dirty tree has a green local aggregate but is not a
+candidate: obtain the authority needed to freeze one reviewed immutable revision, repeat the full
+matrix against that digest, and only then execute native G4, formal blind G6, isolated live G7,
+hosted G8, production G9, and same-digest G10. Do not touch the served owner, inspect operator-only
+labels, run the blind benchmark from mutable source, weaken a refusal, or convert source support
+into a live/release/autonomy claim.
+
+**Historical ladder below.** It remains useful organism history, but it is not the active ordering
+for the owner-ratified M1ND-10 convergence program.
 
 **→ THE ERA IS CONSTRUCTION.** The design era is closed; do not write another vision. Read the
 **ORGANISM constitution's §C10 ladder** — it is the single cross-PRD build order, and an implementer

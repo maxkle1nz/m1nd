@@ -381,12 +381,18 @@ pub fn call_name_endpoint(
 
     // Read until EOF (connection: close). A mid-read timeout keeps what arrived —
     // if the response is already complete it still parses.
+    const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
     let mut raw = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
         match stream.read(&mut chunk) {
             Ok(0) => break,
-            Ok(n) => raw.extend_from_slice(&chunk[..n]),
+            Ok(n) => {
+                if raw.len().saturating_add(n) > MAX_RESPONSE_BYTES {
+                    return Err("runner daemon response exceeded 2097152 bytes".to_string());
+                }
+                raw.extend_from_slice(&chunk[..n]);
+            }
             Err(e) => {
                 if raw.is_empty() {
                     return Err(format!("read from the runner daemon failed: {e}"));
@@ -402,6 +408,10 @@ pub fn call_name_endpoint(
 /// Parse the daemon's raw HTTP response: status line + a JSON body (Content-Length
 /// honored when present, else the remainder). Split out for direct testing.
 fn parse_name_response(raw: &[u8]) -> Result<Vec<NameCallResult>, String> {
+    const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+    if raw.len() > MAX_RESPONSE_BYTES {
+        return Err("runner daemon response exceeded 2097152 bytes".to_string());
+    }
     let split = raw
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
@@ -415,16 +425,25 @@ fn parse_name_response(raw: &[u8]) -> Result<Vec<NameCallResult>, String> {
         .ok_or_else(|| "malformed HTTP status line from the runner daemon".to_string())?;
     let mut body = &raw[split + 4..];
     // Honor Content-Length when present (our axum daemon always sets it for Json).
+    let mut declared_length = None;
     for line in head.lines().skip(1) {
         if let Some((k, v)) = line.split_once(':') {
             if k.trim().eq_ignore_ascii_case("content-length") {
-                if let Ok(len) = v.trim().parse::<usize>() {
-                    if len <= body.len() {
-                        body = &body[..len];
-                    }
+                if declared_length.is_some() {
+                    return Err("duplicate Content-Length from the runner daemon".to_string());
                 }
+                declared_length =
+                    Some(v.trim().parse::<usize>().map_err(|_| {
+                        "invalid Content-Length from the runner daemon".to_string()
+                    })?);
             }
         }
+    }
+    if let Some(len) = declared_length {
+        if len > MAX_RESPONSE_BYTES || len > body.len() {
+            return Err("incomplete or oversized runner daemon response".to_string());
+        }
+        body = &body[..len];
     }
     if status == 401 {
         return Err("unauthorized (401): the runner daemon refused the shared secret".to_string());
@@ -1092,6 +1111,9 @@ mod tests {
     use crate::runnerd_owner::{secret_path, NamingRunnerHandle, RunnerdRegistry};
     use crate::system_blocks::SeedError;
 
+    const TEST_RUNNER_SECRET: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
     /// A tempdir store + an owner runtime root with the shared secret + a registry.
     fn naming_fixture(
         blocks: Vec<SystemBlock>,
@@ -1104,7 +1126,14 @@ mod tests {
             .expect("save");
         let owner_rt = temp.path().join("owner-rt");
         std::fs::create_dir_all(&owner_rt).expect("owner rt");
-        std::fs::write(secret_path(&owner_rt), "route-secret").expect("secret");
+        let runner_secret_path = secret_path(&owner_rt);
+        std::fs::write(&runner_secret_path, TEST_RUNNER_SECRET).expect("secret");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&runner_secret_path, std::fs::Permissions::from_mode(0o600))
+                .expect("secret permissions");
+        }
         let handle = NamingRunnerHandle {
             registry: std::sync::Arc::new(RunnerdRegistry::default()),
             owner_runtime_root: owner_rt,
@@ -1137,7 +1166,7 @@ mod tests {
             ]
         }))
         .unwrap();
-        let (port, _daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, "route-secret");
+        let (port, _daemon) = spawn_fake_daemon("HTTP/1.1 200 OK", body, TEST_RUNNER_SECRET);
         handle.registry.register(&["namer-1".to_string()], port, 1);
 
         let outcome =
@@ -1224,5 +1253,16 @@ mod tests {
             select_naming_targets(&store, Some(&["sb_ghost".to_string()])),
             Err(SeedError::BlockNotFound { .. })
         ));
+    }
+
+    #[test]
+    fn name_response_parser_refuses_oversized_or_incomplete_bodies() {
+        assert!(parse_name_response(&vec![b'x'; 2 * 1024 * 1024 + 1])
+            .unwrap_err()
+            .contains("exceeded"));
+        let incomplete = b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{}";
+        assert!(parse_name_response(incomplete)
+            .unwrap_err()
+            .contains("incomplete"));
     }
 }

@@ -1,0 +1,72 @@
+{
+  "$id": "m1nd10-g6-held-out-v2-author-review.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "corpus_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "corpus_id": {
+      "type": "string"
+    },
+    "independent_review": {
+      "type": "object"
+    },
+    "non_claims": {
+      "type": "array"
+    },
+    "public_self_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "remediation": {
+      "type": "object"
+    },
+    "reviewed_at_utc": {
+      "type": "string"
+    },
+    "reviewed_task_count": {
+      "const": 220
+    },
+    "reviewer_role": {
+      "const": "corpus_author"
+    },
+    "schema": {
+      "const": "m1nd10-g6-held-out-v2-author-review-v1"
+    },
+    "sealed_self_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "self_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_manifest_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "status": {
+      "const": "AUTHOR_REVIEW_COMPLETE_AWAITING_INDEPENDENT_REVIEW"
+    }
+  },
+  "required": [
+    "schema",
+    "status",
+    "reviewer_role",
+    "reviewed_at_utc",
+    "corpus_id",
+    "corpus_digest",
+    "source_manifest_digest",
+    "public_self_digest",
+    "sealed_self_digest",
+    "reviewed_task_count",
+    "remediation",
+    "independent_review",
+    "non_claims",
+    "self_digest"
+  ],
+  "title": "M1ND-10 G6 held-out V2 author review",
+  "type": "object"
+}

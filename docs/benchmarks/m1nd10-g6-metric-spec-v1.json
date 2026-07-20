@@ -1,0 +1,37 @@
+{
+  "schema": "m1nd10-g6-metric-spec-v1",
+  "version": 1,
+  "ratification": {
+    "status": "ratified",
+    "ratified_at": "2026-07-18",
+    "source": "docs/M1ND-10-PRD.md R2 plus explicit user ratification; outcome-blind askGOD CHANGE verdict recorded at docs/proofs/m1nd10-g6-seek-slo-askgod-blind-verdict-20260718.md and satisfied before scoring",
+    "unratified_fields": []
+  },
+  "corpus": {
+    "minimum_tasks": 200,
+    "minimum_languages": 2,
+    "minimum_repo_size_bands": 2,
+    "minimum_localizable": 1,
+    "minimum_unlocalizable": 1
+  },
+  "thresholds": {
+    "top5_anchor_recall_min": 0.9,
+    "abstention_recall_min": 0.95,
+    "wrong_ground_action_rate_max": 0.01,
+    "regression_significance_alpha": 0.05
+  },
+  "latency_slo_ms": {
+    "north_p95": 2000,
+    "north_source": "docs/TWO-TIER-BRAIN-PRD.md warm composed north p95 <= 2 s over 50 calls",
+    "seek_p95": 500,
+    "seek_source": "Outcome-blind architectural SLO: full authenticated warm MCP HTTP tools/call including fresh per-task session overhead; 500 ms p95 preserves headroom below the pre-existing 1 s hard seek beat and the 2 s composed north p95. It is not derived from runner outcomes."
+  },
+  "measurement_integrity": {
+    "require_error_free_runner_metadata": true,
+    "reject_error_fallback_measurements": true,
+    "minimum_executed_latency_ms_exclusive": 0.000001,
+    "include_fresh_session_overhead": true,
+    "same_revision_rerun_policy": "one_sealed_run_only_no_rerun_until_pass",
+    "new_run_requires": "new system_revision or binary_digest; preserve prior FAIL/NOT_PROVEN evidence"
+  }
+}

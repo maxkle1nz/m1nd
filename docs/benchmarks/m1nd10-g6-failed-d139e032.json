@@ -1,0 +1,33 @@
+{
+  "baseline_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee",
+  "blockers": [],
+  "checks": {
+    "abstention_recall": true,
+    "no_significant_baseline_regression": true,
+    "north_p95": true,
+    "seek_p95": false,
+    "top5_anchor_recall": false,
+    "wrong_ground_action_rate": true
+  },
+  "claimable": false,
+  "corpus_id": "m1nd10-g6-held-out-v1-82643b72c1d89809",
+  "current_revision": "git:b59a1c2a1454a83164dfb4d5640c6b005154d1ee+dirty:status-3ab182a600ec7c44d2888cda93e67a0e0d0e522b45274ff731166b5d5af1dc9e:binary-d139e032fc7a91a7e0e4b370279d41eb17c5dbd78372545bbba51ad0765a9ec5",
+  "generated_at": "2026-07-18T13:05:34.589337+00:00",
+  "localizable_count": 200,
+  "metrics": {
+    "abstention_recall": 0.95,
+    "authorized_action_count": 0,
+    "north_p95_ms": 1952.271916,
+    "paired_improvements": 101,
+    "paired_regressions": 7,
+    "regression_sign_test_p": 1.8435809190426689e-22,
+    "seek_p95_ms": 1136.216667,
+    "top5_anchor_recall": 0.89,
+    "wrong_ground_action_count": 0,
+    "wrong_ground_action_rate": 0.0
+  },
+  "schema": "m1nd10-g6-retrieval-report-v1",
+  "status": "FAIL",
+  "task_count": 220,
+  "unlocalizable_count": 20
+}

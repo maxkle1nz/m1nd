@@ -1,8 +1,12 @@
 // === crates/m1nd-ingest/src/resolve.rs ===
 
-use m1nd_core::error::M1ndResult;
+use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
 use m1nd_core::types::*;
+
+use crate::ownership::{
+    graph_has_edge, OwnedEdgeClaimV1, OwnershipDeltaV1, ResolutionDecisionV1, ResolutionOutcomeV1,
+};
 
 // ---------------------------------------------------------------------------
 // ReferenceResolver — resolve ref:: edges to actual nodes
@@ -31,6 +35,23 @@ pub struct ResolutionStats {
     pub resolved: u64,
     pub unresolved: u64,
     pub ambiguous: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OwnedUnresolvedReferenceV1 {
+    pub source_key: String,
+    pub source_id: String,
+    pub target_label: String,
+    pub relation: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct OwnedResolutionStatsV1 {
+    pub summary: ResolutionStats,
+    pub ownership: OwnershipDeltaV1,
+    pub decisions: Vec<ResolutionDecisionV1>,
+    pub input_count: u64,
+    pub hint_count: u64,
 }
 
 /// Node tag marking a source node that has at least one outgoing edge which was
@@ -93,25 +114,123 @@ impl ReferenceResolver {
         unresolved: &[(String, String, String)], // (source_id, target_label, relation)
         import_hints: &[(String, String, String)], // (source_id, target_label, import_path)
     ) -> M1ndResult<ResolutionStats> {
+        let owned = unresolved
+            .iter()
+            .map(
+                |(source_id, target_label, relation)| OwnedUnresolvedReferenceV1 {
+                    source_key: String::new(),
+                    source_id: source_id.clone(),
+                    target_label: target_label.clone(),
+                    relation: relation.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+        Self::resolve_owned_with_hints(graph, &owned, import_hints).map(|result| result.summary)
+    }
+
+    /// Ownership-preserving resolver used by governed code ingestion. Existing
+    /// callers keep using `resolve_with_hints`; this variant additionally returns
+    /// the exact edge keys produced for each extractor-supplied source key,
+    /// including an already-represented shared edge.
+    pub fn resolve_owned_with_hints(
+        graph: &mut Graph,
+        unresolved: &[OwnedUnresolvedReferenceV1],
+        import_hints: &[(String, String, String)],
+    ) -> M1ndResult<OwnedResolutionStatsV1> {
+        let governed = unresolved
+            .first()
+            .is_some_and(|reference| !reference.source_key.is_empty());
+        let mut input_keys = std::collections::BTreeSet::new();
+        for reference in unresolved {
+            if reference.source_key.is_empty() == governed
+                || (governed && !crate::is_valid_relative_file_path(&reference.source_key))
+                || reference.source_id.is_empty()
+                || reference.source_id != reference.source_id.trim()
+                || reference.target_label.is_empty()
+                || reference.target_label != reference.target_label.trim()
+                || reference.relation.is_empty()
+                || reference.relation != reference.relation.trim()
+            {
+                return Err(M1ndError::InvalidParams {
+                    tool: "resolve_references".into(),
+                    detail: format!("invalid resolution input: {reference:?}"),
+                });
+            }
+            if !input_keys.insert(reference.clone()) {
+                return Err(M1ndError::InvalidParams {
+                    tool: "resolve_references".into(),
+                    detail: format!("duplicate resolution input: {reference:?}"),
+                });
+            }
+        }
+
+        let hint_targets = unresolved
+            .iter()
+            .map(|reference| {
+                (
+                    reference.source_id.as_str(),
+                    reference.target_label.as_str(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut hint_map = std::collections::HashMap::with_capacity(import_hints.len());
+        for (source_id, target_label, import_path) in import_hints {
+            if source_id.is_empty()
+                || source_id != source_id.trim()
+                || target_label.is_empty()
+                || target_label != target_label.trim()
+                || import_path.is_empty()
+                || import_path != import_path.trim()
+                || !hint_targets.contains(&(source_id.as_str(), target_label.as_str()))
+            {
+                return Err(M1ndError::InvalidParams {
+                    tool: "resolve_references".into(),
+                    detail: format!(
+                        "invalid or orphan resolution hint: ({source_id:?}, {target_label:?}, {import_path:?})"
+                    ),
+                });
+            }
+            if hint_map
+                .insert(
+                    (source_id.as_str(), target_label.as_str()),
+                    import_path.as_str(),
+                )
+                .is_some()
+            {
+                return Err(M1ndError::InvalidParams {
+                    tool: "resolve_references".into(),
+                    detail: format!(
+                        "duplicate/conflicting resolution hint for ({source_id:?}, {target_label:?})"
+                    ),
+                });
+            }
+        }
+
         let label_index = Self::build_label_index(graph);
         let mut stats = ResolutionStats {
             resolved: 0,
             unresolved: 0,
             ambiguous: 0,
         };
+        let mut ownership = OwnershipDeltaV1::default();
+        let mut decisions = Vec::with_capacity(unresolved.len());
 
-        // Build a quick lookup for import hints: (source, target_label) -> import_path
-        let hint_map: std::collections::HashMap<(&str, &str), &str> = import_hints
-            .iter()
-            .map(|(s, t, p)| ((s.as_str(), t.as_str()), p.as_str()))
-            .collect();
-
-        for (source_id, target_label, relation) in unresolved {
+        for reference in unresolved {
+            let source_id = &reference.source_id;
+            let target_label = &reference.target_label;
+            let relation = &reference.relation;
             // Look up source node
             let source = match graph.resolve_id(source_id) {
                 Some(id) => id,
                 None => {
                     stats.unresolved += 1;
+                    decisions.push(resolution_decision(
+                        graph,
+                        reference,
+                        ResolutionOutcomeV1::Unresolved,
+                        None,
+                        &[],
+                    )?);
                     continue;
                 }
             };
@@ -159,6 +278,13 @@ impl ReferenceResolver {
                     if found.is_empty() {
                         stats.unresolved += 1;
                         graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
+                        decisions.push(resolution_decision(
+                            graph,
+                            reference,
+                            ResolutionOutcomeV1::Unresolved,
+                            None,
+                            &[],
+                        )?);
                         continue;
                     }
                     // Use first match (or disambiguate if multiple). A call-site
@@ -186,15 +312,58 @@ impl ReferenceResolver {
 
                     // Add edge
                     let rel = relation.as_str();
-                    let _ = graph.add_edge(
+                    let owned = if graph_has_edge(
+                        graph,
                         source,
                         target,
                         rel,
-                        FiniteF32::new(0.5),
                         EdgeDirection::Forward,
                         false,
-                        FiniteF32::new(0.4),
-                    );
+                    ) {
+                        true
+                    } else {
+                        match graph.add_edge(
+                            source,
+                            target,
+                            rel,
+                            FiniteF32::new(0.5),
+                            EdgeDirection::Forward,
+                            false,
+                            FiniteF32::new(0.4),
+                        ) {
+                            Ok(_) => true,
+                            Err(_) => graph_has_edge(
+                                graph,
+                                source,
+                                target,
+                                rel,
+                                EdgeDirection::Forward,
+                                false,
+                            ),
+                        }
+                    };
+                    let target_id = Self::find_external_id(graph, target);
+                    if owned && !reference.source_key.is_empty() {
+                        if let Some(target_id) = target_id.clone() {
+                            ownership.claim_edge(OwnedEdgeClaimV1::forward(
+                                reference.source_key.clone(),
+                                source_id.clone(),
+                                target_id,
+                                relation.clone(),
+                            ));
+                        }
+                    }
+                    decisions.push(resolution_decision(
+                        graph,
+                        reference,
+                        if is_tie {
+                            ResolutionOutcomeV1::Ambiguous
+                        } else {
+                            ResolutionOutcomeV1::Resolved
+                        },
+                        target_id,
+                        &found,
+                    )?);
                     stats.resolved += 1;
                     continue;
                 }
@@ -205,6 +374,13 @@ impl ReferenceResolver {
                 if candidates.is_empty() {
                     stats.unresolved += 1;
                     graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
+                    decisions.push(resolution_decision(
+                        graph,
+                        reference,
+                        ResolutionOutcomeV1::Unresolved,
+                        None,
+                        &[],
+                    )?);
                     continue;
                 }
                 // Qualifier (`ref::Type::method`) first, then import hint, then
@@ -225,23 +401,88 @@ impl ReferenceResolver {
                 }
 
                 let rel = relation.as_str();
-                let _ = graph.add_edge(
-                    source,
-                    target,
-                    rel,
-                    FiniteF32::new(0.5),
-                    EdgeDirection::Forward,
-                    false,
-                    FiniteF32::ZERO,
-                );
+                let owned =
+                    if graph_has_edge(graph, source, target, rel, EdgeDirection::Forward, false) {
+                        true
+                    } else {
+                        match graph.add_edge(
+                            source,
+                            target,
+                            rel,
+                            FiniteF32::new(0.5),
+                            EdgeDirection::Forward,
+                            false,
+                            FiniteF32::ZERO,
+                        ) {
+                            Ok(_) => true,
+                            Err(_) => graph_has_edge(
+                                graph,
+                                source,
+                                target,
+                                rel,
+                                EdgeDirection::Forward,
+                                false,
+                            ),
+                        }
+                    };
+                let target_id = Self::find_external_id(graph, target);
+                if owned && !reference.source_key.is_empty() {
+                    if let Some(target_id) = target_id.clone() {
+                        ownership.claim_edge(OwnedEdgeClaimV1::forward(
+                            reference.source_key.clone(),
+                            source_id.clone(),
+                            target_id,
+                            relation.clone(),
+                        ));
+                    }
+                }
+                decisions.push(resolution_decision(
+                    graph,
+                    reference,
+                    if is_tie {
+                        ResolutionOutcomeV1::Ambiguous
+                    } else {
+                        ResolutionOutcomeV1::Resolved
+                    },
+                    target_id,
+                    candidates,
+                )?);
                 stats.resolved += 1;
             } else {
                 stats.unresolved += 1;
                 graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
+                decisions.push(resolution_decision(
+                    graph,
+                    reference,
+                    ResolutionOutcomeV1::Unresolved,
+                    None,
+                    &[],
+                )?);
             }
         }
 
-        Ok(stats)
+        decisions.sort();
+        if decisions.len() != unresolved.len()
+            || stats.resolved + stats.unresolved != unresolved.len() as u64
+            || stats.ambiguous > stats.resolved
+        {
+            return Err(M1ndError::IngestError(format!(
+                "resolution accounting mismatch: inputs={}, decisions={}, resolved={}, unresolved={}, ambiguous={}",
+                unresolved.len(),
+                decisions.len(),
+                stats.resolved,
+                stats.unresolved,
+                stats.ambiguous
+            )));
+        }
+
+        Ok(OwnedResolutionStatsV1 {
+            summary: stats,
+            ownership,
+            decisions,
+            input_count: unresolved.len() as u64,
+            hint_count: import_hints.len() as u64,
+        })
     }
 
     /// Build label-to-nodes index (multi-value, not single-value).
@@ -361,14 +602,20 @@ impl ReferenceResolver {
         }
     }
 
-    /// Find external ID string for a node.
+    /// Find the node's single external identity. Anonymous and multiply-named
+    /// slots are both invalid, so neither may be collapsed to an arbitrary
+    /// HashMap iteration winner.
     fn find_external_id(graph: &Graph, node: NodeId) -> Option<String> {
+        let mut found = None;
         for (interned, &nid) in &graph.id_to_node {
             if nid == node {
-                return Some(graph.strings.resolve(*interned).to_string());
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(graph.strings.resolve(*interned).to_string());
             }
         }
-        None
+        found
     }
 
     /// Disambiguate among multiple candidates using an import path hint.
@@ -533,6 +780,47 @@ impl ReferenceResolver {
 
         matching + if same_file { SAME_FILE_BONUS } else { 0 }
     }
+}
+
+fn resolution_decision(
+    graph: &Graph,
+    reference: &OwnedUnresolvedReferenceV1,
+    outcome: ResolutionOutcomeV1,
+    resolved_target_id: Option<String>,
+    candidates: &[NodeId],
+) -> M1ndResult<ResolutionDecisionV1> {
+    let mut candidate_ids = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let candidate_id =
+            ReferenceResolver::find_external_id(graph, *candidate).ok_or_else(|| {
+                M1ndError::IngestError(format!(
+                    "resolution candidate slot {} has no external identity",
+                    candidate.as_usize()
+                ))
+            })?;
+        candidate_ids.push(candidate_id);
+    }
+    candidate_ids.sort();
+    if candidate_ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(M1ndError::IngestError(format!(
+            "resolution candidates are not bijective for source {:?}, target {:?}",
+            reference.source_id, reference.target_label
+        )));
+    }
+    let provenance = graph
+        .resolve_id(&reference.source_id)
+        .map(|source| graph.resolve_node_provenance(source));
+    Ok(ResolutionDecisionV1 {
+        source_key: reference.source_key.clone(),
+        source_id: reference.source_id.clone(),
+        target_label: reference.target_label.clone(),
+        relation: reference.relation.clone(),
+        outcome,
+        resolved_target_id,
+        candidate_ids,
+        source_line_start: provenance.as_ref().and_then(|value| value.line_start),
+        source_line_end: provenance.and_then(|value| value.line_end),
+    })
 }
 
 #[cfg(test)]
@@ -945,5 +1233,99 @@ mod tests {
             "bare ref must bind to the same-file `run` by proximity"
         );
         assert_ne!(bound, far, "bare ref must not bind cross-crate");
+    }
+
+    fn governed_reference(source_id: &str, target_label: &str) -> OwnedUnresolvedReferenceV1 {
+        OwnedUnresolvedReferenceV1 {
+            source_key: "src/caller.rs".into(),
+            source_id: source_id.into(),
+            target_label: target_label.into(),
+            relation: "calls".into(),
+        }
+    }
+
+    #[test]
+    fn duplicate_resolution_inputs_are_rejected_not_collapsed() {
+        let mut graph = Graph::new();
+        let source_id = "file::src/caller.rs::fn::caller";
+        fn_node(&mut graph, source_id, "caller");
+        let reference = governed_reference(source_id, "ref::missing");
+
+        let error = ReferenceResolver::resolve_owned_with_hints(
+            &mut graph,
+            &[reference.clone(), reference],
+            &[],
+        )
+        .expect_err("duplicate inputs must fail closed");
+        assert!(error.to_string().contains("duplicate resolution input"));
+    }
+
+    #[test]
+    fn orphan_and_duplicate_resolution_hints_are_rejected() {
+        let mut graph = Graph::new();
+        let source_id = "file::src/caller.rs::fn::caller";
+        fn_node(&mut graph, source_id, "caller");
+        let reference = governed_reference(source_id, "ref::target");
+
+        let orphan = ReferenceResolver::resolve_owned_with_hints(
+            &mut graph,
+            std::slice::from_ref(&reference),
+            &[(source_id.into(), "ref::other".into(), "crate::other".into())],
+        )
+        .expect_err("orphan hint must fail closed");
+        assert!(orphan.to_string().contains("orphan resolution hint"));
+
+        let duplicate = ReferenceResolver::resolve_owned_with_hints(
+            &mut graph,
+            std::slice::from_ref(&reference),
+            &[
+                (source_id.into(), "ref::target".into(), "crate::one".into()),
+                (source_id.into(), "ref::target".into(), "crate::two".into()),
+            ],
+        )
+        .expect_err("duplicate/conflicting hint must fail closed");
+        assert!(duplicate
+            .to_string()
+            .contains("duplicate/conflicting resolution hint"));
+    }
+
+    #[test]
+    fn every_resolution_input_has_one_decision_and_exact_counts() {
+        let mut graph = Graph::new();
+        let source_id = "file::src/caller.rs::fn::caller";
+        fn_node(&mut graph, source_id, "caller");
+        fn_node(&mut graph, "file::src/target.rs::fn::target", "target");
+        let inputs = vec![
+            governed_reference(source_id, "ref::target"),
+            governed_reference(source_id, "ref::missing"),
+        ];
+
+        let result = ReferenceResolver::resolve_owned_with_hints(&mut graph, &inputs, &[])
+            .expect("fully accounted resolution");
+        assert_eq!(result.input_count, 2);
+        assert_eq!(result.hint_count, 0);
+        assert_eq!(result.decisions.len(), 2);
+        assert_eq!(result.summary.resolved, 1);
+        assert_eq!(result.summary.unresolved, 1);
+        assert_eq!(result.summary.ambiguous, 0);
+    }
+
+    #[test]
+    fn candidate_without_external_identity_is_fatal() {
+        let mut graph = Graph::new();
+        let source_id = "file::src/caller.rs::fn::caller";
+        fn_node(&mut graph, source_id, "caller");
+        let target_id = "file::src/target.rs::fn::target";
+        fn_node(&mut graph, target_id, "target");
+        let target_interned = graph.strings.lookup(target_id).expect("interned target id");
+        graph.id_to_node.remove(&target_interned);
+
+        let error = ReferenceResolver::resolve_owned_with_hints(
+            &mut graph,
+            &[governed_reference(source_id, "ref::target")],
+            &[],
+        )
+        .expect_err("anonymous candidate slot must fail closed");
+        assert!(error.to_string().contains("resolution candidate slot"));
     }
 }

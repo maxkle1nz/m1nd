@@ -13,10 +13,12 @@ use m1nd_ingest::merge::{collect_source_claims, prune_source_claims, SourceClaim
 use m1nd_ingest::path_policy;
 use m1nd_ingest::{
     BibTexAdapter, CrossRefAdapter, IngestAdapter, JatsArticleAdapter, L1ghtIngestAdapter,
-    PatentIngestAdapter, RfcAdapter, UniversalIngestAdapter,
+    PatentIngestAdapter, RfcAdapter, UniversalDocumentOutcome, UniversalIngestAdapter,
+    UniversalIngestStatus, UniversalIngestSummary,
 };
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::Hasher;
@@ -24,6 +26,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const RECENT_EVENT_LIMIT: usize = 40;
+
+#[cfg(test)]
+pub(crate) fn universal_provider_test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum PendingChangeKind {
@@ -48,6 +56,10 @@ pub struct AutoIngestManifestEntry {
     pub fingerprint: AutoIngestFingerprint,
     pub claims: SourceClaims,
     pub last_ingested_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub universal_ingest: Option<UniversalIngestSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub universal_outcomes: Vec<UniversalDocumentOutcome>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,6 +80,8 @@ struct AutoIngestPersistentState {
     manifest: HashMap<String, AutoIngestManifestEntry>,
     events_seen: u64,
     ingests_applied: u64,
+    #[serde(default)]
+    degraded_applied: u64,
     removals_applied: u64,
     skipped_count: u64,
     error_count: u64,
@@ -95,6 +109,7 @@ impl Default for AutoIngestPersistentState {
             manifest: HashMap::new(),
             events_seen: 0,
             ingests_applied: 0,
+            degraded_applied: 0,
             removals_applied: 0,
             skipped_count: 0,
             error_count: 0,
@@ -126,6 +141,11 @@ pub struct AutoIngestState {
     running: bool,
     pending: Arc<parking_lot::Mutex<HashMap<String, PendingChange>>>,
     watcher: Option<AutoIngestWatcherHandle>,
+    /// Mirrors the owning SessionState checkpoint transaction. A staged
+    /// handler may call `persist`, but those calls become intent markers and
+    /// never publish the candidate into canonical working files.
+    checkpoint_stage_id: Cell<Option<u64>>,
+    checkpoint_persist_requested: Cell<bool>,
 }
 
 impl AutoIngestState {
@@ -135,6 +155,8 @@ impl AutoIngestState {
             running: false,
             pending: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             watcher: None,
+            checkpoint_stage_id: Cell::new(None),
+            checkpoint_persist_requested: Cell::new(false),
         }
     }
 
@@ -149,11 +171,57 @@ impl AutoIngestState {
             running: false,
             pending: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             watcher: None,
+            checkpoint_stage_id: Cell::new(None),
+            checkpoint_persist_requested: Cell::new(false),
         }
     }
 
     pub fn persist(&self, runtime_root: &Path) -> M1ndResult<()> {
-        save_json_atomic(&Self::state_path(runtime_root), &self.persistent)
+        if self.checkpoint_stage_id.get().is_some() {
+            self.checkpoint_persist_requested.set(true);
+            return Ok(());
+        }
+        save_json_atomic_bytes(
+            &Self::state_path(runtime_root),
+            &self.encode_checkpoint_state()?,
+        )
+    }
+
+    pub(crate) fn begin_checkpoint_staging(&self, stage_id: u64) -> M1ndResult<()> {
+        if let Some(active) = self.checkpoint_stage_id.get() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "auto-ingest persistence is already staged by transaction {active}"
+            )));
+        }
+        self.checkpoint_stage_id.set(Some(stage_id));
+        self.checkpoint_persist_requested.set(false);
+        Ok(())
+    }
+
+    pub(crate) fn verify_checkpoint_staging(&self, stage_id: u64) -> M1ndResult<()> {
+        if self.checkpoint_stage_id.get() != Some(stage_id) {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "auto-ingest persistence staging token mismatch: expected {:?}, observed {stage_id}",
+                self.checkpoint_stage_id.get()
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish_checkpoint_staging(&self, stage_id: u64) -> M1ndResult<bool> {
+        self.verify_checkpoint_staging(stage_id)?;
+        let requested = self.checkpoint_persist_requested.replace(false);
+        self.checkpoint_stage_id.set(None);
+        Ok(requested)
+    }
+
+    pub(crate) fn checkpoint_persist_requested(&self, stage_id: u64) -> M1ndResult<bool> {
+        self.verify_checkpoint_staging(stage_id)?;
+        Ok(self.checkpoint_persist_requested.get())
+    }
+
+    pub(crate) fn encode_checkpoint_state(&self) -> M1ndResult<Vec<u8>> {
+        canonical_pretty_json(&self.persistent)
     }
 
     fn state_path(runtime_root: &Path) -> PathBuf {
@@ -661,6 +729,7 @@ impl AutoIngestState {
             queue_depth: self.pending.lock().len(),
             events_seen: self.persistent.events_seen,
             ingests_applied: self.persistent.ingests_applied,
+            degraded_applied: self.persistent.degraded_applied,
             removals_applied: self.persistent.removals_applied,
             skipped_count: self.persistent.skipped_count,
             error_count: self.persistent.error_count,
@@ -710,6 +779,7 @@ impl AutoIngestState {
         let changes = self.take_ready_changes(force);
         let mut changed_paths = Vec::new();
         let mut ingested_paths = Vec::new();
+        let mut degraded_paths = Vec::new();
         let mut removed_paths = Vec::new();
         let mut skipped_paths = Vec::new();
         let mut errored_paths = Vec::new();
@@ -735,10 +805,7 @@ impl AutoIngestState {
                         Self::replace_graph(state, pruned)?;
                         self.persistent.manifest.remove(&source_path);
                         state.document_cache.entries.remove(&source_path);
-                        let _ = universal_docs::remove_artifacts_for_source(
-                            &state.runtime_root,
-                            &source_path,
-                        );
+                        state.document_artifacts.stage_source_absent(&source_path)?;
                         self.persistent.removals_applied += 1;
                         removed_paths.push(source_path.clone());
                         applied_any = true;
@@ -778,10 +845,7 @@ impl AutoIngestState {
                             Self::replace_graph(state, pruned)?;
                             self.persistent.manifest.remove(&source_path);
                             state.document_cache.entries.remove(&source_path);
-                            let _ = universal_docs::remove_artifacts_for_source(
-                                &state.runtime_root,
-                                &source_path,
-                            );
+                            state.document_artifacts.stage_source_absent(&source_path)?;
                             self.persistent.removals_applied += 1;
                             removed_paths.push(source_path);
                             applied_any = true;
@@ -834,7 +898,8 @@ impl AutoIngestState {
                         continue;
                     }
 
-                    let overlay = if format == "universal" {
+                    let (overlay, universal_summary, universal_outcomes) = if format == "universal"
+                    {
                         let namespace = self
                             .persistent
                             .namespace
@@ -844,13 +909,62 @@ impl AutoIngestState {
                             .ingest_bundle(Path::new(&path))
                         {
                             Ok(mut bundle) => {
-                                match universal_docs::write_canonical_artifacts_with_source_root(
+                                let summary = bundle.summary();
+                                let outcomes = bundle.outcomes.clone();
+                                if !bundle.is_committable() {
+                                    let status = summary.status.as_str().to_ascii_lowercase();
+                                    let detail = serde_json::to_string(&serde_json::json!({
+                                        "summary": &summary,
+                                        "outcomes": &outcomes,
+                                    }))
+                                    .ok();
+                                    match summary.status {
+                                        UniversalIngestStatus::Failed => {
+                                            self.persistent.error_count += 1;
+                                            self.persistent.last_error = detail.clone();
+                                            errored_paths.push(path.clone());
+                                        }
+                                        UniversalIngestStatus::Empty
+                                        | UniversalIngestStatus::Unsupported => {
+                                            self.persistent.skipped_count += 1;
+                                            skipped_paths.push(path.clone());
+                                        }
+                                        UniversalIngestStatus::Ingested
+                                        | UniversalIngestStatus::Degraded => unreachable!(),
+                                    }
+                                    self.append_event(
+                                        &state.runtime_root,
+                                        path.clone(),
+                                        "upsert",
+                                        &status,
+                                        Some(format.clone()),
+                                        detail,
+                                    );
+                                    continue;
+                                }
+                                match universal_docs::encode_canonical_artifacts_with_source_root(
                                     &state.runtime_root,
                                     Some(Path::new(&path)),
                                     &bundle.documents,
                                     &namespace,
                                 ) {
                                     Ok(artifacts) => {
+                                        if let Err(error) =
+                                            state.document_artifacts.stage_replacement(&artifacts)
+                                        {
+                                            self.persistent.error_count += 1;
+                                            self.persistent.last_error = Some(error.to_string());
+                                            errored_paths.push(path.clone());
+                                            self.append_event(
+                                                &state.runtime_root,
+                                                path.clone(),
+                                                "upsert",
+                                                "error",
+                                                Some(format.clone()),
+                                                Some(error.to_string()),
+                                            );
+                                            continue;
+                                        }
                                         universal_docs::ensure_cache_root_in_ingest_roots(state);
                                         universal_docs::rewrite_graph_provenance_to_canonical(
                                             &mut bundle.graph,
@@ -879,7 +993,7 @@ impl AutoIngestState {
                                         continue;
                                     }
                                 }
-                                (bundle.graph, bundle.stats)
+                                ((bundle.graph, bundle.stats), Some(summary), outcomes)
                             }
                             Err(error) => {
                                 self.persistent.error_count += 1;
@@ -897,27 +1011,31 @@ impl AutoIngestState {
                             }
                         }
                     } else {
-                        match Self::ingest_with_format(
-                            &format,
-                            Path::new(&path),
-                            self.persistent.namespace.clone(),
-                        ) {
-                            Ok(value) => value,
-                            Err(error) => {
-                                self.persistent.error_count += 1;
-                                self.persistent.last_error = Some(error.to_string());
-                                errored_paths.push(path.clone());
-                                self.append_event(
-                                    &state.runtime_root,
-                                    path,
-                                    "upsert",
-                                    "error",
-                                    Some(format),
-                                    Some(error.to_string()),
-                                );
-                                continue;
-                            }
-                        }
+                        (
+                            match Self::ingest_with_format(
+                                &format,
+                                Path::new(&path),
+                                self.persistent.namespace.clone(),
+                            ) {
+                                Ok(value) => value,
+                                Err(error) => {
+                                    self.persistent.error_count += 1;
+                                    self.persistent.last_error = Some(error.to_string());
+                                    errored_paths.push(path.clone());
+                                    self.append_event(
+                                        &state.runtime_root,
+                                        path,
+                                        "upsert",
+                                        "error",
+                                        Some(format),
+                                        Some(error.to_string()),
+                                    );
+                                    continue;
+                                }
+                            },
+                            None,
+                            Vec::new(),
+                        )
                     };
 
                     let claims = collect_source_claims(&overlay.0);
@@ -942,18 +1060,44 @@ impl AutoIngestState {
                             fingerprint,
                             claims,
                             last_ingested_ms: now_ms(),
+                            universal_ingest: universal_summary.clone(),
+                            universal_outcomes: universal_outcomes.clone(),
                         },
                     );
-                    self.persistent.ingests_applied += 1;
-                    ingested_paths.push(path.clone());
+                    match universal_summary.as_ref().map(|summary| summary.status) {
+                        Some(UniversalIngestStatus::Degraded) => {
+                            self.persistent.degraded_applied += 1;
+                            degraded_paths.push(path.clone());
+                        }
+                        Some(UniversalIngestStatus::Ingested) | None => {
+                            self.persistent.ingests_applied += 1;
+                            ingested_paths.push(path.clone());
+                        }
+                        Some(
+                            UniversalIngestStatus::Empty
+                            | UniversalIngestStatus::Unsupported
+                            | UniversalIngestStatus::Failed,
+                        ) => unreachable!("noncommittable universal outcomes were handled above"),
+                    }
                     applied_any = true;
+                    let event_status = universal_summary
+                        .as_ref()
+                        .map(|summary| summary.status.as_str().to_ascii_lowercase())
+                        .unwrap_or_else(|| "ingested".to_string());
+                    let event_detail = universal_summary.as_ref().and_then(|summary| {
+                        serde_json::to_string(&serde_json::json!({
+                            "summary": summary,
+                            "outcomes": &universal_outcomes,
+                        }))
+                        .ok()
+                    });
                     self.append_event(
                         &state.runtime_root,
                         path,
                         "upsert",
-                        "ingested",
+                        &event_status,
                         Some(format),
-                        None,
+                        event_detail,
                     );
                 }
             }
@@ -970,6 +1114,7 @@ impl AutoIngestState {
         Ok(AutoIngestTickOutput {
             changed_paths,
             ingested_paths,
+            degraded_paths,
             removed_paths,
             skipped_paths,
             errored_paths,
@@ -1051,12 +1196,34 @@ pub fn pump_auto_ingest_if_due(state: &mut SessionState) -> M1ndResult<()> {
     result
 }
 
-fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
+fn canonical_pretty_json<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
+    fn canonicalize(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(canonicalize).collect())
+            }
+            serde_json::Value::Object(values) => {
+                let mut entries = values.into_iter().collect::<Vec<_>>();
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
+                let mut sorted = serde_json::Map::new();
+                for (key, value) in entries {
+                    sorted.insert(key, canonicalize(value));
+                }
+                serde_json::Value::Object(sorted)
+            }
+            scalar => scalar,
+        }
+    }
+
+    let value = serde_json::to_value(value)?;
+    Ok(serde_json::to_vec_pretty(&canonicalize(value))?)
+}
+
+fn save_json_atomic_bytes(path: &Path, payload: &[u8]) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("tmp");
-    let payload = serde_json::to_vec_pretty(value)?;
     fs::write(&tmp, payload)?;
     fs::rename(&tmp, path)?;
     Ok(())
@@ -1065,6 +1232,143 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_encoder_is_deterministic_and_matches_direct_persist() {
+        let runtime = tempfile::tempdir().expect("runtime");
+        let state = AutoIngestState::empty();
+        let first = state.encode_checkpoint_state().expect("encode");
+        assert_eq!(
+            first,
+            state
+                .encode_checkpoint_state()
+                .expect("deterministic encode")
+        );
+        state.persist(runtime.path()).expect("persist");
+        assert_eq!(
+            std::fs::read(AutoIngestState::state_path(runtime.path())).expect("persisted bytes"),
+            first
+        );
+    }
+
+    struct ProviderEnvGuard {
+        python: Option<std::ffi::OsString>,
+        grobid: Option<std::ffi::OsString>,
+        timeout_ms: Option<std::ffi::OsString>,
+    }
+
+    impl ProviderEnvGuard {
+        fn set(python: &Path, timeout_ms: u64) -> Self {
+            let guard = Self {
+                python: std::env::var_os("M1ND_PROVIDER_PYTHON"),
+                grobid: std::env::var_os("M1ND_GROBID_URL"),
+                timeout_ms: std::env::var_os("M1ND_PROVIDER_TIMEOUT_MS"),
+            };
+            std::env::set_var("M1ND_PROVIDER_PYTHON", python);
+            std::env::remove_var("M1ND_GROBID_URL");
+            std::env::set_var("M1ND_PROVIDER_TIMEOUT_MS", timeout_ms.to_string());
+            guard
+        }
+    }
+
+    impl Drop for ProviderEnvGuard {
+        fn drop(&mut self) {
+            match &self.python {
+                Some(value) => std::env::set_var("M1ND_PROVIDER_PYTHON", value),
+                None => std::env::remove_var("M1ND_PROVIDER_PYTHON"),
+            }
+            match &self.grobid {
+                Some(value) => std::env::set_var("M1ND_GROBID_URL", value),
+                None => std::env::remove_var("M1ND_GROBID_URL"),
+            }
+            match &self.timeout_ms {
+                Some(value) => std::env::set_var("M1ND_PROVIDER_TIMEOUT_MS", value),
+                None => std::env::remove_var("M1ND_PROVIDER_TIMEOUT_MS"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_provider_script(path: &Path, extraction_body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = format!(
+            "#!/bin/sh\ncase \"$2\" in *importlib.util*) printf '1\\n'; exit 0;; esac\n{extraction_body}\n"
+        );
+        fs::write(path, script).unwrap();
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    fn universal_test_session(temp: &tempfile::TempDir) -> SessionState {
+        use crate::server::McpConfig;
+        use m1nd_core::domain::DomainConfig;
+        use m1nd_core::graph::Graph;
+
+        let runtime_dir = temp.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        state.auto_ingest.running = true;
+        state.auto_ingest.persistent.debounce_ms = 0;
+        state.auto_ingest.persistent.formats = vec!["universal".to_string()];
+        state
+    }
+
+    fn enqueue_universal_upsert(state: &mut SessionState, path: &Path) -> String {
+        let canonical = fs::canonicalize(path)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        AutoIngestState::enqueue_change(
+            &state.auto_ingest.pending,
+            canonical.clone(),
+            PendingChangeKind::Upsert,
+        );
+        canonical
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct UniversalStateSnapshot {
+        nodes: u32,
+        edges: usize,
+        document_cache_keys: Vec<String>,
+        manifest_keys: Vec<String>,
+        ingest_roots: Vec<String>,
+    }
+
+    fn universal_state_snapshot(state: &SessionState) -> UniversalStateSnapshot {
+        let graph = state.graph.read();
+        let mut document_cache_keys = state
+            .document_cache
+            .entries
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        document_cache_keys.sort();
+        let mut manifest_keys = state
+            .auto_ingest
+            .persistent
+            .manifest
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        manifest_keys.sort();
+        UniversalStateSnapshot {
+            nodes: graph.num_nodes(),
+            edges: graph.num_edges(),
+            document_cache_keys,
+            manifest_keys,
+            ingest_roots: state.ingest_roots.clone(),
+        }
+    }
 
     #[test]
     fn watch_events_for_existing_directories_are_dropped() {
@@ -1133,6 +1437,8 @@ mod tests {
                 },
                 claims: SourceClaims::default(),
                 last_ingested_ms: 1,
+                universal_ingest: None,
+                universal_outcomes: Vec::new(),
             },
         );
 
@@ -1153,6 +1459,127 @@ mod tests {
         let reloaded = AutoIngestState::load(dir.path());
         assert_eq!(reloaded.persistent.owner_agent_id.as_deref(), Some("agent"));
         assert_eq!(reloaded.persistent.roots, vec!["/tmp".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn degraded_universal_auto_ingest_is_labeled_separately_and_persists_summary_and_outcomes() {
+        let _lock = universal_provider_test_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let provider = temp.path().join("provider-fails");
+        write_provider_script(&provider, "printf 'provider crashed' >&2\nexit 9");
+        let _env = ProviderEnvGuard::set(&provider, 100);
+        let html = temp.path().join("page.html");
+        fs::write(&html, "<h1>Fallback</h1><p>Useful internal HTML.</p>").unwrap();
+        let mut state = universal_test_session(&temp);
+        let canonical = enqueue_universal_upsert(&mut state, &html);
+
+        let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+        let output = runtime.tick(&mut state, true).expect("degraded tick");
+        state.auto_ingest = runtime;
+
+        assert!(output.ingested_paths.is_empty());
+        assert_eq!(output.degraded_paths, vec![canonical.clone()]);
+        assert_eq!(state.auto_ingest.persistent.ingests_applied, 0);
+        assert_eq!(state.auto_ingest.persistent.degraded_applied, 1);
+        let manifest = &state.auto_ingest.persistent.manifest[&canonical];
+        let summary = manifest
+            .universal_ingest
+            .as_ref()
+            .expect("universal summary persisted");
+        assert_eq!(summary.status, UniversalIngestStatus::Degraded);
+        assert_eq!(manifest.universal_outcomes.len(), 1);
+        assert_eq!(
+            manifest.universal_outcomes[0].provider_outcome,
+            Some(m1nd_ingest::ProviderExtractionOutcome::Failed(
+                m1nd_ingest::ProviderFailureKind::Crashed
+            ))
+        );
+        let event = output.recent_events.last().expect("degraded event");
+        assert_eq!(event.status, "degraded");
+        let detail: serde_json::Value =
+            serde_json::from_str(event.detail.as_deref().expect("event detail")).unwrap();
+        assert_eq!(detail["summary"]["status"], "DEGRADED");
+        assert_eq!(detail["outcomes"].as_array().unwrap().len(), 1);
+
+        let reloaded = AutoIngestState::load(&state.runtime_root);
+        let persisted = &reloaded.persistent.manifest[&canonical];
+        assert_eq!(
+            persisted.universal_ingest.as_ref().unwrap().status,
+            UniversalIngestStatus::Degraded
+        );
+        assert_eq!(persisted.universal_outcomes, manifest.universal_outcomes);
+        assert_eq!(reloaded.persistent.degraded_applied, 1);
+        assert_eq!(reloaded.persistent.ingests_applied, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsupported_and_failed_auto_ingest_are_noncommittable_zero_mutation_audit_events() {
+        let _lock = universal_provider_test_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+
+        {
+            let temp = tempfile::tempdir().unwrap();
+            let missing_provider = temp.path().join("missing-provider");
+            let _env = ProviderEnvGuard::set(&missing_provider, 100);
+            let pdf = temp.path().join("unsupported.pdf");
+            fs::write(&pdf, b"%PDF unsupported").unwrap();
+            let mut state = universal_test_session(&temp);
+            let canonical = enqueue_universal_upsert(&mut state, &pdf);
+            let before = universal_state_snapshot(&state);
+
+            let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+            let output = runtime.tick(&mut state, true).expect("unsupported tick");
+            state.auto_ingest = runtime;
+
+            assert_eq!(universal_state_snapshot(&state), before);
+            assert_eq!(output.skipped_paths, vec![canonical]);
+            assert!(output.ingested_paths.is_empty());
+            assert!(output.degraded_paths.is_empty());
+            assert!(output.errored_paths.is_empty());
+            let event = output.recent_events.last().unwrap();
+            assert_eq!(event.status, "unsupported");
+            let detail: serde_json::Value =
+                serde_json::from_str(event.detail.as_deref().unwrap()).unwrap();
+            assert_eq!(detail["summary"]["status"], "UNSUPPORTED");
+            assert_eq!(detail["outcomes"][0]["status"], "UNSUPPORTED");
+        }
+
+        {
+            let temp = tempfile::tempdir().unwrap();
+            let provider = temp.path().join("provider-corrupt");
+            write_provider_script(&provider, "printf 'corrupt document fixture' >&2\nexit 9");
+            let _env = ProviderEnvGuard::set(&provider, 100);
+            let pdf = temp.path().join("failed.pdf");
+            fs::write(&pdf, b"%PDF failed").unwrap();
+            let mut state = universal_test_session(&temp);
+            let canonical = enqueue_universal_upsert(&mut state, &pdf);
+            let before = universal_state_snapshot(&state);
+
+            let mut runtime = std::mem::replace(&mut state.auto_ingest, AutoIngestState::empty());
+            let output = runtime.tick(&mut state, true).expect("failed tick");
+            state.auto_ingest = runtime;
+
+            assert_eq!(universal_state_snapshot(&state), before);
+            assert_eq!(output.errored_paths, vec![canonical]);
+            assert!(output.ingested_paths.is_empty());
+            assert!(output.degraded_paths.is_empty());
+            assert!(output.skipped_paths.is_empty());
+            let event = output.recent_events.last().unwrap();
+            assert_eq!(event.status, "failed");
+            let detail: serde_json::Value =
+                serde_json::from_str(event.detail.as_deref().unwrap()).unwrap();
+            assert_eq!(detail["summary"]["status"], "FAILED");
+            assert_eq!(detail["outcomes"][0]["status"], "FAILED");
+            assert_eq!(
+                detail["outcomes"][0]["provider_outcome"]["failure"],
+                "CORRUPT"
+            );
+        }
     }
 
     #[test]
@@ -1187,6 +1614,8 @@ mod tests {
                 },
                 claims: SourceClaims::default(),
                 last_ingested_ms: 1,
+                universal_ingest: None,
+                universal_outcomes: Vec::new(),
             },
         );
 
@@ -1247,6 +1676,8 @@ mod tests {
                     },
                     claims: SourceClaims::default(),
                     last_ingested_ms: 1,
+                    universal_ingest: None,
+                    universal_outcomes: Vec::new(),
                 },
             );
             AutoIngestState::enqueue_change(
@@ -1400,6 +1831,8 @@ mod tests {
                     },
                     claims: SourceClaims::default(),
                     last_ingested_ms: 1,
+                    universal_ingest: None,
+                    universal_outcomes: Vec::new(),
                 },
             );
             AutoIngestState::enqueue_change(

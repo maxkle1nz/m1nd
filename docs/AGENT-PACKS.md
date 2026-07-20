@@ -354,7 +354,7 @@ then `PATH`. The managed Windows path is:
 Generate Windows-safe MCP snippets the same way:
 
 ```bash
-m1nd mcp-config generic --binary "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+m1nd mcp-config generic --binary "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 ```
 
 The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`. The

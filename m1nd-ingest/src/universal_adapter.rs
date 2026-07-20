@@ -17,8 +17,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -32,10 +35,150 @@ pub struct ProviderAvailability {
     pub mineru: bool,
 }
 
+const MAX_UNIVERSAL_DIAGNOSTICS: usize = 32;
+const MAX_UNIVERSAL_PROVIDER_CHARS: usize = 80;
+const MAX_UNIVERSAL_REASON_CHARS: usize = 240;
+const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 30_000;
+const MAX_PROVIDER_TIMEOUT_MS: u64 = 300_000;
+const MAX_PROVIDER_STDOUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PROVIDER_STDERR_BYTES: usize = 64 * 1024;
+const PROVIDER_POLL_INTERVAL_MS: u64 = 5;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProviderFailureKind {
+    SpawnFailed,
+    Crashed,
+    TimedOut,
+    Corrupt,
+    Encrypted,
+    InvalidOutput,
+    OutputLimitExceeded,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "status",
+    content = "failure",
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+pub enum ProviderExtractionOutcome {
+    Extracted,
+    Empty,
+    Failed(ProviderFailureKind),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProviderExtractionResult {
+    Extracted(String),
+    Empty,
+    Failed {
+        kind: ProviderFailureKind,
+        detail: String,
+    },
+}
+
+impl ProviderExtractionResult {
+    fn outcome(&self) -> ProviderExtractionOutcome {
+        match self {
+            Self::Extracted(_) => ProviderExtractionOutcome::Extracted,
+            Self::Empty => ProviderExtractionOutcome::Empty,
+            Self::Failed { kind, .. } => ProviderExtractionOutcome::Failed(*kind),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UniversalIngestStatus {
+    Ingested,
+    Degraded,
+    Unsupported,
+    Failed,
+    Empty,
+}
+
+impl UniversalIngestStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ingested => "INGESTED",
+            Self::Degraded => "DEGRADED",
+            Self::Unsupported => "UNSUPPORTED",
+            Self::Failed => "FAILED",
+            Self::Empty => "EMPTY",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniversalDocumentOutcome {
+    pub source_path: String,
+    pub source_kind: SourceKind,
+    pub status: UniversalIngestStatus,
+    pub parsed: bool,
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_outcome: Option<ProviderExtractionOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl UniversalDocumentOutcome {
+    fn new(
+        source_path: String,
+        source_kind: SourceKind,
+        status: UniversalIngestStatus,
+        parsed: bool,
+        provider: &str,
+        provider_outcome: Option<ProviderExtractionOutcome>,
+        reason: Option<&str>,
+    ) -> Self {
+        Self {
+            source_path,
+            source_kind,
+            status,
+            parsed,
+            provider: bounded_text(provider, MAX_UNIVERSAL_PROVIDER_CHARS),
+            provider_outcome,
+            reason: reason.map(|value| bounded_text(value, MAX_UNIVERSAL_REASON_CHARS)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniversalIngestSummary {
+    pub status: UniversalIngestStatus,
+    pub candidate_count: u64,
+    pub parsed_count: u64,
+    pub ingested_count: u64,
+    pub degraded_count: u64,
+    pub unsupported_count: u64,
+    pub failed_count: u64,
+    pub diagnostics: Vec<UniversalDocumentOutcome>,
+    pub diagnostics_omitted: u64,
+}
+
 pub struct UniversalIngestBundle {
     pub graph: Graph,
     pub stats: IngestStats,
     pub documents: Vec<CanonicalDocument>,
+    pub status: UniversalIngestStatus,
+    pub outcomes: Vec<UniversalDocumentOutcome>,
+    pub providers: ProviderAvailability,
+}
+
+impl UniversalIngestBundle {
+    pub fn summary(&self) -> UniversalIngestSummary {
+        summarize_outcomes(self.status, &self.outcomes)
+    }
+
+    pub fn is_committable(&self) -> bool {
+        self.stats.files_parsed > 0
+            && matches!(
+                self.status,
+                UniversalIngestStatus::Ingested | UniversalIngestStatus::Degraded
+            )
+    }
 }
 
 pub struct UniversalIngestAdapter {
@@ -88,18 +231,50 @@ impl UniversalIngestAdapter {
     }
 
     pub fn ingest_bundle(&self, root: &Path) -> M1ndResult<UniversalIngestBundle> {
+        let providers = Self::provider_availability();
+        self.ingest_bundle_with(root, providers, extract_with_provider)
+    }
+
+    fn ingest_bundle_with<F>(
+        &self,
+        root: &Path,
+        providers: ProviderAvailability,
+        extract: F,
+    ) -> M1ndResult<UniversalIngestBundle>
+    where
+        F: Fn(&str, &Path) -> ProviderExtractionResult,
+    {
         let start = std::time::Instant::now();
         let mut stats = IngestStats::default();
-        let files = collect_candidate_files(root);
+        let files = collect_candidate_files(root)?;
         stats.files_scanned = files.len() as u64;
 
         let mut documents = Vec::new();
+        let mut outcomes = Vec::with_capacity(files.len());
         for path in files {
-            if let Some(document) = self.canonicalize_path(root, &path)? {
-                stats.files_parsed += 1;
-                documents.push(document);
+            match self.canonicalize_path_with(root, &path, &providers, &extract) {
+                Ok(canonicalized) => {
+                    if let Some(document) = canonicalized.document {
+                        stats.files_parsed += 1;
+                        documents.push(document);
+                    }
+                    outcomes.push(canonicalized.outcome);
+                }
+                Err(error) => {
+                    outcomes.push(UniversalDocumentOutcome::new(
+                        relative_source_path(root, &path),
+                        source_kind_from_extension(&path),
+                        UniversalIngestStatus::Failed,
+                        false,
+                        "universal:reader",
+                        None,
+                        Some(&error.to_string()),
+                    ));
+                }
             }
         }
+
+        let status = bundle_status(&outcomes, stats.files_parsed);
 
         let graph = graphify_documents(&documents, &self.namespace)?;
         stats.nodes_created = graph.num_nodes() as u64;
@@ -110,90 +285,250 @@ impl UniversalIngestAdapter {
             graph,
             stats,
             documents,
+            status,
+            outcomes,
+            providers,
         })
     }
 
-    fn canonicalize_path(&self, root: &Path, path: &Path) -> M1ndResult<Option<CanonicalDocument>> {
+    fn canonicalize_path_with<F>(
+        &self,
+        root: &Path,
+        path: &Path,
+        availability: &ProviderAvailability,
+        extract: &F,
+    ) -> M1ndResult<CanonicalizedFile>
+    where
+        F: Fn(&str, &Path) -> ProviderExtractionResult,
+    {
         let rel_path = relative_source_path(root, path);
         let source_kind = source_kind_from_extension(path);
-        let availability = Self::provider_availability();
         let bytes = fs::read(path).map_err(|error| M1ndError::InvalidParams {
             tool: "universal_ingest".into(),
             detail: format!("failed to read {}: {}", path.display(), error),
         })?;
         let source_text = String::from_utf8_lossy(&bytes).to_string();
 
-        let mut document = match source_kind {
+        let (mut document, status, provider, provider_outcome, reason) = match source_kind {
             SourceKind::Markdown | SourceKind::Text => {
-                canonicalize_plain_text(&rel_path, source_kind, "universal:internal", &source_text)
+                let document = canonicalize_plain_text(
+                    &rel_path,
+                    source_kind.clone(),
+                    "universal:internal",
+                    &source_text,
+                );
+                (
+                    Some(document),
+                    UniversalIngestStatus::Ingested,
+                    "universal:internal",
+                    None,
+                    None,
+                )
             }
             SourceKind::Html => {
                 if availability.trafilatura {
-                    canonicalize_html_with_fallback(
-                        &rel_path,
-                        "universal:trafilatura",
-                        "universal:internal-html",
-                        trafilatura_extract(path).as_deref().unwrap_or(&source_text),
-                    )
+                    let extraction = normalize_provider_extraction(extract("trafilatura", path));
+                    let provider_outcome = Some(extraction.outcome());
+                    match extraction {
+                        ProviderExtractionResult::Extracted(extracted) => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:trafilatura",
+                                "universal:internal-html",
+                                &extracted,
+                            )),
+                            UniversalIngestStatus::Ingested,
+                            "universal:trafilatura",
+                            provider_outcome,
+                            None,
+                        ),
+                        ProviderExtractionResult::Empty => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:internal-html",
+                                "universal:internal-html",
+                                &source_text,
+                            )),
+                            UniversalIngestStatus::Degraded,
+                            "universal:trafilatura",
+                            provider_outcome,
+                            Some("provider extraction returned no content; internal HTML fallback used".to_string()),
+                        ),
+                        ProviderExtractionResult::Failed { kind, detail } => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:internal-html",
+                                "universal:internal-html",
+                                &source_text,
+                            )),
+                            UniversalIngestStatus::Degraded,
+                            "universal:trafilatura",
+                            Some(ProviderExtractionOutcome::Failed(kind)),
+                            Some(format!("provider extraction failed: {detail}; internal HTML fallback used")),
+                        ),
+                    }
                 } else if availability.docling {
-                    let extracted = docling_extract(path);
-                    canonicalize_html_with_fallback(
-                        &rel_path,
-                        "universal:docling",
-                        "universal:internal-html",
-                        extracted.as_deref().unwrap_or(&source_text),
-                    )
+                    let extraction = normalize_provider_extraction(extract("docling", path));
+                    let provider_outcome = Some(extraction.outcome());
+                    match extraction {
+                        ProviderExtractionResult::Extracted(extracted) => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:docling",
+                                "universal:internal-html",
+                                &extracted,
+                            )),
+                            UniversalIngestStatus::Ingested,
+                            "universal:docling",
+                            provider_outcome,
+                            None,
+                        ),
+                        ProviderExtractionResult::Empty => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:internal-html",
+                                "universal:internal-html",
+                                &source_text,
+                            )),
+                            UniversalIngestStatus::Degraded,
+                            "universal:docling",
+                            provider_outcome,
+                            Some("provider extraction returned no content; internal HTML fallback used".to_string()),
+                        ),
+                        ProviderExtractionResult::Failed { kind, detail } => (
+                            Some(canonicalize_html_with_fallback(
+                                &rel_path,
+                                "universal:internal-html",
+                                "universal:internal-html",
+                                &source_text,
+                            )),
+                            UniversalIngestStatus::Degraded,
+                            "universal:docling",
+                            Some(ProviderExtractionOutcome::Failed(kind)),
+                            Some(format!("provider extraction failed: {detail}; internal HTML fallback used")),
+                        ),
+                    }
                 } else {
-                    canonicalize_html_with_fallback(
-                        &rel_path,
+                    (
+                        Some(canonicalize_html_with_fallback(
+                            &rel_path,
+                            "universal:internal-html",
+                            "universal:internal-html",
+                            &source_text,
+                        )),
+                        UniversalIngestStatus::Ingested,
                         "universal:internal-html",
-                        "universal:internal-html",
-                        &source_text,
+                        None,
+                        None,
                     )
                 }
             }
-            SourceKind::Pdf | SourceKind::Docx | SourceKind::Pptx | SourceKind::Xlsx
-                if availability.docling || availability.markitdown =>
-            {
-                let extracted = if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
-                    grobid_extract(path)
-                } else if availability.docling {
-                    docling_extract(path)
-                } else if availability.markitdown {
-                    markitdown_extract(path)
-                } else {
-                    None
-                };
-                canonicalize_binary_placeholder(
-                    &rel_path,
-                    source_kind.clone(),
-                    if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
-                        "universal:grobid"
-                    } else if availability.docling {
-                        "universal:docling"
-                    } else {
-                        "universal:markitdown"
-                    },
-                    extracted.as_deref().unwrap_or(&source_text),
-                )
-            }
             SourceKind::Pdf | SourceKind::Docx | SourceKind::Pptx | SourceKind::Xlsx => {
-                return Ok(None);
+                let selected_provider =
+                    if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
+                        Some(("grobid", "universal:grobid"))
+                    } else if availability.docling {
+                        Some(("docling", "universal:docling"))
+                    } else if availability.markitdown {
+                        Some(("markitdown", "universal:markitdown"))
+                    } else {
+                        None
+                    };
+
+                match selected_provider {
+                    Some((provider_key, producer)) => {
+                        let extraction = normalize_provider_extraction(extract(provider_key, path));
+                        let provider_outcome = Some(extraction.outcome());
+                        match extraction {
+                            ProviderExtractionResult::Extracted(extracted) => (
+                                Some(canonicalize_binary_placeholder(
+                                    &rel_path,
+                                    source_kind.clone(),
+                                    producer,
+                                    &extracted,
+                                )),
+                                UniversalIngestStatus::Ingested,
+                                producer,
+                                provider_outcome,
+                                None,
+                            ),
+                            ProviderExtractionResult::Empty => (
+                                None,
+                                UniversalIngestStatus::Failed,
+                                producer,
+                                provider_outcome,
+                                Some("provider extraction returned no content".to_string()),
+                            ),
+                            ProviderExtractionResult::Failed { kind, detail } => (
+                                None,
+                                UniversalIngestStatus::Failed,
+                                producer,
+                                Some(ProviderExtractionOutcome::Failed(kind)),
+                                Some(detail),
+                            ),
+                        }
+                    }
+                    None => (
+                        None,
+                        UniversalIngestStatus::Unsupported,
+                        "universal:none",
+                        None,
+                        Some(if matches!(source_kind, SourceKind::Pdf) {
+                            "no configured provider (grobid, docling, or markitdown)".to_string()
+                        } else {
+                            "no configured provider (docling or markitdown)".to_string()
+                        }),
+                    ),
+                }
             }
             SourceKind::Unknown => {
                 if let Some(native) =
                     self.wrap_native_document(root, path, &rel_path, &source_text)?
                 {
-                    native
+                    let provider = native.producer.clone();
+                    (
+                        Some(native),
+                        UniversalIngestStatus::Ingested,
+                        if provider == "universal:native-wrap" {
+                            "universal:native-wrap"
+                        } else {
+                            "universal:internal"
+                        },
+                        None,
+                        None,
+                    )
                 } else {
-                    return Ok(None);
+                    (
+                        None,
+                        UniversalIngestStatus::Unsupported,
+                        "universal:none",
+                        None,
+                        Some("unsupported document type or unrecognized native format".to_string()),
+                    )
                 }
             }
-            _ => return Ok(None),
+            _ => (
+                None,
+                UniversalIngestStatus::Unsupported,
+                "universal:none",
+                None,
+                Some("unsupported document type".to_string()),
+            ),
         };
-        document.content_hash = short_hash_bytes(&bytes);
+        if let Some(document) = document.as_mut() {
+            document.content_hash = short_hash_bytes(&bytes);
+        }
 
-        Ok(Some(document))
+        let outcome = UniversalDocumentOutcome::new(
+            rel_path,
+            source_kind,
+            status,
+            document.is_some(),
+            provider,
+            provider_outcome,
+            reason.as_deref(),
+        );
+        Ok(CanonicalizedFile { document, outcome })
     }
 
     fn wrap_native_document(
@@ -261,16 +596,140 @@ impl IngestAdapter for UniversalIngestAdapter {
 
     fn ingest(&self, root: &Path) -> M1ndResult<(Graph, IngestStats)> {
         let bundle = self.ingest_bundle(root)?;
+        if !bundle.is_committable() {
+            let summary = bundle.summary();
+            return Err(M1ndError::InvalidParams {
+                tool: "universal_ingest".into(),
+                detail: format!(
+                    "universal ingest is noncommittable: status={}, candidate_count={}, parsed_count={}, unsupported_count={}, failed_count={}",
+                    summary.status.as_str(),
+                    summary.candidate_count,
+                    summary.parsed_count,
+                    summary.unsupported_count,
+                    summary.failed_count
+                ),
+            });
+        }
         Ok((bundle.graph, bundle.stats))
     }
 }
 
+struct CanonicalizedFile {
+    document: Option<CanonicalDocument>,
+    outcome: UniversalDocumentOutcome,
+}
+
+fn bundle_status(
+    outcomes: &[UniversalDocumentOutcome],
+    parsed_count: u64,
+) -> UniversalIngestStatus {
+    if outcomes.is_empty() {
+        UniversalIngestStatus::Empty
+    } else if parsed_count == 0
+        && outcomes
+            .iter()
+            .any(|outcome| outcome.status == UniversalIngestStatus::Failed)
+    {
+        UniversalIngestStatus::Failed
+    } else if parsed_count == 0 {
+        UniversalIngestStatus::Unsupported
+    } else if outcomes
+        .iter()
+        .all(|outcome| outcome.status == UniversalIngestStatus::Ingested)
+    {
+        UniversalIngestStatus::Ingested
+    } else {
+        UniversalIngestStatus::Degraded
+    }
+}
+
+fn summarize_outcomes(
+    status: UniversalIngestStatus,
+    outcomes: &[UniversalDocumentOutcome],
+) -> UniversalIngestSummary {
+    let parsed_count = outcomes.iter().filter(|outcome| outcome.parsed).count() as u64;
+    let ingested_count = outcomes
+        .iter()
+        .filter(|outcome| outcome.status == UniversalIngestStatus::Ingested)
+        .count() as u64;
+    let degraded_count = outcomes
+        .iter()
+        .filter(|outcome| outcome.status == UniversalIngestStatus::Degraded)
+        .count() as u64;
+    let unsupported_count = outcomes
+        .iter()
+        .filter(|outcome| outcome.status == UniversalIngestStatus::Unsupported)
+        .count() as u64;
+    let failed_count = outcomes
+        .iter()
+        .filter(|outcome| outcome.status == UniversalIngestStatus::Failed)
+        .count() as u64;
+    let diagnostic_total = (degraded_count + unsupported_count + failed_count) as usize;
+    let diagnostics = outcomes
+        .iter()
+        .filter(|outcome| {
+            matches!(
+                outcome.status,
+                UniversalIngestStatus::Degraded
+                    | UniversalIngestStatus::Unsupported
+                    | UniversalIngestStatus::Failed
+            )
+        })
+        .take(MAX_UNIVERSAL_DIAGNOSTICS)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    UniversalIngestSummary {
+        status,
+        candidate_count: outcomes.len() as u64,
+        parsed_count,
+        ingested_count,
+        degraded_count,
+        unsupported_count,
+        failed_count,
+        diagnostics_omitted: diagnostic_total.saturating_sub(diagnostics.len()) as u64,
+        diagnostics,
+    }
+}
+
+fn bounded_text(input: &str, max_chars: usize) -> String {
+    input.chars().take(max_chars).collect()
+}
+
+fn normalize_provider_extraction(result: ProviderExtractionResult) -> ProviderExtractionResult {
+    match result {
+        ProviderExtractionResult::Extracted(text) if text.trim().is_empty() => {
+            ProviderExtractionResult::Empty
+        }
+        ProviderExtractionResult::Extracted(text) => {
+            ProviderExtractionResult::Extracted(text.trim().to_string())
+        }
+        other => other,
+    }
+}
+
+fn extract_with_provider(provider: &str, path: &Path) -> ProviderExtractionResult {
+    match provider {
+        "docling" => docling_extract(path),
+        "trafilatura" => trafilatura_extract(path),
+        "markitdown" => markitdown_extract(path),
+        "grobid" => grobid_extract(path),
+        _ => ProviderExtractionResult::Failed {
+            kind: ProviderFailureKind::InvalidOutput,
+            detail: format!("unknown universal document provider '{provider}'"),
+        },
+    }
+}
+
 fn python_module_available(module_name: &str) -> bool {
-    let output = Command::new(provider_python())
-        .arg("-c")
-        .arg(format!("import importlib.util; print('1' if importlib.util.find_spec('{module_name}') else '0')"))
-        .output();
-    matches!(output, Ok(result) if String::from_utf8_lossy(&result.stdout).trim() == "1")
+    let mut command = Command::new(provider_python());
+    command.arg("-c").arg(format!(
+        "import importlib.util; print('1' if importlib.util.find_spec('{module_name}') else '0')"
+    ));
+    matches!(
+        run_provider_command(&mut command, Duration::from_secs(2), 1024, 1024),
+        ProviderExtractionResult::Extracted(value) if value == "1"
+    )
 }
 
 fn command_available(name: &str) -> bool {
@@ -283,24 +742,262 @@ fn command_available(name: &str) -> bool {
 }
 
 fn grobid_configured() -> bool {
-    std::env::var("M1ND_GROBID_URL")
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
+    configured_grobid_endpoint().is_ok()
 }
 
-fn python_inline(script: &str, arg: &Path) -> Option<String> {
-    let output = Command::new(provider_python())
-        .arg("-c")
-        .arg(script)
-        .arg(arg)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+fn configured_grobid_endpoint() -> Result<url::Url, String> {
+    let raw = std::env::var("M1ND_GROBID_URL")
+        .map_err(|_| "M1ND_GROBID_URL is not configured".to_string())?;
+    let allowed_hosts = std::env::var("M1ND_GROBID_ALLOWED_HOSTS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>();
+    validate_grobid_endpoint(&raw, &allowed_hosts)
+}
+
+fn validate_grobid_endpoint(raw: &str, allowed_hosts: &[String]) -> Result<url::Url, String> {
+    let endpoint = url::Url::parse(raw.trim())
+        .map_err(|_| "GROBID endpoint is not a valid absolute URL".to_string())?;
+    if endpoint.username() != "" || endpoint.password().is_some() {
+        return Err(
+            "GROBID endpoint userinfo is forbidden; configure credentials separately".to_string(),
+        );
     }
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let trimmed = stdout.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    if endpoint.query().is_some() || endpoint.fragment().is_some() {
+        return Err("GROBID endpoint query and fragment are forbidden".to_string());
+    }
+    let host = endpoint
+        .host_str()
+        .ok_or_else(|| "GROBID endpoint requires a host".to_string())?
+        .to_ascii_lowercase();
+    let loopback = match endpoint.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        None => false,
+    };
+    match endpoint.scheme() {
+        "http" if loopback => {}
+        "https" if loopback || allowed_hosts.iter().any(|allowed| allowed == &host) => {}
+        "http" => return Err("plaintext GROBID is allowed only on loopback".to_string()),
+        "https" => {
+            return Err(
+                "remote GROBID host is not present in M1ND_GROBID_ALLOWED_HOSTS".to_string(),
+            )
+        }
+        _ => return Err("GROBID endpoint must use HTTPS or loopback HTTP".to_string()),
+    }
+    Ok(endpoint)
+}
+
+/// Redacted diagnostic identity: origin only, never credentials, path, query,
+/// or fragment. Invalid configured endpoints are reported without echoing input.
+pub fn grobid_endpoint_summary() -> Option<String> {
+    match std::env::var("M1ND_GROBID_URL") {
+        Err(_) => None,
+        Ok(_) => Some(
+            configured_grobid_endpoint()
+                .map(|endpoint| endpoint.origin().ascii_serialization())
+                .unwrap_or_else(|_| "configured_but_refused".to_string()),
+        ),
+    }
+}
+
+fn provider_timeout() -> Duration {
+    let timeout_ms = std::env::var("M1ND_PROVIDER_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_MS)
+        .min(MAX_PROVIDER_TIMEOUT_MS);
+    Duration::from_millis(timeout_ms)
+}
+
+#[derive(Debug)]
+struct CapturedOutput {
+    bytes: Vec<u8>,
+    exceeded_limit: bool,
+}
+
+fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<CapturedOutput> {
+    let mut bytes = Vec::with_capacity(limit.min(8 * 1024));
+    let mut exceeded_limit = false;
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(bytes.len());
+        let retained = remaining.min(count);
+        bytes.extend_from_slice(&buffer[..retained]);
+        exceeded_limit |= retained < count;
+    }
+    Ok(CapturedOutput {
+        bytes,
+        exceeded_limit,
+    })
+}
+
+fn join_capture(
+    handle: thread::JoinHandle<io::Result<CapturedOutput>>,
+    stream: &str,
+) -> Result<CapturedOutput, ProviderExtractionResult> {
+    match handle.join() {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(ProviderExtractionResult::Failed {
+            kind: ProviderFailureKind::InvalidOutput,
+            detail: format!("failed to read provider {stream}: {error}"),
+        }),
+        Err(_) => Err(ProviderExtractionResult::Failed {
+            kind: ProviderFailureKind::InvalidOutput,
+            detail: format!("provider {stream} reader panicked"),
+        }),
+    }
+}
+
+fn failure_kind_from_stderr(stderr: &str) -> ProviderFailureKind {
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("encrypt") || lower.contains("password") {
+        ProviderFailureKind::Encrypted
+    } else if lower.contains("corrupt") || lower.contains("malformed") || lower.contains("damaged")
+    {
+        ProviderFailureKind::Corrupt
+    } else {
+        ProviderFailureKind::Crashed
+    }
+}
+
+fn terminate_provider_process(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let process_group = -(child.id() as i32);
+        // SAFETY: the child is placed in a fresh process group immediately
+        // before spawn below. The negative pid therefore targets only that
+        // provider group, including helpers that inherited its output pipes.
+        unsafe {
+            libc::kill(process_group, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn run_provider_command(
+    command: &mut Command,
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+) -> ProviderExtractionResult {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::SpawnFailed,
+                detail: format!("failed to spawn provider: {error}"),
+            }
+        }
+    };
+
+    let stdout = child
+        .stdout
+        .take()
+        .expect("provider stdout is piped before spawn");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("provider stderr is piped before spawn");
+    let stdout_reader = thread::spawn(move || read_bounded(stdout, stdout_limit));
+    let stderr_reader = thread::spawn(move || read_bounded(stderr, stderr_limit));
+    let started = Instant::now();
+
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= timeout => {
+                terminate_provider_process(&mut child);
+                let _ = join_capture(stdout_reader, "stdout");
+                let _ = join_capture(stderr_reader, "stderr");
+                return ProviderExtractionResult::Failed {
+                    kind: ProviderFailureKind::TimedOut,
+                    detail: format!("provider timed out after {} ms", timeout.as_millis()),
+                };
+            }
+            Ok(None) => {
+                let remaining = timeout.saturating_sub(started.elapsed());
+                thread::sleep(remaining.min(Duration::from_millis(PROVIDER_POLL_INTERVAL_MS)));
+            }
+            Err(error) => {
+                terminate_provider_process(&mut child);
+                let _ = join_capture(stdout_reader, "stdout");
+                let _ = join_capture(stderr_reader, "stderr");
+                return ProviderExtractionResult::Failed {
+                    kind: ProviderFailureKind::Crashed,
+                    detail: format!("failed while waiting for provider: {error}"),
+                };
+            }
+        }
+    };
+
+    let stdout = match join_capture(stdout_reader, "stdout") {
+        Ok(output) => output,
+        Err(result) => return result,
+    };
+    let stderr = match join_capture(stderr_reader, "stderr") {
+        Ok(output) => output,
+        Err(result) => return result,
+    };
+    if stdout.exceeded_limit || stderr.exceeded_limit {
+        return ProviderExtractionResult::Failed {
+            kind: ProviderFailureKind::OutputLimitExceeded,
+            detail: format!(
+                "provider output exceeded bounds (stdout={} bytes, stderr={} bytes)",
+                stdout_limit, stderr_limit
+            ),
+        };
+    }
+
+    let stderr_text = String::from_utf8_lossy(&stderr.bytes).trim().to_string();
+    if !status.success() {
+        let kind = failure_kind_from_stderr(&stderr_text);
+        let detail = if stderr_text.is_empty() {
+            format!("provider exited unsuccessfully: {status}")
+        } else {
+            bounded_text(&stderr_text, MAX_UNIVERSAL_REASON_CHARS)
+        };
+        return ProviderExtractionResult::Failed { kind, detail };
+    }
+
+    let stdout_text = match String::from_utf8(stdout.bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            return ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::InvalidOutput,
+                detail: format!("provider stdout was not UTF-8: {error}"),
+            }
+        }
+    };
+    normalize_provider_extraction(ProviderExtractionResult::Extracted(stdout_text))
+}
+
+fn python_inline(script: &str, arg: &Path) -> ProviderExtractionResult {
+    let mut command = Command::new(provider_python());
+    command.arg("-c").arg(script).arg(arg);
+    run_provider_command(
+        &mut command,
+        provider_timeout(),
+        MAX_PROVIDER_STDOUT_BYTES,
+        MAX_PROVIDER_STDERR_BYTES,
+    )
 }
 
 fn provider_python() -> String {
@@ -311,7 +1008,7 @@ pub fn provider_python_command() -> String {
     provider_python()
 }
 
-fn docling_extract(path: &Path) -> Option<String> {
+fn docling_extract(path: &Path) -> ProviderExtractionResult {
     python_inline(
         r#"
 import sys
@@ -328,7 +1025,7 @@ if doc is not None and hasattr(doc, 'export_to_markdown'):
     )
 }
 
-fn trafilatura_extract(path: &Path) -> Option<String> {
+fn trafilatura_extract(path: &Path) -> ProviderExtractionResult {
     python_inline(
         r#"
 import sys, pathlib, trafilatura
@@ -342,7 +1039,7 @@ if extracted:
     )
 }
 
-fn markitdown_extract(path: &Path) -> Option<String> {
+fn markitdown_extract(path: &Path) -> ProviderExtractionResult {
     python_inline(
         r#"
 import sys
@@ -357,37 +1054,73 @@ if text:
     )
 }
 
-fn grobid_extract(path: &Path) -> Option<String> {
-    let url = std::env::var("M1ND_GROBID_URL").ok()?;
+fn grobid_extract(path: &Path) -> ProviderExtractionResult {
+    let url = match configured_grobid_endpoint() {
+        Ok(url) => url.to_string(),
+        Err(detail) => {
+            return ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::SpawnFailed,
+                detail,
+            }
+        }
+    };
     let script = format!(
         r#"
 import sys, requests
 path = sys.argv[1]
 url = {url_repr}.rstrip('/') + '/api/processFulltextDocument'
 with open(path, 'rb') as fh:
-    resp = requests.post(url, files={{'input': fh}}, timeout=30)
+    resp = requests.post(url, files={{'input': fh}}, timeout=30, allow_redirects=False)
+if 300 <= resp.status_code < 400:
+    raise RuntimeError('GROBID redirect refused')
 resp.raise_for_status()
 text = resp.text.strip()
 if text:
     print(text)
 "#,
-        url_repr = serde_json::to_string(&url).ok()?
+        url_repr = serde_json::to_string(&url).expect("URL string always serializes")
     );
     python_inline(&script, path)
 }
 
-fn collect_candidate_files(root: &Path) -> Vec<PathBuf> {
-    if root.is_file() {
-        return vec![root.to_path_buf()];
+fn collect_candidate_files(root: &Path) -> M1ndResult<Vec<PathBuf>> {
+    let metadata = fs::symlink_metadata(root)?;
+    if metadata.file_type().is_symlink() {
+        return Err(M1ndError::InvalidParams {
+            tool: "universal_ingest".into(),
+            detail: format!(
+                "refusing symlink ingest root {}; pass its canonical target explicitly",
+                root.display()
+            ),
+        });
+    }
+    if metadata.is_file() {
+        return Ok(vec![root.to_path_buf()]);
+    }
+    if !metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: "universal_ingest".into(),
+            detail: format!(
+                "ingest root is neither a regular file nor directory: {}",
+                root.display()
+            ),
+        });
     }
 
-    WalkDir::new(root)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| entry.into_path())
-        .collect()
+    let mut files = Vec::new();
+    for entry in WalkDir::new(root).follow_links(false) {
+        let entry = entry.map_err(|error| {
+            M1ndError::IngestError(format!(
+                "failed to traverse universal ingest root {}: {error}",
+                root.display()
+            ))
+        })?;
+        if entry.file_type().is_file() {
+            files.push(entry.into_path());
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 fn slugify(raw: &str) -> String {
@@ -1511,5 +2244,478 @@ mod tests {
         assert_eq!(document.content_hash, short_hash_bytes(raw.as_bytes()));
         assert_ne!(document.content_hash, short_hash(&document.plain_text));
         let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    fn honesty_temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "m1nd-universal-honesty-{}-{}-{}",
+            label,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn empty_candidate_set_is_explicit_empty() {
+        let dir = honesty_temp_dir("empty");
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let bundle = adapter
+            .ingest_bundle_with(&dir, ProviderAvailability::default(), |_, _| {
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(bundle.status, UniversalIngestStatus::Empty);
+        assert_eq!(summary.status, UniversalIngestStatus::Empty);
+        assert_eq!(summary.candidate_count, 0);
+        assert_eq!(summary.parsed_count, 0);
+        assert!(summary.diagnostics.is_empty());
+        assert_eq!(bundle.graph.num_nodes(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_ingest_root_is_an_error_not_empty() {
+        let dir = honesty_temp_dir("missing-root");
+        let missing = dir.join("does-not-exist");
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let error =
+            match adapter.ingest_bundle_with(&missing, ProviderAvailability::default(), |_, _| {
+                ProviderExtractionResult::Empty
+            }) {
+                Err(error) => error,
+                Ok(_) => panic!("a missing root must never be reported as an empty ingest"),
+            };
+
+        assert!(matches!(error, M1ndError::Io(_)), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_cannot_expand_the_ingest_boundary() {
+        use std::os::unix::fs::symlink;
+
+        let container = honesty_temp_dir("symlink-boundary");
+        let root = container.join("root");
+        let outside = container.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let inside_file = root.join("inside.md");
+        let outside_file = outside.join("secret.md");
+        std::fs::write(&inside_file, "# Inside\n").unwrap();
+        std::fs::write(&outside_file, "# Secret\n").unwrap();
+        symlink(&outside_file, root.join("file-link.md")).unwrap();
+        symlink(&outside, root.join("directory-link")).unwrap();
+
+        let files = collect_candidate_files(&root).unwrap();
+        assert_eq!(files, vec![inside_file]);
+
+        let linked_root = container.join("linked-root");
+        symlink(&root, &linked_root).unwrap();
+        let error = collect_candidate_files(&linked_root)
+            .expect_err("a symlink root must require an explicit canonical target");
+        assert!(matches!(error, M1ndError::InvalidParams { .. }), "{error}");
+        let _ = std::fs::remove_dir_all(&container);
+    }
+
+    #[test]
+    fn pdf_and_office_without_providers_are_typed_noncommittable_unsupported() {
+        let dir = honesty_temp_dir("unsupported-binary");
+        for extension in ["pdf", "docx", "pptx", "xlsx"] {
+            std::fs::write(dir.join(format!("sample.{extension}")), b"binary fixture").unwrap();
+        }
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let bundle = adapter
+            .ingest_bundle_with(&dir, ProviderAvailability::default(), |_, _| {
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(summary.status, UniversalIngestStatus::Unsupported);
+        assert_eq!(summary.candidate_count, 4);
+        assert_eq!(summary.unsupported_count, 4);
+        assert_eq!(summary.failed_count, 0);
+        assert!(!bundle.is_committable());
+        assert_eq!(bundle.graph.num_nodes(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn available_provider_returning_empty_is_typed_failed_not_placeholder() {
+        let dir = honesty_temp_dir("provider-none");
+        let file = dir.join("sample.docx");
+        std::fs::write(&file, b"PK fake docx bytes").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let providers = ProviderAvailability {
+            docling: true,
+            ..ProviderAvailability::default()
+        };
+        let extraction_calls = std::cell::Cell::new(0_u64);
+        let bundle = adapter
+            .ingest_bundle_with(&file, providers, |provider, _| {
+                assert_eq!(provider, "docling");
+                extraction_calls.set(extraction_calls.get() + 1);
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(extraction_calls.get(), 1);
+        assert_eq!(summary.status, UniversalIngestStatus::Failed);
+        assert_eq!(summary.failed_count, 1);
+        assert_eq!(summary.parsed_count, 0);
+        assert_eq!(summary.diagnostics[0].provider, "universal:docling");
+        assert_eq!(
+            summary.diagnostics[0].provider_outcome,
+            Some(ProviderExtractionOutcome::Empty)
+        );
+        assert!(summary.diagnostics[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("returned no content"));
+        assert!(!bundle.is_committable());
+        assert_eq!(bundle.graph.num_nodes(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mixed_batch_returns_degraded_with_parsed_documents_and_diagnostics() {
+        let dir = honesty_temp_dir("mixed");
+        std::fs::write(dir.join("good.md"), "# Good\n\nParsed content.\n").unwrap();
+        std::fs::write(dir.join("unsupported.pdf"), b"%PDF fixture").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let bundle = adapter
+            .ingest_bundle_with(&dir, ProviderAvailability::default(), |_, _| {
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(bundle.status, UniversalIngestStatus::Degraded);
+        assert_eq!(bundle.documents.len(), 1);
+        assert_eq!(summary.candidate_count, 2);
+        assert_eq!(summary.parsed_count, 1);
+        assert_eq!(summary.ingested_count, 1);
+        assert_eq!(summary.unsupported_count, 1);
+        assert_eq!(summary.diagnostics.len(), 1);
+        assert_eq!(
+            summary.diagnostics[0].status,
+            UniversalIngestStatus::Unsupported
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn provider_failure_uses_honest_html_fallback_provenance() {
+        let dir = honesty_temp_dir("html-fallback");
+        let file = dir.join("page.html");
+        std::fs::write(&file, "<h1>Fallback</h1><p>Useful text.</p>").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let providers = ProviderAvailability {
+            trafilatura: true,
+            ..ProviderAvailability::default()
+        };
+        let bundle = adapter
+            .ingest_bundle_with(&file, providers, |provider, _| {
+                assert_eq!(provider, "trafilatura");
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(bundle.status, UniversalIngestStatus::Degraded);
+        assert_eq!(bundle.documents[0].producer, "universal:internal-html");
+        assert!(bundle.documents[0].plain_text.contains("Fallback"));
+        assert_eq!(summary.degraded_count, 1);
+        assert_eq!(summary.diagnostics[0].provider, "universal:trafilatura");
+        assert_eq!(
+            summary.diagnostics[0].provider_outcome,
+            Some(ProviderExtractionOutcome::Empty)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diagnostics_are_bounded_and_report_omissions() {
+        let dir = honesty_temp_dir("bounded");
+        std::fs::write(dir.join("good.md"), "# Good\n").unwrap();
+        for index in 0..40 {
+            std::fs::write(dir.join(format!("unsupported-{index}.bin")), b"fixture").unwrap();
+        }
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let bundle = adapter
+            .ingest_bundle_with(&dir, ProviderAvailability::default(), |_, _| {
+                ProviderExtractionResult::Empty
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(summary.status, UniversalIngestStatus::Degraded);
+        assert_eq!(summary.unsupported_count, 40);
+        assert_eq!(summary.diagnostics.len(), MAX_UNIVERSAL_DIAGNOSTICS);
+        assert_eq!(summary.diagnostics_omitted, 8);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn run_shell_provider(script: &str, timeout: Duration) -> ProviderExtractionResult {
+        let mut command = Command::new("sh");
+        command.arg("-c").arg(script);
+        run_provider_command(&mut command, timeout, 4096, 4096)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_process_result_distinguishes_positive_empty_crash_timeout_corrupt_and_encrypted() {
+        assert_eq!(
+            run_shell_provider("printf 'canonical text'", Duration::from_secs(1)),
+            ProviderExtractionResult::Extracted("canonical text".to_string())
+        );
+        assert_eq!(
+            run_shell_provider("exit 0", Duration::from_secs(1)),
+            ProviderExtractionResult::Empty
+        );
+
+        let crashed = run_shell_provider("printf 'boom' >&2; exit 7", Duration::from_secs(1));
+        assert!(matches!(
+            crashed,
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::Crashed,
+                ..
+            }
+        ));
+
+        let started = Instant::now();
+        let timed_out = run_shell_provider("sleep 5 & wait", Duration::from_millis(30));
+        assert!(matches!(
+            timed_out,
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::TimedOut,
+                ..
+            }
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "timed-out provider must be killed instead of waiting for natural exit"
+        );
+
+        let corrupt = run_shell_provider(
+            "printf 'corrupt document' >&2; exit 2",
+            Duration::from_secs(1),
+        );
+        assert!(matches!(
+            corrupt,
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::Corrupt,
+                ..
+            }
+        ));
+        let encrypted = run_shell_provider(
+            "printf 'password protected encrypted file' >&2; exit 2",
+            Duration::from_secs(1),
+        );
+        assert!(matches!(
+            encrypted,
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::Encrypted,
+                ..
+            }
+        ));
+
+        let mut missing = Command::new("m1nd-provider-command-that-does-not-exist");
+        assert!(matches!(
+            run_provider_command(&mut missing, Duration::from_secs(1), 16, 16),
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::SpawnFailed,
+                ..
+            }
+        ));
+
+        let mut oversized = Command::new("sh");
+        oversized.arg("-c").arg("printf '0123456789'");
+        assert!(matches!(
+            run_provider_command(&mut oversized, Duration::from_secs(1), 4, 16),
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::OutputLimitExceeded,
+                ..
+            }
+        ));
+
+        let mut invalid_utf8 = Command::new("sh");
+        invalid_utf8.arg("-c").arg("printf '\\377'");
+        assert!(matches!(
+            run_provider_command(&mut invalid_utf8, Duration::from_secs(1), 16, 16),
+            ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::InvalidOutput,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn positive_provider_fixture_is_committable_and_persists_typed_outcome() {
+        let dir = honesty_temp_dir("provider-positive");
+        let file = dir.join("sample.pdf");
+        std::fs::write(&file, b"%PDF fixture").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let providers = ProviderAvailability {
+            docling: true,
+            ..ProviderAvailability::default()
+        };
+        let bundle = adapter
+            .ingest_bundle_with(&file, providers, |provider, _| {
+                assert_eq!(provider, "docling");
+                ProviderExtractionResult::Extracted("# Extracted\n\nUseful text.".to_string())
+            })
+            .unwrap();
+
+        assert_eq!(bundle.status, UniversalIngestStatus::Ingested);
+        assert!(bundle.is_committable());
+        assert_eq!(bundle.documents.len(), 1);
+        assert_eq!(
+            bundle.outcomes[0].provider_outcome,
+            Some(ProviderExtractionOutcome::Extracted)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn provider_failure_fixtures_are_failed_noncommittable_and_never_create_graph_nodes() {
+        let cases = [
+            ProviderFailureKind::SpawnFailed,
+            ProviderFailureKind::Crashed,
+            ProviderFailureKind::TimedOut,
+            ProviderFailureKind::Corrupt,
+            ProviderFailureKind::Encrypted,
+            ProviderFailureKind::InvalidOutput,
+            ProviderFailureKind::OutputLimitExceeded,
+        ];
+        for kind in cases {
+            let dir = honesty_temp_dir(&format!("provider-{kind:?}"));
+            let file = dir.join("sample.pdf");
+            std::fs::write(&file, b"%PDF fixture").unwrap();
+            let adapter = UniversalIngestAdapter::new(Some("test".into()));
+            let providers = ProviderAvailability {
+                docling: true,
+                ..ProviderAvailability::default()
+            };
+            let bundle = adapter
+                .ingest_bundle_with(&file, providers, |_, _| ProviderExtractionResult::Failed {
+                    kind,
+                    detail: format!("fixture {kind:?}"),
+                })
+                .unwrap();
+
+            assert_eq!(bundle.status, UniversalIngestStatus::Failed);
+            assert!(!bundle.is_committable());
+            assert_eq!(bundle.graph.num_nodes(), 0);
+            assert_eq!(bundle.summary().failed_count, 1);
+            assert_eq!(
+                bundle.outcomes[0].provider_outcome,
+                Some(ProviderExtractionOutcome::Failed(kind))
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn per_file_read_error_is_failed_without_discarding_other_documents() {
+        let dir = honesty_temp_dir("per-file-read-error");
+        let first = dir.join("a.pdf");
+        let removed_before_read = dir.join("b.md");
+        std::fs::write(&first, b"%PDF fixture").unwrap();
+        std::fs::write(&removed_before_read, b"# removed before read").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let providers = ProviderAvailability {
+            docling: true,
+            ..ProviderAvailability::default()
+        };
+        let bundle = adapter
+            .ingest_bundle_with(&dir, providers, |_, _| {
+                std::fs::remove_file(&removed_before_read).unwrap();
+                ProviderExtractionResult::Extracted("# First\n\nParsed.".to_string())
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(bundle.status, UniversalIngestStatus::Degraded);
+        assert_eq!(summary.parsed_count, 1);
+        assert_eq!(summary.failed_count, 1);
+        assert!(bundle.is_committable());
+        let failed = bundle
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.status == UniversalIngestStatus::Failed)
+            .unwrap();
+        assert_eq!(failed.provider, "universal:reader");
+        assert!(failed.reason.as_deref().unwrap().contains("failed to read"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mixed_success_and_provider_failure_is_degraded_not_ingested() {
+        let dir = honesty_temp_dir("mixed-provider-failure");
+        std::fs::write(dir.join("good.md"), "# Good\n\nParsed.").unwrap();
+        std::fs::write(dir.join("failed.pdf"), b"%PDF fixture").unwrap();
+        let adapter = UniversalIngestAdapter::new(Some("test".into()));
+        let providers = ProviderAvailability {
+            docling: true,
+            ..ProviderAvailability::default()
+        };
+        let bundle = adapter
+            .ingest_bundle_with(&dir, providers, |_, _| ProviderExtractionResult::Failed {
+                kind: ProviderFailureKind::Corrupt,
+                detail: "corrupt fixture".to_string(),
+            })
+            .unwrap();
+        let summary = bundle.summary();
+
+        assert_eq!(summary.status, UniversalIngestStatus::Degraded);
+        assert_eq!(summary.ingested_count, 1);
+        assert_eq!(summary.failed_count, 1);
+        assert_eq!(summary.degraded_count, 0);
+        assert!(bundle.is_committable());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn grobid_endpoint_policy_allows_loopback_and_explicit_https_only() {
+        let no_hosts = Vec::<String>::new();
+        assert!(validate_grobid_endpoint("http://127.0.0.1:8070", &no_hosts).is_ok());
+        assert!(validate_grobid_endpoint("http://[::1]:8070/base", &no_hosts).is_ok());
+        assert!(validate_grobid_endpoint("https://localhost:8070", &no_hosts).is_ok());
+        assert!(validate_grobid_endpoint("http://grobid.example", &no_hosts).is_err());
+        assert!(validate_grobid_endpoint("https://grobid.example", &no_hosts).is_err());
+        assert!(validate_grobid_endpoint(
+            "https://grobid.example/base",
+            &["grobid.example".to_string()]
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn grobid_endpoint_policy_refuses_secret_bearing_or_ambiguous_urls() {
+        let hosts = vec!["grobid.example".to_string()];
+        for endpoint in [
+            "https://user:secret@grobid.example",
+            "https://grobid.example?token=secret",
+            "https://grobid.example/#secret",
+            "file:///tmp/grobid",
+            "javascript:alert(1)",
+        ] {
+            assert!(
+                validate_grobid_endpoint(endpoint, &hosts).is_err(),
+                "{endpoint}"
+            );
+        }
     }
 }

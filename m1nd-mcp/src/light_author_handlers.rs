@@ -119,6 +119,7 @@ pub struct LightClaim {
 
 /// Input for the `memorize` MCP tool.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LightAuthorInput {
     pub agent_id: String,
     /// Written as the `Node:` frontmatter header and the `# <node_label>` title.
@@ -130,9 +131,6 @@ pub struct LightAuthorInput {
     #[serde(default)]
     pub state: Option<String>,
     pub claims: Vec<LightClaim>,
-    /// Override output path; default `<runtime_root>/agent-memory/<slug>.light.md`.
-    #[serde(default)]
-    pub output_path: Option<String>,
     /// Graph namespace passed to ingest (default "light").
     #[serde(default)]
     pub namespace: Option<String>,
@@ -206,16 +204,16 @@ pub fn handle_light_author(
     //    doctrine store) whose caller root is a KNOWN foreign repo the medulla does
     //    NOT cover is a session on a root with no project brain. Routing step 4
     //    (`mcp_http.rs`) defaults such a write into the shared store — silently
-    //    polluting the doctrine-to-be with one repo's private fact. Refuse it, and
-    //    hand back the exact one-call bootstrap that fixes it (the same directive
-    //    `reception.options[]` already carries). Only fires when:
+    //    polluting the doctrine-to-be with one repo's private fact. Refuse it and
+    //    report the closed bootstrap consumer; never turn the internal owner seam
+    //    into a public repair call. Only fires when:
     //      - this is the medulla store (a project brain owns its own writes), and
     //      - the caller root is KNOWN (a header was sent — absent ≠ wrong), and
     //      - the medulla does not cover that root (a bound/covered caller is home).
-    //    An explicit `output_path` override bypasses (migration + tests write
-    //    into a named store directly); doctrine-born medulla writes come from
-    //    covered/headerless owner sessions and are unaffected.
-    if input.output_path.is_none() && state.is_medulla_store() {
+    //    Internal promotion never comes through this public request type: it
+    //    writes through `write_light_memory_superseding`, with the destination
+    //    supplied by the owner-resolved medulla store.
+    if state.is_medulla_store() {
         if let Some(caller_root) = state.caller_root.clone() {
             if !state.covers_root(&caller_root) {
                 return Ok(json!({
@@ -224,13 +222,12 @@ pub fn handle_light_author(
                     "refused": "brainless_root",
                     "caller_root": caller_root,
                     "reason": format!(
-                        "this session's root '{caller_root}' has no project brain — a memorize here would land in the shared medulla store and pollute cross-project doctrine. Bootstrap your repo's own brain first (one call), then memorize routes there automatically.",
+                        "this session's root '{caller_root}' has no project brain — a memorize here would land in the shared medulla store and pollute cross-project doctrine. Creating a project brain is unavailable until the exact typed G2/G3 bootstrap consumer is installed.",
                     ),
                     "fix": {
-                        "action": "ingest_your_repo",
-                        "call": format!(
-                            "ingest with project_root={caller_root} — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it; thereafter every memorize from this root lands project-private (silent on match)"
-                        ),
+                        "action": "bootstrap_unavailable",
+                        "code": "brain_bootstrap_consumer_not_installed",
+                        "note": "no public bootstrap mutation was attempted"
                     },
                     "bytes_written": 0,
                     "claims_written": 0,
@@ -243,28 +240,16 @@ pub fn handle_light_author(
 
     // Stamp the Origin-Brain this claim is born in (MEDULLA-PRD §6). The handler
     // is the single honest source: a project brain stamps its project root, the
-    // medulla stamps `medulla`. Only for the default agent-memory path — an
-    // explicit `output_path` write (migration carries its own stamp in the claim)
-    // keeps its input's origin_brain untouched.
-    if input.output_path.is_none() {
-        input.origin_brain = Some(state.origin_brain());
-    }
+    // medulla stamps `medulla`. Public memorize has exactly one managed target.
+    input.origin_brain = Some(state.origin_brain());
 
-    // 1. Resolve output path.
-    let out_path = resolve_output_path(state, &input)?;
+    // 1. Resolve the sole managed output path. Caller-controlled destinations
+    // are not part of the request type and unknown JSON fields fail closed.
+    let out_path = resolve_output_path(state, &input.node_label)?;
 
-    // 2. Write to disk under supersession-on-rewrite (invalidate-and-keep) for the
-    //    default agent-memory path; an explicit `output_path` override keeps the
-    //    historical unconditional-write behavior (no lock, no supersession).
-    let is_default_path = input.output_path.is_none();
+    // 2. Write to disk under supersession-on-rewrite (invalidate-and-keep).
 
-    let parent = out_path.parent().ok_or_else(|| M1ndError::InvalidParams {
-        tool: "memorize".into(),
-        detail: "output path has no parent directory".into(),
-    })?;
-    fs::create_dir_all(parent).map_err(M1ndError::Io)?;
-
-    let (markdown, supersession) = if is_default_path {
+    let (markdown, supersession) = {
         // Per-slug exclusive lock held across the whole read-modify-write, dropped
         // BEFORE ingest (ingest only reads). This is what makes two sibling sessions
         // on the same slug safe under multi-session drift.
@@ -304,11 +289,6 @@ pub fn handle_light_author(
             }
         }
         // _lock dropped here — before ingest.
-    } else {
-        // Explicit override path: unchanged historical behavior.
-        let md = render_light_markdown(&input);
-        fs::write(&out_path, &md).map_err(M1ndError::Io)?;
-        (md, None)
     };
 
     let bytes_written = markdown.len();
@@ -398,6 +378,10 @@ pub fn handle_light_author(
 /// the parser's `last_claim_id` attaches 𝔻 qualifiers to the most-recent
 /// non-epistemic claim; reversing the order would attach them to the wrong node.
 pub fn render_light_markdown(input: &LightAuthorInput) -> String {
+    render_light_markdown_at(input, now_ms())
+}
+
+fn render_light_markdown_at(input: &LightAuthorInput, created_at_ms: u64) -> String {
     let state_val = input.state.as_deref().unwrap_or("authored");
     let title_val = input.title.as_deref().unwrap_or(input.node_label.as_str());
 
@@ -411,7 +395,7 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     // Provenance: when this memory was written and which agent authored it.
     // Missing on older `.light.md` files is honestly "unknown" — the parser
     // ignores unknown frontmatter keys, so these are backward-compatible.
-    out.push_str(&format!("Created: {}\n", now_ms()));
+    out.push_str(&format!("Created: {created_at_ms}\n"));
     out.push_str(&format!("Source-Agent: {}\n", input.agent_id));
     // Provenance: WHERE the claim was born (MEDULLA-PRD §6 · §3.3). Absent on
     // legacy files (and on hand-built inputs that never went through the handler)
@@ -518,13 +502,178 @@ fn claim_glyph(kind: Option<&str>) -> (&'static str, &'static str) {
 // Path helpers
 // ---------------------------------------------------------------------------
 
-fn resolve_output_path(state: &SessionState, input: &LightAuthorInput) -> M1ndResult<PathBuf> {
-    if let Some(ref override_path) = input.output_path {
-        return Ok(PathBuf::from(override_path));
-    }
-    let slug = slugify(&input.node_label);
+fn resolve_output_path(state: &SessionState, node_label: &str) -> M1ndResult<PathBuf> {
+    let slug = slugify(node_label);
     let filename = format!("{}.light.md", slug);
-    Ok(state.runtime_root.join("agent-memory").join(filename))
+    let target = state.runtime_root.join("agent-memory").join(filename);
+    validate_managed_memory_target(&state.runtime_root, &target)?;
+    Ok(target)
+}
+
+/// Resolve and verify the owner-managed `agent-memory` directory without
+/// following a caller-placeable symlink at either managed boundary.
+fn managed_memory_dir(runtime_root: &Path) -> M1ndResult<(PathBuf, PathBuf)> {
+    let runtime_metadata = fs::symlink_metadata(runtime_root).map_err(M1ndError::Io)?;
+    if runtime_metadata.file_type().is_symlink() || !runtime_metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: "memorize".into(),
+            detail: "managed runtime root must be a real directory, not a symlink".into(),
+        });
+    }
+    let canonical_runtime = fs::canonicalize(runtime_root).map_err(M1ndError::Io)?;
+
+    let store = runtime_root.join("agent-memory");
+    match fs::symlink_metadata(&store) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(M1ndError::InvalidParams {
+                tool: "memorize".into(),
+                detail: "managed agent-memory directory is a symlink; refusing path escape".into(),
+            });
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(M1ndError::InvalidParams {
+                tool: "memorize".into(),
+                detail: "managed agent-memory path is not a directory".into(),
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&store).map_err(M1ndError::Io)?;
+        }
+        Err(error) => return Err(M1ndError::Io(error)),
+    }
+
+    let canonical_store = fs::canonicalize(&store).map_err(M1ndError::Io)?;
+    if canonical_store == canonical_runtime || !canonical_store.starts_with(&canonical_runtime) {
+        return Err(M1ndError::InvalidParams {
+            tool: "memorize".into(),
+            detail: "managed agent-memory directory escapes the canonical runtime root".into(),
+        });
+    }
+    Ok((store, canonical_store))
+}
+
+/// Validate a direct `.light.md` child of the owner-managed memory directory.
+/// This is shared by ordinary memorize and the crate-internal promotion writer.
+fn validate_managed_memory_target(runtime_root: &Path, target: &Path) -> M1ndResult<()> {
+    let (_store, canonical_store) = managed_memory_dir(runtime_root)?;
+    let parent = target.parent().ok_or_else(|| M1ndError::InvalidParams {
+        tool: "memorize".into(),
+        detail: "managed memory target has no parent".into(),
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(M1ndError::Io)?;
+    if canonical_parent != canonical_store {
+        return Err(M1ndError::InvalidParams {
+            tool: "memorize".into(),
+            detail: "memory target is outside the owner-managed agent-memory directory".into(),
+        });
+    }
+    let valid_name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".light.md") && !name.starts_with('.'));
+    if !valid_name {
+        return Err(M1ndError::InvalidParams {
+            tool: "memorize".into(),
+            detail: "managed memory target must be a visible .light.md file".into(),
+        });
+    }
+    refuse_symlink_or_non_file_target(target, "memorize")
+}
+
+/// Validate an owner-resolved direct child of a store (used by the promotion
+/// witness). No public request can construct either path.
+fn validate_store_child(store_dir: &Path, target: &Path, tool: &str) -> M1ndResult<()> {
+    let store_metadata = fs::symlink_metadata(store_dir).map_err(M1ndError::Io)?;
+    if store_metadata.file_type().is_symlink() || !store_metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: "managed store must be a real directory, not a symlink".into(),
+        });
+    }
+    let canonical_store = fs::canonicalize(store_dir).map_err(M1ndError::Io)?;
+    let parent = target.parent().ok_or_else(|| M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: "managed store target has no parent".into(),
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(M1ndError::Io)?;
+    if canonical_parent != canonical_store {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: "managed store target escapes its canonical store directory".into(),
+        });
+    }
+    refuse_symlink_or_non_file_target(target, tool)
+}
+
+fn refuse_symlink_or_non_file_target(target: &Path, tool: &str) -> M1ndResult<()> {
+    match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata_is_link_or_reparse(&metadata) => Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: "managed target is a symlink or Windows reparse point; refusing path escape"
+                .into(),
+        }),
+        Ok(metadata) if !metadata.is_file() => Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: "managed target exists but is not a regular file".into(),
+        }),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(M1ndError::Io(error)),
+    }
+}
+
+fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        crate::windows_durable_fs::is_reparse_point(metadata)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn managed_child_dir(store_dir: &Path, name: &str, tool: &str) -> M1ndResult<PathBuf> {
+    let store_metadata = fs::symlink_metadata(store_dir).map_err(M1ndError::Io)?;
+    if store_metadata.file_type().is_symlink() || !store_metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: "managed store must be a real directory, not a symlink".into(),
+        });
+    }
+    let canonical_store = fs::canonicalize(store_dir).map_err(M1ndError::Io)?;
+    let child = store_dir.join(name);
+    match fs::symlink_metadata(&child) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(M1ndError::InvalidParams {
+                tool: tool.into(),
+                detail: format!("managed {name} directory is a symlink; refusing path escape"),
+            });
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(M1ndError::InvalidParams {
+                tool: tool.into(),
+                detail: format!("managed {name} path is not a directory"),
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&child).map_err(M1ndError::Io)?;
+        }
+        Err(error) => return Err(M1ndError::Io(error)),
+    }
+    let canonical_child = fs::canonicalize(&child).map_err(M1ndError::Io)?;
+    if canonical_child == canonical_store || !canonical_child.starts_with(&canonical_store) {
+        return Err(M1ndError::InvalidParams {
+            tool: tool.into(),
+            detail: format!("managed {name} directory escapes its canonical store"),
+        });
+    }
+    Ok(child)
 }
 
 /// Lowercase alnum, non-alnum → '-', collapse consecutive '-'.
@@ -581,12 +730,12 @@ fn registry_mutex_for(lock_path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> 
 ///   mutex — this is the concurrency the served owner actually faces.
 /// - **Cross-process (unix):** a blocking `libc::flock(LOCK_EX)` on
 ///   `<locks_dir>/<slug>.lock`, per-open-file-description, so two live sibling
-///   *processes* also serialize. This is unchanged from before.
+///   *processes* also serialize.
+/// - **Cross-process (Windows):** a blocking `LockFileEx` exclusive range lock
+///   on the same no-follow lock file.
 ///
 /// Blocking (not try-lock) is deliberate: memorize/missions are durable and
-/// low-frequency, so correctness beats latency. On non-unix targets the `flock`
-/// layer is absent, but the in-process registry still serializes every thread of
-/// the single owner process (the only writer shape on those targets today).
+/// low-frequency, so correctness beats latency.
 pub(crate) struct LockGuard {
     /// Keeps the registry mutex alive for as long as `_in_process_guard` borrows
     /// it. MUST outlive the guard — field drop order (top-to-bottom) drops the
@@ -598,6 +747,8 @@ pub(crate) struct LockGuard {
     _in_process_guard: std::sync::MutexGuard<'static, ()>,
     #[cfg(unix)]
     fd: std::os::unix::io::RawFd,
+    #[cfg(windows)]
+    file: std::fs::File,
 }
 
 impl LockGuard {
@@ -606,7 +757,8 @@ impl LockGuard {
     /// unchanged while other read-modify-write stores (missions) reuse the same
     /// lock primitive with their own locks directory.
     fn acquire(runtime_root: &Path, slug: &str) -> M1ndResult<Self> {
-        let locks_dir = runtime_root.join("agent-memory").join(".locks");
+        let (store_dir, _) = managed_memory_dir(runtime_root)?;
+        let locks_dir = managed_child_dir(&store_dir, ".locks", "memorize")?;
         Self::acquire_in(&locks_dir, slug)
     }
 
@@ -618,8 +770,29 @@ impl LockGuard {
     /// Ordering matters only for correctness of teardown (`Drop` releases flock
     /// then the in-process guard) — both layers are held for the guard's life.
     pub(crate) fn acquire_in(locks_dir: &Path, slug: &str) -> M1ndResult<Self> {
-        fs::create_dir_all(locks_dir).map_err(M1ndError::Io)?;
+        match fs::symlink_metadata(locks_dir) {
+            Ok(metadata) if metadata_is_link_or_reparse(&metadata) => {
+                return Err(M1ndError::InvalidParams {
+                    tool: "lock".into(),
+                    detail:
+                        "lock directory is a symlink or Windows reparse point; refusing path escape"
+                            .into(),
+                });
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(M1ndError::InvalidParams {
+                    tool: "lock".into(),
+                    detail: "lock path is not a directory".into(),
+                });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir_all(locks_dir).map_err(M1ndError::Io)?;
+            }
+            Err(error) => return Err(M1ndError::Io(error)),
+        }
         let lock_path = locks_dir.join(format!("{}.lock", slug));
+        refuse_symlink_or_non_file_target(&lock_path, "lock")?;
 
         // --- Layer 1: in-process mutex (all platforms) ---
         let registry_mutex = registry_mutex_for(&lock_path);
@@ -641,11 +814,13 @@ impl LockGuard {
         // --- Layer 2: cross-process flock (unix only) ---
         #[cfg(unix)]
         let fd = {
+            use std::os::unix::fs::OpenOptionsExt;
             use std::os::unix::io::AsRawFd;
             let file = fs::OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(false)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
                 .open(&lock_path)
                 .map_err(M1ndError::Io)?;
             let raw_fd = file.as_raw_fd();
@@ -662,11 +837,22 @@ impl LockGuard {
             file.into_raw_fd()
         };
 
+        // --- Layer 2: cross-process byte-range lock (Windows only) ---
+        #[cfg(windows)]
+        let file = {
+            let file = crate::windows_durable_fs::open_lock_file_no_follow(&lock_path)
+                .map_err(M1ndError::Io)?;
+            crate::windows_durable_fs::lock_file_exclusive(&file, false).map_err(M1ndError::Io)?;
+            file
+        };
+
         Ok(LockGuard {
             _registry_mutex: registry_mutex,
             _in_process_guard: guard_static,
             #[cfg(unix)]
             fd,
+            #[cfg(windows)]
+            file,
         })
     }
 }
@@ -684,6 +870,10 @@ impl Drop for LockGuard {
                 libc::flock(self.fd, libc::LOCK_UN);
                 libc::close(self.fd);
             }
+        }
+        #[cfg(windows)]
+        {
+            let _ = crate::windows_durable_fs::unlock_file(&self.file);
         }
         // `_in_process_guard` then `_registry_mutex` drop here (field order),
         // releasing layer 1 while its backing `Mutex` is still alive.
@@ -806,14 +996,40 @@ fn gate_supersession(prior: &PriorStrength, new: &PriorStrength) -> Supersession
     }
 }
 
+/// Pure supersession planner used by the typed external promotion adapter.
+/// It renders the exact postimage without touching the filesystem so the
+/// caller can durably stage and hash it before authority COMMIT.
+pub(crate) fn render_light_memory_superseding_candidate(
+    input: &mut LightAuthorInput,
+    prior_text: Option<&str>,
+    created_at_ms: u64,
+) -> Result<(String, bool), String> {
+    match prior_text {
+        None => Ok((render_light_markdown_at(input, created_at_ms), false)),
+        Some(prior_text) => {
+            let prior = scan_prior_strength(prior_text);
+            let new = new_strength(input);
+            match gate_supersession(&prior, &new) {
+                SupersessionPlan::WouldDowngrade { reason } => Err(reason),
+                SupersessionPlan::Supersede => {
+                    input.supersedes = Some(slugify(&input.node_label));
+                    Ok((render_light_markdown_at(input, created_at_ms), true))
+                }
+                SupersessionPlan::FirstWrite => unreachable!("a prior text was supplied"),
+            }
+        }
+    }
+}
+
 /// Copy the live prior file into `.history/<slug>.<ts>.light.md` with its `State:`
 /// flipped to `outdated` — retained forever as the audit trail. The live file is
 /// left untouched here; the caller overwrites it with the new claim afterward.
 fn archive_prior_as_outdated(out_path: &Path, slug: &str, runtime_root: &Path) -> M1ndResult<()> {
+    validate_managed_memory_target(runtime_root, out_path)?;
     let prior_text = fs::read_to_string(out_path).map_err(M1ndError::Io)?;
     let outdated = flip_state_to_outdated(&prior_text);
-    let history_dir = runtime_root.join("agent-memory").join(".history");
-    fs::create_dir_all(&history_dir).map_err(M1ndError::Io)?;
+    let (store_dir, _) = managed_memory_dir(runtime_root)?;
+    let history_dir = managed_child_dir(&store_dir, ".history", "memorize")?;
     let history_path = history_dir.join(format!("{}.{}.light.md", slug, now_ms()));
     write_atomic(&history_path, &outdated)?;
     Ok(())
@@ -828,10 +1044,10 @@ pub fn archive_prior_as_outdated_in(
     out_path: &Path,
     slug: &str,
 ) -> M1ndResult<()> {
+    validate_store_child(store_dir, out_path, "promote")?;
     let prior_text = fs::read_to_string(out_path).map_err(M1ndError::Io)?;
     let outdated = flip_state_to_outdated(&prior_text);
-    let history_dir = store_dir.join(".history");
-    fs::create_dir_all(&history_dir).map_err(M1ndError::Io)?;
+    let history_dir = managed_child_dir(store_dir, ".history", "promote")?;
     let history_path = history_dir.join(format!("{}.{}.light.md", slug, now_ms()));
     write_atomic(&history_path, &outdated)?;
     Ok(())
@@ -861,14 +1077,27 @@ pub fn write_light_memory_superseding(
     out_path: &Path,
     runtime_root: &Path,
 ) -> M1ndResult<SupersessionOutcome> {
-    let parent = out_path.parent().ok_or_else(|| M1ndError::InvalidParams {
-        tool: "memorize".into(),
-        detail: "output path has no parent directory".into(),
-    })?;
-    fs::create_dir_all(parent).map_err(M1ndError::Io)?;
+    validate_managed_memory_target(runtime_root, out_path)?;
 
     let slug = slugify(&input.node_label);
     let _lock = LockGuard::acquire(runtime_root, &slug)?;
+
+    write_light_memory_superseding_with_lock_held(input, out_path, runtime_root)
+}
+
+/// The supersession write core for a caller that already holds the exact
+/// per-slug [`LockGuard`]. This is intentionally crate-private: the typed
+/// external promotion transaction must hold both the project-witness and
+/// medulla-destination locks across its OCC revalidation, authority commit, and
+/// forward publish. Calling the public wrapper from that section would try to
+/// acquire the same non-reentrant lock twice.
+pub(crate) fn write_light_memory_superseding_with_lock_held(
+    input: &mut LightAuthorInput,
+    out_path: &Path,
+    runtime_root: &Path,
+) -> M1ndResult<SupersessionOutcome> {
+    validate_managed_memory_target(runtime_root, out_path)?;
+    let slug = slugify(&input.node_label);
 
     match plan_supersession(out_path, input)? {
         SupersessionPlan::WouldDowngrade { reason } => {
@@ -908,26 +1137,63 @@ fn flip_state_to_outdated(text: &str) -> String {
 
 /// Public atomic-write wrapper for the `promote` witness stamp (same temp-file +
 /// rename guarantee). Thin re-export of [`write_atomic`].
-pub fn write_atomic_pub(path: &Path, contents: &str) -> M1ndResult<()> {
+pub fn write_atomic_managed_store(store_dir: &Path, path: &Path, contents: &str) -> M1ndResult<()> {
+    validate_store_child(store_dir, path, "promote")?;
     write_atomic(path, contents)
 }
 
 /// Atomic write: temp file beside the target + rename (FM-PL-008), so a reader
 /// (or a crashed writer) never sees a torn `.light.md`.
 fn write_atomic(path: &Path, contents: &str) -> M1ndResult<()> {
+    use std::io::Write as _;
+
     let parent = path.parent().ok_or_else(|| M1ndError::InvalidParams {
         tool: "memorize".into(),
         detail: "atomic write target has no parent directory".into(),
     })?;
-    fs::create_dir_all(parent).map_err(M1ndError::Io)?;
+    let parent_metadata = fs::symlink_metadata(parent).map_err(M1ndError::Io)?;
+    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: "memorize".into(),
+            detail: "atomic write parent must be a real directory, not a symlink".into(),
+        });
+    }
+    refuse_symlink_or_non_file_target(path, "memorize")?;
     // Unique-ish temp name in the same dir (same filesystem ⇒ rename is atomic).
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "memory.light.md".to_string());
-    let temp_path = parent.join(format!(".{}.{}.tmp", file_name, now_ms()));
-    fs::write(&temp_path, contents).map_err(M1ndError::Io)?;
-    fs::rename(&temp_path, path).map_err(M1ndError::Io)?;
+    static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp_path = parent.join(format!(
+        ".{}.{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        now_ms(),
+        sequence
+    ));
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut temp = options.open(&temp_path).map_err(M1ndError::Io)?;
+    if let Err(error) = temp
+        .write_all(contents.as_bytes())
+        .and_then(|_| temp.sync_all())
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(M1ndError::Io(error));
+    }
+    drop(temp);
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(M1ndError::Io(error));
+    }
     Ok(())
 }
 
@@ -951,7 +1217,6 @@ mod tests {
             title: Some("Authentication System".into()),
             state: Some("verified".into()),
             claims,
-            output_path: None,
             namespace: None,
             ingest_after: false,
             mode: "merge".into(),
@@ -976,6 +1241,76 @@ mod tests {
             ..Default::default()
         };
         SessionState::initialize(Graph::new(), &config, DomainConfig::code()).expect("init session")
+    }
+
+    #[test]
+    fn public_output_path_override_is_rejected_without_touching_sentinel() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let sentinel = temp.path().join("outside.light.md");
+        std::fs::write(&sentinel, "sentinel\n").expect("sentinel");
+        let request = serde_json::json!({
+            "agent_id": "attacker",
+            "node_label": "Escape",
+            "claims": [{"label": "Escape"}],
+            "output_path": sentinel,
+            "ingest_after": false
+        });
+
+        let error = serde_json::from_value::<LightAuthorInput>(request)
+            .expect_err("legacy output_path must fail closed");
+        assert!(
+            error.to_string().contains("unknown field `output_path`"),
+            "unexpected refusal: {error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&sentinel).expect("read sentinel"),
+            "sentinel\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_agent_memory_directory_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside).expect("outside dir");
+        symlink(&outside, state.runtime_root.join("agent-memory")).expect("store symlink");
+
+        let error = handle_light_author(&mut state, make_input(vec![]))
+            .expect_err("managed store symlink must fail closed");
+        assert!(error.to_string().contains("symlink"), "unexpected: {error}");
+        assert!(
+            std::fs::read_dir(&outside)
+                .expect("read outside")
+                .next()
+                .is_none(),
+            "symlink escape wrote outside the runtime root"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_memory_file_symlink_is_refused_and_sentinel_is_unchanged() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        let store = state.runtime_root.join("agent-memory");
+        std::fs::create_dir(&store).expect("memory store");
+        let sentinel = temp.path().join("outside-sentinel");
+        std::fs::write(&sentinel, "sentinel\n").expect("sentinel");
+        symlink(&sentinel, store.join("authsystem.light.md")).expect("target symlink");
+
+        let error = handle_light_author(&mut state, make_input(vec![]))
+            .expect_err("managed target symlink must fail closed");
+        assert!(error.to_string().contains("symlink"), "unexpected: {error}");
+        assert_eq!(
+            std::fs::read_to_string(&sentinel).expect("read sentinel"),
+            "sentinel\n"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1096,7 +1431,6 @@ mod tests {
                 evidence: vec!["auth.rs".into()],
                 depends_on: vec![],
             }],
-            output_path: None,
             namespace: None,
             ingest_after: true,
             mode: "merge".into(),
@@ -1195,7 +1529,6 @@ mod tests {
                 evidence: vec![],
                 depends_on: vec![],
             }],
-            output_path: None,
             namespace: None,
             ingest_after: true,
             mode: "merge".into(),
@@ -1357,7 +1690,6 @@ mod tests {
                 evidence: vec![],
                 depends_on: vec![],
             }],
-            output_path: None,
             namespace: None,
             ingest_after: false,
             mode: "merge".into(),
@@ -1554,23 +1886,41 @@ mod tests {
             handle_light_author(&mut state, super_input("Race", "authored", "0.5")).expect("seed");
         }
 
-        // Build BOTH sessions SEQUENTIALLY, before spawning any thread. Each is an
-        // independent SessionState pointing at the SAME runtime_root — the real
-        // multi-session-drift shape — but session INITIALIZATION is not what this
-        // test proves and is not concurrent-safe (two same-pid ReadWrite acquirers
-        // race the shared instance-lease write in instance_registry). Initializing
-        // here, off the hot path, isolates the property under test: the per-slug
-        // flock in handle_light_author is the ONLY serializer of the concurrent
-        // read-modify-write, exactly as it is across two live sibling processes.
-        let sessions: Vec<SessionState> =
-            (0..2u32).map(|_| build_session(root.as_path())).collect();
+        // The runtime has exactly one writable owner. Concurrent callers must
+        // therefore race through the one bound brain actor, never manufacture
+        // sibling SessionState writers inside the same process.
+        let state = build_session(root.as_path());
+        let runtime_root = state.runtime_root.clone();
+        let session = Arc::new(crate::brain_runtime::BrainSessionCell::new(state));
+        let actor = crate::brain_runtime::BrainActorHandle::start(
+            "light-supersession-race".to_string(),
+            session,
+            runtime_root.join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(crate::brain_runtime::UnboundBrainCheckpointAuthority),
+            4,
+            None,
+        )
+        .expect("start brain actor");
 
         let mut handles = Vec::new();
-        for (i, mut state) in sessions.into_iter().enumerate() {
+        for i in 0..2 {
+            let actor = Arc::clone(&actor);
             handles.push(thread::spawn(move || {
-                // Race ONLY the memorize RMW; the flock must serialize it.
+                // Race the two complete mutation turns. The actor provides the
+                // owner serialization and each success crosses a checkpoint.
                 let conf = if i == 0 { "0.9" } else { "0.8" };
-                let _ = handle_light_author(&mut state, super_input("Race", "verified", conf));
+                actor
+                    .try_execute(true, move |state| {
+                        handle_light_author(state, super_input("Race", "verified", conf)).map_err(
+                            |error| {
+                                crate::runtime_jobs::RuntimeJobFailure::new(
+                                    "light_author_failed",
+                                    error.to_string(),
+                                )
+                            },
+                        )
+                    })
+                    .expect("serialized light-author mutation");
             }));
         }
         for h in handles {
@@ -1595,6 +1945,7 @@ mod tests {
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().ends_with(".tmp"));
         assert!(!stray_temp, "no torn/leftover .tmp files should remain");
+        actor.stop().expect("stop brain actor");
     }
 
     // Test: the LockGuard primitive itself serializes across THREADS on EVERY
@@ -1864,10 +2215,9 @@ mod tests {
     /// Brainless-root refusal (MEDULLA-PRD §2.3 S2 / §11 M5a). A memorize on the
     /// medulla session whose caller root is a KNOWN foreign repo the medulla does
     /// not cover must be REFUSED (not silently written into the shared store), and
-    /// the refusal must hand back the one-call bootstrap that fixes it. RED today:
-    /// step-4 routing writes it silently into the medulla-to-be.
+    /// the refusal must report that no typed bootstrap consumer is installed.
     #[test]
-    fn m5a_brainless_root_memorize_is_refused_with_bootstrap_fix() {
+    fn m5a_brainless_root_memorize_is_refused_without_a_fake_bootstrap_fix() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut state = build_session(temp.path());
         // A foreign caller root the medulla does not cover.
@@ -1883,10 +2233,14 @@ mod tests {
         assert_eq!(result["ok"], false, "the write must be refused");
         assert_eq!(result["refused"], "brainless_root");
         assert_eq!(result["ingested"], false);
-        let call = result["fix"]["call"].as_str().unwrap_or("");
+        assert_eq!(result["fix"]["action"], "bootstrap_unavailable");
+        assert_eq!(
+            result["fix"]["code"],
+            "brain_bootstrap_consumer_not_installed"
+        );
         assert!(
-            call.contains("ingest with project_root=/path/to/project-a"),
-            "refusal must carry the typed one-call bootstrap, got: {call}"
+            result["fix"].get("call").is_none(),
+            "refusal must not advertise the unreachable ingest/project_root path"
         );
 
         // And NOTHING was written into the shared medulla store (no pollution).

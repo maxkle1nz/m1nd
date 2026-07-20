@@ -4,198 +4,1647 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   BINARY_NAME: m1nd-mcp
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  tag-guard:
+    name: Exact immutable tag guard
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      crate_core_version: ${{ steps.identity.outputs.crate_core_version }}
+      crate_control_version: ${{ steps.identity.outputs.crate_control_version }}
+      crate_ingest_version: ${{ steps.identity.outputs.crate_ingest_version }}
+      crate_mcp_version: ${{ steps.identity.outputs.crate_mcp_version }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - id: identity
+        name: Bind tag, package version, and exact commit
+        shell: bash
+        run: |
+          case "${GITHUB_REF}" in
+            refs/tags/v*) ;;
+            *)
+              echo "Release workflows must run against an existing v* tag; got ${GITHUB_REF}." >&2
+              exit 1
+              ;;
+          esac
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          test "${VERSION}" = "${PACKAGE_VERSION}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "${GITHUB_SHA}"
+          git fetch --no-tags --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          MAIN_HEAD="$(git rev-parse refs/remotes/origin/main)"
+          if [ "${GITHUB_SHA}" != "${MAIN_HEAD}" ]; then
+            echo "Release commit ${GITHUB_SHA} is not the exact origin/main head ${MAIN_HEAD}." >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          EXPECTED_VERSION="${VERSION}" python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          import os
+          import subprocess
+
+          metadata = json.loads(subprocess.check_output(
+              ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"]
+          ))
+          versions = {package["name"]: package["version"] for package in metadata["packages"]}
+          expected = os.environ["EXPECTED_VERSION"]
+          for name in ("m1nd-core", "m1nd-ingest", "m1nd-mcp"):
+              if versions.get(name) != expected:
+                  raise SystemExit(f"{name} version {versions.get(name)!r} != release {expected}")
+          for name in ("m1nd-core", "m1nd-control", "m1nd-ingest", "m1nd-mcp"):
+              print(f"crate_{name.removeprefix('m1nd-')}_version={versions[name]}")
+          PY
+      - name: Refuse private, operator-only, secret, or cache paths in the candidate commit
+        run: |
+          python3 scripts/m1nd10_candidate_source_guard.py \
+            --repo . \
+            --revision "${GITHUB_SHA}"
+      - name: Scan the complete immutable candidate history for secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail \
+            --output gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file gitleaks.tar.gz gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 .
+          rm -f gitleaks gitleaks.tar.gz
+      - name: Probe immutable public release identities without passing a token to repository code
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.identity.outputs.version }}
+          CRATE_CORE_VERSION: ${{ steps.identity.outputs.crate_core_version }}
+          CRATE_CONTROL_VERSION: ${{ steps.identity.outputs.crate_control_version }}
+          CRATE_INGEST_VERSION: ${{ steps.identity.outputs.crate_ingest_version }}
+          CRATE_MCP_VERSION: ${{ steps.identity.outputs.crate_mcp_version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          SEMVER = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?")
+          repository = os.environ["RELEASE_REPOSITORY"]
+          repository_private = os.environ["RELEASE_REPOSITORY_PRIVATE"]
+          tag = os.environ["RELEASE_TAG"]
+          release_version = os.environ["RELEASE_VERSION"]
+          crates = {
+              "m1nd-core": os.environ["CRATE_CORE_VERSION"],
+              "m1nd-control": os.environ["CRATE_CONTROL_VERSION"],
+              "m1nd-ingest": os.environ["CRATE_INGEST_VERSION"],
+              "m1nd-mcp": os.environ["CRATE_MCP_VERSION"],
+          }
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+              raise SystemExit("invalid GitHub repository identity")
+          if repository_private != "false":
+              raise SystemExit(
+                  "unauthenticated GitHub release nonexistence is valid only for a public repository"
+              )
+          if tag != f"v{release_version}" or not SEMVER.fullmatch(release_version):
+              raise SystemExit("invalid release tag identity")
+          if any(not SEMVER.fullmatch(version) for version in crates.values()):
+              raise SystemExit("invalid crate version identity")
+
+          class RefuseRedirects(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+          opener = urllib.request.build_opener(RefuseRedirects())
+
+          def status_for(url):
+              request = urllib.request.Request(
+                  url,
+                  headers={"Accept": "application/json", "User-Agent": "m1nd-public-release-guard/1"},
+                  method="GET",
+              )
+              try:
+                  with opener.open(request, timeout=20) as response:
+                      payload = response.read(2 * 1024 * 1024 + 1)
+                      status = int(response.status)
+              except urllib.error.HTTPError as error:
+                  payload = error.read(2 * 1024 * 1024 + 1)
+                  status = int(error.code)
+              except urllib.error.URLError as error:
+                  raise SystemExit(f"public release authority probe failed closed: {error.reason}")
+              if len(payload) > 2 * 1024 * 1024:
+                  raise SystemExit("public release authority response is oversized")
+              return status
+
+          github_url = (
+              f"https://api.github.com/repos/{repository}/releases/tags/"
+              f"{urllib.parse.quote(tag, safe='')}"
+          )
+          github_status = status_for(github_url)
+          if github_status == 200:
+              raise SystemExit(f"GitHub release {repository}@{tag} already exists")
+          if github_status != 404:
+              raise SystemExit(f"GitHub release nonexistence is NOT_PROVEN (HTTP {github_status})")
+
+          npm_identity = urllib.parse.quote("@maxkle1nz/m1nd", safe="")
+          npm_url = (
+              f"https://registry.npmjs.org/{npm_identity}/"
+              f"{urllib.parse.quote(release_version, safe='')}"
+          )
+          npm_status = status_for(npm_url)
+          if npm_status == 200:
+              raise SystemExit(f"npm package @maxkle1nz/m1nd@{release_version} already exists")
+          if npm_status != 404:
+              raise SystemExit(f"npm package nonexistence is NOT_PROVEN (HTTP {npm_status})")
+
+          for name, version in crates.items():
+              crate_url = (
+                  "https://crates.io/api/v1/crates/"
+                  f"{urllib.parse.quote(name, safe='')}/{urllib.parse.quote(version, safe='')}"
+              )
+              crate_status = status_for(crate_url)
+              if crate_status == 200:
+                  print(
+                      f"{name}@{version} already exists; exact checksum recovery "
+                      "must pass against the signed candidate before release"
+                  )
+              elif crate_status != 404:
+                  raise SystemExit(
+                      f"{name}@{version} registry state is NOT_PROVEN (HTTP {crate_status})"
+                  )
+          PY
+
+  ui-artifact:
+    name: Rebuild and seal the only release UI input
+    needs: tag-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      sha256: ${{ steps.ui_identity.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: m1nd-ui/package-lock.json
+      - name: Test and rebuild UI from the locked source tree
+        working-directory: m1nd-ui
+        run: |
+          npm ci
+          npm test
+          npm run lint:soft
+          rm -rf dist
+          npm run build
+      - id: ui_identity
+        name: Seal UI tree, lockfile, source commit, and tool versions
+        shell: bash
+        run: |
+          rm -rf release-ui
+          mkdir -p release-ui
+          cp -R m1nd-ui/dist release-ui/dist
+          UI_SHA256="$(python3 scripts/m1nd10_ui_bundle.py create \
+            --dist release-ui/dist \
+            --package-json m1nd-ui/package.json \
+            --package-lock m1nd-ui/package-lock.json \
+            --commit "${GITHUB_SHA}" \
+            --node-version "$(node --version)" \
+            --npm-version "$(npm --version)" \
+            --output release-ui/UI-BUNDLE-PROVENANCE.json)"
+          echo "sha256=${UI_SHA256}" >> "${GITHUB_OUTPUT}"
+          python3 scripts/m1nd10_ui_bundle.py verify \
+            --dist release-ui/dist \
+            --package-json m1nd-ui/package.json \
+            --package-lock m1nd-ui/package-lock.json \
+            --provenance release-ui/UI-BUNDLE-PROVENANCE.json \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-sha256 "${UI_SHA256}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-ui-bundle-${{ github.sha }}
+          path: release-ui/
+          if-no-files-found: error
+          retention-days: 14
+
+  npm-artifact:
+    name: Pack the exact npm package once
+    needs: tag-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Pack and validate the immutable npm tarball
+        shell: bash
+        run: |
+          mkdir -p release-npm
+          npm pack --json --pack-destination release-npm > npm-pack.json
+          EXPECTED_VERSION="${{ needs.tag-guard.outputs.version }}" node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const records = JSON.parse(fs.readFileSync("npm-pack.json", "utf8"));
+          if (!Array.isArray(records) || records.length !== 1) {
+            throw new Error(`npm pack produced ${Array.isArray(records) ? records.length : "invalid"} records`);
+          }
+          const record = records[0];
+          if (record.name !== "@maxkle1nz/m1nd" || record.version !== process.env.EXPECTED_VERSION) {
+            throw new Error(`npm pack identity mismatch: ${record.name}@${record.version}`);
+          }
+          const tarballs = fs.readdirSync("release-npm").filter((name) => name.endsWith(".tgz"));
+          if (tarballs.length !== 1 || path.basename(record.filename) !== tarballs[0]) {
+            throw new Error("npm pack did not produce exactly the declared tarball");
+          }
+          NODE
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-npm-package-${{ github.sha }}
+          path: release-npm/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  release-gate:
+    name: Candidate source gate
+    needs: [tag-guard, ui-artifact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      M1ND_RELEASE_UI_REQUIRED: "1"
+      M1ND_EXPECTED_UI_BUNDLE_SHA256: ${{ needs.ui-artifact.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-ui-bundle-${{ github.sha }}
+          path: release-ui
+      - name: Install and verify the sealed UI input
+        shell: bash
+        run: |
+          rm -rf m1nd-ui/dist
+          cp -R release-ui/dist m1nd-ui/dist
+          python3 scripts/m1nd10_ui_bundle.py verify \
+            --dist m1nd-ui/dist \
+            --package-json m1nd-ui/package.json \
+            --package-lock m1nd-ui/package-lock.json \
+            --provenance release-ui/UI-BUNDLE-PROVENANCE.json \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-sha256 "${M1ND_EXPECTED_UI_BUNDLE_SHA256}"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: release-source-gate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Verify frozen ratified contracts
+        run: |
+          printf '%s  %s\n' \
+            '00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38' \
+            'docs/M1ND-10-PRD.md' \
+            '8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b' \
+            'docs/M1ND-10-UML.md' | sha256sum --check --strict
+      - name: Rust source and release gates
+        run: |
+          cargo check --locked --workspace --all-targets
+          cargo test --locked --workspace --all-targets
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo fmt --all --check
+          cargo build --locked --release --workspace
+      - name: Host pack, update, and rollback gates
+        run: |
+          npm test
+          npm run m1nd:pack-check
+          npm run m1nd:pack-routing-check
+      - name: Python proof harnesses
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Cross-language canonical release contract vectors
+        run: |
+          python3 scripts/m1nd10_release_candidate.py verify-canonical-vectors \
+            --vectors tests/fixtures/M1ND10-CANONICAL-VECTORS.json
+          node - <<'NODE'
+          const path = require("path");
+          const { verifyCanonicalReleaseVectors } = require("./npm/lib/cli");
+          const result = verifyCanonicalReleaseVectors(
+            path.resolve("tests/fixtures/M1ND10-CANONICAL-VECTORS.json")
+          );
+          if (!result.ok) process.exit(1);
+          console.log(result.status);
+          NODE
+
+  crate-artifact:
+    name: Package each crates.io crate exactly once
+    needs: [tag-guard, ui-artifact, release-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      M1ND_RELEASE_UI_REQUIRED: "1"
+      M1ND_EXPECTED_UI_BUNDLE_SHA256: ${{ needs.ui-artifact.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-ui-bundle-${{ github.sha }}
+          path: ${{ runner.temp }}/release-ui
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: release-crate-package
+      - name: Stage the exact sealed UI inside the m1nd-mcp package source
+        shell: bash
+        run: |
+          test ! -e m1nd-mcp/ui-dist
+          test ! -e m1nd-mcp/ui-package.json
+          mkdir -p m1nd-mcp/ui-dist
+          cp -R "${RUNNER_TEMP}/release-ui/dist/." m1nd-mcp/ui-dist/
+          cp m1nd-ui/package.json m1nd-mcp/ui-package.json
+          python3 scripts/m1nd10_ui_bundle.py verify \
+            --dist m1nd-mcp/ui-dist \
+            --package-json m1nd-mcp/ui-package.json \
+            --package-lock m1nd-ui/package-lock.json \
+            --provenance "${RUNNER_TEMP}/release-ui/UI-BUNDLE-PROVENANCE.json" \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-sha256 "${M1ND_EXPECTED_UI_BUNDLE_SHA256}"
+          git diff --quiet
+          git diff --cached --quiet
+          python3 - <<'PY'
+          import subprocess
+
+          untracked = subprocess.check_output(
+              ["git", "ls-files", "--others", "--exclude-standard"], text=True
+          ).splitlines()
+          ignored = subprocess.check_output(
+              [
+                  "git",
+                  "ls-files",
+                  "--others",
+                  "--ignored",
+                  "--exclude-standard",
+                  "--",
+                  "m1nd-mcp",
+              ],
+              text=True,
+          ).splitlines()
+          package_overlay = sorted(set(untracked + ignored))
+          unexpected = [
+              path for path in package_overlay
+              if path != "m1nd-mcp/ui-package.json"
+              and not path.startswith("m1nd-mcp/ui-dist/")
+          ]
+          if unexpected:
+              raise SystemExit(f"uncontrolled package-source files: {unexpected}")
+          if "m1nd-mcp/ui-dist/index.html" not in package_overlay:
+              raise SystemExit("sealed UI index is not visible to Cargo packaging")
+          PY
+      - name: Package the four-crate workspace overlay exactly once
+        run: |
+          cargo package --locked --allow-dirty --no-verify \
+            -p m1nd-core \
+            -p m1nd-control \
+            -p m1nd-ingest \
+            -p m1nd-mcp
+      - name: Inspect and stage the four exact Cargo package artifacts
+        shell: bash
+        run: |
+          mkdir -p release-crates
+          cp "target/package/m1nd-core-${{ needs.tag-guard.outputs.crate_core_version }}.crate" release-crates/
+          cp "target/package/m1nd-control-${{ needs.tag-guard.outputs.crate_control_version }}.crate" release-crates/
+          cp "target/package/m1nd-ingest-${{ needs.tag-guard.outputs.crate_ingest_version }}.crate" release-crates/
+          cp "target/package/m1nd-mcp-${{ needs.tag-guard.outputs.crate_mcp_version }}.crate" release-crates/
+          python3 scripts/m1nd10_crates_io_upload.py inspect \
+            --crate "release-crates/m1nd-core-${{ needs.tag-guard.outputs.crate_core_version }}.crate" \
+            --expected-name m1nd-core \
+            --expected-version "${{ needs.tag-guard.outputs.crate_core_version }}" \
+            --expected-commit "${GITHUB_SHA}" >/dev/null
+          python3 scripts/m1nd10_crates_io_upload.py inspect \
+            --crate "release-crates/m1nd-control-${{ needs.tag-guard.outputs.crate_control_version }}.crate" \
+            --expected-name m1nd-control \
+            --expected-version "${{ needs.tag-guard.outputs.crate_control_version }}" \
+            --expected-commit "${GITHUB_SHA}" >/dev/null
+          python3 scripts/m1nd10_crates_io_upload.py inspect \
+            --crate "release-crates/m1nd-ingest-${{ needs.tag-guard.outputs.crate_ingest_version }}.crate" \
+            --expected-name m1nd-ingest \
+            --expected-version "${{ needs.tag-guard.outputs.crate_ingest_version }}" \
+            --expected-commit "${GITHUB_SHA}" >/dev/null
+          python3 scripts/m1nd10_crates_io_upload.py inspect \
+            --crate "release-crates/m1nd-mcp-${{ needs.tag-guard.outputs.crate_mcp_version }}.crate" \
+            --expected-name m1nd-mcp \
+            --expected-version "${{ needs.tag-guard.outputs.crate_mcp_version }}" \
+            --expected-commit "${GITHUB_SHA}" >/dev/null
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-cargo-packages-${{ github.sha }}
+          path: release-crates/*.crate
+          if-no-files-found: error
+          retention-days: 30
+
   build:
-    name: Build (${{ matrix.target }})
+    name: Build once (${{ matrix.target }})
+    needs: [tag-guard, ui-artifact, release-gate]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      M1ND_RELEASE_UI_REQUIRED: "1"
+      M1ND_EXPECTED_UI_BUNDLE_SHA256: ${{ needs.ui-artifact.outputs.sha256 }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: m1nd-mcp-linux-x86_64
+            archive: m1nd-mcp-linux-x86_64.tar.gz
+            artifact: m1nd-mcp-linux-x86_64
+            raw: m1nd-mcp-linux-x86_64
           - target: x86_64-apple-darwin
-            os: macos-latest
-            artifact_name: m1nd-mcp-macos-x86_64
+            os: macos-15-intel
+            archive: m1nd-mcp-macos-x86_64.tar.gz
+            artifact: m1nd-mcp-macos-x86_64
+            raw: m1nd-mcp-macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact_name: m1nd-mcp-macos-aarch64
-
+            archive: m1nd-mcp-macos-aarch64.tar.gz
+            artifact: m1nd-mcp-macos-aarch64
+            raw: m1nd-mcp-macos-aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: m1nd-mcp-windows-x86_64.zip
+            artifact: m1nd-mcp-windows-x86_64
+            raw: m1nd-mcp-windows-x86_64.exe
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-ui-bundle-${{ github.sha }}
+          path: release-ui
+      - name: Install and verify the sole UI build input
+        shell: bash
+        run: |
+          rm -rf m1nd-ui/dist
+          cp -R release-ui/dist m1nd-ui/dist
+          python3 scripts/m1nd10_ui_bundle.py verify \
+            --dist m1nd-ui/dist \
+            --package-json m1nd-ui/package.json \
+            --package-lock m1nd-ui/package-lock.json \
+            --provenance release-ui/UI-BUNDLE-PROVENANCE.json \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-sha256 "${M1ND_EXPECTED_UI_BUNDLE_SHA256}"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: ${{ matrix.target }}
-
-      - name: Build release binary
-        run: cargo build --release --bin m1nd-mcp --target ${{ matrix.target }}
-
-      - name: Rename binary
+          key: release-${{ matrix.target }}
+      - name: Build target exactly once
+        run: cargo build --locked --release --bin m1nd-mcp --target ${{ matrix.target }}
+      - name: Stage updater-facing Unix runtime
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${{ matrix.raw }}"
+      - name: Stage updater-facing Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "${{ matrix.raw }}"
+      - name: Archive Unix runtime
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} ${{ matrix.artifact_name }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+          tar -C "target/${{ matrix.target }}/release" \
+            -czf "${{ matrix.archive }}" "${BINARY_NAME}"
+      - name: Archive Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -DestinationPath "${{ matrix.archive }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.raw }}
           if-no-files-found: error
+          retention-days: 14
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+  artifact-smoke:
+    name: Installed artifact smoke (${{ matrix.target }})
+    needs: [tag-guard, ui-artifact, build]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            os: ubuntu-latest
+            artifact: m1nd-mcp-linux-x86_64
+            archive: m1nd-mcp-linux-x86_64.tar.gz
+            binary: runtime/m1nd-mcp
+            raw: m1nd-mcp-linux-x86_64
+          - target: macos-x86_64
+            os: macos-15-intel
+            artifact: m1nd-mcp-macos-x86_64
+            archive: m1nd-mcp-macos-x86_64.tar.gz
+            binary: runtime/m1nd-mcp
+            raw: m1nd-mcp-macos-x86_64
+          - target: macos-aarch64
+            os: macos-latest
+            artifact: m1nd-mcp-macos-aarch64
+            archive: m1nd-mcp-macos-aarch64.tar.gz
+            binary: runtime/m1nd-mcp
+            raw: m1nd-mcp-macos-aarch64
+          - target: windows-x86_64
+            os: windows-latest
+            artifact: m1nd-mcp-windows-x86_64
+            archive: m1nd-mcp-windows-x86_64.zip
+            binary: runtime/m1nd-mcp.exe
+            raw: m1nd-mcp-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ matrix.artifact }}
+      - name: Install Unix archive bytes
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir runtime
+          tar -xzf "${{ matrix.archive }}" -C runtime
+      - name: Install Windows archive bytes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -Path "${{ matrix.archive }}" -DestinationPath runtime
+      - name: Restore raw Unix executable permission
+        if: runner.os != 'Windows'
+        shell: bash
+        run: chmod +x "${{ matrix.raw }}" "${{ matrix.binary }}"
+      - name: Prove archive member equals updater-facing raw runtime
+        shell: bash
+        env:
+          ARCHIVE_BINARY: ${{ matrix.binary }}
+          RAW_BINARY: ${{ matrix.raw }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          archive_binary = Path(os.environ["ARCHIVE_BINARY"])
+          raw_binary = Path(os.environ["RAW_BINARY"])
+          archive_sha = hashlib.sha256(archive_binary.read_bytes()).hexdigest()
+          raw_sha = hashlib.sha256(raw_binary.read_bytes()).hexdigest()
+          if archive_sha != raw_sha:
+              raise SystemExit(
+                  f"archive/raw mismatch: {archive_binary}={archive_sha}, {raw_binary}={raw_sha}"
+              )
+          PY
+      - name: Exercise exact installed binary
+        run: >-
+          python scripts/m1nd10_release_artifact_smoke.py
+          --binary "${{ matrix.binary }}"
+          --expected-version "${{ needs.tag-guard.outputs.version }}"
+          --expected-commit "${{ github.sha }}"
+          --expected-ui-sha256 "${{ needs.ui-artifact.outputs.sha256 }}"
+          --target "${{ matrix.target }}"
+          --output "GATE-ARTIFACT-SMOKE-${{ matrix.target }}.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-artifact-smoke-${{ matrix.target }}
+          path: |
+            GATE-ARTIFACT-SMOKE-${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  candidate-assembly:
+    name: Assemble candidate bytes, SBOM, provenance, and rollback without credentials
+    needs: [tag-guard, ui-artifact, npm-artifact, release-gate, crate-artifact, build, artifact-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: m1nd-mcp-*
+          path: release-bins
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: m1nd-artifact-smoke-*
+          path: release-bins
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-ui-bundle-${{ github.sha }}
+          path: release-ui
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-npm-package-${{ github.sha }}
+          path: release-npm
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-cargo-packages-${{ github.sha }}
+          path: release-crates
+      - name: Bind rebuilt UI provenance into the release candidate
+        run: |
+          cp release-ui/UI-BUNDLE-PROVENANCE.json release-bins/
+          cp release-npm/*.tgz release-bins/
+          cp release-crates/*.crate release-bins/
+      - name: Generate SPDX JSON SBOM over exact runtime artifacts
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: release-bins
+          format: spdx-json
+          output-file: release-bins/m1nd-mcp.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Prepare canonical non-circular updater and rollback inputs
+        run: |
+          mkdir -p canonical-inputs
+          python3 scripts/m1nd10_release_candidate.py prepare-canonical-operational \
+            --artifacts release-bins \
+            --version "${{ needs.tag-guard.outputs.version }}" \
+            --commit "${GITHUB_SHA}" \
+            --source-ref "${GITHUB_REF}" \
+            --expected-target linux-x86_64 \
+            --expected-target macos-x86_64 \
+            --expected-target macos-aarch64 \
+            --expected-target windows-x86_64 \
+            --compatibility-output canonical-inputs/RELEASE-COMPATIBILITY.json \
+            --rollback-output canonical-inputs/M1ND10-ROLLBACK.json \
+            --digest-output canonical-inputs/CANONICAL-OPERATIONAL-DIGESTS.json
+      - name: Assemble ordinary G8 candidate without claiming M1ND-10 convergence
+        run: |
+          python3 scripts/m1nd10_release_candidate.py assemble \
+            --artifacts release-bins \
+            --version "${{ needs.tag-guard.outputs.version }}" \
+            --commit "${GITHUB_SHA}" \
+            --source-ref "${GITHUB_REF}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --expected-target linux-x86_64 \
+            --expected-target macos-x86_64 \
+            --expected-target macos-aarch64 \
+            --expected-target windows-x86_64 \
+            --required-job tag-guard \
+            --required-job release-gate \
+            --required-job build \
+            --required-job artifact-smoke \
+            --required-job npm-artifact \
+            --required-job crate-artifact \
+            --output release-bins/CANDIDATE.json \
+            --receipt-output release-bins/GATE-RECEIPT.json \
+            --rollback-output release-bins/ROLLBACK.json
+          cp canonical-inputs/RELEASE-COMPATIBILITY.json release-bins/
+          cp canonical-inputs/M1ND10-ROLLBACK.json release-bins/
+          cp canonical-inputs/CANONICAL-OPERATIONAL-DIGESTS.json release-bins/
+          python3 scripts/m1nd10_release_candidate.py verify \
+            --artifacts release-bins \
+            --manifest release-bins/CANDIDATE.json
+      - name: Generate portable SHA-256 inventory
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          root = Path("release-bins")
+          paths = sorted(
+              path for path in root.iterdir()
+              if path.is_file()
+              and path.name != "SHA256SUMS"
+              and not path.name.endswith(".sigstore.json")
+          )
+          with (root / "SHA256SUMS").open("w", encoding="utf-8") as output:
+              for path in paths:
+                  output.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-release-candidate-unsigned-${{ github.sha }}
+          path: release-bins/
+          if-no-files-found: error
+          retention-days: 30
+
+  candidate:
+    name: Attest and sign the credentialless candidate assembly
+    needs: candidate-assembly
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-unsigned-${{ github.sha }}
+          path: release-bins
+      - name: GitHub Sigstore build provenance
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        with:
+          subject-path: |
+            release-bins/*.tar.gz
+            release-bins/*.zip
+            release-bins/*.tgz
+            release-bins/*.crate
+            release-bins/m1nd-mcp-linux-x86_64
+            release-bins/m1nd-mcp-macos-x86_64
+            release-bins/m1nd-mcp-macos-aarch64
+            release-bins/m1nd-mcp-windows-x86_64.exe
+            release-bins/*.json
+            release-bins/SHA256SUMS
+      - name: GitHub Sigstore SBOM attestation
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        with:
+          subject-path: |
+            release-bins/*.tar.gz
+            release-bins/*.zip
+            release-bins/*.tgz
+            release-bins/*.crate
+            release-bins/m1nd-mcp-linux-x86_64
+            release-bins/m1nd-mcp-macos-x86_64
+            release-bins/m1nd-mcp-macos-aarch64
+            release-bins/m1nd-mcp-windows-x86_64.exe
+            release-bins/CANDIDATE.json
+            release-bins/GATE-RECEIPT.json
+            release-bins/ROLLBACK.json
+          sbom-path: release-bins/m1nd-mcp.spdx.json
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Emit portable keyless signature bundles without repository code
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            cosign sign-blob --yes \
+              --bundle "${file}.sigstore.json" \
+              "${file}"
+          done < <(find release-bins -maxdepth 1 -type f \
+            ! -name '*.sigstore.json' -print0 | sort -z)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins/
+          if-no-files-found: error
+          retention-days: 30
+
+  verified-update-smoke:
+    name: Verified public updater smoke (${{ matrix.target }})
+    needs: [tag-guard, candidate]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            os: ubuntu-latest
+            raw: m1nd-mcp-linux-x86_64
+          - target: macos-x86_64
+            os: macos-15-intel
+            raw: m1nd-mcp-macos-x86_64
+          - target: macos-aarch64
+            os: macos-latest
+            raw: m1nd-mcp-macos-aarch64
+          - target: windows-x86_64
+            os: windows-latest
+            raw: m1nd-mcp-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - name: Restore updater-facing Unix executable permission
+        if: runner.os != 'Windows'
+        shell: bash
+        run: chmod +x "release-bins/${{ matrix.raw }}"
+      - name: Verify signed candidate, apply, rollback, and refuse stale overwrite
+        run: >-
+          node scripts/m1nd10_update_rollback_smoke.js
+          --binary "release-bins/${{ matrix.raw }}"
+          --expected-version "${{ needs.tag-guard.outputs.version }}"
+          --expected-commit "${{ github.sha }}"
+          --target "${{ matrix.target }}"
+          --output "GATE-VERIFIED-UPDATE-SMOKE-${{ matrix.target }}.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-verified-update-smoke-${{ matrix.target }}
+          path: GATE-VERIFIED-UPDATE-SMOKE-${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  release-verification:
+    name: Verify candidate and updater receipts without mutation credentials
+    needs: [tag-guard, candidate, verified-update-smoke]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-
+      contents: read
+    outputs:
+      npm_tarball: ${{ steps.npmmeta.outputs.tarball }}
+      npm_version: ${{ steps.npmmeta.outputs.version }}
+      npm_tag: ${{ steps.npmmeta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          path: artifacts/
-
-      - name: Flatten artifacts
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: m1nd-verified-update-smoke-*
+          path: verified-update-receipts
+          merge-multiple: true
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - id: npmmeta
+        name: Reverify candidate bytes, updater receipts, and npm identity
         run: |
-          mkdir -p release-bins
-          find artifacts/ -type f -exec mv {} release-bins/ \;
-          ls -la release-bins/
+          python3 scripts/m1nd10_release_candidate.py verify \
+            --artifacts release-bins \
+            --manifest release-bins/CANDIDATE.json
+          (cd release-bins && sha256sum --check --strict SHA256SUMS)
+          cosign verify-blob \
+            --bundle release-bins/CANDIDATE.json.sigstore.json \
+            --certificate-identity "https://github.com/maxkle1nz/m1nd/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            release-bins/CANDIDATE.json
+          python3 scripts/m1nd10_release_candidate.py verify-update-receipts \
+            --receipts verified-update-receipts \
+            --manifest release-bins/CANDIDATE.json
+          python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          import re
+          from pathlib import Path
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          manifest = json.loads(Path("release-bins/CANDIDATE.json").read_text())
+          package = manifest.get("npm_package", {})
+          expected = "${{ needs.tag-guard.outputs.version }}"
+          name = package.get("name")
+          if (
+              package.get("kind") != "npm_package_tarball"
+              or package.get("package_name") != "@maxkle1nz/m1nd"
+              or package.get("package_version") != expected
+              or not isinstance(name, str)
+              or not re.fullmatch(r"[A-Za-z0-9._-]+\.tgz", name)
+              or Path(name).name != name
+              or not (Path("release-bins") / name).is_file()
+              or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", expected)
+          ):
+              raise SystemExit("candidate npm package binding is invalid")
+          print(f"tarball={name}")
+          print(f"version={expected}")
+          print(f"tag={'beta' if '-' in expected else 'latest'}")
+          PY
+
+  crate-publish-verification:
+    name: Compile and prepare exact crates.io request bodies without registry credentials
+    needs: [tag-guard, candidate, release-verification]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: exact-candidate-crate-verification
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - name: Reverify signed candidate and resolve its exact Cargo packages
+        id: crates
+        shell: bash
+        run: |
+          python3 scripts/m1nd10_release_candidate.py verify \
+            --artifacts release-bins \
+            --manifest release-bins/CANDIDATE.json
+          (cd release-bins && sha256sum --check --strict SHA256SUMS)
+          cosign verify-blob \
+            --bundle release-bins/CANDIDATE.json.sigstore.json \
+            --certificate-identity "https://github.com/maxkle1nz/m1nd/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            release-bins/CANDIDATE.json
+          python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          import re
+          from pathlib import Path
+
+          manifest = json.loads(Path("release-bins/CANDIDATE.json").read_text())
+          packages = manifest.get("cargo_packages")
+          expected_order = ["m1nd-core", "m1nd-control", "m1nd-ingest", "m1nd-mcp"]
+          if not isinstance(packages, list) or [p.get("package_name") for p in packages] != expected_order:
+              raise SystemExit("candidate Cargo package order is invalid")
+          expected = "${{ needs.tag-guard.outputs.version }}"
+          for position, package in enumerate(packages, start=1):
+              name = package["package_name"]
+              key = name.removeprefix("m1nd-")
+              filename = package.get("name")
+              version = package.get("package_version")
+              digest = package.get("sha256")
+              path = Path("release-bins") / str(filename)
+              if (
+                  package.get("kind") != "cargo_crate_package"
+                  or package.get("publish_order") != position
+                  or not isinstance(filename, str)
+                  or Path(filename).name != filename
+                  or not path.is_file()
+                  or not isinstance(version, str)
+                  or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version)
+                  or not isinstance(digest, str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", digest)
+              ):
+                  raise SystemExit(f"invalid candidate Cargo package binding for {name}")
+              if name != "m1nd-control" and version != expected:
+                  raise SystemExit(f"{name} version {version} != release {expected}")
+              print(f"{key}_file={filename}")
+              print(f"{key}_version={version}")
+              print(f"{key}_sha256={digest}")
+          mcp = packages[-1]
+          print(f"mcp_ui_sha256={mcp['ui_bundle_sha256']}")
+          PY
+      - name: Build sealed crates.io request bodies and reject foreign existing bytes
+        env:
+          EXPECTED_RELEASE_VERSION: ${{ needs.tag-guard.outputs.version }}
+          EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          script = Path("scripts/m1nd10_crates_io_upload.py")
+          spec = importlib.util.spec_from_file_location("m1nd10_crates_io_upload", script)
+          if spec is None or spec.loader is None:
+              raise SystemExit("exact crate publisher module cannot be loaded")
+          publisher = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(publisher)
+          if publisher.CRATES_IO_UPLOAD_URL != "https://crates.io/api/v1/crates/new":
+              raise SystemExit("crates.io upload authority drifted")
+
+          source = Path("release-bins")
+          destination = Path("crates-publish-ready")
+          destination.mkdir(mode=0o700)
+          manifest = json.loads((source / "CANDIDATE.json").read_text())
+          packages = manifest.get("cargo_packages")
+          expected_order = ["m1nd-core", "m1nd-control", "m1nd-ingest", "m1nd-mcp"]
+          if not isinstance(packages, list) or [row.get("package_name") for row in packages] != expected_order:
+              raise SystemExit("candidate Cargo package order is invalid")
+
+          release_version = os.environ["EXPECTED_RELEASE_VERSION"]
+          release_commit = os.environ["EXPECTED_RELEASE_COMMIT"]
+
+          class RefuseRedirects(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+          opener = urllib.request.build_opener(RefuseRedirects())
+
+          def published_checksum(name, version):
+              url = (
+                  "https://crates.io/api/v1/crates/"
+                  f"{urllib.parse.quote(name, safe='')}/{urllib.parse.quote(version, safe='')}"
+              )
+              request = urllib.request.Request(
+                  url,
+                  headers={"Accept": "application/json", "User-Agent": "m1nd-candidate-crate-guard/1"},
+                  method="GET",
+              )
+              try:
+                  with opener.open(request, timeout=20) as response:
+                      status = int(response.status)
+                      payload = response.read(2 * 1024 * 1024 + 1)
+              except urllib.error.HTTPError as error:
+                  status = int(error.code)
+                  payload = error.read(2 * 1024 * 1024 + 1)
+              except urllib.error.URLError as error:
+                  raise SystemExit(f"crates.io checksum probe failed closed: {error.reason}")
+              if len(payload) > 2 * 1024 * 1024:
+                  raise SystemExit(f"crates.io checksum response is oversized for {name}@{version}")
+              if status == 404:
+                  return None
+              if status != 200:
+                  raise SystemExit(f"{name}@{version} registry state is NOT_PROVEN (HTTP {status})")
+              try:
+                  value = json.loads(payload)
+              except json.JSONDecodeError as error:
+                  raise SystemExit(f"invalid crates.io checksum response for {name}@{version}: {error}")
+              published = value.get("version") if isinstance(value, dict) else None
+              checksum = published.get("checksum") if isinstance(published, dict) else None
+              if (
+                  not isinstance(published, dict)
+                  or published.get("crate") != name
+                  or published.get("num") != version
+                  or not isinstance(checksum, str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", checksum)
+              ):
+                  raise SystemExit(f"invalid crates.io checksum identity for {name}@{version}")
+              return checksum
+
+          rows = []
+          for position, package in enumerate(packages, start=1):
+              name = package.get("package_name")
+              version = package.get("package_version")
+              filename = package.get("name")
+              crate_sha256 = package.get("sha256")
+              if (
+                  package.get("kind") != "cargo_crate_package"
+                  or package.get("publish_order") != position
+                  or name != expected_order[position - 1]
+                  or not isinstance(filename, str)
+                  or Path(filename).name != filename
+                  or not isinstance(version, str)
+                  or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version)
+                  or not isinstance(crate_sha256, str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", crate_sha256)
+                  or (name != "m1nd-control" and version != release_version)
+              ):
+                  raise SystemExit(f"invalid candidate Cargo package binding at position {position}")
+              crate_path = source / filename
+              inspected = publisher.inspect_crate(crate_path)
+              if (
+                  inspected["name"] != name
+                  or inspected["version"] != version
+                  or inspected["sha256"] != crate_sha256
+              ):
+                  raise SystemExit(f"candidate Cargo archive differs from manifest for {name}")
+              observed_checksum = published_checksum(name, version)
+              if observed_checksum is not None and observed_checksum != crate_sha256:
+                  raise SystemExit(
+                      f"foreign immutable bytes already exist for {name}@{version}: "
+                      f"registry={observed_checksum}, candidate={crate_sha256}"
+                  )
+              body = publisher.build_upload_body(crate_path, inspected)
+              body_name = f"{name}.upload-body"
+              (destination / body_name).write_bytes(body)
+              rows.append({
+                  "body_file": body_name,
+                  "body_sha256": hashlib.sha256(body).hexdigest(),
+                  "body_size": len(body),
+                  "crate_sha256": crate_sha256,
+                  "name": name,
+                  "observed_checksum": observed_checksum,
+                  "publish_order": position,
+                  "registry_state": "absent" if observed_checksum is None else "exact_existing",
+                  "version": version,
+              })
+
+          plan = {
+              "schema": "m1nd-crates-publish-plan-v1",
+              "release_commit": release_commit,
+              "release_version": release_version,
+              "packages": rows,
+          }
+          (destination / "CRATES-PUBLISH-PLAN.json").write_text(
+              json.dumps(plan, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: m1nd-crates-publish-ready-${{ github.sha }}
+          path: crates-publish-ready/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Compile every exact package only after publish-ready bytes are immutable
+        shell: bash
+        env:
+          M1ND_RELEASE_UI_REQUIRED: "1"
+          M1ND_EXPECTED_UI_BUNDLE_SHA256: ${{ steps.crates.outputs.mcp_ui_sha256 }}
+        run: |
+          CORE_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
+            --crate "release-bins/${{ steps.crates.outputs.core_file }}" \
+            --destination exact-crates/core)"
+          CONTROL_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
+            --crate "release-bins/${{ steps.crates.outputs.control_file }}" \
+            --destination exact-crates/control)"
+          INGEST_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
+            --crate "release-bins/${{ steps.crates.outputs.ingest_file }}" \
+            --destination exact-crates/ingest)"
+          MCP_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
+            --crate "release-bins/${{ steps.crates.outputs.mcp_file }}" \
+            --destination exact-crates/mcp)"
+          cargo check --locked --manifest-path "${CORE_ROOT}/Cargo.toml"
+          cargo check --locked --manifest-path "${CONTROL_ROOT}/Cargo.toml"
+          cargo check --manifest-path "${INGEST_ROOT}/Cargo.toml" \
+            --config "patch.crates-io.m1nd-core.path='${CORE_ROOT}'"
+          cargo check --manifest-path "${MCP_ROOT}/Cargo.toml" \
+            --config "patch.crates-io.m1nd-core.path='${CORE_ROOT}'" \
+            --config "patch.crates-io.m1nd-control.path='${CONTROL_ROOT}'" \
+            --config "patch.crates-io.m1nd-ingest.path='${INGEST_ROOT}'"
+
+  release:
+    name: Promote the already-verified sealed candidate to GitHub Release
+    needs: [tag-guard, candidate, verified-update-smoke, release-verification, crate-publish-verification]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - name: Create immutable-byte release without repository checkout
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: release-bins/*
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-
-      - name: Agent-docs coherence reminder (non-blocking)
-        run: |
-          echo "::notice title=Agent-docs coherence::Before announcing ${{ github.ref_name }}, confirm the agent-facing docs match what shipped: skills/ (installed into hosts), docs/ + wiki, README/CONTRIBUTING, and the M1ND_INSTRUCTIONS string. Stale host packs teach a stale contract (see PR #216). This is a reminder, not a gate — the PR-time agent-docs-gate is the enforcing check."
+          # Verified-updater receipts remain CI artifacts: they gate promotion but
+          # are deliberately outside the already-signed candidate/release file set.
 
   publish:
-    name: Publish to crates.io
-    needs: build
+    name: Publish preverified exact crates.io request bodies
+    needs: [tag-guard, candidate, release, crate-publish-verification]
     runs-on: ubuntu-latest
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
+    environment: release
+    permissions: {}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check crates.io token
-        id: publish_guard
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-crates-publish-ready-${{ github.sha }}
+          path: crates-publish-ready
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - name: Verify the signed candidate root without repository checkout
+        shell: bash
         run: |
-          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "CARGO_REGISTRY_TOKEN is not configured; skipping crates.io publish."
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Resolve crate versions
-        id: versions
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
+          (cd release-bins && sha256sum --check --strict SHA256SUMS)
+          cosign verify-blob \
+            --bundle release-bins/CANDIDATE.json.sigstore.json \
+            --certificate-identity "https://github.com/maxkle1nz/m1nd/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            release-bins/CANDIDATE.json
+      - name: Upload and observe the four exact crates.io bodies
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          EXPECTED_RELEASE_VERSION: ${{ needs.tag-guard.outputs.version }}
+          EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import hashlib
           import json
-          import subprocess
+          import os
+          import re
+          import struct
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
 
-          metadata = json.loads(subprocess.check_output([
-              "cargo",
-              "metadata",
-              "--no-deps",
-              "--format-version",
-              "1",
-          ]))
-          versions = {package["name"]: package["version"] for package in metadata["packages"]}
-          print(f"core={versions['m1nd-core']}")
-          print(f"ingest={versions['m1nd-ingest']}")
-          print(f"mcp={versions['m1nd-mcp']}")
+          API_ORIGIN = "https://crates.io"
+          UPLOAD_URL = f"{API_ORIGIN}/api/v1/crates/new"
+          EXPECTED_ORDER = ["m1nd-core", "m1nd-control", "m1nd-ingest", "m1nd-mcp"]
+          root = Path("crates-publish-ready")
+          candidate_root = Path("release-bins")
+          plan_path = root / "CRATES-PUBLISH-PLAN.json"
+          if not plan_path.is_file() or plan_path.stat().st_size > 1024 * 1024:
+              raise SystemExit("sealed crates.io publish plan is missing or oversized")
+          plan = json.loads(plan_path.read_text(encoding="utf-8"))
+          candidate_path = candidate_root / "CANDIDATE.json"
+          if (
+              not candidate_path.is_file()
+              or candidate_path.is_symlink()
+              or candidate_path.stat().st_size > 4 * 1024 * 1024
+          ):
+              raise SystemExit("signed candidate manifest is missing, unsafe, or oversized")
+          candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+          expected_version = os.environ["EXPECTED_RELEASE_VERSION"]
+          expected_commit = os.environ["EXPECTED_RELEASE_COMMIT"]
+          token = os.environ.get("CARGO_REGISTRY_TOKEN", "")
+          if not token or len(token) > 512 or "\r" in token or "\n" in token:
+              raise SystemExit("CARGO_REGISTRY_TOKEN is absent or invalid")
+          if (
+              set(plan) != {"schema", "release_commit", "release_version", "packages"}
+              or plan.get("schema") != "m1nd-crates-publish-plan-v1"
+              or plan.get("release_commit") != expected_commit
+              or plan.get("release_version") != expected_version
+              or not isinstance(plan.get("packages"), list)
+              or len(plan["packages"]) != len(EXPECTED_ORDER)
+          ):
+              raise SystemExit("sealed crates.io publish plan identity is invalid")
+          signed_packages = candidate.get("cargo_packages") if isinstance(candidate, dict) else None
+          if (
+              not isinstance(candidate, dict)
+              or candidate.get("schema") != "m1nd-release-candidate-v1"
+              or candidate.get("commit") != expected_commit
+              or candidate.get("version") != expected_version
+              or candidate.get("source_ref") != os.environ.get("GITHUB_REF")
+              or not isinstance(signed_packages, list)
+              or not all(isinstance(package, dict) for package in signed_packages)
+              or [package.get("package_name") for package in signed_packages] != EXPECTED_ORDER
+          ):
+              raise SystemExit("signed candidate Cargo identity is invalid")
+
+          class RefuseRedirects(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+          opener = urllib.request.build_opener(RefuseRedirects())
+
+          def version_url(name, version):
+              return (
+                  f"{API_ORIGIN}/api/v1/crates/"
+                  f"{urllib.parse.quote(name, safe='')}/{urllib.parse.quote(version, safe='')}"
+              )
+
+          def published_checksum(name, version):
+              url = version_url(name, version)
+              request = urllib.request.Request(
+                  url,
+                  headers={"Accept": "application/json", "User-Agent": "m1nd-sealed-crate-publisher/1"},
+                  method="GET",
+              )
+              try:
+                  with opener.open(request, timeout=20) as response:
+                      status = int(response.status)
+                      payload = response.read(2 * 1024 * 1024 + 1)
+              except urllib.error.HTTPError as error:
+                  status = int(error.code)
+                  payload = error.read(2 * 1024 * 1024 + 1)
+              except urllib.error.URLError as error:
+                  raise SystemExit(f"crates.io authority probe failed closed: {error.reason}")
+              if len(payload) > 2 * 1024 * 1024:
+                  raise SystemExit(f"crates.io checksum response is oversized for {name}@{version}")
+              if status == 404:
+                  return None
+              if status != 200:
+                  raise SystemExit(f"{name}@{version} registry state is NOT_PROVEN (HTTP {status})")
+              try:
+                  value = json.loads(payload)
+              except json.JSONDecodeError as error:
+                  raise SystemExit(f"invalid crates.io checksum response for {name}@{version}: {error}")
+              published = value.get("version") if isinstance(value, dict) else None
+              checksum = published.get("checksum") if isinstance(published, dict) else None
+              if (
+                  not isinstance(published, dict)
+                  or published.get("crate") != name
+                  or published.get("num") != version
+                  or not isinstance(checksum, str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", checksum)
+              ):
+                  raise SystemExit(f"invalid crates.io checksum identity for {name}@{version}")
+              return checksum
+
+          for position, (name, row, signed) in enumerate(
+              zip(EXPECTED_ORDER, plan["packages"], signed_packages), start=1
+          ):
+              expected_keys = {
+                  "body_file", "body_sha256", "body_size", "crate_sha256",
+                  "name", "observed_checksum", "publish_order", "registry_state", "version",
+              }
+              version = row.get("version") if isinstance(row, dict) else None
+              body_name = row.get("body_file") if isinstance(row, dict) else None
+              signed_filename = signed.get("name") if isinstance(signed, dict) else None
+              signed_sha256 = signed.get("sha256") if isinstance(signed, dict) else None
+              registry_state = row.get("registry_state") if isinstance(row, dict) else None
+              observed_checksum = row.get("observed_checksum") if isinstance(row, dict) else None
+              if (
+                  not isinstance(row, dict)
+                  or not isinstance(signed, dict)
+                  or set(row) != expected_keys
+                  or row.get("name") != name
+                  or row.get("publish_order") != position
+                  or signed.get("kind") != "cargo_crate_package"
+                  or signed.get("package_name") != name
+                  or signed.get("publish_order") != position
+                  or signed.get("package_version") != version
+                  or not isinstance(signed_filename, str)
+                  or Path(signed_filename).name != signed_filename
+                  or not signed_filename.endswith(".crate")
+                  or not isinstance(signed_sha256, str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", signed_sha256)
+                  or not isinstance(version, str)
+                  or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version)
+                  or (name != "m1nd-control" and version != expected_version)
+                  or body_name != f"{name}.upload-body"
+                  or not isinstance(row.get("body_sha256"), str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", row["body_sha256"])
+                  or not isinstance(row.get("crate_sha256"), str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", row["crate_sha256"])
+                  or row.get("crate_sha256") != signed_sha256
+                  or registry_state not in {"absent", "exact_existing"}
+                  or (registry_state == "absent" and observed_checksum is not None)
+                  or (registry_state == "exact_existing" and observed_checksum != signed_sha256)
+                  or not isinstance(row.get("body_size"), int)
+                  or row["body_size"] <= 8
+                  or row["body_size"] > 16 * 1024 * 1024
+              ):
+                  raise SystemExit(f"invalid sealed publish row for {name}")
+              signed_crate_path = candidate_root / signed_filename
+              if (
+                  not signed_crate_path.is_file()
+                  or signed_crate_path.is_symlink()
+                  or signed_crate_path.stat().st_size > 16 * 1024 * 1024
+              ):
+                  raise SystemExit(f"signed candidate crate is missing, unsafe, or oversized for {name}")
+              signed_crate_bytes = signed_crate_path.read_bytes()
+              if hashlib.sha256(signed_crate_bytes).hexdigest() != signed_sha256:
+                  raise SystemExit(f"signed candidate crate digest mismatch for {name}")
+              body_path = root / body_name
+              if (
+                  not body_path.is_file()
+                  or body_path.is_symlink()
+                  or body_path.stat().st_size != row["body_size"]
+              ):
+                  raise SystemExit(f"sealed upload body size mismatch for {name}")
+              body = body_path.read_bytes()
+              if hashlib.sha256(body).hexdigest() != row["body_sha256"]:
+                  raise SystemExit(f"sealed upload body digest mismatch for {name}")
+
+              metadata_length = struct.unpack("<I", body[:4])[0]
+              crate_length_offset = 4 + metadata_length
+              if crate_length_offset + 4 > len(body):
+                  raise SystemExit(f"invalid registry framing for {name}")
+              metadata = json.loads(body[4:crate_length_offset])
+              crate_length = struct.unpack("<I", body[crate_length_offset:crate_length_offset + 4])[0]
+              crate_bytes = body[crate_length_offset + 4:]
+              if (
+                  crate_length != len(crate_bytes)
+                  or crate_length_offset + 4 + crate_length != len(body)
+                  or metadata.get("name") != name
+                  or metadata.get("vers") != version
+                  or crate_bytes != signed_crate_bytes
+                  or hashlib.sha256(crate_bytes).hexdigest() != signed_sha256
+              ):
+                  raise SystemExit(f"sealed registry framing differs from signed candidate crate {name}")
+
+              existing_checksum = published_checksum(name, version)
+              if existing_checksum is not None:
+                  if existing_checksum != signed_sha256:
+                      raise SystemExit(
+                          f"foreign immutable bytes exist for {name}@{version}: "
+                          f"registry={existing_checksum}, candidate={signed_sha256}"
+                      )
+                  print(f"already published exact signed candidate bytes: {name}@{version}")
+                  continue
+              request = urllib.request.Request(
+                  UPLOAD_URL,
+                  data=body,
+                  headers={
+                      "Accept": "application/json",
+                      "Authorization": token,
+                      "Content-Type": "application/octet-stream",
+                      "User-Agent": "m1nd-sealed-crate-publisher/1",
+                  },
+                  method="PUT",
+              )
+              try:
+                  with opener.open(request, timeout=120) as response:
+                      upload_status = int(response.status)
+                      payload = response.read(2 * 1024 * 1024 + 1)
+              except urllib.error.HTTPError as error:
+                  error.read(64 * 1024)
+                  recovered_checksum = published_checksum(name, version)
+                  if recovered_checksum == signed_sha256:
+                      print(f"recovered exact signed candidate publication: {name}@{version}")
+                      continue
+                  raise SystemExit(f"crates.io refused {name}@{version} (HTTP {error.code})")
+              except urllib.error.URLError as error:
+                  recovered_checksum = published_checksum(name, version)
+                  if recovered_checksum == signed_sha256:
+                      print(f"recovered exact signed candidate publication: {name}@{version}")
+                      continue
+                  raise SystemExit(f"{name}@{version} upload outcome is indeterminate: {error.reason}")
+              if not 200 <= upload_status < 300 or len(payload) > 2 * 1024 * 1024:
+                  raise SystemExit(f"invalid crates.io upload response for {name}@{version}")
+              response_value = json.loads(payload or b"{}")
+              if not isinstance(response_value, dict) or response_value.get("errors"):
+                  raise SystemExit(f"crates.io reported an upload error for {name}@{version}")
+
+              for attempt in range(1, 41):
+                  visible_checksum = published_checksum(name, version)
+                  if visible_checksum == signed_sha256:
+                      print(f"published exact sealed bytes: {name}@{version}")
+                      break
+                  if visible_checksum is not None:
+                      raise SystemExit(
+                          f"foreign bytes became visible for {name}@{version}: "
+                          f"registry={visible_checksum}, candidate={signed_sha256}"
+                      )
+                  if attempt == 40:
+                      raise SystemExit(f"timed out waiting for {name}@{version} visibility")
+                  time.sleep(5)
           PY
 
-      - name: Publish m1nd-core
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: |
-          ./scripts/publish_crate_if_missing.sh m1nd-core "${{ steps.versions.outputs.core }}" \
-            --token "$CARGO_REGISTRY_TOKEN"
-
-      - name: Publish m1nd-ingest
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: |
-          ./scripts/publish_crate_if_missing.sh m1nd-ingest "${{ steps.versions.outputs.ingest }}" \
-            --token "$CARGO_REGISTRY_TOKEN"
-
-      - name: Publish m1nd-mcp
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: |
-          ./scripts/publish_crate_if_missing.sh m1nd-mcp "${{ steps.versions.outputs.mcp }}" \
-            --token "$CARGO_REGISTRY_TOKEN"
-
   publish-npm:
-    name: Publish to npm
-    needs: build
+    name: Publish the preverified npm tarball with registry provenance
+    needs: [tag-guard, candidate, release, release-verification]
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+    environment: release
+    permissions:
+      id-token: write
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          node-version: "20"
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Check npm token
-        id: npm_guard
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: m1nd-release-candidate-${{ github.sha }}
+          path: release-bins
+      - name: Publish the exact candidate tarball once without lifecycle scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+          NPM_CONFIG_REGISTRY: "https://registry.npmjs.org"
+          EXPECTED_NPM_TARBALL: ${{ needs.release-verification.outputs.npm_tarball }}
+          EXPECTED_NPM_VERSION: ${{ needs.release-verification.outputs.npm_version }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "NPM_TOKEN is not configured; skipping npm publish."
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          probe_registry_integrity() {
+            python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          package_name = "@maxkle1nz/m1nd"
+          filename = os.environ["EXPECTED_NPM_TARBALL"]
+          version = os.environ["EXPECTED_NPM_VERSION"]
+          if (
+              not re.fullmatch(r"[A-Za-z0-9._-]+\.tgz", filename)
+              or Path(filename).name != filename
+              or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version)
+          ):
+              raise SystemExit("candidate npm identity is invalid")
+          tarball = Path("release-bins") / filename
+          if (
+              not tarball.is_file()
+              or tarball.is_symlink()
+              or tarball.stat().st_size <= 0
+              or tarball.stat().st_size > 128 * 1024 * 1024
+          ):
+              raise SystemExit("signed candidate npm tarball is missing, unsafe, or oversized")
+          digest = hashlib.sha512()
+          with tarball.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          expected_integrity = "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
+
+          class RefuseRedirects(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), RefuseRedirects())
+          url = (
+              "https://registry.npmjs.org/"
+              f"{urllib.parse.quote(package_name, safe='')}/{urllib.parse.quote(version, safe='')}"
+          )
+          request = urllib.request.Request(
+              url,
+              headers={"Accept": "application/json", "User-Agent": "m1nd-sealed-npm-publisher/1"},
+              method="GET",
+          )
+          try:
+              with opener.open(request, timeout=20) as response:
+                  status = int(response.status)
+                  payload = response.read(2 * 1024 * 1024 + 1)
+          except urllib.error.HTTPError as error:
+              status = int(error.code)
+              payload = error.read(2 * 1024 * 1024 + 1)
+          except urllib.error.URLError as error:
+              raise SystemExit(f"npm registry integrity probe failed closed: {error.reason}")
+          if len(payload) > 2 * 1024 * 1024:
+              raise SystemExit("npm registry integrity response is oversized")
+          if status == 404:
+              print("absent")
+              raise SystemExit(0)
+          if status != 200:
+              raise SystemExit(f"npm registry state is NOT_PROVEN (HTTP {status})")
+          try:
+              value = json.loads(payload)
+          except json.JSONDecodeError as error:
+              raise SystemExit(f"invalid npm registry integrity response: {error}")
+          dist = value.get("dist") if isinstance(value, dict) else None
+          observed_integrity = dist.get("integrity") if isinstance(dist, dict) else None
+          if (
+              not isinstance(value, dict)
+              or value.get("name") != package_name
+              or value.get("version") != version
+              or not isinstance(observed_integrity, str)
+          ):
+              raise SystemExit("npm registry integrity identity is invalid")
+          if observed_integrity != expected_integrity:
+              raise SystemExit("foreign immutable npm tarball exists for the release version")
+          print("exact_existing")
+          PY
+          }
+
+          REGISTRY_STATE="$(probe_registry_integrity)"
+          if [ "${REGISTRY_STATE}" = "exact_existing" ]; then
+            echo "already published exact signed candidate npm tarball"
+            exit 0
           fi
+          test "${REGISTRY_STATE}" = "absent"
+          test -n "${NODE_AUTH_TOKEN}"
 
-      - name: Resolve version and dist-tag
-        id: npmmeta
-        if: ${{ steps.npm_guard.outputs.enabled == 'true' }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          # Prereleases (a hyphen, e.g. 0.9.0-beta.8) publish under 'beta' so a
-          # bare `npm install` never resolves a prerelease; stable -> 'latest'.
-          case "$VERSION" in
-            *-*) TAG=beta ;;
-            *)   TAG=latest ;;
-          esac
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Will publish @maxkle1nz/m1nd@$VERSION under dist-tag '$TAG'."
+          set +e
+          npm publish "release-bins/${EXPECTED_NPM_TARBALL}" \
+            --registry "https://registry.npmjs.org" \
+            --access public \
+            --ignore-scripts \
+            --provenance \
+            --tag "${{ needs.release-verification.outputs.npm_tag }}"
+          PUBLISH_STATUS=$?
+          set -e
 
-      - name: Publish to npm (idempotent)
-        if: ${{ steps.npm_guard.outputs.enabled == 'true' }}
-        run: |
-          PKG="@maxkle1nz/m1nd@${{ steps.npmmeta.outputs.version }}"
-          if npm view "$PKG" version >/dev/null 2>&1; then
-            echo "$PKG already published; skipping."
+          for attempt in $(seq 1 40); do
+            REGISTRY_STATE="$(probe_registry_integrity)"
+            if [ "${REGISTRY_STATE}" = "exact_existing" ]; then
+              if [ "${PUBLISH_STATUS}" -eq 0 ]; then
+                echo "published exact signed candidate npm tarball"
+              else
+                echo "recovered exact signed candidate npm publication"
+              fi
+              exit 0
+            fi
+            test "${REGISTRY_STATE}" = "absent"
+            if [ "${attempt}" -lt 40 ]; then
+              sleep 5
+            fi
+          done
+          if [ "${PUBLISH_STATUS}" -eq 0 ]; then
+            echo "npm publish returned success but exact registry integrity is NOT_PROVEN" >&2
           else
-            npm publish --tag "${{ steps.npmmeta.outputs.tag }}"
+            echo "npm publish failed and exact registry integrity is NOT_PROVEN" >&2
           fi
+          exit 1

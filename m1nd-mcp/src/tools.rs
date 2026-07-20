@@ -7,7 +7,7 @@ use crate::result_shaping::dedupe_ranked;
 use crate::session::SessionState;
 use crate::universal_docs;
 use crate::xray_handlers::is_test_source;
-use m1nd_core::error::M1ndResult;
+use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
 use m1nd_core::types::*;
@@ -122,7 +122,7 @@ fn simple_content_hash(path: &std::path::Path) -> Option<String> {
     Some(format!("{:016x}", hasher.finish()))
 }
 
-fn build_file_inventory_entries(
+pub(crate) fn build_file_inventory_entries(
     graph: &m1nd_core::graph::Graph,
     discovered_files: &[m1nd_ingest::walker::DiscoveredFile],
 ) -> Vec<crate::session::FileInventoryEntry> {
@@ -640,6 +640,17 @@ fn finalize_ingest(
     new_graph: m1nd_core::graph::Graph,
     stats: m1nd_ingest::IngestStats,
 ) -> M1ndResult<serde_json::Value> {
+    finalize_ingest_with_inventory(state, input, adapter, new_graph, stats, None)
+}
+
+fn finalize_ingest_with_inventory(
+    state: &mut SessionState,
+    input: &IngestInput,
+    adapter: &str,
+    new_graph: m1nd_core::graph::Graph,
+    stats: m1nd_ingest::IngestStats,
+    sealed_inventory: Option<Vec<crate::session::FileInventoryEntry>>,
+) -> M1ndResult<serde_json::Value> {
     let mode = normalized_ingest_mode(&input.mode).to_string();
     let namespace = input.namespace.clone().or_else(|| {
         if adapter == "memory" {
@@ -683,9 +694,12 @@ fn finalize_ingest(
         counts
     };
 
-    let inventory_entries = {
-        let graph = state.graph.read();
-        build_file_inventory_entries(&graph, &stats.discovered_files)
+    let inventory_entries = match sealed_inventory {
+        Some(entries) => entries,
+        None => {
+            let graph = state.graph.read();
+            build_file_inventory_entries(&graph, &stats.discovered_files)
+        }
     };
 
     // #7 — memory freshness check after a code ingest.
@@ -3124,12 +3138,39 @@ pub fn handle_ingest(
                 .unwrap_or_else(|| "universal".to_string());
             let adapter = m1nd_ingest::UniversalIngestAdapter::new(Some(namespace.clone()));
             let bundle = adapter.ingest_bundle(&path)?;
-            let artifacts = universal_docs::write_canonical_artifacts_with_source_root(
+            let summary = bundle.summary();
+            let providers = bundle.providers.clone();
+            let outcomes = bundle.outcomes.clone();
+            if !bundle.is_committable() {
+                let (node_count, edge_count) = {
+                    let graph = state.graph.read();
+                    (graph.num_nodes(), graph.num_edges())
+                };
+                return Ok(serde_json::json!({
+                    "mode": normalized_ingest_mode(&input.mode),
+                    "adapter": "universal",
+                    "namespace": namespace,
+                    "status": summary.status,
+                    "committed": false,
+                    "universal_ingest": summary,
+                    "universal_outcomes": outcomes,
+                    "provider_status": providers,
+                    "canonical_artifact_count": 0,
+                    "files_scanned": bundle.stats.files_scanned,
+                    "files_parsed": bundle.stats.files_parsed,
+                    "nodes_created": 0,
+                    "edges_created": 0,
+                    "node_count": node_count,
+                    "edge_count": edge_count,
+                }));
+            }
+            let artifacts = universal_docs::encode_canonical_artifacts_with_source_root(
                 &state.runtime_root,
                 Some(&path),
                 &bundle.documents,
                 &namespace,
             )?;
+            state.document_artifacts.stage_replacement(&artifacts)?;
             universal_docs::ensure_cache_root_in_ingest_roots(state);
             let mut graph = bundle.graph;
             universal_docs::rewrite_graph_provenance_to_canonical(
@@ -3149,10 +3190,22 @@ pub fn handle_ingest(
                     "canonical_artifact_count".into(),
                     serde_json::json!(state.document_cache.entries.len()),
                 );
-                let providers = universal_docs::provider_availability();
                 obj.insert(
                     "provider_status".into(),
-                    serde_json::to_value(providers).unwrap_or(serde_json::json!({})),
+                    serde_json::to_value(&providers).unwrap_or(serde_json::json!({})),
+                );
+                obj.insert(
+                    "status".into(),
+                    serde_json::to_value(summary.status)
+                        .unwrap_or_else(|_| serde_json::json!("DEGRADED")),
+                );
+                obj.insert(
+                    "universal_ingest".into(),
+                    serde_json::to_value(&summary).unwrap_or(serde_json::json!({})),
+                );
+                obj.insert(
+                    "universal_outcomes".into(),
+                    serde_json::to_value(&outcomes).unwrap_or(serde_json::json!([])),
                 );
             }
             Ok(output)
@@ -3184,6 +3237,75 @@ pub fn handle_ingest(
             "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'crossref', 'universal', 'auto'", other),
         })),
     }
+}
+
+/// Install the exact COMPLETE code bundle that a governed actor has already
+/// rebuilt and revalidated. Unlike `handle_ingest`, this seam performs no
+/// third filesystem scan between authority revalidation and graph ownership
+/// transfer, so the checkpointed postimage is the candidate that was approved.
+pub(crate) fn install_complete_code_bundle(
+    state: &mut SessionState,
+    input: IngestInput,
+    bundle: m1nd_ingest::CodeIngestBundleV1,
+    sealed_inventory: Vec<crate::session::FileInventoryEntry>,
+) -> M1ndResult<serde_json::Value> {
+    if input.adapter != "code"
+        || input.incremental
+        || normalized_ingest_mode(&input.mode) != "replace"
+    {
+        return Err(M1ndError::InvalidParams {
+            tool: "governed_code_ingest".to_string(),
+            detail: "an approved COMPLETE code bundle requires code/replace/non-incremental installation"
+                .to_string(),
+        });
+    }
+    if bundle.schema != m1nd_ingest::ownership::CODE_INGEST_BUNDLE_SCHEMA
+        || bundle.ownership.coverage != m1nd_ingest::ownership::OwnershipCoverageV1::Complete
+        || sealed_inventory.len() != bundle.ownership.source_digests.len()
+        || sealed_inventory.iter().any(|entry| entry.sha256.is_none())
+    {
+        return Err(M1ndError::CorruptState {
+            reason: "governed code ingest received an incomplete sealed candidate or inventory"
+                .to_string(),
+        });
+    }
+    let ownership_valid = bundle
+        .ownership
+        .verify_against_graph(&bundle.graph)
+        .map_err(|error| M1ndError::CorruptState {
+            reason: format!("governed sealed ownership verification failed: {error}"),
+        })?;
+    if !ownership_valid {
+        return Err(M1ndError::CorruptState {
+            reason: "governed sealed ownership receipt does not match the candidate graph"
+                .to_string(),
+        });
+    }
+    let expected_projection = bundle.ownership.source_projection_digest.clone();
+    let m1nd_ingest::CodeIngestBundleV1 {
+        graph,
+        stats,
+        ownership: _,
+        schema: _,
+    } = bundle;
+    let output = finalize_ingest_with_inventory(
+        state,
+        &input,
+        "code",
+        graph,
+        stats,
+        Some(sealed_inventory),
+    )?;
+    let installed_projection =
+        m1nd_ingest::ownership::source_projection_digest(&state.graph.read())?;
+    if installed_projection != expected_projection {
+        return Err(M1ndError::CorruptState {
+            reason: format!(
+                "governed code ingest installed a different source projection: expected {expected_projection}, observed {installed_projection}"
+            ),
+        });
+    }
+    Ok(output)
 }
 
 /// Handle m1nd.resonate — resonance analysis via ResonanceEngine.
@@ -3350,7 +3472,7 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
             // advertised_tool_count: what tools/list currently exposes (tier-dependent)
             "advertised_tool_count": advertised_tool_count,
             // tool_tier: "essential" (default, 42 tools) or "full" (all tools).
-            // Set M1ND_TOOL_TIER=full to expose all 118 tools in tools/list.
+            // Set M1ND_TOOL_TIER=full to expose all 133 tools in tools/list.
             // Hidden tools remain callable via tools/call dispatch at all times.
             "tool_tier": tool_tier,
             "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,
@@ -4542,6 +4664,283 @@ mod tests {
         state
     }
 
+    #[derive(Debug, PartialEq, Eq)]
+    struct UniversalMutationSnapshot {
+        node_count: u32,
+        edge_count: usize,
+        node_ids: Vec<String>,
+        graph_generation: u64,
+        cache_generation: u64,
+        ingest_roots: Vec<String>,
+        workspace_root: Option<String>,
+        document_cache_keys: Vec<String>,
+        file_inventory_keys: Vec<String>,
+        cache_root_exists: bool,
+        cache_index_exists: bool,
+        graph_file_exists: bool,
+    }
+
+    fn universal_mutation_snapshot(state: &SessionState) -> UniversalMutationSnapshot {
+        let graph = state.graph.read();
+        let mut node_ids = graph
+            .id_to_node
+            .keys()
+            .map(|interned| graph.strings.resolve(*interned).to_string())
+            .collect::<Vec<_>>();
+        node_ids.sort();
+        let mut document_cache_keys = state
+            .document_cache
+            .entries
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        document_cache_keys.sort();
+        let mut file_inventory_keys = state.file_inventory.keys().cloned().collect::<Vec<_>>();
+        file_inventory_keys.sort();
+        UniversalMutationSnapshot {
+            node_count: graph.num_nodes(),
+            edge_count: graph.num_edges(),
+            node_ids,
+            graph_generation: state.graph_generation,
+            cache_generation: state.cache_generation,
+            ingest_roots: state.ingest_roots.clone(),
+            workspace_root: state.workspace_root.clone(),
+            document_cache_keys,
+            file_inventory_keys,
+            cache_root_exists: crate::universal_docs::cache_root(&state.runtime_root).exists(),
+            cache_index_exists: crate::universal_docs::cache_index_path(&state.runtime_root)
+                .exists(),
+            graph_file_exists: state.graph_path.exists(),
+        }
+    }
+
+    fn universal_provider_env_lock() -> &'static std::sync::Mutex<()> {
+        crate::auto_ingest::universal_provider_test_env_lock()
+    }
+
+    struct UniversalProviderEnvGuard {
+        python: Option<std::ffi::OsString>,
+        grobid: Option<std::ffi::OsString>,
+        timeout_ms: Option<std::ffi::OsString>,
+    }
+
+    impl UniversalProviderEnvGuard {
+        fn force_unavailable(missing_python: &std::path::Path) -> Self {
+            Self::force_python(missing_python, None)
+        }
+
+        fn force_python(python: &std::path::Path, timeout_ms: Option<u64>) -> Self {
+            let guard = Self {
+                python: std::env::var_os("M1ND_PROVIDER_PYTHON"),
+                grobid: std::env::var_os("M1ND_GROBID_URL"),
+                timeout_ms: std::env::var_os("M1ND_PROVIDER_TIMEOUT_MS"),
+            };
+            std::env::set_var("M1ND_PROVIDER_PYTHON", python);
+            std::env::remove_var("M1ND_GROBID_URL");
+            match timeout_ms {
+                Some(timeout_ms) => {
+                    std::env::set_var("M1ND_PROVIDER_TIMEOUT_MS", timeout_ms.to_string())
+                }
+                None => std::env::remove_var("M1ND_PROVIDER_TIMEOUT_MS"),
+            }
+            guard
+        }
+    }
+
+    impl Drop for UniversalProviderEnvGuard {
+        fn drop(&mut self) {
+            match &self.python {
+                Some(value) => std::env::set_var("M1ND_PROVIDER_PYTHON", value),
+                None => std::env::remove_var("M1ND_PROVIDER_PYTHON"),
+            }
+            match &self.grobid {
+                Some(value) => std::env::set_var("M1ND_GROBID_URL", value),
+                None => std::env::remove_var("M1ND_GROBID_URL"),
+            }
+            match &self.timeout_ms {
+                Some(value) => std::env::set_var("M1ND_PROVIDER_TIMEOUT_MS", value),
+                None => std::env::remove_var("M1ND_PROVIDER_TIMEOUT_MS"),
+            }
+        }
+    }
+
+    #[test]
+    fn universal_all_unsupported_is_typed_noop_with_zero_graph_or_cache_mutation() {
+        use crate::protocol::core::IngestInput;
+
+        let _lock = universal_provider_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = UniversalProviderEnvGuard::force_unavailable(
+            &temp.path().join("definitely-missing-provider-python"),
+        );
+        let pdf = temp.path().join("unsupported.pdf");
+        std::fs::write(&pdf, b"%PDF-1.7 unsupported fixture").expect("write pdf");
+        let mut state = build_runtime_state(temp.path());
+        let before = universal_mutation_snapshot(&state);
+
+        let output = super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: pdf.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "universal".into(),
+                mode: "replace".into(),
+                namespace: Some("honesty".into()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("all-unsupported universal ingest must return a typed no-op");
+
+        assert_eq!(output["status"], "UNSUPPORTED");
+        assert_eq!(output["committed"], false);
+        assert_eq!(output["universal_ingest"]["unsupported_count"], 1);
+        assert_eq!(output["universal_outcomes"][0]["status"], "UNSUPPORTED");
+        assert_eq!(universal_mutation_snapshot(&state), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn universal_provider_failure_is_typed_noop_with_zero_graph_or_cache_mutation() {
+        use crate::protocol::core::IngestInput;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = universal_provider_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let provider = temp.path().join("fake-provider");
+        std::fs::write(
+            &provider,
+            "#!/bin/sh\ncase \"$2\" in *importlib.util*) printf '1\\n'; exit 0;; esac\nprintf 'corrupt provider fixture' >&2\nexit 9\n",
+        )
+        .expect("write provider");
+        let mut permissions = std::fs::metadata(&provider).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&provider, permissions).unwrap();
+        let _env = UniversalProviderEnvGuard::force_python(&provider, Some(100));
+        let pdf = temp.path().join("failed.pdf");
+        std::fs::write(&pdf, b"%PDF-1.7 failed fixture").expect("write pdf");
+        let mut state = build_runtime_state(temp.path());
+        let before = universal_mutation_snapshot(&state);
+
+        let output = super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: pdf.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "universal".into(),
+                mode: "replace".into(),
+                namespace: Some("honesty".into()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("failed universal ingest must return a typed no-op");
+
+        assert_eq!(output["status"], "FAILED");
+        assert_eq!(output["committed"], false);
+        assert_eq!(output["universal_ingest"]["failed_count"], 1);
+        assert_eq!(output["universal_outcomes"][0]["status"], "FAILED");
+        assert_eq!(
+            output["universal_ingest"]["diagnostics"][0]["provider_outcome"]["failure"],
+            "CORRUPT"
+        );
+        assert_eq!(universal_mutation_snapshot(&state), before);
+    }
+
+    #[test]
+    fn universal_empty_is_explicit_noop_preserving_existing_graph_and_cache() {
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let empty = temp.path().join("empty-documents");
+        std::fs::create_dir_all(&empty).expect("empty directory");
+        let mut state = build_runtime_state(temp.path());
+        let before = universal_mutation_snapshot(&state);
+
+        let output = super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: empty.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "universal".into(),
+                mode: "replace".into(),
+                namespace: Some("honesty".into()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("empty universal ingest should return an explicit no-op");
+
+        assert_eq!(output["status"], "EMPTY");
+        assert_eq!(output["universal_ingest"]["status"], "EMPTY");
+        assert_eq!(output["universal_ingest"]["candidate_count"], 0);
+        assert_eq!(output["universal_ingest"]["parsed_count"], 0);
+        assert_eq!(output["node_count"], before.node_count as u64);
+        assert_eq!(output["edge_count"], before.edge_count as u64);
+        assert_eq!(universal_mutation_snapshot(&state), before);
+    }
+
+    #[test]
+    fn universal_mixed_batch_surfaces_degraded_counts_and_bounded_diagnostics() {
+        use crate::protocol::core::IngestInput;
+
+        let _lock = universal_provider_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = UniversalProviderEnvGuard::force_unavailable(
+            &temp.path().join("definitely-missing-provider-python"),
+        );
+        let docs = temp.path().join("mixed-documents");
+        std::fs::create_dir_all(&docs).expect("documents directory");
+        std::fs::write(docs.join("good.md"), "# Good\n\nParsed document.\n")
+            .expect("write markdown");
+        std::fs::write(docs.join("unsupported.pdf"), b"%PDF unsupported fixture")
+            .expect("write pdf");
+        let mut state = build_runtime_state(temp.path());
+
+        let output = super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: docs.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "universal".into(),
+                mode: "merge".into(),
+                namespace: Some("honesty".into()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("mixed universal ingest should retain parsed documents");
+
+        assert_eq!(output["status"], "DEGRADED");
+        assert_eq!(output["universal_ingest"]["status"], "DEGRADED");
+        assert_eq!(output["universal_ingest"]["candidate_count"], 2);
+        assert_eq!(output["universal_ingest"]["parsed_count"], 1);
+        assert_eq!(output["universal_ingest"]["unsupported_count"], 1);
+        assert_eq!(output["universal_outcomes"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            output["universal_ingest"]["diagnostics"][0]["status"],
+            "UNSUPPORTED"
+        );
+        assert_eq!(
+            output["universal_ingest"]["diagnostics"][0]["provider"],
+            "universal:none"
+        );
+    }
+
     #[test]
     fn trust_selftest_keeps_zero_candidates_without_blocked_proof_in_full_trust() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -5428,7 +5827,6 @@ mod tests {
                     evidence: vec!["auth.rs".into()],
                     depends_on: vec![],
                 }],
-                output_path: None,
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
@@ -5567,7 +5965,6 @@ mod tests {
                     evidence: vec!["src/main.rs".into()],
                     depends_on: vec![],
                 }],
-                output_path: None,
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
@@ -5639,7 +6036,6 @@ mod tests {
                         evidence: vec![],
                         depends_on: vec![],
                     }],
-                    output_path: None,
                     namespace: None,
                     ingest_after: true,
                     mode: "merge".into(),

@@ -278,7 +278,7 @@ fn compose_needs_ingest_lines(input: &HumanViewInput, pulse: &str) -> Vec<String
 }
 
 /// S3 — the card IS the warning (amendment 3). Line 1 = the reception's
-/// `honest` string verbatim; then bound/yours; then the literal repair call.
+/// `honest` string verbatim; then bound/yours; then the closed-consumer code.
 /// ZERO statistics — they would describe the wrong brain.
 fn compose_mismatch_lines(m: &ReceptionMismatch) -> Vec<String> {
     // The pulse is dropped under mismatch (amendment 3 + ALIEN §5): the plain
@@ -288,10 +288,7 @@ fn compose_mismatch_lines(m: &ReceptionMismatch) -> Vec<String> {
         &mut lines,
         &format!("bound: {}{SEP}yours: {}", m.bound_workspace, m.caller_root),
     );
-    push_whole_or_nothing(
-        &mut lines,
-        &format!("next: ingest project_root={}", m.caller_root),
-    );
+    push_whole_or_nothing(&mut lines, "next: brain_bootstrap_consumer_not_installed");
     lines.truncate(MAX_LINES);
     lines
 }
@@ -525,7 +522,7 @@ mod tests {
     }
 
     /// S3 — under caller_root_mismatch the card IS the warning (amendment 3):
-    /// the reception strings verbatim, the literal repair call, and ZERO
+    /// the reception strings verbatim, the closed-consumer code, and ZERO
     /// statistics — they would describe the wrong brain.
     #[test]
     fn mismatch_card_is_the_warning_with_zero_statistics() {
@@ -549,8 +546,8 @@ mod tests {
             "line 2 names both roots"
         );
         assert_eq!(
-            lines[2], "     │ next: ingest project_root=/tmp/repo-beta",
-            "line 3 is the literal repair call"
+            lines[2], "     │ next: brain_bootstrap_consumer_not_installed",
+            "line 3 is the fail-honest closed-consumer state"
         );
         for line in &lines {
             let s = line.as_str().unwrap();

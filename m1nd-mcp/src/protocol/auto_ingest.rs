@@ -126,6 +126,7 @@ pub struct AutoIngestStatusOutput {
     pub queue_depth: usize,
     pub events_seen: u64,
     pub ingests_applied: u64,
+    pub degraded_applied: u64,
     pub removals_applied: u64,
     pub skipped_count: u64,
     pub error_count: u64,
@@ -160,6 +161,7 @@ pub struct AutoIngestStatusOutput {
 pub struct AutoIngestTickOutput {
     pub changed_paths: Vec<String>,
     pub ingested_paths: Vec<String>,
+    pub degraded_paths: Vec<String>,
     pub removed_paths: Vec<String>,
     pub skipped_paths: Vec<String>,
     pub errored_paths: Vec<String>,

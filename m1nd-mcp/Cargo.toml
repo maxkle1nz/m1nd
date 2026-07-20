@@ -7,12 +7,19 @@ license = "MIT"
 keywords = ["mcp", "mcp-server", "code-graph", "agent", "ai"]
 categories = ["development-tools", "command-line-utilities"]
 repository = "https://github.com/maxkle1nz/m1nd"
+include = [
+    "src/**",
+    "build.rs",
+    "ui_bundle_support.rs",
+    "ui-dist/**",
+    "ui-package.json",
+]
 
 [features]
 # `embed` is ON by default so the shipped server has semantic recall out of the
 # box. Build a lean, embeddings-free binary with `--no-default-features --features serve`.
 default = ["serve", "embed"]
-serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
+serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest", "dep:getrandom"]
 # Real local static embeddings in `seek` (semantic recall by meaning), forwarded
 # to m1nd-core. The model (~29 MB, model2vec/potion-base-8M) is fetched on first
 # use and cached; if it cannot load, `seek` falls back to trigram matching
@@ -20,6 +27,7 @@ serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:
 embed = ["m1nd-core/embed"]
 
 [dependencies]
+m1nd-control = { path = "../m1nd-control", version = "0.1.0" }
 m1nd-core = { path = "../m1nd-core", version = "1.4.0" }
 m1nd-ingest = { path = "../m1nd-ingest", version = "1.4.0" }
 serde = { workspace = true }
@@ -46,19 +54,34 @@ mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
+getrandom = { version = "0.3", optional = true }
 
 # Already present transitively (via sysinfo/tokio); declared directly ONLY to call
 # `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).
 # Reuses the exact already-locked version — no new crate enters the build graph or
-# Cargo.lock. Unix-only: on non-unix targets the lock/supersession path no-ops.
+# Cargo.lock. Unix-only; Windows uses the reviewed native primitive below.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
+
+[build-dependencies]
+sha2 = "0.10"
 
 [[bin]]
 name = "m1nd-mcp"
 path = "src/main.rs"
 
 [dev-dependencies]
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
 # `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
 # the owner-alive guard's port can be reserved-closed without a live listener that a
 # parallel test could collide with (see the `closed_port` helpers).

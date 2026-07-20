@@ -24,11 +24,12 @@
 //! spawns the real binary with `cwd=/` and a relative graph source) and proves
 //! two things.
 //!
-//! First: after `ingest` + `persist`, `<runtime>/graph_snapshot.json` and
-//! `<runtime>/ingest_roots.json` exist (on `main`: neither does — the writes hit
+//! First: after a trusted offline fixture seed is loaded and the real owner
+//! performs its graceful shutdown checkpoint, `<runtime>/graph_snapshot.json`
+//! and `<runtime>/ingest_roots.json` exist (on the original bug the writes hit
 //! `/` and fail). Second: a SECOND process on a DIFFERENT cwd WARM-BOOTS from
-//! that snapshot — it loads the graph (node_count preserved) WITHOUT
-//! re-ingesting.
+//! that snapshot — it loads the graph (node_count preserved) without any
+//! external mutation request.
 //!
 //! Driving the real binary over stdio JSON-RPC is the faithful seam: the fix
 //! lives in the binary's config resolution (`load_config_from_cli`), which only
@@ -216,8 +217,12 @@ impl Owner {
     }
 
     fn shutdown(mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Closing the transport is the stdio owner's cooperative shutdown seam.
+        // It must run the real persist-before-release lifecycle; killing the
+        // child would bypass the behavior this integration test exists to prove.
+        drop(self.stdin);
+        let status = self.child.wait().expect("wait for graceful owner shutdown");
+        assert!(status.success(), "owner shutdown failed with {status}");
     }
 }
 
@@ -234,23 +239,37 @@ fn persist_lands_under_runtime_root_and_second_process_warm_boots() {
     let snapshot = runtime_dir.join("graph_snapshot.json");
     let ingest_roots = runtime_dir.join("ingest_roots.json");
 
-    // --- Boot #1: cwd = "/" (the sealed launchd volume). Ingest + persist. ---
-    let mut owner = Owner::spawn(Path::new(READ_ONLY_CWD), &runtime_dir);
-
-    let ingest = owner.call(
-        "ingest",
-        serde_json::json!({ "path": repo.to_string_lossy(), "agent_id": "probe" }),
+    // Seed a non-empty graph through the trusted in-process ingest library. The
+    // public generic MCP `ingest` route is intentionally fail-closed now that
+    // graph replacement requires the exact typed G2/G3 authority consumer; this
+    // path-resolution test must not weaken or bypass that production contract.
+    let (seed_graph, _) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+        root: repo.clone(),
+        parallelism: 1,
+        ..m1nd_ingest::IngestConfig::default()
+    })
+    .ingest()
+    .expect("trusted fixture ingest");
+    let seeded_nodes = u64::from(seed_graph.num_nodes());
+    assert!(
+        seeded_nodes >= 3,
+        "fixture ingest should create several nodes, got {seeded_nodes}"
     );
-    // Sanity: the fixture crate really produced a non-trivial graph.
+    m1nd_core::snapshot::save_graph(&seed_graph, &snapshot).expect("seed graph snapshot");
+
+    // --- Boot #1: cwd = "/" (the sealed launchd volume). Load + checkpoint. ---
+    let mut owner = Owner::spawn(Path::new(READ_ONLY_CWD), &runtime_dir);
     let ingested_nodes = owner.node_count();
     assert!(
-        ingested_nodes >= 3,
-        "fixture ingest should create several nodes, got {ingested_nodes} (ingest reply: {ingest})"
+        ingested_nodes >= seeded_nodes,
+        "owner must load the trusted seed: expected at least {seeded_nodes} nodes, got {ingested_nodes}"
     );
 
-    // Explicit persist (the field bug fired on BOTH auto-persist-after-ingest and
-    // explicit persist; we drive the explicit path so success is unambiguous).
-    let _ = owner.call("persist", serde_json::json!({ "agent_id": "probe" }));
+    // Remove the seed after it has been loaded. Only the owner's real graceful
+    // shutdown checkpoint can recreate it, so the existence assertion below is
+    // a write proof rather than a pre-seeded tautology.
+    std::fs::remove_file(&snapshot).expect("remove loaded seed before checkpoint");
+    assert!(!snapshot.exists(), "checkpoint target must start absent");
     owner.shutdown();
 
     // THE CORE ASSERTIONS (RED on main — these files never appear because the

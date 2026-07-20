@@ -12,7 +12,9 @@
     "icon-lint": "node scripts/icon-lint.mjs",
     "lint:soft": "node scripts/violet-lint.mjs && node scripts/icon-lint.mjs",
     "test": "node --import tsx --test --test-reporter=spec 'src/**/*.test.ts' 'src/**/*.test.tsx'",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:live:contract": "node --import tsx --test --test-reporter=spec 'e2e-live/*.test.ts'",
+    "test:e2e:live": "npm run test:e2e:live:contract && playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
     "@shikijs/langs": "^4.3.1",

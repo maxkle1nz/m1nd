@@ -64,6 +64,12 @@ pub enum M1ndError {
     #[error("ingestion timeout after {elapsed_s:.1}s")]
     IngestionTimeout { elapsed_s: f64 },
 
+    /// A supervising runtime cooperatively cancelled ingestion. The error is
+    /// intentionally data-free so parallel workers always surface one stable,
+    /// matchable outcome rather than a race-dependent file or phase name.
+    #[error("ingestion cancelled")]
+    IngestionCancelled,
+
     /// FM-ING-002: Ingestion exceeded node count budget.
     #[error("ingestion node budget exhausted: {budget} nodes")]
     IngestionNodeBudget { budget: u64 },
@@ -105,6 +111,12 @@ pub enum M1ndError {
     /// FM-ING-008: Label collision — multiple nodes share a label.
     #[error("label collision: {label} maps to {count} nodes")]
     LabelCollision { label: String, count: usize },
+
+    /// A source-scoped refresh cannot prove that its dependency/ownership
+    /// closure is complete. The caller must stage a governed full projection
+    /// rebuild instead of silently applying an incomplete incremental graph.
+    #[error("full reindex required: {reason}")]
+    FullReindexRequired { reason: String },
 
     // --- Persistence ---
     /// FM-PL-007: Corrupt state file on load.

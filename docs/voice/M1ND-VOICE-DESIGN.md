@@ -306,8 +306,8 @@ estatística — ela descreveria o cérebro errado. L1 = string `honest` da
 reception verbatim; `next:` = a chamada literal de `options[]`:
 ```
 m1nd │ this graph does NOT cover your repo
-     │ bound: /home/user/repo-alpha · yours: /home/user/repo-beta
-     │ next: ingest project_root=/home/user/repo-beta
+     │ bound: /home/<user>/repo-alpha · yours: /home/<user>/repo-beta
+     │ next: ingest project_root=/home/<user>/repo-beta
 ```
 
 **S4 — needs_ingest.** Cartão honesto legítimo (emenda 4). O gap verbatim já

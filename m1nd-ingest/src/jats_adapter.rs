@@ -1,3 +1,4 @@
+use crate::rfc_adapter::append_general_ref;
 use crate::{IngestAdapter, IngestStats};
 use m1nd_core::error::M1ndResult;
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
@@ -430,7 +431,7 @@ impl JatsArticleAdapter {
                 }
                 Ok(Event::Text(e)) => {
                     if in_title || in_abstract || in_journal_title || in_author_name || in_keyword {
-                        if let Ok(t) = e.unescape() {
+                        if let Ok(t) = e.decode() {
                             text_buf.push_str(&t);
                         }
                     } else {
@@ -439,9 +440,22 @@ impl JatsArticleAdapter {
                             current_tag,
                             "PMID" | "Year" | "ArticleId" | "pub-id" | "year"
                         ) {
-                            if let Ok(t) = e.unescape() {
+                            if let Ok(t) = e.decode() {
                                 text_buf.push_str(&t);
                             }
+                        }
+                    }
+                }
+                Ok(Event::GeneralRef(e)) => {
+                    if in_title || in_abstract || in_journal_title || in_author_name || in_keyword {
+                        append_general_ref(&mut text_buf, &e);
+                    } else {
+                        let current_tag = path.last().map(|s| s.as_str()).unwrap_or("");
+                        if matches!(
+                            current_tag,
+                            "PMID" | "Year" | "ArticleId" | "pub-id" | "year"
+                        ) {
+                            append_general_ref(&mut text_buf, &e);
                         }
                     }
                 }
@@ -710,6 +724,32 @@ impl IngestAdapter for JatsArticleAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_general_entity_refs_in_captured_text() {
+        let xml = r#"<?xml version="1.0" ?>
+<PubmedArticleSet>
+<PubmedArticle>
+  <MedlineCitation>
+    <PMID Version="1">1</PMID>
+    <Article>
+      <Journal>
+        <JournalIssue><PubDate><Year>2021</Year></PubDate></JournalIssue>
+        <Title>Cell &amp; Tissue</Title>
+      </Journal>
+      <ArticleTitle>m6A &lt;methylation&gt; p &#x2264; 0.05 &amp; beyond</ArticleTitle>
+    </Article>
+  </MedlineCitation>
+</PubmedArticle>
+</PubmedArticleSet>"#;
+        let records = JatsArticleAdapter::parse_articles(xml);
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].title,
+            "m6A <methylation> p \u{2264} 0.05 & beyond"
+        );
+        assert_eq!(records[0].journal, "Cell & Tissue");
+    }
 
     #[test]
     fn parses_pubmed_article() {

@@ -1,10 +1,10 @@
 //! End-to-end proof of the network-exposure bind gate (SECURITY #1).
 //!
-//! `--serve --bind <non-loopback>` WITHOUT `--allow-remote` must make the process
-//! REFUSE TO START — exit nonzero with a one-line refusal on stderr, BEFORE the
-//! HTTP listener is created, before the graph loads, before any lease is taken.
-//! An unguarded remote bind would expose graph mutation to the LAN with no auth,
-//! so it must be a deliberate opt-in, never a mere warning.
+//! `--serve --bind <non-loopback>` must make the process REFUSE TO START with or
+//! without the legacy `--allow-remote` flag — exit nonzero with a one-line refusal
+//! on stderr, BEFORE the HTTP listener is created, before the graph loads, before
+//! any lease is taken. Authenticated TLS remote transport is not implemented, so
+//! no flag may downgrade this gate to a warning.
 //!
 //! We spawn the real built binary because only a spawned process can prove
 //! `std::process::exit` actually fired. The refusal path binds NO port (it exits
@@ -17,22 +17,25 @@ use std::process::Command;
 /// for integration tests automatically.
 const BIN: &str = env!("CARGO_BIN_EXE_m1nd-mcp");
 
-#[test]
-fn serve_wildcard_bind_without_allow_remote_refuses_to_start() {
-    let output = Command::new(BIN)
-        .arg("--serve")
-        .arg("--bind")
-        .arg("0.0.0.0")
+fn run_wildcard_bind(allow_remote: bool) -> std::process::Output {
+    let mut command = Command::new(BIN);
+    command.arg("--serve").arg("--bind").arg("0.0.0.0");
+    if allow_remote {
+        command.arg("--allow-remote");
+    }
+    command
         // Keep the refusal path cheap and hermetic — it exits before any of this
         // matters, but set read-only so a regression that slips past the gate
         // cannot touch the developer's real runtime.
         .env("M1ND_READ_ONLY", "1")
         .output()
-        .expect("spawn m1nd-mcp");
+        .expect("spawn m1nd-mcp")
+}
 
+fn assert_authenticated_remote_refusal(output: &std::process::Output) {
     assert!(
         !output.status.success(),
-        "non-loopback bind without --allow-remote must exit nonzero, got {:?}",
+        "non-loopback bind must exit nonzero, got {:?}",
         output.status
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -41,7 +44,21 @@ fn serve_wildcard_bind_without_allow_remote_refuses_to_start() {
         "expected refusal line on stderr, got: {stderr}"
     );
     assert!(
-        stderr.contains("--allow-remote"),
-        "refusal should name the opt-in flag, got: {stderr}"
+        stderr.contains("authenticated remote transport"),
+        "refusal must name the missing authenticated transport, got: {stderr}"
     );
+    assert!(
+        stderr.contains("--allow-remote cannot override"),
+        "refusal must state that the legacy flag cannot bypass the gate, got: {stderr}"
+    );
+}
+
+#[test]
+fn serve_wildcard_bind_without_allow_remote_refuses_to_start() {
+    assert_authenticated_remote_refusal(&run_wildcard_bind(false));
+}
+
+#[test]
+fn serve_wildcard_bind_with_allow_remote_still_refuses_to_start() {
+    assert_authenticated_remote_refusal(&run_wildcard_bind(true));
 }

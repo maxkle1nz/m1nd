@@ -12,8 +12,8 @@ import LivingTree from './components/tree/LivingTree';
 import HallView from './components/hall/HallView';
 import BuildMapView from './components/map/BuildMapView';
 import BrainChip from './components/hall/BrainChip';
+import ManifestStatus from './components/ManifestStatus';
 import ThresholdCard from './components/hall/ThresholdCard';
-import OrientationBeats from './components/hall/OrientationBeats';
 import BrainPalette from './components/hall/BrainPalette';
 import MissionTrayLive from './components/tray/MissionTrayLive';
 import UniverseView from './components/universe/UniverseView';
@@ -25,14 +25,7 @@ import { useBuildMap } from './hooks/useBuildMap';
 import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
 import { useUniverse } from './hooks/useUniverse';
-import type { NorthPacket } from './api/toolTypes';
 import type { InstanceRegistryEntry, InstanceSelfResponse, SseEvent, SseIngestData } from './types';
-import {
-  ingestSupportsProjectRoot,
-  mayOfferForeignIngest,
-  bootstrapParams,
-  orientationDismissed,
-} from './lib/threshold';
 import { restBrainSelectorSupported, brainDisplayName, brainProjectPath } from './lib/hallSemantics';
 import { BOUND_VIEW, type ViewedBrain } from './lib/viewedBrain';
 import {
@@ -163,6 +156,7 @@ function TopBar({
           style={{ backgroundColor: dot }}
           title={`status: ${status}`}
         />
+        <ManifestStatus brain={viewedBrain.root} />
         {onOpenMap && (
           <button
             type="button"
@@ -208,114 +202,40 @@ function useSelf(enabled: boolean) {
 }
 
 /**
- * Ingest modal — SOFT PROOF skin + the clobber ban (§4A.4, INV-11).
- *
- * A bare foreign-path ingest REPLACES the bound graph for everyone (field-proven
- * on project-b/project-d). So on a NON-EMPTY owner without project_root routing, a
- * foreign path is never offered — the affordance is the isolated one-call
- * bootstrap (when advertised) or nothing. On an empty owner it is safe (nothing
- * to clobber). Feature-detected via GET /api/tools, never assumed.
+ * Cross-root ingest modal — fail-honest P0. The internal owner bootstrap is not
+ * a public mutation surface. Until its exact typed G2/G3 consumer exists, every
+ * entry point renders the closed state and sends no request.
  */
 function IngestModal({
   isOpen,
   onClose,
-  onComplete,
-  ownerHasGraph,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onComplete: () => void;
-  ownerHasGraph: boolean;
 }) {
-  const [path, setPath] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [supportsProjectRoot, setSupportsProjectRoot] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    let mounted = true;
-    api
-      .tools()
-      .then((r) => mounted && setSupportsProjectRoot(ingestSupportsProjectRoot(r.tools)))
-      .catch(() => mounted && setSupportsProjectRoot(false));
-    return () => {
-      mounted = false;
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
-
-  const foreignAllowed = mayOfferForeignIngest({ ownerHasGraph, supportsProjectRoot });
-  const isolated = ownerHasGraph && supportsProjectRoot; // the bootstrap isolates the new brain
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!path.trim() || !foreignAllowed) return;
-    setLoading(true);
-    try {
-      // On a non-empty owner the only safe path is the isolated bootstrap
-      // (project_root). On an empty owner a plain ingest is safe.
-      await api.tool('ingest', bootstrapParams(path, isolated || supportsProjectRoot));
-      onComplete();
-      onClose();
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <>
       <div className="fixed inset-0 bg-ink/30 z-40" onClick={onClose} />
       <div className="fixed top-1/3 left-1/2 -translate-x-1/2 z-50 w-full max-w-md mx-4">
         <div className="bg-porcelain border border-ink/15 rounded-lg shadow-card p-6">
-          <h2 className="text-ink font-semibold mb-1">{isolated ? 'Read a new repo' : 'Read a codebase'}</h2>
+          <h2 className="text-ink font-semibold mb-1">New project brain unavailable</h2>
           <p className="text-xs text-ink-soft mb-4">
-            {isolated
-              ? 'Reads it into its own brain — your current map is untouched.'
-              : 'Load a directory into the m1nd graph.'}
+            This owner has no authority-backed bootstrap consumer. No repository was changed.
           </p>
-          {!foreignAllowed ? (
-            <div
-              data-role="clobber-ban"
-              className="text-xs text-ink font-mono border border-ink/15 bg-bone/50 rounded px-3 py-3 space-y-2"
-            >
-              <p className="text-ink-soft">
-                Reading a different repo would replace this brain's map for everyone. This owner can't isolate a
-                second brain yet.
-              </p>
-              <p className="text-ink-soft">
-                To re-read <span className="text-ink">this</span> repo, use “Re-read” on its card in the Hall.
-              </p>
-              <div className="flex justify-end pt-1">
-                <button type="button" onClick={onClose} className="px-3 py-1 text-xs text-ink-soft hover:text-ink">
-                  Close
-                </button>
-              </div>
+          <div
+            data-role="bootstrap-unavailable"
+            className="text-xs text-ink font-mono border border-ink/15 bg-bone/50 rounded px-3 py-3 space-y-2"
+          >
+            <p>brain_bootstrap_consumer_not_installed</p>
+            <p className="text-ink-soft">Use “Re-read” only for a brain this owner already hosts.</p>
+            <div className="flex justify-end pt-1">
+              <button type="button" onClick={onClose} className="px-3 py-1 text-xs text-ink-soft hover:text-ink">
+                Close
+              </button>
             </div>
-          ) : (
-            <form onSubmit={submit} className="space-y-3">
-              <input
-                type="text"
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                placeholder="/path/to/your/project"
-                className="w-full bg-bone/60 border border-ink/15 text-ink text-sm font-mono rounded px-3 py-2 outline-none focus:border-ink/30 placeholder-ink-soft/60"
-                autoFocus
-              />
-              <div className="flex gap-2 justify-end">
-                <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-ink-soft hover:text-ink">
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || !path.trim()}
-                  className="px-4 py-2 text-sm bg-bone text-ink border border-ink/25 rounded hover:shadow-contact disabled:opacity-50 transition-shadow"
-                >
-                  {loading ? 'Reading…' : 'Read it'}
-                </button>
-              </div>
-            </form>
-          )}
+          </div>
         </div>
       </div>
     </>
@@ -379,8 +299,6 @@ export default function App() {
   const [ingestOpen, setIngestOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [surface, setSurface] = useState<Surface | null>(null); // null = deciding the landing
-  const [north, setNorth] = useState<NorthPacket | null>(null);
-  const [orienting, setOrienting] = useState(false);
   // The brain the tree is viewing (§4A.9). Bound by default (byte-compatible);
   // Open on a hosted card sets it and switches to the tree.
   const [viewedBrain, setViewedBrain] = useState<ViewedBrain>(BOUND_VIEW);
@@ -409,8 +327,6 @@ export default function App() {
   const worldCount = universe.worlds.length;
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
-  const { runQuery } = useM1ndApi();
-  const ownerHasGraph = (self?.graph_state.node_count ?? 0) > 0;
 
   // ── The hash router (deep links + a real back) ───────────────────────────────
   // One `navigate()` writes both the shell state AND the URL (R4); nothing else
@@ -629,12 +545,10 @@ export default function App() {
   // The ESC ladder (§3.4 / §4A.1): ESC at the tree ROOT ascends to the Hall
   // (rung −1). The tree owns ESC while a row/drawer is focused; only when nothing
   // is selected does ESC bubble to window and ascend. The Hall owns its own ESC.
-  // Orientation ESC is owned by OrientationBeats; the ladder stands down while it
-  // is up so one ESC doesn't both dismiss orientation AND ascend.
   const onWindowEsc = useCallback(
     (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (surface !== 'tree' || orienting) return;
+      if (surface !== 'tree') return;
       const active = document.activeElement;
       const treeIsFocused =
         active instanceof HTMLElement &&
@@ -643,44 +557,12 @@ export default function App() {
           active.tagName === 'INPUT');
       if (!treeIsFocused) navigate({ surface: 'hall', hallAlerts: false });
     },
-    [surface, orienting, navigate],
+    [surface, navigate],
   );
   useEffect(() => {
     window.addEventListener('keydown', onWindowEsc);
     return () => window.removeEventListener('keydown', onWindowEsc);
   }, [onWindowEsc]);
-
-  // After bootstrap: land on the tree and, unless the user already dismissed it
-  // forever, run the 3-beat orientation seeded from the real north packet (§4A.2).
-  const landAndOrient = useCallback(async () => {
-    // Post-bootstrap the owner has exactly one (bound) brain; land on its tree.
-    navigate({ surface: 'tree', view: BOUND_VIEW, block: null });
-    if (typeof window !== 'undefined' && orientationDismissed(window.localStorage)) return;
-    try {
-      const packet = await api.tool<NorthPacket>('north', { task: 'first look at this repo' });
-      setNorth(packet);
-      setOrienting(true);
-    } catch {
-      // No orientation is better than a fabricated one — land on the tree quietly.
-    }
-  }, [navigate]);
-
-  // Orientation data from the real north packet (absent → the beat is not shown).
-  const orientData = useMemo(() => {
-    const fp = (north?.binding as { fingerprint?: { node_count?: number; edge_count?: number } } | undefined)
-      ?.fingerprint;
-    const anchors = ((north?.context?.anchors ?? []) as Array<{ label?: string }>)
-      .map((a) => a.label ?? '')
-      .filter(Boolean);
-    const memoryCount = north ? north.memory.length : null;
-    return {
-      nodeCount: fp?.node_count ?? null,
-      edgeCount: fp?.edge_count ?? null,
-      anchorLabels: anchors,
-      memoryCount,
-      gaps: north?.honest_gaps ?? [],
-    };
-  }, [north]);
 
   return (
     <AppErrorBoundary>
@@ -710,7 +592,7 @@ export default function App() {
               note={universeNote}
             />
           ) : surface === 'threshold' ? (
-            <ThresholdCard onBootstrapped={landAndOrient} />
+            <ThresholdCard />
           ) : surface === 'hall' ? (
             <HallView
               onExit={() => navigate({ surface: 'tree' })}
@@ -750,24 +632,9 @@ export default function App() {
           )}
         </div>
 
-        {/* The 3-beat orientation (§4A.2) — only after a fresh bootstrap, never returns. */}
-        {orienting && surface === 'tree' && typeof window !== 'undefined' && (
-          <OrientationBeats
-            kv={window.localStorage}
-            nodeCount={orientData.nodeCount}
-            edgeCount={orientData.edgeCount}
-            anchorLabels={orientData.anchorLabels}
-            memoryCount={orientData.memoryCount}
-            gaps={orientData.gaps}
-            onSpent={() => setOrienting(false)}
-          />
-        )}
-
         <IngestModal
           isOpen={ingestOpen}
           onClose={() => setIngestOpen(false)}
-          onComplete={() => runQuery('health', { agent_id: 'gui' })}
-          ownerHasGraph={ownerHasGraph}
         />
         <BrainPalette
           isOpen={paletteOpen}

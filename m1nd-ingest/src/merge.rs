@@ -37,14 +37,7 @@ pub struct SourceClaims {
 }
 
 fn is_valid_relative_file_path(rel_path: &str) -> bool {
-    let trimmed = rel_path.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-
-    std::path::Path::new(trimmed)
-        .components()
-        .any(|component| matches!(component, std::path::Component::Normal(_)))
+    crate::is_valid_relative_file_path(rel_path)
 }
 
 fn is_valid_external_id(external_id: &str) -> bool {

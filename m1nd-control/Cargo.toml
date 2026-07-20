@@ -1,0 +1,18 @@
+[package]
+name = "m1nd-control"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical control-plane contracts for m1nd."
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
+
+[dependencies]
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

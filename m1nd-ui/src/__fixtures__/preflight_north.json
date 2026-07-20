@@ -208,8 +208,9 @@
         "note": "keep using this graph, but treat its answers as NOT covering your current repo — verify against local files"
       },
       {
-        "action": "ingest_your_repo",
-        "call": "ingest with project_root=/workspace/repo — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it, and returns its north packet; thereafter every call from this root routes to YOUR brain automatically (silent on match)"
+        "action": "bootstrap_unavailable",
+        "code": "brain_bootstrap_consumer_not_installed",
+        "note": "creating or rebinding a project brain is unavailable until an exact typed G2/G3 bootstrap consumer is installed; no mutation was attempted"
       }
     ],
     "schema": "m1nd-reception-degraded-v0"

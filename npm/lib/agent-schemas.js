@@ -8,6 +8,7 @@ function agentNonClaims() {
     "m1nd agent does not prove semantic retrieval correctness.",
     "m1nd agent does not replace direct source reads, tests, compilers, logs, or runtime probes.",
     "m1nd agent does not mutate tracked repository code.",
+    "m1nd agent never treats generic ingest, legacy bootstrap, or a software-test adapter as production authority.",
     "m1nd agent does not guarantee every possible agent host is configured.",
     "m1nd agent is a local operating layer, not a production unattended agent orchestrator.",
   ];

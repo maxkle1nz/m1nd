@@ -2,11 +2,10 @@
  * Threshold logic — first-run as empty state, not wizard (HUMAN-LAYER-PRD §4A.2).
  *
  * The pure, DOM-free heart of onboarding: the localStorage keys that make it
- * "never returns" (INV-12), the feature-detection that decides the one-call
- * bootstrap vs the clobber-safe fallback (INV-11), the bootstrap params, and the
- * word-grained progress copy (INV-05 — words, never a fabricated percent).
+ * "never returns" (INV-12) and the word-grained progress copy (INV-05 — words,
+ * never a fabricated percent). Repository creation is intentionally absent while
+ * no exact typed G2/G3 bootstrap consumer exists.
  */
-import type { ToolSchema } from '../types';
 
 // ── Persistence: onboarding never returns (INV-12) ────────────────────────────
 // The Threshold renders only at zero brains; each orientation beat dismisses
@@ -60,53 +59,12 @@ export function lastBrain(kv: KV): string | null {
 }
 
 // ── Feature-detection: the one-call bootstrap vs the clobber-safe fallback ─────
-// The UI reads GET /api/tools and uses project_root ONLY when the ingest schema
-// advertises it (INV-11); until then the Threshold falls back to plain ingest —
-// safe HERE and only here, because an empty owner has nothing to clobber.
-
-/** Does the served ingest tool advertise the two-tier `project_root` arg? */
-export function ingestSupportsProjectRoot(tools: ToolSchema[] | null | undefined): boolean {
-  if (!tools) return false;
-  const ingest = tools.find((t) => t.name === 'ingest');
-  if (!ingest) return false;
-  const props = ingest.inputSchema?.properties ?? {};
-  return Object.prototype.hasOwnProperty.call(props, 'project_root');
-}
-
-/**
- * The bootstrap params for reading the first repo. When project_root is
- * advertised → the one-call bootstrap envelope (creates + ingests + binds); else
- * the plain ingest fallback (empty-owner-only, so no clobber). The caller adds
- * agent_id.
- */
-export function bootstrapParams(
-  path: string,
-  supportsProjectRoot: boolean,
-): Record<string, unknown> {
-  const p = path.trim();
-  if (supportsProjectRoot) {
-    return { path: p, project_root: p, incremental: false };
-  }
-  return { path: p, incremental: false };
-}
+// Public repository creation remains absent until an exact typed G2/G3 consumer
+// exists; schema syntax never enables a mutation affordance.
 
 // ── The clobber ban (INV-11, §4A.4) ───────────────────────────────────────────
-// A bare foreign-path ingest is NEVER offered while the owner holds a graph. The
-// only ingest affordances then are "Re-read this repo" (same root) or the
-// project_root bootstrap (when advertised).
-
-/**
- * May the UI offer a foreign-path ingest? Only on an EMPTY owner (no brains),
- * OR when project_root routing is available (which isolates the new brain). On a
- * non-empty owner without project_root, the answer is NO — the clobber ban.
- */
-export function mayOfferForeignIngest(input: {
-  ownerHasGraph: boolean;
-  supportsProjectRoot: boolean;
-}): boolean {
-  if (!input.ownerHasGraph) return true; // empty owner: nothing to clobber
-  return input.supportsProjectRoot; // non-empty: only the isolated bootstrap is safe
-}
+// A foreign-path ingest is never offered by the current UI. Bound-brain re-read
+// remains a separate, existing-brain action.
 
 // ── Word-grained progress (INV-05 — never a fabricated percent) ───────────────
 // The SSE `ingest` event is a COMPLETION event; there is no percent stream. The

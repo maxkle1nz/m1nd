@@ -1,0 +1,57 @@
+{
+  "artifacts": [
+    {
+      "bytes": 89378,
+      "name": "source_manifest",
+      "path": "manifest/source-manifest.json",
+      "sha256": "sha256:dd5eb66543f68ed1d5e9c0afb1c3989aaf889b7a7bc93693a3e776bcbac8c967"
+    },
+    {
+      "bytes": 8802,
+      "name": "author_review",
+      "path": "operator-only/author-review.json",
+      "sha256": "sha256:4d841dd734d91945f83c40f5927c48983358fa99dc662ee8c2a2155cd15a67d7"
+    },
+    {
+      "bytes": 340264,
+      "name": "sealed",
+      "path": "operator-only/corpus.json",
+      "sha256": "sha256:5abe6f7de2028a67fe86623b3fb8699d6f705b9d3ac556adb4062accb8d4a08d"
+    },
+    {
+      "bytes": 182088,
+      "name": "public",
+      "path": "public/queries.json",
+      "sha256": "sha256:cb655f1982d86d5cd2d139f3d38188bf059c5f766a099e55a2e8065db96edb7e"
+    },
+    {
+      "bytes": 1611,
+      "name": "author_review_schema",
+      "path": "schema/author-review.schema.json",
+      "sha256": "sha256:9c9a095497603916ff187c6063d1c716304d2f8b527a20085a2fe7cb338f8939"
+    },
+    {
+      "bytes": 2234,
+      "name": "public_schema",
+      "path": "schema/public.schema.json",
+      "sha256": "sha256:2b5b02005e0f5ec03ad18f2b09556cd6c02e6a7a7a349bcd0ecc5a9bed2c704b"
+    },
+    {
+      "bytes": 1295,
+      "name": "sealed_schema",
+      "path": "schema/sealed.schema.json",
+      "sha256": "sha256:bb6cd9a212d0088a4041fbdbef3d624eda768c2c1d17bd1dd20fa6b0605e3046"
+    },
+    {
+      "bytes": 876,
+      "name": "manifest_schema",
+      "path": "schema/source-manifest.schema.json",
+      "sha256": "sha256:c027ed0409e7f647fa54d5068b437ae53561278b5db4b0cc822ed17c7e094c57"
+    }
+  ],
+  "corpus_digest": "sha256:ab4057e2ef074608e43315054cc9c1e3a8d86320e686ff342c20de0cf905f27b",
+  "corpus_id": "m1nd10-g6-held-out-v2-ab4057e2ef074608",
+  "schema": "m1nd10-g6-held-out-v2-digests-v1",
+  "self_digest": "sha256:eb25aff441d77f2c78ce01118fbb69ee97fd21fdd8086b5b265f6310d8b71744",
+  "source_manifest_digest": "sha256:a84e79c1c7553f1885dc726f66a32e11f35609d6da8cff5b197a2c459d5de15f"
+}

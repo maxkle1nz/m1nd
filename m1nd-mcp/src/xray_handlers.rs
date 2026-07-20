@@ -16,6 +16,7 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
 use m1nd_core::types::{NodeId, NodeType};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead, Write};
@@ -605,20 +606,15 @@ pub fn handle_xray_retag(
 //           write ZERO originals (all-or-nothing)
 //   SWAP    else atomic `rename(tmp, original)` for every staged pair
 //
-// SAFETY MODEL: this verb is intentionally NOT wired into PROOF_GATED_WRITE_TOOLS
-// yet — integrating with the existing proof-gate is a deliberate follow-up. For
-// now the guard rails are: dry-run-by-default, read-only-attach-denied (see
-// READ_ONLY_DENIED_TOOLS in server.rs), root-confinement (canonical containment
-// under workspace_root), and a forbidden-artifact filter (runtime/VCS/build).
+// SAFETY MODEL: the owner classifies `xray_apply(commit)` by its semantic
+// SOURCE_FILESYSTEM_WRITE effect. Every final planned path requires a consumed
+// generation/digest/TTL-bound proof permit, rechecked immediately before stage;
+// commit also requires the version from a prior dry-run. Root confinement and
+// forbidden-artifact filters remain defense in depth.
 //
-// HASHING: the OCC guard hash is an *in-process-only* content fingerprint — it is
-// never persisted, never compared across processes, and only ever compared to a
-// re-hash of the same file inside the same apply call. We therefore use the same
-// non-cryptographic `DefaultHasher` content hash the rest of this crate already
-// uses (see `simple_content_hash` in tools.rs / daemon_handlers.rs). `sha2` is
-// NOT a direct dependency of m1nd-mcp (it only reaches us transitively via the
-// optional `serve`-feature `rust-embed`), so reaching for it would mean adding a
-// new direct dep — unnecessary for an internal optimistic-concurrency guard.
+// HASHING: file guards and the cross-call plan version are SHA-256. The plan hash
+// uses sorted, length-prefixed `(absolute path, content digest)` tuples, so path
+// set/content changes cannot cancel under an XOR fold.
 
 /// File selector for `xray_apply`. Paths are resolved relative to the project
 /// root (the session's `workspace_root`).
@@ -679,6 +675,8 @@ pub enum XrayTransform {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct XrayApplyInput {
+    /// Calling agent identity. Required by the owner proof middleware.
+    pub agent_id: String,
     pub selector: XrayFileSelector,
     pub transform: XrayTransform,
     #[serde(default)]
@@ -688,7 +686,8 @@ pub struct XrayApplyInput {
     /// (writes nothing) if it no longer equals `v` — i.e. a planned file's
     /// on-disk content changed since the caller's dry_run. This complements the
     /// existing within-call stage→rehash guard. `None` (default) keeps the
-    /// original behavior. Obtain the token from a prior `dry_run`'s `version`.
+    /// original pure-engine behavior; owner dispatch refuses a commit without
+    /// it. Obtain the token from a prior `dry_run`'s `version`.
     #[serde(default)]
     pub expect_version: Option<String>,
 }
@@ -745,34 +744,30 @@ pub struct XrayApplyOutput {
     pub graph_resync_required: bool,
 }
 
-/// In-process content fingerprint for the OCC guard. Non-cryptographic by design
-/// (see the hashing note above): only ever compared to a re-hash of the same
-/// file within one apply call.
+/// Cryptographic content digest for both within-call and cross-call OCC.
 fn content_hash(bytes: &[u8]) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 /// Cross-call OCC fingerprint over the PLANNED files' current on-disk content.
 ///
-/// Per file we hash `path + "\0" + content_hash` (the SELECT-phase guard hex)
-/// into a u64 with the same non-cryptographic `DefaultHasher`, then XOR-fold the
-/// per-file digests so the result is order-independent over path. Keying in the
-/// path is what stops two identical-content files (or a 64-bit content-hash
-/// collision) from cancelling each other out under the fold — without it, a
-/// concurrent edit could be masked. Flips whenever any planned file's path set
-/// or bytes change on disk.
+/// Entries are sorted by path and each field is length-prefixed before hashing,
+/// making the encoding unambiguous and deterministic.
 fn plan_version(entries: &[(PathBuf, String)]) -> String {
-    let mut fold: u64 = 0;
-    for (path, guard) in entries {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        path.to_string_lossy().hash(&mut hasher);
-        0u8.hash(&mut hasher); // explicit field separator
-        guard.hash(&mut hasher);
-        fold ^= hasher.finish();
+    let mut sorted: Vec<(String, &str)> = entries
+        .iter()
+        .map(|(path, guard)| (path.to_string_lossy().into_owned(), guard.as_str()))
+        .collect();
+    sorted.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    let mut hasher = Sha256::new();
+    hasher.update(b"m1nd-xray-plan-v1\0");
+    for (path, guard) in sorted {
+        hasher.update((path.len() as u64).to_be_bytes());
+        hasher.update(path.as_bytes());
+        hasher.update((guard.len() as u64).to_be_bytes());
+        hasher.update(guard.as_bytes());
     }
-    format!("{fold:016x}")
+    format!("{:x}", hasher.finalize())
 }
 
 /// Pure FILE transform: returns `Some(new_content)` if it changes the file,
@@ -859,6 +854,9 @@ type TamperHook<'a> = Option<&'a dyn Fn(&[PathBuf])>;
 /// to exercise the partial-swap path. Production always passes `None`.
 type BeforeSwapHook<'a> = Option<&'a dyn Fn(&[(PathBuf, PathBuf)])>;
 
+/// Owner proof recheck invoked immediately before staging a planned path.
+type ProofGuard<'a> = Option<&'a dyn Fn(&Path) -> Result<(), String>>;
+
 /// Shared implementation. `tamper`, when `Some`, is invoked AFTER the STAGE phase
 /// and BEFORE the REHASH phase, receiving the list of original paths so a test
 /// can mutate one mid-apply to exercise the OCC-conflict path (mirrors the
@@ -874,6 +872,31 @@ fn apply_files_inner(
     before_swap: BeforeSwapHook<'_>,
     mut ledger: Option<&mut Vec<serde_json::Value>>,
 ) -> XrayApplyOutput {
+    let (plan, counts) = build_file_apply_plan(paths, transform);
+
+    // Hand the computed plan to the SHARED atomic applier (STAGE→REHASH→SWAP,
+    // OCC, dry_run/commit, ledger). The graph-driven `AnnotateSymbol` path
+    // builds its own `plan` + `counts` and calls the SAME applier — there is no
+    // second write path.
+    run_atomic_apply(
+        plan,
+        counts,
+        mode,
+        expect_version,
+        tamper,
+        before_swap,
+        None,
+        ledger,
+    )
+}
+
+/// Build the exact FILE-driven plan without writing. Shared by the public pure
+/// engine and the owner-side proof middleware so target discovery and commit
+/// cannot drift into two implementations.
+fn build_file_apply_plan(
+    paths: &[PathBuf],
+    transform: &XrayTransform,
+) -> (Vec<(PathBuf, String, Vec<u8>)>, XrayApplyCounts) {
     let mut counts = XrayApplyCounts {
         matched: paths.len() as u32,
         ..Default::default()
@@ -908,19 +931,7 @@ fn apply_files_inner(
         }
     }
 
-    // Hand the computed plan to the SHARED atomic applier (STAGE→REHASH→SWAP,
-    // OCC, dry_run/commit, ledger). The graph-driven `AnnotateSymbol` path
-    // builds its own `plan` + `counts` and calls the SAME applier — there is no
-    // second write path.
-    run_atomic_apply(
-        plan,
-        counts,
-        mode,
-        expect_version,
-        tamper,
-        before_swap,
-        ledger,
-    )
+    (plan, counts)
 }
 
 /// The SHARED atomic applier: takes an already-computed `plan` of
@@ -938,6 +949,7 @@ fn run_atomic_apply(
     expect_version: Option<&str>,
     tamper: TamperHook<'_>,
     before_swap: BeforeSwapHook<'_>,
+    proof_guard: ProofGuard<'_>,
     mut ledger: Option<&mut Vec<serde_json::Value>>,
 ) -> XrayApplyOutput {
     // Cross-call OCC fingerprint over the planned files' current bytes (the
@@ -1023,6 +1035,18 @@ fn run_atomic_apply(
     };
 
     for (p, _guard, new_bytes) in &plan {
+        // The owner dispatch consumed a one-shot proof mark before entering the
+        // handler. Re-check its exact graph/digest/TTL binding at the last safe
+        // point before staging any bytes. Direct pure-engine calls pass None.
+        if let Some(guard) = proof_guard {
+            if let Err(detail) = guard(p) {
+                return stage_abort(
+                    &temps,
+                    counts,
+                    format!("{}: proof permit invalid: {detail}", file_label(p)),
+                );
+            }
+        }
         let tmp = tmp_path_for(p);
 
         // Defensive pre-check: refuse to stage if `tmp` already exists as a
@@ -1498,6 +1522,7 @@ fn is_forbidden_path(p: &Path) -> bool {
     if name == "graph_snapshot.json"
         || name == "daemon_alerts.json"
         || name == "document_cache_index.json"
+        || name == "document_artifact_inventory.json"
         || name == "ingest_roots.json"
         || name.ends_with("_state.json")
         || name.ends_with(".xray.tmp")
@@ -1509,9 +1534,9 @@ fn is_forbidden_path(p: &Path) -> bool {
     // case-insensitive-filesystem reason.
     let path_str = p.to_string_lossy().to_lowercase();
     let path_str = path_str.replace('\\', "/"); // normalize for Windows
-    if path_str.contains("/.git/")
-        || path_str.contains("/target/")
-        || path_str.contains("/node_modules/")
+    if path_str
+        .split('/')
+        .any(|segment| matches!(segment, ".git" | "target" | "node_modules" | "l1ght-cache"))
     {
         return true;
     }
@@ -1595,17 +1620,20 @@ fn is_included(path: &Path, root: &Path, selector: &XrayFileSelector) -> bool {
     true
 }
 
-/// X-RAY physical-write handler. Resolves the project root from
-/// `state.workspace_root` (which `infer_workspace_root` computes to AVOID managed
-/// runtime dirs), walks the source tree under the safety filters, then calls the
-/// pure engine. Refuses to write anything if the root cannot be resolved.
-///
-/// NOTE: intentionally NOT wired into PROOF_GATED_WRITE_TOOLS — see the section
-/// note above. Safety here is dry-run-default + read-only-denied + root-confinement.
-pub fn handle_xray_apply(
-    state: &mut SessionState,
-    input: XrayApplyInput,
-) -> M1ndResult<serde_json::Value> {
+struct PreparedXrayApply {
+    root: PathBuf,
+    plan: Vec<(PathBuf, String, Vec<u8>)>,
+    counts: XrayApplyCounts,
+}
+
+/// Resolve and build the one canonical X-RAY plan. Both proof-target discovery
+/// and the physical handler use this function; a newly appearing target between
+/// the two passes still fails because the authorized handler requires an active
+/// consumed permit for every path in its final plan.
+fn prepare_xray_apply(
+    state: &SessionState,
+    input: &XrayApplyInput,
+) -> M1ndResult<PreparedXrayApply> {
     let root: PathBuf = state
         .workspace_root
         .as_deref()
@@ -1621,13 +1649,7 @@ pub fn handle_xray_apply(
         detail: format!("could not canonicalize project root; refusing to write: {e}"),
     })?;
 
-    // Collect per-file before/after hashes for the audit ledger only when a write
-    // can happen (commit). The engine populates this for every file swapped to
-    // disk (all on a clean commit, the swapped prefix on a partial).
-    let mut changes: Vec<serde_json::Value> = Vec::new();
-    let commit = input.mode == XrayMode::Commit;
-
-    let output = match &input.transform {
+    let (plan, counts) = match &input.transform {
         // GRAPH-driven AST transform: select symbol NODES from the live graph
         // (tree-sitter provenance), resolve their line ranges, build a bottom-up
         // idempotent insert plan, then funnel through the SAME atomic applier.
@@ -1650,18 +1672,7 @@ pub fn handle_xray_apply(
             };
             // PHASE B (lock dropped): read files + build the plan.
             let (plan, counts) = build_annotate_plan(targets, annotation, symbols_matched);
-            // SHARED atomic applier — production passes no test seams. Ledger is
-            // collected only on commit (mirrors the file-driven branch).
-            let ledger = commit.then_some(&mut changes);
-            run_atomic_apply(
-                plan,
-                counts,
-                input.mode,
-                input.expect_version.as_deref(),
-                None,
-                None,
-                ledger,
-            )
+            (plan, counts)
         }
         // FILE-driven transform: walk the source tree under the safety filters.
         XrayTransform::EnsureHeaderTag { .. } => {
@@ -1681,24 +1692,66 @@ pub fn handle_xray_apply(
             let mut matched: Vec<PathBuf> = Vec::new();
             collect_files(&walk_start, &root, &input.selector, &mut matched);
             matched.sort();
-            if commit {
-                apply_files_with_ledger(
-                    &matched,
-                    &input.transform,
-                    input.mode,
-                    input.expect_version.as_deref(),
-                    &mut changes,
-                )
-            } else {
-                apply_files(
-                    &matched,
-                    &input.transform,
-                    input.mode,
-                    input.expect_version.as_deref(),
-                )
-            }
+            build_file_apply_plan(&matched, &input.transform)
         }
     };
+    Ok(PreparedXrayApply { root, plan, counts })
+}
+
+/// Exact source targets a commit would publish, for the effect-driven proof
+/// middleware. Empty is a legitimate idempotent no-op, not an unresolved write.
+pub(crate) fn xray_apply_proof_targets(
+    state: &SessionState,
+    input: &XrayApplyInput,
+) -> M1ndResult<Vec<String>> {
+    let prepared = prepare_xray_apply(state, input)?;
+    Ok(prepared
+        .plan
+        .into_iter()
+        .map(|(path, _, _)| path.to_string_lossy().into_owned())
+        .collect())
+}
+
+/// Internal pure-handler entry retained for focused engine tests. External
+/// transports must use [`handle_xray_apply_authorized`] through dispatch_tool.
+pub fn handle_xray_apply(
+    state: &mut SessionState,
+    input: XrayApplyInput,
+) -> M1ndResult<serde_json::Value> {
+    handle_xray_apply_inner(state, input, false)
+}
+
+/// Owner-dispatch entry: every final plan path must still match the consumed
+/// one-shot proof immediately before staging.
+pub(crate) fn handle_xray_apply_authorized(
+    state: &mut SessionState,
+    input: XrayApplyInput,
+) -> M1ndResult<serde_json::Value> {
+    handle_xray_apply_inner(state, input, true)
+}
+
+fn handle_xray_apply_inner(
+    state: &mut SessionState,
+    input: XrayApplyInput,
+    enforce_proof: bool,
+) -> M1ndResult<serde_json::Value> {
+    let PreparedXrayApply { root, plan, counts } = prepare_xray_apply(state, &input)?;
+    let commit = input.mode == XrayMode::Commit;
+    let mut changes: Vec<serde_json::Value> = Vec::new();
+    let proof_guard =
+        |path: &Path| state.validate_active_proof_permit(&input.agent_id, &path.to_string_lossy());
+    let guard: ProofGuard<'_> = (enforce_proof && commit).then_some(&proof_guard);
+    let ledger = commit.then_some(&mut changes);
+    let output = run_atomic_apply(
+        plan,
+        counts,
+        input.mode,
+        input.expect_version.as_deref(),
+        None,
+        None,
+        guard,
+        ledger,
+    );
 
     // Append the audit ledger only when source bytes were actually written
     // (committed or partial with ≥1 swap). The engine recorded absolute paths;
@@ -3639,17 +3692,13 @@ mod tests {
 
     #[test]
     fn plan_version_keys_in_path_so_identical_content_does_not_cancel() {
-        // Two DIFFERENT files with the SAME content hash. With the old raw-XOR
-        // fold (content hash only) these would cancel to 0; keying the path in
-        // must keep the fold non-zero and path-sensitive.
+        // Two DIFFERENT files with the SAME content hash remain path-sensitive.
         let same_hash = content_hash(b"identical bytes");
         let a = (PathBuf::from("/repo/a.rs"), same_hash.clone());
         let b = (PathBuf::from("/repo/b.rs"), same_hash.clone());
         let folded = plan_version(&[a.clone(), b.clone()]);
-        assert_ne!(
-            folded, "0000000000000000",
-            "path keying must prevent cancel"
-        );
+        assert_eq!(folded.len(), 64);
+        assert_eq!(folded, plan_version(&[b.clone(), a.clone()]));
 
         // Same two paths, one's content changes -> version must flip.
         let b_changed = (PathBuf::from("/repo/b.rs"), content_hash(b"other bytes"));
@@ -3739,7 +3788,7 @@ mod tests {
         let out = apply_files(&paths, &ensure_tag(), XrayMode::DryRun, None);
         assert_eq!(out.status, "dry_run");
         assert!(!out.version.is_empty(), "dry_run must surface a version");
-        assert_eq!(out.version.len(), 16);
+        assert_eq!(out.version.len(), 64);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3986,7 +4035,7 @@ mod tests {
         let (targets, symbols_matched) =
             collect_symbol_targets(graph, root, node_type, path_prefix, extensions);
         let (plan, counts) = build_annotate_plan(targets, annotation, symbols_matched);
-        run_atomic_apply(plan, counts, mode, None, None, None, None)
+        run_atomic_apply(plan, counts, mode, None, None, None, None, None)
     }
 
     /// Build a graph with two Function symbols and one Struct symbol, all whose
@@ -4457,6 +4506,9 @@ mod tests {
         assert!(is_forbidden_path(Path::new("/x/anything_state.json")));
         assert!(is_forbidden_path(Path::new("/x/daemon_alerts.json")));
         assert!(is_forbidden_path(Path::new("/x/document_cache_index.json")));
+        assert!(is_forbidden_path(Path::new(
+            "/x/DOCUMENT_ARTIFACT_INVENTORY.JSON"
+        )));
         assert!(is_forbidden_path(Path::new("/x/ingest_roots.json")));
         assert!(is_forbidden_path(Path::new("/repo/target/debug/foo.rs")));
         assert!(is_forbidden_path(Path::new("/repo/.git/config")));
@@ -4464,8 +4516,20 @@ mod tests {
             "/repo/node_modules/pkg/index.js"
         )));
         assert!(is_forbidden_path(Path::new("/repo/src/foo.rs.xray.tmp")));
+        assert!(is_forbidden_path(Path::new(
+            "/repo/l1ght-cache/sources/key/canonical.json"
+        )));
+        assert!(is_forbidden_path(Path::new(
+            r"runtime\L1GHT-CACHE\sources\key\canonical.json"
+        )));
+        assert!(is_forbidden_path(Path::new(
+            "l1ght-cache/sources/key/claims.json"
+        )));
         // Allowed: a normal source file.
         assert!(!is_forbidden_path(Path::new("/repo/src/foo.rs")));
+        assert!(!is_forbidden_path(Path::new(
+            "/repo/l1ght-cache-copy/canonical.json"
+        )));
     }
 
     // -----------------------------------------------------------------------

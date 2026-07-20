@@ -16,7 +16,7 @@
 // The pure logic here is store-path agnostic and unit-testable without a server.
 
 use crate::light_author_handlers::{
-    render_light_markdown, LightAuthorInput, LightClaim, SupersessionOutcome,
+    render_light_markdown, LightAuthorInput, LightClaim, LockGuard, SupersessionOutcome,
 };
 use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -344,6 +344,133 @@ pub fn reanchor_evidence(claims: &[LightClaim], origin_root: Option<&str>) -> Ev
     }
 }
 
+/// Exact deterministic postimages for the authority-bound promotion adapter.
+/// The plan is pure: it applies every promotion gate and provenance transform
+/// but performs no write. The external transaction durably stages these bytes
+/// and seals their digests before spending authority.
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalPromotionPlanV1 {
+    pub source_slug: String,
+    pub medulla_slug: String,
+    pub source_postimage: String,
+    pub medulla_postimage: String,
+    pub source_history: String,
+    pub medulla_history: Option<String>,
+    pub origin_brain: String,
+    pub origin_qualified: bool,
+    pub evidence_unverifiable: bool,
+    pub promoted_at_ms: u64,
+}
+
+pub(crate) fn plan_external_promotion(
+    input: &PromoteInput,
+    source_text: &str,
+    medulla_text: Option<&str>,
+    promoted_at_ms: u64,
+) -> M1ndResult<ExternalPromotionPlanV1> {
+    if promoted_at_ms == 0 {
+        return Err(M1ndError::InvalidParams {
+            tool: "promote".to_string(),
+            detail: "promotion requires a positive owner timestamp".to_string(),
+        });
+    }
+    let source_slug = crate::light_author_handlers::slugify(&input.claim);
+    let parsed = parse_light_claim(source_text);
+    evidence_class_gate(&parsed.frontmatter).map_err(|detail| M1ndError::InvalidParams {
+        tool: "promote".into(),
+        detail,
+    })?;
+    hygiene_floor(source_text).map_err(|detail| M1ndError::InvalidParams {
+        tool: "promote".into(),
+        detail,
+    })?;
+    let origin_brain = parsed
+        .frontmatter
+        .origin_brain
+        .clone()
+        .filter(|origin| !origin.trim().is_empty())
+        .unwrap_or_else(|| input.brain.clone());
+    let reanchor = reanchor_evidence(&parsed.claims, Some(origin_brain.as_str()));
+    let node_label = parsed
+        .frontmatter
+        .node
+        .clone()
+        .unwrap_or_else(|| input.claim.clone());
+    let medulla_slug = crate::light_author_handlers::slugify(&node_label);
+    let mut promoted_input = LightAuthorInput {
+        agent_id: input.agent_id.clone(),
+        node_label,
+        title: parsed.title,
+        state: parsed.frontmatter.state,
+        claims: reanchor.claims,
+        namespace: None,
+        ingest_after: false,
+        mode: "merge".into(),
+        supersedes: None,
+        origin_brain: Some(origin_brain.clone()),
+        origin_claim: Some(source_slug.clone()),
+        promoted_by: Some(input.agent_id.clone()),
+        promotion_reason: Some(input.reason.clone()),
+        promoted_to: None,
+        evidence_unverifiable: reanchor.evidence_unverifiable,
+        soul_source: None,
+    };
+    let (medulla_postimage, superseded) =
+        crate::light_author_handlers::render_light_memory_superseding_candidate(
+            &mut promoted_input,
+            medulla_text,
+            promoted_at_ms,
+        )
+        .map_err(|reason| M1ndError::InvalidParams {
+            tool: "promote".to_string(),
+            detail: format!(
+                "promotion refused ({reason}): a stronger medulla claim '{medulla_slug}' is already live"
+            ),
+        })?;
+    let source_postimage = insert_or_replace_frontmatter(
+        source_text,
+        "Promoted-To",
+        &format!("medulla@{medulla_slug}@{promoted_at_ms}"),
+    );
+    let medulla_history = if superseded {
+        Some(flip_state_to_outdated_for_plan(medulla_text.ok_or_else(
+            || M1ndError::InvalidParams {
+                tool: "promote".to_string(),
+                detail: "supersession plan lost its medulla preimage".to_string(),
+            },
+        )?))
+    } else {
+        None
+    };
+    Ok(ExternalPromotionPlanV1 {
+        source_slug,
+        medulla_slug,
+        source_postimage,
+        medulla_postimage,
+        source_history: flip_state_to_outdated_for_plan(source_text),
+        medulla_history,
+        origin_brain,
+        origin_qualified: reanchor.origin_qualified,
+        evidence_unverifiable: reanchor.evidence_unverifiable,
+        promoted_at_ms,
+    })
+}
+
+fn flip_state_to_outdated_for_plan(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut flipped = false;
+    for line in text.lines() {
+        if !flipped && line.trim_start().starts_with("State:") {
+            output.push_str("State: outdated");
+            flipped = true;
+        } else {
+            output.push_str(line);
+        }
+        output.push('\n');
+    }
+    output
+}
+
 // ---------------------------------------------------------------------------
 // The promote logic (pure over the two resolved store dirs)
 // ---------------------------------------------------------------------------
@@ -358,6 +485,70 @@ pub struct PromoteOutcome {
     pub evidence_unverifiable: bool,
     pub medulla_claim_count: usize,
     pub soft_cap: usize,
+}
+
+/// Exact shared store locks held by the typed external promotion transaction.
+/// The same `.locks/<slug>.lock` primitive is used by ordinary L1GHT writes, so
+/// a source rewrite or medulla supersession cannot slip between OCC
+/// revalidation and post-authority publication.
+pub(crate) struct PromoteTargetLocksV1 {
+    source_store_dir: PathBuf,
+    medulla_store_dir: PathBuf,
+    source_slug: String,
+    medulla_slug: String,
+    _guards: Vec<LockGuard>,
+}
+
+impl PromoteTargetLocksV1 {
+    fn validates(
+        &self,
+        source_store_dir: &Path,
+        medulla_store_dir: &Path,
+        source_slug: &str,
+        medulla_slug: &str,
+    ) -> bool {
+        self.source_store_dir == source_store_dir
+            && self.medulla_store_dir == medulla_store_dir
+            && self.source_slug == source_slug
+            && self.medulla_slug == medulla_slug
+    }
+}
+
+/// Acquire both promotion targets in canonical lock-path order. Keeping the
+/// guards in one token makes the caller's critical section explicit and avoids
+/// AB/BA deadlocks when two stores are promoted concurrently.
+pub(crate) fn acquire_promote_target_locks(
+    source_store_dir: &Path,
+    source_slug: &str,
+    medulla_store_dir: &Path,
+    medulla_slug: &str,
+) -> M1ndResult<PromoteTargetLocksV1> {
+    let mut targets = vec![
+        (source_store_dir.join(".locks"), source_slug.to_string()),
+        (medulla_store_dir.join(".locks"), medulla_slug.to_string()),
+    ];
+    targets.sort_by(|left, right| {
+        left.0
+            .join(format!("{}.lock", left.1))
+            .cmp(&right.0.join(format!("{}.lock", right.1)))
+    });
+    if targets[0].0 == targets[1].0 && targets[0].1 == targets[1].1 {
+        return Err(M1ndError::InvalidParams {
+            tool: "promote".to_string(),
+            detail: "source and medulla promotion targets resolve to the same lock".to_string(),
+        });
+    }
+    let mut guards = Vec::with_capacity(2);
+    for (locks_dir, slug) in targets {
+        guards.push(LockGuard::acquire_in(&locks_dir, &slug)?);
+    }
+    Ok(PromoteTargetLocksV1 {
+        source_store_dir: source_store_dir.to_path_buf(),
+        medulla_store_dir: medulla_store_dir.to_path_buf(),
+        source_slug: source_slug.to_string(),
+        medulla_slug: medulla_slug.to_string(),
+        _guards: guards,
+    })
 }
 
 /// The medulla soft cap (TT §6): the doctor warns at 300 active claims.
@@ -386,6 +577,40 @@ pub fn promote_claim(
     source_store_dir: &Path,
     medulla_store_dir: &Path,
     medulla_runtime_root: &Path,
+) -> M1ndResult<PromoteOutcome> {
+    promote_claim_impl(
+        input,
+        source_store_dir,
+        medulla_store_dir,
+        medulla_runtime_root,
+        None,
+    )
+}
+
+/// Execute promotion while the caller holds the exact source and destination
+/// locks returned by [`acquire_promote_target_locks`].
+pub(crate) fn promote_claim_with_target_locks(
+    input: &PromoteInput,
+    source_store_dir: &Path,
+    medulla_store_dir: &Path,
+    medulla_runtime_root: &Path,
+    target_locks: &PromoteTargetLocksV1,
+) -> M1ndResult<PromoteOutcome> {
+    promote_claim_impl(
+        input,
+        source_store_dir,
+        medulla_store_dir,
+        medulla_runtime_root,
+        Some(target_locks),
+    )
+}
+
+fn promote_claim_impl(
+    input: &PromoteInput,
+    source_store_dir: &Path,
+    medulla_store_dir: &Path,
+    medulla_runtime_root: &Path,
+    target_locks: Option<&PromoteTargetLocksV1>,
 ) -> M1ndResult<PromoteOutcome> {
     // 1. Load the source claim (hard error on unknown slug — no guessing).
     let source_slug = crate::light_author_handlers::slugify(&input.claim);
@@ -436,6 +661,19 @@ pub fn promote_claim(
         .unwrap_or_else(|| input.claim.clone());
     let medulla_slug = crate::light_author_handlers::slugify(&node_label);
     let medulla_path = medulla_store_dir.join(format!("{medulla_slug}.light.md"));
+    if target_locks.is_some_and(|locks| {
+        !locks.validates(
+            source_store_dir,
+            medulla_store_dir,
+            &source_slug,
+            &medulla_slug,
+        )
+    }) {
+        return Err(M1ndError::InvalidParams {
+            tool: "promote".to_string(),
+            detail: "held promotion locks do not bind the exact source and destination".to_string(),
+        });
+    }
 
     // The medulla copy keeps the source claim's State (already ≥ verified by the
     // gate) so re-promotion strength comparisons stay honest.
@@ -445,9 +683,6 @@ pub fn promote_claim(
         title: parsed.title.clone(),
         state: parsed.frontmatter.state.clone(),
         claims: reanchor.claims.clone(),
-        // Explicit output_path bypasses the brainless-root refusal + the default
-        // origin stamping; we set origin_brain by hand to the WHERE-BORN below.
-        output_path: Some(medulla_path.to_string_lossy().to_string()),
         namespace: None,
         ingest_after: false,
         mode: "merge".into(),
@@ -466,11 +701,19 @@ pub fn promote_claim(
 
     // Write through the supersession-aware medulla write path so a weaker
     // re-promotion of an existing medulla claim bounces as WouldDowngrade.
-    let write = crate::light_author_handlers::write_light_memory_superseding(
-        &mut promoted_input,
-        &medulla_path,
-        medulla_runtime_root,
-    )?;
+    let write = if target_locks.is_some() {
+        crate::light_author_handlers::write_light_memory_superseding_with_lock_held(
+            &mut promoted_input,
+            &medulla_path,
+            medulla_runtime_root,
+        )?
+    } else {
+        crate::light_author_handlers::write_light_memory_superseding(
+            &mut promoted_input,
+            &medulla_path,
+            medulla_runtime_root,
+        )?
+    };
     if let SupersessionOutcome::WouldDowngrade { reason } = write {
         return Err(M1ndError::InvalidParams {
             tool: "promote".into(),
@@ -519,7 +762,7 @@ fn stamp_witness(witness_path: &Path, slug: &str, store_dir: &Path, stamp: &str)
     crate::light_author_handlers::archive_prior_as_outdated_in(store_dir, witness_path, slug)?;
     // Insert `Promoted-To:` into the frontmatter (idempotent — replace if present).
     let stamped = insert_or_replace_frontmatter(&text, "Promoted-To", stamp);
-    crate::light_author_handlers::write_atomic_pub(witness_path, &stamped)?;
+    crate::light_author_handlers::write_atomic_managed_store(store_dir, witness_path, &stamped)?;
     Ok(())
 }
 

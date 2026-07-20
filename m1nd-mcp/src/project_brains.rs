@@ -18,20 +18,60 @@
 //! Reuse audit (mother rule): a project brain is born through the SAME
 //! `McpServer::new` boot path the owner itself uses (snapshot warm-boot when the
 //! store exists, fresh graph when it does not), acquires its lease through the
-//! SAME `InstanceHandle` machinery (the per-`runtime_root` lease conflicts only
-//! across processes — `instance_registry.rs` accepts N leases for one PID), and
+//! SAME `InstanceHandle` machinery (the per-`runtime_root` lease is exclusive
+//! even inside one process), and
 //! is filled through the SAME `dispatch_tool("ingest")` path every agent uses.
 //! The only net-new surface is this registry map and the store-dir naming.
+//!
+//! Resolution, bootstrap, and arbitrary SessionState callbacks are internal
+//! authority surfaces, not a public Rust embedding API.
+//!
+//! ```compile_fail
+//! use m1nd_mcp::project_brains::ProjectBrainRegistry;
+//! # let registry = ProjectBrainRegistry::new("brains".into(), None);
+//! let _ = registry.resolve("/repo");
+//! ```
+//!
+//! ```compile_fail
+//! use m1nd_mcp::project_brains::ProjectBrainRegistry;
+//! # let registry = ProjectBrainRegistry::new("brains".into(), None);
+//! let _ = registry.bootstrap("/repo", &serde_json::json!({}));
+//! ```
+//!
+//! ```compile_fail
+//! use m1nd_mcp::project_brains::ProjectBrainRegistry;
+//! # let registry = ProjectBrainRegistry::new("brains".into(), None);
+//! let _ = registry.execute_target_runtime(
+//!     unimplemented!(),
+//!     None,
+//!     true,
+//!     false,
+//!     |_raw_session| Ok::<(), m1nd_mcp::runtime_jobs::RuntimeJobFailure>(()),
+//! );
+//! ```
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
 use m1nd_core::error::{M1ndError, M1ndResult};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex, RwLock};
 
 use crate::session::SessionState;
+
+use crate::brain_runtime::{
+    project_brain_id, recover_checkpoint_for_boot, BrainActorHandle, BrainBootRecovery,
+    BrainCheckpointAuthority, BrainReadSnapshot, BrainRecoveryV1, BrainRuntimeError,
+    BrainRuntimeHealthV1, BrainSessionCell, BrainVersionV1, UnboundBrainCheckpointAuthority,
+    DEFAULT_BRAIN_ACTOR_QUEUE_CAPACITY,
+};
+use crate::checkpoint_store::CheckpointAckV1;
+use crate::runtime_jobs::{
+    RuntimeJobContext, RuntimeJobError, RuntimeJobFailure, RuntimeJobRegistry, RuntimeJobRequestV1,
+    RuntimeJobSuccess,
+};
 
 /// Default warm-brain cap (§C9.1 F18): how many project brains the owner keeps
 /// hydrated in memory at once. The bound dev graph is NOT counted here — it lives
@@ -55,10 +95,62 @@ pub const PROJECT_BRAINS_DIR: &str = "project-brains";
 /// (the cap is tiny — an O(cap) scan beats an ordered-map dependency, mother
 /// rule). `Clone` hands out the `Arc` without the tick.
 struct WarmBrain {
-    brain: Arc<Mutex<SessionState>>,
+    brain: Arc<BrainSessionCell>,
     /// Monotonic last-touch stamp from the registry's own counter — clock-free so
     /// eviction order is deterministic in tests, never wall-time dependent.
     last_used: u64,
+    /// Lazily started actor. The `OnceLock` makes one queue/checkpoint writer the
+    /// only winner even when several requests discover the same warm brain.
+    runtime: Arc<OnceLock<Result<Arc<BrainActorHandle>, String>>>,
+    /// Explicit startup receipt retained even before the actor is first used.
+    recovery: Option<BrainBootRecovery>,
+}
+
+struct BoundRuntime {
+    session: Arc<BrainSessionCell>,
+    runtime: Arc<BrainActorHandle>,
+}
+
+struct RegistryLifecycle {
+    accepting: bool,
+    active: usize,
+    shutdown_started: bool,
+}
+
+#[cfg(test)]
+struct ReadSnapshotTestHook {
+    entered: std::sync::mpsc::SyncSender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+struct RegistryAdmissionGuard<'a> {
+    registry: &'a ProjectBrainRegistry,
+}
+
+impl Drop for RegistryAdmissionGuard<'_> {
+    fn drop(&mut self) {
+        let mut lifecycle = self.registry.lifecycle.lock();
+        lifecycle.active = lifecycle
+            .active
+            .checked_sub(1)
+            .expect("registry admission count cannot underflow");
+        if lifecycle.active == 0 {
+            self.registry.lifecycle_drained.notify_all();
+        }
+    }
+}
+
+/// Registry-derived binding for one external mutation actor. The selector is
+/// only a lookup hint: the returned brain Arc and actor id are revalidated
+/// against the registry (or the bound owner) before any job can be enqueued.
+pub(crate) struct ExternalMutationActorBindingV1 {
+    pub(crate) brain: Arc<BrainSessionCell>,
+    /// Exact canonical root owned by this actor. Mutating transports compare
+    /// the current caller root against this value; ancestry is never enough.
+    pub(crate) actor_root: String,
+    pub(crate) selected_project_root: Option<String>,
+    pub(crate) bound: bool,
+    pub(crate) brain_id: String,
 }
 
 /// Registry of owner-hosted per-project brains, keyed by canonicalized project
@@ -69,6 +161,15 @@ pub struct ProjectBrainRegistry {
     /// first). Bounded by `capacity`: the LRU eviction gate (§C9.1) persists then
     /// drops the least-recently-used brain before the map exceeds the cap.
     brains: Mutex<HashMap<String, WarmBrain>>,
+    /// Per-canonical-root single-flight gates. A dormant warm boot constructs a
+    /// `SessionState`, which acquires the runtime lease before the brain can be
+    /// inserted into `brains`; without this gate two same-process resolvers can
+    /// mint competing owners and only discover the loser at map insertion.
+    hydration_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    /// Global admission fence around hydration. Shutdown takes the write side,
+    /// which first drains every in-flight dormant boot/bootstrap and then keeps
+    /// new hydrations out while it snapshots and stops the warm set.
+    hydration_admission: RwLock<()>,
     /// `<owner runtime_root>/project-brains`.
     base_dir: PathBuf,
     /// The owner's registry dir, so project-brain instances/leases land in the
@@ -87,6 +188,25 @@ pub struct ProjectBrainRegistry {
     /// runnerd + owner secret the bound session does). `None` when the owner has
     /// no announce surface — scans then fall back to heuristic naming.
     runnerd_naming: Option<crate::runnerd_owner::NamingRunnerHandle>,
+    /// Narrow authority adapter used by checkpoint creation/recovery. The
+    /// default is explicitly unbound and never claims external anti-rollback.
+    checkpoint_authority: Arc<dyn BrainCheckpointAuthority>,
+    /// Per-brain actor mailbox bound.
+    actor_queue_capacity: usize,
+    /// Global durable worker bound for this owner registry.
+    max_runtime_jobs: usize,
+    /// Opened lazily because historical constructors are infallible.
+    runtime_jobs: OnceLock<Result<RuntimeJobRegistry, String>>,
+    /// Linear lifecycle admission. Every entrypoint retains an RAII guard until
+    /// its actor/job lazy initialization and terminal reply have completed.
+    lifecycle: Mutex<RegistryLifecycle>,
+    lifecycle_drained: Condvar,
+    /// The owner's bound/default brain uses the same serial actor contract as
+    /// hosted brains. It is opened lazily so historical construction remains
+    /// infallible and tests that never dispatch do not create checkpoints.
+    bound_runtime: OnceLock<Result<BoundRuntime, String>>,
+    #[cfg(test)]
+    read_snapshot_test_hook: Mutex<Option<ReadSnapshotTestHook>>,
 }
 
 impl ProjectBrainRegistry {
@@ -107,18 +227,60 @@ impl ProjectBrainRegistry {
     ) -> Self {
         Self {
             brains: Mutex::new(HashMap::new()),
+            hydration_locks: Mutex::new(HashMap::new()),
+            hydration_admission: RwLock::new(()),
             base_dir,
             registry_dir,
             capacity: capacity.max(1),
             tick: AtomicU64::new(0),
             runnerd_naming: None,
+            checkpoint_authority: Arc::new(UnboundBrainCheckpointAuthority),
+            actor_queue_capacity: DEFAULT_BRAIN_ACTOR_QUEUE_CAPACITY,
+            max_runtime_jobs: crate::runtime_jobs::DEFAULT_MAX_IN_FLIGHT_JOBS,
+            runtime_jobs: OnceLock::new(),
+            lifecycle: Mutex::new(RegistryLifecycle {
+                accepting: true,
+                active: 0,
+                shutdown_started: false,
+            }),
+            lifecycle_drained: Condvar::new(),
+            bound_runtime: OnceLock::new(),
+            #[cfg(test)]
+            read_snapshot_test_hook: Mutex::new(None),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_read_snapshot_test_hook(
+        &self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        *self.read_snapshot_test_hook.lock() = Some(ReadSnapshotTestHook { entered, release });
     }
 
     /// Thread the owner-process naming facts (F11-b) into every project brain this
     /// registry boots. Builder-style, called once at HTTP-owner construction.
     pub fn with_runnerd_naming(mut self, handle: crate::runnerd_owner::NamingRunnerHandle) -> Self {
         self.runnerd_naming = Some(handle);
+        self
+    }
+
+    /// Install the real external-authority checkpoint adapter without coupling
+    /// this registry to AuthorityRuntime/MissionService concrete types.
+    pub fn with_checkpoint_authority(
+        mut self,
+        authority: Arc<dyn BrainCheckpointAuthority>,
+    ) -> Self {
+        self.checkpoint_authority = authority;
+        self
+    }
+
+    /// Configure bounded global worker concurrency and the bounded per-brain
+    /// actor queue. Values are clamped to one. Call before first runtime use.
+    pub fn with_runtime_limits(mut self, max_runtime_jobs: usize, actor_queue: usize) -> Self {
+        self.max_runtime_jobs = max_runtime_jobs.max(1);
+        self.actor_queue_capacity = actor_queue.max(1);
         self
     }
 
@@ -130,6 +292,841 @@ impl ProjectBrainRegistry {
     /// The warm-brain cap this registry enforces (§C9.1).
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    /// Stable authority/job binding id for one canonical project root.
+    pub fn brain_id_for(&self, project_root: &str) -> String {
+        project_brain_id(&Self::canonical_key(project_root))
+    }
+
+    /// Acquire a short immutable snapshot through the per-brain actor. The
+    /// snapshot closure cannot mutate SessionState and the bounded queue refuses
+    /// excess work immediately.
+    pub(crate) fn read_runtime_snapshot<S, Read>(
+        &self,
+        project_root: &str,
+        read: Read,
+    ) -> M1ndResult<BrainReadSnapshot<S>>
+    where
+        S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+        Read: FnOnce(&SessionState) -> Result<S, RuntimeJobFailure> + Send + 'static,
+    {
+        let _admission = self.enter_lifecycle()?;
+        let key = Self::canonical_key(project_root);
+        if self.try_resolve(&key)?.is_none() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "project brain '{key}' is not registered"
+            )));
+        }
+        self.runtime_for_key(&key)?
+            .try_read_snapshot(read)
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    /// Acquire a snapshot for either the bound owner or a hosted brain through
+    /// that brain's serial actor. The target identity is checked so a selector
+    /// can never enqueue work on one actor while retaining another brain's Arc.
+    pub(crate) fn read_target_runtime_snapshot<S, Read>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        read: Read,
+    ) -> M1ndResult<BrainReadSnapshot<S>>
+    where
+        S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+        Read: FnOnce(&SessionState) -> Result<S, RuntimeJobFailure> + Send + 'static,
+    {
+        let _admission = self.enter_lifecycle()?;
+        #[cfg(test)]
+        let test_hook = self.read_snapshot_test_hook.lock().take();
+        self.runtime_for_target(target, selected_project_root, bound)?
+            .try_read_snapshot(move |state| {
+                #[cfg(test)]
+                if let Some(hook) = test_hook {
+                    hook.entered.send(()).map_err(|error| {
+                        RuntimeJobFailure::new("test_probe_failed", error.to_string())
+                    })?;
+                    hook.release.recv().map_err(|error| {
+                        RuntimeJobFailure::new("test_probe_failed", error.to_string())
+                    })?;
+                }
+                read(state)
+            })
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    /// Execute a transport command on the selected brain actor. This is the
+    /// common REST/MCP/stdio dispatch seam; overload is an immediate typed
+    /// refusal from the bounded actor queue, never an unbounded mutex wait.
+    pub(crate) fn execute_target_runtime<R, Execute>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        mutating: bool,
+        execute: Execute,
+    ) -> M1ndResult<R>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> Result<R, RuntimeJobFailure> + Send + 'static,
+    {
+        let _admission = self.enter_lifecycle()?;
+        self.runtime_for_target(target, selected_project_root, bound)?
+            .try_execute(mutating, execute)
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    /// Execute one M1nd command transactionally while preserving its exact
+    /// domain error for the transport. The sentinel failure is observed by the
+    /// actor *inside* the callback, so any partial mutation is rolled back before
+    /// the original error is returned to the caller.
+    pub(crate) fn execute_target_m1nd<R, Execute>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        mutating: bool,
+        execute: Execute,
+    ) -> M1ndResult<R>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> M1ndResult<R> + Send + 'static,
+    {
+        const DOMAIN_ERROR_SENTINEL: &str = "m1nd_actor_domain_error";
+
+        let _admission = self.enter_lifecycle()?;
+        let original_error = Arc::new(Mutex::new(None));
+        let captured_error = Arc::clone(&original_error);
+        let actor_result = self
+            .runtime_for_target(target, selected_project_root, bound)?
+            .try_execute(mutating, move |state| {
+                execute(state).map_err(|error| {
+                    let message = error.to_string();
+                    *captured_error.lock() = Some(error);
+                    RuntimeJobFailure::new(DOMAIN_ERROR_SENTINEL, message)
+                })
+            });
+
+        match actor_result {
+            Ok(output) => Ok(output),
+            Err(BrainRuntimeError::SnapshotRead(failure))
+                if failure.code == DOMAIN_ERROR_SENTINEL =>
+            {
+                Err(original_error.lock().take().unwrap_or_else(|| {
+                    M1ndError::PersistenceFailed(
+                        "brain actor rolled back a domain error but lost its transport value"
+                            .to_string(),
+                    )
+                }))
+            }
+            Err(error) => Err(brain_runtime_m1nd_error(error)),
+        }
+    }
+
+    /// Execute one mutation on the selected actor and return the exact
+    /// checkpoint ACK produced by that same actor turn.
+    pub(crate) fn execute_target_runtime_with_checkpoint_ack<R, Execute>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        execute: Execute,
+    ) -> M1ndResult<(R, CheckpointAckV1)>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> Result<R, RuntimeJobFailure> + Send + 'static,
+    {
+        let _admission = self.enter_lifecycle()?;
+        self.runtime_for_target(target, selected_project_root, bound)?
+            .try_execute_with_checkpoint_ack(execute)
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    /// Deterministic identity of the bound/default actor for a concrete target.
+    /// Kept beside `runtime_for_target` so durable receipts bind the same identity
+    /// the registry will actually start.
+    pub(crate) fn bound_brain_id_for_target(
+        &self,
+        target: Arc<BrainSessionCell>,
+    ) -> M1ndResult<String> {
+        let _admission = self.enter_lifecycle()?;
+        self.runtime_for_target(target, None, true)
+            .map(|runtime| runtime.brain_id().to_string())
+    }
+
+    /// Actor-safe bound-owner coverage predicate. The caller supplies the
+    /// owner's configured session only as an identity handle; no SessionState
+    /// guard or interior capability crosses this API.
+    pub(crate) fn bound_covers_root(
+        &self,
+        target: Arc<BrainSessionCell>,
+        root: &str,
+    ) -> M1ndResult<bool> {
+        let _admission = self.enter_lifecycle()?;
+        let canonical = Self::canonical_key(root);
+        self.runtime_for_target(target, None, true)?
+            .try_read_snapshot(move |state| {
+                Ok::<_, RuntimeJobFailure>(state.covers_root(&canonical))
+            })
+            .map(|snapshot| snapshot.value)
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    pub(crate) fn bound_actor_root_for_target(
+        &self,
+        target: Arc<BrainSessionCell>,
+    ) -> M1ndResult<String> {
+        let _admission = self.enter_lifecycle()?;
+        self.runtime_for_target(target, None, true)?
+            .try_read_snapshot(|state| {
+                state
+                    .workspace_root
+                    .as_deref()
+                    .or_else(|| state.ingest_roots.first().map(String::as_str))
+                    .map(Self::canonical_key)
+                    .ok_or_else(|| {
+                        RuntimeJobFailure::new(
+                            "external_mutation_actor_root_missing",
+                            "bound actor has no canonical workspace or ingest root",
+                        )
+                    })
+            })
+            .map(|snapshot| snapshot.value)
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    /// Non-hydrating health of the already-started bound actor. This never
+    /// enters the actor queue and never locks SessionState; `Ok(None)` means the
+    /// bound actor has not been needed yet.
+    pub(crate) fn bound_runtime_health(&self) -> M1ndResult<Option<BrainRuntimeHealthV1>> {
+        let Some(opened) = self.bound_runtime.get() else {
+            return Ok(None);
+        };
+        match opened {
+            Ok(bound) => Ok(Some(bound.runtime.health_snapshot())),
+            Err(error) => Err(M1ndError::PersistenceFailed(format!(
+                "bound brain actor refused: {error}"
+            ))),
+        }
+    }
+
+    /// Resolve the exact actor target used by external source mutations. Hosted
+    /// project brains take precedence, matching live MCP selection; otherwise
+    /// the selector must be covered by the bound owner. Unknown selectors and
+    /// Arc/actor identity mismatches remain hard failures.
+    pub(crate) fn resolve_external_mutation_actor(
+        &self,
+        bound_target: Arc<BrainSessionCell>,
+        selector: &str,
+    ) -> M1ndResult<ExternalMutationActorBindingV1> {
+        let _admission = self.enter_lifecycle()?;
+        let canonical = Self::canonical_key(selector);
+        if let Some(brain) = self.try_resolve(&canonical)? {
+            let runtime =
+                self.runtime_for_target(Arc::clone(&brain), Some(canonical.as_str()), false)?;
+            return Ok(ExternalMutationActorBindingV1 {
+                brain,
+                actor_root: canonical.clone(),
+                selected_project_root: Some(canonical),
+                bound: false,
+                brain_id: runtime.brain_id().to_string(),
+            });
+        }
+        if !self.bound_covers_root(Arc::clone(&bound_target), &canonical)? {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "external mutation selector '{canonical}' is neither hosted nor covered by the bound owner"
+            )));
+        }
+        let actor_root = self.bound_actor_root_for_target(Arc::clone(&bound_target))?;
+        let runtime = self.runtime_for_target(Arc::clone(&bound_target), None, true)?;
+        Ok(ExternalMutationActorBindingV1 {
+            brain: bound_target,
+            actor_root,
+            selected_project_root: None,
+            bound: true,
+            brain_id: runtime.brain_id().to_string(),
+        })
+    }
+
+    /// Resolve the actor selected by one transport context while keeping the
+    /// route/root selector separate from the actor's durable identity. A fresh
+    /// MCP session legitimately has no sticky project-root selector; in that
+    /// case the already-hosted bound owner is the only admissible actor.
+    /// Related hosted roots are accepted only when the roster proves exactly
+    /// one covering brain, matching the ordinary routing seam's abstain law.
+    pub(crate) fn resolve_external_mutation_transport_actor(
+        &self,
+        bound_target: Arc<BrainSessionCell>,
+        route_selector: Option<&str>,
+    ) -> M1ndResult<ExternalMutationActorBindingV1> {
+        let Some(selector) = route_selector else {
+            let _admission = self.enter_lifecycle()?;
+            let runtime = self.runtime_for_target(Arc::clone(&bound_target), None, true)?;
+            let actor_root = self.bound_actor_root_for_target(Arc::clone(&bound_target))?;
+            return Ok(ExternalMutationActorBindingV1 {
+                brain: bound_target,
+                actor_root,
+                selected_project_root: None,
+                bound: true,
+                brain_id: runtime.brain_id().to_string(),
+            });
+        };
+
+        let canonical = Self::canonical_key(selector);
+        if self.try_resolve(&canonical)?.is_some()
+            || self.bound_covers_root(Arc::clone(&bound_target), &canonical)?
+        {
+            return self.resolve_external_mutation_actor(bound_target, &canonical);
+        }
+        let covering = self.covering_brain(&canonical).ok_or_else(|| {
+            M1ndError::PersistenceFailed(format!(
+                "external mutation route selector '{canonical}' does not identify one existing hosted or bound brain"
+            ))
+        })?;
+        self.resolve_external_mutation_actor(bound_target, &covering)
+    }
+
+    /// Resolve a durable journal/authority brain id back to its exact actor.
+    /// Root selectors are deliberately not accepted on this seam.
+    pub(crate) fn resolve_external_mutation_actor_by_id(
+        &self,
+        bound_target: Arc<BrainSessionCell>,
+        actor_brain_id: &str,
+    ) -> M1ndResult<ExternalMutationActorBindingV1> {
+        let bound_id = self.bound_brain_id_for_target(Arc::clone(&bound_target))?;
+        if actor_brain_id == bound_id {
+            return self.resolve_external_mutation_transport_actor(bound_target, None);
+        }
+
+        let matching_roots = self
+            .existing_brain_roots()
+            .into_iter()
+            .filter(|root| self.brain_id_for(root) == actor_brain_id)
+            .collect::<Vec<_>>();
+        if matching_roots.len() != 1 {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "external mutation actor id '{actor_brain_id}' resolved to {} hosted roots",
+                matching_roots.len()
+            )));
+        }
+        self.resolve_external_mutation_actor(bound_target, &matching_roots[0])
+    }
+
+    /// Submit blocking preparation to the durable global job registry. Only the
+    /// actor-controlled commit closure receives the proposal; stale OCC results
+    /// become a FAILED terminal job and never invoke `apply`.
+    pub(crate) fn submit_runtime_job<S, P, Read, Prepare, Apply>(
+        &self,
+        project_root: &str,
+        request: RuntimeJobRequestV1,
+        read: Read,
+        prepare: Prepare,
+        apply: Apply,
+    ) -> M1ndResult<String>
+    where
+        S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+        P: Send + 'static,
+        Read: FnOnce(&SessionState) -> Result<S, RuntimeJobFailure> + Send + 'static,
+        Prepare: FnOnce(RuntimeJobContext, BrainReadSnapshot<S>) -> Result<P, RuntimeJobFailure>
+            + Send
+            + 'static,
+        Apply: FnOnce(&mut SessionState, P) -> Result<RuntimeJobSuccess, RuntimeJobFailure>
+            + Send
+            + 'static,
+    {
+        let _admission = self.enter_lifecycle()?;
+        let key = Self::canonical_key(project_root);
+        if self.try_resolve(&key)?.is_none() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "project brain '{key}' is not registered"
+            )));
+        }
+        let runtime = self.runtime_for_key(&key)?;
+        let snapshot = runtime
+            .try_read_snapshot(read)
+            .map_err(brain_runtime_m1nd_error)?;
+        if request.binding.brain_id != snapshot.brain_id {
+            return Err(brain_runtime_m1nd_error(
+                BrainRuntimeError::BrainBindingMismatch {
+                    expected: snapshot.brain_id,
+                    observed: request.binding.brain_id,
+                },
+            ));
+        }
+        if request.snapshot_revision != snapshot.version.revision {
+            return Err(brain_runtime_m1nd_error(
+                BrainRuntimeError::SnapshotRevisionMismatch {
+                    expected: snapshot.version.revision,
+                    observed: request.snapshot_revision,
+                },
+            ));
+        }
+        let expected = snapshot.version;
+        let commit_runtime = runtime.clone();
+        self.runtime_job_registry()?
+            .submit_prepared(
+                request,
+                move |context| prepare(context, snapshot),
+                move |proposal| {
+                    commit_runtime
+                        .commit(expected, proposal, apply)
+                        .map_err(BrainRuntimeError::into_job_failure)
+                },
+            )
+            .map_err(runtime_job_m1nd_error)
+    }
+
+    /// Clone of the durable registry for status/cancel/wait surfaces. Opening is
+    /// lazy and single-writer; failure is sticky and fail-closed.
+    pub(crate) fn runtime_job_registry(&self) -> M1ndResult<RuntimeJobRegistry> {
+        let _admission = self.enter_lifecycle()?;
+        let opened = self.runtime_jobs.get_or_init(|| {
+            RuntimeJobRegistry::open_with_max_in_flight(
+                self.base_dir.join("runtime-jobs").join("jobs.jsonl"),
+                self.max_runtime_jobs,
+            )
+            .map_err(|error| error.to_string())
+        });
+        match opened {
+            Ok(registry) => Ok(registry.clone()),
+            Err(error) => Err(M1ndError::PersistenceFailed(format!(
+                "runtime job registry refused: {error}"
+            ))),
+        }
+    }
+
+    /// Recovery is never silent: exact CURRENT and degraded fallback both leave
+    /// a typed authority/fallback receipt on the warm brain.
+    pub fn recovery_receipt(&self, project_root: &str) -> Option<BrainRecoveryV1> {
+        let key = Self::canonical_key(project_root);
+        self.brains
+            .lock()
+            .get(&key)
+            .and_then(|warm| warm.recovery.as_ref().map(|item| item.receipt.clone()))
+    }
+
+    /// Read one already-started actor's health without entering its bounded
+    /// queue or locking SessionState. Health never hydrates a dormant brain.
+    pub fn runtime_health(&self, project_root: &str) -> M1ndResult<BrainRuntimeHealthV1> {
+        let key = Self::canonical_key(project_root);
+        let runtime = self
+            .brains
+            .lock()
+            .get(&key)
+            .and_then(|warm| warm.runtime.get())
+            .and_then(|opened| opened.as_ref().ok())
+            .cloned()
+            .ok_or_else(|| {
+                M1ndError::PersistenceFailed(format!(
+                    "project brain '{key}' has no started runtime actor"
+                ))
+            })?;
+        Ok(runtime.health_snapshot())
+    }
+
+    /// Owner-wide, read-only health of actors that are already live. The map
+    /// lock is released before copying each actor snapshot, and dormant brains
+    /// are deliberately absent rather than hydrated as a side effect.
+    pub fn runtime_health_snapshots(&self) -> Vec<BrainRuntimeHealthV1> {
+        let runtimes = self
+            .brains
+            .lock()
+            .values()
+            .filter_map(|warm| warm.runtime.get())
+            .filter_map(|opened| opened.as_ref().ok())
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut snapshots = runtimes
+            .into_iter()
+            .map(|runtime| runtime.health_snapshot())
+            .collect::<Vec<_>>();
+        if let Some(Ok(bound)) = self.bound_runtime.get() {
+            snapshots.push(bound.runtime.health_snapshot());
+        }
+        snapshots.sort_by(|left, right| left.brain_id.cmp(&right.brain_id));
+        snapshots
+    }
+
+    /// Explicit recovery seam for a transient persistence failure. It retries
+    /// the full persist + checkpoint + CURRENT confirmation; no write admission
+    /// is restored until the actor receives a real checkpoint ACK.
+    pub(crate) fn retry_runtime_checkpoint(
+        &self,
+        project_root: &str,
+    ) -> M1ndResult<CheckpointAckV1> {
+        let _admission = self.enter_lifecycle()?;
+        let key = Self::canonical_key(project_root);
+        if self.try_resolve(&key)?.is_none() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "project brain '{key}' is not registered"
+            )));
+        }
+        self.checkpoint_brain(&key)
+    }
+
+    /// Graceful owner shutdown: stop accepting, cancel/join global workers, then
+    /// pause *all* actors, checkpoint+ACK *all* actors, and only then stop any of
+    /// them. This two-phase fence prevents an early actor from relinquishing its
+    /// lease while a later actor discovers a checkpoint failure. The returned
+    /// ACKs are the exact eviction/restart proof, not a log-only claim.
+    pub(crate) fn shutdown(&self, grace: Duration) -> M1ndResult<Vec<CheckpointAckV1>> {
+        let started = Instant::now();
+        let deadline = started.checked_add(grace).ok_or_else(|| {
+            M1ndError::PersistenceFailed("owner shutdown deadline overflowed".to_string())
+        })?;
+
+        // Terminal lifecycle contract: one shutdown attempt closes admission
+        // forever. Failures remain fail-closed; actors are never resumed behind
+        // a registry that can no longer route recovery traffic.
+        {
+            let mut lifecycle = self.lifecycle.lock();
+            if lifecycle.shutdown_started {
+                return Err(M1ndError::PersistenceFailed(
+                    "project brain registry shutdown is terminal and was already attempted"
+                        .to_string(),
+                ));
+            }
+            lifecycle.shutdown_started = true;
+            lifecycle.accepting = false;
+            if let Some(opened) = self.runtime_jobs.get() {
+                let registry = opened.as_ref().map_err(|error| {
+                    M1ndError::PersistenceFailed(format!(
+                        "runtime job registry refused at lifecycle fence: {error}"
+                    ))
+                })?;
+                registry.close_admission().map_err(runtime_job_m1nd_error)?;
+            }
+            while lifecycle.active > 0 {
+                let remaining = remaining_shutdown_time(deadline, "lifecycle admission drain")?;
+                let wait = self.lifecycle_drained.wait_for(&mut lifecycle, remaining);
+                if wait.timed_out() && lifecycle.active > 0 {
+                    return Err(M1ndError::PersistenceFailed(format!(
+                        "owner shutdown timed out with {} admitted operation(s) still active",
+                        lifecycle.active
+                    )));
+                }
+            }
+        }
+
+        // Every hydration entrypoint is covered by the admission guard above;
+        // after the drain this write lock is uncontended and freezes the warm
+        // map topology for the remaining terminal phases.
+        let _hydration_fence = self.hydration_admission.write();
+        let mut errors = Vec::new();
+        if let Some(opened) = self.runtime_jobs.get() {
+            match opened {
+                Ok(registry) => {
+                    let remaining = remaining_shutdown_time(deadline, "runtime job shutdown")?;
+                    if let Err(error) = registry.shutdown(remaining) {
+                        errors.push(format!("runtime jobs: {error}"));
+                    }
+                }
+                Err(error) => errors.push(format!(
+                    "runtime job registry refused before shutdown: {error}"
+                )),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "owner shutdown refused before actor initialization: {}",
+                errors.join("; ")
+            )));
+        }
+
+        let mut warm = self
+            .brains
+            .lock()
+            .iter()
+            .map(|(key, warm)| {
+                (
+                    key.clone(),
+                    warm.brain.clone(),
+                    warm.runtime.clone(),
+                    warm.recovery.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        warm.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut hosted = Vec::with_capacity(warm.len());
+        for (key, brain, runtime_cell, recovery) in warm {
+            remaining_shutdown_time(deadline, "hosted actor initialization")?;
+            let runtime = match self.runtime_for_parts(&key, brain.clone(), &runtime_cell, recovery)
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    errors.push(format!("hosted brain '{key}' runtime: {error}"));
+                    continue;
+                }
+            };
+            hosted.push((key, brain, runtime_cell, runtime));
+        }
+        let bound = match self.bound_runtime.get() {
+            Some(Ok(bound)) => Some(Arc::clone(&bound.runtime)),
+            Some(Err(error)) => {
+                errors.push(format!("bound brain actor refused: {error}"));
+                None
+            }
+            None => None,
+        };
+        if !errors.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "owner shutdown refused before actor checkpoint (0 checkpoint ACKs): {}",
+                errors.join("; ")
+            )));
+        }
+
+        let mut actors = hosted
+            .iter()
+            .map(|(key, _, _, runtime)| (format!("hosted brain '{key}'"), Arc::clone(runtime)))
+            .chain(
+                bound
+                    .iter()
+                    .map(|runtime| ("bound brain".to_string(), Arc::clone(runtime))),
+            )
+            .collect::<Vec<_>>();
+        actors.sort_by(|left, right| left.1.brain_id().cmp(right.1.brain_id()));
+
+        // Phase 1a: close admission everywhere before any checkpoint starts.
+        for (label, runtime) in &actors {
+            match runtime.pause() {
+                Ok(()) => {}
+                Err(error) => errors.push(format!("{label} pause: {error}")),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "owner shutdown refused before actor checkpoint (0 checkpoint ACKs): {}",
+                errors.join("; ")
+            )));
+        }
+
+        // Phase 1b: every actor must produce a durable ACK. A single failure is
+        // terminal and leaves every actor paused/fenced; a timed-out helper may
+        // still finish, but can never race newly admitted work or lease release.
+        let mut acks = Vec::with_capacity(actors.len());
+        for (label, runtime) in &actors {
+            match checkpoint_actor_before_deadline(Arc::clone(runtime), deadline) {
+                Ok(ack) => acks.push((runtime.brain_id().to_string(), ack)),
+                Err(error) => errors.push(format!("{label} checkpoint: {error}")),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "owner shutdown checkpoint phase incomplete ({} checkpoint ACKs): {}",
+                acks.len(),
+                errors.join("; ")
+            )));
+        }
+
+        // Phase 2: all postimages are now durable, so terminal actor release is
+        // allowed. Stop failures remain terminal/fenced and never resume.
+        for (key, brain, runtime_cell, runtime) in hosted {
+            match stop_paused_actor_before_deadline(Arc::clone(&runtime), deadline) {
+                Ok(()) => {
+                    if let Err(error) = brain.release_hosted_instance_after_actor_stop() {
+                        errors.push(format!(
+                            "hosted brain '{key}' instance release after actor stop: {error}"
+                        ));
+                        continue;
+                    }
+                    // Remove only the exact brain stopped above; a replacement
+                    // inserted by a racer remains authoritative.
+                    let removed = {
+                        let mut brains = self.brains.lock();
+                        let exact = brains
+                            .get(&key)
+                            .is_some_and(|warm| Arc::ptr_eq(&warm.brain, &brain));
+                        exact.then(|| brains.remove(&key)).flatten()
+                    };
+                    drop(runtime);
+                    drop(runtime_cell);
+                    drop(brain);
+                    drop(removed);
+                }
+                Err(error) => {
+                    errors.push(format!("hosted brain '{key}' stop: {error}"));
+                }
+            }
+        }
+        if let Some(runtime) = bound {
+            if let Err(error) = stop_paused_actor_before_deadline(Arc::clone(&runtime), deadline) {
+                errors.push(format!("bound brain stop: {error}"));
+            }
+        }
+        if !errors.is_empty() {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "owner shutdown stop phase incomplete ({} checkpoint ACKs): {}",
+                acks.len(),
+                errors.join("; ")
+            )));
+        }
+        acks.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(acks.into_iter().map(|(_, ack)| ack).collect())
+    }
+
+    fn enter_lifecycle(&self) -> M1ndResult<RegistryAdmissionGuard<'_>> {
+        let mut lifecycle = self.lifecycle.lock();
+        if !lifecycle.accepting {
+            return Err(M1ndError::PersistenceFailed(
+                "project brain registry is shutting down".to_string(),
+            ));
+        }
+        lifecycle.active = lifecycle.active.checked_add(1).ok_or_else(|| {
+            M1ndError::PersistenceFailed(
+                "project brain registry admission counter overflowed".to_string(),
+            )
+        })?;
+        Ok(RegistryAdmissionGuard { registry: self })
+    }
+
+    fn runtime_for_key(&self, key: &str) -> M1ndResult<Arc<BrainActorHandle>> {
+        let (brain, runtime, recovery) = self
+            .brains
+            .lock()
+            .get(key)
+            .map(|warm| {
+                (
+                    warm.brain.clone(),
+                    warm.runtime.clone(),
+                    warm.recovery.clone(),
+                )
+            })
+            .ok_or_else(|| {
+                M1ndError::PersistenceFailed(format!("project brain '{key}' is not warm"))
+            })?;
+        self.runtime_for_parts(key, brain, &runtime, recovery)
+    }
+
+    fn runtime_for_target(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+    ) -> M1ndResult<Arc<BrainActorHandle>> {
+        if bound {
+            let opened = self.bound_runtime.get_or_init(|| {
+                // This is the one explicit pre-actor compatibility guard.
+                // `lock_mut_before_actor()` double-checks the ownership fence,
+                // so a foreign/duplicate actor cannot be adopted silently by
+                // this registry. No guard survives actor startup.
+                let (runtime_root, identity) = {
+                    let session = target
+                        .lock_mut_before_actor()
+                        .map_err(|error| error.to_string())?;
+                    let identity = session
+                        .workspace_root
+                        .clone()
+                        .or_else(|| session.ingest_roots.first().cloned())
+                        .unwrap_or_else(|| session.runtime_root.to_string_lossy().into_owned());
+                    (session.runtime_root.clone(), identity)
+                };
+                BrainActorHandle::start(
+                    project_brain_id(&format!("bound:{identity}")),
+                    target.clone(),
+                    runtime_root.join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
+                    self.checkpoint_authority.clone(),
+                    self.actor_queue_capacity,
+                    None,
+                )
+                .map(|runtime| BoundRuntime {
+                    session: target.clone(),
+                    runtime,
+                })
+                .map_err(|error| error.to_string())
+            });
+            return match opened {
+                Ok(bound_runtime) if Arc::ptr_eq(&bound_runtime.session, &target) => {
+                    Ok(bound_runtime.runtime.clone())
+                }
+                Ok(_) => Err(M1ndError::PersistenceFailed(
+                    "bound brain actor target changed after initialization".to_string(),
+                )),
+                Err(error) => Err(M1ndError::PersistenceFailed(format!(
+                    "bound brain actor refused: {error}"
+                ))),
+            };
+        }
+
+        let (key, registered) = {
+            let brains = self.brains.lock();
+            if let Some(root) = selected_project_root {
+                let key = Self::canonical_key(root);
+                let registered =
+                    brains
+                        .get(&key)
+                        .map(|warm| warm.brain.clone())
+                        .ok_or_else(|| {
+                            M1ndError::PersistenceFailed(format!(
+                                "project brain '{key}' is not warm"
+                            ))
+                        })?;
+                (key, registered)
+            } else {
+                brains
+                    .iter()
+                    .find(|(_, warm)| Arc::ptr_eq(&warm.brain, &target))
+                    .map(|(key, warm)| (key.clone(), warm.brain.clone()))
+                    .ok_or_else(|| {
+                        M1ndError::PersistenceFailed(
+                            "hosted brain dispatch target is not registered".to_string(),
+                        )
+                    })?
+            }
+        };
+        if !Arc::ptr_eq(&registered, &target) {
+            return Err(M1ndError::PersistenceFailed(format!(
+                "project brain '{key}' target does not match its actor binding"
+            )));
+        }
+        self.runtime_for_key(&key)
+    }
+
+    fn runtime_for_parts(
+        &self,
+        key: &str,
+        brain: Arc<BrainSessionCell>,
+        runtime: &Arc<OnceLock<Result<Arc<BrainActorHandle>, String>>>,
+        recovery: Option<BrainBootRecovery>,
+    ) -> M1ndResult<Arc<BrainActorHandle>> {
+        let opened = runtime.get_or_init(|| {
+            BrainActorHandle::start(
+                project_brain_id(key),
+                brain,
+                self.store_dir_for(key)
+                    .join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
+                self.checkpoint_authority.clone(),
+                self.actor_queue_capacity,
+                recovery,
+            )
+            .map_err(|error| error.to_string())
+        });
+        match opened {
+            Ok(runtime) => Ok(runtime.clone()),
+            Err(error) => Err(M1ndError::PersistenceFailed(format!(
+                "project brain '{key}' actor refused: {error}"
+            ))),
+        }
+    }
+
+    fn checkpoint_brain(&self, key: &str) -> M1ndResult<CheckpointAckV1> {
+        self.runtime_for_key(key)?
+            .checkpoint_and_ack()
+            .map_err(brain_runtime_m1nd_error)
+    }
+
+    fn brain_has_active_jobs(&self, brain_id: &str) -> M1ndResult<bool> {
+        let Some(opened) = self.runtime_jobs.get() else {
+            return Ok(false);
+        };
+        let registry = opened.as_ref().map_err(|error| {
+            M1ndError::PersistenceFailed(format!("runtime job registry refused: {error}"))
+        })?;
+        Ok(registry
+            .list()
+            .map_err(runtime_job_m1nd_error)?
+            .iter()
+            .any(|job| job.binding.brain_id == brain_id && !job.state.is_terminal()))
     }
 
     /// How many project brains are hydrated in the map RIGHT NOW (diagnostics /
@@ -180,28 +1177,69 @@ impl ProjectBrainRegistry {
 
     /// Resolve the live brain for `caller_root`, warm-booting it from its store
     /// if the owner restarted since it was created (#230 semantics per store).
-    /// `None` = this root has no project brain (the caller belongs to the bound
-    /// graph or to reception).
-    pub fn resolve(&self, caller_root: &str) -> Option<Arc<Mutex<SessionState>>> {
+    /// `Ok(None)` = this root has no project brain (the caller belongs to the
+    /// bound graph or to reception). Checkpoint/eviction/boot failures remain
+    /// errors: callers must not turn a durability refusal into an apparent
+    /// unknown brain and silently route a mutation to another store.
+    pub(crate) fn try_resolve(
+        &self,
+        caller_root: &str,
+    ) -> M1ndResult<Option<Arc<BrainSessionCell>>> {
+        let _admission = self.enter_lifecycle()?;
+        let _hydration_admission = self.hydration_admission.read();
         let key = Self::canonical_key(caller_root);
-        {
-            let mut map = self.brains.lock();
-            if let Some(warm) = map.get_mut(&key) {
-                // Touch: this is now the most-recently-used brain, so it is the
-                // LAST the eviction gate would drop.
-                warm.last_used = self.next_tick();
-                return Some(warm.brain.clone());
-            }
+        if let Some(brain) = self.touch_warm_brain(&key) {
+            return Ok(Some(brain));
         }
-        if !self.manifest_matches(&key) {
-            return None;
+
+        let hydration_lock = self.hydration_lock(&key);
+        let _hydration = hydration_lock.lock();
+        self.try_resolve_locked(&key)
+    }
+
+    /// Resolve while the caller owns this canonical root's hydration gate.
+    /// The map is rechecked after gate acquisition so the loser of a concurrent
+    /// resolve adopts the incumbent without constructing a second lease owner.
+    fn try_resolve_locked(&self, key: &str) -> M1ndResult<Option<Arc<BrainSessionCell>>> {
+        if let Some(brain) = self.touch_warm_brain(key) {
+            return Ok(Some(brain));
+        }
+        if !self.manifest_matches(key) {
+            return Ok(None);
         }
         // Dormant store → warm-boot OUTSIDE the map lock (engine build is slow).
-        let state = self.boot_store(&key).ok()?;
-        let built = Arc::new(Mutex::new(state));
+        let (state, recovery) = self.boot_store_with_recovery(key)?;
+        let built = Arc::new(BrainSessionCell::new(state));
         // Insert through the eviction gate: a warm-boot that grows the map past
         // the cap persists-then-drops the LRU victim before this brain lands.
-        Some(self.insert_with_eviction(key, built))
+        self.insert_with_eviction_recovery(key.to_string(), built, recovery)
+            .map(Some)
+    }
+
+    fn touch_warm_brain(&self, key: &str) -> Option<Arc<BrainSessionCell>> {
+        let mut map = self.brains.lock();
+        let warm = map.get_mut(key)?;
+        // This is now the most-recently-used brain, so it is the LAST the
+        // eviction gate may drop.
+        warm.last_used = self.next_tick();
+        Some(warm.brain.clone())
+    }
+
+    fn hydration_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.hydration_locks.lock();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(existing) = locks.get(key).and_then(Weak::upgrade) {
+            return existing;
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(key.to_string(), Arc::downgrade(&lock));
+        lock
+    }
+
+    /// Compatibility-only lossy probe. New routing and mutation paths must use
+    /// [`Self::try_resolve`] so persistence failures remain fail-closed.
+    pub(crate) fn resolve(&self, caller_root: &str) -> Option<Arc<BrainSessionCell>> {
+        self.try_resolve(caller_root).ok().flatten()
     }
 
     /// Boot (fresh or warm) a store's SessionState through the SAME path the
@@ -209,8 +1247,22 @@ impl ProjectBrainRegistry {
     /// when present, else starts an empty graph; plasticity and sidecars are
     /// anchored on the store dir (its `runtime_root`).
     fn boot_store(&self, key: &str) -> M1ndResult<SessionState> {
+        self.boot_store_with_recovery(key).map(|(state, _)| state)
+    }
+
+    /// Restore an explicitly selected checkpoint before the canonical
+    /// `McpServer::new` warm-boot path reads the store. Missing CURRENT remains a
+    /// legacy/fresh boot; corrupt/unusable CURRENT fails closed.
+    fn boot_store_with_recovery(
+        &self,
+        key: &str,
+    ) -> M1ndResult<(SessionState, Option<BrainBootRecovery>)> {
         let store = self.store_dir_for(key);
         std::fs::create_dir_all(&store)?;
+        let brain_id = project_brain_id(key);
+        let recovery =
+            recover_checkpoint_for_boot(&store, &brain_id, self.checkpoint_authority.as_ref())
+                .map_err(brain_runtime_m1nd_error)?;
         let config = crate::server::McpConfig {
             graph_source: store.join("graph_snapshot.json"),
             plasticity_state: store.join("plasticity_state.json"),
@@ -232,8 +1284,8 @@ impl ProjectBrainRegistry {
         // Stamp the registry entry so the shared phonebook can tell this brain
         // from the bound dev graph (best-effort: a failed stamp never blocks the
         // brain — the entry just stays kind-less like a legacy one).
-        let _ = state.instance.set_brain_kind("project");
-        Ok(state)
+        state.instance.set_brain_kind("project")?;
+        Ok((state, recovery))
     }
 
     /// One-call bootstrap: create (or warm-resolve) the brain for
@@ -244,11 +1296,13 @@ impl ProjectBrainRegistry {
     /// `ingest_args` are the caller's original `ingest` arguments; `path` is
     /// forced to the project root and `project_root` itself is stripped (it is a
     /// routing directive, not an adapter input).
-    pub fn bootstrap(
+    pub(crate) fn bootstrap(
         &self,
         project_root: &str,
         ingest_args: &serde_json::Value,
-    ) -> M1ndResult<(Arc<Mutex<SessionState>>, serde_json::Value, bool)> {
+    ) -> M1ndResult<(Arc<BrainSessionCell>, serde_json::Value, bool)> {
+        let _admission = self.enter_lifecycle()?;
+        let _hydration_admission = self.hydration_admission.read();
         let key = Self::canonical_key(project_root);
         if !Path::new(&key).is_dir() {
             return Err(M1ndError::InvalidParams {
@@ -260,45 +1314,50 @@ impl ProjectBrainRegistry {
             });
         }
 
-        let existing = self.resolve(&key);
-        let reused = existing.is_some();
-        let brain = match existing {
-            Some(brain) => brain,
-            None => {
-                // OVERLAP GUARD (field friction 2026-07-10: two twin brains for one
-                // project — a session opened in a repo's PARENT folder minted a second
-                // brain that re-ingested the repo from above; a git worktree of a
-                // brained repo grew its own orphan brain). BEFORE minting a brand-new
-                // brain, refuse a root that OVERLAPS an existing project brain — a
-                // child/parent directory of one, or a git worktree of a repo that
-                // already has a brain — unless the caller explicitly opts in. One repo
-                // must not grow two brains by accident: that doubles auto-ingest cost
-                // and fragments memories across stores. The escape hatch is a routing
-                // directive like `project_root` (stripped before the inner ingest,
-                // below): `allow_overlap:true` skips the guard and mints anyway — the
-                // exact same root stays warm-reuse, never a refusal (that is the `Some`
-                // arm above, which the guard never reaches).
-                let allow_overlap = ingest_args
-                    .get("allow_overlap")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if !allow_overlap {
-                    let existing_roots = self.existing_brain_roots();
-                    match detect_root_overlap(&key, &existing_roots) {
-                        RootOverlap::None => {}
-                        overlap => return Err(overlap_refusal(&key, &overlap)),
+        let hydration_lock = self.hydration_lock(&key);
+        let (brain, reused) = {
+            let _hydration = hydration_lock.lock();
+            let existing = self.try_resolve_locked(&key)?;
+            let reused = existing.is_some();
+            let brain = match existing {
+                Some(brain) => brain,
+                None => {
+                    // OVERLAP GUARD (field friction 2026-07-10: two twin brains for one
+                    // project — a session opened in a repo's PARENT folder minted a second
+                    // brain that re-ingested the repo from above; a git worktree of a
+                    // brained repo grew its own orphan brain). BEFORE minting a brand-new
+                    // brain, refuse a root that OVERLAPS an existing project brain — a
+                    // child/parent directory of one, or a git worktree of a repo that
+                    // already has a brain — unless the caller explicitly opts in. One repo
+                    // must not grow two brains by accident: that doubles auto-ingest cost
+                    // and fragments memories across stores. The escape hatch is a routing
+                    // directive like `project_root` (stripped before the inner ingest,
+                    // below): `allow_overlap:true` skips the guard and mints anyway — the
+                    // exact same root stays warm-reuse, never a refusal (that is the `Some`
+                    // arm above, which the guard never reaches).
+                    let allow_overlap = ingest_args
+                        .get("allow_overlap")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if !allow_overlap {
+                        let existing_roots = self.existing_brain_roots();
+                        match detect_root_overlap(&key, &existing_roots) {
+                            RootOverlap::None => {}
+                            overlap => return Err(overlap_refusal(&key, &overlap)),
+                        }
                     }
+                    let (state, recovery) = self.boot_store_with_recovery(&key)?;
+                    // Birth record for warm-boots (inert data only). Counts stamped
+                    // after ingest below so a DORMANT store still reports its size.
+                    self.write_manifest(&key, None, None)?;
+                    let built = Arc::new(BrainSessionCell::new(state));
+                    // Through the eviction gate: bootstrapping brain #cap+1 persists
+                    // then drops the LRU victim before this new brain lands, so the
+                    // map never exceeds the cap (§C9.1).
+                    self.insert_with_eviction_recovery(key.clone(), built, recovery)?
                 }
-                let state = self.boot_store(&key)?;
-                // Birth record for warm-boots (inert data only). Counts stamped
-                // after ingest below so a DORMANT store still reports its size.
-                self.write_manifest(&key, None, None)?;
-                let built = Arc::new(Mutex::new(state));
-                // Through the eviction gate: bootstrapping brain #cap+1 persists
-                // then drops the LRU victim before this new brain lands, so the
-                // map never exceeds the cap (§C9.1).
-                self.insert_with_eviction(key.clone(), built)
-            }
+            };
+            (brain, reused)
         };
 
         // Ingest the caller's repo into ITS brain — the same dispatch path any
@@ -311,23 +1370,20 @@ impl ProjectBrainRegistry {
             map.remove("allow_overlap");
             map.insert("path".into(), serde_json::Value::String(key.clone()));
         }
-        let ingest_result = {
-            let mut state = brain.lock();
-            state.caller_root = Some(key.clone());
-            let result = crate::server::dispatch_tool(&mut state, "ingest", &args)?;
-            // Persist immediately so the brain warm-boots even if the owner dies
-            // before its auto-persist interval (#230 per-store durability).
-            let agent_id = args
-                .get("agent_id")
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::String("bootstrap".into()));
-            let _ = crate::server::dispatch_tool(
-                &mut state,
-                "persist",
-                &serde_json::json!({ "agent_id": agent_id, "action": "save" }),
-            );
-            result
-        };
+        let actor_args = args.clone();
+        let actor_key = key.clone();
+        let ingest_result =
+            self.execute_target_m1nd(brain.clone(), Some(&key), false, true, move |state| {
+                let prior_caller_root = state.caller_root.replace(actor_key);
+                let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::server::dispatch_tool(state, "ingest", &actor_args)
+                }));
+                state.caller_root = prior_caller_root;
+                match dispatched {
+                    Ok(result) => result,
+                    Err(payload) => std::panic::resume_unwind(payload),
+                }
+            })?;
 
         // Stamp the ingested size into the manifest — the CHEAP source the Hall
         // reads for a dormant project brain's counts (parsing the multi-MB
@@ -338,6 +1394,12 @@ impl ProjectBrainRegistry {
         let node_count = ingest_result.get("node_count").and_then(|v| v.as_u64());
         let edge_count = ingest_result.get("edge_count").and_then(|v| v.as_u64());
         let _ = self.write_manifest(&key, node_count, edge_count);
+
+        // The bootstrap write is not considered durable until the actor returns
+        // an ACK bound to this brain/version. Failure is propagated; the warm
+        // brain remains present and its actor is poisoned rather than pretending
+        // the checkpoint landed.
+        self.checkpoint_brain(&key)?;
 
         Ok((brain, ingest_result, reused))
     }
@@ -350,59 +1412,139 @@ impl ProjectBrainRegistry {
     /// Concurrency: a racer may have inserted `key` while `built` was booting
     /// outside the lock (both call sites boot before calling here). First insert
     /// wins — we return the incumbent and let `built` drop unpersisted (its store
-    /// on disk is unchanged; nothing was mutated in it). Otherwise we evict down
-    /// to room, then insert `built` fresh.
+    /// on disk is unchanged; nothing was mutated in it). A victim remains in the
+    /// map until its persist succeeds and the registry proves that no request is
+    /// still holding it. A failed or concurrently-busy victim therefore rejects
+    /// the insertion instead of silently dropping newer in-memory state.
     fn insert_with_eviction(
         &self,
         key: String,
-        built: Arc<Mutex<SessionState>>,
-    ) -> Arc<Mutex<SessionState>> {
-        // Collect victims under the lock, but persist + drop them OUTSIDE it (a
-        // graph snapshot write is slow and must not stall other routed calls).
-        let victims: Vec<Arc<Mutex<SessionState>>>;
-        let resolved: Arc<Mutex<SessionState>>;
-        {
+        built: Arc<BrainSessionCell>,
+    ) -> M1ndResult<Arc<BrainSessionCell>> {
+        self.insert_with_eviction_recovery(key, built, None)
+    }
+
+    fn insert_with_eviction_recovery(
+        &self,
+        key: String,
+        built: Arc<BrainSessionCell>,
+        recovery: Option<BrainBootRecovery>,
+    ) -> M1ndResult<Arc<BrainSessionCell>> {
+        // Persist is intentionally outside the registry lock: graph snapshots can
+        // be large, and unrelated brain lookups must remain available. The map
+        // entry itself stays present until the post-persist compare-and-remove.
+        // A small bounded retry covers races without turning pressure into a spin.
+        let max_attempts = self.capacity.saturating_mul(2).max(2);
+        for _ in 0..max_attempts {
+            let (victim_key, victim, expected_last_used, runtime_cell, victim_recovery) = {
+                let mut map = self.brains.lock();
+                if let Some(warm) = map.get_mut(&key) {
+                    // Racer won — adopt the incumbent, touch it, discard `built`.
+                    warm.last_used = self.next_tick();
+                    return Ok(warm.brain.clone());
+                }
+                if map.len() < self.capacity {
+                    map.insert(
+                        key.clone(),
+                        WarmBrain {
+                            brain: built.clone(),
+                            last_used: self.next_tick(),
+                            runtime: Arc::new(OnceLock::new()),
+                            recovery: recovery.clone(),
+                        },
+                    );
+                    return Ok(built);
+                }
+                let (victim_key, warm) = map
+                    .iter()
+                    .min_by_key(|(_, warm)| warm.last_used)
+                    .expect("a full positive-capacity brain map has an LRU victim");
+                (
+                    victim_key.clone(),
+                    warm.brain.clone(),
+                    warm.last_used,
+                    warm.runtime.clone(),
+                    warm.recovery.clone(),
+                )
+            };
+
+            let runtime = self.runtime_for_parts(
+                &victim_key,
+                victim.clone(),
+                &runtime_cell,
+                victim_recovery,
+            )?;
+            // Freeze actor admission before checking active workers. A prepare
+            // that has not yet registered cannot later enqueue a commit; an
+            // already registered job makes this victim ineligible.
+            runtime.pause().map_err(brain_runtime_m1nd_error)?;
+            if self.brain_has_active_jobs(runtime.brain_id())? {
+                runtime.resume();
+                continue;
+            }
+            let eviction_ack = match runtime.checkpoint_while_paused() {
+                Ok(ack) => ack,
+                Err(error) => {
+                    runtime.resume();
+                    return Err(M1ndError::PersistenceFailed(format!(
+                        "project brain '{victim_key}' could not checkpoint before eviction: {error}"
+                    )));
+                }
+            };
+            eviction_ack
+                .eviction_permit(
+                    runtime.brain_id(),
+                    eviction_ack.epoch,
+                    eviction_ack.generation,
+                    eviction_ack.revision,
+                )
+                .map_err(|error| {
+                    runtime.resume();
+                    M1ndError::PersistenceFailed(format!(
+                        "project brain '{victim_key}' checkpoint ACK did not permit eviction: {error}"
+                    ))
+                })?;
+
             let mut map = self.brains.lock();
             if let Some(warm) = map.get_mut(&key) {
-                // Racer won — adopt the incumbent, touch it, discard `built`.
                 warm.last_used = self.next_tick();
-                return warm.brain.clone();
+                runtime.resume();
+                return Ok(warm.brain.clone());
             }
-            // Evict LRU victims until inserting one more stays within the cap.
-            let mut evicted = Vec::new();
-            while map.len() + 1 > self.capacity {
-                let Some(victim_key) = map
-                    .iter()
-                    .min_by_key(|(_, w)| w.last_used)
-                    .map(|(k, _)| k.clone())
-                else {
-                    break; // map empty (cap is ≥1, so this cannot loop forever)
-                };
-                if let Some(warm) = map.remove(&victim_key) {
-                    evicted.push(warm.brain);
-                }
+            let unchanged = map.get(&victim_key).is_some_and(|warm| {
+                Arc::ptr_eq(&warm.brain, &victim) && warm.last_used == expected_last_used
+            });
+            // Exactly four strong refs means only the map, this eviction
+            // attempt, the actor state, and its single-writer activation fence
+            // own the brain. Any additional ref is a caller; removing the map
+            // entry would leave that caller holding an orphan identity. The map
+            // lock prevents a new resolver from acquiring a ref between this
+            // count and compare-and-remove, while `pause` prevents actor work.
+            let idle = Arc::strong_count(&victim) == 4;
+            if unchanged && idle {
+                map.remove(&victim_key);
+                drop(map);
+                runtime
+                    .stop_while_paused()
+                    .map_err(brain_runtime_m1nd_error)?;
+                // The map entry, actor cell, and this attempt were the only
+                // owners admitted by the idle proof. Drop every one before a
+                // later same-root hydration can reacquire its exclusive lease.
+                drop(runtime);
+                drop(runtime_cell);
+                drop(victim);
+                // Re-enter the loop: another inserter may have filled the slot
+                // after removal, so insertion still goes through the same gate.
+                continue;
             }
-            let last_used = self.next_tick();
-            map.insert(
-                key,
-                WarmBrain {
-                    brain: built.clone(),
-                    last_used,
-                },
-            );
-            victims = evicted;
-            resolved = built;
+            drop(map);
+            runtime.resume();
         }
-        // PERSIST-ON-EVICT: flush each victim's graph to its store BEFORE the Arc
-        // drops, so a later routed call warm-boots it back identical (#230/#262).
-        // Best-effort per victim: a persist failure is logged, never fatal — the
-        // gate's job is to bound memory; the store keeps its last good snapshot.
-        for victim in victims {
-            if let Err(e) = victim.lock().persist() {
-                eprintln!("[m1nd] WARNING: project-brain persist-on-evict failed: {e}");
-            }
-        }
-        resolved
+
+        Err(M1ndError::PersistenceFailed(format!(
+            "project brain capacity {} is saturated by concurrently active brains; no checkpointed idle victim was evicted",
+            self.capacity
+        )))
     }
 
     /// Write (or refresh) the store manifest. Records the project root (identity),
@@ -473,10 +1615,15 @@ impl ProjectBrainRegistry {
     /// counts). Locks the map only briefly, then the brain's graph read-lock.
     pub fn warm_counts(&self, canonical_root: &str) -> Option<(u64, u64)> {
         let key = Self::canonical_key(canonical_root);
-        let brain = self.brains.lock().get(&key).map(|w| w.brain.clone())?;
-        let state = brain.lock();
-        let g = state.graph.read();
-        Some((g.num_nodes() as u64, g.num_edges() as u64))
+        self.brains.lock().get(&key)?;
+        self.runtime_for_key(&key)
+            .ok()?
+            .try_read_snapshot(|state| {
+                let graph = state.graph.read();
+                Ok((graph.num_nodes() as u64, graph.num_edges() as u64))
+            })
+            .ok()
+            .map(|snapshot| snapshot.value)
     }
 
     /// Live per-brain aliveness for a project brain that is warm in the map RIGHT
@@ -489,13 +1636,18 @@ impl ProjectBrainRegistry {
     /// map briefly, then the brain lock — never across an `.await`.
     pub fn warm_session_stats(&self, canonical_root: &str) -> Option<(u64, u64, bool)> {
         let key = Self::canonical_key(canonical_root);
-        let brain = self.brains.lock().get(&key).map(|w| w.brain.clone())?;
-        let state = brain.lock();
-        Some((
-            state.sessions.len() as u64,
-            state.queries_processed,
-            state.calibration_armed(),
-        ))
+        self.brains.lock().get(&key)?;
+        self.runtime_for_key(&key)
+            .ok()?
+            .try_read_snapshot(|state| {
+                Ok((
+                    state.sessions.len() as u64,
+                    state.queries_processed,
+                    state.calibration_armed(),
+                ))
+            })
+            .ok()
+            .map(|snapshot| snapshot.value)
     }
 
     /// The COLD roster: every project brain this owner has ON DISK, read only from
@@ -613,6 +1765,95 @@ fn normalized_path_for_compare(path: &Path) -> String {
         .replace('\\', "/")
         .trim_end_matches('/')
         .to_string()
+}
+
+fn brain_runtime_m1nd_error(error: BrainRuntimeError) -> M1ndError {
+    M1ndError::PersistenceFailed(format!("{}: {error}", error.code()))
+}
+
+fn remaining_shutdown_time(deadline: Instant, phase: &str) -> M1ndResult<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(M1ndError::PersistenceFailed(format!(
+            "owner shutdown deadline expired before {phase}"
+        )))
+    } else {
+        Ok(remaining)
+    }
+}
+
+fn checkpoint_actor_before_deadline(
+    runtime: Arc<BrainActorHandle>,
+    deadline: Instant,
+) -> Result<CheckpointAckV1, BrainRuntimeError> {
+    if deadline <= Instant::now() {
+        return Err(BrainRuntimeError::Worker(format!(
+            "actor '{}' checkpoint was not started after the shutdown deadline",
+            runtime.brain_id()
+        )));
+    }
+    let brain_id = runtime.brain_id().to_string();
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name(format!("m1nd-checkpoint-{brain_id}"))
+        .spawn(move || {
+            let _ = reply_tx.send(runtime.checkpoint_while_paused());
+        })
+        .map_err(|error| {
+            BrainRuntimeError::Worker(format!(
+                "could not start bounded checkpoint worker for '{brain_id}': {error}"
+            ))
+        })?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    reply_rx
+        .recv_timeout(remaining)
+        .map_err(|error| match error {
+            std::sync::mpsc::RecvTimeoutError::Timeout => BrainRuntimeError::Worker(format!(
+                "actor '{brain_id}' did not checkpoint before the shutdown deadline"
+            )),
+            std::sync::mpsc::RecvTimeoutError::Disconnected => BrainRuntimeError::Worker(format!(
+                "actor '{brain_id}' checkpoint worker disconnected before reporting an ACK"
+            )),
+        })?
+}
+
+fn stop_paused_actor_before_deadline(
+    runtime: Arc<BrainActorHandle>,
+    deadline: Instant,
+) -> Result<(), BrainRuntimeError> {
+    if deadline <= Instant::now() {
+        return Err(BrainRuntimeError::Worker(format!(
+            "actor '{}' stop was not started after the shutdown deadline",
+            runtime.brain_id()
+        )));
+    }
+    let brain_id = runtime.brain_id().to_string();
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name(format!("m1nd-stop-{brain_id}"))
+        .spawn(move || {
+            let _ = reply_tx.send(runtime.stop_while_paused());
+        })
+        .map_err(|error| {
+            BrainRuntimeError::Worker(format!(
+                "could not start bounded stop worker for '{brain_id}': {error}"
+            ))
+        })?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    reply_rx
+        .recv_timeout(remaining)
+        .map_err(|error| match error {
+            std::sync::mpsc::RecvTimeoutError::Timeout => BrainRuntimeError::Worker(format!(
+                "actor '{brain_id}' did not stop before the shutdown deadline"
+            )),
+            std::sync::mpsc::RecvTimeoutError::Disconnected => BrainRuntimeError::Worker(format!(
+                "actor '{brain_id}' stop worker disconnected before reporting completion"
+            )),
+        })?
+}
+
+fn runtime_job_m1nd_error(error: RuntimeJobError) -> M1ndError {
+    M1ndError::PersistenceFailed(format!("runtime job refused: {error}"))
 }
 
 /// How a would-be-new project root OVERLAPS an existing project brain. The mint
@@ -816,6 +2057,433 @@ pub struct StoreFacts {
 }
 
 #[cfg(test)]
+// Persistence fixtures exercise real embedding-cache/checkpoint I/O. Match the
+// owner's five-second shutdown budget so workspace stress cannot turn scheduler
+// delay into a false lifecycle failure; dedicated deadline tests stay tighter.
+const TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+#[cfg(test)]
+mod external_mutation_actor_binding_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn session_cell(runtime_root: &Path, workspace_root: &Path) -> Arc<BrainSessionCell> {
+        std::fs::create_dir_all(runtime_root).expect("actor binding runtime");
+        let config = crate::server::McpConfig {
+            graph_source: runtime_root.join("graph.json"),
+            plasticity_state: runtime_root.join("plasticity.json"),
+            runtime_dir: Some(runtime_root.to_path_buf()),
+            ..Default::default()
+        };
+        let mut state = crate::server::McpServer::new(config)
+            .expect("actor binding server")
+            .into_session_state();
+        state.workspace_root = Some(workspace_root.to_string_lossy().into_owned());
+        state.ingest_roots = vec![workspace_root.to_string_lossy().into_owned()];
+        Arc::new(BrainSessionCell::new(state))
+    }
+
+    #[test]
+    fn hosted_actor_binding_survives_restart_and_refuses_unknown_or_foreign_target() {
+        let temp = tempfile::tempdir().expect("actor binding tempdir");
+        let repo = temp.path().join("hosted-repo");
+        std::fs::create_dir_all(repo.join("src")).expect("hosted repo");
+        std::fs::write(repo.join("src/lib.rs"), "pub fn hosted() -> u8 { 1 }\n")
+            .expect("hosted source");
+        let repo = repo.canonicalize().expect("canonical hosted repo");
+        let repo_text = repo.to_string_lossy().into_owned();
+        let base = temp.path().join("project-brains");
+        let bound_root = temp.path().join("bound-owner");
+        std::fs::create_dir_all(&bound_root).expect("bound root");
+        let bound = session_cell(&temp.path().join("bound-runtime"), &bound_root);
+
+        let registry = ProjectBrainRegistry::new(base.clone(), None);
+        let (hosted, _, _) = registry
+            .bootstrap(&repo_text, &json!({"agent_id": "actor-binding"}))
+            .expect("bootstrap hosted actor");
+        let first = registry
+            .resolve_external_mutation_actor(Arc::clone(&bound), &repo_text)
+            .expect("resolve hosted actor");
+        assert!(!first.bound);
+        assert!(Arc::ptr_eq(&first.brain, &hosted));
+        assert_eq!(first.brain_id, registry.brain_id_for(&repo_text));
+        let expected_brain_id = first.brain_id.clone();
+        drop(first);
+        drop(hosted);
+        registry
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
+            .expect("shutdown first hosted registry");
+        drop(registry);
+
+        let restarted = ProjectBrainRegistry::new(base, None);
+        let rebound = restarted
+            .resolve_external_mutation_actor(Arc::clone(&bound), &repo_text)
+            .expect("warm-restart hosted actor binding");
+        assert!(!rebound.bound);
+        assert_eq!(rebound.brain_id, expected_brain_id);
+        assert_eq!(
+            rebound.selected_project_root.as_deref(),
+            Some(repo_text.as_str())
+        );
+        let exact_by_id = restarted
+            .resolve_external_mutation_actor_by_id(Arc::clone(&bound), &expected_brain_id)
+            .expect("durable recovery actor id resolves exactly");
+        assert_eq!(exact_by_id.brain_id, expected_brain_id);
+        assert!(Arc::ptr_eq(&exact_by_id.brain, &rebound.brain));
+        assert!(
+            restarted
+                .resolve_external_mutation_actor_by_id(Arc::clone(&bound), &repo_text)
+                .is_err(),
+            "recovery seam must never reinterpret a root as an actor id"
+        );
+
+        let unknown = temp.path().join("unknown-repo");
+        std::fs::create_dir_all(&unknown).expect("unknown repo");
+        assert!(restarted
+            .resolve_external_mutation_actor(Arc::clone(&bound), &unknown.to_string_lossy())
+            .is_err());
+
+        let foreign = session_cell(&temp.path().join("foreign-runtime"), &unknown);
+        let mismatch = restarted.execute_target_runtime(
+            foreign,
+            rebound.selected_project_root.as_deref(),
+            false,
+            false,
+            |_state| Ok(()),
+        );
+        assert!(
+            mismatch.is_err(),
+            "foreign Arc must not inherit hosted actor identity"
+        );
+        drop(rebound);
+        restarted
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
+            .expect("shutdown restarted hosted registry");
+    }
+
+    #[test]
+    fn domain_error_is_returned_exactly_and_partial_mutation_is_rolled_back() {
+        let temp = tempfile::tempdir().expect("domain rollback tempdir");
+        let root = temp.path().join("bound");
+        std::fs::create_dir_all(&root).expect("bound root");
+        let session = session_cell(&temp.path().join("runtime"), &root);
+        let registry = ProjectBrainRegistry::new(temp.path().join("brains"), None);
+
+        let error = registry
+            .execute_target_m1nd(Arc::clone(&session), None, true, true, |state| {
+                state.queries_processed = 77;
+                Err::<(), _>(M1ndError::InvalidParams {
+                    tool: "fixture".to_string(),
+                    detail: "refuse after partial mutation".to_string(),
+                })
+            })
+            .expect_err("domain refusal must cross the actor as an error");
+        assert!(matches!(
+            error,
+            M1ndError::InvalidParams { ref tool, ref detail }
+                if tool == "fixture" && detail == "refuse after partial mutation"
+        ));
+
+        let observed = registry
+            .execute_target_runtime(Arc::clone(&session), None, true, false, |state| {
+                Ok(state.queries_processed)
+            })
+            .expect("read rolled-back state");
+        assert_eq!(
+            observed, 0,
+            "an erroring command cannot checkpoint its partial postimage"
+        );
+        registry
+            .shutdown(Duration::from_secs(2))
+            .expect("shutdown rollback fixture");
+    }
+}
+
+#[cfg(test)]
+mod hydration_single_flight_tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::Barrier;
+
+    #[test]
+    fn concurrent_dormant_resolve_reuses_one_session_and_one_instance_owner() {
+        let temp = tempfile::tempdir().expect("hydration single-flight tempdir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("fixture repo");
+        std::fs::write(repo.join("src/lib.rs"), "pub fn fixture() -> u8 { 1 }\n")
+            .expect("fixture source");
+        let repo = repo.canonicalize().expect("canonical fixture repo");
+        let root = repo.to_string_lossy().into_owned();
+        let base = temp.path().join("project-brains");
+        let registry_dir = temp.path().join("registry");
+
+        // Birth and checkpoint the store, then discard the warm process state so
+        // every racing resolver starts from the exact dormant path.
+        let first = ProjectBrainRegistry::new(base.clone(), Some(registry_dir.clone()));
+        let (brain, _, reused) = first
+            .bootstrap(&root, &json!({"agent_id": "single-flight-birth"}))
+            .expect("birth project brain");
+        assert!(!reused);
+        drop(brain);
+        first
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
+            .expect("checkpoint dormant fixture");
+        drop(first);
+
+        let registry = Arc::new(ProjectBrainRegistry::new(base, Some(registry_dir.clone())));
+        let racers = 8;
+        let barrier = Arc::new(Barrier::new(racers));
+        let joins = (0..racers)
+            .map(|_| {
+                let registry = Arc::clone(&registry);
+                let barrier = Arc::clone(&barrier);
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    registry
+                        .try_resolve(&root)
+                        .expect("concurrent resolve must not lose the instance race")
+                        .expect("dormant manifest must resolve")
+                })
+            })
+            .collect::<Vec<_>>();
+        let brains = joins
+            .into_iter()
+            .map(|join| join.join().expect("resolver thread"))
+            .collect::<Vec<_>>();
+        for brain in brains.iter().skip(1) {
+            assert!(
+                Arc::ptr_eq(&brains[0], brain),
+                "all same-root resolvers must adopt the single-flight winner"
+            );
+        }
+
+        let store = registry.store_dir_for(&root);
+        let expected_runtime_root = store
+            .canonicalize()
+            .expect("canonical single-flight store")
+            .to_string_lossy()
+            .into_owned();
+        let listed = crate::instance_registry::list_instances(Some(&registry_dir))
+            .expect("list isolated registry");
+        let owners = listed
+            .iter()
+            .filter(|entry| {
+                entry.runtime_root == expected_runtime_root
+                    && entry.mode == "read_write"
+                    && !entry.stale
+            })
+            .count();
+        assert_eq!(
+            owners, 1,
+            "one dormant root may have only one live owner; listed={listed:#?}"
+        );
+
+        drop(brains);
+        registry
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
+            .expect("shutdown single-flight winner");
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_shutdown_tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn bound_fixture(
+        temporary: &tempfile::TempDir,
+    ) -> (Arc<ProjectBrainRegistry>, Arc<BrainSessionCell>) {
+        let runtime = temporary.path().join("bound-runtime");
+        let registry_dir = temporary.path().join("registry");
+        let state = crate::server::McpServer::new(crate::server::McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            registry_dir: Some(registry_dir.clone()),
+            ..Default::default()
+        })
+        .expect("bound owner")
+        .into_session_state();
+        (
+            Arc::new(ProjectBrainRegistry::new(
+                runtime.join(PROJECT_BRAINS_DIR),
+                Some(registry_dir),
+            )),
+            Arc::new(BrainSessionCell::new(state)),
+        )
+    }
+
+    #[test]
+    fn shutdown_closes_transport_and_retained_job_admission_before_drain() {
+        let temporary = tempfile::tempdir().expect("shutdown fixture");
+        let (registry, session) = bound_fixture(&temporary);
+        let jobs = registry
+            .runtime_job_registry()
+            .expect("runtime job registry");
+        assert!(jobs.health_snapshot().expect("job health").accepting);
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let inflight_registry = Arc::clone(&registry);
+        let inflight_session = Arc::clone(&session);
+        let inflight = std::thread::spawn(move || {
+            inflight_registry.execute_target_m1nd(
+                inflight_session,
+                None,
+                true,
+                false,
+                move |_state| {
+                    entered_tx.send(()).expect("announce admitted callback");
+                    release_rx.recv().expect("release admitted callback");
+                    Ok(())
+                },
+            )
+        });
+        entered_rx.recv().expect("callback entered");
+
+        let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown_registry = Arc::clone(&registry);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_tx
+                .send(shutdown_registry.shutdown(Duration::from_secs(3)))
+                .expect("report shutdown");
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if !registry.lifecycle.lock().accepting {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "shutdown admission fence did not close"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            !jobs.health_snapshot().expect("fenced job health").accepting,
+            "a retained job-registry clone must close at the same lifecycle fence"
+        );
+
+        let rejected_ran = Arc::new(AtomicBool::new(false));
+        let rejected_marker = Arc::clone(&rejected_ran);
+        let rejection = registry
+            .execute_target_m1nd(Arc::clone(&session), None, true, false, move |_state| {
+                rejected_marker.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .expect_err("new transport work must be refused after the fence");
+        assert!(rejection.to_string().contains("shutting down"));
+        assert!(!rejected_ran.load(Ordering::SeqCst));
+        assert!(
+            matches!(
+                shutdown_rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ),
+            "shutdown cannot complete while admitted work remains active"
+        );
+
+        release_tx.send(()).expect("release inflight callback");
+        inflight
+            .join()
+            .expect("inflight thread")
+            .expect("inflight callback");
+        let acks = shutdown_rx
+            .recv()
+            .expect("shutdown result")
+            .expect("checkpointed shutdown");
+        shutdown.join().expect("shutdown thread");
+        assert_eq!(acks.len(), 1, "the bound actor must return one final ACK");
+        session
+            .lock_mut_before_actor()
+            .expect("bound actor returned session")
+            .instance
+            .release()
+            .expect("release bound owner");
+    }
+
+    #[test]
+    fn shutdown_releases_hosted_instance_despite_stale_arc_and_permit() {
+        let temporary = tempfile::tempdir().expect("hosted shutdown fixture");
+        let repo = temporary.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("fixture repo");
+        std::fs::write(repo.join("src/lib.rs"), "pub fn fixture() -> u8 { 1 }\n")
+            .expect("fixture source");
+        let root = repo
+            .canonicalize()
+            .expect("canonical repo")
+            .to_string_lossy()
+            .into_owned();
+        let base = temporary.path().join("project-brains");
+        let registry_dir = temporary.path().join("registry");
+        let first = ProjectBrainRegistry::new(base.clone(), Some(registry_dir.clone()));
+        let (stale_brain, _, reused) = first
+            .bootstrap(&root, &json!({"agent_id": "shutdown-stale-arc"}))
+            .expect("bootstrap hosted brain");
+        assert!(!reused);
+        let (old_summary, old_permit) = first
+            .execute_target_m1nd(
+                Arc::clone(&stale_brain),
+                Some(&root),
+                false,
+                false,
+                |state| Ok((state.instance.summary(), state.instance.heartbeat_permit())),
+            )
+            .expect("capture hosted lifecycle facts");
+
+        let acks = first
+            .shutdown(Duration::from_secs(3))
+            .expect("shutdown hosted owner");
+        assert_eq!(acks.len(), 1);
+        assert!(
+            crate::instance_registry::list_instances(Some(&registry_dir))
+                .expect("list after hosted shutdown")
+                .iter()
+                .all(|entry| entry.instance_id != old_summary.instance_id),
+            "hosted discovery entry must be removed while stale Arc remains alive"
+        );
+        assert!(!old_permit.heartbeat().expect("old permit verdict"));
+        assert!(
+            stale_brain.try_lock().is_some(),
+            "stopped actor must return SessionState into the stale cell"
+        );
+
+        let successor = ProjectBrainRegistry::new(base, Some(registry_dir.clone()));
+        let successor_brain = successor
+            .try_resolve(&root)
+            .expect("warm resolve successor")
+            .expect("hosted manifest survives shutdown");
+        let successor_summary = successor_brain
+            .read()
+            .expect("successor is not actor-owned yet")
+            .instance
+            .summary();
+        assert!(
+            crate::instance_registry::list_instances(Some(&registry_dir))
+                .expect("list successor")
+                .iter()
+                .any(|entry| {
+                    entry.instance_id == successor_summary.instance_id
+                        && entry.runtime_root == successor_summary.runtime_root
+                        && !entry.stale
+                }),
+            "a successor must acquire and publish the same store even while the stale Arc lives"
+        );
+        assert!(
+            !old_permit
+                .heartbeat()
+                .expect("old permit remains revoked after successor"),
+            "revoked permit cannot overwrite a successor owner"
+        );
+        successor
+            .shutdown(Duration::from_secs(3))
+            .expect("shutdown successor");
+    }
+}
+
+#[cfg(test)]
 mod eviction_gate_tests {
     use super::*;
 
@@ -845,7 +2513,7 @@ mod eviction_gate_tests {
         let key_b = ProjectBrainRegistry::canonical_key(&root_b);
 
         // Boot brain A (fresh empty graph, its snapshot path under A's store).
-        let state_a = reg.boot_store(&key_a).expect("boot A");
+        let mut state_a = reg.boot_store(&key_a).expect("boot A");
         let store_a = reg.store_dir_for(&key_a);
         let snapshot_a = store_a.join("graph_snapshot.json");
         assert!(
@@ -870,8 +2538,14 @@ mod eviction_gate_tests {
             // does this; a raw add_node leaves the CSR stale).
             g.finalize().expect("finalize A's graph");
         }
-        let brain_a = Arc::new(Mutex::new(state_a));
-        reg.insert_with_eviction(key_a.clone(), brain_a);
+        // A raw graph mutation must rebuild every graph-sized derived engine
+        // before the strict checkpoint conservation fence can persist it.
+        state_a
+            .rebuild_engines()
+            .expect("rebuild graph-sized sidecars for checkpoint");
+        let brain_a = Arc::new(BrainSessionCell::new(state_a));
+        reg.insert_with_eviction(key_a.clone(), brain_a)
+            .expect("insert A");
         assert_eq!(reg.warm_len(), 1, "A is the sole warm brain");
         assert!(
             !snapshot_a.exists(),
@@ -881,8 +2555,9 @@ mod eviction_gate_tests {
         // Insert brain B → cap is 1 → A (the LRU, and only) is evicted. The gate
         // MUST persist A before dropping it.
         let state_b = reg.boot_store(&key_b).expect("boot B");
-        let brain_b = Arc::new(Mutex::new(state_b));
-        reg.insert_with_eviction(key_b.clone(), brain_b);
+        let brain_b = Arc::new(BrainSessionCell::new(state_b));
+        reg.insert_with_eviction(key_b.clone(), brain_b)
+            .expect("checkpoint A then insert B");
 
         assert_eq!(reg.warm_len(), 1, "map stays at the cap after B lands");
         assert!(
@@ -912,6 +2587,96 @@ mod eviction_gate_tests {
         );
     }
 
+    /// A checkpoint error must be a failed insertion, never a warning followed
+    /// by eviction. The old best-effort gate removed A first and then logged the
+    /// failed persist, irreversibly orphaning A's newest in-memory state.
+    #[test]
+    fn failed_checkpoint_keeps_victim_warm_and_rejects_new_brain() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+        let key_a =
+            ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-a").to_string_lossy());
+        let key_b =
+            ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-b").to_string_lossy());
+
+        let mut state_a = reg.boot_store(&key_a).expect("boot A");
+        // A regular file cannot be the parent of graph_snapshot.tmp, making the
+        // graph checkpoint fail deterministically on every supported filesystem.
+        let blocked_parent = reg
+            .store_dir_for(&key_a)
+            .join("checkpoint-parent-is-a-file");
+        std::fs::write(&blocked_parent, b"not a directory").expect("write blocker");
+        state_a.graph_path = blocked_parent.join("graph_snapshot.json");
+        reg.insert_with_eviction(key_a.clone(), Arc::new(BrainSessionCell::new(state_a)))
+            .expect("insert A");
+
+        let state_b = reg.boot_store(&key_b).expect("boot B");
+        let error = match reg
+            .insert_with_eviction(key_b.clone(), Arc::new(BrainSessionCell::new(state_b)))
+        {
+            Ok(_) => panic!("B must not land when A's checkpoint fails"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("could not checkpoint before eviction"),
+            "failure names the checkpoint boundary: {error}"
+        );
+        assert_eq!(reg.warm_len(), 1, "failed insertion cannot exceed the cap");
+        assert!(
+            reg.brains.lock().contains_key(&key_a),
+            "A remains the fenced authoritative map entry after its checkpoint failure"
+        );
+        assert!(
+            reg.warm_counts(&key_b).is_none(),
+            "B is not inserted after a failed checkpoint"
+        );
+    }
+
+    /// The public routing resolver must preserve the same refusal. Treating this
+    /// as `None` would make callers believe B is merely unknown and could route a
+    /// write to the bound/default brain after A failed to checkpoint.
+    #[test]
+    fn try_resolve_propagates_checkpoint_failure_instead_of_falling_back() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+        let key_a =
+            ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-a").to_string_lossy());
+        let key_b =
+            ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-b").to_string_lossy());
+
+        let mut state_a = reg.boot_store(&key_a).expect("boot A");
+        let blocked_parent = reg
+            .store_dir_for(&key_a)
+            .join("checkpoint-parent-is-a-file");
+        std::fs::write(&blocked_parent, b"not a directory").expect("write blocker");
+        state_a.graph_path = blocked_parent.join("graph_snapshot.json");
+        reg.insert_with_eviction(key_a.clone(), Arc::new(BrainSessionCell::new(state_a)))
+            .expect("insert A");
+        reg.write_manifest(&key_b, Some(0), Some(0))
+            .expect("register dormant B");
+
+        let error = match reg.try_resolve(&key_b) {
+            Ok(_) => panic!("B resolution must fail closed when A cannot checkpoint"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("could not checkpoint before eviction"),
+            "resolution names the durability refusal: {error}"
+        );
+        assert!(
+            reg.brains.lock().contains_key(&key_a),
+            "the failed victim remains authoritative and fenced in the warm map"
+        );
+        assert!(
+            reg.warm_counts(&key_b).is_none(),
+            "the newcomer cannot land after a failed checkpoint"
+        );
+    }
+
     /// The bound dev graph is not in this map, and eviction only ever touches
     /// project brains: a cap of K holds at most K project brains, no matter how
     /// many distinct roots resolve through the registry.
@@ -924,7 +2689,8 @@ mod eviction_gate_tests {
                 &tmp.path().join(format!("r{i}")).to_string_lossy(),
             );
             let state = reg.boot_store(&key).expect("boot");
-            reg.insert_with_eviction(key, Arc::new(Mutex::new(state)));
+            reg.insert_with_eviction(key, Arc::new(BrainSessionCell::new(state)))
+                .expect("checkpoint LRU then insert");
             assert!(
                 reg.warm_len() <= 3,
                 "warm map exceeded cap after insert {i}: {}",
@@ -1061,43 +2827,57 @@ mod daemon_rearm_tests {
         // ARM the daemon on brain A through the routed verb path, with EMPTY
         // watch_paths — the verdict's per-brain default: the brain's own
         // ingest_roots become the watch set.
-        {
-            let mut a = brain_a.lock();
-            let started = crate::server::dispatch_tool(
-                &mut a,
-                "daemon_start",
-                &json!({"agent_id": "t", "poll_interval_ms": 1}),
-            )
-            .expect("daemon_start on the hosted brain");
-            assert_eq!(started["active"], true);
-            let watched: Vec<String> = started["watch_paths"]
-                .as_array()
-                .expect("watch_paths array")
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect();
-            assert!(
-                watched.iter().any(|p| p.contains("repo-a")),
-                "empty watch_paths must default to the BRAIN's ingest_roots \
-                 (got {watched:?})"
-            );
+        let (started_active, watched, pre_evict_call_ok, tick_count) = reg
+            .execute_target_runtime(Arc::clone(&brain_a), Some(&key_a), false, true, |a| {
+                let started = crate::server::dispatch_tool(
+                    a,
+                    "daemon_start",
+                    &json!({"agent_id": "t", "poll_interval_ms": 1}),
+                )
+                .map_err(|error| {
+                    RuntimeJobFailure::new("daemon_start_failed", error.to_string())
+                })?;
+                let watched = started["watch_paths"]
+                    .as_array()
+                    .ok_or_else(|| {
+                        RuntimeJobFailure::new(
+                            "daemon_watch_paths_missing",
+                            "daemon_start omitted watch_paths",
+                        )
+                    })?
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_string))
+                    .collect::<Vec<_>>();
 
-            // One REAL traffic tick before the eviction — the lived shape: an
-            // armed brain that has already advanced, then goes cold.
-            a.daemon_state.last_tick_ms = Some(0);
-            let request = crate::protocol::core::JsonRpcRequest {
-                jsonrpc: "2.0".into(),
-                id: json!(0),
-                method: "tools/call".into(),
-                params: json!({
-                    "name": "health",
-                    "arguments": { "agent_id": "t" }
-                }),
-            };
-            let response = crate::server::handle_mcp_method(&mut a, &request);
-            assert!(response.error.is_none(), "pre-evict traffic call succeeds");
-            assert!(a.daemon_state.tick_count >= 1, "A ticked before eviction");
-        }
+                // One REAL traffic tick before the eviction — the lived
+                // shape: an armed brain that has already advanced, then
+                // goes cold.
+                a.daemon_state.last_tick_ms = Some(0);
+                let request = crate::protocol::core::JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: json!(0),
+                    method: "tools/call".into(),
+                    params: json!({
+                        "name": "health",
+                        "arguments": { "agent_id": "t" }
+                    }),
+                };
+                let response = crate::server::handle_mcp_method(a, &request);
+                Ok((
+                    started["active"] == true,
+                    watched,
+                    response.error.is_none(),
+                    a.daemon_state.tick_count,
+                ))
+            })
+            .expect("daemon work crosses the hosted actor");
+        assert!(started_active, "daemon_start arms the hosted brain");
+        assert!(
+            watched.iter().any(|path| path.contains("repo-a")),
+            "empty watch_paths must default to the BRAIN's ingest_roots (got {watched:?})"
+        );
+        assert!(pre_evict_call_ok, "pre-evict traffic call succeeds");
+        assert!(tick_count >= 1, "A ticked before eviction");
         drop(brain_a);
 
         // EVICT A through the real gate: cap is 1, so bootstrapping B drops A.
@@ -1113,37 +2893,53 @@ mod daemon_rearm_tests {
         // RE-RESOLVE A: the daemon must come back ARMED (resume on the
         // warm-boot path) and TICK on the next traffic.
         let revived = reg.resolve(&key_a).expect("warm-boot A from its store");
-        let mut a = revived.lock();
+        let (active, tick_in_flight, pending_rerun, before, after, trigger, call_ok) = reg
+            .execute_target_runtime(revived, Some(&key_a), false, true, |a| {
+                let active = a.daemon_state.active;
+                let tick_in_flight = a.daemon_state.tick_in_flight;
+                let pending_rerun = a.daemon_state.pending_rerun;
+
+                // The SAME transport seam a routed call takes: the traffic
+                // autotick, now inside dispatch_tool, reached here via
+                // handle_mcp_method.
+                a.daemon_state.last_tick_ms = Some(0);
+                let before = a.daemon_state.tick_count;
+                let request = crate::protocol::core::JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: json!(1),
+                    method: "tools/call".into(),
+                    params: json!({
+                        "name": "health",
+                        "arguments": { "agent_id": "t" }
+                    }),
+                };
+                let response = crate::server::handle_mcp_method(a, &request);
+                Ok((
+                    active,
+                    tick_in_flight,
+                    pending_rerun,
+                    before,
+                    a.daemon_state.tick_count,
+                    a.daemon_state.last_tick_trigger.clone(),
+                    response.error.is_none(),
+                ))
+            })
+            .expect("revived daemon work crosses the hosted actor");
         assert!(
-            a.daemon_state.active,
+            active,
             "the armed daemon must survive eviction via its store's daemon_state"
         );
         assert!(
-            !a.daemon_state.tick_in_flight && !a.daemon_state.pending_rerun,
+            !tick_in_flight && !pending_rerun,
             "transient flags are sanitized on the warm-boot resume"
         );
-
-        // The SAME transport seam a routed call takes: the traffic autotick, now
-        // inside dispatch_tool, reached here via handle_mcp_method.
-        a.daemon_state.last_tick_ms = Some(0);
-        let before = a.daemon_state.tick_count;
-        let request = crate::protocol::core::JsonRpcRequest {
-            jsonrpc: "2.0".into(),
-            id: json!(1),
-            method: "tools/call".into(),
-            params: json!({
-                "name": "health",
-                "arguments": { "agent_id": "t" }
-            }),
-        };
-        let response = crate::server::handle_mcp_method(&mut a, &request);
-        assert!(response.error.is_none(), "routed call must succeed");
+        assert!(call_ok, "routed call must succeed");
         assert!(
-            a.daemon_state.tick_count > before,
+            after > before,
             "the revived brain's daemon must tick on traffic"
         );
         assert_eq!(
-            a.daemon_state.last_tick_trigger.as_deref(),
+            trigger.as_deref(),
             Some("traffic"),
             "freshness-by-traffic: the tick trigger is the routed call"
         );

@@ -1,3 +1,4 @@
+use crate::rfc_adapter::append_general_ref;
 use crate::{IngestAdapter, IngestStats};
 use m1nd_core::error::M1ndResult;
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
@@ -437,16 +438,35 @@ impl PatentIngestAdapter {
                         || in_snm
                         || in_fnm
                     {
-                        if let Ok(t) = e.unescape() {
+                        if let Ok(t) = e.decode() {
                             text_buf.push_str(&t);
                         }
                     } else {
                         // Capture text for country/doc-number/kind/date
                         let current = path.last().map(|s| s.as_str()).unwrap_or("");
                         if matches!(current, "country" | "doc-number" | "kind" | "date") {
-                            if let Ok(t) = e.unescape() {
+                            if let Ok(t) = e.decode() {
                                 text_buf.push_str(&t);
                             }
+                        }
+                    }
+                }
+                Ok(Event::GeneralRef(e)) => {
+                    if in_abstract
+                        || in_title
+                        || in_orgname
+                        || in_inventor_name
+                        || in_classification
+                        || in_citation
+                        || in_pdat
+                        || in_snm
+                        || in_fnm
+                    {
+                        append_general_ref(&mut text_buf, &e);
+                    } else {
+                        let current = path.last().map(|s| s.as_str()).unwrap_or("");
+                        if matches!(current, "country" | "doc-number" | "kind" | "date") {
+                            append_general_ref(&mut text_buf, &e);
                         }
                     }
                 }
@@ -710,6 +730,26 @@ impl IngestAdapter for PatentIngestAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_general_entity_refs_in_captured_text() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<us-patent-grant>
+  <us-bibliographic-data-grant>
+    <publication-reference>
+      <document-id>
+        <country>US</country>
+        <doc-number>1</doc-number>
+        <kind>B2</kind>
+        <date>20230101</date>
+      </document-id>
+    </publication-reference>
+    <invention-title>AT&amp;T &lt;fiber&gt; &#x2264; loss</invention-title>
+  </us-bibliographic-data-grant>
+</us-patent-grant>"#;
+        let record = PatentIngestAdapter::parse_patent_xml(xml).unwrap();
+        assert_eq!(record.title, "AT&T <fiber> \u{2264} loss");
+    }
 
     const SAMPLE_USPTO_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <us-patent-grant>

@@ -153,9 +153,9 @@ test('§4A.9: receiptImport carries ?brain= when a hosted brain is viewed', asyn
   assert.ok(calls[0].url.includes(ENCODED));
 });
 
-// ── F25 § ratify: the human-gesture origin token this screen stamps ────────────
+// ── F-01: the UI expresses intent but does not mint ratification authority ────
 
-test('systemBlocksRatify stamps ratified_via:"human-ui" — the owner screen is the human origin', async () => {
+test('systemBlocksRatify sends intent and OCC data without a forgeable authority token', async () => {
   const result = {
     store_version: 6,
     ratified_block_ids: ['sb_x'],
@@ -172,21 +172,200 @@ test('systemBlocksRatify stamps ratified_via:"human-ui" — the owner screen is 
   assert.equal(sent.agent_id, 'gui', 'the GUI agent id');
   assert.equal(sent.expected_store_version, 5, 'the OCC key it read from the snapshot');
   assert.equal(sent.ratifier, 'gui');
-  assert.equal(
-    sent.ratified_via,
-    'human-ui',
-    'the owner screen stamps the human-origin token the backend requires; an agent never does',
-  );
+  assert.equal('ratified_via' in sent, false, 'client-authored strings are not authority');
   assert.equal('block_ids' in sent, false, 'a blanket ratify omits block_ids');
   assert.deepEqual(got, result, 'the {result} envelope is unwrapped');
 });
 
-test('§4A.9: systemBlocksRatify carries block_ids + the human-origin token for a per-block ratify', async () => {
+test('§4A.9: systemBlocksRatify carries block_ids without inventing authority', async () => {
   const calls = spyFetchBodies({ result: {} });
   await api.systemBlocksRatify({ expectedStoreVersion: 2, ratifier: 'gui', blockIds: ['sb_a'] }, CHERRY);
   assert.match(calls[0].url, /\/api\/tools\/system_blocks_ratify\?brain=/);
   assert.ok(calls[0].url.includes(ENCODED));
   const sent = JSON.parse(String(calls[0].init?.body));
   assert.deepEqual(sent.block_ids, ['sb_a']);
-  assert.equal(sent.ratified_via, 'human-ui', 'a per-block ratify is still the human gesture');
+  assert.equal('ratified_via' in sent, false, 'per-block intent is not an authority credential');
+});
+
+// ── M1ND-10 G1: read-only organism manifest ──────────────────────────────────
+
+const MANIFEST_RESPONSE = {
+  schema: 'm1nd-organism-manifest-response-v1',
+  manifest: {
+    schema: 'm1nd-organism-manifest-v1',
+    organism_id: 'm1nd',
+    repo_id: 'm1nd',
+    brain_id: 'brain:test',
+    project_root_fingerprint: 'sha256:root',
+    source: { commit: 'abc123', dirty: false, version: '1.4.0' },
+    runtime: {
+      owner_id: 'owner:test',
+      binary_version: '1.4.0',
+      binary_sha256: 'sha256:binary',
+      started_at: 1_752_844_000_000,
+    },
+    graph: {
+      generation: 7,
+      snapshot_sha256: 'sha256:graph',
+      node_count: 10,
+      edge_count: 20,
+    },
+    architecture: {
+      store_version: 3,
+      skeleton_digest: 'sha256:skeleton',
+      ratification_state: 'ratified',
+    },
+    ui: {
+      bundle_version: '0.1.0',
+      bundle_sha256: 'sha256:ui',
+      mode: 'embedded',
+    },
+    capabilities: { policy_version: 'UNAVAILABLE', enabled_effects: [] },
+    autonomy: {
+      supported_modes: ['HUMAN_GATED'],
+      mechanically_proven_modes: [],
+      active_mode: 'UNKNOWN',
+      activation_receipt_id: '',
+      constitution_digest: '',
+      constitution_epoch: 0,
+      safety_kernel_digest: '',
+      autonomy_epoch: 0,
+      grants_digest: '',
+      quorum_policy_digest: '',
+      max_effective_tier_projection: 'NONE',
+      issuance_frozen: true,
+      sentinel_safety_state: 'UNKNOWN',
+    },
+    schemas: {
+      mission: 'm1nd-mission-letter-v0',
+      receipt: 'm1nd-system-block-receipt-v0',
+      checkpoint: 'UNAVAILABLE',
+      light: 'm1nd-light-claim-v0',
+      system_blocks: 'm1nd-system-block-store-v0',
+    },
+    authorities: {
+      source: {
+        revision: '1.4.0',
+        digest: 'abc123',
+        observed_at: 1_752_844_100_000,
+        freshness: 'FRESH',
+        status: 'AVAILABLE',
+      },
+      runtime_binary: {
+        revision: '1.4.0',
+        digest: 'sha256:binary',
+        observed_at: 1_752_844_100_000,
+        freshness: 'FRESH',
+        status: 'AVAILABLE',
+      },
+      graph: {
+        revision: '7',
+        digest: 'sha256:graph',
+        observed_at: 1_752_844_100_000,
+        freshness: 'FRESH',
+        status: 'AVAILABLE',
+      },
+      architecture: {
+        revision: '3',
+        digest: 'sha256:skeleton',
+        observed_at: 1_752_844_100_000,
+        freshness: 'FRESH',
+        status: 'AVAILABLE',
+      },
+      ui_bundle: {
+        revision: '0.1.0',
+        digest: 'sha256:ui',
+        observed_at: 1_752_844_100_000,
+        freshness: 'FRESH',
+        status: 'AVAILABLE',
+      },
+      release_candidate: {
+        revision: '',
+        digest: '',
+        observed_at: 1_752_844_100_000,
+        freshness: 'UNKNOWN',
+        status: 'UNAVAILABLE',
+      },
+    },
+    release_provenance: { release_candidate_digest: '', signature: '' },
+    generated_at: 1_752_844_100_000,
+    manifest_sha256: 'sha256:manifest',
+  },
+  verification: {
+    coherence: 'DRIFT',
+    computed_manifest_sha256: 'sha256:manifest',
+    issues: [
+      {
+        kind: 'DRIFT',
+        authority_id: null,
+        detail: 'source/binary/bundle versions diverge: source=1.4.0, binary=1.4.0, bundle=0.1.0',
+      },
+    ],
+  },
+} as const;
+
+test('manifest GET preserves source/binary/bundle drift and absent authority facts verbatim', async () => {
+  const calls = spyFetchBodies(MANIFEST_RESPONSE);
+  const got = await api.manifest();
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/manifest$/);
+  assert.equal(calls[0].init?.method, undefined, 'manifest is a read-only GET');
+  assert.equal(calls[0].init?.cache, 'no-store', 'periodic truth reads cannot reuse a cached manifest');
+  assert.equal(got, MANIFEST_RESPONSE, 'validated response is not copied or rewritten');
+  assert.equal(got.manifest.source.version, '1.4.0');
+  assert.equal(got.manifest.runtime.binary_version, '1.4.0');
+  assert.equal(got.manifest.ui.bundle_version, '0.1.0');
+  assert.equal(got.manifest.autonomy.active_mode, 'UNKNOWN');
+  assert.equal(got.manifest.release_provenance.release_candidate_digest, '');
+  assert.equal(got.verification.coherence, 'DRIFT');
+});
+
+test('manifest GET routes the selected brain root through the shared selector', async () => {
+  const calls = spyFetchBodies(MANIFEST_RESPONSE);
+  const brain = '/workspace/repo beta';
+  const got = await api.manifest(brain);
+
+  assert.equal(got, MANIFEST_RESPONSE);
+  assert.match(calls[0].url, /\/api\/manifest\?brain=%2Fworkspace%2Frepo%20beta$/);
+});
+
+test('manifest parsing requires every core authority fact', async () => {
+  const malformed = structuredClone(MANIFEST_RESPONSE);
+  delete (malformed.manifest.authorities as { graph?: unknown }).graph;
+  spyFetch(malformed);
+
+  await assert.rejects(
+    () => api.manifest(),
+    /invalid organism manifest at \$\.manifest\.authorities\.graph: expected object/,
+  );
+});
+
+test('manifest parsing rejects a verification digest that does not seal the manifest', async () => {
+  const malformed = structuredClone(MANIFEST_RESPONSE);
+  (
+    malformed.verification as { computed_manifest_sha256: string }
+  ).computed_manifest_sha256 = 'sha256:different';
+  spyFetch(malformed);
+
+  await assert.rejects(
+    () => api.manifest(),
+    /computed_manifest_sha256: expected value equal to \$\.manifest\.manifest_sha256/,
+  );
+});
+
+test('manifest parsing fails closed instead of inventing missing autonomy facts', async () => {
+  const malformed = structuredClone(MANIFEST_RESPONSE);
+  delete (malformed.manifest.autonomy as { active_mode?: string }).active_mode;
+  spyFetch(malformed);
+
+  await assert.rejects(
+    () => api.manifest(),
+    /invalid organism manifest at \$\.manifest\.autonomy\.active_mode: expected string/,
+  );
+});
+
+test('manifest parsing rejects a persuasive-looking response with the wrong schema', async () => {
+  spyFetch({ ...MANIFEST_RESPONSE, schema: 'm1nd-organism-manifest-response-v0' });
+  await assert.rejects(() => api.manifest(), /m1nd-organism-manifest-response-v1/);
 });

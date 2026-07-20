@@ -51,6 +51,9 @@ ignore = "0.4"
 rayon = "1.10"
 serde_json = { workspace = true }
 cargo_metadata = { workspace = true }
+libc = "0.2"
+url = "2.5"
+sha2 = "0.10"
 
 # Tree-sitter core (0.25 — all grammar crates must use new-API via tree-sitter-language)
 tree-sitter = { version = "0.26", optional = true }
@@ -89,4 +92,4 @@ tree-sitter-ocaml = { version = "0.24", optional = true }
 tree-sitter-toml-ng = { version = "0.7", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-sequel = { version = "0.3", optional = true }
-quick-xml = "0.36"
+quick-xml = "0.41"

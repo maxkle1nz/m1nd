@@ -1,0 +1,538 @@
+{
+  "schema": "m1nd-release-cross-language-vectors-v1",
+  "canonicalization_version": "m1nd-canonical-json-v1",
+  "digest_prefix_hex": "6d316e642d646f6d61696e2d7365706172617465642d7368613235362d763100",
+  "enum_wire_values": {
+    "active_mode": [
+      "FULL_AUTONOMY",
+      "HUMAN_GATED",
+      "POLICY_AUTONOMOUS"
+    ],
+    "finding_severity": [
+      "P0",
+      "P1",
+      "P2",
+      "P3",
+      "Info"
+    ],
+    "finding_status": [
+      "CLOSED",
+      "OPEN"
+    ],
+    "gate_id": [
+      "G0",
+      "G1",
+      "G2",
+      "G3",
+      "G4",
+      "G5",
+      "G6",
+      "G7",
+      "G8",
+      "G9",
+      "G10"
+    ],
+    "gate_verdict": [
+      "PASS",
+      "FAIL",
+      "NOT_RUN",
+      "NOT_PROVEN"
+    ]
+  },
+  "artifact_digest_keys": {
+    "compatibility": "release_compatibility_manifest_v1",
+    "release_artifact_prefix": "release_artifact:",
+    "release_asset_prefix": "release_asset:",
+    "rollback": "release_rollback_plan_v1"
+  },
+  "canonical_cases": [
+    {
+      "name": "utf8-escapes-u64",
+      "domain": "m1nd-vector-domain-v1",
+      "value": {
+        "z": [
+          true,
+          null,
+          "linha\\barra"
+        ],
+        "a": {
+          "unicode": "m1nd coração α",
+          "escaped": "line\\nquote\"slash\\\\"
+        },
+        "built_at": 9007199254740993
+      },
+      "canonical_json": "{\"a\":{\"escaped\":\"line\\\\nquote\\\"slash\\\\\\\\\",\"unicode\":\"m1nd coração α\"},\"built_at\":9007199254740993,\"z\":[true,null,\"linha\\\\barra\"]}",
+      "digest": "61b140662e177e77cfb16eac72dad3e82eda3b3e0023030d694efe92422a8581"
+    },
+    {
+      "name": "safe-integer-boundary",
+      "domain": "m1nd-vector-domain-v1",
+      "value": {
+        "maximum_safe_integer": 9007199254740991,
+        "negative": -2147483648,
+        "zero": 0
+      },
+      "canonical_json": "{\"maximum_safe_integer\":9007199254740991,\"negative\":-2147483648,\"zero\":0}",
+      "digest": "4985643e91729182f05ddf61e521000aa685d0ae567057f6a7acbdd81694ca89"
+    },
+    {
+      "name": "utf8-key-order-astral",
+      "domain": "m1nd-vector-domain-v1",
+      "value": {
+        "": "bmp-private",
+        "😀": "astral"
+      },
+      "canonical_json": "{\"\":\"bmp-private\",\"😀\":\"astral\"}",
+      "digest": "e8a105a3d51c681f0a9c52b4414848536083111ef0e0cfbeaf8215217836cabc"
+    }
+  ],
+  "refusal_cases": [
+    {
+      "name": "decimal-float",
+      "json": "{\"n\":1.0}",
+      "reason": "non_integer_number"
+    },
+    {
+      "name": "exponent-float",
+      "json": "{\"n\":1e30}",
+      "reason": "non_integer_number"
+    },
+    {
+      "name": "unpaired-surrogate",
+      "json": "{\"s\":\"\\ud800\"}",
+      "reason": "not_valid_utf8_scalar_text"
+    },
+    {
+      "name": "duplicate-object-key",
+      "json": "{\"a\":1,\"a\":2}",
+      "reason": "ambiguous_object_members"
+    }
+  ],
+  "operational_manifests": {
+    "compatibility": {
+      "schema": "m1nd-release-compatibility-manifest-v1",
+      "version": "9.9.9-fixture",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_ref": "refs/tags/v9.9.9-fixture",
+      "targets": [
+        {
+          "target": "linux-x86_64",
+          "asset": "m1nd-mcp-linux-x86_64",
+          "sha256": "f953264c731f2b621e87d848dd1101be82e125c859bfe6ff00498babd46875c9",
+          "size_bytes": 123456
+        }
+      ]
+    },
+    "compatibility_sha256": "b8a6225bd05fc1311b0f057ef1d9643ca723cfd21764c534cc344aea86338776",
+    "rollback": {
+      "schema": "m1nd-release-rollback-plan-v1",
+      "version": "9.9.9-fixture",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_ref": "refs/tags/v9.9.9-fixture",
+      "runtime_bindings": [
+        {
+          "archive": "m1nd-mcp-linux-x86_64.tar.gz",
+          "archive_member": "m1nd-mcp",
+          "artifact_smoke_receipt": "GATE-ARTIFACT-SMOKE-linux-x86_64.json",
+          "raw_binary": "m1nd-mcp-linux-x86_64",
+          "runtime_sha256": "f953264c731f2b621e87d848dd1101be82e125c859bfe6ff00498babd46875c9",
+          "size_bytes": 123456,
+          "target": "linux-x86_64"
+        }
+      ],
+      "activation": {
+        "automatic": false,
+        "command": "m1nd update apply --yes"
+      },
+      "rollback": {
+        "automatic": false,
+        "command": "m1nd update rollback",
+        "requires_local_state_schema": "m1nd-self-update-rollback-state-v0",
+        "source": "pre-activation local runtime backup"
+      }
+    },
+    "rollback_sha256": "b9d79fb78866126408af1abc8d8defea73ba4b32618f88903760448837349b3c"
+  },
+  "evidence_set": {
+    "schema": "m1nd-release-evidence-set-json-extension-v1",
+    "contract_status": "STRUCTURALLY_VALID_NOT_CRYPTOGRAPHICALLY_VERIFIED",
+    "candidate": {
+      "schema": "m1nd-release-candidate-manifest-v1",
+      "core": {
+        "repo_commits": {
+          "m1nd": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "synt0ny": "commit-fixture-α"
+        },
+        "artifact_digests": {
+          "release_compatibility_manifest_v1": "b8a6225bd05fc1311b0f057ef1d9643ca723cfd21764c534cc344aea86338776",
+          "release_rollback_plan_v1": "b9d79fb78866126408af1abc8d8defea73ba4b32618f88903760448837349b3c",
+          "release_asset:m1nd-mcp-linux-x86_64": "f953264c731f2b621e87d848dd1101be82e125c859bfe6ff00498babd46875c9"
+        },
+        "schema_policy_versions": {
+          "action_catalog": "v1",
+          "policy": "m1nd-policy-v1"
+        },
+        "tool_catalog_digest": "7c301b6396a715a9686ad3205d2d7f2190cd3866efe668bfa90a17ecfc6ee667",
+        "safety_kernel_digest": "1eec8cddceaf868fce4fc22c715da5dd3c5a545c9ccc90479df5e00c31dd07c9",
+        "previous_governance_runtime_digest": "e5789e49e5f4d6a8782d3633321311cc53e016637a8c664ca186b140f1c24a3a",
+        "constitution_epoch_digest": "eb9a7650cd532b61ca9fec0cf82924c7ba7390bfc898e2d45bc067967b989cc5",
+        "autonomy_epoch_grants_digest": "58e8560f77bf2a410680786cb57b7e46e204d1301f644ee1c1ab5c58cda10d93",
+        "independence_quorum_policy_digest": "1a7292c71cea8b148a1dbbce8c86f6397c6f027fde1c044cde89eb930d048cc5",
+        "intended_active_mode": "FULL_AUTONOMY",
+        "compatibility_manifest_digest": "b8a6225bd05fc1311b0f057ef1d9643ca723cfd21764c534cc344aea86338776",
+        "rollback_plan_digest": "b9d79fb78866126408af1abc8d8defea73ba4b32618f88903760448837349b3c",
+        "harness_fixture_threat_digests": {
+          "ameaça-α": "fcabf2513c55c542294ab3cf7c1b8cd795956e020fce0b73cf5b2730ce833ffa"
+        },
+        "build_environment_digest": "76e9f6372d0bd620b21f36d7a4dff1ed805d9d9a8ee4eca865258e3351dbbf53",
+        "built_at": 9007199254740993
+      },
+      "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+      "provenance_signature": "NOT_CRYPTOGRAPHIC:fixture-candidate"
+    },
+    "gate_receipts": [
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G0",
+          "spec_version": "m1nd-g0-spec-v1",
+          "metric_spec_digest": null,
+          "harness_fixture_digest": "29db559dd925ccbe590633219419d4efbf1e65ee261dece641a1633d5d33f2bd",
+          "environment_digest": "ff6672a1540a314cf0e01c639a7ba26ab306f04f96ce7c25cb19f03e77acbb88",
+          "provider_id": "fixture-provider-g0",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G0:prove",
+          "started_at": 9007199254740993,
+          "ended_at": 9007199254740994,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [
+            {
+              "finding_id": "fixture-info-α",
+              "severity": "Info",
+              "status": "OPEN",
+              "statement": "Informação sintética; não bloqueia convergência.",
+              "evidence_digest": "5ea7373cdd475b26006b4bb61212ad8fd786e199dc80723c5c6adb7f7d8fb5f3"
+            }
+          ],
+          "artifact_digests": {
+            "primary_evidence": "d2a46e90bb22e084c5a67d60b3a980bf71dd5896687d3a6c5b1859147c79f2bb"
+          }
+        },
+        "receipt_id": "gate:2e37b18190d3033b3222ed6364693977fb13e54ae4e16f33faedc03959940635",
+        "receipt_digest": "2e37b18190d3033b3222ed6364693977fb13e54ae4e16f33faedc03959940635",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G0"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G1",
+          "spec_version": "m1nd-g1-spec-v1",
+          "metric_spec_digest": null,
+          "harness_fixture_digest": "6bd786cee26aa68ee4f258504b8147c8439f9b70d1ddf04d88fc701a9f03db5e",
+          "environment_digest": "54c92d33c1a7659460a1d3e522a7494c86060f91530c29bd26d9aa6e9fb097b6",
+          "provider_id": "fixture-provider-g1",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G1:prove",
+          "started_at": 9007199254740995,
+          "ended_at": 9007199254740996,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "c8366a5759e6879f82ef7250eac47017833aac00e926884b4d5473e78efbf9c3"
+          }
+        },
+        "receipt_id": "gate:cc836c0104758c22d431eb125d2ccefd117445b9e03ab2dc88cb4a4d225676b0",
+        "receipt_digest": "cc836c0104758c22d431eb125d2ccefd117445b9e03ab2dc88cb4a4d225676b0",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G1"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G2",
+          "spec_version": "m1nd-g2-spec-v1",
+          "metric_spec_digest": "3068a333d8dbc54d070a1c5e1dcb4e82540061798ee918e6009f9dafc2db0908",
+          "harness_fixture_digest": "7d2d3da8eb2d9e9a96c0888851072bee1a06c48b7bca0fcb93bd9a96c1fd98c2",
+          "environment_digest": "7b03c5a4db0b4ff399954423db7724653fd513bf4c52e55c9e91a321ae5cfece",
+          "provider_id": "fixture-provider-g2",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G2:prove",
+          "started_at": 9007199254740997,
+          "ended_at": 9007199254740998,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "a1d70a6ffa14fb6ab1e4888c090cee64b6e0c759ef43438d9ec7527ec6d5013b"
+          }
+        },
+        "receipt_id": "gate:a91aaad088d7240a831550de1280fb697c68ae00967cad6295992efd894ce1e1",
+        "receipt_digest": "a91aaad088d7240a831550de1280fb697c68ae00967cad6295992efd894ce1e1",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G2"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G3",
+          "spec_version": "m1nd-g3-spec-v1",
+          "metric_spec_digest": "1313b1ab5af26534f7af3bc7c5864c0c4e2788838c809dbdc22a574833e9f044",
+          "harness_fixture_digest": "7f7491249418428deb2c7c4d0cffab7d06dc6554f0f74fa3ca34b3d64141f1a7",
+          "environment_digest": "ff2ab26f84c68ccf5202829479c1cb1b623d9b5868d085272415782fc25a36b4",
+          "provider_id": "fixture-provider-g3",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G3:prove",
+          "started_at": 9007199254740999,
+          "ended_at": 9007199254741000,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "dc7bc421367b3698fe56d0bd60bdb546b29c111ef8bb2d0f4b01f4413465f824"
+          }
+        },
+        "receipt_id": "gate:ebf794990158e977c19963233c79a2c6fdfb8452bd558d8625a059f2466a60fc",
+        "receipt_digest": "ebf794990158e977c19963233c79a2c6fdfb8452bd558d8625a059f2466a60fc",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G3"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G4",
+          "spec_version": "m1nd-g4-spec-v1",
+          "metric_spec_digest": "571e8725fd606308cdabccf3224687c755bd93e2469a6321b6491240f57f89f6",
+          "harness_fixture_digest": "22364258b1ccaccc2335e93a3996044ba9ff0f36cd0b2986abf4688082f46de2",
+          "environment_digest": "8e3728c09d7315e3a6f056208a9ed77286197d30af0845bfa95283446ace40c9",
+          "provider_id": "fixture-provider-g4",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G4:prove",
+          "started_at": 9007199254741001,
+          "ended_at": 9007199254741002,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "0637b4350019eb11e6782e583f49eb118a49b36a91b7e1c82899e0282ac419e1"
+          }
+        },
+        "receipt_id": "gate:d08a08e5ed13633d566f90b236a9aaddcd23772e31dba232261413c8bc794d80",
+        "receipt_digest": "d08a08e5ed13633d566f90b236a9aaddcd23772e31dba232261413c8bc794d80",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G4"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G5",
+          "spec_version": "m1nd-g5-spec-v1",
+          "metric_spec_digest": "c8911f0010531560499e980f964af625b4998442cc83c4204368d3f5850cb8f0",
+          "harness_fixture_digest": "63f226911cb9bce48e34c3e2953418c6ae9c66a491f0c8dd502f6836f3d4776c",
+          "environment_digest": "99980a86dc6bdae03f547b56b5227a09ca7e23492e4147b35278de6ab218b782",
+          "provider_id": "fixture-provider-g5",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G5:prove",
+          "started_at": 9007199254741003,
+          "ended_at": 9007199254741004,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "96cb6eea35c8aa9d064df3551297d06447c0619417c66a2a2050dcd73362e028"
+          }
+        },
+        "receipt_id": "gate:5d914c7dd5914389c428fc72a2c24764ccd7a9028692a1beba7e6950fbc205bf",
+        "receipt_digest": "5d914c7dd5914389c428fc72a2c24764ccd7a9028692a1beba7e6950fbc205bf",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G5"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G6",
+          "spec_version": "m1nd-g6-spec-v1",
+          "metric_spec_digest": "614fd83d7949c848516052628631105e37d771d88859111dc81a259f76a5b751",
+          "harness_fixture_digest": "dbde3ab6ae7c5f8b12fc16f5e1f20562629199d81d218c078e29810419e39e95",
+          "environment_digest": "f78bbf0a83505e6907aafcd667230a96b22d9cbfc1efc487c1d04c98622bb01e",
+          "provider_id": "fixture-provider-g6",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G6:prove",
+          "started_at": 9007199254741005,
+          "ended_at": 9007199254741006,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "aecd6d9a1c13a76e43c3076095d9a395b900971dda021761837fb0f90d8d85cc"
+          }
+        },
+        "receipt_id": "gate:f4101ecfd032f1be37c8848f971dbeccd27a7559714f99bce0cc092ab3d06ad3",
+        "receipt_digest": "f4101ecfd032f1be37c8848f971dbeccd27a7559714f99bce0cc092ab3d06ad3",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G6"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G7",
+          "spec_version": "m1nd-g7-spec-v1",
+          "metric_spec_digest": "c5911a8fe48ce521870784401e236c54e96a4a382e68789a81fb72f0b847f721",
+          "harness_fixture_digest": "b7e0b58ab8eae37104097cd20840974090a7b7e766972eeb4faa859bd916477c",
+          "environment_digest": "38a677016cb2a284b00b12568685016cf7726a2222c6520b964bfb9ec4ed796e",
+          "provider_id": "fixture-provider-g7",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G7:prove",
+          "started_at": 9007199254741007,
+          "ended_at": 9007199254741008,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "222b8d88a5d1de41941415091325d06c5282195c93c08be65dec672e736119ec"
+          }
+        },
+        "receipt_id": "gate:f2219b1eb86a48470d2092c1b43ce0206a86f291ab45fd760d9b7f90645d6a1c",
+        "receipt_digest": "f2219b1eb86a48470d2092c1b43ce0206a86f291ab45fd760d9b7f90645d6a1c",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G7"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G8",
+          "spec_version": "m1nd-g8-spec-v1",
+          "metric_spec_digest": "ffc3d46e2f03523ca40faa61dfe698a0744ab52a842a0da0d94a83b5737a4fea",
+          "harness_fixture_digest": "b10b7857196c42e44314e38a8b8a7249ae8182b3ddbe2752487e8524db1cd177",
+          "environment_digest": "4d3a3048a6e8508bbcd364ae50c6241e7ceadf12c7ce25709fe0929de0e4883c",
+          "provider_id": "fixture-provider-g8",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G8:prove",
+          "started_at": 9007199254741009,
+          "ended_at": 9007199254741010,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "82481827971191462eccbf20f9e3d079fa2210a195fd5951d1940942a26f49d5",
+            "tool_catalog_parity": "91047e5acf8a1d063b0bfeddacdb8a89d0d4fed1264c8f2f184ccdb7b5d69f1d",
+            "host_first_minute_benchmark": "a88a7a41a09772db61fc0cfd9aab5558c36a4a3d5ed011ae5071e958d1b10696",
+            "capability_matrix": "f0fcbf9d1fa5f04a3f0b8bad1959af6374d6c50134f135884a23e09be6d0fc71",
+            "g8_adr": "c82c8d7b0b3171ecada27002a08ca059ac9b6ad388b51d8d178845768764978b"
+          }
+        },
+        "receipt_id": "gate:6e9e393f49a50bf0b1c69c63b8516a4a91fb37dd43da9515f614040234c18667",
+        "receipt_digest": "6e9e393f49a50bf0b1c69c63b8516a4a91fb37dd43da9515f614040234c18667",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G8"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G9",
+          "spec_version": "m1nd-g9-spec-v1",
+          "metric_spec_digest": "637269f0fbc414e42a5adb2b428cf446e3528f75e5d30ee1b01dcbd177a304b1",
+          "harness_fixture_digest": "9368cd7e056a76291c0f40e40310221fe1ad38bf187324ba1bac0c07616ee2c8",
+          "environment_digest": "3491a576f429a1ffb112f8b8257b40a0bdb0f5e7ad495e89f4c24e61c99595d3",
+          "provider_id": "fixture-provider-g9",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G9:prove",
+          "started_at": 9007199254741011,
+          "ended_at": 9007199254741012,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "027c43cc8aeb299a6fdff8f023b81353b6833cf58a4e68b04c20f3c1bf90a168"
+          }
+        },
+        "receipt_id": "gate:5c68beb97adc3bbfd13de48e9378ee1155bce08ef755e615632f354aa99b1851",
+        "receipt_digest": "5c68beb97adc3bbfd13de48e9378ee1155bce08ef755e615632f354aa99b1851",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G9"
+      },
+      {
+        "schema": "m1nd-gate-receipt-v1",
+        "core": {
+          "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+          "gate_id": "G10",
+          "spec_version": "m1nd-g10-spec-v1",
+          "metric_spec_digest": "0e16b3b57c9c88858a46a32b4770c6b38081f0506edc7def6bc225d5ec51a93d",
+          "harness_fixture_digest": "248c5b6d4db0815b80808582f0eea63780826fbe3b2cce07417ffddec5c7221b",
+          "environment_digest": "bed047305e114034f281c5eaab209d0acfdc30ec7c619ec5bc34ccbc6a0fe45f",
+          "provider_id": "fixture-provider-g10",
+          "provider_key_version": "fixture-key-v1",
+          "input_digests": {
+            "candidate": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1"
+          },
+          "command": "fixture:G10:prove",
+          "started_at": 9007199254741013,
+          "ended_at": 9007199254741014,
+          "exit_code": 0,
+          "verdict": "PASS",
+          "findings": [],
+          "artifact_digests": {
+            "primary_evidence": "c49e0703289906c2a6e9b47f4808da985827c2114bfa162238e8a79db5374729"
+          }
+        },
+        "receipt_id": "gate:f582d955c64458d99bb65c40e08130be6e59358db9ac27722d2419dd3df4c7a5",
+        "receipt_digest": "f582d955c64458d99bb65c40e08130be6e59358db9ac27722d2419dd3df4c7a5",
+        "signature": "NOT_CRYPTOGRAPHIC:fixture-G10"
+      }
+    ],
+    "independent_review": {
+      "schema": "m1nd-independent-adversarial-review-receipt-v1",
+      "core": {
+        "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
+        "threat_matrix_digest": "fcabf2513c55c542294ab3cf7c1b8cd795956e020fce0b73cf5b2730ce833ffa",
+        "provider_id": "fixture-independent-reviewer",
+        "provider_model_version": "fixture-model-α",
+        "provider_key_version": "fixture-review-key-v1",
+        "reviewed_inputs_digest": "4c8d99cce44367676dd08e018c6461a77ce006e33d912dc7430c8b4e3905983d",
+        "binding_changes": [
+          "fixtures only",
+          "nenhuma mudança real"
+        ],
+        "started_at": 9007199254740993,
+        "ended_at": 9007199254741993,
+        "verdict": "PASS",
+        "findings": []
+      },
+      "receipt_id": "iar:f021b58958856dcea89f1046b67a4de4f077d8fcde2d67f02aa8161c9022f701",
+      "receipt_digest": "f021b58958856dcea89f1046b67a4de4f077d8fcde2d67f02aa8161c9022f701",
+      "signature": "NOT_CRYPTOGRAPHIC:fixture-IAR"
+    }
+  }
+}

@@ -6,6 +6,35 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking Rust embedding API:** `http_server::spawn_background` and
+  `spawn_background_with_owner_authority` are now async readiness barriers that return
+  `Result<BackgroundHttpHandle, OwnerAuthorityAssemblyError>`. A successful handle exposes the
+  effective bound address; `BackgroundHttpHandle::shutdown().await` now returns the final actor
+  checkpoint ACKs. Bind, security, publication, serve, actor-shutdown, and task-join failures are
+  no longer hidden behind a log-only background task.
+- **Actor-only transport transactions:** stdio, Streamable HTTP, REST routing, the combined
+  `--serve --stdio` mode, and OpenClaw now route tool execution through the bounded per-brain actor.
+  Tool errors remain callback errors until the actor restores the preimage, then become MCP
+  `isError` content. Crate-external raw session/dispatch access is closed.
+
+### Fixed
+
+- **Owner lifetime and shutdown:** read-write leases use an OS-backed lifetime lock in addition to
+  the durable lease record; the actor owns an independent heartbeat worker that remains live while
+  idle or inside a long command. Shutdown closes transport and runtime-job admission together,
+  drains admitted work, checkpoints actors in deterministic order, withdraws endpoints, revokes
+  stale heartbeat permits, and releases hosted instances only after actor stop.
+- **Combined MCP protocol parity:** `--serve --stdio` now supports line and `Content-Length`
+  framing, `initialize`, `ping`, `tools/list`, `tools/call`, notifications, parse errors, and
+  method-not-found responses with the same wire shapes as stdio-only mode. Stdout backpressure is
+  isolated on a bounded no-authority writer thread.
+- **No detached mutation after HTTP timeout:** a slow blocking MCP command is awaited to its
+  terminal actor result instead of returning a timeout while work continues in the background.
+- **Cooperative termination:** foreground HTTP and OpenClaw handle SIGINT and SIGTERM, drain
+  active clients/requests, require the final checkpoint ACK, and release ownership in order.
+
 ---
 
 ## [1.4.0] — 2026-07-06

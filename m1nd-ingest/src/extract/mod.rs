@@ -30,6 +30,10 @@ pub struct CommentSyntax {
     pub block_close: &'static str,
     /// Triple-quote doc comment (e.g., `"""` for Python). Empty string means none.
     pub triple_quote: &'static str,
+    /// Rust uses apostrophe-prefixed lifetime/label tokens (`'a`, `'static`)
+    /// that are not character literals and must remain visible to brace/scope
+    /// tracking. Other syntaxes keep the ordinary single-quoted-string rule.
+    pub rust_lifetimes: bool,
 }
 
 impl CommentSyntax {
@@ -38,30 +42,35 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: true,
     };
     pub const PYTHON: Self = Self {
         line_comment: "#",
         block_open: "",
         block_close: "",
         triple_quote: "\"\"\"",
+        rust_lifetimes: false,
     };
     pub const C_STYLE: Self = Self {
         line_comment: "//",
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
     pub const GO: Self = Self {
         line_comment: "//",
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
     pub const GENERIC: Self = Self {
         line_comment: "#",
         block_open: "",
         block_close: "",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     // --- Tier 1 tree-sitter languages ---
@@ -71,6 +80,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const CSHARP: Self = Self {
@@ -78,6 +88,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const RUBY: Self = Self {
@@ -85,6 +96,7 @@ impl CommentSyntax {
         block_open: "=begin",
         block_close: "=end",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const PHP: Self = Self {
@@ -92,6 +104,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const SWIFT: Self = Self {
@@ -99,6 +112,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const KOTLIN: Self = Self {
@@ -106,6 +120,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const SCALA: Self = Self {
@@ -113,6 +128,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const BASH: Self = Self {
@@ -120,6 +136,7 @@ impl CommentSyntax {
         block_open: "",
         block_close: "",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const LUA: Self = Self {
@@ -127,6 +144,7 @@ impl CommentSyntax {
         block_open: "--[[",
         block_close: "]]",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const R: Self = Self {
@@ -134,6 +152,7 @@ impl CommentSyntax {
         block_open: "",
         block_close: "",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const HTML: Self = Self {
@@ -141,6 +160,7 @@ impl CommentSyntax {
         block_open: "<!--",
         block_close: "-->",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 
     pub const CSS: Self = Self {
@@ -148,6 +168,7 @@ impl CommentSyntax {
         block_open: "/*",
         block_close: "*/",
         triple_quote: "",
+        rust_lifetimes: false,
     };
 }
 
@@ -162,6 +183,7 @@ pub fn strip_comments_and_strings(text: &str, syntax: CommentSyntax) -> Vec<Stri
     let mut result = Vec::new();
     let mut in_block_comment = false;
     let mut in_triple_quote = false;
+    let mut rust_raw_string_hashes = None;
 
     for line in text.lines() {
         // If we are NOT inside a block comment / triple-quote **and** the
@@ -174,6 +196,7 @@ pub fn strip_comments_and_strings(text: &str, syntax: CommentSyntax) -> Vec<Stri
             &syntax,
             &mut in_block_comment,
             &mut in_triple_quote,
+            &mut rust_raw_string_hashes,
             preserve_strings,
         );
         result.push(cleaned);
@@ -222,6 +245,7 @@ fn strip_line(
     syntax: &CommentSyntax,
     in_block_comment: &mut bool,
     in_triple_quote: &mut bool,
+    rust_raw_string_hashes: &mut Option<usize>,
     preserve_strings: bool,
 ) -> String {
     let mut out = String::with_capacity(line.len());
@@ -230,6 +254,19 @@ fn strip_line(
     let mut i = 0;
 
     while i < len {
+        // Rust raw strings may span lines and legitimately contain arbitrary
+        // braces, quotes, comments, and source-looking declarations. Keep a
+        // hash-counted state so regex/scope extraction never sees their body.
+        if let Some(hashes) = *rust_raw_string_hashes {
+            if rust_raw_string_closes_at(&chars, i, hashes) {
+                i += 1 + hashes;
+                *rust_raw_string_hashes = None;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
         // --- Inside a block comment: scan for close ---
         if *in_block_comment {
             if !syntax.block_close.is_empty() {
@@ -280,6 +317,17 @@ fn strip_line(
             }
         }
 
+        if syntax.rust_lifetimes {
+            if let Some((opener_len, hashes)) = rust_raw_string_opens_at(&chars, i) {
+                // Retain an empty string token as a separator while hiding the
+                // complete raw body from every downstream regex.
+                out.push_str("\"\"");
+                i += opener_len;
+                *rust_raw_string_hashes = Some(hashes);
+                continue;
+            }
+        }
+
         // --- Check for line comment ---
         if !syntax.line_comment.is_empty() {
             let lc_chars: Vec<char> = syntax.line_comment.chars().collect();
@@ -290,6 +338,11 @@ fn strip_line(
         }
 
         // --- Check for string literals: "..." or '...' ---
+        if chars[i] == '\'' && syntax.rust_lifetimes && is_rust_lifetime_or_label_start(&chars, i) {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
         if chars[i] == '"' || chars[i] == '\'' {
             let quote = chars[i];
             out.push(quote); // keep the quote delimiters
@@ -325,6 +378,83 @@ fn strip_line(
     }
 
     out
+}
+
+fn is_rust_lifetime_or_label_start(chars: &[char], apostrophe: usize) -> bool {
+    let Some(next) = chars.get(apostrophe + 1) else {
+        return false;
+    };
+    if !(*next == '_' || next.is_ascii_alphabetic()) {
+        return false;
+    }
+    // `'a'` is a character literal; `'a`, `'static`, `'_`, and `'loop:` are
+    // lifetime/label tokens. Escaped character literals start with `\` and are
+    // rejected by the identifier check above.
+    chars.get(apostrophe + 2) != Some(&'\'')
+}
+
+fn rust_raw_string_opens_at(chars: &[char], start: usize) -> Option<(usize, usize)> {
+    if start > 0 && (chars[start - 1].is_ascii_alphanumeric() || chars[start - 1] == '_') {
+        return None;
+    }
+    let r = match (chars.get(start), chars.get(start + 1)) {
+        (Some('r'), _) => start,
+        (Some('b' | 'c'), Some('r')) => start + 1,
+        _ => return None,
+    };
+    let mut cursor = r + 1;
+    while chars.get(cursor) == Some(&'#') {
+        cursor += 1;
+    }
+    if chars.get(cursor) != Some(&'"') {
+        return None;
+    }
+    let hashes = cursor - (r + 1);
+    Some((cursor - start + 1, hashes))
+}
+
+fn rust_raw_string_closes_at(chars: &[char], quote: usize, hashes: usize) -> bool {
+    chars.get(quote) == Some(&'"')
+        && (0..hashes).all(|offset| chars.get(quote + 1 + offset) == Some(&'#'))
+}
+
+#[cfg(test)]
+mod preprocessing_tests {
+    use super::*;
+
+    #[test]
+    fn rust_lifetimes_do_not_hide_scope_braces_but_char_literals_do() {
+        let source = "enum E {\n    Named { field: &'static str },\n}\nfn f<'a>(v: &'a str) {\n    let brace = '{';\n}\n";
+        let cleaned = strip_comments_and_strings(source, CommentSyntax::RUST);
+        assert!(cleaned[1].contains("&'static str"));
+        assert!(cleaned[3].contains("fn f<'a>(v: &'a str)"));
+        assert_eq!(cleaned[4].matches('{').count(), 0);
+        let opens = cleaned
+            .iter()
+            .map(|line| line.matches('{').count())
+            .sum::<usize>();
+        let closes = cleaned
+            .iter()
+            .map(|line| line.matches('}').count())
+            .sum::<usize>();
+        assert_eq!(opens, closes);
+    }
+
+    #[test]
+    fn rust_raw_strings_hide_embedded_source_across_lines() {
+        let source = "fn outer() {\n    let fixture = br##\"\n        pub struct Engine;\n        } // not a real scope\n    \"##;\n}\n";
+        let cleaned = strip_comments_and_strings(source, CommentSyntax::RUST);
+        assert!(!cleaned.iter().any(|line| line.contains("struct Engine")));
+        let opens = cleaned
+            .iter()
+            .map(|line| line.matches('{').count())
+            .sum::<usize>();
+        let closes = cleaned
+            .iter()
+            .map(|line| line.matches('}').count())
+            .sum::<usize>();
+        assert_eq!(opens, closes);
+    }
 }
 
 // ---------------------------------------------------------------------------

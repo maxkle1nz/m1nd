@@ -1,0 +1,38 @@
+{
+  "$id": "m1nd10-g6-held-out-v2-source-manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "manifest_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "repos": {
+      "maxItems": 4,
+      "minItems": 4,
+      "type": "array"
+    },
+    "schema": {
+      "const": "m1nd10-g6-source-manifest-v2"
+    },
+    "snapshot_kind": {
+      "const": "immutable_git_objects"
+    },
+    "source_commit": {
+      "const": "b59a1c2a1454a83164dfb4d5640c6b005154d1ee"
+    },
+    "worktree_state_excluded": {
+      "const": true
+    }
+  },
+  "required": [
+    "schema",
+    "source_commit",
+    "snapshot_kind",
+    "worktree_state_excluded",
+    "repos",
+    "manifest_digest"
+  ],
+  "title": "M1ND-10 G6 held-out V2 immutable source manifest",
+  "type": "object"
+}

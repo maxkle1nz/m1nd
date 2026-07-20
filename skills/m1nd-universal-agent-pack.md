@@ -228,16 +228,12 @@ this loop by default:
    knowledge.
 9. Promotion is the audited crossing (do it deliberately, rarely): a `memorize` is
    always project-private — a finding does NOT become shared doctrine by being
-   written. When a VERIFIED claim is genuinely transversal, `promote {brain, claim,
-   reason}` copies it UP into the medulla with the full readable chain (Origin-Brain,
-   Origin-Claim, Promoted-By, Promotion-Reason); the project original stays in place
-   stamped Promoted-To (elevate, never move). The verb gates: only `State: verified`
-   (or a founder claim) may promote; a secret/conflict-marker is refused at the
-   hygiene floor; evidence is origin-qualified so freshness delegates to the home
-   brain, else the claim is marked `evidence_unverifiable` (never reads fresher than
-   it can prove). It is an ORCHESTRATOR act — a maker proposes, the orchestrator
-   executes; any id may call it but `Promoted-By` audits every promotion. Demote via
-   `learn wrong` on the medulla copy — never touches the project witness.
+   written. The public `promote` route is currently fail-closed at
+   `POSITIVE_SOVEREIGN` until an exact typed G2 authority consumer is installed.
+   `State: verified`, founder/source labels, caller identity, and arbitrary lease
+   strings are evidence or metadata, never authority. The intended crossing keeps
+   the project witness and complete provenance, but only the owner-resolved internal
+   path may perform it until the public authority contract is mechanically proved.
 10. Delegation is the grounded spawn (ORGANISM R6 + R7/M7): spawning a subagent? `delegate
     {agent_id, task}` composes the RETRIEVAL half of its spec in ONE read-only call —
     the mother's binding (the NAMED brain the child must land on), a LABELED memory

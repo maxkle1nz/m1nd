@@ -32,7 +32,7 @@ use crate::skeleton_scan::{
 };
 use crate::system_blocks::{
     self, archive_in_dir, candidate_edit_in_dir, candidate_lease_in_dir, delete_in_dir,
-    import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, reconcile_in_dir,
+    import_receipt_in_dir, import_seed_into_dir, recompute_in_dir, reconcile_in_dir,
     skeleton_candidate_in_dir, ArchiveMode, LeaseAction, Receipt, SeedError, SystemBlockStore,
     DEFAULT_LEASE_TTL_SECS,
 };
@@ -406,6 +406,7 @@ fn emit_scan_progress(state: &SessionState, event: &ScanProgressEvent) {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RatifyInput {
     #[allow(dead_code)]
     pub agent_id: Option<String>,
@@ -416,61 +417,24 @@ pub struct RatifyInput {
     pub block_ids: Option<Vec<String>>,
     /// Who ratified (stamped into the skeleton's ratification record).
     pub ratifier: String,
-    /// The ORIGIN of the gesture (HUMAN-VIEW-V2-F25-TECH § ratify). Only the owner's
-    /// screen composes `"human-ui"`; a runner/agent MCP client never does. Absent or
-    /// any other value refuses the call — ratify is the human's signature, not an
-    /// agent's write.
-    #[serde(default)]
-    pub ratified_via: Option<String>,
 }
-
-/// The origin token the owner's Human View screen stamps on a ratify. The one value
-/// that passes the origin gate; every other (including absent) is refused.
-const RATIFY_HUMAN_ORIGIN: &str = "human-ui";
 
 /// `system_blocks_ratify` (WRITE). Flips the targeted blocks `candidate ->
 /// ratified` and their membership `proposed -> ratified`, stamps the skeleton's
 /// ratification (method `verb`, now), and bumps `store_version`. OCC-checked.
 pub fn handle_system_blocks_ratify(
-    state: &mut SessionState,
-    input: RatifyInput,
+    _state: &mut SessionState,
+    _input: RatifyInput,
 ) -> M1ndResult<Value> {
     const TOOL: &str = "system_blocks_ratify";
-    // Origin gate: ratify is the HUMAN gesture (M1ND_INSTRUCTIONS §6, RATIFY IS
-    // HUMAN) — now with a mechanical mirror, not doctrine alone. The owner's screen
-    // stamps `ratified_via:"human-ui"`; a runner/agent MCP client never composes it.
-    // A call lacking it is refused WITH the lesson, so the write-gate's explicit
-    // `?brain=` bypass (any local process reaching the REST dispatch, http_server.rs
-    // ~1926) can no longer ratify by reflex. The field is forgeable on an
-    // unauthenticated loopback, so this closes the CHEAP vector (an agent that simply
-    // calls ratify), NOT a malicious same-UID process — the latter is out of the
-    // threat model exactly as F25-TECH §5d holds for same-UID malware.
-    if input.ratified_via.as_deref() != Some(RATIFY_HUMAN_ORIGIN) {
-        return Ok(json!({
-            "ok": false,
-            "schema": "m1nd-system-block-write-v0",
-            "refused": "human_gesture_required",
-            "tool": TOOL,
-            "lesson": "ratify is the human gesture — the owner's screen sends it; agents never do",
-        }));
-    }
-    let dir = store_dir(state);
-    let ratified_at = now_iso8601();
-    let (store, summary) = ratify_in_dir(
-        &dir,
-        input.expected_store_version,
-        input.block_ids.as_deref(),
-        &input.ratifier,
-        &ratified_at,
-    )
-    .map_err(|e| seed_err(TOOL, e))?;
-    Ok(json!({
-        "store_version": store.store_version,
-        "ratified_block_ids": summary.ratified_block_ids,
-        "skeleton_state": "ratified",
-        "ratifier": input.ratifier,
-        "ratified_at": ratified_at,
-    }))
+    // A client-controlled string is not evidence of a human gesture. Direct
+    // ratification stays closed until a typed G2/G3 lease consumer invokes the
+    // domain transition through an authority-bound path.
+    Err(M1ndError::InvalidParams {
+        tool: TOOL.to_string(),
+        detail: "sovereign_authority_required: direct system_blocks_ratify is disabled; a client-supplied origin token (including 'human-ui') grants no authority, and no exact typed G2/G3 ratification lease path is installed"
+            .to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1082,6 +1046,20 @@ mod tests {
         port
     }
 
+    const FAKE_NAMING_SECRET: &str =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn write_fake_naming_secret(owner_runtime_root: &std::path::Path) {
+        let path = crate::runnerd_owner::secret_path(owner_runtime_root);
+        std::fs::write(&path, FAKE_NAMING_SECRET).expect("secret");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("private secret permissions");
+        }
+    }
+
     /// F11-b §2a end-to-end: an auto scan with a LIVE (fake) announced daemon
     /// lands runner names in the emitted seed, in the report, AND in the persisted
     /// store — needs_owner_naming false, so the o6 ratify gate opens without a
@@ -1095,12 +1073,8 @@ mod tests {
         // announced in the registry — the two facts the naming path needs.
         let owner_rt = temp.path().join("owner-rt");
         std::fs::create_dir_all(&owner_rt).expect("owner rt");
-        std::fs::write(
-            crate::runnerd_owner::secret_path(&owner_rt),
-            "fake-naming-secret",
-        )
-        .expect("secret");
-        let port = spawn_fake_name_daemon("fake-naming-secret");
+        write_fake_naming_secret(&owner_rt);
+        let port = spawn_fake_name_daemon(FAKE_NAMING_SECRET);
         let registry = std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
         registry.register(&["namer-1".to_string()], port, 1);
         state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {
@@ -1222,12 +1196,8 @@ mod tests {
 
         let owner_rt = temp.path().join("owner-rt");
         std::fs::create_dir_all(&owner_rt).expect("owner rt");
-        std::fs::write(
-            crate::runnerd_owner::secret_path(&owner_rt),
-            "fake-naming-secret",
-        )
-        .expect("secret");
-        let port = spawn_fake_name_daemon("fake-naming-secret");
+        write_fake_naming_secret(&owner_rt);
+        let port = spawn_fake_name_daemon(FAKE_NAMING_SECRET);
         let registry = std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
         registry.register(&["namer-1".to_string()], port, 1);
         state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {

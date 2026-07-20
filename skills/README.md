@@ -7,13 +7,16 @@ It is intentionally host-neutral:
 - `m1nd-first` is the short rule set agents should load before repository work.
 - `m1nd-operator` is the deeper operating manual for routing, recovery, `L1GHT`,
   document binding, multi-agent coordination, and runtime refresh.
+- `m1nd-guardian` is the M1ND-10 continuation doctrine: one active front,
+  proof-state separation, same-candidate receipts, stop rules, authority boundaries,
+  and cold-agent succession.
 - `m1nd-operator/references/full-spec-agent-os.md` is the full operating layer:
   a route table for the whole m1nd/L1GHT tool system and high-value tool
   combinations.
 - `m1nd-universal-agent-pack.md` is the portable prompt-pack form for hosts that
   do not have a native skill directory.
 
-All three carry the trained-agent loop measured in internal bug-hunt rounds:
+The general agent pack carries the trained-agent loop measured in internal bug-hunt rounds:
 `north(task)` as the in-session front door (one round-trip for trust, task
 context, prior memory, sufficiency, and one `next_move`; `needs_ingest` → ingest
 → re-north), then act on the calibrated verdicts (`act`/`reverify`/`abstain`,

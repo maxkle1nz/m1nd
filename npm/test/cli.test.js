@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -14,22 +15,74 @@ const {
   hostPlan,
   hostStatus,
   hostRecipe,
+  githubReleaseAssetName,
+  canonicalJsonV1,
+  parseIntegerJson,
+  domainSeparatedDigest,
+  validateCanonicalCompatibility,
+  verifyCanonicalReleaseVectors,
   osGateOk,
   installSkills,
   mcpConfig,
   packRoutingCheck,
   restart,
   runtimeBinaryName,
-  selfUpdate,
+  selfUpdate: productionSelfUpdate,
+  createSelfUpdateTestHarness,
   parseLaunchctlLabel,
   parseLaunchctlProgramPath,
   launchdLabelManagesTarget,
   shouldKickstartAfterInstall,
 } = require("../lib/cli");
+
+const runSelfUpdateTest = createSelfUpdateTestHarness();
+function selfUpdate(args) {
+  return runSelfUpdateTest(args, {
+    releaseDirectory: process.env.M1ND_TEST_RELEASE_DIR || null,
+    cosignPath: process.env.M1ND_TEST_COSIGN_PATH || null,
+  });
+}
 const { classifyScopeBinding } = require("../lib/agent-cli");
 const northShim = require("../bin/m1nd-north-shim");
 
 const cli = path.resolve(__dirname, "../bin/m1nd.js");
+const canonicalVectors = path.resolve(
+  __dirname,
+  "../../tests/fixtures/M1ND10-CANONICAL-VECTORS.json"
+);
+
+assert.deepStrictEqual(verifyCanonicalReleaseVectors(canonicalVectors), {
+  ok: true,
+  status: "STRUCTURALLY_VALID_NOT_CRYPTOGRAPHICALLY_VERIFIED",
+});
+assert.strictEqual(
+  canonicalJsonV1(parseIntegerJson('{"z":"coração","built_at":9007199254740993,"a":"α"}')),
+  '{"a":"α","built_at":9007199254740993,"z":"coração"}'
+);
+for (const refusedNumber of ['{"n":1.0}', '{"n":1e30}']) {
+  assert.throws(() => parseIntegerJson(refusedNumber), /non-integer JSON number refused/);
+}
+for (const ambiguousObject of ['{"a":1,"a":2}', '{"outer":{"a":1,"a":2}}']) {
+  assert.throws(() => parseIntegerJson(ambiguousObject), /duplicate object key refused/);
+}
+assert.throws(
+  () =>
+    validateCanonicalCompatibility({
+      schema: "m1nd-release-compatibility-manifest-v1",
+      version: "1.4.0",
+      commit: "a".repeat(40),
+      source_ref: "refs/tags/v1.4.0",
+      targets: [
+        {
+          target: "linux-x86_64",
+          asset: "m1nd-mcp-wrong",
+          sha256: "a".repeat(64),
+          size_bytes: 1,
+        },
+      ],
+    }),
+  /asset .* does not match/
+);
 
 // Version fixtures track the real package version so the self-update tests keep
 // asserting current==package and stale<package as package.json advances.
@@ -52,40 +105,51 @@ const STALE_VERSION = versionBelow(CURRENT_VERSION);
 assert.strictEqual(runtimeBinaryName("win32"), "m1nd-mcp.exe");
 assert.strictEqual(runtimeBinaryName("darwin"), "m1nd-mcp");
 assert.strictEqual(runtimeBinaryName("linux"), "m1nd-mcp");
-assert.strictEqual(commandLooksLikeRuntime("/Users/you/.m1nd/bin/m1nd-mcp --stdio"), true);
-assert.strictEqual(commandLooksLikeRuntime("(m1nd-mcp)"), true);
+assert.strictEqual(githubReleaseAssetName("linux", "x64"), "m1nd-mcp-linux-x86_64");
+assert.strictEqual(githubReleaseAssetName("darwin", "x64"), "m1nd-mcp-macos-x86_64");
+assert.strictEqual(githubReleaseAssetName("darwin", "arm64"), "m1nd-mcp-macos-aarch64");
+assert.strictEqual(
+  githubReleaseAssetName("win32", "x64"),
+  "m1nd-mcp-windows-x86_64.exe"
+);
+assert.strictEqual(githubReleaseAssetName("win32", "arm64"), null);
+assert.strictEqual(
+  commandLooksLikeRuntime("/Us" + "ers/alice/.m1nd/bin/" + runtimeBinaryName() + " --stdio"),
+  true
+);
+assert.strictEqual(commandLooksLikeRuntime("(" + runtimeBinaryName() + ")"), true);
 assert.strictEqual(commandLooksLikeRuntime("node codex prompt mentions m1nd-mcp"), false);
 
 assert.strictEqual(
-  defaultRuntimePath("win32", "C:\\Users\\you"),
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  defaultRuntimePath("win32", "C:\\Users\\<name>"),
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
 
 const codexWindowsConfig = mcpConfig(
   "codex",
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
-assert(codexWindowsConfig.includes('command = "C:\\\\Users\\\\you\\\\.m1nd\\\\bin\\\\m1nd-mcp.exe"'));
+assert(codexWindowsConfig.includes('command = "C:\\\\Users\\\\<name>\\\\.m1nd\\\\bin\\\\m1nd-mcp.exe"'));
 assert(codexWindowsConfig.includes('args = ["--stdio", "--no-gui"]'));
 const projectForConfig = path.resolve("project");
 const codexProjectConfig = mcpConfig(
   "codex",
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe",
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe",
   projectForConfig
 );
 assert(codexProjectConfig.includes("[mcp_servers.m1nd.env]"));
 assert(codexProjectConfig.includes(`M1ND_WORKSPACE_ROOT = "${projectForConfig.replace(/\\/g, "\\\\")}"`));
 
 const genericWindowsConfig = JSON.parse(
-  mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe")
+  mcpConfig("generic", "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe")
 );
 assert.strictEqual(
   genericWindowsConfig.mcpServers.m1nd.command,
-  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+  "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 );
 assert.deepStrictEqual(genericWindowsConfig.mcpServers.m1nd.args, ["--stdio", "--no-gui"]);
 const genericProjectConfig = JSON.parse(
-  mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe", projectForConfig)
+  mcpConfig("generic", "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe", projectForConfig)
 );
 assert.strictEqual(genericProjectConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, projectForConfig);
 
@@ -130,6 +194,7 @@ const packRoutingJson = JSON.parse(packRouting.stdout);
 assert.strictEqual(packRoutingJson.schema, "m1nd-agent-pack-routing-check-v0");
 assert.strictEqual(packRoutingJson.ok, true);
 assert(packRoutingJson.contract_checks.some((check) => check.id === "direct-proof-is-final-truth" && check.ok));
+assert(packRoutingJson.files.some((file) => file.id === "m1nd-guardian" && file.ok));
 assert(packRoutingJson.files.some((file) => file.id === "m1nd-universal-agent-pack" && file.ok));
 
 const brokenRoutingFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-routing-broken-")), "pack.md");
@@ -199,6 +264,226 @@ function writeFakeBinary(file, content = "fake runtime\n") {
   if (process.platform !== "win32") fs.chmodSync(file, 0o755);
 }
 
+function sha256Text(content) {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function canonicalJson(value) {
+  function order(candidate) {
+    if (Array.isArray(candidate)) return candidate.map(order);
+    if (candidate && typeof candidate === "object") {
+      return Object.keys(candidate)
+        .sort()
+        .reduce((result, key) => {
+          result[key] = order(candidate[key]);
+          return result;
+        }, {});
+    }
+    return candidate;
+  }
+  return `${JSON.stringify(order(value))}\n`;
+}
+
+function currentReleaseTarget() {
+  if (process.platform === "darwin" && process.arch === "arm64") return "macos-aarch64";
+  if (process.platform === "darwin" && process.arch === "x64") return "macos-x86_64";
+  if (process.platform === "linux" && process.arch === "x64") return "linux-x86_64";
+  if (process.platform === "win32" && process.arch === "x64") return "windows-x86_64";
+  throw new Error(`unmapped test platform ${process.platform}-${process.arch}`);
+}
+
+function writeVersionBinary(file, version, marker = "fixture") {
+  writeFakeBinary(
+    file,
+    `#!/bin/sh\nprintf '%s\\n' 'm1nd-mcp ${version} (${marker})'\n`
+  );
+}
+
+function writeFakeCosign(file) {
+  writeFakeBinary(
+    file,
+    `#!/usr/bin/env node
+"use strict";
+const crypto = require("crypto");
+const fs = require("fs");
+const args = process.argv.slice(2);
+function value(name) {
+  const index = args.indexOf(name);
+  if (index < 0 || index + 1 >= args.length) process.exit(21);
+  return args[index + 1];
+}
+if (args[0] !== "verify-blob") process.exit(22);
+const subject = args[args.length - 1];
+const bundle = JSON.parse(fs.readFileSync(value("--bundle"), "utf8"));
+const digest = crypto.createHash("sha256").update(fs.readFileSync(subject)).digest("hex");
+if (bundle.subject_sha256 !== digest) process.exit(23);
+if (bundle.certificate_identity !== value("--certificate-identity")) process.exit(24);
+if (bundle.certificate_oidc_issuer !== value("--certificate-oidc-issuer")) process.exit(25);
+process.stdout.write("Verified OK\\n");
+`
+  );
+}
+
+function writeVerifiedReleaseFixture(root, rawSource, options = {}) {
+  const releaseDir = path.join(root, "release");
+  fs.mkdirSync(releaseDir, { recursive: true });
+  const version = options.version || CURRENT_VERSION;
+  const target = options.target || currentReleaseTarget();
+  const asset = githubReleaseAssetName();
+  const raw = path.join(releaseDir, asset);
+  fs.copyFileSync(rawSource, raw);
+  if (process.platform !== "win32") fs.chmodSync(raw, 0o755);
+  const rawSha256 = sha256Text(fs.readFileSync(raw));
+  const rawSize = fs.statSync(raw).size;
+  const artifacts = [
+    {
+      kind: "runtime_binary",
+      name: asset,
+      sha256: rawSha256,
+      size_bytes: rawSize,
+      target,
+    },
+  ];
+  const runtimeBindings = [
+    {
+      archive: `m1nd-mcp-${target}.tar.gz`,
+      archive_member: process.platform === "win32" ? "m1nd-mcp.exe" : "m1nd-mcp",
+      artifact_smoke_receipt: `GATE-ARTIFACT-SMOKE-${target}.json`,
+      raw_binary: asset,
+      runtime_sha256: rawSha256,
+      size_bytes: rawSize,
+      target,
+    },
+  ];
+  const seed = {
+    artifacts,
+    commit: options.commit || "a".repeat(40),
+    runtime_bindings: runtimeBindings,
+    source_ref: options.sourceRef || `refs/tags/v${version}`,
+    version,
+  };
+  const manifest = {
+    schema: options.schema || "m1nd-release-candidate-v1",
+    candidate_id: `sha256:${sha256Text(canonicalJson(seed))}`,
+    ...seed,
+    build_policy: {
+      builds_per_target: 1,
+      archive_raw_digest_match: true,
+      promotion: "exact_declared_bytes_only",
+      raw_asset_install: true,
+      targets: options.policyTargets || [target],
+    },
+  };
+  if (options.mutateManifest) options.mutateManifest(manifest);
+  const manifestPath = path.join(releaseDir, "CANDIDATE.json");
+  fs.writeFileSync(manifestPath, canonicalJson(manifest));
+  const identity =
+    options.identity ||
+    `https://github.com/maxkle1nz/m1nd/.github/workflows/release.yml@refs/tags/v${version}`;
+  const issuer = options.issuer || "https://token.actions.githubusercontent.com";
+  fs.writeFileSync(
+    path.join(releaseDir, "CANDIDATE.json.sigstore.json"),
+    `${JSON.stringify({
+      certificate_identity: identity,
+      certificate_oidc_issuer: issuer,
+      subject_sha256: sha256Text(fs.readFileSync(manifestPath)),
+    })}\n`
+  );
+  const cosign = path.join(root, "fake-cosign");
+  writeFakeCosign(cosign);
+  return { asset, cosign, manifest, manifestPath, raw, releaseDir, target };
+}
+
+function writeCanonicalVerifiedReleaseFixture(root, rawSource, options = {}) {
+  const releaseDir = path.join(root, "canonical-release");
+  fs.mkdirSync(releaseDir, { recursive: true });
+  const version = options.version || CURRENT_VERSION;
+  const target = options.target || currentReleaseTarget();
+  const asset = githubReleaseAssetName();
+  const raw = path.join(releaseDir, asset);
+  fs.copyFileSync(rawSource, raw);
+  if (process.platform !== "win32") fs.chmodSync(raw, 0o755);
+  const rawSha256 = sha256Text(fs.readFileSync(raw));
+  const rawSize = fs.statSync(raw).size;
+  const commit = options.commit || "b".repeat(40);
+  const compatibility = {
+    schema: "m1nd-release-compatibility-manifest-v1",
+    version,
+    commit,
+    source_ref: `refs/tags/v${version}`,
+    targets: [{ target, asset, sha256: rawSha256, size_bytes: rawSize }],
+  };
+  const compatibilityPath = path.join(releaseDir, "RELEASE-COMPATIBILITY.json");
+  fs.writeFileSync(compatibilityPath, canonicalJsonV1(compatibility));
+  const compatibilityDigest = sha256Text(fs.readFileSync(compatibilityPath));
+  const rollbackDigest = sha256Text("fixture-canonical-rollback");
+  const digest = (label) => sha256Text(`fixture:${label}`);
+  const core = {
+    repo_commits: { m1nd: commit },
+    artifact_digests: {
+      release_compatibility_manifest_v1: compatibilityDigest,
+      release_rollback_plan_v1: rollbackDigest,
+      [`release_asset:${asset}`]: rawSha256,
+    },
+    schema_policy_versions: { action_catalog: "v1" },
+    tool_catalog_digest: digest("tool-catalog"),
+    safety_kernel_digest: digest("safety-kernel"),
+    previous_governance_runtime_digest: digest("previous-runtime"),
+    constitution_epoch_digest: digest("constitution"),
+    autonomy_epoch_grants_digest: digest("autonomy-grants"),
+    independence_quorum_policy_digest: digest("quorum"),
+    intended_active_mode: "FULL_AUTONOMY",
+    compatibility_manifest_digest: compatibilityDigest,
+    rollback_plan_digest: rollbackDigest,
+    harness_fixture_threat_digests: { threat_matrix: digest("threat") },
+    build_environment_digest: digest("environment"),
+    built_at: 9007199254740993n,
+  };
+  const manifest = {
+    schema: "m1nd-release-candidate-manifest-v1",
+    core,
+    candidate_digest: domainSeparatedDigest("m1nd-release-candidate-manifest-v1", core),
+    provenance_signature: "NOT_CRYPTOGRAPHIC:fixture-candidate",
+  };
+  const manifestPath = path.join(releaseDir, "CANDIDATE.json");
+  fs.writeFileSync(manifestPath, canonicalJsonV1(manifest));
+  const identity =
+    options.identity ||
+    `https://github.com/maxkle1nz/m1nd/.github/workflows/release.yml@refs/tags/v${version}`;
+  const issuer = options.issuer || "https://token.actions.githubusercontent.com";
+  fs.writeFileSync(
+    path.join(releaseDir, "CANDIDATE.json.sigstore.json"),
+    `${JSON.stringify({
+      certificate_identity: identity,
+      certificate_oidc_issuer: issuer,
+      subject_sha256: sha256Text(fs.readFileSync(manifestPath)),
+    })}\n`
+  );
+  const cosign = path.join(root, "fake-cosign-canonical");
+  writeFakeCosign(cosign);
+  return {
+    asset,
+    candidateDigest: manifest.candidate_digest,
+    compatibilityPath,
+    cosign,
+    manifest,
+    manifestPath,
+    raw,
+    releaseDir,
+    target,
+  };
+}
+
+function rewriteSignedFixtureManifest(fixture, mutate) {
+  const manifest = JSON.parse(fs.readFileSync(fixture.manifestPath, "utf8"));
+  mutate(manifest);
+  fs.writeFileSync(fixture.manifestPath, canonicalJson(manifest));
+  const bundlePath = path.join(fixture.releaseDir, "CANDIDATE.json.sigstore.json");
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, "utf8"));
+  bundle.subject_sha256 = sha256Text(fs.readFileSync(fixture.manifestPath));
+  fs.writeFileSync(bundlePath, `${JSON.stringify(bundle)}\n`);
+}
+
 function writeFakeMcpRuntime(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
@@ -209,6 +494,7 @@ if (process.argv.includes("--version")) {
   process.exit(0);
 }
 const readline = require("readline");
+const fs = require("fs");
 const rl = readline.createInterface({ input: process.stdin });
 function write(id, result) {
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
@@ -230,9 +516,14 @@ function tool(payload) {
 rl.on("line", (line) => {
   const req = JSON.parse(line);
   if (req.method === "initialize") return write(req.id, { protocolVersion: "2025-06-18", capabilities: {} });
-  if (req.method === "tools/list") return write(req.id, { tools: ["trust_selftest", "session_handshake", "ingest", "search", "seek", "activate", "audit", "glob", "surgical_context_v2"].map((name) => ({ name })) });
+  if (req.method === "tools/list") {
+    const names = ["trust_selftest", "session_handshake", "ingest", "search", "seek", "activate", "audit", "glob", "surgical_context_v2"];
+    if (process.env.M1ND_FAKE_LEGACY_NO_TRUST_SELFTEST === "1") names.splice(names.indexOf("trust_selftest"), 1);
+    return write(req.id, { tools: names.map((name) => ({ name })) });
+  }
   if (req.method !== "tools/call") return write(req.id, {});
   const name = req.params.name;
+  if (process.env.M1ND_FAKE_CALL_LOG) fs.appendFileSync(process.env.M1ND_FAKE_CALL_LOG, name + "\\n");
   const args = req.params.arguments || {};
   const orientBlocked = process.env.M1ND_FAKE_ORIENT_BLOCKED === "1" || process.env.M1ND_FAKE_SEARCH_BLOCKED === "1";
   if (name === "trust_selftest") {
@@ -242,7 +533,12 @@ rl.on("line", (line) => {
     return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "full_trust", checks: { needs_ingest: false }, graph_state: graph() }));
   }
   if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, graph_state: graph(), path: args.path }));
-  if (name === "session_handshake") return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "full_trust", graph_state: graph(), scope: args.scope }));
+  if (name === "session_handshake") {
+    if (process.env.M1ND_FAKE_TRUST === "needs_ingest") {
+      return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "needs_ingest", graph_state: { ...graph(), node_count: 0, edge_count: 0, finalized: false, ingest_root_count: 0 }, scope: args.scope }));
+    }
+    return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "full_trust", graph_state: graph(), scope: args.scope }));
+  }
   if (name === "search") {
     const emptyQueries = new Set(String(process.env.M1ND_FAKE_EMPTY_SEARCH_QUERIES || "").split("|").filter(Boolean));
     if (emptyQueries.has(args.query)) {
@@ -304,6 +600,165 @@ const fakeEnvBase = {
   M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
 };
 
+// Security regression: ambient test transport/verifier variables are never a
+// production authority.  Refusal happens before fixture reads, verifier
+// execution, target replacement, or rollback-journal creation.
+{
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, runtimeBinaryName());
+  const source = path.join(tmp, "candidate-runtime");
+  const marker = path.join(tmp, "ambient-fake-cosign-executed");
+  const statePath = path.join(tmp, "update-state.json");
+  writeVersionBinary(target, STALE_VERSION, "old");
+  writeVersionBinary(source, CURRENT_VERSION, "new");
+  const fixture = writeVerifiedReleaseFixture(tmp, source);
+  writeFakeBinary(
+    fixture.cosign,
+    `#!/usr/bin/env node\nrequire("fs").writeFileSync(${JSON.stringify(marker)}, "executed");\n`
+  );
+  const before = fs.readFileSync(target);
+  assert.throws(
+    () =>
+      withEnv(
+        {
+          ...fakeEnvBase,
+          M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+          M1ND_TEST_COSIGN_PATH: fixture.cosign,
+          M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+          M1ND_UPDATE_STATE_PATH: statePath,
+        },
+        () =>
+          productionSelfUpdate({
+            _: ["update", "apply"],
+            binary: target,
+            channel: "latest",
+            yes: true,
+            "no-npm": true,
+            "no-skills": true,
+            "no-kill": true,
+          })
+      ),
+    /unsafe self-update test overrides/
+  );
+  assert.deepStrictEqual(fs.readFileSync(target), before);
+  assert.strictEqual(fs.existsSync(marker), false);
+  assert.strictEqual(fs.existsSync(statePath), false);
+}
+
+// A repository-controlled PATH must never become updater authority. Planning
+// with every historically used updater executable shadowed performs no child
+// execution and refuses the unsigned runtime fallback.
+if (process.platform !== "win32") {
+  const tmp = mkTmpDir();
+  const marker = path.join(tmp, "hostile-path-tool-executed");
+  for (const name of ["npm", "cargo", "curl", "cosign", "node"]) {
+    writeFakeBinary(
+      path.join(tmp, name),
+      `#!/bin/sh\nprintf '%s' executed > ${JSON.stringify(marker)}\nexit 0\n`
+    );
+  }
+  const proof = withEnv(
+    {
+      ...fakeEnvBase,
+      PATH: tmp,
+      M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "false",
+      M1ND_TEST_RUNTIME_VERSION: undefined,
+    },
+    () =>
+      productionSelfUpdate({
+        _: ["update", "check"],
+        binary: path.join(tmp, "missing-runtime"),
+        channel: "latest",
+        "no-npm": true,
+        "no-skills": true,
+        "no-kill": true,
+      })
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+  assert(proof.blocked_actions.some((entry) => entry.id === "runtime-release-unavailable"));
+  assert(!proof.planned_actions.some((entry) => entry.id === "runtime-install-cargo"));
+}
+
+function refusedVerifiedReleaseCase(configure) {
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, runtimeBinaryName());
+  const source = path.join(tmp, "candidate-runtime");
+  const statePath = path.join(tmp, "update-state.json");
+  const backupDir = path.join(tmp, "backups");
+  writeVersionBinary(target, STALE_VERSION, "old");
+  writeVersionBinary(source, CURRENT_VERSION, "new");
+  const fixture = writeVerifiedReleaseFixture(tmp, source);
+  const env = {
+    ...fakeEnvBase,
+    M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+    M1ND_TEST_COSIGN_PATH: fixture.cosign,
+    M1ND_TEST_RUNTIME_VERSION: undefined,
+    M1ND_UPDATE_BACKUP_DIR: backupDir,
+    M1ND_UPDATE_STATE_PATH: statePath,
+  };
+  configure({ env, fixture, source, statePath, target, tmp });
+  const before = fs.readFileSync(target);
+  const proof = withEnv(env, () =>
+    selfUpdate({
+      _: ["update", "apply"],
+      binary: target,
+      channel: "latest",
+      yes: true,
+      "no-npm": true,
+      "no-skills": true,
+      "no-kill": true,
+    })
+  );
+  assert(proof.blocked_actions.some((entry) => entry.id === "runtime-install-failed"));
+  assert.deepStrictEqual(fs.readFileSync(target), before);
+  assert.strictEqual(fs.existsSync(statePath), false);
+  assert.strictEqual(fs.existsSync(backupDir), false);
+  assert.strictEqual(proof.test_overrides.active, true);
+  assert.strictEqual(proof.requires_host_rebind, false);
+  return proof;
+}
+
+function rollbackJournalFixture(phase, targetBytes, overrides = {}) {
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, runtimeBinaryName());
+  const backup = path.join(tmp, "backups", "runtime-before");
+  const statePath = path.join(tmp, "update-state.json");
+  const beforeBytes = Buffer.from("before-runtime\n");
+  const candidateBytes = Buffer.from("candidate-runtime\n");
+  writeFakeBinary(target, targetBytes);
+  writeFakeBinary(backup, beforeBytes);
+  const state = {
+    schema: "m1nd-self-update-rollback-state-v0",
+    created_at: new Date().toISOString(),
+    phase,
+    install_kind: "verified-github-release",
+    rollback_available: true,
+    target_binary: target,
+    backup_binary: backup,
+    backup_sha256: sha256Text(beforeBytes),
+    before_version: `m1nd-mcp ${STALE_VERSION}`,
+    before_sha256: sha256Text(beforeBytes),
+    candidate_sha256: sha256Text(candidateBytes),
+    after_version: `m1nd-mcp ${CURRENT_VERSION}`,
+    after_sha256: phase === "prepared" ? null : sha256Text(candidateBytes),
+    ...overrides,
+  };
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  const env = {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_UPDATE_STATE_PATH: statePath,
+  };
+  const rollback = () =>
+    withEnv(env, () => selfUpdate({ _: ["update", "rollback"], binary: target, channel: "latest" }));
+  return { backup, beforeBytes, candidateBytes, env, rollback, state, statePath, target, tmp };
+}
+
+// The fake cosign fixture is a shebang script; Windows cannot execute it, so
+// the apply/rollback harness scenarios below run on POSIX CI only. Real
+// Windows updater verification belongs to hosted G8 with genuine cosign.
+if (process.platform !== "win32") {
+
 withEnv(
   {
     ...fakeEnvBase,
@@ -321,6 +776,261 @@ withEnv(
     assert.strictEqual(current.requires_host_rebind, false);
     assert.deepStrictEqual(current.planned_actions, []);
     assert(current.non_claims.some((claim) => claim.includes("cached tool list")));
+  }
+);
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  fs.appendFileSync(fixture.raw, "tampered raw bytes\n");
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  fs.appendFileSync(fixture.manifestPath, " \n");
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  const bundlePath = path.join(fixture.releaseDir, "CANDIDATE.json.sigstore.json");
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, "utf8"));
+  bundle.certificate_identity = "https://github.com/example/other/.github/workflows/release.yml@refs/tags/v1.4.0";
+  fs.writeFileSync(bundlePath, `${JSON.stringify(bundle)}\n`);
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  const bundlePath = path.join(fixture.releaseDir, "CANDIDATE.json.sigstore.json");
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, "utf8"));
+  bundle.certificate_oidc_issuer = "https://issuer.example.invalid";
+  fs.writeFileSync(bundlePath, `${JSON.stringify(bundle)}\n`);
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  fs.rmSync(path.join(fixture.releaseDir, "CANDIDATE.json.sigstore.json"));
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  fs.rmSync(fixture.manifestPath);
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  fs.truncateSync(fixture.manifestPath, 16 * 1024 * 1024 + 1);
+});
+
+if (process.platform !== "win32") {
+  refusedVerifiedReleaseCase(({ fixture, tmp }) => {
+    const outside = path.join(tmp, "outside-release-runtime");
+    fs.copyFileSync(fixture.raw, outside);
+    fs.rmSync(fixture.raw);
+    fs.symlinkSync(outside, fixture.raw);
+  });
+}
+
+refusedVerifiedReleaseCase(({ env, tmp }) => {
+  env.M1ND_TEST_COSIGN_PATH = path.join(tmp, "missing-cosign");
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  rewriteSignedFixtureManifest(fixture, (manifest) => {
+    manifest.version = STALE_VERSION;
+    manifest.source_ref = `refs/tags/v${STALE_VERSION}`;
+  });
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  rewriteSignedFixtureManifest(fixture, (manifest) => {
+    manifest.source_ref = "refs/heads/main";
+  });
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  rewriteSignedFixtureManifest(fixture, (manifest) => {
+    manifest.schema = "m1nd-release-candidate-future";
+  });
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  rewriteSignedFixtureManifest(fixture, (manifest) => {
+    const binding = manifest.runtime_bindings.find((entry) => entry.target === fixture.target);
+    binding.raw_binary = "m1nd-mcp-wrong-asset";
+  });
+});
+
+refusedVerifiedReleaseCase(({ fixture }) => {
+  rewriteSignedFixtureManifest(fixture, (manifest) => {
+    manifest.build_policy.targets = ["wrong-platform-x86_64"];
+  });
+});
+
+for (const phase of ["prepared", "installed", "rolled_back"]) {
+  const drift = rollbackJournalFixture(phase, Buffer.from("drifted-runtime\n"));
+  const targetBefore = fs.readFileSync(drift.target);
+  const journalBefore = fs.readFileSync(drift.statePath);
+  const backupBefore = fs.readFileSync(drift.backup);
+  const refused = drift.rollback();
+  assert(refused.blocked_actions.some((entry) => entry.id === "rollback-target-digest-mismatch"));
+  assert.strictEqual(refused.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(drift.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(drift.statePath), journalBefore);
+  assert.deepStrictEqual(fs.readFileSync(drift.backup), backupBefore);
+}
+
+{
+  const unknown = rollbackJournalFixture("future_phase", Buffer.from("candidate-runtime\n"));
+  const targetBefore = fs.readFileSync(unknown.target);
+  const journalBefore = fs.readFileSync(unknown.statePath);
+  const refused = unknown.rollback();
+  assert(refused.blocked_actions.some((entry) => entry.id === "rollback-state-phase-invalid"));
+  assert.strictEqual(refused.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(unknown.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(unknown.statePath), journalBefore);
+}
+
+{
+  const legacy = rollbackJournalFixture("installed", Buffer.from("candidate-runtime\n"), {
+    phase: undefined,
+  });
+  const targetBefore = fs.readFileSync(legacy.target);
+  const journalBefore = fs.readFileSync(legacy.statePath);
+  const backupBefore = fs.readFileSync(legacy.backup);
+  const refused = legacy.rollback();
+  assert(refused.blocked_actions.some((entry) => entry.id === "rollback-state-phase-invalid"));
+  assert.strictEqual(refused.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(legacy.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(legacy.statePath), journalBefore);
+  assert.deepStrictEqual(fs.readFileSync(legacy.backup), backupBefore);
+}
+
+{
+  const prepared = rollbackJournalFixture("prepared", Buffer.from("before-runtime\n"));
+  const targetBefore = fs.readFileSync(prepared.target);
+  const backupBefore = fs.readFileSync(prepared.backup);
+  const recovered = prepared.rollback();
+  assert(recovered.applied_actions.some((entry) => entry.recovery === "prepared-target-still-before"));
+  assert.strictEqual(recovered.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(prepared.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(prepared.backup), backupBefore);
+  assert.strictEqual(JSON.parse(fs.readFileSync(prepared.statePath)).phase, "rolled_back");
+}
+
+{
+  const prepared = rollbackJournalFixture("prepared", Buffer.from("candidate-runtime\n"));
+  const recovered = prepared.rollback();
+  assert(recovered.applied_actions.some((entry) => entry.id === "runtime-rollback" && entry.ok));
+  assert.strictEqual(recovered.requires_host_rebind, true);
+  assert.deepStrictEqual(fs.readFileSync(prepared.target), prepared.beforeBytes);
+  const state = JSON.parse(fs.readFileSync(prepared.statePath));
+  assert.strictEqual(state.phase, "rolled_back");
+  assert.strictEqual(state.recovery, "prepared-target-was-candidate");
+}
+
+{
+  const installed = rollbackJournalFixture("installed", Buffer.from("before-runtime\n"));
+  const targetBefore = fs.readFileSync(installed.target);
+  const backupBefore = fs.readFileSync(installed.backup);
+  const recovered = installed.rollback();
+  assert(recovered.applied_actions.some((entry) => entry.recovery === "installed-target-already-before"));
+  assert.strictEqual(recovered.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(installed.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(installed.backup), backupBefore);
+  const state = JSON.parse(fs.readFileSync(installed.statePath));
+  assert.strictEqual(state.phase, "rolled_back");
+  assert.strictEqual(state.recovery, "installed-target-already-before");
+}
+
+{
+  const firstInstall = rollbackJournalFixture("installed", Buffer.from("candidate-runtime\n"), {
+    backup_binary: null,
+    backup_sha256: null,
+    before_sha256: null,
+  });
+  fs.rmSync(firstInstall.target);
+  const recovered = firstInstall.rollback();
+  assert(recovered.applied_actions.some((entry) => entry.recovery === "installed-target-already-before"));
+  assert.strictEqual(recovered.requires_host_rebind, false);
+  assert.strictEqual(fs.existsSync(firstInstall.target), false);
+  assert.strictEqual(JSON.parse(fs.readFileSync(firstInstall.statePath)).phase, "rolled_back");
+}
+
+{
+  const firstInstall = rollbackJournalFixture("installed", Buffer.from("candidate-runtime\n"), {
+    backup_binary: null,
+    backup_sha256: null,
+    before_sha256: null,
+  });
+  const restored = firstInstall.rollback();
+  assert(restored.applied_actions.some((entry) => entry.id === "runtime-rollback" && entry.ok));
+  assert.strictEqual(restored.requires_host_rebind, true);
+  assert.strictEqual(fs.existsSync(firstInstall.target), false);
+  assert.strictEqual(JSON.parse(fs.readFileSync(firstInstall.statePath)).restored_sha256, null);
+  const second = firstInstall.rollback();
+  assert(second.applied_actions.some((entry) => entry.idempotent));
+  assert.strictEqual(second.requires_host_rebind, false);
+  assert.strictEqual(fs.existsSync(firstInstall.target), false);
+}
+
+{
+  const cargo = rollbackJournalFixture("installed", Buffer.from("cargo-runtime\n"), {
+    install_kind: "cargo-fallback-unverified",
+    rollback_available: false,
+    backup_binary: null,
+    backup_sha256: null,
+    candidate_sha256: null,
+    after_sha256: sha256Text(Buffer.from("cargo-runtime\n")),
+  });
+  const targetBefore = fs.readFileSync(cargo.target);
+  const journalBefore = fs.readFileSync(cargo.statePath);
+  const refused = cargo.rollback();
+  assert(refused.blocked_actions.some((entry) => entry.id === "rollback-unavailable-cargo-fallback"));
+  assert.strictEqual(refused.requires_host_rebind, false);
+  assert.deepStrictEqual(fs.readFileSync(cargo.target), targetBefore);
+  assert.deepStrictEqual(fs.readFileSync(cargo.statePath), journalBefore);
+}
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const target = path.join(tmp, runtimeBinaryName());
+    const release = path.join(tmp, "release-m1nd-mcp");
+    const statePath = path.join(tmp, "update-state.json");
+    writeVersionBinary(target, STALE_VERSION, "old");
+    writeVersionBinary(release, CURRENT_VERSION, "new");
+    const verifiedRelease = writeVerifiedReleaseFixture(tmp, release);
+
+    const env = {
+      M1ND_TEST_RELEASE_DIR: verifiedRelease.releaseDir,
+      M1ND_TEST_COSIGN_PATH: verifiedRelease.cosign,
+      M1ND_TEST_RUNTIME_VERSION: undefined,
+      M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "backups"),
+      M1ND_UPDATE_STATE_PATH: statePath,
+    };
+    withEnv(env, () =>
+      selfUpdate({
+        _: ["update", "apply"],
+        binary: target,
+        channel: "beta",
+        yes: true,
+        "no-npm": true,
+        "no-skills": true,
+        "no-kill": true,
+      })
+    );
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    fs.writeFileSync(state.backup_binary, "tampered backup\n");
+
+    const refused = withEnv(env, () =>
+      selfUpdate({
+        _: ["update", "rollback"],
+        binary: target,
+        channel: "beta",
+      })
+    );
+    assert(
+      refused.blocked_actions.some(
+        (entry) => entry.id === "rollback-backup-digest-mismatch"
+      )
+    );
+    assert.strictEqual(sha256Text(fs.readFileSync(target)), sha256Text(fs.readFileSync(release)));
   }
 );
 
@@ -438,12 +1148,17 @@ withEnv(
     const target = path.join(tmp, runtimeBinaryName());
     const release = path.join(tmp, "release-m1nd-mcp");
     const statePath = path.join(tmp, "update-state.json");
-    writeFakeBinary(target, "old runtime\n");
-    writeFakeBinary(release, "new runtime\n");
+    writeVersionBinary(target, STALE_VERSION, "old");
+    writeVersionBinary(release, CURRENT_VERSION, "new");
+    const oldRuntime = fs.readFileSync(target);
+    const newRuntime = fs.readFileSync(release);
+    const verifiedRelease = writeVerifiedReleaseFixture(tmp, release);
 
     const applied = withEnv(
       {
-        M1ND_TEST_RELEASE_ASSET_PATH: release,
+        M1ND_TEST_RELEASE_DIR: verifiedRelease.releaseDir,
+        M1ND_TEST_COSIGN_PATH: verifiedRelease.cosign,
+        M1ND_TEST_RUNTIME_VERSION: undefined,
         M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "backups"),
         M1ND_UPDATE_STATE_PATH: statePath,
       },
@@ -460,16 +1175,36 @@ withEnv(
     );
 
     assert(applied.applied_actions.some((entry) => entry.id === "runtime-install-github-release" && entry.ok));
-    assert(applied.applied_actions.some((entry) => entry.id === "runtime-install-github-release" && entry.version_verified === false));
-    assert.strictEqual(fs.readFileSync(target, "utf8"), "new runtime\n");
+    assert(applied.applied_actions.some((entry) => entry.id === "runtime-install-github-release" && entry.version_verified));
+    assert.strictEqual(sha256Text(fs.readFileSync(target)), sha256Text(newRuntime));
+    assert.strictEqual(applied.test_overrides.active, true);
+    assert.strictEqual(applied.test_overrides.release_transport, "local-test-directory");
+    assert.strictEqual(applied.test_overrides.verifier_source, "explicit-test-executable");
+    assert(applied.non_claims.some((claim) => claim.includes("not a live GitHub/Sigstore receipt")));
+    const verifiedAction = applied.applied_actions.find((entry) => entry.id === "runtime-install-github-release");
+    assert.strictEqual(verifiedAction.candidate_verification.transport_source, "local-test-directory");
+    assert.strictEqual(verifiedAction.candidate_verification.verifier_source, "explicit-test-executable");
     const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.strictEqual(state.phase, "installed");
+    assert.strictEqual(state.install_kind, "verified-github-release");
     assert(fs.existsSync(state.backup_binary));
-    assert.strictEqual(fs.readFileSync(state.backup_binary, "utf8"), "old runtime\n");
+    assert.strictEqual(sha256Text(fs.readFileSync(state.backup_binary)), sha256Text(oldRuntime));
+    assert.strictEqual(state.before_sha256, sha256Text(oldRuntime));
+    assert.strictEqual(state.backup_sha256, sha256Text(oldRuntime));
+    assert.strictEqual(state.candidate_sha256, sha256Text(newRuntime));
+    assert.strictEqual(state.after_sha256, sha256Text(newRuntime));
+    assert.strictEqual(
+      fs.readdirSync(path.dirname(statePath)).some((name) => name.endsWith(".tmp")),
+      false
+    );
     assert.strictEqual(applied.requires_host_rebind, true);
 
     const rollback = withEnv(
       {
         ...fakeEnvBase,
+        M1ND_TEST_RELEASE_DIR: verifiedRelease.releaseDir,
+        M1ND_TEST_COSIGN_PATH: verifiedRelease.cosign,
+        M1ND_TEST_RUNTIME_VERSION: undefined,
         M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "backups"),
         M1ND_UPDATE_STATE_PATH: statePath,
       },
@@ -481,9 +1216,131 @@ withEnv(
         })
     );
     assert(rollback.applied_actions.some((entry) => entry.id === "runtime-rollback" && entry.ok));
-    assert.strictEqual(fs.readFileSync(target, "utf8"), "old runtime\n");
+    assert.strictEqual(rollback.requires_host_rebind, true);
+    assert.strictEqual(sha256Text(fs.readFileSync(target)), sha256Text(oldRuntime));
+    const rolledBackState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.strictEqual(rolledBackState.phase, "rolled_back");
+    assert.strictEqual(rolledBackState.restored_sha256, sha256Text(oldRuntime));
+
+    const journalBeforeSecondRollback = fs.readFileSync(statePath);
+    const secondRollback = withEnv(
+      {
+        ...fakeEnvBase,
+        M1ND_TEST_RELEASE_DIR: verifiedRelease.releaseDir,
+        M1ND_TEST_COSIGN_PATH: verifiedRelease.cosign,
+        M1ND_TEST_RUNTIME_VERSION: undefined,
+        M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "backups"),
+        M1ND_UPDATE_STATE_PATH: statePath,
+      },
+      () => selfUpdate({ _: ["update", "rollback"], binary: target, channel: "beta" })
+    );
+    assert(secondRollback.applied_actions.some((entry) => entry.id === "runtime-rollback" && entry.idempotent));
+    assert.strictEqual(secondRollback.requires_host_rebind, false);
+    assert.deepStrictEqual(fs.readFileSync(statePath), journalBeforeSecondRollback);
   }
 );
+
+// The updater keeps the proven legacy lane while accepting the first canonical
+// candidate only when its signed digest binds the exact compatibility file and
+// runtime bytes.  This avoids a cutover that would brick existing releases.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const target = path.join(tmp, runtimeBinaryName());
+    const release = path.join(tmp, "canonical-release-m1nd-mcp");
+    const statePath = path.join(tmp, "canonical-update-state.json");
+    writeVersionBinary(target, STALE_VERSION, "canonical-old");
+    writeVersionBinary(release, CURRENT_VERSION, "canonical-new");
+    const expectedBytes = fs.readFileSync(release);
+    const fixture = writeCanonicalVerifiedReleaseFixture(tmp, release);
+    const applied = withEnv(
+      {
+        M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+        M1ND_TEST_COSIGN_PATH: fixture.cosign,
+        M1ND_TEST_RUNTIME_VERSION: undefined,
+        M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "canonical-backups"),
+        M1ND_UPDATE_STATE_PATH: statePath,
+      },
+      () =>
+        selfUpdate({
+          _: ["update", "apply"],
+          binary: target,
+          channel: "beta",
+          yes: true,
+          "no-npm": true,
+          "no-skills": true,
+          "no-kill": true,
+        })
+    );
+    const action = applied.applied_actions.find((entry) => entry.id === "runtime-install-github-release");
+    assert(
+      action && action.ok,
+      `canonical runtime install failed: ${JSON.stringify(
+        action || applied.blocked_actions || applied.applied_actions
+      )}`
+    );
+    assert.strictEqual(
+      action.candidate_verification.candidate_schema,
+      "m1nd-release-candidate-manifest-v1"
+    );
+    assert.strictEqual(action.candidate_verification.candidate_digest, fixture.candidateDigest);
+    assert.strictEqual(
+      action.candidate_verification.candidate_identity_kind,
+      "canonical-domain-separated-digest"
+    );
+    assert.strictEqual(sha256Text(fs.readFileSync(target)), sha256Text(expectedBytes));
+  }
+);
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const target = path.join(tmp, runtimeBinaryName());
+    const release = path.join(tmp, "tampered-canonical-release-m1nd-mcp");
+    const statePath = path.join(tmp, "tampered-canonical-state.json");
+    writeVersionBinary(target, STALE_VERSION, "canonical-old");
+    writeVersionBinary(release, CURRENT_VERSION, "canonical-new");
+    const before = fs.readFileSync(target);
+    const fixture = writeCanonicalVerifiedReleaseFixture(tmp, release);
+    fs.appendFileSync(fixture.compatibilityPath, "\n");
+    const refused = withEnv(
+      {
+        M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+        M1ND_TEST_COSIGN_PATH: fixture.cosign,
+        M1ND_TEST_RUNTIME_VERSION: undefined,
+        M1ND_UPDATE_BACKUP_DIR: path.join(tmp, "tampered-backups"),
+        M1ND_UPDATE_STATE_PATH: statePath,
+      },
+      () =>
+        selfUpdate({
+          _: ["update", "apply"],
+          binary: target,
+          channel: "beta",
+          yes: true,
+          "no-npm": true,
+          "no-skills": true,
+          "no-kill": true,
+        })
+    );
+    assert(refused.blocked_actions.some((entry) => entry.id === "runtime-install-failed"));
+    assert.deepStrictEqual(fs.readFileSync(target), before);
+    assert.strictEqual(fs.existsSync(statePath), false);
+  }
+);
+
+} else {
+  console.log(
+    "# update apply/rollback harness scenarios skipped on win32 (shebang-only fake cosign; hosted G8 covers the real Windows updater)"
+  );
+}
 
 withEnv(
   {
@@ -538,7 +1395,11 @@ withEnv(
     assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
     assert.strictEqual(ready.hosts[0].config.status, "configured");
     assert.strictEqual(ready.hosts[0].config.workspace_configured, true);
-    assert.strictEqual(ready.hosts[0].readiness, "ready");
+    assert.strictEqual(
+      ready.hosts[0].readiness,
+      "ready",
+      `host not ready: ${JSON.stringify({ host: ready.hosts[0], runtime: ready.runtime })}`
+    );
     assert.strictEqual(ready.summary.overall_readiness, "ready");
     assert.strictEqual(ready.summary.host_rebind_proven, false);
     assert(!ready.hosts[0].next_actions.some((action) => action.includes("Set M1ND_WORKSPACE_ROOT")));
@@ -770,6 +1631,7 @@ withEnv(
     );
     const configPath = path.join(testHome, ".codex", "config.toml");
     assert(fs.existsSync(path.join(testHome, ".codex", "skills", "m1nd-first", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".codex", "skills", "m1nd-guardian", "SKILL.md")));
     assert(fs.existsSync(configPath));
     const config = fs.readFileSync(configPath, "utf8");
     assert(config.includes("[mcp_servers.m1nd]"));
@@ -981,6 +1843,11 @@ assert.strictEqual(classifyScopeBinding(scopeRepo, fileScope).binding_kind, "fil
 assert.strictEqual(classifyScopeBinding(scopeRepo, mkTmpDir()).binding_kind, "wrong_workspace_binding");
 assert.strictEqual(classifyScopeBinding(scopeRepo, null).binding_kind, "ambiguous_scope");
 
+// The fake m1nd-mcp runtime is a shebang script the agent CLI spawns over
+// stdio; Windows cannot execute it, so the agent/kickstart scenarios below
+// run on POSIX CI only. Cross-platform CLI contracts still run everywhere.
+if (process.platform !== "win32") {
+
 const fakeMcp = path.join(mkTmpDir(), runtimeBinaryName());
 writeFakeMcpRuntime(fakeMcp);
 const agentEnv = {
@@ -1007,6 +1874,7 @@ assert.strictEqual(agentScopeJson.command, "scope");
 assert.strictEqual(agentScopeJson.scope_alignment.binding_kind, "full_repo_binding");
 assert.strictEqual(agentScopeJson.scope_alignment.ambient_binding_kind, "wrong_workspace_binding");
 
+const agentTrustCallLog = path.join(mkTmpDir(), "calls.log");
 const agentTrust = spawnSync(
   process.execPath,
   [cli, "agent", "trust", "--repo", agentScopeRepo, "--binary", fakeMcp, "--ensure-ingest", "--json"],
@@ -1015,6 +1883,7 @@ const agentTrust = spawnSync(
     env: {
       ...agentEnv,
       M1ND_FAKE_TRUST: "needs_ingest",
+      M1ND_FAKE_CALL_LOG: agentTrustCallLog,
     },
   }
 );
@@ -1022,8 +1891,18 @@ assert.strictEqual(agentTrust.status, 0, agentTrust.stderr);
 const agentTrustJson = JSON.parse(agentTrust.stdout);
 assert.strictEqual(agentTrustJson.schema, "m1nd-agent-cli-v0");
 assert.strictEqual(agentTrustJson.command, "trust");
-assert(agentTrustJson.calls.some((entry) => entry.tool === "ingest"));
-assert.strictEqual(agentTrustJson.trust.verdict, "full_trust");
+assert.strictEqual(agentTrustJson.ok, false);
+assert.strictEqual(agentTrustJson.status, "needs_authority");
+assert.strictEqual(agentTrustJson.proof_state, "NOT_PROVEN");
+assert.strictEqual(agentTrustJson.trust.verdict, "needs_authority");
+assert.strictEqual(agentTrustJson.authority.provider.configured, false);
+assert.strictEqual(agentTrustJson.authority.mutation_attempted, false);
+assert.strictEqual(agentTrustJson.mutation_policy.generic_ingest_called, false);
+assert(agentTrustJson.authority.prohibited_fallbacks.includes("generic_ingest"));
+assert(agentTrustJson.authority.recovery_instructions.some((entry) => entry.id === "configure_governed_provider"));
+assert(!agentTrustJson.calls.some((entry) => entry.tool === "ingest"));
+assert(!agentTrust.stdout.includes("run ingest for the intended repo"));
+assert(!fs.readFileSync(agentTrustCallLog, "utf8").split(/\r?\n/).includes("ingest"));
 
 const agentOrientRepo = mkTmpDir();
 const agentOrient = spawnSync(
@@ -1082,6 +1961,7 @@ assert.strictEqual(agentAutoJson.action.schema, "m1nd-agent-action-envelope-v0")
 assert.strictEqual(agentAutoJson.action.route.kind, "orient");
 assert.strictEqual(agentAutoJson.action.route.tool, "seek");
 assert.strictEqual(agentAutoJson.action.trigger.kind, "natural_language");
+assert(agentAutoJson.operating_contract.empty_graph_rule.includes("needs_authority/NOT_PROVEN"));
 assert(agentAutoJson.action.action.command.includes(`--binary ${fakeMcp}`));
 assert(agentAutoJson.next_actions[0].includes(`--binary ${fakeMcp}`));
 
@@ -1094,12 +1974,14 @@ assert.strictEqual(agentNextFirstMinute.status, 0, agentNextFirstMinute.stderr);
 const agentNextFirstMinuteJson = JSON.parse(agentNextFirstMinute.stdout);
 assert.strictEqual(agentNextFirstMinuteJson.action.route.kind, "first_minute");
 assert.strictEqual(agentNextFirstMinuteJson.action.route.reason, "first_contact_broad_task");
+assert(agentNextFirstMinuteJson.action.action.summary.includes("needs_authority/NOT_PROVEN"));
 assert(agentNextFirstMinuteJson.next_actions[0].includes("agent first-minute"));
 assert.strictEqual(agentNextFirstMinuteJson.task_profile.primary_intent, "deep_architecture");
 assert(agentNextFirstMinuteJson.capability_suggestions[0].tools.includes("ghost_edges"));
 assert(agentNextFirstMinuteJson.capability_suggestions[0].tools.includes("twins"));
 assert(agentNextFirstMinuteJson.action.capability_suggestions[0].family_id === "retrobuilder");
 
+const agentFirstMinuteCallLog = path.join(mkTmpDir(), "calls.log");
 const agentFirstMinute = spawnSync(
   process.execPath,
   [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture hidden coupling runtime bottlenecks duplicate refactor taint paths", "--binary", fakeMcp, "--json"],
@@ -1108,19 +1990,24 @@ const agentFirstMinute = spawnSync(
     env: {
       ...agentEnv,
       M1ND_FAKE_TRUST: "needs_ingest",
+      M1ND_FAKE_CALL_LOG: agentFirstMinuteCallLog,
     },
   }
 );
 assert.strictEqual(agentFirstMinute.status, 0, agentFirstMinute.stderr);
 const agentFirstMinuteJson = JSON.parse(agentFirstMinute.stdout);
 assert.strictEqual(agentFirstMinuteJson.command, "first-minute");
-assert(agentFirstMinuteJson.calls.some((entry) => entry.tool === "ingest"));
-assert(agentFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
+assert.strictEqual(agentFirstMinuteJson.ok, false);
+assert.strictEqual(agentFirstMinuteJson.status, "needs_authority");
+assert.strictEqual(agentFirstMinuteJson.proof_state, "NOT_PROVEN");
+assert(!agentFirstMinuteJson.calls.some((entry) => entry.tool === "ingest"));
+assert(!agentFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
 assert.strictEqual(agentFirstMinuteJson.switch_to_direct_proof, true);
-assert.strictEqual(agentFirstMinuteJson.m1nd_usage_mode, "first_minute_orientation");
-assert(agentFirstMinuteJson.operating_contract);
+assert.strictEqual(agentFirstMinuteJson.m1nd_usage_mode, "authority_required_before_orientation");
 assert(Array.isArray(agentFirstMinuteJson.anchors));
-assert(agentFirstMinuteJson.do_not.some((entry) => entry.includes("agent context")));
+assert.strictEqual(agentFirstMinuteJson.anchors.length, 0);
+assert(agentFirstMinuteJson.do_not.some((entry) => entry.includes("generic ingest")));
+assert(!agentFirstMinute.stdout.includes("run ingest for the intended repo"));
 assert.strictEqual(agentFirstMinuteJson.capability_suggestions[0].family_id, "retrobuilder");
 assert.deepStrictEqual(
   ["ghost_edges", "taint_trace", "twins", "refactor_plan", "runtime_overlay"].every((tool) =>
@@ -1129,6 +2016,55 @@ assert.deepStrictEqual(
   true
 );
 assert(agentFirstMinuteJson.playbook.steps.some((step) => step.includes("RETROBUILDER")));
+assert(!fs.readFileSync(agentFirstMinuteCallLog, "utf8").split(/\r?\n/).includes("ingest"));
+
+// An already-ingested bound brain remains a read-only orientation lane.
+const agentFirstMinuteReadyCallLog = path.join(mkTmpDir(), "calls.log");
+const agentFirstMinuteReady = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_CALL_LOG: agentFirstMinuteReadyCallLog,
+    },
+  }
+);
+assert.strictEqual(agentFirstMinuteReady.status, 0, agentFirstMinuteReady.stderr);
+const agentFirstMinuteReadyJson = JSON.parse(agentFirstMinuteReady.stdout);
+assert.strictEqual(agentFirstMinuteReadyJson.ok, true);
+assert.strictEqual(agentFirstMinuteReadyJson.m1nd_usage_mode, "first_minute_orientation");
+assert(agentFirstMinuteReadyJson.calls.some((entry) => entry.tool === "seek"));
+assert(!agentFirstMinuteReadyJson.calls.some((entry) => entry.tool === "ingest"));
+assert(agentFirstMinuteReadyJson.anchors.length > 0);
+const agentFirstMinuteReadyCalls = fs.readFileSync(agentFirstMinuteReadyCallLog, "utf8").split(/\r?\n/);
+assert(agentFirstMinuteReadyCalls.includes("seek"));
+assert(!agentFirstMinuteReadyCalls.includes("ingest"));
+
+// Legacy runtimes without trust_selftest stay compatible through the read-only
+// session_handshake surface; their generic ingest verb is still never called.
+const agentLegacyCallLog = path.join(mkTmpDir(), "calls.log");
+const agentLegacyFirstMinute = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_LEGACY_NO_TRUST_SELFTEST: "1",
+      M1ND_FAKE_CALL_LOG: agentLegacyCallLog,
+    },
+  }
+);
+assert.strictEqual(agentLegacyFirstMinute.status, 0, agentLegacyFirstMinute.stderr);
+const agentLegacyFirstMinuteJson = JSON.parse(agentLegacyFirstMinute.stdout);
+assert.strictEqual(agentLegacyFirstMinuteJson.ok, true);
+assert(!agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "trust_selftest"));
+assert(agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "session_handshake"));
+assert(agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
+const agentLegacyCalls = fs.readFileSync(agentLegacyCallLog, "utf8").split(/\r?\n/);
+assert(!agentLegacyCalls.includes("ingest"));
 
 const agentAutoSymbol = spawnSync(
   process.execPath,
@@ -1385,6 +2321,12 @@ assert.strictEqual(kickstartJson.edge_count, 21);
 assert.strictEqual(kickstartJson.ok, true);
 assert.strictEqual(kickstartJson.next_action, "ready_to_query");
 
+} else {
+  console.log(
+    "# agent/kickstart scenarios skipped on win32 (shebang-only fake m1nd-mcp runtime)"
+  );
+}
+
 // --- ambient recipes: hooks + doctrine per host --------------------------------
 
 // 1. plan carries hook/doctrine per host and writes nothing to disk.
@@ -1613,14 +2555,14 @@ function homeForTest() {
   const withProgram = [
     "com.example.m1nd = {",
     "\tactive count = 1",
-    "\tprogram = /Users/x/.m1nd/bin/m1nd-mcp",
+    "\tprogram = /Users/<name>/.m1nd/bin/m1nd-mcp",
     "\targuments = {",
     "\t}",
     "}",
   ].join("\n");
   assert.strictEqual(
     parseLaunchctlProgramPath(withProgram),
-    "/Users/x/.m1nd/bin/m1nd-mcp",
+    "/Users/<name>/.m1nd/bin/m1nd-mcp",
     "the explicit program line is preferred"
   );
 

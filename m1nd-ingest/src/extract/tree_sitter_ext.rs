@@ -259,6 +259,30 @@ impl TreeSitterExtractor {
         targets
     }
 
+    fn is_import_node(&self, node: Node<'_>, source: &[u8]) -> bool {
+        let Ok(text) = node.utf8_text(source) else {
+            return false;
+        };
+        let trimmed = text.trim_start();
+        match self.config.lang_tag {
+            // These grammars represent every command/call with the same AST
+            // kind. Only their actual loader verbs are imports; treating jq,
+            // echo, or arbitrary calls as module targets emits unsafe refs.
+            "bash" => {
+                let command = trimmed.split_whitespace().next().unwrap_or_default();
+                matches!(command, "source" | ".")
+            }
+            "lua" => trimmed.starts_with("require(") || trimmed.starts_with("require "),
+            "r" => {
+                trimmed.starts_with("library(")
+                    || trimmed.starts_with("library ")
+                    || trimmed.starts_with("require(")
+                    || trimmed.starts_with("require ")
+            }
+            _ => true,
+        }
+    }
+
     /// Recursively collect identifier strings from import-related nodes.
     fn collect_import_identifiers<'a>(
         &self,
@@ -532,7 +556,7 @@ impl TreeSitterExtractor {
             };
 
             // Handle import statements
-            if self.config.import_kinds.contains(&kind) {
+            if self.config.import_kinds.contains(&kind) && self.is_import_node(node, source) {
                 let targets = self.extract_import_target(node, source);
                 for target in targets {
                     let ref_id = format!("ref::{}", target);
@@ -579,7 +603,17 @@ impl TreeSitterExtractor {
             // Handle definitions
             if let Some(nt) = node_type {
                 if let Some(name) = self.extract_name(node, source) {
-                    let node_id = format!("{}::{}::{}", file_id, id_prefix, name);
+                    let base_id = format!("{}::{}::{}", file_id, id_prefix, name);
+                    let node_id = if nodes.iter().any(|existing| existing.id == base_id) {
+                        let line_id = format!("{base_id}#L{start_line}");
+                        if nodes.iter().any(|existing| existing.id == line_id) {
+                            format!("{line_id}B{}", node.start_byte())
+                        } else {
+                            line_id
+                        }
+                    } else {
+                        base_id
+                    };
 
                     nodes.push(ExtractedNode {
                         id: node_id.clone(),
@@ -1971,6 +2005,20 @@ mod tests {
     }
 
     #[test]
+    fn bash_imports_only_source_commands_not_arbitrary_quoted_commands() {
+        let src =
+            b"source ./env.sh\nprint -r -- \"$T\" | jq -r 'fromjson | \"\\(.id // \"?\")\"'\n";
+        let result = bash_extractor().extract(src, "file::test.sh").unwrap();
+        let imports = result
+            .edges
+            .iter()
+            .filter(|edge| edge.relation == "imports")
+            .collect::<Vec<_>>();
+        assert!(!imports.is_empty(), "source command should emit an import");
+        assert!(imports.iter().all(|edge| !edge.target.contains(".id")));
+    }
+
+    #[test]
     fn lua_extracts_function() {
         let src = b"function greet(name)\n    print('hello ' .. name)\nend\n\nlocal function helper()\n    return 42\nend";
         let ext = lua_extractor();
@@ -3065,6 +3113,19 @@ mod tests {
                 "Should extract [dependencies] table. Nodes: {:?}",
                 result.nodes.iter().map(|n| &n.label).collect::<Vec<_>>()
             );
+        }
+
+        #[test]
+        fn toml_repeated_array_tables_receive_distinct_ids() {
+            let src = b"[[bin]]\nname = \"one\"\npath = \"src/one.rs\"\n\n[[bin]]\nname = \"two\"\npath = \"src/two.rs\"\n";
+            let result = toml_extractor().extract(src, "file::Cargo.toml").unwrap();
+            let bins = result
+                .nodes
+                .iter()
+                .filter(|node| node.label == "bin")
+                .collect::<Vec<_>>();
+            assert_eq!(bins.len(), 2);
+            assert_ne!(bins[0].id, bins[1].id);
         }
 
         #[test]

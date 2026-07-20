@@ -12,7 +12,10 @@ This is a doctrine, not a manual.
 - Start with `m1nd`. In an MCP session, the front door is one call: `north(task)` — it
   composes trust, task context, prior cross-session memory, a sufficiency signal, one
   `next_move`, and `honest_gaps` into a single packet before you read or edit anything.
-  If it returns `needs_ingest` (empty/unbound graph), `ingest` the repo, then `north` again.
+  If it returns `needs_ingest` (empty/unbound graph), do not call generic `ingest`:
+  that mutation surface is policy-disabled. Use the isolated `m1nd agent ... --repo`
+  CLI path for investigation, or the exact authority flow plus
+  `external_mutation_service` for a governed existing-brain mutation.
 - Before `rg`, shell globbing, or manual file reads, `m1nd` answers or narrows FIRST — that is the default, not a question you ask only when convenient. The one exception is the **Skip Conditions** below (exact file+lines already known, or pure compiler/runtime truth); everything else earns a `north`/`seek`/`impact` pass first.
 - Prefer the cheapest `m1nd` surface that preserves truth:
   - exact text -> `search`
@@ -21,9 +24,10 @@ This is a doctrine, not a manual.
   - topic, subsystem, or connected neighborhood -> `activate`
   - unfamiliar repo orientation -> `north` (or `audit` when you only want the structural map)
   - stacktrace or runtime error text -> `trace`
-- For docs/specs/knowledge:
-  - authored as `L1GHT` -> `ingest` with `adapter: "light"`
-  - ordinary docs/wiki/PDF/office docs -> `ingest` with `adapter: "universal"` or `adapter: "auto"`
+- For docs/specs/knowledge, do not advertise generic ingest adapters while the
+  mutation route is policy-disabled. Read the supplied artifacts directly or use
+  an owner-internal indexing path; label graph ingestion `NOT_AVAILABLE` unless an
+  exact typed consumer and authority receipt are present.
 - Before risky edits or change reviews, pass through `impact`, `validate_plan`, and usually `surgical_context_v2`.
 - Keep `agent_id` stable across one investigation unless intentionally splitting roles.
 
@@ -52,21 +56,23 @@ this loop by default:
    context (focus nodes + PageRank anchors), prior cross-session memory (each
    claim with its real age + author), a sufficiency signal, one `next_move`, and
    `honest_gaps` (what m1nd does NOT yet know). If it returns `needs_ingest`,
-   `ingest` the repo, then `north` again — `needs_ingest` is a real answer, not a
-   failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
+   do not call generic `ingest`; use the isolated CLI investigation path or the
+   exact typed authority consumer for an existing brain. `needs_ingest` is a real
+   answer, not a failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
    `focus`; reach for the pieces directly only when you need just one. Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. ONE call sets you up: `ingest` with
-   `project_root=<your repo root>` creates a per-project brain inside the served
-   owner, ingests your repo, binds your session, and returns its north packet —
-   thereafter every call from your root routes to YOUR brain automatically.
+   `reception.options[]`. The public cross-root bootstrap consumer is not
+   installed: never add `project_root` or `allow_overlap` to `ingest`, and never
+   treat the internal owner bootstrap as an executable repair. The honest code is
+   `brain_bootstrap_consumer_not_installed`; connect to an owner that already
+   hosts the intended brain or continue only with explicit mismatch caveats.
    Reception governs WRITES, not just reads: a read under mismatch is a warning,
    but a WRITE under mismatch is PROHIBITED by doctrine — any write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_*`,
    `mission_post`) would land in the WRONG brain. That is exactly how a foreign
-   skeleton once overwrote a bound brain. Run the one bootstrap `ingest` FIRST,
-   then write. Absent/null `reception` = your root matches the brain serving you.
+   skeleton once overwrote a bound brain. Do not write from that session.
+   Absent/null `reception` = your root matches the brain serving you.
    An empty memory beat is NOT proof of an empty store: the packet carries
    `memory_exists: N` (the on-disk claim count) plus an honest note when recall
    found no task-relevant match over a non-empty store — never conclude "no
@@ -113,21 +119,18 @@ this loop by default:
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
 
-## The Write Surface — bootstrap, the map, and missions
+## The Write Surface — closed routing, the map, and missions
 
 Retrieval is forgiving; writing is not. Four things to know before any write:
 
 1. **Write only into the brain that covers you** (the reception law, above). A
-   write under `caller_root_mismatch` corrupts the wrong store. The one-call
-   `ingest project_root=<your repo root>` bootstrap is the gate — it creates or
-   resolves your brain, binds the session, returns north; then write.
-2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or
-   WORKTREE of an existing brain is REFUSED with a teaching error
-   (`overlap_parent` / `overlap_child` / `overlap_worktree`) naming the conflict
-   and two ways forward: bind to the existing brain, or pass `allow_overlap:true`
-   only when you know exactly why. It holds on both seams (MCP wire and REST
-   `POST /api/tools/ingest`). A burst worktree does NOT earn its own brain — bind
-   to the main repo's. One repo, one brain, so memories don't fragment.
+   write under `caller_root_mismatch` corrupts the wrong store. Public bootstrap
+   and warm rebind are unavailable until an exact typed G2/G3 consumer exists;
+   stop rather than inventing a repair call.
+2. **No twin brains.** The internal owner-only mint path still refuses a root that
+   is the PARENT, CHILD, or WORKTREE of an existing brain
+   (`overlap_parent` / `overlap_child` / `overlap_worktree`), but this is an
+   implementation invariant, not a public capability.
 3. **The candidate map is edited by one verb.** `skeleton_candidate` scans a repo
    into a candidate block map (with `naming:"auto"` and a live naming-runner it is
    born NAMED — the zero-touch default). `candidate_edit` is the single write verb
@@ -241,8 +244,8 @@ calling more search tools:
   investigated, or the requested scope is inside that root. Use m1nd normally,
   then prove final truth with source/tests.
 - `wrong_workspace_binding`: active workspace is an unrelated repo. Rebind with
-  `M1ND_WORKSPACE_ROOT=/target/repo`, intentionally ingest the target repo, use
-  federation only for true cross-repo tasks, or run an isolated probe.
+  `M1ND_WORKSPACE_ROOT=/target/repo` only through an isolated CLI probe; public
+  rebind/bootstrap is unavailable. Use federation only for true cross-repo tasks.
 - `nested_workspace_binding`: active workspace/root is a subdirectory of the
   requested repo. Treat m1nd as partial truth for that subtree only. Rebind or
   ingest the repo root before making repo-wide claims.
@@ -250,9 +253,9 @@ calling more search tools:
   inside the repo. Use them as document context only; they do not prove codebase
   coverage or implementation truth.
 
-Do not loop on `seek`/`activate` when the binding is nested or file-level. Either
-upgrade the binding to the intended repo root, or explicitly switch to direct
-files/tests and record `m1nd_usage_mode=partial_scope_orientation`.
+Do not loop on `seek`/`activate` when the binding is nested or file-level. Use an
+isolated CLI binding when available, or explicitly switch to direct files/tests
+and record `m1nd_usage_mode=partial_scope_orientation`.
 
 ## Mission Control (not the default loop)
 
@@ -411,11 +414,11 @@ Quick pattern:
 4. After code changes, `cross_verify(check:["evidence_freshness"])` tells you which memorized claims now cite stale code. A merge re-ingest also returns `memory_freshness` inline.
 5. `mission_close(write_light_memory:true)` combines closing a mission and persisting its verified claims in one step.
 
-Provenance and scope (MEDULLA M5a): every `memorize` is stamped with an `Origin-Brain` — the project root it was born in, or `medulla` for the owner's own doctrine store — so recall can always name WHICH brain a claim came from. If your session's root has no project brain, a `memorize` is REFUSED rather than written into the shared medulla store; the refusal carries the one-call bootstrap (`ingest project_root=<your repo>`). Run it once, then your memory lands project-private in your own brain.
+Provenance and scope (MEDULLA M5a): every `memorize` is stamped with an `Origin-Brain` — the project root it was born in, or `medulla` for the owner's own doctrine store — so recall can always name WHICH brain a claim came from. If your session's root has no project brain, a `memorize` is REFUSED rather than written into the shared medulla store; the refusal reports `brain_bootstrap_consumer_not_installed` and carries no executable repair call.
 
 Pull, never push — tier-scoped recall (MEDULLA M5b): your default memory beat carries exactly TWO feeds — your own project brain's memory + the shared `medulla` (promoted/doctrine claims). Another repo's private claim NEVER surfaces in your beat; it can only reach you if it was promoted to the medulla. Every recall row is labeled with its `tier` (`project` | `medulla`) and `origin_brain`. To inspect across projects, pass `tier` on `seek`/`north`/`boot_memory`: `project` (your store only), `medulla` (doctrine only), `project+medulla` (the default — zero change for existing callers), or `all-brains` (the explicit fan-out over every hosted brain, each hit labeled by `origin_brain`, warm-boots routed through the eviction cap). `all-brains` is one argument away and never ambient — reach for it only when you genuinely need another project's knowledge.
 
-Promotion — the audited crossing (MEDULLA M6): a `memorize` is ALWAYS project-private; a finding does not become shared doctrine by being written. When a VERIFIED claim is genuinely transversal (true across projects, not one repo's fact), `promote {brain: <project_root>, claim: <slug>, reason: <one line>}` copies it UP into the medulla stamped with the full readable chain (Origin-Brain, Origin-Claim, Promoted-By, Promotion-Reason); the project original stays in place stamped Promoted-To — promotion elevates, never moves. The verb gates for you: only `State: verified` (or a founder claim) may promote (C8.3); a secret or conflict-marker is refused at the hygiene floor; a promoted claim's code evidence is origin-qualified so freshness delegates back to its home brain, or the claim is marked `evidence_unverifiable` (C8.2 — a medulla claim never reads fresher than it can prove). Etiquette: promotion is an ORCHESTRATOR act — a maker proposes ("candidate for promotion" is just a claim), the orchestrator executes; any id can call it but every promotion is auditably attributed by `Promoted-By`, so don't promote an unverified hunch. Demote by `learn wrong` on the MEDULLA copy (or a `moved_to:` superseding medulla `memorize`) — never touches the project witness. (The verb is served at the routed HTTP door; a fresh live verb needs the served owner rebuilt/kickstarted.)
+Promotion — the audited crossing (MEDULLA M6): a `memorize` is ALWAYS project-private; a finding does not become shared doctrine by being written. The public `promote` route is currently fail-closed at `POSITIVE_SOVEREIGN` until an exact typed G2 authority consumer is installed. `State: verified`, founder/source labels, caller identity, and arbitrary lease strings are evidence or metadata — never authority. The intended crossing still copies a genuinely transversal project claim into the medulla with its readable provenance while retaining the project witness, but only an owner-resolved internal path may perform it until the public authority contract is mechanically proved. Treat “candidate for promotion” as a proposal, not permission.
 
 Delegation — hand a grounded packet down, debrief the return (ORGANISM R6 + R7/M7): spawning a subagent? `delegate {agent_id, task}` composes the RETRIEVAL half of its spec in ONE read-only call — the mother's binding (the NAMED brain the child must land on), a LABELED memory slice (M7): each row carries `tier` (`project` | `medulla`) + `origin_brain` beside age + author, so the child inherits exactly what you chose AND can tell doctrine from project fact (the slice is your DEFAULT beat — project task-relevant claims + the medulla doctrine the domain touches, never `all-brains`, never another project's private claim). Plus ranked anchors, a staleness header, known dependents, and an explicit "what m1nd could NOT determine → your duties" section — rendered as `prompt_markdown` you APPEND to your brief (memory lines read `- [tier] claim — origin · author, age`; appendix: your text wins on what-to-do, the file on what-is, the packet outranks assumption only). The packet's `mission.binding` is the SAME datum reception verifies (`M1nd-Caller-Root` ↔ `covers_root`), so the child VERIFIES it landed (silent on match) rather than choosing — the child law. `delegate` abstains honestly (`needs_ingest` / `unscopable` / `seeds_unresolvable`) with evidence + a `next_move`, never a bare no; no predict/trust/tremor/xray enrichment yet, each omission stated in `non_claims`. When the subagent returns, `debrief {agent_id, delegation_id, outcome, touched_paths|diff, findings}` grades its diff against the packet and TEACHES the graph (the only mutation, via `memorize`/`learn`): it classifies touched paths, memorizes findings under the subagent and map-miss lessons under you, and appends one `outcomes.jsonl` row (stamped `outcome_unverified` unless you attach evidence). Conformance grades PATHS, never code quality — never merge-safe. Every debrief deposits memory the next `delegate` surfaces, so skipping it wastes knowledge.
 

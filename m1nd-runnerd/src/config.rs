@@ -258,11 +258,8 @@ pub fn ensure_secret(runtime_root: &Path) -> std::io::Result<String> {
     std::fs::create_dir_all(runtime_root)?;
     let path = runtime_root.join(RUNNERD_SECRET_FILE);
 
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let t = existing.trim().to_string();
-        if !t.is_empty() {
-            return Ok(t);
-        }
+    if path.exists() {
+        return read_valid_secret(&path);
     }
 
     use rand::RngCore;
@@ -271,15 +268,50 @@ pub fn ensure_secret(runtime_root: &Path) -> std::io::Result<String> {
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts.open(&path)?;
+    let mut f = match opts.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return read_valid_secret(&path)
+        }
+        Err(error) => return Err(error),
+    };
     f.write_all(hex.as_bytes())?;
+    f.sync_all()?;
     Ok(hex)
+}
+
+fn read_valid_secret(path: &Path) -> std::io::Result<String> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "runnerd secret must be a regular non-symlink file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "runnerd secret is group/world accessible",
+            ));
+        }
+    }
+    let secret = std::fs::read_to_string(path)?.trim().to_string();
+    if secret.len() != 64 || !secret.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "runnerd secret must contain exactly 32 random bytes encoded as hex",
+        ));
+    }
+    Ok(secret)
 }
 
 #[cfg(test)]
@@ -562,5 +594,24 @@ command = ["c"]
                 & 0o777;
             assert_eq!(mode, 0o600, "the secret is 0600");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_secret_refuses_symlink_and_insecure_existing_file() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let insecure = tempfile::tempdir().unwrap();
+        let insecure_path = insecure.path().join(RUNNERD_SECRET_FILE);
+        std::fs::write(&insecure_path, "a".repeat(64)).unwrap();
+        std::fs::set_permissions(&insecure_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(ensure_secret(insecure.path()).is_err());
+
+        let linked = tempfile::tempdir().unwrap();
+        let target = linked.path().join("target");
+        std::fs::write(&target, "b".repeat(64)).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&target, linked.path().join(RUNNERD_SECRET_FILE)).unwrap();
+        assert!(ensure_secret(linked.path()).is_err());
     }
 }

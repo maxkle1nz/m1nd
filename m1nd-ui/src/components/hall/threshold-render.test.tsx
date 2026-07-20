@@ -20,20 +20,22 @@ function memKV(): KV {
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v) };
 }
 
-// ── The Threshold: one calm sentence, one action, no wizard ───────────────────
-test('§4A.2: the Threshold renders one sentence + one action, no checklist/tour', () => {
-  const out = html(<ThresholdCard onBootstrapped={noop} />);
-  const text = visibleText(<ThresholdCard onBootstrapped={noop} />);
+// ── The Threshold: one calm sentence, one honest closed state ──────────────
+test('§4A.2: the Threshold exposes no unreachable bootstrap action', () => {
+  const out = html(<ThresholdCard />);
+  const text = visibleText(<ThresholdCard />);
   assert.match(text, /living map of your code/, 'the one calm sentence');
-  assert.match(out, /data-role="read-first-repo"/, 'the one action');
-  assert.match(out, /data-role="threshold-path"/, 'a path input');
+  assert.match(out, /data-role="bootstrap-unavailable"/, 'the closed state is explicit');
+  assert.match(text, /brain_bootstrap_consumer_not_installed/);
+  assert.doesNotMatch(out, /data-role="read-first-repo"|data-role="threshold-path"/);
+  assert.doesNotMatch(text, /project_root|one-call/i);
   // No wizard vocabulary.
   assert.doesNotMatch(text.toLowerCase(), /step 1|step 2|next →|checklist|tour|get started/);
 });
 
 // ── INV-05: the Threshold never shows a fabricated percent ────────────────────
 test('INV-05: the idle Threshold shows no progress bar and no percent', () => {
-  const out = html(<ThresholdCard onBootstrapped={noop} />);
+  const out = html(<ThresholdCard />);
   assert.doesNotMatch(out, /\d+\s*%/, 'no percent');
   assert.doesNotMatch(out, /role="progressbar"/, 'no determinate bar');
   // The progress copy only appears while reading (not at idle).
