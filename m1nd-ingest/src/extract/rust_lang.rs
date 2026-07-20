@@ -872,9 +872,26 @@ impl RustExtractor {
                         &extra_tags,
                     );
                     if node.kind() == "function_item" {
+                        // SPIKE EXPERIMENT (transplant hardening, Phase C): the
+                        // tree-sitter node knows the item's REAL end row — record
+                        // it so the graph's provenance carries the true extent
+                        // instead of line_start == line_end. The impl_item arm
+                        // above has always done this for impl blocks.
+                        let ts_end_line = node.end_position().row as u32 + 1;
                         let method_id = if let Some(existing) =
                             Self::find_node_id(result, line, &name)
                         {
+                            // The regex pass created this node with end_line ==
+                            // line; enrich it with the parsed extent.
+                            if let Some(n) = result
+                                .nodes
+                                .iter_mut()
+                                .find(|n| n.line == line && n.label == name)
+                            {
+                                if n.end_line < ts_end_line {
+                                    n.end_line = ts_end_line;
+                                }
+                            }
                             existing
                         } else {
                             let node_id =
@@ -904,7 +921,7 @@ impl RustExtractor {
                                 node_type: NodeType::Function,
                                 tags,
                                 line,
-                                end_line: line,
+                                end_line: ts_end_line,
                             });
                             result.edges.push(ExtractedEdge {
                                 source: file_id.to_string(),
