@@ -1647,6 +1647,8 @@ dependencies = [
  "tokio-test",
  "tower",
  "tower-http",
+ "tree-sitter",
+ "tree-sitter-rust",
 ]
 
 [[package]]
