@@ -38,6 +38,14 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # declaring it direct adds NO new crate to the build graph.
 sha2 = "0.10"
 
+# Tree-sitter, declared direct ONLY so the `transplant` verb can recover an item's
+# TRUE extent (closing-brace line) by PARSING instead of counting braces (which a
+# `}` inside a string/char literal or macro body corrupts). These exact versions are
+# already in the build graph via m1nd-ingest's default (tier2) features, so declaring
+# them here adds NO new crate to Cargo.lock — the same reuse pattern as sha2/libc.
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }
 tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"], optional = true }

@@ -155,6 +155,16 @@ pub fn handle_transplant(
         .map(|h| h >= 1 && (h as usize - 1) == decl_idx)
         .unwrap_or(false);
 
+    // Parse the source ONCE: the true item extents (closing-brace rows) and the set
+    // of TOP-LEVEL fns. This is what kills the brace-counting gap and stops a nested
+    // helper from being treated as a movable top-level item.
+    let ts_fns = ts_top_level_fns(&source_text);
+    if !ts_fns.is_empty() && !ts_is_top_level(&ts_fns, &symbol) {
+        return Err(refuse(format!(
+            "symbol `{symbol}` is not a TOP-LEVEL `fn` in '{source_abs}' (it is nested in a module, a method, or a closure); the transplant spike moves only top-level free functions"
+        )));
+    }
+
     // Same-file fn nodes and the symbol's graph index (used for the edge queries).
     let samefile_fns: Vec<&FnNode> = view
         .fns
@@ -170,14 +180,22 @@ pub fn handle_transplant(
     // moved (travels) = fixpoint of same-file callees whose EVERY same-file caller
     // is itself in the moved set; shared (stays) = same-file callees of the moved
     // set that still have an outside same-file caller.
-    let (travelled_names, shared_names, dependency_source) = classify_dependencies(
+    let (travelled_all, shared_names, dependency_source) = classify_dependencies(
         &view,
         &samefile_fns,
         symbol_idx,
         &symbol,
         &source_lines,
         decl_idx,
+        &ts_fns,
     );
+    // A travelled dep must itself be a TOP-LEVEL fn to be safely cut; a graph node
+    // whose provenance is this file but which is actually nested in a module stays
+    // put (cutting it would mangle the module).
+    let travelled_names: Vec<String> = travelled_all
+        .into_iter()
+        .filter(|n| ts_fns.is_empty() || ts_is_top_level(&ts_fns, n))
+        .collect();
 
     // --- Phase 3: cut regions (moved symbol + travelled deps) -----------------
     // Each region is widened up over trivia and down over one trailing blank.
@@ -197,7 +215,8 @@ pub fn handle_transplant(
                 "internal: travelled dependency `fn {name}` vanished from '{source_abs}' before the cut"
             )));
         };
-        let (top, brace_end, trailing_end) = item_region(&source_lines, d);
+        let (top, brace_end, trailing_end) =
+            item_region(&source_lines, d, ts_end_row(&ts_fns, name, d));
         cut_ranges.push((top, trailing_end));
         moved_texts.push(source_lines[top..=brace_end].to_vec());
     }
@@ -421,6 +440,7 @@ fn read_graph_view(state: &SessionState) -> GraphView {
 }
 
 /// Trichotomy from `calls` edges. Returns `(travelled, shared, source_label)`.
+#[allow(clippy::too_many_arguments)]
 fn classify_dependencies(
     view: &GraphView,
     samefile_fns: &[&FnNode],
@@ -428,6 +448,7 @@ fn classify_dependencies(
     symbol: &str,
     source_lines: &[String],
     decl_idx: usize,
+    ts_fns: &[TsFn],
 ) -> (Vec<String>, Vec<String>, String) {
     let samefile_idx: BTreeSet<usize> = samefile_fns.iter().map(|f| f.idx).collect();
     let name_of = |idx: usize| -> Option<String> {
@@ -492,7 +513,8 @@ fn classify_dependencies(
     // Textual fallback: the graph had no node for the symbol (no calls edges to
     // trust). Parse callees of the moved fn body and classify by counting other
     // same-file call sites. Reported honestly as "textual".
-    let (travelled, shared) = classify_dependencies_textually(source_lines, symbol, decl_idx);
+    let (travelled, shared) =
+        classify_dependencies_textually(source_lines, symbol, decl_idx, ts_fns);
     (travelled, shared, "textual".to_string())
 }
 
@@ -503,9 +525,11 @@ fn classify_dependencies_textually(
     source_lines: &[String],
     symbol: &str,
     decl_idx: usize,
+    ts_fns: &[TsFn],
 ) -> (Vec<String>, Vec<String>) {
     let all_fns = source_fn_names(&source_lines.join("\n"));
-    let (top, brace_end, _) = item_region(source_lines, decl_idx);
+    let (top, brace_end, _) =
+        item_region(source_lines, decl_idx, ts_end_row(ts_fns, symbol, decl_idx));
     let body = source_lines[top..=brace_end].join("\n");
     let mut travelled = Vec::new();
     let mut shared = Vec::new();
@@ -608,13 +632,79 @@ fn file_of_node(view: &GraphView, idx: usize) -> Option<String> {
 }
 
 // ===========================================================================
+// Tree-sitter extent (parse, don't count braces)
+// ===========================================================================
+
+/// A top-level `fn` item located by tree-sitter: its name and 0-based row span
+/// `[start_row, end_row]`, where `end_row` is the row of the item's closing brace.
+struct TsFn {
+    name: String,
+    start_row: usize,
+    end_row: usize,
+}
+
+/// Parse `source` and return every TOP-LEVEL `function_item` (a direct child of the
+/// file root — a `fn` nested inside a `mod {}` is deliberately excluded, so a nested
+/// helper is never mistaken for a movable top-level fn). Empty vec when the grammar
+/// cannot be loaded/parsed; callers then fall back to the textual brace counter.
+fn ts_top_level_fns(source: &str) -> Vec<TsFn> {
+    let mut parser = tree_sitter::Parser::new();
+    let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let root = tree.root_node();
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        if child.kind() == "function_item" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(bytes) {
+                    out.push(TsFn {
+                        name: name.to_string(),
+                        start_row: child.start_position().row,
+                        end_row: child.end_position().row,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The tree-sitter closing-brace row for the top-level `fn name` whose span covers
+/// `decl_idx` (0-based). `None` when tree-sitter is unavailable or the decl is not a
+/// top-level fn — callers then use brace counting.
+fn ts_end_row(ts_fns: &[TsFn], name: &str, decl_idx: usize) -> Option<usize> {
+    ts_fns
+        .iter()
+        .filter(|f| f.name == name)
+        .find(|f| f.start_row <= decl_idx && decl_idx <= f.end_row)
+        .map(|f| f.end_row)
+}
+
+/// True when `name` is a top-level fn per tree-sitter. Only meaningful when the
+/// parse produced at least one fn — an empty list means "unknown", not "none", so
+/// callers must guard with `!ts_fns.is_empty()` before treating a miss as authority.
+fn ts_is_top_level(ts_fns: &[TsFn], name: &str) -> bool {
+    ts_fns.iter().any(|f| f.name == name)
+}
+
+// ===========================================================================
 // Textual helpers (item region, fn detection, rewrites)
 // ===========================================================================
 
 /// Return `(first_trivia_line, closing_brace_line, last_trailing_blank_line)` for
 /// the item whose declaration is on `decl_idx`. Widens UP over contiguous `///`
-/// docs, `#[...]` attributes and `//` comments, and DOWN over trailing blanks.
-fn item_region(lines: &[String], decl_idx: usize) -> (usize, usize, usize) {
+/// docs, `#[...]` attributes and `//` comments, and DOWN over trailing blanks. The
+/// closing-brace line is the tree-sitter parse result when available (`ts_end`) —
+/// immune to a `}`/`{` inside a string, char or macro body — and falls back to the
+/// brace counter otherwise.
+fn item_region(lines: &[String], decl_idx: usize, ts_end: Option<usize>) -> (usize, usize, usize) {
     // widen up
     let mut top = decl_idx;
     while top > 0 {
@@ -630,8 +720,10 @@ fn item_region(lines: &[String], decl_idx: usize) -> (usize, usize, usize) {
             break;
         }
     }
-    // find closing brace
-    let brace_end = find_item_end(lines, decl_idx);
+    // Prefer the PARSED extent; fall back to the brace counter.
+    let brace_end = ts_end
+        .filter(|&e| e >= decl_idx && e < lines.len())
+        .unwrap_or_else(|| find_item_end(lines, decl_idx));
     // widen down over trailing blank lines
     let mut trailing = brace_end;
     while trailing + 1 < lines.len() && lines[trailing + 1].trim().is_empty() {
