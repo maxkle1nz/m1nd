@@ -1021,3 +1021,56 @@ fn atomicity_all_refusal_paths_write_nothing() {
         );
     }
 }
+
+// ===========================================================================
+// Regression (proptest-found): when the DESTINATION file is ALSO a referencer of
+// the moved symbol, the referencer rewrite must NOT clobber the dest insertion.
+// Minimal shrink of a 32-case proptest failure: moving f0 from m0 into m1, where
+// m1 already references `crate::m0::f0`, DESTROYED f0 entirely (two edits to the
+// same file, the second computed from the pre-insert text, overwrote the first).
+// ===========================================================================
+
+#[test]
+fn regression_dest_is_also_a_referencer_preserves_the_item() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut state = make_state(root);
+    write(&root.join("Cargo.toml"), cargo_toml());
+    write(&root.join("src/lib.rs"), "pub mod m0;\npub mod m1;\n");
+    write(
+        &root.join("src/m0.rs"),
+        "//! m0 (source).\n\npub fn f0(x: i64) -> i64 {\n    x\n}\n\npub fn other(x: i64) -> i64 {\n    x + 1\n}\n",
+    );
+    // m1 is BOTH the destination AND a referencer (`crate::m0::f0`).
+    write(
+        &root.join("src/m1.rs"),
+        "//! m1 (destination that also references the moved symbol).\n\npub fn f8(x: i64) -> i64 {\n    crate::m0::f0(x) + x\n}\n",
+    );
+    ingest(&mut state, root);
+
+    let before = snapshot_src(root);
+    dispatch_tool(
+        &mut state,
+        "transplant",
+        &params(root, "f0", "src/m0.rs", "src/m1.rs"),
+    )
+    .expect("dest-is-referencer transplant succeeds");
+    let after = snapshot_src(root);
+
+    // The item must NOT be destroyed — the global fn multiset is invariant.
+    assert_eq!(
+        fn_name_multiset(&before),
+        fn_name_multiset(&after),
+        "moving into a file that references the symbol must not destroy the item"
+    );
+    let m1 = read(root, "src/m1.rs");
+    assert!(
+        top_level_fn_names(&m1).contains("f0") && top_level_fn_names(&m1).contains("f8"),
+        "dest must gain f0 AND keep its resident f8:\n{m1}"
+    );
+    assert!(
+        !m1.contains("crate::m0::f0"),
+        "the dest's own reference must be re-pointed off the old module:\n{m1}"
+    );
+    assert_compiles(root, "dest-is-referencer");
+}

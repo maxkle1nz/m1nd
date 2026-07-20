@@ -66,3 +66,7 @@ socket2 = "0.6"
 tempfile = "3.27.0"
 tokio-test = "0.4"
 tower = { version = "0.5", features = ["util"] }
+# Property-based testing for the transplant hardening harness (spike-scoped: dev
+# only). Generates small random crates and asserts the verb either moves cleanly
+# or refuses honestly — never corrupts. Bounded case counts keep it fast.
+proptest = "1"
