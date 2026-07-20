@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use clap::Parser;
 #[cfg(unix)]
 use serde_json::Value;
@@ -6,6 +7,7 @@ use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
+#[cfg(unix)]
 #[derive(Parser, Debug)]
 #[command(
     name = "m1nd-openclaw-client",
@@ -58,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(unix))]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     // The bridge speaks over a Unix domain socket; there is no Windows transport.
-    let _ = Cli::parse();
-    Err("m1nd-openclaw-client requires a Unix domain socket platform".into())
+    eprintln!("m1nd-openclaw-client requires a Unix domain socket platform");
+    std::process::exit(2);
 }

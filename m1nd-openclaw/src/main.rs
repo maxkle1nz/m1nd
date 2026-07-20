@@ -1,11 +1,18 @@
+#[cfg(unix)]
 use clap::Parser;
+#[cfg(unix)]
 use m1nd_mcp::server::{McpConfig, McpServer, McpToolClient};
+#[cfg(unix)]
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 
+#[cfg(unix)]
 #[derive(Parser, Debug)]
 #[command(
     name = "m1nd-openclaw",
@@ -34,6 +41,7 @@ struct Cli {
     default_agent_id: Option<String>,
 }
 
+#[cfg(unix)]
 #[derive(Debug, Deserialize)]
 struct BridgeRequest {
     id: Option<String>,
@@ -42,6 +50,7 @@ struct BridgeRequest {
     arguments: Value,
 }
 
+#[cfg(unix)]
 #[derive(Debug, Serialize)]
 struct BridgeResponse {
     id: Option<String>,
@@ -70,6 +79,7 @@ fn inject_default_agent_id(arguments: &Value, default_agent_id: &str) -> Value {
     next
 }
 
+#[cfg(unix)]
 fn build_response(
     request: Result<BridgeRequest, serde_json::Error>,
     client: &McpToolClient,
@@ -108,6 +118,7 @@ fn build_response(
     }
 }
 
+#[cfg(unix)]
 fn load_config(cli: &Cli) -> McpConfig {
     if let Some(ref path) = cli.config {
         if let Ok(contents) = std::fs::read_to_string(path) {
@@ -152,6 +163,7 @@ fn load_config(cli: &Cli) -> McpConfig {
     }
 }
 
+#[cfg(unix)]
 async fn handle_client(
     stream: UnixStream,
     client: McpToolClient,
@@ -197,6 +209,7 @@ async fn handle_client(
     Ok(())
 }
 
+#[cfg(unix)]
 fn remove_stale_socket(path: &Path) -> std::io::Result<()> {
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -218,14 +231,7 @@ async fn owner_shutdown_signal() -> Result<&'static str, String> {
     }
 }
 
-#[cfg(not(unix))]
-async fn owner_shutdown_signal() -> Result<&'static str, String> {
-    tokio::signal::ctrl_c()
-        .await
-        .map(|()| "CTRL_C")
-        .map_err(|error| error.to_string())
-}
-
+#[cfg(unix)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -297,6 +303,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     heartbeat.abort();
     let _ = heartbeat.await;
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn main() {
+    // The bridge speaks over a Unix domain socket; there is no Windows transport.
+    eprintln!("m1nd-openclaw requires a Unix domain socket platform");
+    std::process::exit(2);
 }
 
 #[cfg(test)]
