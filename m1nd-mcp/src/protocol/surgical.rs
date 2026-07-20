@@ -780,6 +780,29 @@ pub struct TransplantInput {
     pub dest_file: String,
 }
 
+/// A1 — node-addressed state a transplant could NOT carry to the moved symbol's
+/// new home, because the re-ingest recreates the node under a new external_id (a
+/// fn node id is `file::<path>::fn::<name>`, path-dependent; the OpenRewrite stable
+/// identity is unimplemented). Each entry names the symbol, its old→new node id and
+/// the orphaned payload, so the verb NEVER silently orphans node-bound state.
+/// Following it fully needs owner-side wiring (a stable node id across re-ingest, or
+/// a paint-tag registry) — reported here, not faked.
+#[derive(Clone, Debug, Serialize)]
+pub struct StateLeftBehind {
+    /// The moved symbol whose node was recreated.
+    pub symbol: String,
+    /// The symbol's node id BEFORE the move (orphaned by the re-ingest).
+    pub old_node_id: String,
+    /// The symbol's node id AFTER the move (empty when the new node was not found).
+    pub new_node_id: String,
+    /// The class of orphaned state (currently `"xray_tags"`).
+    pub kind: String,
+    /// The orphaned payload: tags that were on the old node and the re-ingest did
+    /// NOT reproduce under any namespace on the new node (the painted tags a move
+    /// loses — structural tags the re-ingest regenerated are excluded).
+    pub detail: Vec<String>,
+}
+
 /// A dependency that STAYS in the source file but is shared by the moved item,
 /// so it gains a visibility bump and is back-imported into the destination.
 #[derive(Clone, Debug, Serialize)]
@@ -842,6 +865,11 @@ pub struct TransplantOutput {
     /// is present or no block claims a touched file — the verb never silently ages a
     /// boundary.
     pub blocks_touched: Vec<String>,
+    /// A1 — node-addressed state (currently xray/paint tags) the re-ingest orphaned
+    /// when it recreated a moved symbol's node under a new id. Empty when nothing was
+    /// left behind. The verb never silently orphans node-bound state; carrying it
+    /// fully needs owner-side wiring (see [`StateLeftBehind`]).
+    pub state_left_behind: Vec<StateLeftBehind>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }

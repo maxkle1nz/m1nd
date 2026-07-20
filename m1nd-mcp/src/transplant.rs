@@ -22,8 +22,9 @@
 //! PRD, never to fake a clean move.
 
 use crate::protocol::surgical::{
-    ApplyBatchInput, BatchEditItem, SharedDepReport, TransplantCommitInput, TransplantCommitOutput,
-    TransplantInput, TransplantOutput, TransplantPlannedFileReport, TransplantPreviewOutput,
+    ApplyBatchInput, BatchEditItem, SharedDepReport, StateLeftBehind, TransplantCommitInput,
+    TransplantCommitOutput, TransplantInput, TransplantOutput, TransplantPlannedFileReport,
+    TransplantPreviewOutput,
 };
 use crate::session::{PlannedTransplantWrite, SessionState, TransplantPreviewState};
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -140,9 +141,17 @@ pub fn handle_transplant(
 ) -> M1ndResult<TransplantOutput> {
     let start = Instant::now();
     let plan = plan_transplant(state, &input)?;
+    // A1 — capture the moved symbols' node-addressed state BEFORE the write, while
+    // their OLD nodes still live in the source file (the re-ingest recreates them).
+    let moved_names: Vec<String> = std::iter::once(plan.receipt.moved_symbol.clone())
+        .chain(plan.receipt.deps_travelled.iter().cloned())
+        .collect();
+    let captured = capture_moved_node_state(state, &moved_names, &input.source_file);
     let aged = apply_plan(state, &input.agent_id, &plan.planned)?;
+    let state_left_behind = compute_state_left_behind(state, &captured, &input.dest_file);
     let mut receipt = plan.receipt;
     receipt.blocks_touched = aged;
+    receipt.state_left_behind = state_left_behind;
     receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(receipt)
 }
@@ -244,12 +253,19 @@ pub fn handle_transplant_commit(
         }
     }
 
+    // A1 — capture node-addressed state before the write (mirrors the one-shot verb).
+    let moved_names: Vec<String> = std::iter::once(staged.receipt.moved_symbol.clone())
+        .chain(staged.receipt.deps_travelled.iter().cloned())
+        .collect();
+    let captured = capture_moved_node_state(state, &moved_names, &staged.source_file);
     let aged = apply_plan(state, &input.agent_id, &staged.planned)?;
+    let state_left_behind = compute_state_left_behind(state, &captured, &staged.dest_file);
     state.transplant_previews.remove(&input.preview_id);
     state.track_agent(&input.agent_id);
 
     let mut receipt = staged.receipt;
     receipt.blocks_touched = aged;
+    receipt.state_left_behind = state_left_behind;
     receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(TransplantCommitOutput {
         preview_id: input.preview_id,
@@ -304,6 +320,117 @@ fn apply_plan(
         Ok(None) | Err(_) => Vec::new(),
     };
     Ok(aged)
+}
+
+// ===========================================================================
+// A1 — node-addressed state that must not silently orphan across the re-ingest
+// ===========================================================================
+
+/// The external_id + tag set of a moved symbol's OLD node, captured BEFORE the
+/// write so the verb can report what the re-ingest orphans (`state_left_behind`).
+struct CapturedNodeState {
+    symbol: String,
+    old_node_id: String,
+    old_tags: Vec<String>,
+}
+
+/// Read the external_id and tag set of the `Function` node named `name` whose
+/// provenance file matches `file_abs`. `None` when no such node is in the graph
+/// (an untracked symbol carries no node-addressed state to lose).
+fn read_fn_node_state(
+    state: &SessionState,
+    name: &str,
+    file_abs: &str,
+) -> Option<(String, Vec<String>)> {
+    let graph = state.graph.read();
+    let n = graph.num_nodes() as usize;
+    // Reverse map node index -> external_id (mirrors xray's node_to_ext_map).
+    let mut idx_to_ext = vec![String::new(); n];
+    for (&interned, &nid) in &graph.id_to_node {
+        let idx = nid.as_usize();
+        if idx < n {
+            idx_to_ext[idx] = graph.strings.resolve(interned).to_string();
+        }
+    }
+    for (i, ext) in idx_to_ext.iter().enumerate() {
+        if graph.nodes.node_type[i] != NodeType::Function {
+            continue;
+        }
+        if graph.strings.try_resolve(graph.nodes.label[i]) != Some(name) {
+            continue;
+        }
+        let file = graph.nodes.provenance[i]
+            .source_path
+            .and_then(|s| graph.strings.try_resolve(s))
+            .unwrap_or("");
+        if !file_matches(file, file_abs) {
+            continue;
+        }
+        let tags: Vec<String> = graph
+            .node_tags(NodeId::new(i as u32))
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        return Some((ext.clone(), tags));
+    }
+    None
+}
+
+/// A1 — capture the node-addressed state of every moved symbol BEFORE the write,
+/// while its OLD node still lives in `source_abs`. Symbols with no graph node are
+/// skipped (nothing to lose).
+fn capture_moved_node_state(
+    state: &SessionState,
+    moved_names: &[String],
+    source_abs: &str,
+) -> Vec<CapturedNodeState> {
+    moved_names
+        .iter()
+        .filter_map(|name| {
+            read_fn_node_state(state, name, source_abs).map(|(ext, tags)| CapturedNodeState {
+                symbol: name.clone(),
+                old_node_id: ext,
+                old_tags: tags,
+            })
+        })
+        .collect()
+}
+
+/// A1 — after the re-ingest, diff each captured OLD node against the moved
+/// symbol's NEW node in `dest_abs` and report the orphaned tags. A tag is orphaned
+/// iff the new node carries NO tag in its top-level namespace (`ns:` before the
+/// first colon): the re-ingest deterministically regenerates every structural
+/// namespace (`rust:*`, the domain tag, …) on the new node, so a namespace present
+/// there was carried; a namespace ABSENT there (e.g. an agent's `xray:` paint) was
+/// genuinely lost. Empty payloads (nothing orphaned) yield no entry.
+fn compute_state_left_behind(
+    state: &SessionState,
+    captured: &[CapturedNodeState],
+    dest_abs: &str,
+) -> Vec<StateLeftBehind> {
+    let namespace = |t: &str| t.split(':').next().unwrap_or(t).to_string();
+    let mut out = Vec::new();
+    for c in captured {
+        let (new_id, new_tags) = read_fn_node_state(state, &c.symbol, dest_abs).unwrap_or_default();
+        let new_namespaces: BTreeSet<String> = new_tags.iter().map(|t| namespace(t)).collect();
+        let orphaned: Vec<String> = c
+            .old_tags
+            .iter()
+            .filter(|t| !new_namespaces.contains(&namespace(t)))
+            .cloned()
+            .collect();
+        if orphaned.is_empty() {
+            continue;
+        }
+        out.push(StateLeftBehind {
+            symbol: c.symbol.clone(),
+            old_node_id: c.old_node_id.clone(),
+            new_node_id: new_id,
+            kind: "xray_tags".to_string(),
+            detail: orphaned,
+        });
+    }
+    out
 }
 
 /// Phases 0–7.7: everything the verb computes BEFORE the write boundary. Pure
@@ -777,6 +904,9 @@ fn plan_transplant(state: &SessionState, input: &TransplantInput) -> M1ndResult<
         // Filled by `apply_plan` at the write boundary — the plan (a pure read)
         // ages no boundary, so a preview honestly shows an empty set.
         blocks_touched: Vec::new(),
+        // Filled by the two handlers around the write boundary (A1): a preview
+        // orphans nothing, so it honestly shows an empty set here.
+        state_left_behind: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     };
 

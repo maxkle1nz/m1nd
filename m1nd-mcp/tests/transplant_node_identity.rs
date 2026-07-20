@@ -149,27 +149,38 @@ fn external_id_of_label(state: &SessionState, label: &str) -> Option<String> {
             idx_to_ext[idx] = graph.strings.resolve(interned).to_string();
         }
     }
-    for i in 0..n {
-        if graph.strings.resolve(graph.nodes.label[i]) == label {
-            let ext = idx_to_ext[i].clone();
-            if !ext.is_empty() {
-                return Some(ext);
-            }
+    for (i, ext) in idx_to_ext.iter().enumerate() {
+        if graph.strings.resolve(graph.nodes.label[i]) == label && !ext.is_empty() {
+            return Some(ext.clone());
         }
     }
     None
 }
 
-/// True when a node with `label` currently carries `tag`.
-fn label_has_tag(state: &SessionState, label: &str, tag: &str) -> bool {
+/// True when a `Function` node labelled `label` whose provenance file ends with
+/// `file_suffix` carries `tag`. File-precise on purpose: after a transplant the
+/// re-ingest may LEAVE the moved symbol's old node lingering, so "does the tag live
+/// on the symbol in its NEW home?" must pin the destination file, not just the name.
+fn label_in_file_has_tag(state: &SessionState, label: &str, file_suffix: &str, tag: &str) -> bool {
     let graph = state.graph.read();
     let n = graph.num_nodes() as usize;
     for i in 0..n {
-        if graph.strings.resolve(graph.nodes.label[i]) == label {
-            let nid = m1nd_core::types::NodeId::new(i as u32);
-            if graph.node_tags(nid).iter().any(|t| *t == tag) {
-                return true;
-            }
+        if graph.nodes.node_type[i] != m1nd_core::types::NodeType::Function {
+            continue;
+        }
+        if graph.strings.resolve(graph.nodes.label[i]) != label {
+            continue;
+        }
+        let file = graph.nodes.provenance[i]
+            .source_path
+            .and_then(|s| graph.strings.try_resolve(s))
+            .unwrap_or("");
+        if !file.ends_with(file_suffix) {
+            continue;
+        }
+        let nid = m1nd_core::types::NodeId::new(i as u32);
+        if graph.node_tags(nid).contains(&tag) {
+            return true;
         }
     }
     false
@@ -315,8 +326,8 @@ fn a1_xray_tags_orphan_and_are_reported_in_state_left_behind() {
         "the paint applied to at least move_me"
     );
     assert!(
-        label_has_tag(&state, "move_me", "xray:reviewed"),
-        "move_me carries the painted tag before the move"
+        label_in_file_has_tag(&state, "move_me", "alpha.rs", "xray:reviewed"),
+        "move_me carries the painted tag in alpha before the move"
     );
 
     let receipt =
@@ -392,10 +403,12 @@ fn a1_xray_tags_full_follow_ideal_needs_owner_wiring() {
 
     dispatch_tool(&mut state, "transplant", &transplant_params(root)).expect("transplant");
 
-    // The IDEAL: move_me carries its painted tag in its NEW home (beta). This fails
-    // today — the re-ingest recreated the node without the paint.
+    // The IDEAL: move_me carries its painted tag in its NEW home (beta.rs
+    // specifically — the re-ingest may leave the old alpha node lingering, which is
+    // NOT the tag following the symbol). This fails today: beta's fresh node has no
+    // paint.
     assert!(
-        label_has_tag(&state, "move_me", "xray:reviewed"),
-        "IDEAL (owner-wired): the painted tag follows the moved symbol to beta"
+        label_in_file_has_tag(&state, "move_me", "beta.rs", "xray:reviewed"),
+        "IDEAL (owner-wired): the painted tag follows the moved symbol to its beta node"
     );
 }
