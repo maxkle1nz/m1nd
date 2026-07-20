@@ -790,7 +790,11 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
       exists: fs.existsSync(file),
       mentions_m1nd: content.includes("m1nd"),
       mentions_workspace_root: scopedContent.includes("M1ND_WORKSPACE_ROOT"),
-      mentions_project_dir: scopedContent.includes(projectDir),
+      // JSON configs escape backslashes, so on Windows the raw path never
+      // appears verbatim; match the JSON-encoded spelling as well.
+      mentions_project_dir:
+        scopedContent.includes(projectDir) ||
+        scopedContent.includes(JSON.stringify(projectDir).slice(1, -1)),
       runtime_bindings: runtimeBindingsFromText(scopedContent, binary, packageVersion),
     };
   });
