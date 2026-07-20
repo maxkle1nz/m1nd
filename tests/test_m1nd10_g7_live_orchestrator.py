@@ -140,6 +140,14 @@ class G7LiveOrchestratorTests(unittest.TestCase):
             workspace = g7.stage_git_ui_tree(source, commit, root / "ephemeral")
             self.assertFalse((workspace / "node_modules").exists())
             locked = g7.validate_locked_ui_dependencies(workspace)
+            # execute() passes a pre-created TemporaryDirectory as destination;
+            # staging into an existing empty root must succeed (the emptiness
+            # guard is on destination/ui-harness, not the destination itself).
+            pre_created = root / "pre-created-temp"
+            pre_created.mkdir()
+            workspace_existing = g7.stage_git_ui_tree(source, commit, pre_created)
+            self.assertTrue(workspace_existing.is_dir())
+            self.assertFalse((workspace_existing / "node_modules").exists())
             self.assertEqual(locked["dependency_count"], 2)
             self.assertEqual(
                 locked["package_lock_sha256"],

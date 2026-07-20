@@ -495,7 +495,9 @@ def stage_git_ui_tree(source_root: Path, commit: str, destination: Path) -> Path
             "exact tracked UI harness archive is absent or invalid",
         )
 
-    destination.mkdir(mode=0o700)
+    # `destination` may be a pre-created temporary root; the emptiness guard
+    # above is on `workspace` (destination/ui-harness), the tree we materialize.
+    destination.mkdir(mode=0o700, exist_ok=True)
     try:
         with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
             for member in bundle.getmembers():
