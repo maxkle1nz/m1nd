@@ -586,3 +586,170 @@ fn stress_attributes_and_multiline_doc_travel() {
         Err(e) => panic!("attributed crate must compile after the move:\n{e}"),
     }
 }
+
+// ===========================================================================
+// (j) A7 — IMPOSED boundary: poisonous module stems (lib/main/mod)
+// The module name is the file stem; lib/main/mod would make the verb synthesize
+// an invalid `crate::<stem>::…` path (the crate root is NOT a module named `lib`).
+// Today the move proceeds and produces a success receipt over a broken build —
+// the "ideal-falso". A7 makes this state UNREACHABLE: refuse, teach, write nothing.
+// ===========================================================================
+
+#[test]
+fn stress_a7_poisonous_module_stem_is_refused_and_teaches() {
+    for stem in ["lib", "main", "mod"] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let mut state = make_state(root);
+        write(&root.join("Cargo.toml"), cargo_toml());
+        // A clean crate wiring, plus a source file whose stem is poisonous.
+        write(&root.join("src/lib.rs"), "pub mod beta;\n");
+        let src_rel = format!("src/{stem}.rs");
+        write(
+            &root.join(&src_rel),
+            "//! poisonous-stem source.\n\npub fn move_me(x: u32) -> u32 {\n    x + 1\n}\n",
+        );
+        write(&root.join("src/beta.rs"), BETA);
+        ingest(&mut state, root);
+
+        let before_src = std::fs::read_to_string(root.join(&src_rel)).unwrap();
+        let before_dst = std::fs::read_to_string(root.join("src/beta.rs")).unwrap();
+
+        let err = dispatch_tool(
+            &mut state,
+            "transplant",
+            &params(root, "move_me", &src_rel, "src/beta.rs"),
+        )
+        .expect_err("a poisonous module stem must be refused (A7)");
+        let msg = format!("{err:?}").to_lowercase();
+        // The error must TEACH: name the invalid module path it would have synthesized.
+        assert!(
+            msg.contains(&format!("crate::{stem}")),
+            "the refusal must name the invalid `crate::{stem}::…` path it avoided: {msg}"
+        );
+        assert!(
+            msg.contains("stem"),
+            "the refusal must name the poisonous stem class: {msg}"
+        );
+
+        // Byte-identity: a refusal changes nothing.
+        assert_eq!(
+            std::fs::read_to_string(root.join(&src_rel)).unwrap(),
+            before_src,
+            "source must be byte-identical after a stem refusal ({stem})"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/beta.rs")).unwrap(),
+            before_dst,
+            "dest must be byte-identical after a stem refusal ({stem})"
+        );
+    }
+}
+
+#[test]
+fn stress_a7_poisonous_dest_stem_is_refused() {
+    // The boundary is symmetric: a poisonous DEST stem is refused too (you cannot
+    // land a symbol into `crate::mod::…`).
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut state = make_state(root);
+    write(&root.join("Cargo.toml"), cargo_toml());
+    write(&root.join("src/lib.rs"), "pub mod alpha;\n");
+    write(&root.join("src/alpha.rs"), ALPHA);
+    write(
+        &root.join("src/mod.rs"),
+        "//! poisonous-stem destination.\n\npub fn resident(x: u32) -> u32 {\n    x\n}\n",
+    );
+    ingest(&mut state, root);
+
+    let before_src = std::fs::read_to_string(root.join("src/alpha.rs")).unwrap();
+    let before_dst = std::fs::read_to_string(root.join("src/mod.rs")).unwrap();
+
+    let err = dispatch_tool(
+        &mut state,
+        "transplant",
+        &params(root, "move_me", "src/alpha.rs", "src/mod.rs"),
+    )
+    .expect_err("a poisonous dest stem must be refused (A7)");
+    let msg = format!("{err:?}").to_lowercase();
+    assert!(
+        msg.contains("crate::mod") && msg.contains("dest"),
+        "the refusal must name the poisonous dest stem: {msg}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/alpha.rs")).unwrap(),
+        before_src
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/mod.rs")).unwrap(),
+        before_dst
+    );
+}
+
+// ===========================================================================
+// (k) A7 — IMPOSED boundary: cross-crate moves.
+// source and dest must share the same crate root (nearest ancestor with a
+// Cargo.toml). A cross-crate move dangles `crate::…` paths — a broken build under
+// a success receipt today. A7 refuses, naming BOTH crate roots, and writes nothing.
+// ===========================================================================
+
+#[test]
+fn stress_a7_cross_crate_move_is_refused_and_teaches() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut state = make_state(root);
+    // crate A
+    write(
+        &root.join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(&root.join("crate_a/src/lib.rs"), "pub mod alpha;\n");
+    write(
+        &root.join("crate_a/src/alpha.rs"),
+        "//! crate A source.\n\npub fn move_me(x: u32) -> u32 {\n    x + 1\n}\n",
+    );
+    // crate B
+    write(
+        &root.join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate-b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(&root.join("crate_b/src/lib.rs"), "pub mod beta;\n");
+    write(
+        &root.join("crate_b/src/beta.rs"),
+        "//! crate B dest.\n\npub fn existing(x: u32) -> u32 {\n    x\n}\n",
+    );
+    ingest(&mut state, root);
+
+    let call = serde_json::json!({
+        "agent_id": "stress",
+        "symbol": "move_me",
+        "source_file": root.join("crate_a/src/alpha.rs").to_string_lossy(),
+        "dest_file": root.join("crate_b/src/beta.rs").to_string_lossy(),
+    });
+    let before_src = std::fs::read_to_string(root.join("crate_a/src/alpha.rs")).unwrap();
+    let before_dst = std::fs::read_to_string(root.join("crate_b/src/beta.rs")).unwrap();
+
+    let err = dispatch_tool(&mut state, "transplant", &call)
+        .expect_err("a cross-crate move must be refused (A7)");
+    let msg = format!("{err:?}").to_lowercase();
+    assert!(
+        msg.contains("cross-crate") || msg.contains("crate root"),
+        "the refusal must explain the crate boundary: {msg}"
+    );
+    // TEACH: both crate roots are named so the caller sees the two homes.
+    assert!(
+        msg.contains("crate_a") && msg.contains("crate_b"),
+        "the refusal must name BOTH crate roots: {msg}"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("crate_a/src/alpha.rs")).unwrap(),
+        before_src,
+        "source must be byte-identical after a cross-crate refusal"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("crate_b/src/beta.rs")).unwrap(),
+        before_dst,
+        "dest must be byte-identical after a cross-crate refusal"
+    );
+}
