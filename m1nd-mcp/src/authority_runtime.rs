@@ -4946,6 +4946,13 @@ fn sync_parent(path: &Path) -> Result<(), AuthorityRuntimeError> {
         .ok_or_else(|| AuthorityRuntimeError::InvalidContract {
             detail: "authority runtime path has no parent".to_string(),
         })?;
+    // Windows refuses fsync on directory handles; write-through covers renames.
+    #[cfg(windows)]
+    {
+        let _ = parent;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|source| AuthorityRuntimeError::Io {

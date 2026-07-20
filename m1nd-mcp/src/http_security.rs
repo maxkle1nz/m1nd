@@ -527,6 +527,13 @@ fn refuse_symlink(path: &Path) -> Result<(), HttpSecurityError> {
 
 fn sync_parent(path: &Path) -> Result<(), HttpSecurityError> {
     let parent = path.parent().ok_or(HttpSecurityError::InvalidTokenFile)?;
+    // Windows refuses fsync on directory handles; write-through covers renames.
+    #[cfg(windows)]
+    {
+        let _ = parent;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
     fs::File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|source| HttpSecurityError::Io {

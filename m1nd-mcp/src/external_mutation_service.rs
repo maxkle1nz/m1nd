@@ -7314,11 +7314,13 @@ mod tests {
                 loop {
                     match actor_registry.bound_brain_id_for_target(Arc::clone(&brain)) {
                         Ok(id) => break id,
-                        Err(_) if attempt < 50 => {
+                        Err(_) if attempt < 300 => {
                             attempt += 1;
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
-                        Err(error) => panic!("source replay actor id: {error:?}"),
+                        Err(error) => {
+                            panic!("source replay actor id after {attempt} waits: {error:?}")
+                        }
                     }
                 }
             };

@@ -76,6 +76,8 @@ fn durable_atomic_write(path: &Path, bytes: &[u8], fail_before_rename: bool) -> 
             ));
         }
         std::fs::rename(&temp_path, path)?;
+        // Windows refuses fsync on directory handles; write-through covers renames.
+        #[cfg(not(windows))]
         std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();

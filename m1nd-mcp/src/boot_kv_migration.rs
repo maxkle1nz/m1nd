@@ -209,6 +209,8 @@ fn durable_atomic_write(path: &Path, bytes: &[u8]) -> M1ndResult<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         std::fs::rename(&temp, path)?;
+        // Windows refuses fsync on directory handles; write-through covers renames.
+        #[cfg(not(windows))]
         std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();
@@ -901,6 +903,8 @@ pub fn rollback_boot_kv_migration(root: &Path) -> M1ndResult<()> {
         Err(error) => return Err(error.into()),
     }
     std::fs::remove_file(root.join(MIGRATION_JOURNAL_FILE))?;
+    // Windows refuses fsync on directory handles; write-through covers renames.
+    #[cfg(not(windows))]
     std::fs::File::open(root)?.sync_all()?;
     Ok(())
 }
