@@ -1395,7 +1395,11 @@ withEnv(
     assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
     assert.strictEqual(ready.hosts[0].config.status, "configured");
     assert.strictEqual(ready.hosts[0].config.workspace_configured, true);
-    assert.strictEqual(ready.hosts[0].readiness, "ready");
+    assert.strictEqual(
+      ready.hosts[0].readiness,
+      "ready",
+      `host not ready: ${JSON.stringify({ host: ready.hosts[0], runtime: ready.runtime })}`
+    );
     assert.strictEqual(ready.summary.overall_readiness, "ready");
     assert.strictEqual(ready.summary.host_rebind_proven, false);
     assert(!ready.hosts[0].next_actions.some((action) => action.includes("Set M1ND_WORKSPACE_ROOT")));
