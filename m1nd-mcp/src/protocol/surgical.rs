@@ -819,6 +819,12 @@ pub struct TransplantOutput {
     /// True when the source file kept a caller of the moved symbol and gained a
     /// back-import `use crate::<dest_module>::<symbol>;` (the self-use case).
     pub source_back_imported: bool,
+    /// `use` statements carried from the source into the destination because the
+    /// moved text references what they bind (rope's over-provision→prune law).
+    pub imports_carried: Vec<String>,
+    /// True when the moved fn was private and had to become `pub(crate)` in its
+    /// new home so the source's back-import keeps compiling (E0603 otherwise).
+    pub moved_visibility_bumped: bool,
     /// How the dependency trichotomy was derived: "graph_edges" or "textual".
     pub dependency_source: String,
     /// How referencing files were discovered: "graph_edges", "textual", or "both".

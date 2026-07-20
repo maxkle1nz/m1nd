@@ -221,6 +221,29 @@ pub fn handle_transplant(
         moved_texts.push(source_lines[top..=brace_end].to_vec());
     }
 
+    // --- Phase 3.5: carry the moved fn's OWN import needs (rope's law) --------
+    // Over-provision: every top-level `use` of the source file is a candidate.
+    // Prune: keep only those whose BOUND name (alias or last segment) appears as
+    // an identifier in the moved text, and drop members the dest already binds
+    // (an identical re-import is E0252) or that resolve locally in dest.
+    let moved_blob = moved_texts
+        .iter()
+        .flat_map(|mt| mt.iter())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut carried_notes: Vec<String> = Vec::new();
+    let (carried_use_lines, carried_bound_names) = carry_source_imports(
+        &source_lines,
+        &dest_text,
+        &moved_blob,
+        &source_module,
+        &dest_module,
+        &move_targets,
+        &shared_names,
+        &mut carried_notes,
+    );
+
     // --- Phase 4: shared deps — visibility bump (source) + use lines (dest) ----
     let mut source_lines_bumped = source_lines.clone();
     let mut deps_shared: Vec<SharedDepReport> = Vec::new();
@@ -262,6 +285,9 @@ pub fn handle_transplant(
     for l in new_source_lines.iter_mut() {
         *l = replace_qualified(l, &source_module, &dest_module, &symbol);
     }
+    // Prune carried imports from the source when the REMAINDER no longer uses them
+    // (conservative: a member still referenced anywhere outside use lines stays).
+    prune_carried_source_imports(&mut new_source_lines, &carried_bound_names);
     // Self-use: if the source still calls the moved symbol BARE (not `::`-qualified)
     // after the cut, it needs a back-import `use crate::<dest_module>::<symbol>;`.
     let source_back_imported = new_source_lines
@@ -273,15 +299,30 @@ pub fn handle_transplant(
     }
     let new_source = join_lines(&new_source_lines, source_trailing_nl);
 
+    // A PRIVATE moved fn that the source keeps calling must open up in its new
+    // home — the back-import `use crate::<dest>::<symbol>;` cannot see a private
+    // item across modules (E0603, proven by the self-hosting oracle).
+    let mut moved_visibility_bumped = false;
+    if source_back_imported {
+        if let Some(first) = moved_texts.first_mut() {
+            if let Some(decl) = first.iter().position(|l| line_defines_fn(l, &symbol)) {
+                if visibility_of(&first[decl]) == "private" {
+                    bump_to_pub_crate(&mut first[decl]);
+                    moved_visibility_bumped = true;
+                }
+            }
+        }
+    }
+
     // --- Phase 6: build the new DEST content ----------------------------------
     let dest_lines: Vec<String> = dest_text.lines().map(str::to_string).collect();
     let dest_trailing_nl = dest_text.ends_with('\n');
     let insert_at = header_end(&dest_lines);
     let mut block: Vec<String> = Vec::new();
-    for u in &dest_use_lines {
+    for u in carried_use_lines.iter().chain(dest_use_lines.iter()) {
         block.push(u.clone());
     }
-    if !dest_use_lines.is_empty() {
+    if !dest_use_lines.is_empty() || !carried_use_lines.is_empty() {
         block.push(String::new());
     }
     for mt in &moved_texts {
@@ -309,7 +350,7 @@ pub fn handle_transplant(
     // second edit whose content — computed from the pre-insert dest text — would
     // clobber the insertion and DESTROY the item (proptest-found corruption).
     let mut refs_rewritten = 0usize;
-    let mut refs_unresolved: Vec<String> = Vec::new();
+    let mut refs_unresolved: Vec<String> = carried_notes;
     let mut referencer_edits: Vec<BatchEditItem> = Vec::new();
     for rf in &referencing_files {
         if paths_equal(rf, &source_abs) {
@@ -402,6 +443,8 @@ pub fn handle_transplant(
         refs_rewritten,
         refs_unresolved,
         source_back_imported,
+        imports_carried: carried_use_lines,
+        moved_visibility_bumped,
         dependency_source: if hint_worked {
             dependency_source
         } else {
@@ -1157,6 +1200,304 @@ fn split_group_members(inner: &str) -> Vec<String> {
 /// `move_me` (the alias is what enters scope, but matching is by source name).
 fn member_source_name(member: &str) -> &str {
     member.split_whitespace().next().unwrap_or(member)
+}
+
+/// The name a member BINDS in scope: the alias when present, else the member
+/// itself (`HashMap as HM` binds `HM`; `HashMap` binds `HashMap`).
+fn member_bound_name(member: &str) -> &str {
+    member
+        .rsplit(" as ")
+        .next()
+        .map(str::trim)
+        .unwrap_or(member)
+}
+
+/// True when `name` occurs as a standalone identifier anywhere in `blob`
+/// (word-boundary on both sides). Over-approximates inside strings/comments —
+/// acceptable for rope's over-provision law (an extra import is a warning, a
+/// missing one is breakage).
+fn ident_used(blob: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut idx = 0;
+    while let Some(pos) = blob[idx..].find(name) {
+        let s = idx + pos;
+        let e = s + name.len();
+        let before_ok = !blob[..s]
+            .chars()
+            .next_back()
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        let after_ok = !blob[e..]
+            .chars()
+            .next()
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        if before_ok && after_ok {
+            return true;
+        }
+        idx = e;
+    }
+    false
+}
+
+/// The parsed shape of one logical use statement's body (after `use `/`pub use `
+/// and before `;`): its path prefix and members (empty prefix members = plain).
+enum UseShape {
+    /// `use a::b::C;` or `use a::b::C as D;` — path + optional alias tail.
+    Plain { path: String },
+    /// `use a::b::{x, y as z};`
+    Group {
+        prefix: String,
+        members: Vec<String>,
+    },
+    /// `use a::b::*;`
+    Glob { prefix: String },
+    /// Nested groups etc. — not rewritten, only reported.
+    Other,
+}
+
+fn parse_use_body(body: &str) -> UseShape {
+    if body.matches('{').count() > 1 {
+        return UseShape::Other;
+    }
+    if let Some(brace) = body.find('{') {
+        let prefix = body[..brace].trim_end_matches("::").trim().to_string();
+        let inner = body[brace + 1..].trim_end_matches('}').trim();
+        return UseShape::Group {
+            prefix,
+            members: split_group_members(inner),
+        };
+    }
+    if let Some(prefix) = body.strip_suffix("::*") {
+        return UseShape::Glob {
+            prefix: prefix.trim().to_string(),
+        };
+    }
+    UseShape::Plain {
+        path: body.to_string(),
+    }
+}
+
+/// B3 — carry the moved fn's own file-level import needs into the destination.
+/// Returns `(carried_use_lines_for_dest, carried_bound_names_for_source_prune)`.
+/// Honest limits (reported via `notes`): source globs are never carried, nested
+/// groups are never rewritten.
+#[allow(clippy::too_many_arguments)]
+fn carry_source_imports(
+    source_lines: &[String],
+    dest_text: &str,
+    moved_blob: &str,
+    source_module: &str,
+    dest_module: &str,
+    move_targets: &[String],
+    shared_names: &[String],
+    notes: &mut Vec<String>,
+) -> (Vec<String>, Vec<String>) {
+    // Names the destination ALREADY binds: its own use statements, its top-level
+    // fns, the arriving items, and the shared-dep back-imports built in Phase 4.
+    let dest_lines: Vec<String> = dest_text.lines().map(str::to_string).collect();
+    let mut dest_bound: BTreeSet<String> = BTreeSet::new();
+    for st in collect_use_stmts(&dest_lines) {
+        let t = st.text.trim();
+        let lead = if t.starts_with("pub use ") {
+            "pub use "
+        } else {
+            "use "
+        };
+        let body = t.trim_start_matches(lead).trim_end_matches(';').trim();
+        match parse_use_body(body) {
+            UseShape::Plain { path } => {
+                // The bound name is the alias when present, else the last segment.
+                let bound = if let Some((_, alias)) = path.rsplit_once(" as ") {
+                    alias.trim().to_string()
+                } else {
+                    path.rsplit("::").next().unwrap_or(&path).trim().to_string()
+                };
+                dest_bound.insert(bound);
+            }
+            UseShape::Group { members, .. } => {
+                for m in members {
+                    dest_bound.insert(member_bound_name(&m).to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    for f in source_fn_names(dest_text) {
+        dest_bound.insert(f);
+    }
+    for t in move_targets {
+        dest_bound.insert(t.clone());
+    }
+    for s in shared_names {
+        dest_bound.insert(s.clone());
+    }
+
+    let mut carried_lines: Vec<String> = Vec::new();
+    let mut carried_bound: Vec<String> = Vec::new();
+    for st in collect_use_stmts(source_lines) {
+        let t = st.text.trim();
+        let lead = if t.starts_with("pub use ") {
+            "pub use "
+        } else {
+            "use "
+        };
+        let body = t.trim_start_matches(lead).trim_end_matches(';').trim();
+        // A use that resolves inside the DEST module would self-import there; a
+        // use of the SOURCE module path would dangle semantics — skip both (the
+        // shared-dep machinery already back-imports what the moved code needs).
+        let dest_seg = format!("::{dest_module}");
+        let src_seg = format!("::{source_module}");
+        let module_of = |prefix: &str| -> bool {
+            prefix == dest_module
+                || prefix.ends_with(&dest_seg)
+                || prefix == source_module
+                || prefix.ends_with(&src_seg)
+        };
+        match parse_use_body(body) {
+            UseShape::Plain { path } => {
+                let bound = if let Some((_, alias)) = path.rsplit_once(" as ") {
+                    alias.trim().to_string()
+                } else {
+                    path.rsplit("::").next().unwrap_or(&path).trim().to_string()
+                };
+                let prefix = path
+                    .rsplit_once("::")
+                    .map(|(p, _)| p)
+                    .unwrap_or("")
+                    .trim_end_matches(" as")
+                    .to_string();
+                if module_of(&prefix) {
+                    continue;
+                }
+                if ident_used(moved_blob, &bound) && !dest_bound.contains(&bound) {
+                    carried_lines.push(format!("use {path};"));
+                    carried_bound.push(bound);
+                }
+            }
+            UseShape::Group { prefix, members } => {
+                if module_of(&prefix) {
+                    continue;
+                }
+                let needed: Vec<String> = members
+                    .into_iter()
+                    .filter(|m| {
+                        let b = member_bound_name(m);
+                        ident_used(moved_blob, b) && !dest_bound.contains(b)
+                    })
+                    .collect();
+                match needed.len() {
+                    0 => {}
+                    1 => {
+                        carried_bound.push(member_bound_name(&needed[0]).to_string());
+                        carried_lines.push(format!("use {prefix}::{};", needed[0]));
+                    }
+                    _ => {
+                        for m in &needed {
+                            carried_bound.push(member_bound_name(m).to_string());
+                        }
+                        carried_lines.push(format!("use {prefix}::{{{}}};", needed.join(", ")));
+                    }
+                }
+            }
+            UseShape::Glob { prefix } => {
+                if module_of(&prefix) {
+                    continue;
+                }
+                notes.push(format!(
+                    "source glob `use {prefix}::*;` was NOT carried to the destination — if the moved fn relied on names it provides, add explicit imports in the destination"
+                ));
+            }
+            UseShape::Other => {
+                notes.push(format!(
+                    "source nested-group import `{}` was NOT analyzed for carrying — verify the moved fn's imports manually if it relied on it",
+                    st.text.trim()
+                ));
+            }
+        }
+    }
+    (carried_lines, carried_bound)
+}
+
+/// Remove carried imports from the post-cut source when its REMAINDER no longer
+/// references the bound name (conservative: any remaining use keeps the member).
+fn prune_carried_source_imports(new_source_lines: &mut Vec<String>, carried_bound: &[String]) {
+    if carried_bound.is_empty() {
+        return;
+    }
+    let stmts = collect_use_stmts(new_source_lines);
+    // The remainder = every line OUTSIDE use statements.
+    let mut in_use: BTreeSet<usize> = BTreeSet::new();
+    for st in &stmts {
+        for i in st.start..=st.end {
+            in_use.insert(i);
+        }
+    }
+    let remainder: String = new_source_lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !in_use.contains(i))
+        .map(|(_, l)| l.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prunable: Vec<&String> = carried_bound
+        .iter()
+        .filter(|b| !ident_used(&remainder, b))
+        .collect();
+    if prunable.is_empty() {
+        return;
+    }
+
+    let mut replacements: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    for st in &stmts {
+        let t = st.text.trim();
+        let lead = if t.starts_with("pub use ") {
+            "pub use "
+        } else {
+            "use "
+        };
+        let body = t.trim_start_matches(lead).trim_end_matches(';').trim();
+        match parse_use_body(body) {
+            UseShape::Plain { path } => {
+                let bound = if let Some((_, alias)) = path.rsplit_once(" as ") {
+                    alias.trim().to_string()
+                } else {
+                    path.rsplit("::").next().unwrap_or(&path).trim().to_string()
+                };
+                if prunable.iter().any(|p| ***p == *bound) {
+                    replacements.push((st.start, st.end, Vec::new()));
+                }
+            }
+            UseShape::Group { prefix, members } => {
+                let kept: Vec<String> = members
+                    .iter()
+                    .filter(|m| {
+                        let b = member_bound_name(m);
+                        !prunable.iter().any(|p| p.as_str() == b)
+                    })
+                    .cloned()
+                    .collect();
+                if kept.len() == members.len() {
+                    continue;
+                }
+                let mut lines = Vec::new();
+                match kept.len() {
+                    0 => {}
+                    1 => lines.push(format!("{lead}{prefix}::{};", kept[0])),
+                    _ => lines.push(format!("{lead}{prefix}::{{{}}};", kept.join(", "))),
+                }
+                replacements.push((st.start, st.end, lines));
+            }
+            _ => {}
+        }
+    }
+    replacements.sort_by_key(|(s, _, _)| *s);
+    for (s, e, repl) in replacements.into_iter().rev() {
+        new_source_lines.splice(s..=e, repl);
+    }
 }
 
 /// Use-form-aware rewrite of a referencing file (B2). Handles:
