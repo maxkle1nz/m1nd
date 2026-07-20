@@ -506,6 +506,32 @@ pub fn handle_transplant(
         edits.push(e);
     }
 
+    // --- Phase 7.7: rustfmt the COMPUTED contents before the write ------------
+    // The oracle is `cargo check`, never fmt — but in a fmt-gated repo the verb's
+    // assembled output (compact moved items, inserted use blocks) would reprove CI
+    // with no warning in the receipt. Formatting happens on the computed text,
+    // BEFORE apply_batch, so the atomic write + re-ingest see the FINAL bytes.
+    // Honest fallback: an unavailable/failing rustfmt writes the unformatted text
+    // and the receipt carries the note instead of a silent skip.
+    let mut fmt_notes: Vec<String> = Vec::new();
+    for e in edits.iter_mut() {
+        match rustfmt_content(&e.new_content) {
+            Ok(formatted) => e.new_content = formatted,
+            Err(note) => {
+                let unavailable = note.starts_with("rustfmt unavailable");
+                fmt_notes.push(format!("{}: {note}", e.file_path));
+                if unavailable {
+                    break; // spawning again cannot succeed; one note explains all
+                }
+            }
+        }
+    }
+    let rustfmt_status = if fmt_notes.is_empty() {
+        "applied".to_string()
+    } else {
+        fmt_notes.join("; ")
+    };
+
     // --- Phase 8: ATOMIC write through the existing apply_batch machinery ------
     let batch = ApplyBatchInput {
         agent_id: input.agent_id.clone(),
@@ -541,8 +567,48 @@ pub fn handle_transplant(
             format!("{dependency_source} (line-hint missed; decl located textually)")
         },
         referencer_source,
+        rustfmt: rustfmt_status,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+/// §7.7 — pipe one computed file content through `rustfmt --edition 2021`
+/// (stdin → stdout). `Ok(formatted)` on success; `Err(note)` when rustfmt cannot
+/// be spawned or rejects the content — the caller then writes the UNFORMATTED
+/// text and surfaces the note in the receipt, because fmt must never block a
+/// compile-correct move (the oracle is `cargo check`).
+fn rustfmt_content(content: &str) -> Result<String, String> {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let child = Command::new("rustfmt")
+        .args(["--edition", "2021"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return Err(format!("rustfmt unavailable: {e}")),
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(e) = stdin.write_all(content.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("rustfmt stdin write failed: {e}"));
+        }
+    }
+    match child.wait_with_output() {
+        Ok(out) if out.status.success() => match String::from_utf8(out.stdout) {
+            Ok(s) if !s.trim().is_empty() => Ok(s),
+            Ok(_) => Err("rustfmt produced empty output".to_string()),
+            Err(e) => Err(format!("rustfmt produced non-UTF8 output: {e}")),
+        },
+        Ok(out) => Err(format!(
+            "rustfmt failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )),
+        Err(e) => Err(format!("rustfmt did not run: {e}")),
+    }
 }
 
 // ===========================================================================

@@ -829,6 +829,11 @@ pub struct TransplantOutput {
     pub dependency_source: String,
     /// How referencing files were discovered: "graph_edges", "textual", or "both".
     pub referencer_source: String,
+    /// §7.7 post-compute formatting status: "applied" when every touched file was
+    /// piped through `rustfmt --edition 2021` before the atomic write; otherwise
+    /// an honest note (rustfmt unavailable / rejected a file) — never a silent
+    /// skip, because a fmt-gated repo would reprove CI without warning.
+    pub rustfmt: String,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }
