@@ -96,6 +96,39 @@ pub fn handle_transplant(
     let source_module = module_name(&source_abs);
     let dest_module = module_name(&dest_abs);
 
+    // --- Phase 0.4: A7 IMPOSED boundaries (make the "ideal-falso" unreachable) -
+    // Both states below produce a SUCCESS receipt over a BROKEN build today. Until
+    // the reverse-gate (A4) exists, this preflight is the only defense, so it must
+    // REFUSE and teach — writing nothing (every early return here precedes Phase 8).
+    //
+    // (a) Poisonous module stems. `module_name` is the file stem and the verb
+    //     synthesizes `crate::<stem>::…` paths; for lib/main/mod that path is
+    //     invalid (the crate root is not a module named `lib`), so the move breaks.
+    let poison = |m: &str| matches!(m, "lib" | "main" | "mod");
+    if poison(&source_module) || poison(&dest_module) {
+        let (role, path, stem) = if poison(&source_module) {
+            ("source_file", &source_abs, &source_module)
+        } else {
+            ("dest_file", &dest_abs, &dest_module)
+        };
+        return Err(refuse(format!(
+            "{role} '{path}' has the reserved module stem `{stem}` — the transplant would synthesize the invalid module path `crate::{stem}::…` (a crate root is not a module named `{stem}`). Move the symbol to/from a normal module file instead; no file is touched."
+        )));
+    }
+
+    // (b) Cross-crate. source and dest must share ONE crate root (the nearest
+    //     ancestor directory holding a Cargo.toml); a move across that boundary
+    //     dangles the `crate::…` paths the verb rewrites. Refuse only when BOTH
+    //     roots resolve and DIFFER — an unrooted fixture (no Cargo.toml) is left to
+    //     the other preflights rather than falsely blamed as cross-crate.
+    if let (Some(src_root), Some(dst_root)) = (crate_root(&source_abs), crate_root(&dest_abs)) {
+        if src_root != dst_root {
+            return Err(refuse(format!(
+                "cross-crate move refused: source_file lives in crate root '{src_root}' but dest_file lives in crate root '{dst_root}'. transplant moves a symbol WITHIN one crate (it synthesizes `crate::…` paths that cannot cross a crate boundary); no file is touched."
+            )));
+        }
+    }
+
     // --- Phase 0.5: dest-collision preflight on DISK TRUTH --------------------
     // The graph can be STALE here (the battery poisons dest AFTER ingest, without
     // re-ingesting) — disk is the only sound source. A collision writes NOTHING.
@@ -1693,6 +1726,23 @@ fn module_name(path: &str) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_string()
+}
+
+/// The nearest ancestor directory of `file` that directly contains a `Cargo.toml`
+/// — the crate root — canonicalized for a stable cross-platform comparison.
+/// `None` when no ancestor holds a `Cargo.toml` (an unrooted fixture); the A7
+/// cross-crate guard treats a `None` on either side as "cannot prove cross-crate"
+/// and does NOT refuse on that basis.
+fn crate_root(file: &str) -> Option<String> {
+    let mut cur = Path::new(file).parent();
+    while let Some(dir) = cur {
+        if dir.join("Cargo.toml").is_file() {
+            let canon = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+            return Some(normalize(&canon.to_string_lossy()));
+        }
+        cur = dir.parent();
+    }
+    None
 }
 
 fn paths_equal(a: &str, b: &str) -> bool {
