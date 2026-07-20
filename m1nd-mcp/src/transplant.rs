@@ -2249,7 +2249,7 @@ struct ProtectedZoneRule {
 }
 
 /// The `ci/protected-zones.json` shape: `{"zones":[{"glob":"…","reason":"…"}]}`
-/// (the house convention — `ci/protected-zones.json` of the Cherry repo).
+/// (the house Money-Zone convention — a repo-level `ci/protected-zones.json`).
 #[derive(serde::Deserialize)]
 struct ProtectedZonesFile {
     #[serde(default)]
