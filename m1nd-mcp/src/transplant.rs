@@ -140,8 +140,9 @@ pub fn handle_transplant(
 ) -> M1ndResult<TransplantOutput> {
     let start = Instant::now();
     let plan = plan_transplant(state, &input)?;
-    apply_plan(state, &input.agent_id, &plan.planned)?;
+    let aged = apply_plan(state, &input.agent_id, &plan.planned)?;
     let mut receipt = plan.receipt;
+    receipt.blocks_touched = aged;
     receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(receipt)
 }
@@ -243,11 +244,12 @@ pub fn handle_transplant_commit(
         }
     }
 
-    apply_plan(state, &input.agent_id, &staged.planned)?;
+    let aged = apply_plan(state, &input.agent_id, &staged.planned)?;
     state.transplant_previews.remove(&input.preview_id);
     state.track_agent(&input.agent_id);
 
     let mut receipt = staged.receipt;
+    receipt.blocks_touched = aged;
     receipt.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(TransplantCommitOutput {
         preview_id: input.preview_id,
@@ -258,11 +260,12 @@ pub fn handle_transplant_commit(
 
 /// Land a computed plan through the existing `apply_batch` machinery (atomic,
 /// re-ingesting) — the ONE write path both the one-shot verb and the commit use.
+/// Returns the SystemBlock ids whose ratified boundary the write aged (D5b).
 fn apply_plan(
     state: &mut SessionState,
     agent_id: &str,
     planned: &[PlannedTransplantWrite],
-) -> M1ndResult<()> {
+) -> M1ndResult<Vec<String>> {
     let batch = ApplyBatchInput {
         agent_id: agent_id.to_string(),
         edits: planned
@@ -284,7 +287,23 @@ fn apply_plan(
             batch_out.files_written, batch_out.files_total
         )));
     }
-    Ok(())
+
+    // D5b — the receipt-aging event (PRD §10 D5 option b). The atomic write
+    // landed, so any SystemBlock whose ratified membership CLAIMS a touched file
+    // now has a symbol that crossed its boundary while its path-set membership is
+    // unchanged (the lie-window `reconcile` cannot see). Bump those boundaries
+    // through the store's OCC path — the EXISTING stale_scope law then ages their
+    // receipts. Best-effort by construction: the write cannot be un-landed, so a
+    // missing store (`Ok(None)`) or a store read/save error yields an honest empty
+    // list rather than failing a COMPLETED transplant; `blocks_touched` then
+    // reports exactly what was aged.
+    let touched: Vec<String> = planned.iter().map(|p| p.file_path.clone()).collect();
+    let dir = crate::system_blocks_handlers::store_dir(state);
+    let aged = match crate::system_blocks::age_touched_boundaries_in_dir(&dir, &touched) {
+        Ok(Some((_store, aged))) => aged,
+        Ok(None) | Err(_) => Vec::new(),
+    };
+    Ok(aged)
 }
 
 /// Phases 0–7.7: everything the verb computes BEFORE the write boundary. Pure
@@ -755,6 +774,9 @@ fn plan_transplant(state: &SessionState, input: &TransplantInput) -> M1ndResult<
         },
         referencer_source,
         rustfmt: rustfmt_status,
+        // Filled by `apply_plan` at the write boundary — the plan (a pure read)
+        // ages no boundary, so a preview honestly shows an empty set.
+        blocks_touched: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     };
 

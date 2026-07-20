@@ -834,6 +834,14 @@ pub struct TransplantOutput {
     /// an honest note (rustfmt unavailable / rejected a file) — never a silent
     /// skip, because a fmt-gated repo would reprove CI without warning.
     pub rustfmt: String,
+    /// D5b — SystemBlock ids whose ratified `boundary_version` this transplant aged
+    /// because their membership claims a touched file (PRD §10 D5 option b). The
+    /// bump stales those blocks' receipts by scope through the EXISTING rollup law,
+    /// closing the lie-window where a symbol crossed a ratified boundary but the
+    /// unchanged path-set membership left the receipts green. Empty when no skeleton
+    /// is present or no block claims a touched file — the verb never silently ages a
+    /// boundary.
+    pub blocks_touched: Vec<String>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }
