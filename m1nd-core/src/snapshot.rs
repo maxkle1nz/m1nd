@@ -810,6 +810,9 @@ fn durable_atomic_write(path: &Path, bytes: &[u8]) -> M1ndResult<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         std::fs::rename(&temp_path, path)?;
+        // Windows refuses fsync on directory handles (ACCESS_DENIED); the
+        // renamed entry is made durable there by write-through semantics.
+        #[cfg(not(windows))]
         std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();

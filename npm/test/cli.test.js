@@ -117,7 +117,7 @@ assert.strictEqual(
   commandLooksLikeRuntime("/Us" + "ers/alice/.m1nd/bin/" + runtimeBinaryName() + " --stdio"),
   true
 );
-assert.strictEqual(commandLooksLikeRuntime("(m1nd-mcp)"), true);
+assert.strictEqual(commandLooksLikeRuntime("(" + runtimeBinaryName() + ")"), true);
 assert.strictEqual(commandLooksLikeRuntime("node codex prompt mentions m1nd-mcp"), false);
 
 assert.strictEqual(
