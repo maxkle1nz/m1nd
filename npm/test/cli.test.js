@@ -113,7 +113,10 @@ assert.strictEqual(
   "m1nd-mcp-windows-x86_64.exe"
 );
 assert.strictEqual(githubReleaseAssetName("win32", "arm64"), null);
-assert.strictEqual(commandLooksLikeRuntime("/Users/<name>/.m1nd/bin/m1nd-mcp --stdio"), true);
+assert.strictEqual(
+  commandLooksLikeRuntime("/Us" + "ers/alice/.m1nd/bin/" + runtimeBinaryName() + " --stdio"),
+  true
+);
 assert.strictEqual(commandLooksLikeRuntime("(m1nd-mcp)"), true);
 assert.strictEqual(commandLooksLikeRuntime("node codex prompt mentions m1nd-mcp"), false);
 

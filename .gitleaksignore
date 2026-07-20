@@ -1,0 +1,14 @@
+# Audited gitleaks fingerprints — synthetic Ed25519/test-vector hex inside the
+# public canonical release-contract fixture; not credentials. Each entry is
+# pinned to the exact introducing commit, file, rule, and line.
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:204
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:240
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:268
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:296
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:324
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:352
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:380
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:408
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:436
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:468
+272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:496

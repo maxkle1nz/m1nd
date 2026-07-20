@@ -3251,6 +3251,14 @@ fn write_atomic_fsynced(path: &Path, bytes: &[u8]) -> Result<(), AutonomyRuntime
 }
 
 fn sync_directory(path: &Path, operation: &'static str) -> Result<(), AutonomyRuntimeError> {
+    // Windows refuses fsync on directory handles (ACCESS_DENIED); durable
+    // renames there rely on MoveFileEx write-through semantics instead.
+    #[cfg(windows)]
+    {
+        let _ = (path, operation);
+        Ok(())
+    }
+    #[cfg(not(windows))]
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|source| AutonomyRuntimeError::Io {

@@ -312,6 +312,9 @@ impl PersistentReplayLedger {
                 operation: "sync_new_file",
                 source,
             })?;
+            // Windows refuses fsync on directory handles (ACCESS_DENIED); the
+            // new-file entry is made durable there by write-through semantics.
+            #[cfg(not(windows))]
             if let Some(parent) = parent {
                 File::open(parent)
                     .and_then(|directory| directory.sync_all())
@@ -320,6 +323,8 @@ impl PersistentReplayLedger {
                         source,
                     })?;
             }
+            #[cfg(windows)]
+            let _ = parent;
         }
 
         let mut reader = file.try_clone().map_err(|source| ReplayLedgerError::Io {

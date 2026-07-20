@@ -85,16 +85,18 @@ class CiSecurityContractTests(unittest.TestCase):
         self.assertGreaterEqual(release.count("environment: release"), 3)
 
     def test_candidate_source_and_secret_boundaries_are_mandatory(self):
-        action = (
-            "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9"
+        gitleaks_sha256 = (
+            "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
         )
         guard = "scripts/m1nd10_candidate_source_guard.py"
         for workflow in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
             text = self.text(workflow)
             self.assertIn(guard, text)
-            self.assertIn(action, text)
             self.assertIn("GITLEAKS_VERSION: 8.30.1", text)
-            self.assertIn('GITLEAKS_NOTIFY_USER_LIST: ""', text)
+            self.assertIn(f"GITLEAKS_SHA256: {gitleaks_sha256}", text)
+            self.assertIn("sha256sum --check --strict", text)
+            self.assertIn("gitleaks git --redact --no-banner --exit-code 1", text)
+            self.assertNotIn("gitleaks/gitleaks-action", text)
             self.assert_immutable_uses(workflow)
 
         security = self.job(".github/workflows/ci.yml", "security-gates")
