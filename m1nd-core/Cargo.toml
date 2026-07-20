@@ -16,8 +16,8 @@ smallvec = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
 static_assertions = { workspace = true }
-bincode = "1.3"
-sha2 = "0.10"
+bincode = "3.0"
+sha2 = "0.11"
 
 # OPTIONAL: pure-Rust static embeddings (model2vec). OFF by default.
 # `fancy-regex` avoids the oniguruma C dependency; `hf-hub` lets from_pretrained

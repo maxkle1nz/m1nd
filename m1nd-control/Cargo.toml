@@ -8,10 +8,10 @@ repository = "https://github.com/maxkle1nz/m1nd"
 
 [dependencies]
 ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa", "std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = { workspace = true }
 
 [dev-dependencies]

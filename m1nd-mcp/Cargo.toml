@@ -44,17 +44,17 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # machines. DefaultHasher (SipHash) is NOT cross-version/platform stable, which
 # would break that contract. sha2 0.10 is already in Cargo.lock transitively —
 # declaring it direct adds NO new crate to the build graph.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }
-tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"], optional = true }
+tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip"], optional = true }
 rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
-getrandom = { version = "0.3", optional = true }
+getrandom = { version = "0.4", optional = true }
 
 # Already present transitively (via sysinfo/tokio); declared directly ONLY to call
 # `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).
@@ -74,7 +74,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 
 [[bin]]
 name = "m1nd-mcp"
