@@ -371,7 +371,7 @@ fn read_graph_view(state: &SessionState) -> GraphView {
     let n = graph.num_nodes() as usize;
     let mut fns = Vec::new();
     let mut file_paths = Vec::new();
-    let mut node_file = vec![String::new(); n];
+    let mut node_file = Vec::with_capacity(n);
     for i in 0..n {
         let nt = graph.nodes.node_type[i];
         let prov = &graph.nodes.provenance[i];
@@ -380,7 +380,7 @@ fn read_graph_view(state: &SessionState) -> GraphView {
             .and_then(|s| graph.strings.try_resolve(s))
             .unwrap_or("")
             .to_string();
-        node_file[i] = file.clone();
+        node_file.push(file.clone());
         match nt {
             NodeType::Function => {
                 let name = graph
@@ -395,10 +395,8 @@ fn read_graph_view(state: &SessionState) -> GraphView {
                     decl_line: prov.line_start,
                 });
             }
-            NodeType::File => {
-                if !file.is_empty() && !file_paths.contains(&file) {
-                    file_paths.push(file);
-                }
+            NodeType::File if !file.is_empty() && !file_paths.contains(&file) => {
+                file_paths.push(file);
             }
             _ => {}
         }
