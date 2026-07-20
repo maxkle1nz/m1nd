@@ -808,3 +808,98 @@ fn stress_a8_dest_struct_homonym_is_refused_naming_the_kind() {
         "dest must be byte-identical after an A8 refusal"
     );
 }
+
+// ===========================================================================
+// (m) §7.7 — rustfmt on touched files.
+// The oracle is `cargo check`, never fmt: in a repo with a fmt gate the verb's
+// assembled output could reprove CI with no warning in the receipt. After a
+// successful transplant every touched file must end rustfmt-clean; when rustfmt
+// is unavailable the receipt must SAY so instead of silently skipping.
+// ===========================================================================
+
+/// `rustfmt --edition 2021 --check` on one file: Ok(()) when already clean,
+/// Err("rustfmt-unavailable: …") when the binary cannot be spawned (the caller
+/// then skips honestly), Err(diff) when the file needs formatting.
+fn rustfmt_check(path: &Path) -> Result<(), String> {
+    let out = Command::new("rustfmt")
+        .args(["--edition", "2021", "--check"])
+        .arg(path)
+        .output();
+    match out {
+        Err(e) => Err(format!("rustfmt-unavailable: {e}")),
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(format!(
+            "{}{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        )),
+    }
+}
+
+#[test]
+fn stress_fmt_touched_files_end_rustfmt_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut state = make_state(root);
+    write(&root.join("Cargo.toml"), cargo_toml());
+    write(&root.join("src/lib.rs"), "pub mod alpha;\npub mod beta;\n");
+    // The moved item carries DELIBERATELY non-rustfmt spacing — the verb's
+    // assembled dest content preserves it verbatim today.
+    write(
+        &root.join("src/alpha.rs"),
+        "//! Alpha: non-fmt source.\n\npub fn move_me(x:u32)->u32 { x+1 }\n\npub fn stay_here() -> u32 {\n    0\n}\n",
+    );
+    write(&root.join("src/beta.rs"), BETA);
+    ingest(&mut state, root);
+
+    let out = dispatch_tool(
+        &mut state,
+        "transplant",
+        &params(root, "move_me", "src/alpha.rs", "src/beta.rs"),
+    )
+    .expect("non-fmt transplant succeeds");
+
+    let files: Vec<String> = out
+        .get("files_changed")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(!files.is_empty(), "receipt must list the touched files");
+    let fmt_receipt = out
+        .get("rustfmt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // Honest skip: no rustfmt in this sandbox → the RECEIPT must carry the note.
+    if let Err(e) = rustfmt_check(Path::new(&files[0])) {
+        if e.starts_with("rustfmt-unavailable") {
+            eprintln!("SKIP fmt-check (no rustfmt): {e}");
+            assert!(
+                fmt_receipt.contains("unavailable"),
+                "without rustfmt the receipt must note it, got: {fmt_receipt:?}"
+            );
+            return;
+        }
+    }
+
+    for f in &files {
+        if let Err(diff) = rustfmt_check(Path::new(f)) {
+            panic!("touched file {f} must end rustfmt-clean after the verb (§7.7):\n{diff}");
+        }
+    }
+    assert_eq!(
+        fmt_receipt, "applied",
+        "receipt must report the formatting pass"
+    );
+    // The formatted result still compiles (fmt never trades away the real oracle).
+    match cargo_check(root) {
+        Ok(()) => {}
+        Err(e) if e.starts_with("cargo-unavailable") => eprintln!("SKIP fmt compile: {e}"),
+        Err(e) => panic!("formatted crate must compile after the move:\n{e}"),
+    }
+}
