@@ -2,8 +2,38 @@ use crate::{IngestAdapter, IngestStats};
 use m1nd_core::error::M1ndResult;
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
 use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
-use quick_xml::events::Event;
+use quick_xml::events::{BytesRef, Event};
 use quick_xml::Reader;
+
+/// Resolve a general-entity reference into captured text. quick-xml 0.38+
+/// reports every `&name;`/`&#N;` in text as a separate `Event::GeneralRef`;
+/// dropping them silently corrupts extracted fields ("AT&T" -> "ATT").
+pub(crate) fn append_general_ref(buf: &mut String, r: &BytesRef<'_>) {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        buf.push(ch);
+        return;
+    }
+    match r.decode() {
+        Ok(name) => match name.as_ref() {
+            "amp" => buf.push('&'),
+            "lt" => buf.push('<'),
+            "gt" => buf.push('>'),
+            "apos" => buf.push('\''),
+            "quot" => buf.push('"'),
+            other => {
+                // Unknown entity: keep it verbatim rather than dropping content.
+                buf.push('&');
+                buf.push_str(other);
+                buf.push(';');
+            }
+        },
+        Err(_) => {
+            buf.push('&');
+            buf.push_str(&String::from_utf8_lossy(r));
+            buf.push(';');
+        }
+    }
+}
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -234,6 +264,9 @@ fn parse_rfc_xml(xml: &str) -> Vec<RfcRecord> {
                 if let Ok(t) = e.decode() {
                     text_buf.push_str(&t);
                 }
+            }
+            Ok(Event::GeneralRef(e)) if in_title || in_abstract || in_keyword || in_ref_title => {
+                append_general_ref(&mut text_buf, &e);
             }
             Ok(Event::Empty(e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
@@ -604,6 +637,21 @@ impl IngestAdapter for RfcAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_general_entity_refs_in_captured_text() {
+        let xml = r#"<?xml version="1.0"?>
+<rfc number="1">
+  <front>
+    <title>AT&amp;T &lt;proxy&gt; &#x2264; limit</title>
+    <abstract><t>p &lt; 0.05 &amp; q &gt; 1</t></abstract>
+  </front>
+</rfc>"#;
+        let records = parse_rfc_xml(xml);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].title, "AT&T <proxy> \u{2264} limit");
+        assert_eq!(records[0].abstract_text, "p < 0.05 & q > 1");
+    }
 
     #[test]
     fn parses_rfc_xml() {
