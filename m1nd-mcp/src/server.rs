@@ -3014,6 +3014,9 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // dispatch arm here only surfaces an honest "http-only" message to an MCP-stdio
     // caller. Listing it keeps the read-only law + the tool surface consistent.
     "mission_spawn",
+    // PROOF-OF-POSSIBILITY SPIKE: transplant writes source/dest/referencer files
+    // atomically (through apply_batch), so a read-only attach must refuse it.
+    "transplant",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3046,7 +3049,7 @@ pub(crate) fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> b
 /// tools that perform an on-disk write of agent-supplied content. `edit_preview`
 /// is deliberately excluded: it only stages an in-memory preview and never
 /// writes — same stance as the read-only gate.
-const PROOF_GATED_WRITE_TOOLS: &[&str] = &["apply", "apply_batch", "edit_commit"];
+const PROOF_GATED_WRITE_TOOLS: &[&str] = &["apply", "apply_batch", "edit_commit", "transplant"];
 
 /// Returns the normalized (prefix-stripped) tool name if `tool_name` is a
 /// proof-gated code-writing tool, else `None`. Mirrors the prefix handling in
@@ -3094,6 +3097,12 @@ fn proof_gate_targets(
             .and_then(|pid| state.edit_previews.get(pid))
             .map(|preview| vec![preview.file_path.clone()])
             .unwrap_or_default(),
+        // transplant touches its source AND destination (referencers are derived
+        // downstream); both must be proof-ready when the gate is armed.
+        "transplant" => ["source_file", "dest_file"]
+            .iter()
+            .filter_map(|k| params.get(*k).and_then(|v| v.as_str()).map(str::to_string))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -5377,6 +5386,15 @@ fn dispatch_core_tool(
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_apply_batch(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "edit_preview" => {

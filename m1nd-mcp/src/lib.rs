@@ -58,8 +58,12 @@ pub mod promote_handlers;
 pub mod skeleton_scan;
 pub mod soul_handlers;
 pub mod surgical_handlers;
+// PROOF-OF-POSSIBILITY SPIKE — the `transplant` verb (graph-addressed cross-file
+// move of a top-level `fn`): resolve via the graph, trichotomy from `calls` edges,
+// atomic write through the apply_batch machinery.
 pub mod system_blocks;
 pub mod system_blocks_handlers;
+pub mod transplant;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;
