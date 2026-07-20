@@ -257,9 +257,16 @@ pub fn handle_transplant(
         .map(|(_, l)| l.clone())
         .collect();
 
-    // Self-use: if the source still calls the moved symbol after the cut, it needs
-    // a back-import `use crate::<dest_module>::<symbol>;` to keep compiling.
-    let source_back_imported = new_source_lines.iter().any(|l| references_call(l, &symbol));
+    // Qualified self-references (`crate::<src_mod>::<symbol>(..)`) in the REMAINING
+    // source code would dangle after the move — re-point them to the dest module.
+    for l in new_source_lines.iter_mut() {
+        *l = replace_qualified(l, &source_module, &dest_module, &symbol);
+    }
+    // Self-use: if the source still calls the moved symbol BARE (not `::`-qualified)
+    // after the cut, it needs a back-import `use crate::<dest_module>::<symbol>;`.
+    let source_back_imported = new_source_lines
+        .iter()
+        .any(|l| references_bare_call(l, &symbol));
     if source_back_imported {
         let at = header_end(&new_source_lines);
         new_source_lines.insert(at, format!("use crate::{dest_module}::{symbol};"));
@@ -285,7 +292,7 @@ pub fn handle_transplant(
     new_dest_lines.extend(dest_lines[..insert_at].iter().cloned());
     new_dest_lines.extend(block);
     new_dest_lines.extend(dest_lines[insert_at..].iter().cloned());
-    let new_dest = join_lines(&new_dest_lines, dest_trailing_nl);
+    let mut new_dest = join_lines(&new_dest_lines, dest_trailing_nl);
 
     // --- Phase 7: referencer discovery (graph edges + textual cross-check) -----
     let (referencing_files, referencer_source) = discover_referencers(
@@ -296,6 +303,59 @@ pub fn handle_transplant(
         &source_module,
         &symbol,
     );
+
+    // Rewrite referencers BEFORE assembling the edit batch, so a referencer that
+    // IS the destination mutates `new_dest` (post-insertion) instead of emitting a
+    // second edit whose content — computed from the pre-insert dest text — would
+    // clobber the insertion and DESTROY the item (proptest-found corruption).
+    let mut refs_rewritten = 0usize;
+    let mut refs_unresolved: Vec<String> = Vec::new();
+    let mut referencer_edits: Vec<BatchEditItem> = Vec::new();
+    for rf in &referencing_files {
+        if paths_equal(rf, &source_abs) {
+            // The source's own remaining references were already re-pointed in
+            // Phase 5 (qualified rewrite + bare back-import).
+            continue;
+        }
+        if paths_equal(rf, &dest_abs) {
+            // Dest-as-referencer: the symbol is LOCAL after the move. Re-point its
+            // qualified refs to the dest module and drop any now-self import.
+            let rw =
+                rewrite_referencer_text(&new_dest, &source_module, &dest_module, &symbol, rf, true);
+            refs_rewritten += rw.rewritten;
+            refs_unresolved.extend(rw.unresolved);
+            new_dest = rw.new_text;
+            continue;
+        }
+        let text = match std::fs::read_to_string(rf) {
+            Ok(t) => t,
+            Err(e) => {
+                refs_unresolved.push(format!("{rf}: unreadable ({e})"));
+                continue;
+            }
+        };
+        let rw = rewrite_referencer_text(&text, &source_module, &dest_module, &symbol, rf, false);
+        if rw.rewritten == 0 && rw.unresolved.is_empty() {
+            // The graph pointed here but no textual site was rewritable — surface
+            // it honestly instead of pretending the reference was handled.
+            refs_unresolved.push(format!(
+                "{rf}: referenced `{symbol}` per the graph but no rewritable `{source_module}::{symbol}` site was found (macro or generated code?)"
+            ));
+            continue;
+        }
+        refs_unresolved.extend(rw.unresolved);
+        if rw.rewritten == 0 {
+            continue; // detected-but-unresolved: reported above, file untouched
+        }
+        refs_rewritten += rw.rewritten;
+        referencer_edits.push(BatchEditItem {
+            file_path: rf.clone(),
+            new_content: rw.new_text,
+            description: Some(format!(
+                "transplant: re-point `{symbol}` to `{dest_module}`"
+            )),
+        });
+    }
 
     let mut edits: Vec<BatchEditItem> = vec![
         BatchEditItem {
@@ -309,38 +369,10 @@ pub fn handle_transplant(
             description: Some(format!("transplant: receive `{symbol}`")),
         },
     ];
-
-    let mut refs_rewritten = 0usize;
-    let mut refs_unresolved: Vec<String> = Vec::new();
     let mut files_changed: Vec<String> = vec![source_abs.clone(), dest_abs.clone()];
-    for rf in &referencing_files {
-        let text = match std::fs::read_to_string(rf) {
-            Ok(t) => t,
-            Err(e) => {
-                refs_unresolved.push(format!("{rf}: unreadable ({e})"));
-                continue;
-            }
-        };
-        let (rewritten, count, unresolved) =
-            rewrite_referencer(&text, &source_module, &dest_module, &symbol);
-        if count == 0 {
-            // The graph pointed here but no textual site was rewritable — surface
-            // it honestly instead of pretending the reference was handled.
-            refs_unresolved.push(format!(
-                "{rf}: referenced `{symbol}` per the graph but no rewritable `{source_module}::{symbol}` site was found (grouped/aliased use, or macro?)"
-            ));
-            continue;
-        }
-        refs_rewritten += count;
-        refs_unresolved.extend(unresolved);
-        files_changed.push(rf.clone());
-        edits.push(BatchEditItem {
-            file_path: rf.clone(),
-            new_content: rewritten,
-            description: Some(format!(
-                "transplant: re-point `{symbol}` to `{dest_module}`"
-            )),
-        });
+    for e in referencer_edits {
+        files_changed.push(e.file_path.clone());
+        edits.push(e);
     }
 
     // --- Phase 8: ATOMIC write through the existing apply_batch machinery ------
@@ -591,20 +623,32 @@ fn discover_referencers(
         }
     }
 
-    // Textual cross-check over the graph's known files.
+    // Textual cross-check over the graph's known files: a qualified
+    // `<src_mod>::<symbol>` path, OR a glob `use …::<src_mod>::*;` combined with a
+    // bare use of the symbol (the glob referencer forms NO graph edge when the
+    // symbol is used as a value — the silent-miss hazard the harness pins).
     let needle = format!("{source_module}::{symbol}");
     let mut textual_files: BTreeSet<String> = BTreeSet::new();
     for f in &view.file_paths {
-        if file_matches(f, source_abs) || file_matches(f, dest_abs) {
+        if file_matches(f, source_abs) {
             continue;
         }
         // Resolve the repo-relative file path to something readable: prefer an
         // absolute sibling of source_abs when the stored path is relative.
         let abs = resolve_sibling(source_abs, f);
         if let Ok(text) = std::fs::read_to_string(&abs) {
-            if text.contains(&needle) {
+            if text.contains(&needle)
+                || (has_glob_of(&text, source_module) && uses_symbol_bare(&text, symbol))
+            {
                 textual_files.insert(abs);
             }
+        }
+    }
+    // The DEST file may legitimately reference the symbol too (qualified path or
+    // import); it is handled specially by the caller (rewritten in new_dest).
+    if let Ok(text) = std::fs::read_to_string(dest_abs) {
+        if text.contains(&needle) {
+            textual_files.insert(dest_abs.to_string());
         }
     }
 
@@ -926,19 +970,376 @@ fn references_call(line: &str, name: &str) -> bool {
     false
 }
 
-/// Rewrite every `<src_mod>::<symbol>` occurrence to `<dest_mod>::<symbol>`.
-/// Returns `(new_text, sites_rewritten, unresolved_notes)`.
-fn rewrite_referencer(
+/// `references_call` restricted to BARE uses: the occurrence must NOT be preceded
+/// by `::` (a qualified path is not evidence that an import is needed).
+fn references_bare_call(line: &str, name: &str) -> bool {
+    let code = match line.split_once("//") {
+        Some((before, _)) => before,
+        None => line,
+    };
+    let mut idx = 0;
+    while let Some(pos) = code[idx..].find(name) {
+        let start = idx + pos;
+        let end = start + name.len();
+        let before_ok = start == 0
+            || !code[..start]
+                .chars()
+                .next_back()
+                .map(|c| c.is_alphanumeric() || c == '_')
+                .unwrap_or(false);
+        let qualified = code[..start].ends_with("::");
+        let after = &code[end..];
+        let after_ok = after
+            .chars()
+            .next()
+            .map(|c| !(c.is_alphanumeric() || c == '_'))
+            .unwrap_or(true);
+        if before_ok && after_ok && !qualified {
+            let a = after.trim_start();
+            if a.starts_with('(') || a.starts_with(';') || a.is_empty() {
+                return true;
+            }
+        }
+        idx = end;
+    }
+    false
+}
+
+/// Replace `<src_mod>::<symbol>` with `<dest_mod>::<symbol>` in one line, with an
+/// identifier boundary AFTER the symbol (so `alpha::move_me_extra` never matches)
+/// and no identifier char before `src_mod` (so `not_alpha::move_me` never
+/// matches; a preceding `::` — `crate::alpha::move_me` — is exactly the
+/// qualified form and DOES match). Count changes via [`count_qualified`].
+fn replace_qualified(line: &str, src_mod: &str, dest_mod: &str, symbol: &str) -> String {
+    let from = format!("{src_mod}::{symbol}");
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(pos) = rest.find(&from) {
+        let before_ok = {
+            let head = &rest[..pos];
+            !head
+                .chars()
+                .next_back()
+                .map(|c| c.is_alphanumeric() || c == '_')
+                .unwrap_or(false)
+        };
+        let after = &rest[pos + from.len()..];
+        let after_ok = !after
+            .chars()
+            .next()
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        out.push_str(&rest[..pos]);
+        if before_ok && after_ok {
+            out.push_str(dest_mod);
+            out.push_str("::");
+            out.push_str(symbol);
+        } else {
+            out.push_str(&from);
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Count boundary-checked `<src_mod>::<symbol>` occurrences in a line.
+fn count_qualified(line: &str, src_mod: &str, symbol: &str) -> usize {
+    let from = format!("{src_mod}::{symbol}");
+    let mut n = 0;
+    let mut rest = line;
+    while let Some(pos) = rest.find(&from) {
+        let before_ok = !rest[..pos]
+            .chars()
+            .next_back()
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        let after = &rest[pos + from.len()..];
+        let after_ok = !after
+            .chars()
+            .next()
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
+        if before_ok && after_ok {
+            n += 1;
+        }
+        rest = after;
+    }
+    n
+}
+
+/// True when `text` has a top-level glob import of `src_mod`:
+/// `use …::<src_mod>::*;` (with or without `pub`).
+fn has_glob_of(text: &str, src_mod: &str) -> bool {
+    text.lines().any(|l| {
+        let t = l.trim();
+        (t.starts_with("use ") || t.starts_with("pub use "))
+            && (t.ends_with(&format!("::{src_mod}::*;")) || t.ends_with(&format!("{src_mod}::*;")))
+    })
+}
+
+/// True when a NON-use line of `text` uses `symbol` bare (call, value, or path
+/// head) — the companion signal to [`has_glob_of`] for glob-referencer discovery.
+fn uses_symbol_bare(text: &str, symbol: &str) -> bool {
+    text.lines().any(|l| {
+        let t = l.trim_start();
+        if t.starts_with("use ") || t.starts_with("pub use ") {
+            return false;
+        }
+        references_bare_call(l, symbol)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Use-form-aware referencer rewriting (B2)
+// ---------------------------------------------------------------------------
+
+/// Result of rewriting one referencing file.
+struct RefRewrite {
+    new_text: String,
+    /// Reference sites re-pointed (imports split/re-pointed, qualified paths
+    /// rewritten, glob-covered uses given an explicit import).
+    rewritten: usize,
+    /// Sites detected but NOT resolved, as honest human-readable notes.
+    unresolved: Vec<String>,
+}
+
+/// A logical top-level `use` statement (may span multiple physical lines after
+/// rustfmt splits a long group): the joined text and its line span.
+struct UseStmt {
+    /// `use`/`pub use` statement text joined to ONE line, `;` included.
+    text: String,
+    start: usize,
+    /// Inclusive end line index.
+    end: usize,
+}
+
+/// Collect logical use statements at the top level of the file.
+fn collect_use_stmts(lines: &[String]) -> Vec<UseStmt> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim_start();
+        let is_use_start =
+            (t.starts_with("use ") || t.starts_with("pub use ")) && !lines[i].starts_with(' ');
+        if is_use_start {
+            let mut joined = lines[i].trim().to_string();
+            let start = i;
+            let mut end = i;
+            while !joined.contains(';') && end + 1 < lines.len() {
+                end += 1;
+                joined.push(' ');
+                joined.push_str(lines[end].trim());
+            }
+            out.push(UseStmt {
+                text: joined,
+                start,
+                end,
+            });
+            i = end + 1;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Split a `{a, b as c, self}` group body into trimmed members.
+fn split_group_members(inner: &str) -> Vec<String> {
+    inner
+        .split(',')
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
+/// The bound name of a group member: `move_me` and `move_me as mm` both name
+/// `move_me` (the alias is what enters scope, but matching is by source name).
+fn member_source_name(member: &str) -> &str {
+    member.split_whitespace().next().unwrap_or(member)
+}
+
+/// Use-form-aware rewrite of a referencing file (B2). Handles:
+///   - qualified paths `<src_mod>::<symbol>` on any code line (boundary-checked);
+///   - direct imports `use …::<src_mod>::<symbol> [as alias];` (via the same
+///     qualified rewrite — the alias tail survives untouched);
+///   - grouped imports `use …::<src_mod>::{a, <symbol> [as alias], b};` — the
+///     symbol's member is SPLIT OUT to a new dest import (alias preserved), the
+///     rest of the group survives;
+///   - glob imports `use …::<src_mod>::*;` — the moved symbol silently leaves the
+///     glob's coverage, so an explicit `use …::<dest_mod>::<symbol>;` is added
+///     right after the glob (unless `symbol_is_local`);
+///   - nested groups (`{a::{b}, c}`) — DETECTED and reported, never guessed at.
+///
+/// `symbol_is_local` = rewriting the DEST file itself: the symbol is defined
+/// locally after the move, so any import of it is dropped rather than re-pointed
+/// (a self-import is E0255) and glob coverage needs no replacement.
+fn rewrite_referencer_text(
     text: &str,
     src_mod: &str,
     dest_mod: &str,
     symbol: &str,
-) -> (String, usize, Vec<String>) {
-    let from = format!("{src_mod}::{symbol}");
-    let to = format!("{dest_mod}::{symbol}");
-    let count = text.matches(&from).count();
-    let new_text = text.replace(&from, &to);
-    (new_text, count, Vec::new())
+    file_label: &str,
+    symbol_is_local: bool,
+) -> RefRewrite {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let trailing_nl = text.ends_with('\n');
+    let use_stmts = collect_use_stmts(&lines);
+
+    let mut rewritten = 0usize;
+    let mut unresolved: Vec<String> = Vec::new();
+    // line index -> replacement lines (empty vec = drop the span's lines).
+    let mut replacements: Vec<(usize, usize, Vec<String>)> = Vec::new();
+
+    let src_seg = format!("::{src_mod}");
+    for st in &use_stmts {
+        let t = st.text.trim();
+        let lead = if t.starts_with("pub use ") {
+            "pub use "
+        } else {
+            "use "
+        };
+        let body = t
+            .trim_start_matches(lead)
+            .trim_end_matches(';')
+            .trim()
+            .to_string();
+
+        // Nested groups: more than one `{` — honest refusal when the symbol may
+        // be involved, silence otherwise (the statement cannot concern the move).
+        if body.matches('{').count() > 1 {
+            if body.contains(src_mod) && body.contains(symbol) {
+                unresolved.push(format!(
+                    "{file_label}:{}: nested-group import `{}` mentions `{src_mod}`/`{symbol}` — split it manually, the spike does not rewrite nested groups",
+                    st.start + 1,
+                    st.text.trim()
+                ));
+            }
+            continue;
+        }
+
+        // Grouped import of the source module?
+        if let Some(brace) = body.find('{') {
+            let prefix = body[..brace].trim_end_matches("::").trim();
+            let inner = body[brace + 1..].trim_end_matches('}').trim();
+            let prefix_is_src = prefix == src_mod || prefix.ends_with(&src_seg);
+            if !prefix_is_src {
+                continue;
+            }
+            let members = split_group_members(inner);
+            let Some(sym_member) = members
+                .iter()
+                .find(|m| member_source_name(m) == symbol)
+                .cloned()
+            else {
+                continue;
+            };
+            let rest: Vec<String> = members
+                .into_iter()
+                .filter(|m| member_source_name(m) != symbol)
+                .collect();
+            let dest_prefix = if prefix == src_mod {
+                dest_mod.to_string()
+            } else {
+                format!(
+                    "{}{}",
+                    prefix.strip_suffix(src_mod).unwrap_or(prefix),
+                    dest_mod
+                )
+            };
+            let mut new_lines: Vec<String> = Vec::new();
+            match rest.len() {
+                0 => {}
+                1 => new_lines.push(format!("{lead}{prefix}::{};", rest[0])),
+                _ => new_lines.push(format!("{lead}{prefix}::{{{}}};", rest.join(", "))),
+            }
+            if !symbol_is_local {
+                new_lines.push(format!("{lead}{dest_prefix}::{sym_member};"));
+            }
+            replacements.push((st.start, st.end, new_lines));
+            rewritten += 1;
+            continue;
+        }
+
+        // Glob import of the source module?
+        if body.ends_with("::*") {
+            let prefix = body.trim_end_matches("::*").trim();
+            let prefix_is_src = prefix == src_mod || prefix.ends_with(&src_seg);
+            if !prefix_is_src {
+                continue;
+            }
+            if !uses_symbol_bare(text, symbol) {
+                continue; // glob present but the symbol is not used bare here
+            }
+            if symbol_is_local {
+                continue; // dest: the symbol is local now, the glob needs no help
+            }
+            let dest_prefix = if prefix == src_mod {
+                dest_mod.to_string()
+            } else {
+                format!(
+                    "{}{}",
+                    prefix.strip_suffix(src_mod).unwrap_or(prefix),
+                    dest_mod
+                )
+            };
+            let glob_line = lines[st.start..=st.end].join(" ");
+            replacements.push((
+                st.start,
+                st.end,
+                vec![
+                    glob_line.trim_end().to_string(),
+                    format!("use {dest_prefix}::{symbol};"),
+                ],
+            ));
+            unresolved.push(format!(
+                "{file_label}:{}: glob import `{}` covered `{symbol}` — an explicit `use {dest_prefix}::{symbol};` was added alongside (review whether the glob still earns its keep)",
+                st.start + 1,
+                st.text.trim()
+            ));
+            rewritten += 1;
+            continue;
+        }
+    }
+
+    // Apply span replacements bottom-up so indices stay valid.
+    let mut new_lines = lines.clone();
+    replacements.sort_by_key(|(s, _, _)| *s);
+    for (s, e, repl) in replacements.into_iter().rev() {
+        new_lines.splice(s..=e, repl);
+    }
+
+    // Generic qualified-path rewrite on every remaining line (covers direct
+    // imports `use …::<src_mod>::<symbol> [as alias];` and code paths alike).
+    // When the symbol is LOCAL (dest file), a direct import of it is DROPPED
+    // instead of re-pointed — `use crate::<dest_mod>::<symbol>;` inside the very
+    // module that now defines it is E0255.
+    let mut drop_idx: Vec<usize> = Vec::new();
+    for (i, l) in new_lines.iter_mut().enumerate() {
+        let n = count_qualified(l, src_mod, symbol);
+        if n > 0 {
+            let t = l.trim_start();
+            if symbol_is_local && (t.starts_with("use ") || t.starts_with("pub use ")) {
+                drop_idx.push(i);
+                rewritten += n;
+                continue;
+            }
+            *l = replace_qualified(l, src_mod, dest_mod, symbol);
+            rewritten += n;
+        }
+    }
+    let new_text_lines: Vec<String> = new_lines
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !drop_idx.contains(i))
+        .map(|(_, l)| l)
+        .collect();
+
+    RefRewrite {
+        new_text: join_lines(&new_text_lines, trailing_nl),
+        rewritten,
+        unresolved,
+    }
 }
 
 // ===========================================================================
