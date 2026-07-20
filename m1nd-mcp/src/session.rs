@@ -73,6 +73,35 @@ pub struct EditPreviewState {
     pub created_at_ms: u64,
 }
 
+/// One planned write of a staged two-phase transplant (A2): the exact content
+/// the commit will land and the hash of the on-disk text the plan was computed
+/// FROM (`base_hash` — the TOCTOU anchor: any drift refuses the commit).
+#[derive(Clone, Debug)]
+pub struct PlannedTransplantWrite {
+    pub file_path: String,
+    pub new_content: String,
+    pub base_hash: String,
+    pub description: Option<String>,
+}
+
+/// A staged `transplant_preview` awaiting `transplant_commit` (A2, PRD §4.2).
+/// Mirrors [`EditPreviewState`] (same 5-min TTL, same consume-on-commit law) but
+/// carries the FULL multi-file plan — source + dest + every derived referencer —
+/// plus the candidate receipt the commit finalizes.
+#[derive(Clone, Debug)]
+pub struct TransplantPreviewState {
+    pub preview_id: String,
+    pub agent_id: String,
+    pub symbol: String,
+    pub source_file: String,
+    pub dest_file: String,
+    /// Planned writes in write order (source, dest, referencers).
+    pub planned: Vec<PlannedTransplantWrite>,
+    /// The receipt computed at plan time; the commit re-stamps its timing.
+    pub receipt: crate::protocol::surgical::TransplantOutput,
+    pub created_at_ms: u64,
+}
+
 struct RecoveryAutoActionContext<'a> {
     agent_id: &'a str,
     observed_tool: &'a str,
@@ -313,6 +342,9 @@ pub struct SessionState {
     pub sessions: HashMap<String, AgentSession>,
     /// In-memory preview states for Ultra Edit phase 1.
     pub edit_previews: HashMap<String, EditPreviewState>,
+    /// Staged two-phase transplants (A2): preview_id → full multi-file plan.
+    /// Same in-memory/TTL discipline as `edit_previews`.
+    pub transplant_previews: HashMap<String, TransplantPreviewState>,
 
     // --- Perspective MCP state (12-PERSPECTIVE-SYNTHESIS) ---
     /// Generation counter: bumped on ingest, rebuild_engines (Theme 1).
@@ -1746,6 +1778,7 @@ impl SessionState {
             embeddings_cache_path,
             sessions: HashMap::new(),
             edit_previews: HashMap::new(),
+            transplant_previews: HashMap::new(),
             // Perspective MCP state
             graph_generation: 0,
             plasticity_generation: 0,
