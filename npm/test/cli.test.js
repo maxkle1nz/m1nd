@@ -754,6 +754,11 @@ function rollbackJournalFixture(phase, targetBytes, overrides = {}) {
   return { backup, beforeBytes, candidateBytes, env, rollback, state, statePath, target, tmp };
 }
 
+// The fake cosign fixture is a shebang script; Windows cannot execute it, so
+// the apply/rollback harness scenarios below run on POSIX CI only. Real
+// Windows updater verification belongs to hosted G8 with genuine cosign.
+if (process.platform !== "win32") {
+
 withEnv(
   {
     ...fakeEnvBase,
@@ -1330,6 +1335,12 @@ withEnv(
     assert.strictEqual(fs.existsSync(statePath), false);
   }
 );
+
+} else {
+  console.log(
+    "# update apply/rollback harness scenarios skipped on win32 (shebang-only fake cosign; hosted G8 covers the real Windows updater)"
+  );
+}
 
 withEnv(
   {
