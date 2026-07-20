@@ -205,6 +205,33 @@ bound soul-check surface is available. Otherwise label freshness `NOT_PROVEN` an
 - A long loop without new evidence is a failed route, not persistence.
 - Before context becomes unwieldy, update the handoff and continue in a fresh task.
 
+### 5.1 Anti-ceremony rules
+
+Owner-ratified 2026-07-20 after an askGOD `CHANGE` verdict shaped the text
+(`docs/proofs/m1nd10-anti-ceremony-doctrine-askgod-verdict-20260720.md`).
+
+1. **Meta-review ceiling.** The canonical cycle per source delta is: review → on `CHANGE`,
+   implement every required change → one fresh re-review bound to the corrected diff (§3.5). A
+   third internal look at the same diff with no source change is forbidden. When two verdicts
+   diverge, the owner picks which verdict to follow or issues an explicit amendment, recorded in a
+   proof doc — a human tiebreak never converts `CHANGE` into approval without the changes
+   implemented. When only one vendor seat is alive, the pair is review + re-review on the same
+   seat with reinforced adversarial framing, and the limitation is recorded in the proof.
+2. **Rite proportional to real external exposure.** NEW rite (extra meta-review, additional
+   guards, ceremony) is budgeted against enumerated real exposure: the public repository (every
+   commit publishes), npm/crates packages, the served owner (`:1338`), operator-private and
+   credential material. Zero users does not mean zero blast radius. Lower bound: never weaken an
+   existing gate; the frozen G0-G10 no-waiver contract changes only by ratified amendment.
+3. **External gates before new internal gates.** An external gate is one whose closure requires
+   proof state above `LOCAL_PROVEN`/`COMPONENT_PASS` (`LIVE_PROVEN`, `RELEASE_PROVEN`, `ACTIVE`),
+   plus the formal blind run. No NEW internal gate may be introduced while an external gate is
+   `NOT_RUN` with its prerequisites satisfied (immutable candidate before the blind G6; G10 last).
+   Single exception: a new internal guard jumps the queue only on reproduced evidence of a P0
+   exposure — never on speculation of impurity. Stop rules (§4) are untouched.
+
+The session question changes from "what could still be impure?" to "what has not yet been proven
+against the world?".
+
 ## 6. Authority matrix
 
 | Action | Default seat |

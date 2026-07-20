@@ -101,6 +101,14 @@ orientation surface degraded; work around it, report honestly, and continue with
 - Do not spawn unscoped subagents. When delegation is explicitly authorized, use the m1nd
   `delegate`/`debrief` contract and require deviations plus evidence.
 - Before context becomes expensive or ambiguous, update the handoff and resume in a fresh task.
+- **Anti-ceremony rules (owner-ratified 2026-07-20; full text in method §5.1):** (1) meta-review
+  ceiling — one review + one fresh re-review per source delta; no third internal look at an
+  unchanged diff; diverging verdicts are tiebroken by the owner choosing a verdict or issuing an
+  explicit amendment, never by tacit approval. (2) NEW rite is budgeted against real external
+  exposure (public repo, npm/crates, served owner, operator-private material) — never weaken an
+  existing gate; the frozen G0-G10 contract moves only by ratified amendment. (3) No NEW internal
+  gate while an external gate (above `LOCAL_PROVEN`/`COMPONENT_PASS`, plus the blind run) is
+  `NOT_RUN` with prerequisites satisfied; sole exception is reproduced P0 exposure evidence.
 
 ## Authority boundary
 
