@@ -437,14 +437,14 @@ impl PatentIngestAdapter {
                         || in_snm
                         || in_fnm
                     {
-                        if let Ok(t) = e.unescape() {
+                        if let Ok(t) = e.decode() {
                             text_buf.push_str(&t);
                         }
                     } else {
                         // Capture text for country/doc-number/kind/date
                         let current = path.last().map(|s| s.as_str()).unwrap_or("");
                         if matches!(current, "country" | "doc-number" | "kind" | "date") {
-                            if let Ok(t) = e.unescape() {
+                            if let Ok(t) = e.decode() {
                                 text_buf.push_str(&t);
                             }
                         }

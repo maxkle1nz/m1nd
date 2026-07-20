@@ -430,7 +430,7 @@ impl JatsArticleAdapter {
                 }
                 Ok(Event::Text(e)) => {
                     if in_title || in_abstract || in_journal_title || in_author_name || in_keyword {
-                        if let Ok(t) = e.unescape() {
+                        if let Ok(t) = e.decode() {
                             text_buf.push_str(&t);
                         }
                     } else {
@@ -439,7 +439,7 @@ impl JatsArticleAdapter {
                             current_tag,
                             "PMID" | "Year" | "ArticleId" | "pub-id" | "year"
                         ) {
-                            if let Ok(t) = e.unescape() {
+                            if let Ok(t) = e.decode() {
                                 text_buf.push_str(&t);
                             }
                         }

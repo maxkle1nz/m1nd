@@ -33,6 +33,8 @@ m1nd-ui/node_modules/
 !docs/benchmarks/m1nd10-g6-metric-spec-v1.json
 !docs/benchmarks/m1nd10-g6-current-report.json
 !docs/benchmarks/m1nd10-g6-failed-*.json
+# M1ND-10 canonical release-contract vectors — public test fixture required by CI.
+!tests/fixtures/M1ND10-CANONICAL-VECTORS.json
 !docs/benchmarks/m1nd10-g6-universal-ingest-matrix-v1.json
 !docs/benchmarks/m1nd10-g6-held-out-v1/public/queries.json
 # M1ND-10 G6 held-out V2 public corpus contract. Labels, reviews, generators,

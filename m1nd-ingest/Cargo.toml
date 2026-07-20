@@ -92,4 +92,4 @@ tree-sitter-ocaml = { version = "0.24", optional = true }
 tree-sitter-toml-ng = { version = "0.7", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-sequel = { version = "0.3", optional = true }
-quick-xml = "0.36"
+quick-xml = "0.41"
