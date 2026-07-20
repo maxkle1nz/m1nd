@@ -778,6 +778,14 @@ pub struct TransplantInput {
     pub source_file: String,
     /// File the symbol is moved into (must already exist for the spike).
     pub dest_file: String,
+    /// A3 — the explicit Money-Zone gesture. When a touched path (source, dest, or a
+    /// derived referencer) matches a `ci/protected-zones.json` glob, the transplant
+    /// refuses UNLESS this carries the caller's reason for crossing the guarded zone.
+    /// Absent (the default) means "I did not intend to touch a protected zone" — a
+    /// zone match then refuses, teaching the gesture. Recorded in the receipt when it
+    /// unlocks a crossing.
+    #[serde(default)]
+    pub allow_protected: Option<String>,
 }
 
 /// A1 — node-addressed state a transplant could NOT carry to the moved symbol's
@@ -801,6 +809,21 @@ pub struct StateLeftBehind {
     /// NOT reproduce under any namespace on the new node (the painted tags a move
     /// loses — structural tags the re-ingest regenerated are excluded).
     pub detail: Vec<String>,
+}
+
+/// A3 — the Money-Zone gesture a transplant recorded when it crossed a protected
+/// zone with the caller's explicit `allow_protected` reason. Present in the receipt
+/// only when a guarded zone was actually crossed, so the crossing is auditable.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProtectedZoneGesture {
+    /// The `ci/protected-zones.json` glob the touched file matched.
+    pub zone: String,
+    /// The reason the zone is guarded (from the config).
+    pub zone_reason: String,
+    /// The touched path (source, dest, or a derived referencer) that matched.
+    pub matched_file: String,
+    /// The caller's `allow_protected` reason that unlocked the crossing.
+    pub gesture: String,
 }
 
 /// A dependency that STAYS in the source file but is shared by the moved item,
@@ -870,6 +893,11 @@ pub struct TransplantOutput {
     /// left behind. The verb never silently orphans node-bound state; carrying it
     /// fully needs owner-side wiring (see [`StateLeftBehind`]).
     pub state_left_behind: Vec<StateLeftBehind>,
+    /// A3 — the Money-Zone gesture recorded when this transplant crossed a protected
+    /// zone with the caller's explicit `allow_protected` reason. `None` when no
+    /// guarded zone was touched (the common case).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protected_zone: Option<ProtectedZoneGesture>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }

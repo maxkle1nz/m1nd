@@ -22,9 +22,9 @@
 //! PRD, never to fake a clean move.
 
 use crate::protocol::surgical::{
-    ApplyBatchInput, BatchEditItem, SharedDepReport, StateLeftBehind, TransplantCommitInput,
-    TransplantCommitOutput, TransplantInput, TransplantOutput, TransplantPlannedFileReport,
-    TransplantPreviewOutput,
+    ApplyBatchInput, BatchEditItem, ProtectedZoneGesture, SharedDepReport, StateLeftBehind,
+    TransplantCommitInput, TransplantCommitOutput, TransplantInput, TransplantOutput,
+    TransplantPlannedFileReport, TransplantPreviewOutput,
 };
 use crate::session::{PlannedTransplantWrite, SessionState, TransplantPreviewState};
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -756,6 +756,19 @@ fn plan_transplant(state: &SessionState, input: &TransplantInput) -> M1ndResult<
         &symbol,
     );
 
+    // --- Phase 7.3: A3 protected-zone gate (the house Money-Zone law) -----------
+    // With the full touched set known (source + dest + every DERIVED referencer),
+    // enforce ci/protected-zones.json: any touched path inside a guarded zone
+    // refuses the teach UNLESS the caller carried the explicit `allow_protected`
+    // gesture. A pure preflight — every return here precedes the write, so a refusal
+    // is byte-identity-safe. The gesture (when present) is recorded in the receipt.
+    let protected_zone = enforce_protected_zones(
+        &source_abs,
+        &dest_abs,
+        &referencing_files,
+        input.allow_protected.as_deref(),
+    )?;
+
     // Rewrite referencers BEFORE assembling the edit batch, so a referencer that
     // IS the destination mutates `new_dest` (post-insertion) instead of emitting a
     // second edit whose content — computed from the pre-insert dest text — would
@@ -907,6 +920,8 @@ fn plan_transplant(state: &SessionState, input: &TransplantInput) -> M1ndResult<
         // Filled by the two handlers around the write boundary (A1): a preview
         // orphans nothing, so it honestly shows an empty set here.
         state_left_behind: Vec::new(),
+        // A3 — the Money-Zone gesture, when the preflight cleared a guarded crossing.
+        protected_zone,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     };
 
@@ -2219,6 +2234,129 @@ fn rewrite_referencer_text(
         rewritten,
         unresolved,
     }
+}
+
+// ===========================================================================
+// A3 — protected zones (the house Money-Zone law)
+// ===========================================================================
+
+/// One `ci/protected-zones.json` rule: a glob and the reason it is guarded.
+#[derive(serde::Deserialize)]
+struct ProtectedZoneRule {
+    glob: String,
+    #[serde(default)]
+    reason: String,
+}
+
+/// The `ci/protected-zones.json` shape: `{"zones":[{"glob":"…","reason":"…"}]}`
+/// (the house convention — `ci/protected-zones.json` of the Cherry repo).
+#[derive(serde::Deserialize)]
+struct ProtectedZonesFile {
+    #[serde(default)]
+    zones: Vec<ProtectedZoneRule>,
+}
+
+/// Load `ci/protected-zones.json` by searching UPWARD from `anchor_abs` (mirrors
+/// [`crate_root`]'s ascent), so a workspace's repo-level guard is found from any
+/// crate. `Ok(None)` when no zone file exists (no interference). A present-but-
+/// invalid config (unreadable, malformed JSON, or a bad glob) FAILS CLOSED with
+/// `Err` — a money-zone guard that cannot be evaluated must never silently pass.
+#[allow(clippy::type_complexity)]
+fn load_protected_zones(
+    anchor_abs: &str,
+) -> Result<Option<Vec<(glob::Pattern, ProtectedZoneRule)>>, String> {
+    let mut cur = Path::new(anchor_abs).parent();
+    while let Some(dir) = cur {
+        let candidate = dir.join("ci").join("protected-zones.json");
+        if candidate.is_file() {
+            let raw = std::fs::read_to_string(&candidate)
+                .map_err(|e| format!("cannot read {}: {e}", candidate.display()))?;
+            let parsed: ProtectedZonesFile = serde_json::from_str(&raw)
+                .map_err(|e| format!("malformed {}: {e}", candidate.display()))?;
+            let mut compiled = Vec::with_capacity(parsed.zones.len());
+            for z in parsed.zones {
+                let pat = glob::Pattern::new(&z.glob).map_err(|e| {
+                    format!(
+                        "invalid zone glob `{}` in {}: {e}",
+                        z.glob,
+                        candidate.display()
+                    )
+                })?;
+                compiled.push((pat, z));
+            }
+            return Ok(Some(compiled));
+        }
+        cur = dir.parent();
+    }
+    Ok(None)
+}
+
+/// True when `file_abs` (usually absolute) falls under the repo-relative zone
+/// `pat`. Matches the full normalized path and each path-component tail, so a
+/// repo-relative glob (`src/money/**`) matches an absolute touched path by its tail.
+fn zone_matches(pat: &glob::Pattern, file_abs: &str) -> bool {
+    let norm = normalize(file_abs);
+    if pat.matches(&norm) {
+        return true;
+    }
+    let segs: Vec<&str> = norm.split('/').filter(|s| !s.is_empty()).collect();
+    (0..segs.len()).any(|i| pat.matches(&segs[i..].join("/")))
+}
+
+/// A3 — enforce the Money-Zone gate over the full touched set (source + dest +
+/// every derived referencer). When a touched path matches a guarded zone, refuse
+/// (teaching the gesture) UNLESS `allow_protected` carries the caller's reason — in
+/// which case return the recorded [`ProtectedZoneGesture`] for the receipt. No zone
+/// file, or no match, returns `Ok(None)` (no interference). A broken config fails
+/// closed. Pure — the caller invokes it in the pre-write preflight, so a refusal is
+/// byte-identity-safe.
+fn enforce_protected_zones(
+    source_abs: &str,
+    dest_abs: &str,
+    referencers: &[String],
+    allow_protected: Option<&str>,
+) -> M1ndResult<Option<ProtectedZoneGesture>> {
+    let zones = match load_protected_zones(source_abs) {
+        Ok(None) => return Ok(None),
+        Ok(Some(z)) => z,
+        Err(detail) => {
+            return Err(refuse(format!(
+                "protected-zone guard is armed but its config is invalid: {detail}. Refusing to teach until ci/protected-zones.json is valid (the Money-Zone fails CLOSED). No file is touched."
+            )));
+        }
+    };
+    if zones.is_empty() {
+        return Ok(None);
+    }
+    // Deterministic order: source, dest, then referencers (sorted for stability).
+    let mut refs: Vec<&str> = referencers.iter().map(String::as_str).collect();
+    refs.sort();
+    let mut touched: Vec<&str> = vec![source_abs, dest_abs];
+    touched.extend(refs);
+    for f in touched {
+        for (pat, rule) in &zones {
+            if zone_matches(pat, f) {
+                return match allow_protected {
+                    Some(gesture) if !gesture.trim().is_empty() => Ok(Some(ProtectedZoneGesture {
+                        zone: rule.glob.clone(),
+                        zone_reason: rule.reason.clone(),
+                        matched_file: f.to_string(),
+                        gesture: gesture.to_string(),
+                    })),
+                    _ => Err(refuse(format!(
+                        "protected zone: '{f}' matches the guarded zone `{}` ({}) — this transplant crosses the Money-Zone. Refusing without the explicit gesture: resend with `allow_protected` set to your reason for the crossing (e.g. \"allow_protected\":\"<why this move is safe>\"). No file is touched.",
+                        rule.glob,
+                        if rule.reason.is_empty() {
+                            "no reason given"
+                        } else {
+                            &rule.reason
+                        }
+                    ))),
+                };
+            }
+        }
+    }
+    Ok(None)
 }
 
 // ===========================================================================
