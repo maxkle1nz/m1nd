@@ -3097,12 +3097,11 @@ fn proof_gate_targets(
             .and_then(|pid| state.edit_previews.get(pid))
             .map(|preview| vec![preview.file_path.clone()])
             .unwrap_or_default(),
-        // transplant touches its source AND destination (referencers are derived
-        // downstream); both must be proof-ready when the gate is armed.
-        "transplant" => ["source_file", "dest_file"]
-            .iter()
-            .filter_map(|k| params.get(*k).and_then(|v| v.as_str()).map(str::to_string))
-            .collect(),
+        // B1: transplant writes source + dest + DERIVED referencer files the
+        // caller never named. The full touched set is derived read-only (same
+        // discovery the verb itself runs) so the armed gate covers ALL of them —
+        // a referencer without a permit refuses the whole call before any write.
+        "transplant" => crate::transplant::proof_gate_touched_files(state, params),
         _ => Vec::new(),
     }
 }

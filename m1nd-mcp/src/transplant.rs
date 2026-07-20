@@ -66,6 +66,52 @@ fn refuse(detail: String) -> M1ndError {
     }
 }
 
+/// B1 — the full file set a transplant call will TOUCH, derived READ-ONLY for the
+/// M1ND_PROOF_GATE preflight: source + dest + every file referencer discovery
+/// names. This is a conservative SUPERSET of what the write ends up mutating (a
+/// discovered referencer that later yields no rewritable site is still gated) —
+/// over-asking for permits is safe; under-asking is exactly the hole B1 closes:
+/// the verb writes files the caller never named, and the armed gate saw only
+/// source+dest. Malformed params degrade to whatever paths ARE present (an empty
+/// set makes the gate refuse as unproven, mirroring the other write tools).
+pub fn proof_gate_touched_files(state: &SessionState, params: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = ["source_file", "dest_file"]
+        .iter()
+        .filter_map(|k| params.get(*k).and_then(|v| v.as_str()).map(str::to_string))
+        .collect();
+    let (Some(source_abs), Some(dest_abs)) = (
+        params.get("source_file").and_then(|v| v.as_str()),
+        params.get("dest_file").and_then(|v| v.as_str()),
+    ) else {
+        return out;
+    };
+    let Some(symbol) = params.get("symbol").and_then(|v| v.as_str()) else {
+        return out;
+    };
+    let symbol = symbol.trim();
+    let source_module = module_name(source_abs);
+    let view = read_graph_view(state);
+    let symbol_idx = view
+        .fns
+        .iter()
+        .find(|f| f.name == symbol && file_matches(&f.file, source_abs))
+        .map(|f| f.idx);
+    let (referencers, _) = discover_referencers(
+        &view,
+        symbol_idx,
+        source_abs,
+        dest_abs,
+        &source_module,
+        symbol,
+    );
+    for r in referencers {
+        if !out.iter().any(|o| paths_equal(o, &r)) {
+            out.push(r);
+        }
+    }
+    out
+}
+
 pub fn handle_transplant(
     state: &mut SessionState,
     input: TransplantInput,
