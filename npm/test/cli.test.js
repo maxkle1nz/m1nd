@@ -1843,6 +1843,11 @@ assert.strictEqual(classifyScopeBinding(scopeRepo, fileScope).binding_kind, "fil
 assert.strictEqual(classifyScopeBinding(scopeRepo, mkTmpDir()).binding_kind, "wrong_workspace_binding");
 assert.strictEqual(classifyScopeBinding(scopeRepo, null).binding_kind, "ambiguous_scope");
 
+// The fake m1nd-mcp runtime is a shebang script the agent CLI spawns over
+// stdio; Windows cannot execute it, so the agent/kickstart scenarios below
+// run on POSIX CI only. Cross-platform CLI contracts still run everywhere.
+if (process.platform !== "win32") {
+
 const fakeMcp = path.join(mkTmpDir(), runtimeBinaryName());
 writeFakeMcpRuntime(fakeMcp);
 const agentEnv = {
@@ -2315,6 +2320,12 @@ assert.strictEqual(kickstartJson.node_count, 12);
 assert.strictEqual(kickstartJson.edge_count, 21);
 assert.strictEqual(kickstartJson.ok, true);
 assert.strictEqual(kickstartJson.next_action, "ready_to_query");
+
+} else {
+  console.log(
+    "# agent/kickstart scenarios skipped on win32 (shebang-only fake m1nd-mcp runtime)"
+  );
+}
 
 // --- ambient recipes: hooks + doctrine per host --------------------------------
 
