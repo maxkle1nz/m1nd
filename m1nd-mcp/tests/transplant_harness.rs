@@ -166,7 +166,7 @@ fn item_blocks(text: &str) -> BTreeMap<String, String> {
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        let col0 = !(line.starts_with(' ') || line.starts_with('\t')) && !line.is_empty();
+        let col0 = !(line.starts_with(' ') || line.starts_with('\t') || line.is_empty());
         // A braced item: matches the item regex and is not a one-line `;` decl.
         if col0 && re.is_match(line) && !line.trim_end().ends_with(';') {
             let sig = line.trim_end().trim_end_matches('{').trim_end().to_string();
