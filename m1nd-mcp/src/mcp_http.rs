@@ -81,6 +81,12 @@ const GRAPH_MUTATION_TOOLS: &[&str] = &[
     "apply",
     "apply_batch",
     "edit_commit",
+    // PROOF-OF-POSSIBILITY SPIKE (A6, the #376 lesson): `transplant` is the first
+    // verb where the GRAPH writes. It lands source/dest/referencer edits, so a
+    // viewer (attached agent OR the served Living Tree / Build Map) must refetch —
+    // naming it here replaces its accidental apply_batch_progress coverage with a
+    // proven relay. Confirmed present in `READ_ONLY_DENIED_TOOLS` (server.rs).
+    "transplant",
     "memorize",
     "learn",
     "daemon_start",
