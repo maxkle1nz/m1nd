@@ -132,6 +132,17 @@ pub fn handle_transplant(
     // --- Phase 0.5: dest-collision preflight on DISK TRUTH --------------------
     // The graph can be STALE here (the battery poisons dest AFTER ingest, without
     // re-ingesting) — disk is the only sound source. A collision writes NOTHING.
+    //
+    // A8: FULL-namespace collision. The moved item is always a top-level `fn`, but
+    // a homonym of ANY top-level kind (struct/enum/trait/type/const/static/mod/…)
+    // in the dest is E0428 after a success receipt — so tree-sitter scans every
+    // top-level item and the refusal names the occupant kind. The textual `fn` scan
+    // stays as the fallback for when the grammar cannot be loaded.
+    if let Some(kind) = ts_dest_collision_kind(&dest_text, &symbol) {
+        return Err(refuse(format!(
+            "dest collision: '{dest_abs}' already defines a top-level `{kind} {symbol}` — moving `fn {symbol}` here would be a duplicate definition (E0428). No file is touched; move or rename the existing `{kind}` first."
+        )));
+    }
     if defines_fn(&dest_text, &symbol) {
         return Err(refuse(format!(
             "dest collision: '{dest_abs}' already defines `fn {symbol}` — the transplant is refused and no file is touched (move or rename the existing definition first)"
@@ -794,6 +805,43 @@ fn ts_top_level_fns(source: &str) -> Vec<TsFn> {
         }
     }
     out
+}
+
+/// A8 — scan `source` for a TOP-LEVEL item named `symbol` of ANY kind and return
+/// the kind keyword ("fn"/"struct"/"enum"/"trait"/"type"/"const"/"static"/"mod"/
+/// "union"), or `None`. The moved item is always a `fn` (value namespace), but the
+/// spike refuses a homonym of any kind — a conservative over-refusal that makes the
+/// E0428-after-success "ideal-falso" unreachable and teaches the caller exactly what
+/// occupies the name. `None` when the grammar cannot be loaded (caller falls back to
+/// the textual `fn` scan) or no top-level homonym exists.
+fn ts_dest_collision_kind(source: &str, symbol: &str) -> Option<&'static str> {
+    let mut parser = tree_sitter::Parser::new();
+    let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(source, None)?;
+    let root = tree.root_node();
+    let bytes = source.as_bytes();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        let kind = match child.kind() {
+            "function_item" => "fn",
+            "struct_item" => "struct",
+            "enum_item" => "enum",
+            "trait_item" => "trait",
+            "type_item" => "type",
+            "const_item" => "const",
+            "static_item" => "static",
+            "mod_item" => "mod",
+            "union_item" => "union",
+            _ => continue,
+        };
+        if let Some(name_node) = child.child_by_field_name("name") {
+            if name_node.utf8_text(bytes) == Ok(symbol) {
+                return Some(kind);
+            }
+        }
+    }
+    None
 }
 
 /// The tree-sitter closing-brace row for the top-level `fn name` whose span covers
