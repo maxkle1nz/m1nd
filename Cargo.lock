@@ -1758,7 +1758,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-core"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "bincode",
  "cargo_metadata",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-ingest"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "cargo_metadata",
  "ignore",
@@ -1822,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-mcp"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "axum",
  "clap",
@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-runnerd"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "axum",
  "clap",
