@@ -77,10 +77,15 @@ windows-sys = { version = "0.61.2", features = [
 # SecureEnclaveKeyStore adapter (enclave_authority.rs) provisions and signs P-256
 # keys through Security.framework. Declared here as the custody supply-chain
 # surface; both crates are already in Cargo.lock transitively (via reqwest/rustls
-# platform verification), so this adds no new crate to the build graph.
+# platform verification), so this adds no new crate to the build graph. Pinned to
+# an exact version because this is a security-custody surface.
+# NOTE: the kSecAccessControl flag values are hand-rolled (1<<30 private-key-usage,
+# 1<<0 user-presence) because the high-level crate does not export them; the
+# owner's live ceremony must run the documented conformance check that a
+# provisioned key actually carries those access-control semantics.
 [target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "3.7"
-core-foundation = "0.10"
+security-framework = "=3.7.0"
+core-foundation = "=0.10.1"
 
 [build-dependencies]
 sha2 = "0.10"

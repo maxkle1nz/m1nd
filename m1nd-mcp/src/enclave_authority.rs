@@ -57,9 +57,13 @@ use crate::protected_journal_head::{
 /// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5).
 pub const SECURE_ENCLAVE_CUSTODY_FLOOR_V1: &str = "secure-enclave-single-host-v1";
 
-/// Stable module-level attestation identities. The FFI layer maps the observed
-/// Security.framework attributes (`kSecAttrTokenID`, `kSecAttrKeyType`,
-/// `kSecAttrKeySizeInBits`) onto these; re-attestation compares against them.
+/// Stable module-level attestation identities. Re-attestation compares an opened
+/// key's attestation against these. The production adapter's read-back of the
+/// REAL Security.framework attributes (`kSecAttrTokenID`, `kSecAttrKeyType`,
+/// `kSecAttrKeySizeInBits`) via `SecKeyCopyAttributes` is a named follow-up (see
+/// `SecurityFrameworkEnclaveKeyStore::provision`); today provisioning attests the
+/// key size it can observe from the returned public key plus the canonical
+/// expectation, and never claims to have read back the token/type.
 pub const SECURE_ENCLAVE_TOKEN_ID: &str = "com.apple.setoken";
 pub const SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM: &str = "EC_SEC_PRIME_RANDOM_256";
 pub const SECURE_ENCLAVE_KEY_SIZE_BITS: u32 = 256;
@@ -401,8 +405,14 @@ struct SealedRecordV1 {
     issuer: String,
     key_id: String,
     algorithm: String,
+    /// Canonical protected-root path this slot was sealed under. A slot sealed
+    /// under one root cannot be replayed into another root sealed by the same key.
+    root_binding: String,
+    /// Organism/candidate context digest sealed into the slot for the same reason.
+    context_digest: String,
     payload: serde_json::Value,
-    /// Lowercase-hex enclave signature over `seal_message(domain, canonical(payload))`.
+    /// Lowercase-hex enclave signature over
+    /// `seal_message(domain, root_binding, context_digest, canonical(payload))`.
     seal: String,
 }
 
@@ -411,6 +421,8 @@ struct SealedRecordV1 {
 /// enclave. Shared by the config-epoch, runtime-epoch, and journal-head backends.
 pub struct SealedProtectedRootV1 {
     root: PathBuf,
+    root_binding: String,
+    context_digest: String,
     pinned: DeviceInode,
     signer: Arc<dyn AuthoritySigner + Send + Sync>,
     verification_key: VerificationKeyV1,
@@ -419,8 +431,11 @@ pub struct SealedProtectedRootV1 {
 impl SealedProtectedRootV1 {
     /// Open an existing 0700 directory, refuse symlinks/non-0700 modes, and pin
     /// its (device, inode). The verification key must match the signer identity.
+    /// `context_digest` binds every sealed slot to this organism/candidate context
+    /// so a slot cannot be replayed into another root sealed by the same key.
     pub fn open(
         root: impl AsRef<Path>,
+        context_digest: impl Into<String>,
         signer: Arc<dyn AuthoritySigner + Send + Sync>,
         verification_key: VerificationKeyV1,
     ) -> Result<Self, EnclaveError> {
@@ -432,10 +447,24 @@ impl SealedProtectedRootV1 {
                 "sealing signer identity does not match the pinned verification key".to_owned(),
             ));
         }
+        let context_digest = context_digest.into();
+        if context_digest.is_empty() {
+            return Err(EnclaveError::Filesystem(
+                "sealed protected root requires a non-empty context digest".to_owned(),
+            ));
+        }
         let root = root.as_ref().to_path_buf();
         let pinned = pin_owner_only_directory(&root)?;
+        let root_binding = fs::canonicalize(&root)
+            .map_err(|error| {
+                EnclaveError::Filesystem(format!("canonicalize {}: {error}", root.display()))
+            })?
+            .to_string_lossy()
+            .into_owned();
         Ok(Self {
             root,
+            root_binding,
+            context_digest,
             pinned,
             signer,
             verification_key,
@@ -480,9 +509,19 @@ impl SealedProtectedRootV1 {
                 "sealed record identity does not match the pinned key".to_owned(),
             ));
         }
+        // Anti-replay: the slot must have been sealed under THIS root and context,
+        // not moved in from another root sealed by the same key. Checked
+        // explicitly here and again cryptographically below (the seal covers the
+        // binding taken from `self`, so a moved slot fails the signature too).
+        if record.root_binding != self.root_binding || record.context_digest != self.context_digest
+        {
+            return Err(EnclaveError::SealVerification(
+                "sealed record binding (root/context) does not match this root".to_owned(),
+            ));
+        }
         let canonical = canonical_json(&record.payload)
             .map_err(|error| EnclaveError::SealVerification(error.to_string()))?;
-        let message = seal_message(domain, &canonical);
+        let message = seal_message(domain, &self.root_binding, &self.context_digest, &canonical);
         match verify_authority_message_signature(
             &message,
             &OpaqueSignature::new(&record.seal),
@@ -507,7 +546,7 @@ impl SealedProtectedRootV1 {
         self.revalidate_identity()?;
         let canonical = canonical_json(&payload)
             .map_err(|error| EnclaveError::Filesystem(error.to_string()))?;
-        let message = seal_message(domain, &canonical);
+        let message = seal_message(domain, &self.root_binding, &self.context_digest, &canonical);
         let seal = sign_authority_message(&message, &self.verification_key, self.signer.as_ref())
             .map_err(|error| EnclaveError::Sign(error.to_string()))?;
         let record = SealedRecordV1 {
@@ -516,6 +555,8 @@ impl SealedProtectedRootV1 {
             issuer: self.verification_key.subject_id.clone(),
             key_id: self.verification_key.key_id.clone(),
             algorithm: self.verification_key.algorithm.clone(),
+            root_binding: self.root_binding.clone(),
+            context_digest: self.context_digest.clone(),
             payload,
             seal: seal.as_str().to_owned(),
         };
@@ -591,14 +632,25 @@ fn atomic_write_no_follow(root: &Path, slot_file: &str, bytes: &[u8]) -> Result<
     Ok(())
 }
 
-fn seal_message(domain: &str, canonical_payload: &[u8]) -> Vec<u8> {
-    let mut message =
-        Vec::with_capacity(SEAL_MESSAGE_PREFIX.len() + domain.len() + canonical_payload.len() + 16);
+fn seal_message(
+    domain: &str,
+    root_binding: &str,
+    context_digest: &str,
+    canonical_payload: &[u8],
+) -> Vec<u8> {
+    let fields = [
+        domain.as_bytes(),
+        root_binding.as_bytes(),
+        context_digest.as_bytes(),
+        canonical_payload,
+    ];
+    let capacity = SEAL_MESSAGE_PREFIX.len() + fields.iter().map(|f| f.len() + 8).sum::<usize>();
+    let mut message = Vec::with_capacity(capacity);
     message.extend_from_slice(SEAL_MESSAGE_PREFIX);
-    message.extend_from_slice(&(domain.len() as u64).to_be_bytes());
-    message.extend_from_slice(domain.as_bytes());
-    message.extend_from_slice(&(canonical_payload.len() as u64).to_be_bytes());
-    message.extend_from_slice(canonical_payload);
+    for field in fields {
+        message.extend_from_slice(&(field.len() as u64).to_be_bytes());
+        message.extend_from_slice(field);
+    }
     message
 }
 
@@ -789,8 +841,12 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
 // the four distinct enclave verifier-seat public keys with their failure
 // domains, the human owner's biometric seat public key (owner_signature, never a
 // voting seat), and the independence-spec and constitution digests the quorum
-// binds to. A G9/G10 receipt without the declared custody floor fails validation,
-// fail-closed.
+// binds to. THIS ceremony receipt is fail-closed on the declared custody floor.
+// The release/autonomy receipts (`m1nd-control::release`, the autonomy activation
+// receipt) do NOT yet carry `custody_floor` — that threading is a declared
+// follow-up. BLOCKING ORDER (G9-A1 ratification): that follow-up must merge
+// BEFORE the owner's custody ceremony and before any G9/G10 receipt is minted
+// under this floor, so no receipt can claim the floor without carrying it.
 // ===========================================================================
 
 pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";
@@ -831,6 +887,10 @@ pub struct CeremonyVerifierSeatV1 {
     pub failure_domain: String,
     /// 65-byte uncompressed SEC1 P-256 public key (lowercase hex). Enclave-custodied.
     pub public_key: String,
+    /// Lineage: the `bound_context_digest` of the enclave permit that provisioned
+    /// this seat, sealed into the receipt so a seat cannot be lifted from another
+    /// ceremony's provisioning.
+    pub bound_context_digest: String,
 }
 
 /// The sealed custody-ceremony receipt.
@@ -876,6 +936,7 @@ impl EnclaveCustodyCeremonyReceiptV1 {
         let mut failure_domains = BTreeSet::new();
         for seat in &self.verifier_seats {
             require_uncompressed_sec1_hex(&seat.public_key)?;
+            require_lowercase_sha256_hex("seat.bound_context_digest", &seat.bound_context_digest)?;
             if seat.principal_id.is_empty()
                 || seat.key_id.is_empty()
                 || seat.failure_domain.is_empty()
@@ -1153,11 +1214,29 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
         })?;
         let public_key_sec1 = external.bytes().to_vec();
         require_uncompressed_sec1(&public_key_sec1)?;
+        // Attest the KEY, not the request: derive the key size from the observed
+        // SEC1 point (a 65-byte uncompressed point is a P-256, i.e. 256-bit, EC
+        // key). The token id carried here is the requested-and-created value, not a
+        // read-back. FOLLOW-UP (owner ceremony prerequisite): reading back the real
+        // token/type via SecKeyCopyAttributes AND refusing a duplicate application
+        // tag via SecItemCopyMatching (production never-open-or-create) need the same
+        // Keychain query as open/sign and are deferred with them.
+        let observed_key_size_bits = (((public_key_sec1.len() - 1) / 2) * 8) as u32;
+        if observed_key_size_bits != SECURE_ENCLAVE_KEY_SIZE_BITS {
+            return Err(EnclaveError::Provisioning(format!(
+                "created key size {observed_key_size_bits} != {SECURE_ENCLAVE_KEY_SIZE_BITS}"
+            )));
+        }
         Ok(EnclaveOpenedKeyV1 {
             key_id: permit.key_id.clone(),
             subject_id: self.subject_id.clone(),
             public_key_sec1,
-            attestation: EnclaveKeyAttestationV1::canonical(permit.access_control),
+            attestation: EnclaveKeyAttestationV1 {
+                token_id: SECURE_ENCLAVE_TOKEN_ID.to_owned(),
+                key_type: SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM.to_owned(),
+                key_size_bits: observed_key_size_bits,
+                access_control: permit.access_control,
+            },
             platform_ref: self.application_tag(&permit.key_id),
         })
     }
@@ -1165,7 +1244,8 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
     fn open(&self, key_id: &str) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
         Err(EnclaveError::Open(format!(
             "resolving the persisted enclave key '{}' via Keychain item query \
-             (SecItemCopyMatching by application tag) is the owner's live ceremony; NOT_RUN here",
+             (SecItemCopyMatching by application tag — also the production \
+             never-open-or-create duplicate guard) is the owner's live ceremony; NOT_RUN here",
             self.application_tag(key_id)
         )))
     }
@@ -1439,7 +1519,13 @@ mod tests {
     ) -> SealedProtectedRootV1 {
         let signer = attested_signer(store, key_id);
         let verification_key = signer.verification_key(0, 0);
-        SealedProtectedRootV1::open(dir, Arc::new(signer), verification_key).unwrap()
+        SealedProtectedRootV1::open(
+            dir,
+            "test-organism-context",
+            Arc::new(signer),
+            verification_key,
+        )
+        .unwrap()
     }
 
     fn make_dir_with_mode(base: &Path, name: &str, mode: u32) -> PathBuf {
@@ -1523,7 +1609,12 @@ mod tests {
         let signer = attested_signer(&store, "loose-seat");
         let verification_key = signer.verification_key(0, 0);
         assert!(matches!(
-            SealedProtectedRootV1::open(&dir, Arc::new(signer), verification_key),
+            SealedProtectedRootV1::open(
+                &dir,
+                "test-organism-context",
+                Arc::new(signer),
+                verification_key
+            ),
             Err(EnclaveError::Filesystem(_))
         ));
     }
@@ -1563,6 +1654,53 @@ mod tests {
             .is_err());
     }
 
+    #[test]
+    fn sealed_slot_refuses_replay_across_roots_and_contexts() {
+        let temp = TempDir::new().unwrap();
+        let store = seat_store();
+        // ONE enclave key; two 0700 roots. A slot sealed in root A must not verify
+        // when moved into root B sealed by the same key.
+        let signer = attested_signer(&store, "replay-seat");
+        let key = signer.verification_key(0, 0);
+        let signer: Arc<dyn AuthoritySigner + Send + Sync> = Arc::new(signer);
+        let root_a_dir = make_dir_with_mode(temp.path(), "root-a", 0o700);
+        let root_b_dir = make_dir_with_mode(temp.path(), "root-b", 0o700);
+
+        let root_a =
+            SealedProtectedRootV1::open(&root_a_dir, "ctx-1", Arc::clone(&signer), key.clone())
+                .unwrap();
+        let mut backend_a = SecureEnclaveProtectedEpochBackend::new(root_a);
+        backend_a
+            .compare_and_advance(
+                None,
+                &ProtectedEpochSnapshotV1 {
+                    epoch: 1,
+                    record_digest: "a".repeat(64),
+                },
+            )
+            .unwrap();
+
+        // Move the sealed slot file into root B and read it there.
+        fs::copy(
+            root_a_dir.join(PROTECTED_EPOCH_SLOT_FILE),
+            root_b_dir.join(PROTECTED_EPOCH_SLOT_FILE),
+        )
+        .unwrap();
+        let root_b =
+            SealedProtectedRootV1::open(&root_b_dir, "ctx-1", Arc::clone(&signer), key.clone())
+                .unwrap();
+        assert!(SecureEnclaveProtectedEpochBackend::new(root_b)
+            .read_latest()
+            .is_err());
+
+        // Same root, different sealed context is refused too.
+        let root_a_wrong_ctx =
+            SealedProtectedRootV1::open(&root_a_dir, "ctx-2", signer, key).unwrap();
+        assert!(SecureEnclaveProtectedEpochBackend::new(root_a_wrong_ctx)
+            .read_latest()
+            .is_err());
+    }
+
     fn seat_pubkey(seed: &str) -> String {
         let signing = SigningKey::from_slice(&scalar_for(seed)).unwrap();
         hex_lower(signing.verifying_key().to_encoded_point(false).as_bytes())
@@ -1574,6 +1712,7 @@ mod tests {
             key_id: id.to_owned(),
             failure_domain: domain.to_owned(),
             public_key: seat_pubkey(id),
+            bound_context_digest: "e".repeat(64),
         }
     }
 

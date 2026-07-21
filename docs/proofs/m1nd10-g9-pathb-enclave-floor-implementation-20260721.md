@@ -98,58 +98,81 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
   Security.framework crate on macOS (`SecKey::new` with
   `kSecAttrTokenIDSecureEnclave`, EC 256, `kSecAccessControl`).
 
-### NOT_RUN — the owner's live ceremony
+### NOT_RUN — the owner's live ceremony, with a BLOCKING order
 - No real Secure Enclave key was created, rotated, activated, or used. No
   biometric signature was produced.
-- `SecurityFrameworkEnclaveKeyStore::open` / `sign` fail closed on purpose:
-  resolving a persisted enclave key via `SecItemCopyMatching` by application tag
-  and signing under biometric presence needs the hardware, biometry, and
+- `SecurityFrameworkEnclaveKeyStore::open` / `sign` are unconditional `Err`
+  today: resolving a persisted enclave key via `SecItemCopyMatching` by
+  application tag (also the production never-open-or-create duplicate guard) and
+  signing under biometric presence needs the hardware, biometry, and
   code-signing / keychain-access-group identity the owner alone holds. Shipping
   an unverifiable item-query would be false completeness.
-- `custody_floor` is threaded and fail-closed in the **ceremony receipt**. The
-  wider threading into the existing `m1nd-control/src/release.rs` gate/review
-  receipts and the autonomy activation receipt is a follow-up: those cores are
-  digest-sealed, so adding the field perturbs every existing fixture digest and
-  must land as its own reviewed change.
-- No CLI subcommand wires the four-seat provisioning + assembly yet; the building
-  blocks below are the ceremony's exact steps.
+- **BLOCKING ORDER (G9-A1 ratification).** `custody_floor` is fail-closed only in
+  the ceremony receipt today. Threading it into the digest-sealed
+  `m1nd-control/src/release.rs` gate/review receipts and the autonomy activation
+  receipt is a follow-up (the field perturbs every existing fixture digest, so it
+  lands as its own reviewed change). That follow-up **must merge BEFORE** the
+  owner's custody ceremony and before any G9/G10 receipt is minted under this
+  floor — so no receipt can claim the floor without carrying it. This ordering is
+  a ratification obligation, not an optimization.
+- **Prerequisite follow-up for the ceremony.** Implementing open-by-tag
+  (`SecItemCopyMatching` + a real `SecKeyCopyAttributes` read-back of
+  token/type/size), `sign` under biometric presence, and the never-open-or-create
+  duplicate guard is a named prerequisite of the live ceremony. Until it lands,
+  the runbook is scoped to what actually executes.
 
 ## Owner's documented live one-shot proof (you run this, not the agent)
 
-On the owner's machine, with the production code-signing / keychain identity:
-
+### Runs today (agent building blocks; no biometry, no persisted-key resolution)
 1. For each of the four verifier seats, provision an unattended enclave key:
    `provision_agent_enclave_seat(&SecurityFrameworkEnclaveKeyStore::new(prefix,
-   subject), &permit_for_seat)` — distinct `key_id` and `failure_domain` per seat
-   (at least three distinct domains). Capture each 65-byte SEC1 public key.
-2. Provision the owner's biometric seat separately (Touch ID / user presence) —
-   this is `owner_signature`, never a voting seat. This step raises the biometric
-   UI; it is the owner's alone.
-3. Open + re-attest each seat: `SecureEnclaveSigner::open_attested(store, key_id,
-   &EnclaveKeyAttestationV1::canonical(access_control))`. Any token/type/size
-   drift refuses.
-4. Build the `IndependenceSpecV1` (four seats, three failure domains) and the
-   `EnclaveCustodyCeremonyReceiptV1` with `custody_floor`, the attestation
-   distinction, the four seat public keys, the owner seat key, and the
-   independence-spec + constitution digests. `receipt.validate()` and
-   `receipt.bind_independence_spec(&spec)` must both pass.
-5. Enclave-seal the receipt into the 0700 protected root:
-   `SealedProtectedRootV1::open(root, signer, verification_key)?
-   .seal_custody_ceremony(&receipt)`. Re-open and `read_custody_ceremony()` to
-   confirm the seal verifies.
-6. To retire the live proof key, delete it from the Keychain.
+   subject), &permit_for_seat)` — distinct `key_id`/`failure_domain`, at least
+   three distinct domains, each permit carrying its `bound_context_digest`
+   (sealed later as seat lineage). Capture each 65-byte SEC1 public key.
+2. **kSecAccessControl conformance check.** Confirm each provisioned key actually
+   carries the intended access-control semantics (private-key usage; user
+   presence for the biometric seat). The flag values are hand-rolled (`1<<30`,
+   `1<<0`), so this run is what proves them.
+
+### Prerequisite follow-up, then the ceremony (the owner's alone)
+3. Land the open/sign follow-up (open-by-tag + attribute read-back + biometric
+   sign + duplicate guard) and the `custody_floor` threading (blocking order
+   above).
+4. Provision the owner's biometric seat (Touch ID / user presence) —
+   `owner_signature`, never a voting seat.
+5. Open + re-attest each seat: `SecureEnclaveSigner::open_attested(store, key_id,
+   &EnclaveKeyAttestationV1::canonical(access_control))`; token/type/size drift
+   refuses.
+6. Build the `IndependenceSpecV1` (four seats, three failure domains) and the
+   `EnclaveCustodyCeremonyReceiptV1` (custody_floor, attestation distinction, four
+   seat public keys + lineage, owner seat key, spec/constitution digests).
+   `validate()` and `bind_independence_spec(&spec)` must both pass.
+7. Enclave-seal into the 0700 root:
+   `SealedProtectedRootV1::open(root, context_digest, signer, verification_key)?
+   .seal_custody_ceremony(&receipt)`; re-open and `read_custody_ceremony()` to
+   confirm.
+8. Retire the live proof key from the Keychain.
 
 Record the seat public keys, the digests, and the sealed receipt path.
 
-## Honest risks
-- `SecurityFrameworkEnclaveKeyStore::provision` is compile-verified, not
-  run-verified: the exact `kSecAccessControl` flag semantics and the persisted
-  key's Keychain visibility are only proven by the owner's live run.
-- Single-host limits are the amendment's declared non-claims (no multi-host
-  custody, no hardware anti-rollback under physical attack, no root-compromise
-  resistance) and are carried on the ceremony receipt itself.
-- The `custody_floor` field does not yet reach the release/autonomy receipts;
-  until it does, only ceremony receipts are fail-closed on the floor.
+## Honest risks and named follow-ups
+- `provision` attests the key size it observes from the returned SEC1 point; the
+  real token/type read-back (`SecKeyCopyAttributes`) is a named follow-up. The
+  hand-rolled `kSecAccessControl` semantics and the persisted key's Keychain
+  visibility are proven only by the owner's live conformance run.
+- Sealed-slot anti-replay is filesystem-strength plus a root-path + context
+  binding sealed into each record (a slot cannot be replayed into another root
+  sealed by the same key); it is NOT hardware anti-rollback. Single-host limits
+  are the amendment's declared non-claims, carried on the ceremony receipt.
+- The `custody_floor` field does not yet reach the release/autonomy receipts
+  (blocking order above); until it does, only ceremony receipts are fail-closed
+  on the floor.
+- **Quorum wiring follow-up.** The ceremony receipt seals the four seat public
+  keys and binds them to the `IndependenceSpecV1` by (principal, key,
+  failure-domain). `VerifierSeatV1` carries no public key, so the binding does
+  not yet force equality between the sealed seat key and the verification-key
+  registry entry the quorum verifier resolves. The future quorum wiring must
+  cross-check sealed-pubkey == registered-pubkey.
 
 ## Lineage
 - Decision: `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md`
