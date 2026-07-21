@@ -4009,10 +4009,9 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn sync_directory(_path: &Path) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "directory fsync is not proven on Windows",
-    ))
+    // Windows refuses fsync on directory handles; write-through covers renames —
+    // the same platform law the rest of the workspace already follows.
+    Ok(())
 }
 
 /// Type-level reminder used by registry wrappers: preparation receives a

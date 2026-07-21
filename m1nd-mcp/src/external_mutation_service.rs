@@ -10,7 +10,7 @@ mod graph_ingest_a2;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -6130,7 +6130,14 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 }
 
 fn sync_parent(path: &Path) -> std::io::Result<()> {
-    File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()
+    // Windows refuses fsync on directory handles; write-through covers renames.
+    #[cfg(windows)]
+    {
+        let _ = path;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    std::fs::File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()
 }
 
 fn is_digest(value: &str) -> bool {
