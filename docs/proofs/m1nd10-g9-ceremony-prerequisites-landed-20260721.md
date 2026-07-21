@@ -36,9 +36,10 @@ Adversarial Review Receipt (IAR) is intentionally left **byte-identical** — th
 so "G9/G10 receipt" covers the gate and activation receipts only. This is declared in the schema
 rustdoc and the FU2 proof doc.
 
-## Pre-ceremony hardening items (named by the FU1 re-review; none block merge)
+## Pre-ceremony hardening items (named by the FU1 re-review) — APPLIED 2026-07-21
 
-Apply before the owner's ceremony:
+All three landed (the FU1 re-review's exact named recommendations; enclave tests 13/13, clippy
+`-D warnings` and fmt green on macOS):
 
 1. **Protection class.** The now-persisting Secure Enclave key should use
    `AccessibleWhenUnlockedThisDeviceOnly` (Apple's guidance for SE keys), not the crate default

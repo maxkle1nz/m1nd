@@ -1208,7 +1208,7 @@ impl SecurityFrameworkEnclaveKeyStore {
         access_control: EnclaveAccessControlV1,
     ) -> Result<security_framework::access_control::SecAccessControl, EnclaveError> {
         use core_foundation::base::CFOptionFlags;
-        use security_framework::access_control::SecAccessControl;
+        use security_framework::access_control::{ProtectionMode, SecAccessControl};
         // Apple's kSecAccessControl flag values: private-key usage (1 << 30) and
         // user presence (1 << 0). The agent path never provisions the biometric
         // seat (guarded upstream by provision_agent_enclave_seat).
@@ -1220,8 +1220,16 @@ impl SecurityFrameworkEnclaveKeyStore {
                 PRIVATE_KEY_USAGE | USER_PRESENCE
             }
         };
-        SecAccessControl::create_with_flags(flags)
-            .map_err(|error| EnclaveError::Provisioning(error.to_string()))
+        // Pin the protection class to WhenUnlockedThisDeviceOnly (Apple's guidance
+        // for Secure Enclave keys) instead of the crate default WhenUnlocked
+        // (`create_with_flags` == `create_with_protection(None, …)`). The key is
+        // already hardware-non-exportable, so the real-world delta is small, but a
+        // now-persisting key should not be nominally weaker than the guidance.
+        SecAccessControl::create_with_protection(
+            Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
+            flags,
+        )
+        .map_err(|error| EnclaveError::Provisioning(error.to_string()))
     }
 
     /// Resolve the single persisted enclave key filed under this store's
@@ -1247,6 +1255,10 @@ impl SecurityFrameworkEnclaveKeyStore {
         let results = ItemSearchOptions::new()
             .class(ItemClass::key())
             .key_class(KeyClass::private())
+            // SENTINEL: this ignore_legacy_keychains() (kSecUseDataProtectionKeychain)
+            // MUST stay paired with provision's set_location(DataProtectionKeychain).
+            // Both are OSX_10_15-gated; if a refactor drops the provision-side location
+            // but keeps this, the feature could silently no-op the query scope.
             .ignore_legacy_keychains()
             .label(&label)
             .load_refs(true)
@@ -1412,6 +1424,10 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
             // data-protection keychain — the same scope `resolve_persisted_key`
             // queries. This requires a codesigned binary with a KeychainAccessGroups
             // entitlement (owner-ceremony prerequisite; see the module boundary note).
+            // Note: to_dictionary also marks the PUBLIC key permanent, so a public-key
+            // item may persist under the same kSecAttrLabel. resolve_persisted_key is
+            // immune (it filters KeyClass::private); any future label-based maintenance
+            // MUST filter by key class or it will see two items.
             .set_location(Location::DataProtectionKeychain)
             .set_label(self.keychain_label(&permit.key_id))
             .set_access_control(access_control);
