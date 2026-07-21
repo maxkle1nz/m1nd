@@ -94,14 +94,15 @@ pub use policy::{
     ReachablePolicyTupleV1, RiskClass, ACTION_POLICY_DIGEST_DOMAIN, ACTION_POLICY_REGISTRY_SCHEMA,
 };
 pub use release::{
-    FindingSeverity, FindingStatus, GateId, GateReceiptCoreV1, GateReceiptV1, GateVerdict,
-    IndependentAdversarialReviewCoreV1, IndependentAdversarialReviewReceiptV1, MetricSpecCoreV1,
-    MetricSpecV1, ReleaseCandidateManifestCoreV1, ReleaseCandidateManifestV1, ReleaseContractError,
+    is_ratified_custody_floor, FindingSeverity, FindingStatus, GateId, GateReceiptCoreV1,
+    GateReceiptV1, GateVerdict, IndependentAdversarialReviewCoreV1,
+    IndependentAdversarialReviewReceiptV1, MetricSpecCoreV1, MetricSpecV1,
+    ReleaseCandidateManifestCoreV1, ReleaseCandidateManifestV1, ReleaseContractError,
     ReleaseEvidenceSetV1, ReleaseFindingV1, ReleaseIntegrityDisposition,
     ReleaseStructuralValidation, GATE_RECEIPT_DIGEST_DOMAIN, GATE_RECEIPT_SCHEMA,
     INDEPENDENT_REVIEW_RECEIPT_DIGEST_DOMAIN, INDEPENDENT_REVIEW_RECEIPT_SCHEMA,
-    METRIC_SPEC_DIGEST_DOMAIN, METRIC_SPEC_SCHEMA, RELEASE_CANDIDATE_DIGEST_DOMAIN,
-    RELEASE_CANDIDATE_SCHEMA,
+    METRIC_SPEC_DIGEST_DOMAIN, METRIC_SPEC_SCHEMA, RATIFIED_CUSTODY_FLOORS,
+    RELEASE_CANDIDATE_DIGEST_DOMAIN, RELEASE_CANDIDATE_SCHEMA, SECURE_ENCLAVE_CUSTODY_FLOOR_V1,
 };
 pub use replay_ledger::{
     MemoryReplayLedger, PersistentReplayLedger, ReplayClaimV1, ReplayDurability, ReplayLedger,

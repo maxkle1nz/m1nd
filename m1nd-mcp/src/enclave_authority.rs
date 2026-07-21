@@ -54,8 +54,11 @@ use crate::protected_journal_head::{
 };
 
 /// The custody-floor identifier stamped on every G9/G10 receipt minted under this
-/// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5).
-pub const SECURE_ENCLAVE_CUSTODY_FLOOR_V1: &str = "secure-enclave-single-host-v1";
+/// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5). The single
+/// source of truth lives in `m1nd-control` so the custody-ceremony receipt here
+/// and the gate/autonomy receipts there name one literal; this crate re-exports
+/// it. `m1nd-control::RATIFIED_CUSTODY_FLOORS` is the closed set validators check.
+pub use m1nd_control::SECURE_ENCLAVE_CUSTODY_FLOOR_V1;
 
 /// Stable module-level attestation identities. Re-attestation compares an opened
 /// key's attestation against these. The production adapter reads the REAL
@@ -844,19 +847,14 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
 // domains, the human owner's biometric seat public key (owner_signature, never a
 // voting seat), and the independence-spec and constitution digests the quorum
 // binds to. THIS ceremony receipt is fail-closed on the declared custody floor.
-// The release/autonomy receipts (`m1nd-control::release`, the autonomy activation
-// receipt) do NOT yet carry `custody_floor` — that threading is a declared
-// follow-up. BLOCKING ORDER (G9-A1 ratification): that follow-up must merge
-// BEFORE the owner's custody ceremony and before any G9/G10 receipt is minted
-// under this floor, so no receipt can claim the floor without carrying it.
-//
-// STATUS (2026-07-21): STILL UNMET. Threading was investigated and found to
-// collide with ratified, frozen cross-language canon — the G0-G10 gate receipts
-// are pinned in `tests/fixtures/M1ND10-CANONICAL-VECTORS.json` and the schema is
-// mirrored by a closed Python allowlist (`scripts/m1nd10_release_contract.py`,
-// `GATE_CORE_FIELDS`). Adding the field requires regenerating that frozen canon,
-// which needs an explicit owner order, so it was NOT forced. See
-// `docs/proofs/m1nd10-g9-pathb-enclave-floor-implementation-20260721.md`.
+// The gate receipt (`m1nd-control::release::GateReceiptCoreV1`) and the autonomy
+// activation receipt (`m1nd-control::autonomy::AutonomyActivationReceiptCoreV1`)
+// now carry `custody_floor` too, validated against the closed
+// `m1nd-control::RATIFIED_CUSTODY_FLOORS` set across all three canonical mirrors
+// (Rust/Python/Node). BLOCKING ORDER (G9-A1 ratification): the threading
+// prerequisite is SATISFIED — the follow-up merged (feat/g9-custody-floor-
+// threading), so no receipt can claim the floor without carrying it, and the
+// owner's custody ceremony is no longer blocked by it.
 // ===========================================================================
 
 pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";

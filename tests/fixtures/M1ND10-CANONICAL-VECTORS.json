@@ -196,6 +196,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G0",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g0-spec-v1",
           "metric_spec_digest": null,
           "harness_fixture_digest": "29db559dd925ccbe590633219419d4efbf1e65ee261dece641a1633d5d33f2bd",
@@ -223,8 +224,8 @@
             "primary_evidence": "d2a46e90bb22e084c5a67d60b3a980bf71dd5896687d3a6c5b1859147c79f2bb"
           }
         },
-        "receipt_id": "gate:2e37b18190d3033b3222ed6364693977fb13e54ae4e16f33faedc03959940635",
-        "receipt_digest": "2e37b18190d3033b3222ed6364693977fb13e54ae4e16f33faedc03959940635",
+        "receipt_id": "gate:82655901eb6d10d5ea3b6dd95c45c3225c23de6495199e5e5bf17507e89243a8",
+        "receipt_digest": "82655901eb6d10d5ea3b6dd95c45c3225c23de6495199e5e5bf17507e89243a8",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G0"
       },
       {
@@ -232,6 +233,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G1",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g1-spec-v1",
           "metric_spec_digest": null,
           "harness_fixture_digest": "6bd786cee26aa68ee4f258504b8147c8439f9b70d1ddf04d88fc701a9f03db5e",
@@ -251,8 +253,8 @@
             "primary_evidence": "c8366a5759e6879f82ef7250eac47017833aac00e926884b4d5473e78efbf9c3"
           }
         },
-        "receipt_id": "gate:cc836c0104758c22d431eb125d2ccefd117445b9e03ab2dc88cb4a4d225676b0",
-        "receipt_digest": "cc836c0104758c22d431eb125d2ccefd117445b9e03ab2dc88cb4a4d225676b0",
+        "receipt_id": "gate:0ffae85d7082c56c01918e14be1d8955f44e9aa85c296df5e054e593b2ce13d0",
+        "receipt_digest": "0ffae85d7082c56c01918e14be1d8955f44e9aa85c296df5e054e593b2ce13d0",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G1"
       },
       {
@@ -260,6 +262,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G2",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g2-spec-v1",
           "metric_spec_digest": "3068a333d8dbc54d070a1c5e1dcb4e82540061798ee918e6009f9dafc2db0908",
           "harness_fixture_digest": "7d2d3da8eb2d9e9a96c0888851072bee1a06c48b7bca0fcb93bd9a96c1fd98c2",
@@ -279,8 +282,8 @@
             "primary_evidence": "a1d70a6ffa14fb6ab1e4888c090cee64b6e0c759ef43438d9ec7527ec6d5013b"
           }
         },
-        "receipt_id": "gate:a91aaad088d7240a831550de1280fb697c68ae00967cad6295992efd894ce1e1",
-        "receipt_digest": "a91aaad088d7240a831550de1280fb697c68ae00967cad6295992efd894ce1e1",
+        "receipt_id": "gate:be7d18552baff6eff3059179ef7076d3b239b6915408bd17bb65f80bbdb290a8",
+        "receipt_digest": "be7d18552baff6eff3059179ef7076d3b239b6915408bd17bb65f80bbdb290a8",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G2"
       },
       {
@@ -288,6 +291,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G3",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g3-spec-v1",
           "metric_spec_digest": "1313b1ab5af26534f7af3bc7c5864c0c4e2788838c809dbdc22a574833e9f044",
           "harness_fixture_digest": "7f7491249418428deb2c7c4d0cffab7d06dc6554f0f74fa3ca34b3d64141f1a7",
@@ -307,8 +311,8 @@
             "primary_evidence": "dc7bc421367b3698fe56d0bd60bdb546b29c111ef8bb2d0f4b01f4413465f824"
           }
         },
-        "receipt_id": "gate:ebf794990158e977c19963233c79a2c6fdfb8452bd558d8625a059f2466a60fc",
-        "receipt_digest": "ebf794990158e977c19963233c79a2c6fdfb8452bd558d8625a059f2466a60fc",
+        "receipt_id": "gate:db1791f73d03e85ca06d18483f26b34b9cb2fb4888ec694ea970f72342218601",
+        "receipt_digest": "db1791f73d03e85ca06d18483f26b34b9cb2fb4888ec694ea970f72342218601",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G3"
       },
       {
@@ -316,6 +320,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G4",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g4-spec-v1",
           "metric_spec_digest": "571e8725fd606308cdabccf3224687c755bd93e2469a6321b6491240f57f89f6",
           "harness_fixture_digest": "22364258b1ccaccc2335e93a3996044ba9ff0f36cd0b2986abf4688082f46de2",
@@ -335,8 +340,8 @@
             "primary_evidence": "0637b4350019eb11e6782e583f49eb118a49b36a91b7e1c82899e0282ac419e1"
           }
         },
-        "receipt_id": "gate:d08a08e5ed13633d566f90b236a9aaddcd23772e31dba232261413c8bc794d80",
-        "receipt_digest": "d08a08e5ed13633d566f90b236a9aaddcd23772e31dba232261413c8bc794d80",
+        "receipt_id": "gate:40b044da3733d07ccfde4d3566c016cc8471bf0191494826a9380ad80b8c2f0b",
+        "receipt_digest": "40b044da3733d07ccfde4d3566c016cc8471bf0191494826a9380ad80b8c2f0b",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G4"
       },
       {
@@ -344,6 +349,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G5",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g5-spec-v1",
           "metric_spec_digest": "c8911f0010531560499e980f964af625b4998442cc83c4204368d3f5850cb8f0",
           "harness_fixture_digest": "63f226911cb9bce48e34c3e2953418c6ae9c66a491f0c8dd502f6836f3d4776c",
@@ -363,8 +369,8 @@
             "primary_evidence": "96cb6eea35c8aa9d064df3551297d06447c0619417c66a2a2050dcd73362e028"
           }
         },
-        "receipt_id": "gate:5d914c7dd5914389c428fc72a2c24764ccd7a9028692a1beba7e6950fbc205bf",
-        "receipt_digest": "5d914c7dd5914389c428fc72a2c24764ccd7a9028692a1beba7e6950fbc205bf",
+        "receipt_id": "gate:6f3557d830928efe50c86cd55c98ff80c0ddf6b53acbe1c508470080941c513b",
+        "receipt_digest": "6f3557d830928efe50c86cd55c98ff80c0ddf6b53acbe1c508470080941c513b",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G5"
       },
       {
@@ -372,6 +378,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G6",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g6-spec-v1",
           "metric_spec_digest": "614fd83d7949c848516052628631105e37d771d88859111dc81a259f76a5b751",
           "harness_fixture_digest": "dbde3ab6ae7c5f8b12fc16f5e1f20562629199d81d218c078e29810419e39e95",
@@ -391,8 +398,8 @@
             "primary_evidence": "aecd6d9a1c13a76e43c3076095d9a395b900971dda021761837fb0f90d8d85cc"
           }
         },
-        "receipt_id": "gate:f4101ecfd032f1be37c8848f971dbeccd27a7559714f99bce0cc092ab3d06ad3",
-        "receipt_digest": "f4101ecfd032f1be37c8848f971dbeccd27a7559714f99bce0cc092ab3d06ad3",
+        "receipt_id": "gate:8de9a084107d56210593095cbdfe8fd41d9c9950722bc8d4925a32c3c411c9b1",
+        "receipt_digest": "8de9a084107d56210593095cbdfe8fd41d9c9950722bc8d4925a32c3c411c9b1",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G6"
       },
       {
@@ -400,6 +407,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G7",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g7-spec-v1",
           "metric_spec_digest": "c5911a8fe48ce521870784401e236c54e96a4a382e68789a81fb72f0b847f721",
           "harness_fixture_digest": "b7e0b58ab8eae37104097cd20840974090a7b7e766972eeb4faa859bd916477c",
@@ -419,8 +427,8 @@
             "primary_evidence": "222b8d88a5d1de41941415091325d06c5282195c93c08be65dec672e736119ec"
           }
         },
-        "receipt_id": "gate:f2219b1eb86a48470d2092c1b43ce0206a86f291ab45fd760d9b7f90645d6a1c",
-        "receipt_digest": "f2219b1eb86a48470d2092c1b43ce0206a86f291ab45fd760d9b7f90645d6a1c",
+        "receipt_id": "gate:6df206131f046333ec10835bfde2f22dd0916aadd36b8b61a5f455991f9c133c",
+        "receipt_digest": "6df206131f046333ec10835bfde2f22dd0916aadd36b8b61a5f455991f9c133c",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G7"
       },
       {
@@ -428,6 +436,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G8",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g8-spec-v1",
           "metric_spec_digest": "ffc3d46e2f03523ca40faa61dfe698a0744ab52a842a0da0d94a83b5737a4fea",
           "harness_fixture_digest": "b10b7857196c42e44314e38a8b8a7249ae8182b3ddbe2752487e8524db1cd177",
@@ -451,8 +460,8 @@
             "g8_adr": "c82c8d7b0b3171ecada27002a08ca059ac9b6ad388b51d8d178845768764978b"
           }
         },
-        "receipt_id": "gate:6e9e393f49a50bf0b1c69c63b8516a4a91fb37dd43da9515f614040234c18667",
-        "receipt_digest": "6e9e393f49a50bf0b1c69c63b8516a4a91fb37dd43da9515f614040234c18667",
+        "receipt_id": "gate:20c785d3e91667ba5e3d67fe618b727ca0db1d06c997e81ea958a60b7a65253a",
+        "receipt_digest": "20c785d3e91667ba5e3d67fe618b727ca0db1d06c997e81ea958a60b7a65253a",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G8"
       },
       {
@@ -460,6 +469,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G9",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g9-spec-v1",
           "metric_spec_digest": "637269f0fbc414e42a5adb2b428cf446e3528f75e5d30ee1b01dcbd177a304b1",
           "harness_fixture_digest": "9368cd7e056a76291c0f40e40310221fe1ad38bf187324ba1bac0c07616ee2c8",
@@ -479,8 +489,8 @@
             "primary_evidence": "027c43cc8aeb299a6fdff8f023b81353b6833cf58a4e68b04c20f3c1bf90a168"
           }
         },
-        "receipt_id": "gate:5c68beb97adc3bbfd13de48e9378ee1155bce08ef755e615632f354aa99b1851",
-        "receipt_digest": "5c68beb97adc3bbfd13de48e9378ee1155bce08ef755e615632f354aa99b1851",
+        "receipt_id": "gate:cb59ca1e6f8211fd52883db8927cf78b28c233874193835e592cfd6f7d040957",
+        "receipt_digest": "cb59ca1e6f8211fd52883db8927cf78b28c233874193835e592cfd6f7d040957",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G9"
       },
       {
@@ -488,6 +498,7 @@
         "core": {
           "candidate_digest": "52544a51b6873af90607f5ca66c92e08c28f019145a67e9f6749cdecc9a532b1",
           "gate_id": "G10",
+          "custody_floor": "secure-enclave-single-host-v1",
           "spec_version": "m1nd-g10-spec-v1",
           "metric_spec_digest": "0e16b3b57c9c88858a46a32b4770c6b38081f0506edc7def6bc225d5ec51a93d",
           "harness_fixture_digest": "248c5b6d4db0815b80808582f0eea63780826fbe3b2cce07417ffddec5c7221b",
@@ -507,8 +518,8 @@
             "primary_evidence": "c49e0703289906c2a6e9b47f4808da985827c2114bfa162238e8a79db5374729"
           }
         },
-        "receipt_id": "gate:f582d955c64458d99bb65c40e08130be6e59358db9ac27722d2419dd3df4c7a5",
-        "receipt_digest": "f582d955c64458d99bb65c40e08130be6e59358db9ac27722d2419dd3df4c7a5",
+        "receipt_id": "gate:43995bd753df1bd1c5fce1aa29cdc8e67947fcdb001f423f9d2d84380e311a6c",
+        "receipt_digest": "43995bd753df1bd1c5fce1aa29cdc8e67947fcdb001f423f9d2d84380e311a6c",
         "signature": "NOT_CRYPTOGRAPHIC:fixture-G10"
       }
     ],
