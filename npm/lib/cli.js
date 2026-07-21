@@ -4081,17 +4081,47 @@ function selfUpdateInternal(args, testDependencies = null) {
   }
 }
 
+// The ONLY sanctioned exception to the ambient-override refusal is the release
+// `verified-update-smoke` job, which must drive the real `update` command against a
+// local release directory. The seam opens only when BOTH fences hold: the explicit,
+// dedicated marker the smoke sets in its own child env (`M1ND_RELEASE_SMOKE=1`), AND a
+// source checkout — a packed/installed client has no `.git` at PACKAGE_ROOT (the same
+// fence `createSelfUpdateTestHarness` relies on), so this can never open in production.
+// Absent either fence, the ambient overrides remain firmly refused.
+function releaseSmokeSeamOpen() {
+  return (
+    process.env.M1ND_RELEASE_SMOKE === "1" &&
+    fs.existsSync(path.join(PACKAGE_ROOT, ".git"))
+  );
+}
+
+// Mirror the harness's dependency shape, but sourced from the smoke's child env,
+// because the public `update` command has no explicit dependency channel.
+function releaseSmokeDependencies() {
+  return Object.freeze({
+    releaseDirectory: process.env.M1ND_TEST_RELEASE_DIR
+      ? path.resolve(process.env.M1ND_TEST_RELEASE_DIR)
+      : null,
+    cosignPath: process.env.M1ND_TEST_COSIGN_PATH
+      ? path.resolve(process.env.M1ND_TEST_COSIGN_PATH)
+      : null,
+  });
+}
+
 function selfUpdate(args) {
   const forbiddenAmbientOverrides = [
     "M1ND_TEST_RELEASE_DIR",
     "M1ND_TEST_COSIGN_PATH",
   ].filter((name) => Object.prototype.hasOwnProperty.call(process.env, name));
   if (forbiddenAmbientOverrides.length > 0) {
-    throw new Error(
-      `unsafe self-update test overrides are not accepted by the production updater: ${forbiddenAmbientOverrides.join(
-        ", "
-      )}`
-    );
+    if (!releaseSmokeSeamOpen()) {
+      throw new Error(
+        `unsafe self-update test overrides are not accepted by the production updater: ${forbiddenAmbientOverrides.join(
+          ", "
+        )}`
+      );
+    }
+    return selfUpdateInternal(args, releaseSmokeDependencies());
   }
   return selfUpdateInternal(args, null);
 }
