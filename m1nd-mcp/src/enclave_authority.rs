@@ -1070,6 +1070,115 @@ impl fmt::Display for EnclaveError {
 
 impl Error for EnclaveError {}
 
+// ===========================================================================
+// Real Security.framework key store (macOS).
+//
+// This is the production `SecureEnclaveKeyStoreV1` adapter. It is NOT_RUN in CI
+// and never exercised by an agent: a real Secure Enclave key, its biometric UI,
+// and the code-signing / keychain-access-group identity are the owner's
+// ceremony. `provision` really calls `SecKeyCreateRandomKey` with
+// `kSecAttrTokenIDSecureEnclave`; `open`/`sign` require resolving the persisted
+// key back out of the Keychain (`SecItemCopyMatching` by application tag) and
+// signing under biometric presence — the exact boundary the owner's documented
+// live one-shot proof exercises, so they fail closed here rather than shipping an
+// unverifiable item-query. Tests use the mock key store.
+// ===========================================================================
+
+/// Production Secure Enclave key store over Apple's Security.framework.
+pub struct SecurityFrameworkEnclaveKeyStore {
+    keychain_application_tag_prefix: String,
+    subject_id: String,
+}
+
+impl SecurityFrameworkEnclaveKeyStore {
+    pub fn new(
+        keychain_application_tag_prefix: impl Into<String>,
+        subject_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            keychain_application_tag_prefix: keychain_application_tag_prefix.into(),
+            subject_id: subject_id.into(),
+        }
+    }
+
+    fn application_tag(&self, key_id: &str) -> String {
+        format!("{}.{key_id}", self.keychain_application_tag_prefix)
+    }
+
+    fn access_control(
+        access_control: EnclaveAccessControlV1,
+    ) -> Result<security_framework::access_control::SecAccessControl, EnclaveError> {
+        use core_foundation::base::CFOptionFlags;
+        use security_framework::access_control::SecAccessControl;
+        // Apple's kSecAccessControl flag values: private-key usage (1 << 30) and
+        // user presence (1 << 0). The agent path never provisions the biometric
+        // seat (guarded upstream by provision_agent_enclave_seat).
+        const PRIVATE_KEY_USAGE: CFOptionFlags = 1 << 30;
+        const USER_PRESENCE: CFOptionFlags = 1 << 0;
+        let flags = match access_control {
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable => PRIVATE_KEY_USAGE,
+            EnclaveAccessControlV1::UserPresenceBiometricNonExportable => {
+                PRIVATE_KEY_USAGE | USER_PRESENCE
+            }
+        };
+        SecAccessControl::create_with_flags(flags)
+            .map_err(|error| EnclaveError::Provisioning(error.to_string()))
+    }
+}
+
+impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
+    fn provision(
+        &self,
+        permit: &EnclaveProvisioningPermitV1,
+    ) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
+        use security_framework::key::{GenerateKeyOptions, KeyType, SecKey, Token};
+
+        let access_control = Self::access_control(permit.access_control)?;
+        let mut options = GenerateKeyOptions::default();
+        options
+            .set_key_type(KeyType::ec())
+            .set_size_in_bits(SECURE_ENCLAVE_KEY_SIZE_BITS)
+            .set_token(Token::SecureEnclave)
+            .set_label(self.application_tag(&permit.key_id))
+            .set_access_control(access_control);
+        let private_key =
+            SecKey::new(&options).map_err(|error| EnclaveError::Provisioning(error.to_string()))?;
+        let public_key = private_key.public_key().ok_or_else(|| {
+            EnclaveError::Provisioning("enclave key has no public representation".to_owned())
+        })?;
+        let external = public_key.external_representation().ok_or_else(|| {
+            EnclaveError::Provisioning(
+                "enclave public key has no external SEC1 representation".to_owned(),
+            )
+        })?;
+        let public_key_sec1 = external.bytes().to_vec();
+        require_uncompressed_sec1(&public_key_sec1)?;
+        Ok(EnclaveOpenedKeyV1 {
+            key_id: permit.key_id.clone(),
+            subject_id: self.subject_id.clone(),
+            public_key_sec1,
+            attestation: EnclaveKeyAttestationV1::canonical(permit.access_control),
+            platform_ref: self.application_tag(&permit.key_id),
+        })
+    }
+
+    fn open(&self, key_id: &str) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
+        Err(EnclaveError::Open(format!(
+            "resolving the persisted enclave key '{}' via Keychain item query \
+             (SecItemCopyMatching by application tag) is the owner's live ceremony; NOT_RUN here",
+            self.application_tag(key_id)
+        )))
+    }
+
+    fn sign(&self, opened: &EnclaveOpenedKeyV1, _message: &[u8]) -> Result<Vec<u8>, EnclaveError> {
+        Err(EnclaveError::Sign(format!(
+            "signing with the persisted enclave key '{}' requires the owner's biometric ceremony \
+             (SecKeyCreateSignature after Keychain resolution); NOT_RUN here",
+            opened.key_id
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

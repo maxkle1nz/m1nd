@@ -73,6 +73,15 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_IO",
 ] }
 
+# macOS Secure Enclave custody floor (amendment G9-A1). The production
+# SecureEnclaveKeyStore adapter (enclave_authority.rs) provisions and signs P-256
+# keys through Security.framework. Declared here as the custody supply-chain
+# surface; both crates are already in Cargo.lock transitively (via reqwest/rustls
+# platform verification), so this adds no new crate to the build graph.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
+core-foundation = "0.10"
+
 [build-dependencies]
 sha2 = "0.10"
 

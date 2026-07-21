@@ -1826,6 +1826,7 @@ version = "1.4.0"
 dependencies = [
  "axum",
  "clap",
+ "core-foundation 0.10.1",
  "ed25519-dalek",
  "futures",
  "getrandom 0.3.4",
@@ -1841,6 +1842,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rust-embed",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",
