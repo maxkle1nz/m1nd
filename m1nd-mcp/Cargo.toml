@@ -82,6 +82,11 @@ path = "src/main.rs"
 
 [dev-dependencies]
 ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
+# TEST-ONLY P-256 signing for custody-floor fixtures (offline receipt verifier,
+# enclave-crypto mock). Production m1nd-mcp gains NO p256 dependency: every P-256
+# signature is verified through m1nd-control's verifier. Already in Cargo.lock via
+# m1nd-control, so this adds NO new crate to the build graph.
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
 # `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
 # the owner-alive guard's port can be reserved-closed without a live listener that a
 # parallel test could collide with (see the `closed_port` helpers).
