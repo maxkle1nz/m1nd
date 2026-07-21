@@ -112,14 +112,28 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
   and a biometric signature need the Secure Enclave, biometry, and code-signing /
   keychain-access-group identity the owner alone holds. The agent cannot provoke
   `SecKeyCreateSignature` under user presence — the proof is the owner's ceremony.
-- **BLOCKING ORDER (G9-A1 ratification).** `custody_floor` is fail-closed only in
-  the ceremony receipt today. Threading it into the digest-sealed
-  `m1nd-control/src/release.rs` gate/review receipts and the autonomy activation
-  receipt is a follow-up (the field perturbs every existing fixture digest, so it
-  lands as its own reviewed change). That follow-up **must merge BEFORE** the
-  owner's custody ceremony and before any G9/G10 receipt is minted under this
-  floor — so no receipt can claim the floor without carrying it. This ordering is
-  a ratification obligation, not an optimization.
+- **BLOCKING ORDER (G9-A1 ratification) — STILL UNMET; blocked on frozen canon.**
+  `custody_floor` is fail-closed only in the ceremony receipt today. Threading it
+  into the `m1nd-control/src/release.rs` gate/review receipts was investigated this
+  session (2026-07-21) and found to collide with **ratified, frozen cross-language
+  canon** that the ceremony follow-up scope explicitly fences off. The G0–G10 gate
+  receipts (including G9/G10) are pinned with fixed `receipt_digest`s inside
+  `tests/fixtures/M1ND10-CANONICAL-VECTORS.json`, and the gate-receipt schema is
+  dual-implemented in Python (`scripts/m1nd10_release_contract.py`,
+  `GATE_CORE_FIELDS` — a closed 16-field allowlist enforced by `_exact_keys`, with
+  a `digest_canonical` that must match Rust byte-for-byte). Adding a `custody_floor`
+  field to `GateReceiptCoreV1` therefore requires, in one owner-authorized change:
+  (a) the Rust struct + fail-closed validation, (b) the Python allowlist +
+  validator, and (c) regenerating the frozen G9/G10 canonical vectors (new digests).
+  Both the checked-in `test_m1nd10_release_contract.py` and the release CI gate
+  (`.github/workflows/release.yml` `verify-canonical-vectors`) verify these vectors.
+  Per the ceremony follow-up's own boundary ("if a vector is frozen/ratified — the
+  PRD/UML hash or `M1ND10-CANONICAL-VECTORS.json` — stop and report; do not edit
+  frozen canon without an order"), this threading was **not forced**. It must land
+  as its own reviewed, owner-authorized change and **must merge BEFORE** the custody
+  ceremony and before any G9/G10 receipt is minted under this floor — so no receipt
+  can claim the floor without carrying it. This ordering is a ratification
+  obligation, not an optimization; it remains a genuine blocker.
 - **Prerequisite follow-up landed.** Open-by-tag (`SecItemCopyMatching` via the
   high-level `ItemSearchOptions`), the real `SecKeyCopyAttributes` read-back of
   token/type/size (proving Secure Enclave residency and EC P-256 by `CFEqual`
@@ -180,9 +194,15 @@ Record the seat public keys, the digests, and the sealed receipt path.
   binding sealed into each record (a slot cannot be replayed into another root
   sealed by the same key); it is NOT hardware anti-rollback. Single-host limits
   are the amendment's declared non-claims, carried on the ceremony receipt.
-- The `custody_floor` field does not yet reach the release/autonomy receipts
-  (blocking order above); until it does, only ceremony receipts are fail-closed
-  on the floor.
+- The `custody_floor` field does not yet reach the release/autonomy receipts;
+  only ceremony receipts are fail-closed on the floor. This threading is BLOCKED
+  on frozen canon (see the BLOCKING ORDER above): the gate receipts are ratified
+  cross-language vectors + a Python-mirrored closed schema, so it needs an
+  owner-authorized change to regenerate them. The autonomy activation receipt
+  (`m1nd-control/src/autonomy.rs`, Rust-only, regenerable) is not frozen, but
+  threading it alone would neither satisfy the "every G9/G10 receipt" order nor
+  leave a coherent schema (half the receipts migrated), so it was not done in
+  isolation; it belongs in the same owner-authorized change as the gate receipts.
 - **Quorum wiring follow-up.** The ceremony receipt seals the four seat public
   keys and binds them to the `IndependenceSpecV1` by (principal, key,
   failure-domain). `VerifierSeatV1` carries no public key, so the binding does

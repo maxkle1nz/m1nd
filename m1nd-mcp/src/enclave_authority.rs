@@ -849,6 +849,14 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
 // follow-up. BLOCKING ORDER (G9-A1 ratification): that follow-up must merge
 // BEFORE the owner's custody ceremony and before any G9/G10 receipt is minted
 // under this floor, so no receipt can claim the floor without carrying it.
+//
+// STATUS (2026-07-21): STILL UNMET. Threading was investigated and found to
+// collide with ratified, frozen cross-language canon — the G0-G10 gate receipts
+// are pinned in `tests/fixtures/M1ND10-CANONICAL-VECTORS.json` and the schema is
+// mirrored by a closed Python allowlist (`scripts/m1nd10_release_contract.py`,
+// `GATE_CORE_FIELDS`). Adding the field requires regenerating that frozen canon,
+// which needs an explicit owner order, so it was NOT forced. See
+// `docs/proofs/m1nd10-g9-pathb-enclave-floor-implementation-20260721.md`.
 // ===========================================================================
 
 pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";
