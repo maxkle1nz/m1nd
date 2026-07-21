@@ -70,7 +70,9 @@ protection against an attacker with root on this Mac. The amendment states these
 > compromise resistance; those remain the target of a future Path-A era. All G9/G10 receipts
 > minted under this floor carry `custody_floor: "secure-enclave-single-host-v1"`.
 >
-> Ratified by: ______ (owner), date ______.
+> Ratified by: Max Kle1nz (owner; verbal ratification in the guardian session after the two
+> paths and the explicit recommendation were presented), date 2026-07-21. Path B is active;
+> Path A remains the named successor era.
 
 ## 6. Recommendation
 
