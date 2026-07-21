@@ -17,6 +17,13 @@ const RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-v1";
 const CANONICAL_RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-manifest-v1";
 const CANONICAL_RELEASE_CANDIDATE_DOMAIN = CANONICAL_RELEASE_CANDIDATE_SCHEMA;
 const CANONICAL_GATE_RECEIPT_SCHEMA = "m1nd-gate-receipt-v1";
+// Custody floor of the authority custody era under which a receipt was minted
+// (era-scoped; a successor Path-A era will carry a different value). Mirror of
+// m1nd-control::release::{SECURE_ENCLAVE_CUSTODY_FLOOR_V1, RATIFIED_CUSTODY_FLOORS}.
+// The production value comes from the ratified constant / ceremony receipt, never
+// from request payload, and must be a member of this closed set.
+const CANONICAL_SECURE_ENCLAVE_CUSTODY_FLOOR = "secure-enclave-single-host-v1";
+const CANONICAL_RATIFIED_CUSTODY_FLOORS = new Set([CANONICAL_SECURE_ENCLAVE_CUSTODY_FLOOR]);
 const CANONICAL_REVIEW_RECEIPT_SCHEMA = "m1nd-independent-adversarial-review-receipt-v1";
 const CANONICAL_EVIDENCE_SET_EXTENSION_SCHEMA = "m1nd-release-evidence-set-json-extension-v1";
 const CANONICALIZATION_VERSION = "m1nd-canonical-json-v1";
@@ -2987,7 +2994,7 @@ function validateCanonicalGateReceipt(value) {
   const core = requireExactFields(
     receipt.core,
     [
-      "candidate_digest", "gate_id", "spec_version", "metric_spec_digest",
+      "candidate_digest", "gate_id", "custody_floor", "spec_version", "metric_spec_digest",
       "harness_fixture_digest", "environment_digest", "provider_id", "provider_key_version",
       "input_digests", "command", "started_at", "ended_at", "exit_code", "verdict",
       "findings", "artifact_digests",
@@ -2996,6 +3003,10 @@ function validateCanonicalGateReceipt(value) {
   );
   requireCanonicalDigest(core.candidate_digest, "candidate_digest");
   if (!CANONICAL_GATE_IDS.includes(core.gate_id)) throw new Error(`invalid gate_id: ${String(core.gate_id)}`);
+  requireCanonicalText(core.custody_floor, "custody_floor");
+  if (!CANONICAL_RATIFIED_CUSTODY_FLOORS.has(core.custody_floor)) {
+    throw new Error(`custody_floor ${String(core.custody_floor)} is outside the ratified custody-floor set`);
+  }
   requireCanonicalText(core.spec_version, "spec_version");
   if (core.metric_spec_digest !== null) requireCanonicalDigest(core.metric_spec_digest, "metric_spec_digest");
   requireCanonicalDigest(core.harness_fixture_digest, "harness_fixture_digest");

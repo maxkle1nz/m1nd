@@ -20,6 +20,7 @@ const {
   parseIntegerJson,
   domainSeparatedDigest,
   validateCanonicalCompatibility,
+  validateCanonicalGateReceipt,
   verifyCanonicalReleaseVectors,
   osGateOk,
   installSkills,
@@ -55,6 +56,20 @@ assert.deepStrictEqual(verifyCanonicalReleaseVectors(canonicalVectors), {
   ok: true,
   status: "STRUCTURALLY_VALID_NOT_CRYPTOGRAPHICALLY_VERIFIED",
 });
+// custody_floor must be a member of the closed ratified set; a smuggled value
+// (e.g. "software") is refused at the structural gate, mirroring the Rust/Python
+// closed-set validators. Mutating in place avoids re-serializing the BigInt u64s.
+{
+  const custodyVectors = parseIntegerJson(fs.readFileSync(canonicalVectors, "utf8"), "custody vectors");
+  const receipt = custodyVectors.evidence_set.gate_receipts[0];
+  assert.strictEqual(receipt.core.custody_floor, "secure-enclave-single-host-v1");
+  assert.doesNotThrow(() => validateCanonicalGateReceipt(receipt));
+  receipt.core.custody_floor = "software";
+  assert.throws(
+    () => validateCanonicalGateReceipt(receipt),
+    /custody_floor .* outside the ratified/
+  );
+}
 assert.strictEqual(
   canonicalJsonV1(parseIntegerJson('{"z":"coração","built_at":9007199254740993,"a":"α"}')),
   '{"a":"α","built_at":9007199254740993,"z":"coração"}'

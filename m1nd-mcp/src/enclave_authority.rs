@@ -54,8 +54,11 @@ use crate::protected_journal_head::{
 };
 
 /// The custody-floor identifier stamped on every G9/G10 receipt minted under this
-/// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5).
-pub const SECURE_ENCLAVE_CUSTODY_FLOOR_V1: &str = "secure-enclave-single-host-v1";
+/// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5). The single
+/// source of truth lives in `m1nd-control` so the custody-ceremony receipt here
+/// and the gate/autonomy receipts there name one literal; this crate re-exports
+/// it. `m1nd-control::RATIFIED_CUSTODY_FLOORS` is the closed set validators check.
+pub use m1nd_control::SECURE_ENCLAVE_CUSTODY_FLOOR_V1;
 
 /// Stable module-level attestation identities. Re-attestation compares an opened
 /// key's attestation against these. The production adapter's read-back of the
