@@ -83,8 +83,14 @@ windows-sys = { version = "0.61.2", features = [
 # 1<<0 user-presence) because the high-level crate does not export them; the
 # owner's live ceremony must run the documented conformance check that a
 # provisioned key actually carries those access-control semantics.
+# security-framework-sys is pulled in for the exact Keychain attribute constants
+# (kSecAttrTokenID/kSecAttrKeyType/kSecAttrKeySizeInBits) the enclave `open`/
+# provision read back via SecKeyCopyAttributes; the high-level crate does not
+# re-export them. It is the same version security-framework already depends on and
+# is already in Cargo.lock, so this adds no crate and does not move the lockfile.
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "=3.7.0"
+security-framework-sys = "=2.17.0"
 core-foundation = "=0.10.1"
 
 [build-dependencies]

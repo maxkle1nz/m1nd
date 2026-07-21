@@ -58,12 +58,14 @@ use crate::protected_journal_head::{
 pub const SECURE_ENCLAVE_CUSTODY_FLOOR_V1: &str = "secure-enclave-single-host-v1";
 
 /// Stable module-level attestation identities. Re-attestation compares an opened
-/// key's attestation against these. The production adapter's read-back of the
-/// REAL Security.framework attributes (`kSecAttrTokenID`, `kSecAttrKeyType`,
-/// `kSecAttrKeySizeInBits`) via `SecKeyCopyAttributes` is a named follow-up (see
-/// `SecurityFrameworkEnclaveKeyStore::provision`); today provisioning attests the
-/// key size it can observe from the returned public key plus the canonical
-/// expectation, and never claims to have read back the token/type.
+/// key's attestation against these. The production adapter reads the REAL
+/// Security.framework attributes back via `SecKeyCopyAttributes` and proves Secure
+/// Enclave residency (`kSecAttrTokenID` == `kSecAttrTokenIDSecureEnclave`) and EC
+/// P-256 type (`kSecAttrKeyType` == `kSecAttrKeyTypeECSECPrimeRandom`) by
+/// `CFEqual` against the framework's own constants, carrying the size the enclave
+/// reports (`kSecAttrKeySizeInBits`) — attesting the KEY, not the request. The
+/// access-control (presence) semantics are the store's seat class; that a
+/// persisted key truly carries them is the owner's live conformance check.
 pub const SECURE_ENCLAVE_TOKEN_ID: &str = "com.apple.setoken";
 pub const SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM: &str = "EC_SEC_PRIME_RANDOM_256";
 pub const SECURE_ENCLAVE_KEY_SIZE_BITS: u32 = 256;
@@ -1134,31 +1136,41 @@ impl Error for EnclaveError {}
 // ===========================================================================
 // Real Security.framework key store (macOS).
 //
-// This is the production `SecureEnclaveKeyStoreV1` adapter. It is NOT_RUN in CI
-// and never exercised by an agent: a real Secure Enclave key, its biometric UI,
-// and the code-signing / keychain-access-group identity are the owner's
-// ceremony. `provision` really calls `SecKeyCreateRandomKey` with
-// `kSecAttrTokenIDSecureEnclave`; `open`/`sign` require resolving the persisted
-// key back out of the Keychain (`SecItemCopyMatching` by application tag) and
-// signing under biometric presence — the exact boundary the owner's documented
-// live one-shot proof exercises, so they fail closed here rather than shipping an
-// unverifiable item-query. Tests use the mock key store.
+// This is the production `SecureEnclaveKeyStoreV1` adapter. It is fully
+// implemented and compile-verified on macOS, but NOT_RUN in CI and never
+// exercised by an agent: a real Secure Enclave key, its biometric UI, and the
+// code-signing / keychain-access-group identity are the owner's ceremony.
+// `provision` calls `SecKeyCreateRandomKey` with `kSecAttrTokenIDSecureEnclave`,
+// refuses a tag already present (never-open-or-create), and attests the created
+// key by reading its real attributes back. `open` resolves the persisted key by
+// application tag (`SecItemCopyMatching`) and attests token/type/size via
+// `SecKeyCopyAttributes`. `sign` signs through `SecKeyCreateSignature`; for the
+// biometric owner seat the key's `kSecAccessControl` gates it on user presence,
+// which only the owner's live ceremony can satisfy. The unit tests exercise the
+// whole custody path through the software mock key store; this real adapter is
+// proven live only by the owner's documented one-shot ceremony.
 // ===========================================================================
 
-/// Production Secure Enclave key store over Apple's Security.framework.
+/// Production Secure Enclave key store over Apple's Security.framework. A store is
+/// bound to ONE seat class (`access_control`): the agent-held verifier/quorum seat
+/// or the owner's biometric seat. `provision` refuses a permit for a different
+/// class, and `open` attests the resolved key against this class.
 pub struct SecurityFrameworkEnclaveKeyStore {
     keychain_application_tag_prefix: String,
     subject_id: String,
+    access_control: EnclaveAccessControlV1,
 }
 
 impl SecurityFrameworkEnclaveKeyStore {
     pub fn new(
         keychain_application_tag_prefix: impl Into<String>,
         subject_id: impl Into<String>,
+        access_control: EnclaveAccessControlV1,
     ) -> Self {
         Self {
             keychain_application_tag_prefix: keychain_application_tag_prefix.into(),
             subject_id: subject_id.into(),
+            access_control,
         }
     }
 
@@ -1166,7 +1178,7 @@ impl SecurityFrameworkEnclaveKeyStore {
         format!("{}.{key_id}", self.keychain_application_tag_prefix)
     }
 
-    fn access_control(
+    fn access_control_flags(
         access_control: EnclaveAccessControlV1,
     ) -> Result<security_framework::access_control::SecAccessControl, EnclaveError> {
         use core_foundation::base::CFOptionFlags;
@@ -1185,6 +1197,139 @@ impl SecurityFrameworkEnclaveKeyStore {
         SecAccessControl::create_with_flags(flags)
             .map_err(|error| EnclaveError::Provisioning(error.to_string()))
     }
+
+    /// Resolve the single persisted enclave key filed under this store's
+    /// application tag for `key_id` via `SecItemCopyMatching` (the high-level
+    /// `ItemSearchOptions` wraps it), returning the private-key reference. `None`
+    /// means no such key exists; more than one match fails closed — custody must
+    /// never be ambiguous. This one query is also the production
+    /// never-open-or-create duplicate guard.
+    fn resolve_persisted_key(
+        &self,
+        key_id: &str,
+    ) -> Result<Option<security_framework::key::SecKey>, EnclaveError> {
+        use security_framework::item::{
+            ItemClass, ItemSearchOptions, KeyClass, Limit, Reference, SearchResult,
+        };
+        let tag = self.application_tag(key_id);
+        let results = ItemSearchOptions::new()
+            .class(ItemClass::key())
+            .key_class(KeyClass::private())
+            .label(&tag)
+            .load_refs(true)
+            .limit(Limit::Max(2))
+            .search()
+            .map_err(|error| {
+                EnclaveError::Open(format!("keychain item query for tag '{tag}': {error}"))
+            })?;
+        let mut resolved = None;
+        for result in results {
+            if let SearchResult::Ref(Reference::Key(key)) = result {
+                if resolved.is_some() {
+                    return Err(EnclaveError::Open(format!(
+                        "ambiguous enclave custody: more than one key filed under tag '{tag}'"
+                    )));
+                }
+                resolved = Some(key);
+            }
+        }
+        Ok(resolved)
+    }
+
+    /// Read the resolved key's REAL attributes via `SecKeyCopyAttributes` and prove
+    /// its Secure Enclave residency and EC P-256 type by `CFEqual` against the
+    /// framework's own constants — attesting the KEY, not the request. The key size
+    /// is the value the enclave actually reports. The `access_control` class is the
+    /// store's seat class (a store is bound to one seat class); the live
+    /// `kSecAccessControl` conformance check — that the persisted key truly carries
+    /// the presence semantics — is the owner's ceremony step, not readable here.
+    fn attest_persisted_key(
+        &self,
+        key: &security_framework::key::SecKey,
+    ) -> Result<EnclaveKeyAttestationV1, EnclaveError> {
+        use core_foundation::base::{CFEqual, TCFType, ToVoid};
+        use core_foundation::number::CFNumber;
+        use security_framework_sys::item::{
+            kSecAttrKeySizeInBits, kSecAttrKeyType, kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrTokenID, kSecAttrTokenIDSecureEnclave,
+        };
+
+        let attributes = key.attributes();
+
+        let token = attributes
+            .find(unsafe { kSecAttrTokenID.to_void() })
+            .ok_or_else(|| {
+                EnclaveError::Open("enclave key attributes missing kSecAttrTokenID".to_owned())
+            })?;
+        if unsafe { CFEqual(token.cast(), kSecAttrTokenIDSecureEnclave.cast()) } == 0 {
+            return Err(EnclaveError::AttestationMismatch {
+                expected: format!("token {SECURE_ENCLAVE_TOKEN_ID}"),
+                observed: "key is not resident in the Secure Enclave token".to_owned(),
+            });
+        }
+
+        let key_type = attributes
+            .find(unsafe { kSecAttrKeyType.to_void() })
+            .ok_or_else(|| {
+                EnclaveError::Open("enclave key attributes missing kSecAttrKeyType".to_owned())
+            })?;
+        if unsafe { CFEqual(key_type.cast(), kSecAttrKeyTypeECSECPrimeRandom.cast()) } == 0 {
+            return Err(EnclaveError::AttestationMismatch {
+                expected: SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM.to_owned(),
+                observed: "key type is not EC prime random".to_owned(),
+            });
+        }
+
+        let size = attributes
+            .find(unsafe { kSecAttrKeySizeInBits.to_void() })
+            .ok_or_else(|| {
+                EnclaveError::Open(
+                    "enclave key attributes missing kSecAttrKeySizeInBits".to_owned(),
+                )
+            })?;
+        let key_size_bits = unsafe { CFNumber::wrap_under_get_rule(size.cast()) }
+            .to_i32()
+            .and_then(|bits| u32::try_from(bits).ok())
+            .ok_or_else(|| {
+                EnclaveError::Open("enclave key size is not a non-negative integer".to_owned())
+            })?;
+
+        Ok(EnclaveKeyAttestationV1 {
+            token_id: SECURE_ENCLAVE_TOKEN_ID.to_owned(),
+            key_type: SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM.to_owned(),
+            key_size_bits,
+            access_control: self.access_control,
+        })
+    }
+
+    /// The uncompressed SEC1 public point of `key` (65 bytes, `0x04 || X || Y`).
+    fn public_key_sec1(key: &security_framework::key::SecKey) -> Result<Vec<u8>, EnclaveError> {
+        let public_key = key.public_key().ok_or_else(|| {
+            EnclaveError::Open("enclave key has no public representation".to_owned())
+        })?;
+        let external = public_key.external_representation().ok_or_else(|| {
+            EnclaveError::Open("enclave public key has no external SEC1 representation".to_owned())
+        })?;
+        let public_key_sec1 = external.bytes().to_vec();
+        require_uncompressed_sec1(&public_key_sec1)?;
+        Ok(public_key_sec1)
+    }
+
+    /// Assemble the opened-key record from a resolved private key: its real
+    /// attestation and its public SEC1 point.
+    fn opened_from_key(
+        &self,
+        key_id: &str,
+        key: &security_framework::key::SecKey,
+    ) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
+        Ok(EnclaveOpenedKeyV1 {
+            key_id: key_id.to_owned(),
+            subject_id: self.subject_id.clone(),
+            public_key_sec1: Self::public_key_sec1(key)?,
+            attestation: self.attest_persisted_key(key)?,
+            platform_ref: self.application_tag(key_id),
+        })
+    }
 }
 
 impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
@@ -1194,7 +1339,24 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
     ) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
         use security_framework::key::{GenerateKeyOptions, KeyType, SecKey, Token};
 
-        let access_control = Self::access_control(permit.access_control)?;
+        // A store is bound to one seat class; refuse a permit for a different one so
+        // an agent store cannot mint the biometric owner seat and vice versa.
+        if permit.access_control != self.access_control {
+            return Err(EnclaveError::Provisioning(
+                "permit access-control class does not match this key store's seat class".to_owned(),
+            ));
+        }
+        // Production never-open-or-create duplicate guard: refuse a tag already
+        // present in the Keychain rather than silently adopting or shadowing a key.
+        if self.resolve_persisted_key(&permit.key_id)?.is_some() {
+            return Err(EnclaveError::Provisioning(format!(
+                "an enclave key already exists under application tag '{}'; \
+                 provisioning is never open-or-create",
+                self.application_tag(&permit.key_id)
+            )));
+        }
+
+        let access_control = Self::access_control_flags(permit.access_control)?;
         let mut options = GenerateKeyOptions::default();
         options
             .set_key_type(KeyType::ec())
@@ -1204,58 +1366,58 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
             .set_access_control(access_control);
         let private_key =
             SecKey::new(&options).map_err(|error| EnclaveError::Provisioning(error.to_string()))?;
-        let public_key = private_key.public_key().ok_or_else(|| {
-            EnclaveError::Provisioning("enclave key has no public representation".to_owned())
-        })?;
-        let external = public_key.external_representation().ok_or_else(|| {
-            EnclaveError::Provisioning(
-                "enclave public key has no external SEC1 representation".to_owned(),
-            )
-        })?;
-        let public_key_sec1 = external.bytes().to_vec();
-        require_uncompressed_sec1(&public_key_sec1)?;
-        // Attest the KEY, not the request: derive the key size from the observed
-        // SEC1 point (a 65-byte uncompressed point is a P-256, i.e. 256-bit, EC
-        // key). The token id carried here is the requested-and-created value, not a
-        // read-back. FOLLOW-UP (owner ceremony prerequisite): reading back the real
-        // token/type via SecKeyCopyAttributes AND refusing a duplicate application
-        // tag via SecItemCopyMatching (production never-open-or-create) need the same
-        // Keychain query as open/sign and are deferred with them.
-        let observed_key_size_bits = (((public_key_sec1.len() - 1) / 2) * 8) as u32;
-        if observed_key_size_bits != SECURE_ENCLAVE_KEY_SIZE_BITS {
+        // Attest the KEY, not the request: read the created key's real token/type/
+        // size back through SecKeyCopyAttributes (proving Secure Enclave residency
+        // and EC P-256 against the framework's own constants). The size invariant is
+        // then confirmed against the custody floor's pinned expectation.
+        let opened = self.opened_from_key(&permit.key_id, &private_key)?;
+        if opened.attestation.key_size_bits != SECURE_ENCLAVE_KEY_SIZE_BITS {
             return Err(EnclaveError::Provisioning(format!(
-                "created key size {observed_key_size_bits} != {SECURE_ENCLAVE_KEY_SIZE_BITS}"
+                "created key size {} != {SECURE_ENCLAVE_KEY_SIZE_BITS}",
+                opened.attestation.key_size_bits
             )));
         }
-        Ok(EnclaveOpenedKeyV1 {
-            key_id: permit.key_id.clone(),
-            subject_id: self.subject_id.clone(),
-            public_key_sec1,
-            attestation: EnclaveKeyAttestationV1 {
-                token_id: SECURE_ENCLAVE_TOKEN_ID.to_owned(),
-                key_type: SECURE_ENCLAVE_KEY_TYPE_EC_PRIME_RANDOM.to_owned(),
-                key_size_bits: observed_key_size_bits,
-                access_control: permit.access_control,
-            },
-            platform_ref: self.application_tag(&permit.key_id),
-        })
+        Ok(opened)
     }
 
     fn open(&self, key_id: &str) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
-        Err(EnclaveError::Open(format!(
-            "resolving the persisted enclave key '{}' via Keychain item query \
-             (SecItemCopyMatching by application tag — also the production \
-             never-open-or-create duplicate guard) is the owner's live ceremony; NOT_RUN here",
-            self.application_tag(key_id)
-        )))
+        // Resolve the persisted key by application tag (SecItemCopyMatching) and
+        // attest the resolved key's real attributes. No biometry is required to read
+        // a key reference and its metadata; signing (below) is what user presence
+        // gates. A missing key fails closed.
+        let key = self.resolve_persisted_key(key_id)?.ok_or_else(|| {
+            EnclaveError::Open(format!(
+                "no persisted enclave key filed under application tag '{}'",
+                self.application_tag(key_id)
+            ))
+        })?;
+        self.opened_from_key(key_id, &key)
     }
 
-    fn sign(&self, opened: &EnclaveOpenedKeyV1, _message: &[u8]) -> Result<Vec<u8>, EnclaveError> {
-        Err(EnclaveError::Sign(format!(
-            "signing with the persisted enclave key '{}' requires the owner's biometric ceremony \
-             (SecKeyCreateSignature after Keychain resolution); NOT_RUN here",
-            opened.key_id
-        )))
+    fn sign(&self, opened: &EnclaveOpenedKeyV1, message: &[u8]) -> Result<Vec<u8>, EnclaveError> {
+        use security_framework::key::Algorithm;
+
+        let key = self.resolve_persisted_key(&opened.key_id)?.ok_or_else(|| {
+            EnclaveError::Sign(format!(
+                "no persisted enclave key filed under application tag '{}'",
+                self.application_tag(&opened.key_id)
+            ))
+        })?;
+        // Bind the resolved key to the opened/attested key: the public material must
+        // match, so a key swapped under the tag after `open` cannot sign in its name.
+        if Self::public_key_sec1(&key)? != opened.public_key_sec1 {
+            return Err(EnclaveError::Sign(
+                "resolved enclave key public material does not match the opened key".to_owned(),
+            ));
+        }
+        // ECDSA over SHA-256 of the message, X9.62 DER — the exact scheme
+        // m1nd-control's verifier expects. The enclave may return high-S DER;
+        // m1nd-control normalizes it to canonical low-S downstream. For the biometric
+        // owner seat, the key's kSecAccessControl gates this call on Touch ID user
+        // presence: the agent cannot provoke a signature without the hardware and
+        // biometry the owner alone holds — that is the live ceremony, NOT_RUN here.
+        key.create_signature(Algorithm::ECDSASignatureMessageX962SHA256, message)
+            .map_err(|error| EnclaveError::Sign(error.to_string()))
     }
 }
 
