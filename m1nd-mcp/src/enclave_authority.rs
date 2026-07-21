@@ -20,6 +20,7 @@
 //! the p256 primitives and low-S DER normalization); this crate never links p256
 //! for production verification.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -27,6 +28,10 @@ use std::io::{Read as _, Write as _};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use m1nd_control::autonomy::{
+    IndependenceSpecV1, IMMUTABLE_FAILURE_DOMAINS, IMMUTABLE_VERIFIER_SEATS,
+};
 
 use m1nd_control::{
     canonical_json, sign_authority_message, verify_authority_message_signature, AuthoritySigner,
@@ -776,6 +781,248 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
     }
 }
 
+// ===========================================================================
+// Custody ceremony receipt (amendment G9-A1).
+//
+// The owner's explicit ceremony seals, BEFORE any quorum decision: the custody
+// floor identifier, the key-custody-vs-anti-rollback attestation distinction,
+// the four distinct enclave verifier-seat public keys with their failure
+// domains, the human owner's biometric seat public key (owner_signature, never a
+// voting seat), and the independence-spec and constitution digests the quorum
+// binds to. A G9/G10 receipt without the declared custody floor fails validation,
+// fail-closed.
+// ===========================================================================
+
+pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";
+const ENCLAVE_CUSTODY_CEREMONY_SEAL_DOMAIN: &str = "m1nd-enclave-custody-ceremony-v1";
+const ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE: &str = "custody-ceremony.sealed.json";
+
+/// The honest attestation distinction the amendment requires on the record: what
+/// the enclave really provides (key custody) versus what remains filesystem
+/// strength (anti-rollback), plus the declared non-claims.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustodyAttestationDistinctionV1 {
+    pub key_custody: String,
+    pub anti_rollback: String,
+    pub non_claims: Vec<String>,
+}
+
+impl CustodyAttestationDistinctionV1 {
+    pub fn secure_enclave_single_host() -> Self {
+        Self {
+            key_custody: "hardware-secure-enclave-non-exportable-p256".to_owned(),
+            anti_rollback: "filesystem-strength-0700-single-host".to_owned(),
+            non_claims: vec![
+                "no multi-host custody".to_owned(),
+                "no hardware anti-rollback under physical attack".to_owned(),
+                "no resistance to a root-level compromise of this host".to_owned(),
+            ],
+        }
+    }
+}
+
+/// One enclave-custodied verifier seat sealed by the ceremony.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CeremonyVerifierSeatV1 {
+    pub principal_id: String,
+    pub key_id: String,
+    pub failure_domain: String,
+    /// 65-byte uncompressed SEC1 P-256 public key (lowercase hex). Enclave-custodied.
+    pub public_key: String,
+}
+
+/// The sealed custody-ceremony receipt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnclaveCustodyCeremonyReceiptV1 {
+    pub schema: String,
+    pub custody_floor: String,
+    pub attestation: CustodyAttestationDistinctionV1,
+    pub verifier_seats: Vec<CeremonyVerifierSeatV1>,
+    /// The human owner's biometric seat public key. This is the owner_signature
+    /// authority present even under AgentQuorum, NOT a voting quorum seat.
+    pub owner_biometric_seat_public_key: String,
+    pub independence_spec_digest: String,
+    pub constitution_digest: String,
+    pub sealed_at: u64,
+}
+
+impl EnclaveCustodyCeremonyReceiptV1 {
+    /// Fail-closed validation: the declared custody floor, exactly
+    /// IMMUTABLE_VERIFIER_SEATS distinct enclave verifier seats over at least
+    /// IMMUTABLE_FAILURE_DOMAINS distinct failure domains, and an owner biometric
+    /// seat that is never also one of the voting seats.
+    pub fn validate(&self) -> Result<(), EnclaveError> {
+        if self.schema != ENCLAVE_CUSTODY_CEREMONY_SCHEMA {
+            return Err(EnclaveError::Ceremony(
+                "unsupported custody ceremony schema".to_owned(),
+            ));
+        }
+        if self.custody_floor != SECURE_ENCLAVE_CUSTODY_FLOOR_V1 {
+            return Err(EnclaveError::Ceremony(format!(
+                "custody ceremony must declare custody_floor '{SECURE_ENCLAVE_CUSTODY_FLOOR_V1}'"
+            )));
+        }
+        if self.verifier_seats.len() != usize::from(IMMUTABLE_VERIFIER_SEATS) {
+            return Err(EnclaveError::Ceremony(format!(
+                "custody ceremony must seal exactly {IMMUTABLE_VERIFIER_SEATS} verifier seats"
+            )));
+        }
+        let mut principals = BTreeSet::new();
+        let mut key_ids = BTreeSet::new();
+        let mut public_keys = BTreeSet::new();
+        let mut failure_domains = BTreeSet::new();
+        for seat in &self.verifier_seats {
+            require_uncompressed_sec1_hex(&seat.public_key)?;
+            if seat.principal_id.is_empty()
+                || seat.key_id.is_empty()
+                || seat.failure_domain.is_empty()
+            {
+                return Err(EnclaveError::Ceremony(
+                    "verifier seat has an empty field".to_owned(),
+                ));
+            }
+            if !principals.insert(seat.principal_id.as_str()) {
+                return Err(EnclaveError::Ceremony(
+                    "duplicate verifier principal".to_owned(),
+                ));
+            }
+            if !key_ids.insert(seat.key_id.as_str()) {
+                return Err(EnclaveError::Ceremony(
+                    "duplicate verifier key id".to_owned(),
+                ));
+            }
+            if !public_keys.insert(seat.public_key.as_str()) {
+                return Err(EnclaveError::Ceremony(
+                    "duplicate verifier public key — each seat needs a distinct enclave key"
+                        .to_owned(),
+                ));
+            }
+            failure_domains.insert(seat.failure_domain.as_str());
+        }
+        if failure_domains.len() < usize::from(IMMUTABLE_FAILURE_DOMAINS) {
+            return Err(EnclaveError::Ceremony(format!(
+                "custody ceremony must span at least {IMMUTABLE_FAILURE_DOMAINS} distinct failure domains"
+            )));
+        }
+        require_uncompressed_sec1_hex(&self.owner_biometric_seat_public_key)?;
+        if public_keys.contains(self.owner_biometric_seat_public_key.as_str()) {
+            return Err(EnclaveError::Ceremony(
+                "the owner biometric seat must not also be a voting quorum seat".to_owned(),
+            ));
+        }
+        require_lowercase_sha256_hex("independence_spec_digest", &self.independence_spec_digest)?;
+        require_lowercase_sha256_hex("constitution_digest", &self.constitution_digest)?;
+        Ok(())
+    }
+
+    /// Bind the sealed ceremony to the exact IndependenceSpecV1 the quorum uses:
+    /// the spec digest and the set of (principal, key, failure-domain) seats must
+    /// match, so the four seats are sealed BEFORE any quorum vote is counted.
+    pub fn bind_independence_spec(&self, spec: &IndependenceSpecV1) -> Result<(), EnclaveError> {
+        self.validate()?;
+        if self.independence_spec_digest != spec.independence_spec_digest {
+            return Err(EnclaveError::Ceremony(
+                "sealed independence-spec digest does not match the presented spec".to_owned(),
+            ));
+        }
+        let ceremony: BTreeSet<(&str, &str, &str)> = self
+            .verifier_seats
+            .iter()
+            .map(|seat| {
+                (
+                    seat.principal_id.as_str(),
+                    seat.key_id.as_str(),
+                    seat.failure_domain.as_str(),
+                )
+            })
+            .collect();
+        let voting: BTreeSet<(&str, &str, &str)> = spec
+            .core
+            .voting_verifiers
+            .iter()
+            .map(|seat| {
+                (
+                    seat.principal_id.as_str(),
+                    seat.key_id.as_str(),
+                    seat.failure_domain.as_str(),
+                )
+            })
+            .collect();
+        if ceremony != voting {
+            return Err(EnclaveError::Ceremony(
+                "sealed verifier seats do not match the independence spec's voting verifiers"
+                    .to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl SealedProtectedRootV1 {
+    /// Validate and enclave-seal the custody ceremony receipt.
+    pub fn seal_custody_ceremony(
+        &self,
+        receipt: &EnclaveCustodyCeremonyReceiptV1,
+    ) -> Result<(), EnclaveError> {
+        receipt.validate()?;
+        let value = serde_json::to_value(receipt)
+            .map_err(|error| EnclaveError::Filesystem(error.to_string()))?;
+        self.write_slot(
+            ENCLAVE_CUSTODY_CEREMONY_SEAL_DOMAIN,
+            ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE,
+            value,
+        )
+    }
+
+    /// Read the sealed custody ceremony, verifying both the enclave seal and the
+    /// fail-closed envelope invariants.
+    pub fn read_custody_ceremony(
+        &self,
+    ) -> Result<Option<EnclaveCustodyCeremonyReceiptV1>, EnclaveError> {
+        match self.read_slot(
+            ENCLAVE_CUSTODY_CEREMONY_SEAL_DOMAIN,
+            ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE,
+        )? {
+            Some(value) => {
+                let receipt: EnclaveCustodyCeremonyReceiptV1 = serde_json::from_value(value)
+                    .map_err(|error| EnclaveError::SealVerification(error.to_string()))?;
+                receipt.validate()?;
+                Ok(Some(receipt))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+fn require_uncompressed_sec1_hex(value: &str) -> Result<(), EnclaveError> {
+    let is_lower_hex = value.len() == 130
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !is_lower_hex || !value.starts_with("04") {
+        return Err(EnclaveError::PublicKeyEncoding(
+            "seat public key is not 65-byte uncompressed SEC1 lowercase hex".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn require_lowercase_sha256_hex(field: &str, value: &str) -> Result<(), EnclaveError> {
+    let is_digest = value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !is_digest {
+        return Err(EnclaveError::Ceremony(format!(
+            "{field} is not a lowercase sha-256 hex digest"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub enum EnclaveError {
     Provisioning(String),
@@ -791,6 +1038,7 @@ pub enum EnclaveError {
     HumanSeatProvisioningRefused,
     Filesystem(String),
     SealVerification(String),
+    Ceremony(String),
 }
 
 impl fmt::Display for EnclaveError {
@@ -815,6 +1063,7 @@ impl fmt::Display for EnclaveError {
             Self::SealVerification(detail) => {
                 write!(formatter, "protected-root seal verification: {detail}")
             }
+            Self::Ceremony(detail) => write!(formatter, "custody ceremony: {detail}"),
         }
     }
 }
@@ -1203,5 +1452,124 @@ mod tests {
         assert!(backend
             .compare_and_advance(domain, Some(&next), &skip)
             .is_err());
+    }
+
+    fn seat_pubkey(seed: &str) -> String {
+        let signing = SigningKey::from_slice(&scalar_for(seed)).unwrap();
+        hex_lower(signing.verifying_key().to_encoded_point(false).as_bytes())
+    }
+
+    fn ceremony_seat(id: &str, domain: &str) -> CeremonyVerifierSeatV1 {
+        CeremonyVerifierSeatV1 {
+            principal_id: format!("principal-{id}"),
+            key_id: id.to_owned(),
+            failure_domain: domain.to_owned(),
+            public_key: seat_pubkey(id),
+        }
+    }
+
+    fn ceremony_receipt() -> EnclaveCustodyCeremonyReceiptV1 {
+        EnclaveCustodyCeremonyReceiptV1 {
+            schema: ENCLAVE_CUSTODY_CEREMONY_SCHEMA.to_owned(),
+            custody_floor: SECURE_ENCLAVE_CUSTODY_FLOOR_V1.to_owned(),
+            attestation: CustodyAttestationDistinctionV1::secure_enclave_single_host(),
+            verifier_seats: vec![
+                ceremony_seat("seat-a", "provider-a/model-a/runtime-a"),
+                ceremony_seat("seat-b", "provider-b/model-b/runtime-b"),
+                ceremony_seat("seat-c", "provider-c/model-c/runtime-c"),
+                ceremony_seat("seat-d", "provider-d/model-d/runtime-d"),
+            ],
+            owner_biometric_seat_public_key: seat_pubkey("owner-biometric"),
+            independence_spec_digest: "a".repeat(64),
+            constitution_digest: "b".repeat(64),
+            sealed_at: 1_000,
+        }
+    }
+
+    fn independence_spec_matching(receipt: &EnclaveCustodyCeremonyReceiptV1) -> IndependenceSpecV1 {
+        use m1nd_control::autonomy::{
+            IndependenceSpecCoreV1, VerifierSeatV1, IMMUTABLE_QUORUM_THRESHOLD,
+            INDEPENDENCE_SPEC_SCHEMA,
+        };
+        let voting_verifiers = receipt
+            .verifier_seats
+            .iter()
+            .map(|seat| VerifierSeatV1 {
+                principal_id: seat.principal_id.clone(),
+                key_id: seat.key_id.clone(),
+                failure_domain: seat.failure_domain.clone(),
+                parent_session_context_digest: "c".repeat(64),
+            })
+            .collect();
+        IndependenceSpecV1 {
+            schema: INDEPENDENCE_SPEC_SCHEMA.to_owned(),
+            core: IndependenceSpecCoreV1 {
+                constitution_epoch: 1,
+                voting_verifiers,
+                quorum_threshold: IMMUTABLE_QUORUM_THRESHOLD,
+                minimum_failure_domains: IMMUTABLE_FAILURE_DOMAINS,
+                blind_isolation_policy_digest: "d".repeat(64),
+                nonvoting_sentinel_id: "sentinel".to_owned(),
+                proposer_executor_nonvoting: true,
+                sentinel_nonvoting: true,
+            },
+            independence_spec_digest: receipt.independence_spec_digest.clone(),
+        }
+    }
+
+    #[test]
+    fn custody_ceremony_validates_and_refuses_a_broken_envelope() {
+        ceremony_receipt().validate().unwrap();
+
+        // A G9 receipt without the declared custody floor fails closed.
+        let mut no_floor = ceremony_receipt();
+        no_floor.custody_floor = "software".to_owned();
+        assert!(matches!(
+            no_floor.validate(),
+            Err(EnclaveError::Ceremony(_))
+        ));
+
+        // Not exactly four seats.
+        let mut three = ceremony_receipt();
+        three.verifier_seats.pop();
+        assert!(three.validate().is_err());
+
+        // Two seats sharing one enclave key are refused.
+        let mut duplicate_key = ceremony_receipt();
+        duplicate_key.verifier_seats[1].public_key =
+            duplicate_key.verifier_seats[0].public_key.clone();
+        assert!(duplicate_key.validate().is_err());
+
+        // Fewer than three distinct failure domains.
+        let mut two_domains = ceremony_receipt();
+        two_domains.verifier_seats[2].failure_domain =
+            two_domains.verifier_seats[0].failure_domain.clone();
+        two_domains.verifier_seats[3].failure_domain =
+            two_domains.verifier_seats[1].failure_domain.clone();
+        assert!(two_domains.validate().is_err());
+
+        // The owner biometric seat must never also be a voting seat.
+        let mut owner_votes = ceremony_receipt();
+        owner_votes.owner_biometric_seat_public_key =
+            owner_votes.verifier_seats[0].public_key.clone();
+        assert!(owner_votes.validate().is_err());
+    }
+
+    #[test]
+    fn custody_ceremony_seals_reads_back_and_binds_to_the_independence_spec() {
+        let temp = TempDir::new().unwrap();
+        let store = seat_store();
+        let dir = make_dir_with_mode(temp.path(), "ceremony-root", 0o700);
+        let root = sealed_root_at(&dir, &store, "ceremony-seat");
+        let receipt = ceremony_receipt();
+        root.seal_custody_ceremony(&receipt).unwrap();
+        assert_eq!(root.read_custody_ceremony().unwrap(), Some(receipt.clone()));
+
+        // Binds to the matching spec; a mismatched seat set is refused.
+        let spec = independence_spec_matching(&receipt);
+        receipt.bind_independence_spec(&spec).unwrap();
+        let mut mismatched = spec.clone();
+        mismatched.core.voting_verifiers[0].key_id = "unexpected-key".to_owned();
+        assert!(receipt.bind_independence_spec(&mismatched).is_err());
     }
 }
