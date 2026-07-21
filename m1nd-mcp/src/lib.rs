@@ -30,6 +30,11 @@ pub mod owner_authorization_broker;
 pub mod auto_ingest;
 pub mod cli;
 pub mod daemon_handlers;
+/// macOS Secure Enclave custody floor (amendment G9-A1). On non-macOS targets it
+/// is absent by construction, so the production authority assembly stays
+/// NOT_INSTALLED and fails closed — never a software-assurance fallback.
+#[cfg(target_os = "macos")]
+pub mod enclave_authority;
 pub mod help_guidance;
 pub mod owner_security_config;
 pub mod protected_journal_head;
