@@ -1146,44 +1146,64 @@ impl Error for EnclaveError {}
 //
 // This is the production `SecureEnclaveKeyStoreV1` adapter. It is fully
 // implemented and compile-verified on macOS, but NOT_RUN in CI and never
-// exercised by an agent: a real Secure Enclave key, its biometric UI, and the
-// code-signing / keychain-access-group identity are the owner's ceremony.
-// `provision` calls `SecKeyCreateRandomKey` with `kSecAttrTokenIDSecureEnclave`,
-// refuses a tag already present (never-open-or-create), and attests the created
-// key by reading its real attributes back. `open` resolves the persisted key by
-// application tag (`SecItemCopyMatching`) and attests token/type/size via
-// `SecKeyCopyAttributes`. `sign` signs through `SecKeyCreateSignature`; for the
-// biometric owner seat the key's `kSecAccessControl` gates it on user presence,
-// which only the owner's live ceremony can satisfy. The unit tests exercise the
-// whole custody path through the software mock key store; this real adapter is
-// proven live only by the owner's documented one-shot ceremony.
+// exercised by an agent.
+//
+// HARD PREREQUISITE (not optional ceremony scope): persistence requires the
+// calling binary to be codesigned with a `KeychainAccessGroups` entitlement.
+// `provision` files the key into the data-protection keychain
+// (`Location::DataProtectionKeychain`) — the ONLY keychain a Secure Enclave key
+// can be made permanent in — and both that write and the `resolve_persisted_key`
+// query are scoped to it (`kSecUseDataProtectionKeychain`). An unsigned or
+// unentitled binary cannot persist or resolve the key at all, so `open`/`sign`
+// would fail closed. This is a precondition of the owner's ceremony, not a
+// runtime nicety.
+//
+// Custody is keyed by `kSecAttrLabel` (the high-level `GenerateKeyOptions` exposes
+// no `kSecAttrApplicationTag`): `provision` sets a distinct label per key and
+// refuses a label already present (never-open-or-create); `open` resolves by that
+// label and fails closed on zero or more-than-one match. `provision` attests the
+// created key by reading its real attributes back; `open` attests token/type/size
+// via `SecKeyCopyAttributes`; `sign` signs through `SecKeyCreateSignature`, and
+// for the biometric owner seat the key's `kSecAccessControl` gates it on user
+// presence only the owner's live ceremony can satisfy. The unit tests exercise the
+// custody path through the software mock; the real persistence proof (provision ->
+// process restart -> open/sign on a signed, entitled binary) runs only in that
+// ceremony.
 // ===========================================================================
 
 /// Production Secure Enclave key store over Apple's Security.framework. A store is
 /// bound to ONE seat class (`access_control`): the agent-held verifier/quorum seat
 /// or the owner's biometric seat. `provision` refuses a permit for a different
 /// class, and `open` attests the resolved key against this class.
+///
+/// Custody is keyed by `kSecAttrLabel`, not `kSecAttrApplicationTag`:
+/// `GenerateKeyOptions` (the only key-creation surface the high-level crate
+/// exposes) files the key under a label via `set_label`, and the search resolves
+/// it by the same label. A distinct label per `key_id` is the custody handle, and
+/// ANY existing item sharing that label makes provision AND open fail closed
+/// (never-open-or-create; ambiguous custody is refused).
 pub struct SecurityFrameworkEnclaveKeyStore {
-    keychain_application_tag_prefix: String,
+    keychain_label_prefix: String,
     subject_id: String,
     access_control: EnclaveAccessControlV1,
 }
 
 impl SecurityFrameworkEnclaveKeyStore {
     pub fn new(
-        keychain_application_tag_prefix: impl Into<String>,
+        keychain_label_prefix: impl Into<String>,
         subject_id: impl Into<String>,
         access_control: EnclaveAccessControlV1,
     ) -> Self {
         Self {
-            keychain_application_tag_prefix: keychain_application_tag_prefix.into(),
+            keychain_label_prefix: keychain_label_prefix.into(),
             subject_id: subject_id.into(),
             access_control,
         }
     }
 
-    fn application_tag(&self, key_id: &str) -> String {
-        format!("{}.{key_id}", self.keychain_application_tag_prefix)
+    /// The `kSecAttrLabel` this store files `key_id` under (and resolves it by).
+    fn keychain_label(&self, key_id: &str) -> String {
+        format!("{}.{key_id}", self.keychain_label_prefix)
     }
 
     fn access_control_flags(
@@ -1207,11 +1227,17 @@ impl SecurityFrameworkEnclaveKeyStore {
     }
 
     /// Resolve the single persisted enclave key filed under this store's
-    /// application tag for `key_id` via `SecItemCopyMatching` (the high-level
+    /// `kSecAttrLabel` for `key_id` via `SecItemCopyMatching` (the high-level
     /// `ItemSearchOptions` wraps it), returning the private-key reference. `None`
     /// means no such key exists; more than one match fails closed — custody must
     /// never be ambiguous. This one query is also the production
     /// never-open-or-create duplicate guard.
+    ///
+    /// The query is scoped to the data-protection keychain
+    /// (`ignore_legacy_keychains`, i.e. `kSecUseDataProtectionKeychain`) so it sees
+    /// the SAME scope `provision` writes into via `Location::DataProtectionKeychain`
+    /// — Secure Enclave keys live only there. Without matching scope the query
+    /// would silently never find the provisioned key.
     fn resolve_persisted_key(
         &self,
         key_id: &str,
@@ -1219,23 +1245,24 @@ impl SecurityFrameworkEnclaveKeyStore {
         use security_framework::item::{
             ItemClass, ItemSearchOptions, KeyClass, Limit, Reference, SearchResult,
         };
-        let tag = self.application_tag(key_id);
+        let label = self.keychain_label(key_id);
         let results = ItemSearchOptions::new()
             .class(ItemClass::key())
             .key_class(KeyClass::private())
-            .label(&tag)
+            .ignore_legacy_keychains()
+            .label(&label)
             .load_refs(true)
             .limit(Limit::Max(2))
             .search()
             .map_err(|error| {
-                EnclaveError::Open(format!("keychain item query for tag '{tag}': {error}"))
+                EnclaveError::Open(format!("keychain item query for label '{label}': {error}"))
             })?;
         let mut resolved = None;
         for result in results {
             if let SearchResult::Ref(Reference::Key(key)) = result {
                 if resolved.is_some() {
                     return Err(EnclaveError::Open(format!(
-                        "ambiguous enclave custody: more than one key filed under tag '{tag}'"
+                        "ambiguous enclave custody: more than one key filed under label '{label}'"
                     )));
                 }
                 resolved = Some(key);
@@ -1255,7 +1282,7 @@ impl SecurityFrameworkEnclaveKeyStore {
         &self,
         key: &security_framework::key::SecKey,
     ) -> Result<EnclaveKeyAttestationV1, EnclaveError> {
-        use core_foundation::base::{CFEqual, TCFType, ToVoid};
+        use core_foundation::base::{CFEqual, CFGetTypeID, TCFType, ToVoid};
         use core_foundation::number::CFNumber;
         use security_framework_sys::item::{
             kSecAttrKeySizeInBits, kSecAttrKeyType, kSecAttrKeyTypeECSECPrimeRandom,
@@ -1295,6 +1322,14 @@ impl SecurityFrameworkEnclaveKeyStore {
                     "enclave key attributes missing kSecAttrKeySizeInBits".to_owned(),
                 )
             })?;
+        // Verify the CF type before wrapping it: the only otherwise-unchecked
+        // conversion in the attestation. A non-CFNumber value fails closed rather
+        // than being reinterpreted as a number.
+        if unsafe { CFGetTypeID(size.cast()) } != CFNumber::type_id() {
+            return Err(EnclaveError::Open(
+                "enclave key size attribute is not a CFNumber".to_owned(),
+            ));
+        }
         let key_size_bits = unsafe { CFNumber::wrap_under_get_rule(size.cast()) }
             .to_i32()
             .and_then(|bits| u32::try_from(bits).ok())
@@ -1335,7 +1370,8 @@ impl SecurityFrameworkEnclaveKeyStore {
             subject_id: self.subject_id.clone(),
             public_key_sec1: Self::public_key_sec1(key)?,
             attestation: self.attest_persisted_key(key)?,
-            platform_ref: self.application_tag(key_id),
+            // The platform reference is the `kSecAttrLabel` the key is filed under.
+            platform_ref: self.keychain_label(key_id),
         })
     }
 }
@@ -1345,6 +1381,7 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
         &self,
         permit: &EnclaveProvisioningPermitV1,
     ) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
+        use security_framework::item::Location;
         use security_framework::key::{GenerateKeyOptions, KeyType, SecKey, Token};
 
         // A store is bound to one seat class; refuse a permit for a different one so
@@ -1354,13 +1391,13 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
                 "permit access-control class does not match this key store's seat class".to_owned(),
             ));
         }
-        // Production never-open-or-create duplicate guard: refuse a tag already
+        // Production never-open-or-create duplicate guard: refuse a label already
         // present in the Keychain rather than silently adopting or shadowing a key.
         if self.resolve_persisted_key(&permit.key_id)?.is_some() {
             return Err(EnclaveError::Provisioning(format!(
-                "an enclave key already exists under application tag '{}'; \
+                "an enclave key already exists under label '{}'; \
                  provisioning is never open-or-create",
-                self.application_tag(&permit.key_id)
+                self.keychain_label(&permit.key_id)
             )));
         }
 
@@ -1370,7 +1407,15 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
             .set_key_type(KeyType::ec())
             .set_size_in_bits(SECURE_ENCLAVE_KEY_SIZE_BITS)
             .set_token(Token::SecureEnclave)
-            .set_label(self.application_tag(&permit.key_id))
+            // PERSIST the key: without a location the created key is EPHEMERAL
+            // (kSecAttrIsPermanent is only emitted when a location is set), so it
+            // would never reach the Keychain and `open`/`sign` could never resolve
+            // it. Secure Enclave keys can only be made permanent in the
+            // data-protection keychain — the same scope `resolve_persisted_key`
+            // queries. This requires a codesigned binary with a KeychainAccessGroups
+            // entitlement (owner-ceremony prerequisite; see the module boundary note).
+            .set_location(Location::DataProtectionKeychain)
+            .set_label(self.keychain_label(&permit.key_id))
             .set_access_control(access_control);
         let private_key =
             SecKey::new(&options).map_err(|error| EnclaveError::Provisioning(error.to_string()))?;
@@ -1389,14 +1434,14 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
     }
 
     fn open(&self, key_id: &str) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
-        // Resolve the persisted key by application tag (SecItemCopyMatching) and
-        // attest the resolved key's real attributes. No biometry is required to read
-        // a key reference and its metadata; signing (below) is what user presence
-        // gates. A missing key fails closed.
+        // Resolve the persisted key by label (SecItemCopyMatching) and attest the
+        // resolved key's real attributes. No biometry is required to read a key
+        // reference and its metadata; signing (below) is what user presence gates.
+        // A missing key fails closed.
         let key = self.resolve_persisted_key(key_id)?.ok_or_else(|| {
             EnclaveError::Open(format!(
-                "no persisted enclave key filed under application tag '{}'",
-                self.application_tag(key_id)
+                "no persisted enclave key filed under label '{}'",
+                self.keychain_label(key_id)
             ))
         })?;
         self.opened_from_key(key_id, &key)
@@ -1407,12 +1452,12 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
 
         let key = self.resolve_persisted_key(&opened.key_id)?.ok_or_else(|| {
             EnclaveError::Sign(format!(
-                "no persisted enclave key filed under application tag '{}'",
-                self.application_tag(&opened.key_id)
+                "no persisted enclave key filed under label '{}'",
+                self.keychain_label(&opened.key_id)
             ))
         })?;
         // Bind the resolved key to the opened/attested key: the public material must
-        // match, so a key swapped under the tag after `open` cannot sign in its name.
+        // match, so a key swapped under the label after `open` cannot sign in its name.
         if Self::public_key_sec1(&key)? != opened.public_key_sec1 {
             return Err(EnclaveError::Sign(
                 "resolved enclave key public material does not match the opened key".to_owned(),
@@ -1631,6 +1676,43 @@ mod tests {
         provision_agent_enclave_seat(&store, &agent_permit("seat-1")).unwrap();
         let again = provision_agent_enclave_seat(&store, &agent_permit("seat-1"));
         assert!(matches!(again, Err(EnclaveError::Provisioning(_))));
+    }
+
+    #[test]
+    fn persisted_key_round_trips_from_provision_through_reopen() {
+        // The mock persists keys in-process, so it proves the LOGICAL custody
+        // contract: a key provisioned once is resolved back by the same key_id and
+        // signs. The REAL adapter's persistence — provision, then resolve the key
+        // after a PROCESS RESTART out of the data-protection Keychain — is exercised
+        // only by the owner's ceremony on a codesigned, entitled binary; a mock
+        // cannot model the ephemeral-vs-permanent Keychain distinction that the
+        // production `set_location(DataProtectionKeychain)` fix addresses.
+        let store: Arc<dyn SecureEnclaveKeyStoreV1> = Arc::new(MockEnclaveKeyStore::new(
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
+        ));
+        let provisioned =
+            provision_agent_enclave_seat(store.as_ref(), &agent_permit("persist-seat")).unwrap();
+
+        // Re-resolve the SAME key by id (the open-by-label path) and confirm identity.
+        let reopened = store.open("persist-seat").unwrap();
+        assert_eq!(reopened.public_key_sec1, provisioned.public_key_sec1);
+        assert_eq!(reopened.attestation, provisioned.attestation);
+
+        // The reopened key signs and verifies end to end through m1nd-control.
+        let expected = EnclaveKeyAttestationV1::canonical(
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
+        );
+        let signer =
+            SecureEnclaveSigner::open_attested(Arc::clone(&store), "persist-seat", &expected)
+                .unwrap();
+        let verification_key = signer.verification_key(0, 0);
+        let crypto = EnclaveBackedWalRecordCrypto::new(Arc::new(signer), verification_key).unwrap();
+        let message = b"persisted-enclave-round-trip";
+        let signature = crypto.sign(message).unwrap();
+        crypto.verify(message, &signature).unwrap();
+
+        // A key that was never provisioned fails closed on open.
+        assert!(store.open("never-provisioned").is_err());
     }
 
     #[test]
