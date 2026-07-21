@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use m1nd_control::{
     digest_canonical, verify_authority_message_signature, CryptographicIntegrity,
-    VerificationKeyRegistryV1, VerificationKeyV1, ED25519_ALGORITHM,
-    VERIFICATION_KEY_REGISTRY_SCHEMA,
+    VerificationKeyRegistryV1, VerificationKeyV1, ECDSA_P256_SHA256_X962_ALGORITHM,
+    ED25519_ALGORITHM, VERIFICATION_KEY_REGISTRY_SCHEMA,
 };
 use serde::{Deserialize, Serialize};
 
@@ -119,7 +119,10 @@ fn verify_request_at(
         || receipt.issuer != verification_key.subject_id
         || receipt.key_id != verification_key.key_id
         || receipt.algorithm != verification_key.algorithm
-        || receipt.algorithm != ED25519_ALGORITHM
+        || !matches!(
+            receipt.algorithm.as_str(),
+            ED25519_ALGORITHM | ECDSA_P256_SHA256_X962_ALGORITHM
+        )
     {
         proof.status = AuthorizationReceiptVerificationStatusV1::ReceiptBindingInvalid;
         return proof;
@@ -192,9 +195,15 @@ fn verify_request_at(
         }
     };
     let message = authorization_receipt_signature_message(&canonical_payload);
+    // Closed acceptance set: only the two ratified custody-floor algorithms pass,
+    // each named explicitly so a future `CryptographicIntegrity` variant fails the
+    // build instead of being silently admitted through an `Ok(_)` wildcard.
     match verify_authority_message_signature(&message, &receipt.signature, active_key) {
-        Ok(CryptographicIntegrity::VerifiedEd25519) => {}
-        Ok(_) | Err(_) => {
+        Ok(
+            CryptographicIntegrity::VerifiedEd25519
+            | CryptographicIntegrity::VerifiedEcdsaP256Sha256X962,
+        ) => {}
+        Err(_) => {
             proof.status = AuthorizationReceiptVerificationStatusV1::SignatureInvalid;
             return proof;
         }
@@ -383,6 +392,107 @@ mod tests {
             verification_key,
             max_future_clock_skew_ms: 1_000,
         }
+    }
+
+    fn p256_signing_key() -> p256::ecdsa::SigningKey {
+        p256::ecdsa::SigningKey::from_slice(&[7_u8; 32]).unwrap()
+    }
+
+    /// Sign with P-256 and re-encode to canonical low-S DER, exactly as the
+    /// enclave-backed production path and m1nd-control's verifier require. A real
+    /// Secure Enclave signature is non-deterministic, so tests must re-encode the
+    /// canonical DER they actually produced rather than pin signature bytes.
+    fn p256_low_s_der_lower_hex(signing_key: &p256::ecdsa::SigningKey, message: &[u8]) -> String {
+        use p256::ecdsa::signature::Signer as _;
+        let signature: p256::ecdsa::Signature = signing_key.sign(message);
+        let normalized = signature.normalize_s().unwrap_or(signature);
+        hex_lower(normalized.to_der().as_bytes())
+    }
+
+    fn fixture_request_p256(
+        authorized_at: u64,
+        expires_at: u64,
+    ) -> AuthorizationReceiptVerificationRequestV1 {
+        let signing_key = p256_signing_key();
+        let verification_key = VerificationKeyV1 {
+            key_id: "owner-p256-key-1".to_owned(),
+            subject_id: "owner-1".to_owned(),
+            algorithm: ECDSA_P256_SHA256_X962_ALGORITHM.to_owned(),
+            public_key: hex_lower(
+                signing_key
+                    .verifying_key()
+                    .to_encoded_point(false)
+                    .as_bytes(),
+            ),
+            created_at: NOW - 10_000,
+            activated_at: NOW - 9_000,
+            expires_at: None,
+            revoked_at: None,
+            rotated_at: None,
+            replacement_key_id: None,
+            status: IdentityStatus::Active,
+        };
+        let core = fixture_core(authorized_at, expires_at);
+        let receipt_digest = digest_canonical(AUTHORIZATION_RECEIPT_DIGEST_DOMAIN, &core).unwrap();
+        let mut receipt = AuthorityAuthorizationReceiptV1 {
+            schema: AUTHORIZATION_RECEIPT_SCHEMA.to_owned(),
+            core,
+            receipt_digest,
+            issuer: verification_key.subject_id.clone(),
+            key_id: verification_key.key_id.clone(),
+            algorithm: verification_key.algorithm.clone(),
+            signature: OpaqueSignature::new("pending"),
+        };
+        let canonical = receipt.canonical_signature_payload().unwrap();
+        let message = authorization_receipt_signature_message(&canonical);
+        receipt.signature = OpaqueSignature::new(p256_low_s_der_lower_hex(&signing_key, &message));
+        AuthorizationReceiptVerificationRequestV1 {
+            schema: AUTHORIZATION_RECEIPT_VERIFICATION_REQUEST_SCHEMA.to_owned(),
+            receipt,
+            verification_key,
+            max_future_clock_skew_ms: 1_000,
+        }
+    }
+
+    #[test]
+    fn verifies_p256_receipt_digest_signature_clock_and_active_key() {
+        let proof = verify_request_at(fixture_request_p256(NOW - 1_000, NOW + 1_000), NOW);
+        assert_eq!(
+            proof.status,
+            AuthorizationReceiptVerificationStatusV1::Verified
+        );
+        assert_eq!(proof.algorithm, ECDSA_P256_SHA256_X962_ALGORITHM);
+        assert!(proof.signature_verified);
+        assert!(proof.clock_verified);
+        assert!(proof.key_lifecycle_verified);
+    }
+
+    #[test]
+    fn refuses_tampered_p256_core_before_signature_claim() {
+        let mut request = fixture_request_p256(NOW - 1_000, NOW + 1_000);
+        request.receipt.core.verified_object_digest = hash("tampered");
+        let proof = verify_request_at(request, NOW);
+        assert_eq!(
+            proof.status,
+            AuthorizationReceiptVerificationStatusV1::ReceiptBindingInvalid
+        );
+        assert!(!proof.signature_verified);
+    }
+
+    #[test]
+    fn refuses_algorithm_outside_the_closed_custody_floor_set() {
+        // Internally consistent binding (receipt.algorithm == key.algorithm) but an
+        // algorithm outside the ratified {ED25519, ECDSA_P256_SHA256_X962} set is
+        // refused at the binding gate, before any signature claim is entertained.
+        let mut request = fixture_request(NOW - 1_000, NOW + 1_000);
+        request.receipt.algorithm = "ECDSA_SECP521R1_SHA512".to_owned();
+        request.verification_key.algorithm = "ECDSA_SECP521R1_SHA512".to_owned();
+        let proof = verify_request_at(request, NOW);
+        assert_eq!(
+            proof.status,
+            AuthorizationReceiptVerificationStatusV1::ReceiptBindingInvalid
+        );
+        assert!(!proof.signature_verified);
     }
 
     #[test]

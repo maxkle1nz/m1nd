@@ -33,11 +33,11 @@ use m1nd_control::{
     verify_capability, verify_capability_once, ActionCatalogEntryV1, ActionCatalogError,
     ActionCatalogV1, ActionId, ActionPolicyRegistryV1, ActiveMode, AuthorityCapabilityV1,
     AuthorityCryptoError, AuthorityFloor, AuthorityVariant, AutonomyTier, CanonicalError,
-    CapabilityKind, CapabilityVerificationContext, Effect, Ingress, OpaqueSignature, PolicyError,
-    ReachablePolicyTupleV1, ReplayClaimV1, ReplayDurability, ReplayLedger, ReplayLedgerError,
-    ReplayReceiptV1, RiskClass, Role, VerificationKeyRegistryV1, AUTHORITY_CAPABILITY_SCHEMA,
-    DEFAULT_AUTHORITY_CLOCK_SKEW_MS, REPLAY_CLAIM_SCHEMA, REPLAY_LEDGER_RECORD_DIGEST_DOMAIN,
-    REPLAY_LEDGER_RECORD_SCHEMA,
+    CapabilityKind, CapabilityVerificationContext, CryptographicIntegrity, Effect, Ingress,
+    OpaqueSignature, PolicyError, ReachablePolicyTupleV1, ReplayClaimV1, ReplayDurability,
+    ReplayLedger, ReplayLedgerError, ReplayReceiptV1, RiskClass, Role, VerificationKeyRegistryV1,
+    AUTHORITY_CAPABILITY_SCHEMA, DEFAULT_AUTHORITY_CLOCK_SKEW_MS, REPLAY_CLAIM_SCHEMA,
+    REPLAY_LEDGER_RECORD_DIGEST_DOMAIN, REPLAY_LEDGER_RECORD_SCHEMA,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -1580,11 +1580,36 @@ impl From<PolicyError> for AuthorityRuntimeError {
     }
 }
 
+/// How a positive-sovereign authority decision was cryptographically verified.
+///
+/// The `ControlVerified*` variants name the exact signature algorithm the
+/// m1nd-control verifier accepted for THIS decision. Labeling a P-256 decision
+/// `ControlVerifiedEd25519` (or the reverse) is a false attestation, so the
+/// receipt/session assurance is always derived from the verified key's
+/// algorithm, never from a fixed constant. Existing wire names are never
+/// renamed; the P-256 variant is added alongside them (conscious compatibility).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AuthorityVerificationAssurance {
     ControlVerifiedEd25519,
+    ControlVerifiedEcdsaP256Sha256X962,
     SoftwareTestOnlyNotProven,
+}
+
+/// Map a verified cryptographic integrity to its honest control-plane assurance
+/// label. Exhaustive over `CryptographicIntegrity`: a future algorithm variant
+/// fails the build here rather than being mislabeled.
+fn control_assurance_for_integrity(
+    integrity: CryptographicIntegrity,
+) -> AuthorityVerificationAssurance {
+    match integrity {
+        CryptographicIntegrity::VerifiedEd25519 => {
+            AuthorityVerificationAssurance::ControlVerifiedEd25519
+        }
+        CryptographicIntegrity::VerifiedEcdsaP256Sha256X962 => {
+            AuthorityVerificationAssurance::ControlVerifiedEcdsaP256Sha256X962
+        }
+    }
 }
 
 trait PositiveAuthorityVerifier: Send {
@@ -1610,6 +1635,10 @@ struct PositiveAuthorityProofV1 {
     key_id: String,
     subject_id: String,
     replay: ReplayReceiptV1,
+    /// Honest assurance for THIS verification, derived from the verified key's
+    /// algorithm. Never a fixed constant: a P-256 decision is never stamped
+    /// with the Ed25519 label.
+    assurance: AuthorityVerificationAssurance,
 }
 
 struct PositiveVerificationRequestV1<'a> {
@@ -1648,11 +1677,13 @@ impl PositiveAuthorityVerifier for ControlCryptoAuthorityVerifier {
         replay: &mut dyn ReplayLedger,
     ) -> Result<PositiveAuthorityProofV1, AuthorityRuntimeError> {
         let verified = verify_capability_once(capability, keys, context, replay)?;
+        let assurance = control_assurance_for_integrity(verified.authority.integrity);
         Ok(PositiveAuthorityProofV1 {
             signed_body_digest: verified.authority.signed_body_digest,
             key_id: verified.authority.key_id,
             subject_id: verified.authority.subject_id,
             replay: verified.replay,
+            assurance,
         })
     }
 }
@@ -3356,7 +3387,7 @@ impl AuthorityRuntime {
                 .expires_at
                 .min(capability.expires_at),
             authentication_body_digest: proof.signed_body_digest.clone(),
-            verification_assurance: inner.positive_verifier.assurance(),
+            verification_assurance: proof.assurance,
         };
         if inner.sessions.sessions.len() >= MAX_AUTHENTICATED_SESSIONS {
             return Err(AuthorityRuntimeError::SessionRegistryCapacity {
@@ -4288,7 +4319,7 @@ impl AuthorityRuntimeInner {
             expected_mission_head_id: request.mission_head_id.as_deref(),
             now_ms: request.now_ms,
         })?;
-        let assurance = self.positive_verifier.assurance();
+        let assurance = proof.assurance;
         let autonomy_receipt = autonomy_admission.map(|admission| &admission.receipt);
         self.commit(
             AuthorityJournalEventKind::PositiveMutationAuthorized,
@@ -5026,6 +5057,7 @@ impl PositiveAuthorityVerifier for SoftwareTestPositiveAuthorityVerifier {
             key_id: capability.issuer_key_id.clone(),
             subject_id: capability.subject_id.clone(),
             replay,
+            assurance: AuthorityVerificationAssurance::SoftwareTestOnlyNotProven,
         })
     }
 }
@@ -5093,6 +5125,18 @@ mod tests {
 
     fn test_digest(label: &str) -> String {
         digest_canonical("m1nd-authority-runtime-test-v1", &label).unwrap()
+    }
+
+    #[test]
+    fn control_assurance_reflects_the_verified_algorithm_not_a_constant() {
+        assert_eq!(
+            control_assurance_for_integrity(CryptographicIntegrity::VerifiedEd25519),
+            AuthorityVerificationAssurance::ControlVerifiedEd25519
+        );
+        assert_eq!(
+            control_assurance_for_integrity(CryptographicIntegrity::VerifiedEcdsaP256Sha256X962),
+            AuthorityVerificationAssurance::ControlVerifiedEcdsaP256Sha256X962
+        );
     }
 
     fn test_config(root: &Path) -> AuthorityRuntimeConfig {

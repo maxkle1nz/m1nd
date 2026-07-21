@@ -1058,6 +1058,22 @@ pub fn sign_canonical_authority_payload(
     key: &VerificationKeyV1,
     signer: &dyn AuthoritySigner,
 ) -> Result<OpaqueSignature, AuthorityCryptoError> {
+    sign_authority_message(&signature_message(domain, canonical_payload), key, signer)
+}
+
+/// Sign an exact, already-framed authority message with an injected protected
+/// signer and return the canonical lowercase-hex signature — low-S ASN.1 DER for
+/// P-256 — after verifying it against the pinned key. No domain envelope is
+/// applied here: the framing is entirely the caller's, so this is the production
+/// seam for protected signers whose raw output must be canonicalized by the crate
+/// that owns the P-256 primitives. A Secure Enclave key returns a possibly
+/// high-S DER signature from `SecKeyCreateSignature`; normalizing it here lets
+/// callers such as m1nd-mcp sign through the enclave without ever linking p256.
+pub fn sign_authority_message(
+    message: &[u8],
+    key: &VerificationKeyV1,
+    signer: &dyn AuthoritySigner,
+) -> Result<OpaqueSignature, AuthorityCryptoError> {
     expect_signer("key_id", &key.key_id, signer.key_id())?;
     expect_signer("subject_id", &key.subject_id, signer.subject_id())?;
     expect_signer("algorithm", &key.algorithm, signer.algorithm())?;
@@ -1067,9 +1083,8 @@ pub fn sign_canonical_authority_payload(
             key_id: key.key_id.clone(),
         });
     }
-    let message = signature_message(domain, canonical_payload);
-    let signature = signer.sign(&message)?;
-    let signature = canonicalize_and_verify_signature(&pinned_public_key, &message, &signature)?;
+    let signature = signer.sign(message)?;
+    let signature = canonicalize_and_verify_signature(&pinned_public_key, message, &signature)?;
     Ok(OpaqueSignature::new(hex_lower(&signature)))
 }
 
