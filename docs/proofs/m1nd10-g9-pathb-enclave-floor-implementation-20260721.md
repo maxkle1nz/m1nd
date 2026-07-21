@@ -97,53 +97,87 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
 - The custody ceremony envelope is fail-closed on the floor, four distinct
   enclave seats, three failure domains, and an owner seat disjoint from the
   voting seats; it binds to the exact `IndependenceSpecV1`.
-- `SecurityFrameworkEnclaveKeyStore::provision` compiles against the real
-  Security.framework crate on macOS (`SecKey::new` with
-  `kSecAttrTokenIDSecureEnclave`, EC 256, `kSecAccessControl`).
+- `SecurityFrameworkEnclaveKeyStore` — `provision` (`SecKey::new` with
+  `kSecAttrTokenIDSecureEnclave`, EC 256, `kSecAccessControl`, **persisted** via
+  `Location::DataProtectionKeychain` + never-open-or-create duplicate guard), `open`
+  (`SecItemCopyMatching` by `kSecAttrLabel`, scoped to the data-protection keychain
+  so it sees what `provision` wrote, + `SecKeyCopyAttributes` read-back with a
+  `CFGetTypeID` guard on the size), and `sign` (`SecKeyCreateSignature`,
+  ECDSA-message-X962-SHA256) all compile against the real Security.framework crate
+  on macOS. Runtime execution against enclave hardware/biometry — and the
+  code-signing entitlement persistence requires — is the owner's ceremony (NOT_RUN).
 
 ### NOT_RUN — the owner's live ceremony, with a BLOCKING order
 - No real Secure Enclave key was created, rotated, activated, or used. No
   biometric signature was produced.
-- `SecurityFrameworkEnclaveKeyStore::open` / `sign` are unconditional `Err`
-  today: resolving a persisted enclave key via `SecItemCopyMatching` by
-  application tag (also the production never-open-or-create duplicate guard) and
-  signing under biometric presence needs the hardware, biometry, and
-  code-signing / keychain-access-group identity the owner alone holds. Shipping
-  an unverifiable item-query would be false completeness.
+- `SecurityFrameworkEnclaveKeyStore::open` / `sign`, key persistence, and the
+  provision duplicate guard are now fully implemented and compile-verified on macOS
+  (see "Prerequisite follow-up landed" below). What stays live-NOT_RUN is the real
+  persistence-and-resolution proof: making a Secure Enclave key permanent in the
+  data-protection keychain and resolving it back **requires the calling binary to be
+  codesigned with a `KeychainAccessGroups` entitlement** — a HARD prerequisite the
+  owner alone holds, not a runtime nicety. Only then does `provision` -> process
+  restart -> `open`/`sign` (biometric) actually round-trip. The agent cannot provoke
+  `SecKeyCreateSignature` under user presence — the proof is the owner's ceremony.
 - **BLOCKING ORDER (G9-A1 ratification) — SATISFIED 2026-07-21.** `custody_floor`
-  was fail-closed only in the ceremony receipt when this slice landed. Threading
-  it into the digest-sealed `m1nd-control/src/release.rs` gate receipt and the
-  autonomy activation receipt was the follow-up (the field perturbs every existing
-  fixture digest, so it landed as its own reviewed change on
-  `feat/g9-custody-floor-threading`; see "Follow-up MERGED" below). The ordering
-  obligation is met: the threading merges before the owner's custody ceremony, so
-  no receipt can claim the floor without carrying it. (Gate/review distinction:
+  was fail-closed only in the ceremony receipt when this slice landed. Threading it
+  into the digest-sealed `m1nd-control/src/release.rs` gate receipt and the autonomy
+  activation receipt was the follow-up (the field perturbs every frozen fixture
+  digest, so it landed as its own reviewed, owner-authorized change on
+  `feat/g9-custody-floor-threading`, regenerating the frozen G9/G10 canonical
+  vectors — 11 gate cores + the activation receipt). The ordering obligation is met:
+  the threading merges before the owner's custody ceremony, so no receipt can claim
+  the floor without carrying it. (Gate/review distinction, owner-ratified 2026-07-21:
   the independent adversarial review receipt is not gated on a candidate era's
-  custody floor and is intentionally left byte-identical — only the gate and
-  autonomy receipts carry the field.)
-- **Prerequisite follow-up for the ceremony.** Implementing open-by-tag
-  (`SecItemCopyMatching` + a real `SecKeyCopyAttributes` read-back of
-  token/type/size), `sign` under biometric presence, and the never-open-or-create
-  duplicate guard is a named prerequisite of the live ceremony. Until it lands,
-  the runbook is scoped to what actually executes.
+  custody floor and is intentionally left byte-identical — only the gate and autonomy
+  receipts carry the field.)
+- **Prerequisite follow-up landed.** Implemented and compile-verified on macOS:
+  - **Key persistence (the review's central fix).** `provision` now sets
+    `Location::DataProtectionKeychain`; without a location the created key was
+    EPHEMERAL (`kSecAttrIsPermanent` is only emitted when a location is set), so it
+    never reached the Keychain and `open`/`sign` could never resolve it. Secure
+    Enclave keys can only be made permanent in the data-protection keychain, and
+    `resolve_persisted_key` queries the SAME scope (`ignore_legacy_keychains` /
+    `kSecUseDataProtectionKeychain`) so creation and lookup agree. This needs the
+    `OSX_10_15` feature on `security-framework` (an empty cfg-only feature — no new
+    crate, no lockfile move) and a codesigned, entitled binary at runtime.
+  - **Open-by-label** (`SecItemCopyMatching` via `ItemSearchOptions`) — custody is
+    keyed by `kSecAttrLabel`, not `kSecAttrApplicationTag` (the high-level
+    key-creation surface exposes no application tag); any item sharing the label
+    makes provision AND open fail closed.
+  - The real `SecKeyCopyAttributes` read-back of token/type/size (Secure Enclave
+    residency + EC P-256 proven by `CFEqual` against the framework's constants,
+    with a `CFGetTypeID` guard before the size is read as a `CFNumber`).
+  - `sign` through `SecKeyCreateSignature`, the never-open-or-create duplicate
+    guard, and `provision` attesting the created key by the same read-back.
+  - The `SecurityFrameworkEnclaveKeyStore::new` constructor gained a seat-class
+    `access_control` argument (a store is bound to one seat class; it refuses a
+    permit for another). On non-macOS the whole module is absent by construction, so
+    the production assembly stays NOT_INSTALLED / fail-closed.
 
 ## Owner's documented live one-shot proof (you run this, not the agent)
 
-### Runs today (agent building blocks; no biometry, no persisted-key resolution)
+### On the owner's codesigned, entitled binary (no biometry for the verifier seats)
+Note: because provisioning now PERSISTS into the data-protection keychain, even the
+unattended verifier seats require the codesigned binary with a `KeychainAccessGroups`
+entitlement — there is no ephemeral-key shortcut anymore. The agent's mock proves the
+logical contract; these steps run on the owner's signed binary.
 1. For each of the four verifier seats, provision an unattended enclave key:
    `provision_agent_enclave_seat(&SecurityFrameworkEnclaveKeyStore::new(prefix,
-   subject), &permit_for_seat)` — distinct `key_id`/`failure_domain`, at least
-   three distinct domains, each permit carrying its `bound_context_digest`
-   (sealed later as seat lineage). Capture each 65-byte SEC1 public key.
+   subject, EnclaveAccessControlV1::PrivateKeyUsageNonExportable),
+   &permit_for_seat)` — distinct `key_id`/`failure_domain`, at least three
+   distinct domains, each permit carrying its `bound_context_digest` (sealed later
+   as seat lineage). Capture each 65-byte SEC1 public key. Provision persists the
+   key, reads its real token/type/size back, and refuses a label already present.
 2. **kSecAccessControl conformance check.** Confirm each provisioned key actually
    carries the intended access-control semantics (private-key usage; user
    presence for the biometric seat). The flag values are hand-rolled (`1<<30`,
    `1<<0`), so this run is what proves them.
 
 ### Prerequisite follow-up, then the ceremony (the owner's alone)
-3. Land the open/sign follow-up (open-by-tag + attribute read-back + biometric
-   sign + duplicate guard). (The `custody_floor` threading blocking order is
-   already satisfied — see "Follow-up MERGED" below.)
+3. The open/sign follow-up (persistence + open-by-label + attribute read-back +
+   biometric sign + duplicate guard) has landed, and the `custody_floor` threading
+   (blocking order above) has landed too — both ceremony prerequisites are met.
 4. Provision the owner's biometric seat (Touch ID / user presence) —
    `owner_signature`, never a voting seat.
 5. Open + re-attest each seat: `SecureEnclaveSigner::open_attested(store, key_id,
@@ -162,10 +196,19 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
 Record the seat public keys, the digests, and the sealed receipt path.
 
 ## Honest risks and named follow-ups
-- `provision` attests the key size it observes from the returned SEC1 point; the
-  real token/type read-back (`SecKeyCopyAttributes`) is a named follow-up. The
-  hand-rolled `kSecAccessControl` semantics and the persisted key's Keychain
-  visibility are proven only by the owner's live conformance run.
+- `provision`/`open` now read the key's real token/type/size back via
+  `SecKeyCopyAttributes` and prove Secure Enclave residency + EC P-256 by
+  `CFEqual` against the framework's own constants. What is NOT read back is the
+  `kSecAccessControl` (presence) semantics — the hand-rolled flag values
+  (`1<<30`, `1<<0`) and the persisted key's Keychain visibility are proven only by
+  the owner's live conformance run. This is compile-verified on macOS, not run
+  against hardware in CI.
+- Persistence has a HARD runtime prerequisite: the data-protection keychain that
+  Secure Enclave keys must live in requires the calling binary to be codesigned
+  with a `KeychainAccessGroups` entitlement. An unsigned/unentitled binary cannot
+  persist or resolve the key, so `provision`/`open`/`sign` fail closed. The
+  provision→restart→open round-trip is therefore proven only on the owner's signed
+  binary; the mock proves the logical contract in-process.
 - Sealed-slot anti-replay is filesystem-strength plus a root-path + context
   binding sealed into each record (a slot cannot be replayed into another root
   sealed by the same key); it is NOT hardware anti-rollback. Single-host limits
