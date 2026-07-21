@@ -44,17 +44,17 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # machines. DefaultHasher (SipHash) is NOT cross-version/platform stable, which
 # would break that contract. sha2 0.10 is already in Cargo.lock transitively —
 # declaring it direct adds NO new crate to the build graph.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }
-tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"], optional = true }
+tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip"], optional = true }
 rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
-getrandom = { version = "0.3", optional = true }
+getrandom = { version = "0.4", optional = true }
 
 # Already present transitively (via sysinfo/tokio); declared directly ONLY to call
 # `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).
@@ -101,7 +101,7 @@ security-framework-sys = "=2.17.0"
 core-foundation = "=0.10.1"
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 
 [[bin]]
 name = "m1nd-mcp"
@@ -113,7 +113,7 @@ ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] 
 # enclave-crypto mock). Production m1nd-mcp gains NO p256 dependency: every P-256
 # signature is verified through m1nd-control's verifier. Already in Cargo.lock via
 # m1nd-control, so this adds NO new crate to the build graph.
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa", "std"] }
 # `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
 # the owner-alive guard's port can be reserved-closed without a live listener that a
 # parallel test could collide with (see the `closed_port` helpers).
