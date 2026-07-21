@@ -83,8 +83,21 @@ windows-sys = { version = "0.61.2", features = [
 # 1<<0 user-presence) because the high-level crate does not export them; the
 # owner's live ceremony must run the documented conformance check that a
 # provisioned key actually carries those access-control semantics.
+# security-framework-sys is pulled in for the exact Keychain attribute constants
+# (kSecAttrTokenID/kSecAttrKeyType/kSecAttrKeySizeInBits) the enclave `open`/
+# provision read back via SecKeyCopyAttributes; the high-level crate does not
+# re-export them. It is the same version security-framework already depends on and
+# is already in Cargo.lock, so this adds no crate and does not move the lockfile.
+# The OSX_10_15 feature is REQUIRED, not cosmetic: Secure Enclave keys can only be
+# made permanent in the data-protection keychain, and both `Location::Data-
+# ProtectionKeychain` (provision) and `kSecUseDataProtectionKeychain` (the
+# `ignore_legacy_keychains` query scope) are gated behind it. It enables only
+# security-framework-sys/OSX_10_15, itself an empty cfg-only feature — no new crate,
+# no lockfile move. Persisting into that keychain also requires the calling binary
+# to be codesigned with a KeychainAccessGroups entitlement (owner ceremony).
 [target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "=3.7.0"
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+security-framework-sys = "=2.17.0"
 core-foundation = "=0.10.1"
 
 [build-dependencies]
