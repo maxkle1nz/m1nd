@@ -2,7 +2,8 @@
 
 Date: 2026-07-21
 Amendment: G9-A1 (ratified; `docs/proofs/m1nd10-g9-a1-custody-floor-ratification-20260721.md`)
-Branch: `feat/g9-pathb-enclave-floor`
+Branch: `feat/g9-pathb-enclave-floor` (blocking-order follow-up merged separately on
+`feat/g9-custody-floor-threading`; see "Follow-up MERGED" below)
 Gate status: **implementation slice; the owner's live custody ceremony is NOT_RUN**
 
 ## Outcome
@@ -39,7 +40,9 @@ was NOT refactored; this work only adds providers that satisfy it.
   `sign_canonical_authority_payload` now delegates to it.
 
 ### 4. Enclave module (`m1nd-mcp/src/enclave_authority.rs`, cfg macOS)
-- `:58` `SECURE_ENCLAVE_CUSTODY_FLOOR_V1 = "secure-enclave-single-host-v1"`.
+- `:58` `SECURE_ENCLAVE_CUSTODY_FLOOR_V1` — value `"secure-enclave-single-host-v1"`;
+  since the threading follow-up this is re-exported from `m1nd-control` (single
+  source of truth) rather than defined here.
 - `:156` `SecureEnclaveKeyStoreV1` — the mockable enclave boundary; `:178`
   `provision_agent_enclave_seat` refuses the biometric human seat.
 - `:196` `SecureEnclaveSigner` (impl `AuthoritySigner`) — opens + re-attests
@@ -107,14 +110,17 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
   signing under biometric presence needs the hardware, biometry, and
   code-signing / keychain-access-group identity the owner alone holds. Shipping
   an unverifiable item-query would be false completeness.
-- **BLOCKING ORDER (G9-A1 ratification).** `custody_floor` is fail-closed only in
-  the ceremony receipt today. Threading it into the digest-sealed
-  `m1nd-control/src/release.rs` gate/review receipts and the autonomy activation
-  receipt is a follow-up (the field perturbs every existing fixture digest, so it
-  lands as its own reviewed change). That follow-up **must merge BEFORE** the
-  owner's custody ceremony and before any G9/G10 receipt is minted under this
-  floor — so no receipt can claim the floor without carrying it. This ordering is
-  a ratification obligation, not an optimization.
+- **BLOCKING ORDER (G9-A1 ratification) — SATISFIED 2026-07-21.** `custody_floor`
+  was fail-closed only in the ceremony receipt when this slice landed. Threading
+  it into the digest-sealed `m1nd-control/src/release.rs` gate receipt and the
+  autonomy activation receipt was the follow-up (the field perturbs every existing
+  fixture digest, so it landed as its own reviewed change on
+  `feat/g9-custody-floor-threading`; see "Follow-up MERGED" below). The ordering
+  obligation is met: the threading merges before the owner's custody ceremony, so
+  no receipt can claim the floor without carrying it. (Gate/review distinction:
+  the independent adversarial review receipt is not gated on a candidate era's
+  custody floor and is intentionally left byte-identical — only the gate and
+  autonomy receipts carry the field.)
 - **Prerequisite follow-up for the ceremony.** Implementing open-by-tag
   (`SecItemCopyMatching` + a real `SecKeyCopyAttributes` read-back of
   token/type/size), `sign` under biometric presence, and the never-open-or-create
@@ -136,8 +142,8 @@ Gates green per crate touched: `cargo fmt --check`, `cargo clippy --all-targets
 
 ### Prerequisite follow-up, then the ceremony (the owner's alone)
 3. Land the open/sign follow-up (open-by-tag + attribute read-back + biometric
-   sign + duplicate guard) and the `custody_floor` threading (blocking order
-   above).
+   sign + duplicate guard). (The `custody_floor` threading blocking order is
+   already satisfied — see "Follow-up MERGED" below.)
 4. Provision the owner's biometric seat (Touch ID / user presence) —
    `owner_signature`, never a voting seat.
 5. Open + re-attest each seat: `SecureEnclaveSigner::open_attested(store, key_id,
@@ -164,9 +170,10 @@ Record the seat public keys, the digests, and the sealed receipt path.
   binding sealed into each record (a slot cannot be replayed into another root
   sealed by the same key); it is NOT hardware anti-rollback. Single-host limits
   are the amendment's declared non-claims, carried on the ceremony receipt.
-- The `custody_floor` field does not yet reach the release/autonomy receipts
-  (blocking order above); until it does, only ceremony receipts are fail-closed
-  on the floor.
+- The `custody_floor` field now reaches the gate receipt and the autonomy
+  activation receipt (see "Follow-up MERGED" below); the independent review
+  receipt stays byte-identical by design. Every receipt that names the floor is
+  fail-closed on the closed ratified set.
 - **Quorum wiring follow-up.** The ceremony receipt seals the four seat public
   keys and binds them to the `IndependenceSpecV1` by (principal, key,
   failure-domain). `VerifierSeatV1` carries no public key, so the binding does
@@ -174,7 +181,40 @@ Record the seat public keys, the digests, and the sealed receipt path.
   registry entry the quorum verifier resolves. The future quorum wiring must
   cross-check sealed-pubkey == registered-pubkey.
 
+## Follow-up MERGED (2026-07-21): custody_floor threaded into the receipts
+
+The blocking-order follow-up above is **SATISFIED** on branch
+`feat/g9-custody-floor-threading`. `custody_floor` now rides the digest-sealed
+receipts, not just the ceremony receipt:
+
+- `m1nd-control::release::GateReceiptCoreV1` and
+  `m1nd-control::autonomy::AutonomyActivationReceiptCoreV1` carry `custody_floor`,
+  validated fail-closed against the closed `RATIFIED_CUSTODY_FLOORS` set
+  (`{secure-enclave-single-host-v1}` today) — the exact-set precedent from
+  `authorization_receipt_verifier`. The value is drawn from the ratified constant
+  / ceremony receipt, never request payload. It is era-scoped: a successor Path-A
+  era will carry a different value.
+- The closed set is validated in all three canonical mirrors the CI runs: Rust
+  (`require_ratified_custody_floor`), Python
+  (`m1nd10_release_contract.validate_gate_core`), and Node
+  (`validateCanonicalGateReceipt`). A smuggled `"software"` floor is refused by a
+  negative test in each. `SECURE_ENCLAVE_CUSTODY_FLOOR_V1` has a single source of
+  truth in `m1nd-control`; `enclave_authority` re-exports it.
+
+**Schema disposition (owner-ratified 2026-07-21).** The field joins
+`m1nd-gate-receipt-v1` (and `m1nd-autonomy-activation-receipt-v1`) **without a
+version bump** — the schema stays v1 while its field set grows. Receipts minted
+before this floor existed are historical/void; the pipeline never re-consumes
+them (an activation candidate's gates are re-minted under the floor). The frozen
+canon `tests/fixtures/M1ND10-CANONICAL-VECTORS.json` was therefore **regenerated,
+not migrated**, via the canonical builder: the diff is restricted to
+11×`+custody_floor`, 11× recomputed `receipt_digest`, 11× `receipt_id`; the
+candidate block (`candidate_digest 52544a51…`), the independent review receipt,
+the canonical/refusal cases, and the operational manifests stay byte-identical.
+The three canonical verifiers pass and the fixture re-derivation test is green.
+
 ## Lineage
 - Decision: `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md`
 - Ratification: `docs/proofs/m1nd10-g9-a1-custody-floor-ratification-20260721.md`
+- Threading follow-up: branch `feat/g9-custody-floor-threading` (this update)
 - Enclave adapter precedent: `docs/proofs/m1nd10-g2-p256-secure-enclave-adapter-20260718.md`

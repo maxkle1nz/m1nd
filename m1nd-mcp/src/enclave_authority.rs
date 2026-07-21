@@ -845,11 +845,14 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
 // domains, the human owner's biometric seat public key (owner_signature, never a
 // voting seat), and the independence-spec and constitution digests the quorum
 // binds to. THIS ceremony receipt is fail-closed on the declared custody floor.
-// The release/autonomy receipts (`m1nd-control::release`, the autonomy activation
-// receipt) do NOT yet carry `custody_floor` — that threading is a declared
-// follow-up. BLOCKING ORDER (G9-A1 ratification): that follow-up must merge
-// BEFORE the owner's custody ceremony and before any G9/G10 receipt is minted
-// under this floor, so no receipt can claim the floor without carrying it.
+// The gate receipt (`m1nd-control::release::GateReceiptCoreV1`) and the autonomy
+// activation receipt (`m1nd-control::autonomy::AutonomyActivationReceiptCoreV1`)
+// now carry `custody_floor` too, validated against the closed
+// `m1nd-control::RATIFIED_CUSTODY_FLOORS` set across all three canonical mirrors
+// (Rust/Python/Node). BLOCKING ORDER (G9-A1 ratification): the threading
+// prerequisite is SATISFIED — the follow-up merged (feat/g9-custody-floor-
+// threading), so no receipt can claim the floor without carrying it, and the
+// owner's custody ceremony is no longer blocked by it.
 // ===========================================================================
 
 pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";
