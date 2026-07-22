@@ -7448,6 +7448,31 @@ impl McpServer {
         };
         eprintln!("[m1nd] Domain: {}", domain_config.name);
 
+        // Step 0: One-time legacy-snapshot adoption (upgrade-path repair).
+        //
+        // Field-triage 2026-07-22: a pre-1.5 layout kept its populated snapshot at
+        // the legacy `./graph_snapshot.json` (cwd) while the new runtime graph is
+        // born empty under the runtime dir — stranding the whole graph and dropping
+        // upgraders into needs_ingest. Adopt it ONCE into the runtime root before
+        // the load below finds it. Owner boot only (a read-only attach never
+        // writes); idempotent + journaled; never over a populated runtime graph.
+        // Best-effort: the honest stderr line is emitted inside the call, and any
+        // skip/failure leaves the normal load path unchanged.
+        if !config.read_only {
+            if let Some(runtime_root) = config.runtime_dir.as_deref() {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let legacy_graph_path = cwd.join("graph_snapshot.json");
+                let legacy_plasticity_path = cwd.join("plasticity_state.json");
+                let _ = crate::legacy_snapshot_adoption::maybe_adopt_legacy_snapshot(
+                    &config.graph_source,
+                    &legacy_graph_path,
+                    &config.plasticity_state,
+                    &legacy_plasticity_path,
+                    runtime_root,
+                );
+            }
+        }
+
         // Step 1: Try to load graph snapshot
         let (mut graph, graph_loaded) = if config.graph_source.exists() {
             match m1nd_core::snapshot::load_graph(&config.graph_source) {
@@ -11047,7 +11072,12 @@ mod tests {
     }
 
     #[test]
-    fn recovery_playbook_empty_graph_returns_needs_ingest() {
+    fn recovery_playbook_empty_graph_refuses_policy_disabled_ingest() {
+        // Field-triage 2026-07-22: an empty brain's needs_ingest playbook used to
+        // recommend `{tool:"ingest"}` — a verb the server's OWN policy refuses on
+        // this binding (graph.ingest.replace = POSITIVE_SOVEREIGN). Recommending a
+        // refused verb sends the agent into a refusal loop. The honest recovery is
+        // still `blocked` + `needs_ingest`, but it names the real gap instead.
         let (_temp, mut state) = build_state();
 
         let output = super::dispatch_tool(
@@ -11063,12 +11093,135 @@ mod tests {
         assert_eq!(output["status"], "blocked");
         assert_eq!(output["trust_mode"], "needs_ingest");
         assert!(
-            output["steps"]
+            !output["steps"]
                 .as_array()
                 .expect("steps")
                 .iter()
-                .any(|step| step["id"] == "call_ingest" && step["tool"] == "ingest"),
-            "recovery playbook should include an ingest step for an empty graph"
+                .any(|step| step["tool"] == "ingest"),
+            "playbook must not recommend the policy-disabled generic ingest verb, got {}",
+            output["steps"]
+        );
+        // The honest gap is named in the existing G2/G3 consumer language.
+        let rendered = serde_json::to_string(&output).expect("serialize playbook");
+        assert!(
+            rendered.contains("brain_bootstrap_consumer_not_installed"),
+            "playbook must name the honest bootstrap gap, got {rendered}"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_never_recommends_a_policy_refused_tool() {
+        // Property guard: across every recovery scenario, no emitted step may name
+        // a tool whose generic dispatch the server would refuse with the step's own
+        // arguments. The assertion consults the REAL policy gate, so a future
+        // playbook step that recommends a sovereign verb fails this test.
+        fn assert_no_policy_refused_step(output: &serde_json::Value, label: &str) {
+            for step in output["steps"].as_array().expect("steps") {
+                let Some(tool) = step["tool"].as_str() else {
+                    continue;
+                };
+                let args = step
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                assert!(
+                    super::enforce_generic_action_policy(tool, &args).is_ok(),
+                    "playbook step {} recommends policy-refused tool '{tool}' with args {args} \
+                     (scenario {label})",
+                    step["id"],
+                );
+            }
+        }
+
+        // needs_ingest — an empty brain must not name the sovereign ingest verb.
+        {
+            let (_temp, mut state) = build_state();
+            let output = super::dispatch_tool(
+                &mut state,
+                "recovery_playbook",
+                &serde_json::json!({ "agent_id": "jimi" }),
+            )
+            .expect("needs_ingest playbook");
+            assert_eq!(output["trust_mode"], "needs_ingest");
+            assert_no_policy_refused_step(&output, "needs_ingest");
+        }
+
+        // wrong_workspace_binding — a populated brain + an absolute scope outside it.
+        {
+            let (temp, mut state) = build_state();
+            let active_repo = temp.path().join("active-repo");
+            std::fs::create_dir_all(active_repo.join("src")).expect("active src");
+            std::fs::write(active_repo.join("src/lib.rs"), "pub fn active() {}\n")
+                .expect("active file");
+            crate::tools::handle_ingest(
+                &mut state,
+                crate::protocol::IngestInput {
+                    path: active_repo.to_string_lossy().to_string(),
+                    agent_id: "jimi".into(),
+                    mode: "replace".into(),
+                    incremental: false,
+                    adapter: "code".into(),
+                    namespace: None,
+                    include_dotfiles: false,
+                    dotfile_patterns: Vec::new(),
+                    project_root: None,
+                },
+            )
+            .expect("ingest active repo");
+            let other_repo = temp.path().join("other-repo");
+            std::fs::create_dir_all(other_repo.join("src")).expect("other src");
+            let output = super::dispatch_tool(
+                &mut state,
+                "recovery_playbook",
+                &serde_json::json!({
+                    "agent_id": "jimi",
+                    "observed_tool": "seek",
+                    "observed_proof_state": "blocked",
+                    "scope": other_repo.join("src").to_string_lossy(),
+                }),
+            )
+            .expect("wrong_workspace playbook");
+            assert_eq!(output["trust_mode"], "wrong_workspace_binding");
+            assert_no_policy_refused_step(&output, "wrong_workspace_binding");
+        }
+
+        // degraded_host_tool_surface — doctor available, ingest missing.
+        {
+            let (_temp, mut state) = build_state();
+            let output = super::dispatch_tool(
+                &mut state,
+                "recovery_playbook",
+                &serde_json::json!({
+                    "agent_id": "jimi",
+                    "observed_tool_count": 3,
+                    "available_tools": ["seek", "audit", "doctor"],
+                    "missing_tools": ["ingest"],
+                }),
+            )
+            .expect("degraded playbook");
+            assert_no_policy_refused_step(&output, "degraded_host_tool_surface");
+        }
+    }
+
+    #[test]
+    fn ingest_project_root_hint_never_points_at_the_runtime_dir() {
+        // Field-triage 2026-07-22: on a fresh brain the needs_ingest step pointed
+        // ingest at the RUNTIME dir (.m1nd), not the corpus, because `workspace_root`
+        // can be demoted onto the runtime dir. The hint must resolve the real repo.
+        let (_temp, mut state) = build_state();
+        let runtime_dir = state.runtime_root.to_string_lossy().to_string();
+        // Reproduce the demotion: workspace_root sitting on the runtime dir.
+        state.workspace_root = Some(runtime_dir.clone());
+        state.caller_root = Some("/repo/corpus".to_string());
+
+        let hint = crate::tools::ingest_project_root_hint(&state, None);
+        assert_ne!(
+            hint, runtime_dir,
+            "ingest hint must never be the runtime dir, got {hint}"
+        );
+        assert_eq!(
+            hint, "/repo/corpus",
+            "ingest hint must resolve the caller's real repo root"
         );
     }
 

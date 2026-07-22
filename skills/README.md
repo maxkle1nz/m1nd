@@ -18,8 +18,9 @@ It is intentionally host-neutral:
 
 The general agent pack carries the trained-agent loop measured in internal bug-hunt rounds:
 `north(task)` as the in-session front door (one round-trip for trust, task
-context, prior memory, sufficiency, and one `next_move`; `needs_ingest` → ingest
-→ re-north), then act on the calibrated verdicts (`act`/`reverify`/`abstain`,
+context, prior memory, sufficiency, and one `next_move`; `needs_ingest` → follow
+the `recovery_playbook`, which names `ingest` only where the mutation policy
+allows it → re-north), then act on the calibrated verdicts (`act`/`reverify`/`abstain`,
 `closure`, `trust_envelope`, `insufficient_evidence`), prove final truth
 directly, and `memorize` the durable finding at close. Recovery before absence,
 workspace-binding clarity, and evidence logging stay part of the loop.
