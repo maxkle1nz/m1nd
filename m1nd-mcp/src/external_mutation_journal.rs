@@ -368,12 +368,12 @@ impl ExternalMutationJournalV1 {
             tail_digest = Some(record.record_digest);
         }
         if complete_len != bytes.len() {
-            file.set_len(complete_len as u64)
-                .and_then(|()| file.sync_all())
-                .map_err(|source| ExternalMutationJournalError::Io {
+            truncate_journal_tail(&file, &path, complete_len as u64).map_err(|source| {
+                ExternalMutationJournalError::Io {
                     operation: "truncate_torn_external_mutation_journal_tail",
                     source,
-                })?;
+                }
+            })?;
         }
         let protected_head = protected_head_backend
             .as_ref()
@@ -1410,6 +1410,27 @@ fn open_journal_no_follow(_path: &Path) -> std::io::Result<File> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "external mutation journal no-follow durable open is not proven on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn truncate_journal_tail(file: &File, _path: &Path, complete_len: u64) -> std::io::Result<()> {
+    file.set_len(complete_len)?;
+    file.sync_all()
+}
+
+#[cfg(windows)]
+fn truncate_journal_tail(_file: &File, path: &Path, complete_len: u64) -> std::io::Result<()> {
+    // Append-only Windows journal handles cannot `SetEndOfFile`; truncate the
+    // torn tail through a dedicated write handle instead.
+    crate::windows_durable_fs::truncate_no_follow(path, complete_len)
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn truncate_journal_tail(_file: &File, _path: &Path, _complete_len: u64) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "external mutation journal torn-tail truncation is not proven on this platform",
     ))
 }
 

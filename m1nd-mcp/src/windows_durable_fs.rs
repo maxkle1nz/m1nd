@@ -74,6 +74,21 @@ pub(crate) fn open_write_no_follow(path: &Path) -> io::Result<File> {
     validate_opened_target(options.open(path)?, path)
 }
 
+/// Durably truncates a torn journal tail on Windows.
+///
+/// A journal opened with [`open_read_append_create_no_follow`] carries only
+/// `FILE_APPEND_DATA` (Rust drops `FILE_WRITE_DATA` for append handles), so
+/// `File::set_len` on that handle is refused with `ERROR_ACCESS_DENIED`.
+/// Recovery therefore truncates through a dedicated no-follow write handle,
+/// which does hold `FILE_WRITE_DATA`, exactly as `evidence_spine` already does
+/// for its own tail repair. The append handle keeps writing at end-of-file, so
+/// the next record still lands immediately after the truncation point.
+pub(crate) fn truncate_no_follow(path: &Path, len: u64) -> io::Result<()> {
+    let file = open_write_no_follow(path)?;
+    file.set_len(len)?;
+    file.sync_all()
+}
+
 pub(crate) fn open_read_append_create_no_follow(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options

@@ -29,6 +29,18 @@ UI changes (`m1nd-ui/`) additionally:
 cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
 ```
 
+**Cross-platform fs & path contract (Windows is a first-class CI OS):**
+- Never `set_len`/truncate on an append-mode handle — on Windows it lacks `FILE_WRITE_DATA`
+  (os error 5). Route tail-truncation through `windows_durable_fs::truncate_no_follow`.
+- Never hold long-lived lock files opened with `share_mode(0)` — read-only tree snapshots then
+  die with sharing violations (os error 32). Share reads (`FILE_SHARE_READ`); write access stays
+  unshared so single-owner collision detection is unchanged.
+- Never screen operator-supplied paths with `Path::is_absolute` alone — `"/x"`, `"\x"` and
+  `"C:\x"` are not absolute under the other OS's semantics. Use the shared helpers
+  (`is_safe_relative_discovery_pattern`, `m1nd_ingest::exact_path_identity`) so security screens
+  and identity stamps agree on every OS (2026-07-22 incident: a rooted discovery pattern escaped
+  the scanned root on Windows).
+
 Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before finishing.
 If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`), re-run
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
