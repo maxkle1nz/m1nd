@@ -352,7 +352,11 @@ def inspect_crate(path: Path) -> dict[str, Any]:
         raise CratePackageError("crate VCS source identity is not valid JSON") from error
     git = vcs.get("git") if isinstance(vcs, dict) else None
     source_commit = git.get("sha1") if isinstance(git, dict) else None
-    source_dirty = git.get("dirty") if isinstance(git, dict) else None
+    # Cargo only emits `dirty` in .cargo_vcs_info.json when the tree was dirty at
+    # package time; on a clean tagged commit the field is absent. Treat absent as
+    # not-dirty rather than rejecting it (the field being present-but-non-bool is
+    # still an integrity failure).
+    source_dirty = git.get("dirty", False) if isinstance(git, dict) else None
     if not isinstance(source_commit, str) or not SHA1_RE.fullmatch(source_commit):
         raise CratePackageError("crate VCS source commit is missing or invalid")
     if not isinstance(source_dirty, bool):
