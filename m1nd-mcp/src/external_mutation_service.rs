@@ -7068,7 +7068,6 @@ mod tests {
     static SOURCE_MATRIX_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     struct SourceMatrixFixture {
-        _serial: std::sync::MutexGuard<'static, ()>,
         _temp: TempDir,
         repo_root: PathBuf,
         runtime_root: PathBuf,
@@ -7089,6 +7088,10 @@ mod tests {
         operation_object_digest: String,
         actor_calls: Arc<AtomicU64>,
         checkpoint_acks: Arc<Mutex<Vec<BrainPromoteCheckpointAckV1>>>,
+        // Declared LAST so it drops LAST: the latch must outlive the host /
+        // actor-registry teardown above (fields drop in declaration order), or
+        // the next fixture binds while this one's actor is still draining.
+        _serial: std::sync::MutexGuard<'static, ()>,
     }
 
     impl SourceMatrixFixture {

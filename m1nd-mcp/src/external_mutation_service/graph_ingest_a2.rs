@@ -1778,6 +1778,9 @@ fn is_safe_relative_discovery_pattern(pattern: &str) -> bool {
         && !pattern.starts_with('\\')
         && pattern.as_bytes().get(1) != Some(&b':')
         && !Path::new(pattern).is_absolute()
+        && !pattern
+            .split(['/', '\\'])
+            .any(|segment| segment == "." || segment == "..")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1874,6 +1877,14 @@ mod tests {
             vec!["\\rooted".to_string()],
             vec!["C:\\drive".to_string()],
             vec!["\\\\?\\C:\\verbatim".to_string()],
+            // Dot segments must be refused on every OS (mirror of
+            // `is_valid_relative_file_path`): a future consumer that joins a
+            // pattern to the root must never inherit a traversal vector.
+            vec!["..".to_string()],
+            vec!["../escape".to_string()],
+            vec!["a/../b".to_string()],
+            vec!["a\\..\\b".to_string()],
+            vec![".".to_string()],
             vec![".env".to_string(), ".env".to_string()],
         ] {
             let mut request = input(None);
