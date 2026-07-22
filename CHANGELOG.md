@@ -141,6 +141,34 @@ control-plane organism. Span `v1.4.0..HEAD`: roughly 85 pull requests (#302 → 
 - **quick-xml 0.41.** Upgraded to clear 4 RUSTSEC advisories.
 - **Updater fsync fixes.** Durability fixes in the updater's write path.
 
+### Pre-tag dogfood hardening (2026-07-22)
+
+Found by running the new m1nd on m1nd. Every fix below was reproduced as a failing test before the
+fix landed.
+
+- **MCP tool-schema contract.** `mission_service` and `external_mutation_service` advertised a bare
+  top-level `oneOf` on `inputSchema`; strict MCP clients (Claude Code) reject the ENTIRE `tools/list`
+  when one tool omits the top-level `"type": "object"` — every m1nd tool silently vanished from live
+  sessions. Fixed, with a registry-wide regression test.
+- **Honest recovery playbook.** On an empty brain the playbook recommended the policy-refused generic
+  `ingest` verb (a refusal loop); it now consults the live mutation policy and names the real
+  recovery paths.
+- **Legacy snapshot adoption at boot.** A one-time, journaled adoption of a pre-1.5 cwd-layout graph
+  snapshot into the runtime root, so a 1.4→1.5 owner boots with its brain instead of `needs_ingest`.
+- **Windows path/handle hardening.** Closed a cross-platform **security** gap where a rooted
+  discovery pattern could escape the scanned root on Windows (`Path::is_absolute` is not
+  OS-independent); implemented the real Windows anchored walk for the peek allow-root (was a stub
+  that always refused); routed torn-journal truncation and directory removal through Windows-durable
+  primitives (os error 5/32); shared registry lock files for read.
+
+### Known gap (honest)
+
+- **Windows source-edit transaction suite.** A pre-existing Windows path-canonicalization mismatch in
+  the source-edit transaction subsystem (`fs::canonicalize` emits the `\\?\` verbatim prefix that
+  stored/constructed identities lack) leaves ~22 tests red on Windows — red since before this era,
+  not a regression, and gated behind DORMANT / HUMAN_GATED machinery. Tracked as a follow-up with a
+  full diagnosis; it does not affect the shipped read/graph paths. Windows remains a declared phase 2.
+
 ---
 
 ## [1.4.0] — 2026-07-06
