@@ -27,6 +27,18 @@ const LEASE_DIR_NAME: &str = "leases";
 const DEFAULT_REGISTRY_SUBDIR: &str = ".m1nd/registry";
 const STALE_AFTER_MS: u64 = 30_000;
 
+/// Windows share mode for the crash-released lock files (`*.owner.lock`,
+/// `.lease-mutations.guard`). Sharing READ lets read-only registry inspection —
+/// `list_instances`, `doctor`, and durable-tree snapshots — open a lock while it
+/// is held, matching Unix `flock`, which never blocks readers. A competing
+/// WRITER still collides because its write access is not shared, so single-owner
+/// exclusion is unchanged: `acquire_os`/`LeaseMutationGuard` still see
+/// `ERROR_SHARING_VIOLATION` (32) from a second acquirer and treat it as "held".
+/// Opening these files fully exclusive (`share_mode(0)`) is what made a Windows
+/// reader fail with error 32 where the Unix reader succeeds.
+#[cfg(windows)]
+const LOCK_FILE_SHARE_MODE: u32 = windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstanceRegistryEntry {
     pub instance_id: String,
@@ -767,7 +779,7 @@ impl OwnerLifetimeGuard {
             .read(true)
             .write(true)
             .create(true)
-            .share_mode(0)
+            .share_mode(LOCK_FILE_SHARE_MODE)
             .open(&path)
         {
             Ok(file) => Ok(Self { path, file }),
@@ -869,7 +881,7 @@ impl LeaseMutationGuard {
                     .read(true)
                     .write(true)
                     .create(true)
-                    .share_mode(0)
+                    .share_mode(LOCK_FILE_SHARE_MODE)
                     .open(&guard_path)
                 {
                     Ok(file) => {

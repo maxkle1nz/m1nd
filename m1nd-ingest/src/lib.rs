@@ -110,7 +110,16 @@ pub(crate) fn relative_source_path(root: &Path, path: &Path) -> String {
     relative
 }
 
-fn exact_path_identity(path: &Path) -> M1ndResult<String> {
+/// The canonical, cross-platform identity string for an **already-canonicalized**
+/// managed path. This is the exact value stamped into
+/// [`ownership::CodeOwnershipManifestV1::root_identity`] and every managed source
+/// key, so any consumer that must compare against a bundle's `root_identity`
+/// (e.g. the graph-ingest admission path in `m1nd-mcp`) has to derive its own
+/// root string through this same function — Windows `canonicalize` yields a
+/// `\\?\C:\...` verbatim path, which is normalized here to `//?/C:/...` so the
+/// identity never depends on the OS separator. Callers pass a path they have
+/// already run through [`std::fs::canonicalize`]; this does not canonicalize.
+pub fn exact_path_identity(path: &Path) -> M1ndResult<String> {
     let identity = path.to_str().ok_or_else(|| M1ndError::InvalidParams {
         tool: "ingest_identity".into(),
         detail: format!("managed path is not valid UTF-8: {}", path.display()),

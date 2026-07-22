@@ -59,6 +59,8 @@ pub mod curation_runner;
 pub mod boot_memory_handlers;
 // M1ND-10 G6 — conservative one-way retirement of arbitrary Boot KV.
 pub mod boot_kv_migration;
+// Upgrade-path repair: one-time boot adoption of a pre-1.5 legacy graph snapshot.
+pub mod legacy_snapshot_adoption;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
 pub mod engine_ops;

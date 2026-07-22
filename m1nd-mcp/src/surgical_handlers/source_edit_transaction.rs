@@ -3789,9 +3789,16 @@ fn cleanup_aborted_pre_stage<F: SourceEditFaults>(
 
     if managed_entry_exists(&directory)? {
         validate_private_directory(&directory)?;
-        let mut entries = fs::read_dir(&directory)
-            .map_err(|error| io_error("pre_stage_abort_directory_read", error))?;
-        if entries.next().is_some() {
+        // Scope the ReadDir so its directory handle is closed before removal.
+        // Windows `RemoveDirectoryW` fails with ERROR_SHARING_VIOLATION while any
+        // handle to the directory is open, and a live `ReadDir` holds exactly such
+        // a handle; POSIX tolerates rmdir with an open DIR* so unix never noticed.
+        let directory_is_empty = {
+            let mut entries = fs::read_dir(&directory)
+                .map_err(|error| io_error("pre_stage_abort_directory_read", error))?;
+            entries.next().is_none()
+        };
+        if !directory_is_empty {
             return Err(SourceEditTransactionError::RecoveryRequired {
                 transaction_id: transaction_id.clone(),
                 detail: "pre-stage transaction directory contains an unknown artifact".to_string(),

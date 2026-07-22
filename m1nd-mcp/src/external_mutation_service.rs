@@ -7057,6 +7057,16 @@ mod tests {
     const SOURCE_MATRIX_BEFORE: &str = "pub fn before() -> u8 { 1 }\n";
     const SOURCE_MATRIX_AFTER: &str = "pub fn after() -> u8 { 2 }\n";
 
+    /// The source recovery matrix spawns real brain-actor threads and drives
+    /// restart cycles whose previous owner releases *asynchronously* — the actor
+    /// thread must drain and drop before `actor_active` clears. Running several of
+    /// these fixtures at once starves that drain on a loaded CI runner, so the
+    /// restart bind in `host_for_brain` can miss even its 30s wait. Serialize the
+    /// family so only one source matrix fixture is live at a time: each cycle's
+    /// actor is free to release before the next one binds. A poisoned latch is
+    /// irrelevant (it carries no state), so recover from it.
+    static SOURCE_MATRIX_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     struct SourceMatrixFixture {
         _temp: TempDir,
         repo_root: PathBuf,
@@ -7078,6 +7088,10 @@ mod tests {
         operation_object_digest: String,
         actor_calls: Arc<AtomicU64>,
         checkpoint_acks: Arc<Mutex<Vec<BrainPromoteCheckpointAckV1>>>,
+        // Declared LAST so it drops LAST: the latch must outlive the host /
+        // actor-registry teardown above (fields drop in declaration order), or
+        // the next fixture binds while this one's actor is still draining.
+        _serial: std::sync::MutexGuard<'static, ()>,
     }
 
     impl SourceMatrixFixture {
@@ -7096,6 +7110,9 @@ mod tests {
         }
 
         fn new() -> Self {
+            let serial = SOURCE_MATRIX_SERIAL
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let temp = tempfile::tempdir().expect("source matrix tempdir");
             let repo_root = temp.path().join("repo");
             let runtime_root = temp.path().join("runtime");
@@ -7256,6 +7273,7 @@ mod tests {
                 runtime_root,
                 target_path,
                 _temp: temp,
+                _serial: serial,
             }
         }
 
