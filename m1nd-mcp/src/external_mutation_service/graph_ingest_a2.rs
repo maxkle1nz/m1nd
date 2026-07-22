@@ -121,11 +121,11 @@ impl GraphIngestA2InputV1 {
                 "owner preview id, full-root path, and exact current source-projection digest are required",
             ));
         }
-        if self.dotfile_patterns.iter().any(|pattern| {
-            pattern.trim().is_empty()
-                || pattern != pattern.trim()
-                || Path::new(pattern).is_absolute()
-        }) {
+        if self
+            .dotfile_patterns
+            .iter()
+            .any(|pattern| !is_safe_relative_discovery_pattern(pattern))
+        {
             return Err(GraphIngestA2Error::new(
                 "graph_ingest_discovery_controls_invalid",
                 "dotfile patterns must be non-empty trimmed relative patterns",
@@ -1751,11 +1751,33 @@ fn canonical_root(root: &str) -> Result<String, GraphIngestA2Error> {
             "A2 code ingestion requires a canonical directory root",
         ));
     }
-    Ok(canonical.to_string_lossy().into_owned())
+    // The identity MUST match `CodeOwnershipManifestV1.root_identity` byte-for-byte
+    // or a full-root bundle looks foreign (on Windows `canonicalize` yields
+    // `\\?\C:\...`, which ingest normalizes to `//?/C:/...`). Reuse ingest's own
+    // normalizer instead of re-deriving it here so the two can never drift.
+    m1nd_ingest::exact_path_identity(&canonical).map_err(|error| {
+        GraphIngestA2Error::new("graph_ingest_root_unavailable", error.to_string())
+    })
 }
 
 fn is_digest(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// A discovery dotfile pattern must be a non-empty, whitespace-trimmed, RELATIVE
+/// pattern. `Path::is_absolute` alone is platform-dependent: on Windows a
+/// leading-separator (`/x`, `\x`) or drive-relative root (`C:\x`) is NOT reported
+/// as absolute, so an operator-supplied pattern could escape the scanned root on
+/// Windows while being refused on POSIX. This rejects the leading-separator and
+/// drive-letter forms on every OS, mirroring the separator/drive rules
+/// `m1nd_ingest::is_valid_relative_file_path` already enforces for source keys.
+fn is_safe_relative_discovery_pattern(pattern: &str) -> bool {
+    !pattern.is_empty()
+        && pattern == pattern.trim()
+        && !pattern.starts_with('/')
+        && !pattern.starts_with('\\')
+        && pattern.as_bytes().get(1) != Some(&b':')
+        && !Path::new(pattern).is_absolute()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1845,6 +1867,13 @@ mod tests {
             vec!["".to_string()],
             vec![" .env".to_string()],
             vec!["/absolute".to_string()],
+            // Windows-rooted forms that `Path::is_absolute` does NOT classify as
+            // absolute on POSIX: a leading backslash, a drive-letter root, and a
+            // verbatim prefix must all be refused on every OS so an operator
+            // pattern can never escape the scanned root.
+            vec!["\\rooted".to_string()],
+            vec!["C:\\drive".to_string()],
+            vec!["\\\\?\\C:\\verbatim".to_string()],
             vec![".env".to_string(), ".env".to_string()],
         ] {
             let mut request = input(None);
@@ -1857,6 +1886,32 @@ mod tests {
                 "graph_ingest_discovery_controls_invalid"
             );
         }
+    }
+
+    #[test]
+    fn canonical_root_identity_matches_ingested_bundle_root_identity() {
+        // Admission compares `bundle.ownership.root_identity` against the
+        // request's `canonical_root(...)`. That only holds cross-platform when
+        // canonical_root normalizes the path exactly like the ingest crate: on
+        // Windows `canonicalize` returns `\\?\C:\...`, which ingest stamps as
+        // `//?/C:/...`. Before the fix canonical_root kept the backslashes, so
+        // every full-root A2 operation was misread as foreign and refused with
+        // `graph_ingest_full_root_required`.
+        let temp = tempfile::tempdir().expect("A2 identity root");
+        std::fs::write(temp.path().join("lib.rs"), "pub fn a2() {}\n").expect("A2 source");
+        let raw_root = temp
+            .path()
+            .canonicalize()
+            .expect("canonical root")
+            .to_string_lossy()
+            .into_owned();
+
+        let identity = canonical_root(&raw_root).expect("canonical identity");
+        let bundle = build_complete_bundle(&identity, false, &[]).expect("full-root bundle");
+        assert_eq!(
+            identity, bundle.ownership.root_identity,
+            "canonical_root must match the identity ingest stamps into the bundle"
+        );
     }
 
     #[test]
