@@ -501,11 +501,6 @@ jobs:
             archive: m1nd-mcp-macos-aarch64.tar.gz
             artifact: m1nd-mcp-macos-aarch64
             raw: m1nd-mcp-macos-aarch64
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            archive: m1nd-mcp-windows-x86_64.zip
-            artifact: m1nd-mcp-windows-x86_64
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -538,20 +533,12 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${{ matrix.raw }}"
-      - name: Stage updater-facing Windows runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "${{ matrix.raw }}"
       - name: Archive Unix runtime
         if: runner.os != 'Windows'
         shell: bash
         run: |
           tar -C "target/${{ matrix.target }}/release" \
             -czf "${{ matrix.archive }}" "${BINARY_NAME}"
-      - name: Archive Windows runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -DestinationPath "${{ matrix.archive }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
@@ -588,12 +575,6 @@ jobs:
             archive: m1nd-mcp-macos-aarch64.tar.gz
             binary: runtime/m1nd-mcp
             raw: m1nd-mcp-macos-aarch64
-          - target: windows-x86_64
-            os: windows-latest
-            artifact: m1nd-mcp-windows-x86_64
-            archive: m1nd-mcp-windows-x86_64.zip
-            binary: runtime/m1nd-mcp.exe
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -610,10 +591,6 @@ jobs:
         run: |
           mkdir runtime
           tar -xzf "${{ matrix.archive }}" -C runtime
-      - name: Install Windows archive bytes
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Expand-Archive -Path "${{ matrix.archive }}" -DestinationPath runtime
       - name: Restore raw Unix executable permission
         if: runner.os != 'Windows'
         shell: bash
@@ -712,7 +689,6 @@ jobs:
             --expected-target linux-x86_64 \
             --expected-target macos-x86_64 \
             --expected-target macos-aarch64 \
-            --expected-target windows-x86_64 \
             --compatibility-output canonical-inputs/RELEASE-COMPATIBILITY.json \
             --rollback-output canonical-inputs/M1ND10-ROLLBACK.json \
             --digest-output canonical-inputs/CANONICAL-OPERATIONAL-DIGESTS.json
@@ -727,7 +703,6 @@ jobs:
             --expected-target linux-x86_64 \
             --expected-target macos-x86_64 \
             --expected-target macos-aarch64 \
-            --expected-target windows-x86_64 \
             --required-job tag-guard \
             --required-job release-gate \
             --required-job build \
@@ -792,7 +767,6 @@ jobs:
             release-bins/m1nd-mcp-linux-x86_64
             release-bins/m1nd-mcp-macos-x86_64
             release-bins/m1nd-mcp-macos-aarch64
-            release-bins/m1nd-mcp-windows-x86_64.exe
             release-bins/*.json
             release-bins/SHA256SUMS
       - name: GitHub Sigstore SBOM attestation
@@ -806,7 +780,6 @@ jobs:
             release-bins/m1nd-mcp-linux-x86_64
             release-bins/m1nd-mcp-macos-x86_64
             release-bins/m1nd-mcp-macos-aarch64
-            release-bins/m1nd-mcp-windows-x86_64.exe
             release-bins/CANDIDATE.json
             release-bins/GATE-RECEIPT.json
             release-bins/ROLLBACK.json
@@ -847,9 +820,6 @@ jobs:
           - target: macos-aarch64
             os: macos-latest
             raw: m1nd-mcp-macos-aarch64
-          - target: windows-x86_64
-            os: windows-latest
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:

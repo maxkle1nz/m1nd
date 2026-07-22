@@ -16,6 +16,7 @@ const {
   hostStatus,
   hostRecipe,
   githubReleaseAssetName,
+  githubReleaseAvailability,
   canonicalJsonV1,
   parseIntegerJson,
   domainSeparatedDigest,
@@ -128,6 +129,28 @@ assert.strictEqual(
   "m1nd-mcp-windows-x86_64.exe"
 );
 assert.strictEqual(githubReleaseAssetName("win32", "arm64"), null);
+{
+  // Windows is phase-2: the release ships no Windows binary, so runtime
+  // acquisition on win32 must refuse with a clear message instead of a later
+  // ENOENT on a m1nd-mcp.exe that was never downloaded. Clear the availability
+  // override so the guard, not a test fixture, decides — and prove it returns
+  // before any network probe.
+  const savedAvailable = process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  delete process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  const windowsAvailability = githubReleaseAvailability("1.5.0", "win32", "x64");
+  assert.strictEqual(windowsAvailability.ok, false);
+  assert.strictEqual(windowsAvailability.available, false);
+  assert.strictEqual(windowsAvailability.source, "windows-phase-2");
+  assert.strictEqual(
+    windowsAvailability.error,
+    "m1nd 1.5.0 does not ship a Windows binary; Windows support is phase-2"
+  );
+  if (savedAvailable === undefined) {
+    delete process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  } else {
+    process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE = savedAvailable;
+  }
+}
 assert.strictEqual(
   commandLooksLikeRuntime("/Us" + "ers/alice/.m1nd/bin/" + runtimeBinaryName() + " --stdio"),
   true
