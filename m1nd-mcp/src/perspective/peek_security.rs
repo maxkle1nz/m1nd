@@ -256,7 +256,72 @@ fn open_beneath_root(canonical_root: &Path, canonical: &Path) -> M1ndResult<fs::
     unreachable!("non-empty component list returns on its final component")
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn open_beneath_root(canonical_root: &Path, canonical: &Path) -> M1ndResult<fs::File> {
+    // Windows analog of the Unix descriptor walk. Every open refuses reparse
+    // points (`FILE_FLAG_OPEN_REPARSE_POINT`, the `O_NOFOLLOW` equivalent) and
+    // every child is opened relative to the parent's handle through
+    // `NtCreateFile`'s `RootDirectory` binding (the `openat` equivalent), so a
+    // same-user reparse-point swap mid-walk cannot redirect the later read
+    // outside the allow-root. This mirrors the anchored walk `graph_ingest_a2`
+    // already performs with the same `windows_durable_fs` primitives.
+    let root_metadata = fs::metadata(canonical_root).map_err(M1ndError::Io)?;
+    if root_metadata.is_file() {
+        if canonical != canonical_root {
+            return Err(M1ndError::InvalidParams {
+                tool: "perspective.peek".into(),
+                detail: "a file allow-root only authorizes that exact file".into(),
+            });
+        }
+        return crate::windows_durable_fs::open_read_no_follow(canonical_root)
+            .map_err(M1ndError::Io);
+    }
+    if !root_metadata.is_dir() {
+        return Err(M1ndError::InvalidParams {
+            tool: "perspective.peek".into(),
+            detail: "allow-root is neither a regular file nor directory".into(),
+        });
+    }
+
+    let relative =
+        canonical
+            .strip_prefix(canonical_root)
+            .map_err(|_| M1ndError::InvalidParams {
+                tool: "perspective.peek".into(),
+                detail: format!("path '{}' is outside allowed root", canonical.display()),
+            })?;
+    let components = relative.components().collect::<Vec<_>>();
+    if components.is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: "perspective.peek".into(),
+            detail: "a directory allow-root is not itself readable as a file".into(),
+        });
+    }
+
+    let mut current = crate::windows_durable_fs::open_directory_no_follow(canonical_root)
+        .map_err(M1ndError::Io)?;
+    for (index, component) in components.iter().enumerate() {
+        let name = match component {
+            std::path::Component::Normal(name) => *name,
+            _ => {
+                return Err(M1ndError::InvalidParams {
+                    tool: "perspective.peek".into(),
+                    detail: "canonical relative path contains a non-normal component".into(),
+                });
+            }
+        };
+        let last = index + 1 == components.len();
+        if last {
+            return crate::windows_durable_fs::open_relative_read_no_follow(&current, name)
+                .map_err(M1ndError::Io);
+        }
+        current = crate::windows_durable_fs::open_relative_directory_no_follow(&current, name)
+            .map_err(M1ndError::Io)?;
+    }
+    unreachable!("non-empty component list returns on its final component")
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn open_beneath_root(_canonical_root: &Path, _canonical: &Path) -> M1ndResult<fs::File> {
     Err(M1ndError::InvalidParams {
         tool: "perspective.peek".into(),
