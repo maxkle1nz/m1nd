@@ -3808,6 +3808,9 @@ fn mission_service_tool_schema() -> serde_json::Value {
         "name": "mission_service",
         "description": "M1ND-10 G3 sole external mission mutation boundary. Accepts the closed v1 action union; authority and owner time are injected by the owner and are forbidden in the body. Legacy mission_post, receipt_import, and raw landed are permanent tombstones.",
         "inputSchema": {
+            // MCP requires a top-level "type": "object"; clients (e.g. Claude Code)
+            // reject the ENTIRE tools/list if any tool ships a bare oneOf.
+            "type": "object",
             "oneOf": [
                 variant(
                     "land_intent",
@@ -3921,6 +3924,9 @@ fn external_mutation_service_tool_schema() -> serde_json::Value {
         "name": "external_mutation_service",
         "description": "M1ND-10 closed MCP-only consumer for exact elevated system-block ratification, brain promotion, source-edit commit, and governed full-root code ingestion. Action, effects, authority identity, and owner time are derived or injected owner-side; lease labels never authorize generic tools.",
         "inputSchema": {
+            // MCP requires a top-level "type": "object"; clients (e.g. Claude Code)
+            // reject the ENTIRE tools/list if any tool ships a bare oneOf.
+            "type": "object",
             "oneOf": [
                 variant(
                     "system_blocks_ratify",
@@ -11700,6 +11706,28 @@ mod tests {
             ESSENTIAL_TOOLS.len(),
             count
         );
+    }
+
+    /// Every advertised tool must declare a top-level `"type": "object"` on its
+    /// inputSchema. The MCP spec requires it and Claude Code validates it
+    /// strictly: ONE offending tool makes the client reject the ENTIRE
+    /// tools/list, silently unregistering every m1nd tool (2026-07-22 incident:
+    /// mission_service/external_mutation_service shipped a bare top-level oneOf).
+    #[test]
+    fn every_tool_input_schema_is_top_level_object() {
+        let full = all_tool_schemas();
+        let tools = full["tools"].as_array().expect("tools array");
+        assert!(!tools.is_empty(), "registry must not be empty");
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap_or("<unnamed>");
+            let ty = tool["inputSchema"]["type"].as_str();
+            assert_eq!(
+                ty,
+                Some("object"),
+                "tool '{name}' inputSchema.type must be \"object\" (got {ty:?}); a single \
+                 violation makes MCP clients drop the whole tools/list"
+            );
+        }
     }
 
     /// all_tool_schemas() must always return the full registry regardless of tier,

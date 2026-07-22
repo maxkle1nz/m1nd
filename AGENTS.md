@@ -45,6 +45,13 @@ Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before fini
 If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`), re-run
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
 
+**MCP tool-schema contract:** every advertised tool's `inputSchema` MUST declare a top-level
+`"type": "object"` (MCP spec). Strict clients (Claude Code) reject the ENTIRE `tools/list`
+when a single tool violates it — the 2026-07-22 incident (a bare top-level `oneOf` on
+`mission_service`/`external_mutation_service`) silently unregistered all 48 tools from live
+sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
+(`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
+
 ## Git identity — ABSOLUTE
 
 - Author every commit as **`Max Kle1nz <kleinz@cosmophonix.com>`**. Never as a bot, never as
