@@ -2109,6 +2109,16 @@ function githubReleaseAvailability(
       error: available ? null : "test override reported unavailable",
     };
   }
+  if (platform === "win32") {
+    return {
+      ok: false,
+      available: false,
+      asset,
+      url,
+      source: "windows-phase-2",
+      error: `m1nd ${version} does not ship a Windows binary; Windows support is phase-2`,
+    };
+  }
   const curl = trustedUpdateTool("curl");
   if (!curl) {
     return {
@@ -4800,6 +4810,7 @@ module.exports = {
   runtimeBinaryName,
   commandLooksLikeRuntime,
   githubReleaseAssetName,
+  githubReleaseAvailability,
   canonicalJson,
   canonicalJsonV1,
   parseIntegerJson,
