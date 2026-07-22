@@ -70,6 +70,23 @@ fn playbook_step(
     serde_json::Value::Object(step)
 }
 
+/// The repository a needs-ingest playbook should name — the binding's real
+/// PROJECT root, never its runtime sidecar dir.
+///
+/// Field-triage 2026-07-22: on a fresh/empty brain served with a dedicated
+/// runtime dir, `workspace_root` can be demoted onto that runtime dir (`.m1nd`),
+/// so the needs_ingest step pointed `ingest` at the runtime dir instead of the
+/// corpus. Prefer an explicit caller scope, then a resolved code root (which
+/// never returns a memory sidecar or a non-repo runtime dir), then the caller's
+/// own repo root; the placeholder only when nothing real resolves.
+pub(crate) fn ingest_project_root_hint(state: &SessionState, scope: Option<&str>) -> String {
+    scope
+        .map(str::to_string)
+        .or_else(|| state.code_root_path())
+        .or_else(|| state.caller_root.clone())
+        .unwrap_or_else(|| "<intended-repo-path>".to_string())
+}
+
 fn note_learn_node_effect(
     weight_deltas: &mut HashMap<NodeId, f32>,
     edge_events: &mut HashMap<NodeId, u16>,
@@ -4050,11 +4067,7 @@ pub fn handle_recovery_playbook(
         )
         .get("arguments")
         .cloned();
-    let ingest_path = input
-        .scope
-        .clone()
-        .or_else(|| state.workspace_root.clone())
-        .unwrap_or_else(|| "<intended-repo-path>".to_string());
+    let ingest_path = ingest_project_root_hint(state, input.scope.as_deref());
 
     let (status, recovery_goal, next_action, steps) = match trust_mode {
         "wrong_workspace_binding" => {
@@ -4092,16 +4105,37 @@ pub fn handle_recovery_playbook(
                             }
                         })),
                     ),
-                    playbook_step(
-                        "same_binding_ingest_if_intentional",
-                        "If this session should intentionally switch or merge context, call ingest for requested_workspace_hint on this same binding.",
-                        "This is an explicit mutation; do it only when the agent truly wants this runtime to carry that repo context.",
-                        Some("ingest"),
-                        Some(serde_json::json!({
+                    {
+                        // Only recommend the generic ingest verb for an
+                        // intentional context switch when the server's policy
+                        // actually admits it; otherwise name the honest path.
+                        let switch_ingest_args = serde_json::json!({
                             "agent_id": agent_id.clone(),
-                            "path": requested_workspace_hint,
-                        })),
-                    ),
+                            "path": requested_workspace_hint.clone(),
+                        });
+                        if crate::server::enforce_generic_action_policy(
+                            "ingest",
+                            &switch_ingest_args,
+                        )
+                        .is_ok()
+                        {
+                            playbook_step(
+                                "same_binding_ingest_if_intentional",
+                                "If this session should intentionally switch or merge context, call ingest for requested_workspace_hint on this same binding.",
+                                "This is an explicit mutation; do it only when the agent truly wants this runtime to carry that repo context.",
+                                Some("ingest"),
+                                Some(switch_ingest_args),
+                            )
+                        } else {
+                            playbook_step(
+                                "switch_workspace_via_authenticated_ingress",
+                                "If this session should intentionally switch context, rebind to an owner that hosts requested_workspace_hint, or use the served owner's authenticated ingress; the generic ingest verb is policy-disabled here.",
+                                "brain_bootstrap_consumer_not_installed: the generic ingest verb the switch step used to name is refused by policy, so recommending it would loop.",
+                                None,
+                                None,
+                            )
+                        }
+                    },
                     playbook_step(
                         "cross_repo_mode_if_needed",
                         "Use federate_auto or federate when the task genuinely needs multiple repositories at once.",
@@ -4169,30 +4203,82 @@ pub fn handle_recovery_playbook(
                 steps,
             )
         }
-        "needs_ingest" => (
-            "blocked",
-            "Populate this binding's active graph for the intended repository.",
-            "call_ingest",
-            vec![
-                playbook_step(
+        "needs_ingest" => {
+            let proposed_ingest_args = serde_json::json!({
+                "agent_id": agent_id.clone(),
+                "path": ingest_path.clone(),
+            });
+            // Never recommend a verb the server's OWN policy refuses on this
+            // binding. Generic `ingest` classifies as graph.ingest.replace
+            // (POSITIVE_SOVEREIGN) and fails closed until a typed G2/G3 consumer
+            // is installed — consult the REAL gate rather than assuming, so a
+            // future Ordinary consumer re-enables the one-call path automatically.
+            if crate::server::enforce_generic_action_policy("ingest", &proposed_ingest_args).is_ok()
+            {
+                (
+                    "blocked",
+                    "Populate this binding's active graph for the intended repository.",
                     "call_ingest",
-                    "Call ingest for the intended repository on this same binding.",
-                    "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",
-                    Some("ingest"),
-                    Some(serde_json::json!({
-                        "agent_id": agent_id.clone(),
-                        "path": ingest_path,
-                    })),
-                ),
-                playbook_step(
-                    "rerun_session_handshake",
-                    "Call session_handshake again after ingest completes.",
-                    "The handshake should confirm node and edge counts before the next retrieval step.",
-                    Some("session_handshake"),
-                    Some(serde_json::json!({ "agent_id": agent_id.clone() })),
-                ),
-            ],
-        ),
+                    vec![
+                        playbook_step(
+                            "call_ingest",
+                            "Call ingest for the intended repository on this same binding.",
+                            "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",
+                            Some("ingest"),
+                            Some(proposed_ingest_args),
+                        ),
+                        playbook_step(
+                            "rerun_session_handshake",
+                            "Call session_handshake again after ingest completes.",
+                            "The handshake should confirm node and edge counts before the next retrieval step.",
+                            Some("session_handshake"),
+                            Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                        ),
+                    ],
+                )
+            } else {
+                // The generic ingest verb is policy-disabled here. Recommend the
+                // honest repair instead of a call the server would reject.
+                (
+                    "blocked",
+                    "Populate this binding's graph through the served owner's authenticated ingress; the generic ingest verb is policy-disabled on this binding.",
+                    "populate_via_owner_restart_or_authenticated_ingress",
+                    vec![
+                        playbook_step(
+                            "generic_ingest_unavailable",
+                            "Do not call the generic `ingest` verb on this binding: the server refuses it (graph.ingest.replace is POSITIVE_SOVEREIGN and no typed G2/G3 bootstrap consumer is installed).",
+                            "brain_bootstrap_consumer_not_installed: recommending a verb the policy rejects would send the agent into a refusal loop.",
+                            None,
+                            Some(serde_json::json!({
+                                "code": "brain_bootstrap_consumer_not_installed",
+                                "intended_repo": ingest_path,
+                            })),
+                        ),
+                        playbook_step(
+                            "adopt_legacy_snapshot_on_owner_restart",
+                            "If this runtime just upgraded from a pre-1.5 layout, restart the served owner: a one-time legacy-snapshot adoption runs at boot and populates the runtime graph from a legacy ./graph_snapshot.json when one is present.",
+                            "A pre-1.5 snapshot left in the legacy location is adopted into the runtime root at boot, so a restart can populate the graph with no generic ingest call at all.",
+                            None,
+                            None,
+                        ),
+                        playbook_step(
+                            "use_served_owner_authenticated_ingress",
+                            "Otherwise populate the graph through the served owner's authenticated MCP ingress (the typed consumer path), not the generic REST/MCP dispatch.",
+                            "Only the served owner's authenticated ingress carries the sovereign authority the generic transport intentionally lacks.",
+                            None,
+                            None,
+                        ),
+                        playbook_step(
+                            "rerun_session_handshake",
+                            "Call session_handshake again after the graph is populated.",
+                            "The handshake should confirm node and edge counts before the next retrieval step.",
+                            Some("session_handshake"),
+                            Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                        ),
+                    ],
+                )
+            }
+        }
         "orientation_only" => (
             "warn",
             "Recover an ingest-capable binding or fall back to local file truth.",
