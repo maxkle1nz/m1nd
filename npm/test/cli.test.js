@@ -660,6 +660,40 @@ const fakeEnvBase = {
   assert.strictEqual(fs.existsSync(statePath), false);
 }
 
+// The sanctioned release smoke seam: with the explicit marker AND a source checkout
+// (this test tree has `.git`), the PRODUCTION updater honors the ambient release
+// directory + verifier path the verified-update-smoke job depends on — the exact path
+// that unconditionally refused before. Fails red without the seam (the guard throws).
+{
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, runtimeBinaryName());
+  const source = path.join(tmp, "candidate-runtime");
+  writeVersionBinary(target, STALE_VERSION, "old");
+  writeVersionBinary(source, CURRENT_VERSION, "new");
+  const fixture = writeVerifiedReleaseFixture(tmp, source);
+  const proof = withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_RELEASE_SMOKE: "1",
+      M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+      M1ND_TEST_COSIGN_PATH: fixture.cosign,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+    },
+    () =>
+      productionSelfUpdate({
+        _: ["update", "check"],
+        binary: target,
+        channel: "latest",
+        "no-npm": true,
+        "no-skills": true,
+        "no-kill": true,
+      })
+  );
+  assert.strictEqual(proof.test_overrides.active, true);
+  assert.strictEqual(proof.test_overrides.release_transport, "local-test-directory");
+  assert.strictEqual(proof.test_overrides.verifier_source, "explicit-test-executable");
+}
+
 // A repository-controlled PATH must never become updater authority. Planning
 // with every historically used updater executable shadowed performs no child
 // execution and refuses the unsigned runtime fallback.

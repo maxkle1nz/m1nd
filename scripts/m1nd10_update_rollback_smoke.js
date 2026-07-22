@@ -160,6 +160,10 @@ function main() {
     });
     const env = {
       ...process.env,
+      // Opens the sanctioned self-update seam in the child production CLI: the updater
+      // honors M1ND_TEST_RELEASE_DIR (below) only under this explicit marker AND a source
+      // checkout. A packed/installed client has no `.git`, so this can never open there.
+      M1ND_RELEASE_SMOKE: "1",
       M1ND_TEST_NPM_VIEW_JSON: registry,
       M1ND_TEST_CRATE_VERSION: args["expected-version"],
       M1ND_TEST_RELEASE_DIR: releaseDir,
