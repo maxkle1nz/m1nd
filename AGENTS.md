@@ -3,10 +3,11 @@
 Vendor-neutral instructions for autonomous agents (Jules, Codex, Claude Code, Cursor, …)
 working on this repository. Read this first; it is the contract.
 
-**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2):
-`m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) · `m1nd-mcp`
-(the served MCP owner + every verb) · `m1nd-openclaw`. Plus `m1nd-ui` (the served web
-UI, Vite/React) and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
+**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2, six
+members): `m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) ·
+`m1nd-mcp` (the served MCP owner + every verb) · `m1nd-control` · `m1nd-runnerd` (the
+write/execution lane — the only spawner) · `m1nd-openclaw`. Outside the Rust workspace:
+`m1nd-ui` (the served web UI, Vite/React), `m1nd-demo`, and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
 local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are real answers).
 
 This is a **PUBLIC** repository. Everything you commit is published.
