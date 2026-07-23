@@ -8,8 +8,9 @@
  * most of it client-side over the snapshot the tree already fetched.
  *
  * Groups behave EXACTLY like directories (carets, counts, keyboard) so there is
- * one navigation grammar, not two. Filter honesty is structural: a filtered view
- * always knows how many rows it hid ("N hidden by filters").
+ * one navigation grammar, not two. Filter honesty is structural: a narrowed view
+ * always knows how many rows it hid AND who hid them — "N hidden by lens" when no
+ * filter is set, "N hidden by filters" once the human narrows it (residueHiddenBy).
  */
 import { NODE_TYPE } from './snapshot';
 import type { TreeRow } from './tree';
@@ -190,11 +191,23 @@ export function nameMatches(row: TreeRow, query: string): boolean {
 }
 
 /**
- * The residue line (§4A.10 filter honesty): "N rows · M hidden by filters".
- * `total` is the unfiltered leaf count, `shown` the surviving count.
+ * The residue line (§4A.10 filter honesty): "N rows · M hidden by lens|filters".
+ * `total` is the unfiltered leaf count, `shown` the surviving count; the caption's
+ * noun comes from `residueHiddenBy` (a lens narrows even with no filter set).
  */
 export function filterResidue(shown: number, total: number): { shown: number; hidden: number } {
   return { shown, hidden: Math.max(0, total - shown) };
+}
+
+/**
+ * Who hid the residue rows (§4A.10 honesty). `shown` is reduced by the active
+ * LENS (a flat kind/layer view shows a subset of leaves) AND by user filters/
+ * search. When no filter or search is active, the hidden rows are the LENS's
+ * doing, not a filter's — so the caption must say "hidden by lens", never blame a
+ * filter the human never set. Pure so the attribution rule is unit-provable.
+ */
+export function residueHiddenBy(filtersOrSearchActive: boolean): 'filters' | 'lens' {
+  return filtersOrSearchActive ? 'filters' : 'lens';
 }
 
 // ── The meaning-search honesty caption (§4A.10) ───────────────────────────────
