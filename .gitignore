@@ -132,3 +132,4 @@ m1nd-ui/test-results/
 m1nd-ui/playwright-report/
 m1nd-ui/e2e/artifacts/
 .vitals-due
+checkpoint-store/
