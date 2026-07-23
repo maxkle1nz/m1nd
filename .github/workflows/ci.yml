@@ -199,7 +199,7 @@ jobs:
         shell: bash
         run: |
           printf '%s  %s\n' \
-            '00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38' \
+            'bf7b03c7e26ee90fe1bcad9eed4303bb9024b7dab7988251ca33834df26b81f5' \
             'docs/M1ND-10-PRD.md' \
             '8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b' \
             'docs/M1ND-10-UML.md' | sha256sum --check --strict
