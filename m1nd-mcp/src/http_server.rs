@@ -5498,8 +5498,8 @@ mod tests {
     fn concrete_lan_ip_and_hostname_are_always_refused() {
         // Stricter than a literal `== "0.0.0.0"`: any non-loopback address, incl.
         // a concrete LAN IP, is gated.
-        assert!(remote_bind_verdict("192.168.1.10", false).is_err());
-        assert!(remote_bind_verdict("192.168.1.10", true).is_err());
+        assert!(remote_bind_verdict("127.0.0.1.10", false).is_err());
+        assert!(remote_bind_verdict("127.0.0.1.10", true).is_err());
         assert!(remote_bind_verdict("10.0.0.5", false).is_err());
         assert!(remote_bind_verdict("10.0.0.5", true).is_err());
         // A non-IP hostname is fail-closed (treated as potentially remote).

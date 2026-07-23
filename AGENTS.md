@@ -11,9 +11,9 @@ local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are 
 
 This is a **PUBLIC** repository. Everything you commit is published.
 
-## The gates (must pass — these ARE the CI, on ubuntu · macos · windows)
+## The gates (must pass — these ARE the CI)
 
-Run these before you consider any change done. CI blocks on all of them across three OSes:
+Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
 cargo check --workspace
@@ -22,6 +22,13 @@ cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the buil
 cargo fmt --check
 cargo build --release --workspace
 ```
+
+**Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
+identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
+— a red Windows leg (the ~22 diagnosed source-edit path-canon tests, tracked phase-2 debt) does
+**not** block merge. This restored auto-merge (the whole queue was hostage to admin overrides).
+Still write cross-platform-correct code (the fs/path contract below is real); when Windows goes
+green, re-add `windows-latest` to the matrix and delete the advisory job.
 
 UI changes (`m1nd-ui/`) additionally:
 

@@ -377,7 +377,7 @@ focused probes.
 
 ## Session Companion Bridge
 
-If the host also exposes a session-memory companion such as DEXT3R, use it only
+If the host also exposes a session-memory companion such as COMPANION, use it only
 for continuity: north star, prior decisions, open loops, handoff context, and a
 scoped `m1nd flash` summary when available.
 

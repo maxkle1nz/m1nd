@@ -125,7 +125,7 @@ receipt candidate → tray bell → judge parecer (advisory) → **human stamp**
   holds NO `receipt_import` permission and never lands. Live right now: 3 runners
   announced (`build-01`, `hand-01`, `naming-01` → `:1339`, measured via
   `GET /api/runnerd/status`).
-- **The warm pool.** h4nd `poold` (god-hud, read-only reference): launchd daemon, 20s
+- **The warm pool.** h4nd `poold` (cockpit, read-only reference): launchd daemon, 20s
   sweep, fail-closed claims anchored on the reserved `sb_m1nd_pool_` namespace, keep-alive
   warm (measured live: sweep #3692, uptime 20h45m, cached_tokens 640), cold-lane handoff
   spool, Money-Zone `REFUSED-HUMAN`. Its 8 house laws (Sacred Law, never-lands,
@@ -135,7 +135,7 @@ receipt candidate → tray bell → judge parecer (advisory) → **human stamp**
   `CHANGE` with a gist that says "abstained"), never composes `landed` (mechanical guard),
   rides the honest `judging` phase after the live owner REFUSED a gateless `merge_wait`
   parecer (3/3 refusals in the poold log, 2026-07-11 — the wire's law held). **DISARMED
-  by default** behind `H4ND_JUDGE_ENABLED=1` (`poold.py:660`, commit `c22539c`): a
+  by default** behind `COCKPIT_JUDGE_ENABLED=1` (`poold.py:660`, commit `c22539c`): a
   judging-phase parecer would silence the head-phase landing bells before the human
   stamps — sovereignty rings first. Calibration exercise reported 2/2 correct verdicts
   (orchestrator-reported 2026-07-12; **not yet a versioned proof file** — honest).
@@ -644,8 +644,8 @@ promised.
 | 8 PRs merged today | `git log --merges --since=2026-07-12` → #347–#354 |
 | Field spool shape + 115 letters + today's federate friction pair | `~/.m1nd/field-reports.jsonl` (live read) |
 | poold live: sweep #3692, 20h45m, judged_total=0, warm cached_tokens=640 | `~/.m1nd/pool/poold.log` (live read) |
-| Judge disarmed behind `H4ND_JUDGE_ENABLED=1`; honest `judging` phase; owner refused gateless parecer 3/3 | `god-hud/h4nd-pool/poold.py:660` · `judge.py` · commit `c22539c` · poold.log 2026-07-11 |
-| h4nd house laws (Sacred Law, never-lands, NONE-escape) | `god-hud/docs/PATHOS.md` (Doutrina) |
+| Judge disarmed behind `COCKPIT_JUDGE_ENABLED=1`; honest `judging` phase; owner refused gateless parecer 3/3 | `cockpit/h4nd-pool/poold.py:660` · `judge.py` · commit `c22539c` · poold.log 2026-07-11 |
+| h4nd house laws (Sacred Law, never-lands, NONE-escape) | `cockpit/docs/PATHOS.md` (Doutrina) |
 | Medulla no-leak + `all-brains` + eviction gate | PATHOS cp (R2–R4, R15 SHIPPED) · `docs/uml/medulla.md` |
 | north ~1,404 ≤2k · cockpit ~695/~430 ≤800 | PATHOS checkpoint 18 (battery-pinned 2026-07-12) |
 | Mailbox fates + sweep + resolve_box ownership law | `m1nd-mcp/src/mailbox.rs` · `docs/uml/mailbox.md` |

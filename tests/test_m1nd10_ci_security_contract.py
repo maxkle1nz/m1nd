@@ -126,7 +126,7 @@ class CiSecurityContractTests(unittest.TestCase):
             # the exception. see docs/proofs/
             # m1nd10-public-path-migration-ratification-20260720.md
             "FROZEN_PRD_SHA256",
-            "bf7b03c7e26ee90fe1bcad9eed4303bb9024b7dab7988251ca33834df26b81f5",
+            "2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b",
         ):
             self.assertIn(token, policy, f"guard lost hardened semantics: {token}")
 
@@ -157,8 +157,10 @@ class CiSecurityContractTests(unittest.TestCase):
         self.assertNotIn("m1nd10_release_candidate.py", publish)
         self.assertNotIn("actions/checkout", publish)
         self.assertIn("needs.release-verification.outputs.npm_tarball", publish)
+        # The path is ./-prefixed so npm reads it as a local tarball rather than
+        # a `dir/file.tgz` git-shorthand (the 2026-07-23 publish quirk).
         self.assertIn(
-            'npm publish "release-bins/${EXPECTED_NPM_TARBALL}"',
+            'npm publish "./release-bins/${EXPECTED_NPM_TARBALL}"',
             publish,
         )
         self.assertIn("--ignore-scripts", publish)

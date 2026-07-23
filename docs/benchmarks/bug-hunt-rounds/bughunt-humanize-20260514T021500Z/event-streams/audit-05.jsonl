@@ -1,6 +1,6 @@
 {"schema":"m1nd-bug-hunt-event-v0","round_id":"bughunt-humanize-20260514T021500Z","lane_id":"audit-05","event_type":"audit_assigned","event_source":"harness","created_at":"2026-05-14T02:46:44.228Z"}
 {"event_type":"prompt_read","event_source":"agent","detail":"read assigned lane prompt audit-05.md"}
-{"event_type":"m1nd_discovery","event_source":"agent","detail":"tool_search for m1nd exposed only DEXT3R m1nd flash bridge; skipped because DEXT3R run_policy is manual_only and user did not explicitly request DEXT3R operations"}
+{"event_type":"m1nd_discovery","event_source":"agent","detail":"tool_search for m1nd exposed only COMPANION m1nd flash bridge; skipped because COMPANION run_policy is manual_only and user did not explicitly request COMPANION operations"}
 {"event_type":"repo_orientation","event_source":"agent","detail":"listed files with rg --files; package modules include filesize.py, number.py, time.py, lists.py, i18n.py with tests under tests/"}
 {"event_type":"test_run","event_source":"agent","detail":"uv run --extra tests pytest -q -> 685 passed, 69 skipped in 0.64s"}
 {"event_type":"probe_run","event_source":"agent","detail":"uv run python probes showed intcomma(-1000)->-1000, fractional(-0.3)->3/10, fractional(-1.3)->-1 -3/10, naturalsize(nan)->ValueError, naturalsize(inf)->inf QB"}
