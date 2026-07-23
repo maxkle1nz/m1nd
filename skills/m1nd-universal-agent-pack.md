@@ -30,14 +30,15 @@ graph), `ingest` the repo, then `north` again — that is a real answer, not a
 failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
 Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
-`reception.options[]`. ONE call sets you up: `ingest` with
-`project_root=<your repo root>` creates a per-project brain inside the served
-owner, ingests your repo, binds your session, and returns its north packet —
-thereafter every call from your root routes to YOUR brain automatically.
+`reception.options[]`. The public brain-bootstrap consumer is NOT installed:
+`ingest` does not accept `project_root` (absent from the published schema) and
+cross-root bootstrap fails closed with `brain_bootstrap_consumer_not_installed`.
+Continue only against the bound graph with the mismatch warning intact, or
+reconnect to an owner that already hosts the intended repo.
 Absent/null `reception` = your root matches the brain serving you. Reception
 governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
-under mismatch is PROHIBITED — see Write-Mode Laws below; bootstrap first, write
-after.
+under mismatch is PROHIBITED — see Write-Mode Laws below, and no public
+bootstrap lifts it.
 
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:
@@ -216,9 +217,9 @@ this loop by default:
    Every `memorize` is stamped with an `Origin-Brain` (its project root, or
    `medulla` for the owner's doctrine store), so recall names which brain a claim
    came from. A `memorize` from a root with NO project brain is REFUSED (never
-   silently written into the shared medulla); the refusal hands you the one-call
-   bootstrap `ingest project_root=<your repo>` — run it, then memory lands
-   project-private.
+   silently written into the shared medulla); the refusal names the absent
+   consumer (`brain_bootstrap_consumer_not_installed`) instead of handing a
+   repair that would itself fail closed.
 8. Memory is pull, never push (the medulla law): your default recall beat carries
    exactly your own project brain + the shared `medulla` (promoted/doctrine) — no
    other repo's private claim ever reaches you unless it was promoted. Every recall
@@ -272,20 +273,23 @@ the writer never checked which brain answered it.
    `reception.match == "caller_root_mismatch"`, the brain serving you does NOT
    cover your repo. Reads are a warning; **writes are prohibited** — `memorize`,
    `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` / `_ratify`
-   / `_reconcile`, and `mission_post` would each land in the WRONG brain. The one
-   correct gesture BEFORE any write: `ingest project_root=<your repo root>` — one
-   call creates/resolves your brain, ingests it, binds the session, and returns
-   north. Then write. (The `memorize` refusal — a write from a root with no
-   project brain is refused, never silently dropped into the shared medulla, and
-   hands you this bootstrap — is the one already-mechanical instance.)
+   / `_reconcile`, and `mission_post` would each land in the WRONG brain. No
+   public gesture lifts this: the brain-bootstrap consumer is NOT installed, so
+   `ingest` does not accept `project_root` and cross-root bootstrap fails closed
+   with `brain_bootstrap_consumer_not_installed`. Reconnect to an owner that
+   already hosts the intended repo, or stay read-only with the warning intact.
+   (The `memorize` refusal — a write from a root with no project brain is
+   refused, never silently dropped into the shared medulla, and names the absent
+   consumer rather than a fake repair — is the one already-mechanical instance.)
 2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or
    WORKTREE of an existing brain is refused with a teaching error
    (`overlap_parent` / `overlap_child` / `overlap_worktree`) naming the conflict
-   and two ways forward: bind to the existing brain (`ingest
-   project_root=<existing>`), or pass `allow_overlap:true` only when you know
-   exactly why. It holds on both seams (MCP wire and REST `POST
-   /api/tools/ingest`). A burst worktree does NOT earn its own brain — bind to the
-   main repo's.
+   and two ways forward: bind to the existing brain, or mint a separate one
+   anyway only when you know exactly why. It holds on both seams (MCP wire and
+   REST `POST /api/tools/ingest`) — but neither way is reachable from the public
+   MCP surface while the bootstrap consumer is absent (`project_root` and
+   `allow_overlap` are not in the published `ingest` schema). A burst worktree
+   does NOT earn its own brain — bind to the main repo's.
 
 **The write surface, briefly.** The block map (skeleton) is edited by one atomic
 verb, `candidate_edit` (six typed ops under `expected_store_version`; refuses on a

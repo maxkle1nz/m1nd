@@ -48,14 +48,15 @@ measured high-signal pattern starts by never starting cold:
    directly only when you need just one. Heed `reception`:
    `reception.match == "caller_root_mismatch"` means the bound graph does NOT
    cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. ONE call sets you up: `ingest` with
-   `project_root=<your repo root>` creates a per-project brain inside the
-   served owner, ingests your repo, binds your session, and returns its north
-   packet — thereafter every call from your root routes to YOUR brain
-   automatically. Absent/null = your root matches the brain serving you.
-   Reception governs WRITES too, not only reads: a read under mismatch is a
-   warning, a WRITE under mismatch is prohibited (see Write-Mode Laws below) —
-   bootstrap first, then write.
+   `reception.options[]`. The public brain-bootstrap consumer is NOT
+   installed: `ingest` does not accept `project_root` (absent from the
+   published schema) and cross-root bootstrap fails closed with
+   `brain_bootstrap_consumer_not_installed`. Continue only against the bound
+   graph with the mismatch warning intact, or reconnect to an owner that
+   already hosts the intended repo. Absent/null = your root matches the brain
+   serving you. Reception governs WRITES too, not only reads: a read under
+   mismatch is a warning, a WRITE under mismatch is prohibited (see Write-Mode
+   Laws below) — and no public bootstrap lifts it.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).
@@ -104,16 +105,18 @@ which brain answered it. Two laws:
   cover your repo. Reads are a warning; **writes are prohibited by doctrine** —
   `memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`
   / `_ratify` / `_reconcile`, and `mission_post` would each land in the WRONG
-  brain. The single correct gesture BEFORE any write: `ingest
-  project_root=<your repo root>` — one call classifies the root (overlap-guarded,
-  Law 2), creates or warm-resolves your brain, ingests it, binds the session
-  sticky, and returns north in the same response. Then write. The `memorize`
-  refusal (a write from a root with no project brain is refused, never dropped
-  into the shared medulla, and hands you this exact bootstrap) is the one already
-  mechanical instance; the doctrine generalizes it to every write verb, and the
+  brain. No public gesture lifts this: the brain-bootstrap consumer is NOT
+  installed, so `ingest` does not accept `project_root` and cross-root bootstrap
+  fails closed with `brain_bootstrap_consumer_not_installed`. Do not write from a
+  mismatched session — reconnect to an owner that already hosts the intended
+  repo, or stay read-only with the warning intact. The `memorize` refusal (a
+  write from a root with no project brain is refused, never dropped into the
+  shared medulla, and names the absent consumer instead of handing a repair that
+  would fail closed) is the one already mechanical instance; the doctrine generalizes it to every write verb, and the
   broader mechanical refusal is landing. If you ever catch a miswrite, that is
   `class:"memory_misdelivery"` / `kind:"wrong_store_write"` in the field spool.
-- **Law 2 — no twin brains (the overlap guard, both seams, LIVE).** Before
+- **Law 2 — no twin brains (the overlap guard, both seams; built and tested,
+  but NOT publicly reachable while the bootstrap consumer is absent).** Before
   minting a NEW project brain, the bootstrap classifies the root against every
   existing brain (warm map ∪ on-disk roster) into one of three overlap classes
   and refuses with a teaching error naming the conflict and two ways forward:
@@ -122,9 +125,10 @@ which brain answered it. Two laws:
     mother-folder trap that would re-ingest the child repo from above).
   - `overlap_worktree` — the new root is a git worktree (`.git` is a gitdir file
     under `<main>/.git/worktrees/`) whose main repo already has a brain.
-  The two ways forward: (a) bind to the existing brain (`ingest
-  project_root=<existing>`), or (b) pass `allow_overlap:true` to mint a separate
-  brain anyway — only when you know exactly why. The exact-same root is warm-reuse
+  The two ways forward it names: (a) bind to the existing brain, or (b) mint a
+  separate brain anyway — only when you know exactly why. Neither is reachable
+  from the public MCP surface today: `project_root` and `allow_overlap` are
+  absent from the published `ingest` schema. The exact-same root is warm-reuse
   (never an overlap). This holds on BOTH doors: the MCP wire (`ingest` with a
   non-empty `project_root` is a bootstrap directive → `run_bootstrap`) and the
   REST `POST /api/tools/ingest` route both call one seam-shared guarded core, so a
