@@ -213,7 +213,7 @@
     },
     "h4nd": {
       "authority": "external_repo",
-      "repo": "god-hud",
+      "repo": "cockpit",
       "head": "d31c36753a6b962398dd8133f13e68b5e37698ae",
       "dirty_at_capture": true,
       "status": "NOT_PROVEN",
@@ -237,7 +237,7 @@
     "source HEAD and running binary git SHA differ",
     "ratified PRD/UML are present in the worktree but not yet represented by the baseline commit",
     "UI bundle has no promoted-candidate attestation",
-    "h4nd/god-hud is dirty and not version-bound to m1nd",
+    "cockpit/cockpit is dirty and not version-bound to m1nd",
     "authoritative AutonomyEpochV1 does not exist at G0",
     "manifest, identity, policy, WAL, checkpoint, safety and release V1 contracts are not implemented at G0"
   ],

@@ -1644,16 +1644,16 @@ mod tests {
 
     #[test]
     fn skeleton_coherence_reports_foreign_incident_slugs() {
-        let block_ids = vec!["sb_traykeep_src_01234567".to_string()];
+        let block_ids = vec!["sb_keyvault_src_01234567".to_string()];
 
         assert_eq!(
             skeleton_coherence(
                 Some("/work/m1nd"),
-                Some(("sk_traykeep_candidate", &block_ids)),
+                Some(("sk_keyvault_candidate", &block_ids)),
             ),
             Some(SkeletonCoherence::Mismatch {
                 expected_slug: "m1nd".to_string(),
-                found_slug: "traykeep".to_string(),
+                found_slug: "keyvault".to_string(),
             })
         );
     }

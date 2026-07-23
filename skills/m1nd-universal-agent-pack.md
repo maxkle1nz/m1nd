@@ -413,7 +413,7 @@ treated as orientation only.
 
 ## Session Companions
 
-If your host has a session-memory companion such as DEXT3R, use it for
+If your host has a session-memory companion such as COMPANION, use it for
 continuity, not code truth. Good uses are:
 
 - recovering the session north star

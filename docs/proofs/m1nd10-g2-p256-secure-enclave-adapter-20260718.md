@@ -58,7 +58,7 @@ m1nd-control/src/crypto_authority.rs
   9c4f62d980119b74a6fd1d982207837723f41574d21ef11a0a9587f36f0d498e
 m1nd-control/tests/crypto_p256.rs
   18f35abdf9f189a3f47b3bcc193968cb669bef93d349976a19318fd17be39f3b
-god-hud/h4nd-app/src-tauri/src/secure_enclave.rs
+cockpit/h4nd-app/src-tauri/src/secure_enclave.rs
   894686ea6ac0dd4125380927afd9d927590f44f2145a79511a2406a4c2582cae
 ```
 
