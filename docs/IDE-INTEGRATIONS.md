@@ -41,7 +41,9 @@ Most hosts are perfectly fine with:
 }
 ```
 
-On Windows the command should point at `m1nd-mcp.exe`, for example:
+On Windows — **phase-2 today**: release `1.5.0` ships no Windows binary (the npm updater
+reports this explicitly). Windows users build `m1nd-mcp` from source (`cargo install m1nd-mcp`)
+until the phase-2 lane closes; the command then points at `m1nd-mcp.exe`, for example:
 
 ```json
 {
@@ -92,7 +94,7 @@ cost on every request.
 - `m1nd-openclaw`
 - persistent Unix socket bridge
 - best for local runtimes that can benefit from a hot graph
-- Unix/macOS/Linux lane today; use plain `m1nd-mcp` on Windows
+- Unix/macOS/Linux lane today; on Windows (phase-2) use plain `m1nd-mcp` built from source
 
 ### Thin adapters
 

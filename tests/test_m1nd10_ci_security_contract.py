@@ -157,8 +157,10 @@ class CiSecurityContractTests(unittest.TestCase):
         self.assertNotIn("m1nd10_release_candidate.py", publish)
         self.assertNotIn("actions/checkout", publish)
         self.assertIn("needs.release-verification.outputs.npm_tarball", publish)
+        # The path is ./-prefixed so npm reads it as a local tarball rather than
+        # a `dir/file.tgz` git-shorthand (the 2026-07-23 publish quirk).
         self.assertIn(
-            'npm publish "release-bins/${EXPECTED_NPM_TARBALL}"',
+            'npm publish "./release-bins/${EXPECTED_NPM_TARBALL}"',
             publish,
         )
         self.assertIn("--ignore-scripts", publish)
