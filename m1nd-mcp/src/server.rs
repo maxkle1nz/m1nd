@@ -2173,6 +2173,49 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     "required": ["agent_id", "preview_id", "confirm"]
                 }
             },
+            {
+                "name": "transplant",
+                "description": "Move a top-level Rust `fn` between files of the same crate BY REFERENCE: you name the symbol and two paths, the server computes everything from the graph — widened extent (doc comments and attributes travel), dependency trichotomy from call edges (private deps travel; shared deps stay, gain pub(crate) and a back-import), referencers re-qualified across every file that names it — then writes atomically, re-ingests, and returns an honest receipt (refs_unresolved is never silently empty-when-wrong; state_left_behind names node-addressed state the re-ingest orphaned). Refusals never touch a byte and TEACH the retry: a collision names the occupant, a poisonous stem (lib/main/mod) names the invalid module path, a cross-crate move names both crate roots. v1 boundaries: top-level fn only, module = file stem, same crate, destination file must already exist, macro-generated references are invisible. See docs/TRANSPLANT-PRD.md.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path. Omitted (the default) means a zone match refuses instead of writing; the reason is recorded in the receipt when it unlocks a crossing." }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_preview",
+                "description": "Stage a transplant WITHOUT touching disk. Takes the same inputs as transplant and computes the whole plan — every new file content, referencer discovery, the rustfmt pass and the candidate receipt — then returns a preview_id (5-minute TTL) plus the per-file plan with each file's base hash and line deltas. Redeem it with transplant_commit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path; same law as transplant" }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_commit",
+                "description": "Land a staged transplant_preview after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale and writes nothing; otherwise the plan lands atomically and returns the finalized receipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "preview_id": { "type": "string", "description": "Handle returned by transplant_preview (expires after 5 minutes)" },
+                        "confirm": { "type": "boolean", "default": false, "description": "Must be true to land the staged plan. Safety guard against accidental writes." }
+                    },
+                    "required": ["agent_id", "preview_id", "confirm"]
+                }
+            },
             // =================================================================
             // v0.4.0: search, help, report, panoramic
             // =================================================================

@@ -1510,6 +1510,96 @@ Commit a previously previewed edit after freshness re-check and explicit confirm
 
 ---
 
+<a id="m1ndtransplant"></a>
+
+## `transplant`
+Move a top-level Rust `fn` to another file of the SAME crate by reference. The server computes the whole move from the graph — the item's real extent (doc comments and attributes travel), the dependency trichotomy from `calls` edges (a private dependency travels; a shared one stays, gains `pub(crate)` and is back-imported), and every referencer re-qualified — then writes source, destination and referencers atomically and re-ingests. A refusal writes nothing and names what blocked it. Design and proof addresses: `docs/TRANSPLANT-PRD.md`.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `symbol` | `string` | Yes | Bare name of the top-level `fn` to move. |
+| `source_file` | `string` | Yes | File the symbol currently lives in. |
+| `dest_file` | `string` | Yes | File the symbol moves into; must exist and share the source's crate root. |
+| `allow_protected` | `string` | No | Explicit reason for crossing a `ci/protected-zones.json` path. Absent means a zone match refuses instead of writing. |
+
+### Returns
+
+`moved_symbol`, `files_changed`, `deps_travelled`, `deps_shared`, `referencing_files`, `refs_rewritten`, `refs_unresolved`, `imports_carried`, `moved_visibility_bumped`, `source_back_imported`, `dependency_source`, `referencer_source`, `rustfmt`, `blocks_touched`, `state_left_behind`, `protected_zone`, `elapsed_ms`.
+
+### When to Use
+
+- The change IS a move — you send four fields instead of whole file contents
+- You want the referencers found and rewritten from the graph, not by hand
+- You want a receipt that names what it could not do
+
+### v1 Boundaries
+
+- top-level `fn` only; module = file stem; same crate; the destination file must already exist
+- grouped/nested `use` in the source file is reported in `refs_unresolved`, never rewritten
+- macro-generated references are invisible to the parser
+
+### Related Tools
+
+- [`transplant_preview`](#m1ndtransplant_preview)
+- [`apply_batch`](#m1ndapplybatch)
+
+---
+
+<a id="m1ndtransplant_preview"></a>
+
+## `transplant_preview`
+Stage a transplant without touching disk: the complete multi-file plan (each planned file with its base hash and line deltas), the candidate receipt, and a handle valid for five minutes.
+
+### Parameters
+
+Same as [`transplant`](#m1ndtransplant).
+
+### Returns
+
+`preview_id`, `ttl_ms`, `files`, `candidate`, `elapsed_ms`.
+
+### When to Use
+
+- When the move should be inspected or approved before it lands
+
+### Related Tools
+
+- [`transplant_commit`](#m1ndtransplant_commit)
+- [`edit_preview`](#m1ndedit_preview)
+
+---
+
+<a id="m1ndtransplant_commit"></a>
+
+## `transplant_commit`
+Land a staged plan after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale, and nothing is written.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `preview_id` | `string` | Yes | Handle returned by `transplant_preview`. |
+| `confirm` | `boolean` | Yes | Must be `true` to land the staged plan. |
+
+### Returns
+
+`preview_id`, `receipt`, `elapsed_ms`.
+
+### When to Use
+
+- To redeem a `transplant_preview` handle within its TTL
+
+### Related Tools
+
+- [`transplant_preview`](#m1ndtransplant_preview)
+- [`edit_commit`](#m1ndedit_commit)
+
+---
+
 <a id="m1ndpersist"></a>
 
 ## `persist`
