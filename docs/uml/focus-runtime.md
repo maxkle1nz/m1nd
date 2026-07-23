@@ -164,8 +164,8 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> ManifestCheck
-    ManifestCheck --> NoBias : no xray.manifest.json OR conformance_aware=false
-    NoBias --> ByteIdentical : boost 0.0, summary None -> output byte-for-byte unchanged
+    ManifestCheck --> Newsapp : no xray.manifest.json OR conformance_aware=false
+    Newsapp --> ByteIdentical : boost 0.0, summary None -> output byte-for-byte unchanged
     ManifestCheck --> Classify : manifest has forbid/layer_order/require rules
     Classify --> Bedrock : proof-exercised -> +0.20
     Classify --> Erosion : rule violator -> -0.30

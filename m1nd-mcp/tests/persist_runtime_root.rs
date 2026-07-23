@@ -2,7 +2,7 @@
 //! root, never against the process cwd.
 //!
 //! THE BUG (root-caused in `~/.m1nd/field-reports.jsonl`, L27/L29): the
-//! launchd-spawned `--serve` owner (`com.kle1nz.m1nd-serve`) has NO
+//! launchd-spawned `--serve` owner (`com.local.m1nd-serve`) has NO
 //! `WorkingDirectory` key, so it runs with `cwd=/` — a sealed, read-only
 //! volume. The default `graph_source` / `plasticity_state` are RELATIVE
 //! (`./graph_snapshot.json`), so every persist resolved against `/` and failed

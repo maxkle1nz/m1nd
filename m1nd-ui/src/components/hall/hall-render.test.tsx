@@ -212,11 +212,11 @@ test('§4A.3: the open action reads "Open brain", distinct from the "N open" let
 // ── Clarity pass: a long path truncates with ellipsis (uniform card rhythm),
 // the full path staying available on hover via the title attribute. ───────────
 test('§4A.3: the card path line truncates (never wraps) and keeps the full path on hover', () => {
-  const longPath = '/path/to/a/very/deeply/nested/workspace/reporooms';
-  const longEntry = { ...project, project_root: longPath, display_name: 'reporooms' };
+  const longPath = '/path/to/a/very/deeply/nested/workspace/coderooms-repo';
+  const longEntry = { ...project, project_root: longPath, display_name: 'coderooms-repo' };
   const out = html(<BrainCard entry={longEntry} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
   // The path line clamps to one line (truncate), never break-all (multi-line wrap).
-  assert.match(out, /class="[^"]*\btruncate\b[^"]*"[^>]*title="[^"]*reporooms"/);
+  assert.match(out, /class="[^"]*\btruncate\b[^"]*"[^>]*title="[^"]*coderooms-repo"/);
   assert.doesNotMatch(out, /class="[^"]*break-all[^"]*"[^>]*title=/, 'the path no longer wraps across lines');
   // The full path is on hover (the title carries the un-shortened root).
   assert.ok(out.includes(`title="${longPath}"`), 'the full path is available on hover');
