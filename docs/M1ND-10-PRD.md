@@ -105,7 +105,7 @@ Snapshot observado em `2026-07-17T21:35:38Z`:
 - `HEAD == origin/main == b59a1c2a1454a83164dfb4d5640c6b005154d1ee` para o source adotado;
 - working tree `DIRTY` apenas pelos dois drafts untracked deste pacote;
 - owner `status=ok`, generation 17, 10.606 nós, 37.110 arestas e 133/133 tools anunciadas;
-- binário em execução `1.4.0 (f1c025b)` em `/Users/kle1nz/.m1nd/bin/m1nd-mcp`;
+- binário em execução `1.4.0 (f1c025b)` em `~/.m1nd/bin/m1nd-mcp`;
 - `m1nd-system-block-store-v0`, store version 61, 12/12 blocos com `state=ratified` e 48 receipts dentro de `blocks[].receipts`;
 - CI run [29606661859](https://github.com/maxkle1nz/m1nd/actions/runs/29606661859), workflow `CI`, concluiu `success` em 2026-07-17T19:47:56Z para esse HEAD.
 
@@ -117,7 +117,7 @@ git rev-parse HEAD
 git rev-parse origin/main
 curl -fsS http://127.0.0.1:1338/api/health
 jq '{store_version,blocks:(.blocks|length),ratified_blocks:([.blocks[]|select(.state=="ratified")]|length),receipts:([.blocks[].receipts[]?]|length)}' \
-  /Users/kle1nz/.m1nd/runtimes/claude/system_blocks.json
+  ~/.m1nd/runtimes/claude/system_blocks.json
 gh run view 29606661859 --json headSha,status,conclusion,createdAt,updatedAt,url
 ```
 
@@ -1125,7 +1125,7 @@ Começar por UI polish, mais runners ou mais ferramentas antes de G2–G4 aument
 | Graph, ingest, owner, stores, missions | `m1nd` | Contratos canônicos e enforcement |
 | Human View | `m1nd/m1nd-ui` | Projeção e gestos sem duplicar domínio |
 | runnerd | `m1nd/m1nd-runnerd` | Spawn isolado e evidence capture |
-| h4nd | Repo lógico `h4nd` — checkout local do snapshot: `/Users/kle1nz/god-hud` | Cockpit e autenticação de intenção humana |
+| h4nd | Repo lógico `h4nd` — checkout local do snapshot: `~/god-hud` | Cockpit e autenticação de intenção humana |
 | Host adapters/skills | `m1nd` + instalações geradas | Paridade e recovery por host |
 | SafetyKernel/constitution/grants/quorum/sentinel/actuator | `m1nd` | Autonomy mode, authority decisions, scoped promotion/demotion, epoch fencing e safety |
 | Reviewer/pool/god-runner | Repo lógico `h4nd` até decisão de boundary | Operação externa, calibration e runs |
