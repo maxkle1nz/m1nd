@@ -126,7 +126,7 @@ class CiSecurityContractTests(unittest.TestCase):
             # the exception. see docs/proofs/
             # m1nd10-public-path-migration-ratification-20260720.md
             "FROZEN_PRD_SHA256",
-            "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38",
+            "bf7b03c7e26ee90fe1bcad9eed4303bb9024b7dab7988251ca33834df26b81f5",
         ):
             self.assertIn(token, policy, f"guard lost hardened semantics: {token}")
 
