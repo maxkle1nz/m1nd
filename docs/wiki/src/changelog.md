@@ -386,7 +386,7 @@ rejected by `mission_verify`) as the core doctrine.
 - Updated the agent doctrine so hosts that expose only a session companion
   wrapper are classified as `missing_m1nd_host_tool_surface`, not as graph
   failure.
-- Refined DEXT3R/session-companion routing so agents use companion memory for
+- Refined COMPANION/session-companion routing so agents use companion memory for
   continuity, `m1nd agent next` for the first repo move, and direct proof for
   final claims.
 
