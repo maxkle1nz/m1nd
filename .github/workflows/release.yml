@@ -1599,7 +1599,7 @@ jobs:
           test -n "${NODE_AUTH_TOKEN}"
 
           set +e
-          npm publish "release-bins/${EXPECTED_NPM_TARBALL}" \
+          npm publish "./release-bins/${EXPECTED_NPM_TARBALL}" \
             --registry "https://registry.npmjs.org" \
             --access public \
             --ignore-scripts \
