@@ -1156,16 +1156,16 @@ jobs:
         run: |
           CORE_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.core_file }}" \
-            --destination exact-crates/core)"
+            --destination "${RUNNER_TEMP}/exact-crates/core")"
           CONTROL_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.control_file }}" \
-            --destination exact-crates/control)"
+            --destination "${RUNNER_TEMP}/exact-crates/control")"
           INGEST_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.ingest_file }}" \
-            --destination exact-crates/ingest)"
+            --destination "${RUNNER_TEMP}/exact-crates/ingest")"
           MCP_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.mcp_file }}" \
-            --destination exact-crates/mcp)"
+            --destination "${RUNNER_TEMP}/exact-crates/mcp")"
           cargo check --locked --manifest-path "${CORE_ROOT}/Cargo.toml"
           cargo check --locked --manifest-path "${CONTROL_ROOT}/Cargo.toml"
           cargo check --manifest-path "${INGEST_ROOT}/Cargo.toml" \
