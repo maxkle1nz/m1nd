@@ -11,9 +11,10 @@
  * open) — a closed panel needs no runner poll. The fetch heart is extracted as
  * `loadRunnerdStatus` so the honest-degrade branch is provable DOM-free.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from '../api/client';
 import { runnerdAvailable, type LiveRunner, type RunnerdStatus } from '../lib/missions';
+import { usePoller } from './usePoller';
 
 /** loading → the first fetch is in flight · ready → runners served (possibly empty) ·
  *  unsupported → the owner has no `/api/runnerd/status` route (a pre-F2.5c owner) ·
@@ -42,9 +43,12 @@ export interface RunnerdStatusSinks {
  * spawn-disabled). A well-formed response with an empty `runners` is `ready` — the
  * honest "no runner daemon connected".
  */
-export async function loadRunnerdStatus(sinks: RunnerdStatusSinks): Promise<void> {
+export async function loadRunnerdStatus(
+  sinks: RunnerdStatusSinks,
+  signal?: AbortSignal,
+): Promise<void> {
   try {
-    const resp: RunnerdStatus = await api.runnerdStatus();
+    const resp: RunnerdStatus = await api.runnerdStatus(signal);
     if (!sinks.isMounted()) return;
     if (!Array.isArray(resp.runners)) {
       sinks.setState('unsupported');
@@ -64,21 +68,17 @@ export function useRunnerdStatus(enabled: boolean): RunnerdStatusData {
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  useEffect(() => {
-    if (!enabled) return;
-    let mounted = true;
-    const sinks: RunnerdStatusSinks = {
-      isMounted: () => mounted,
-      setRunners,
-      setState,
-    };
-    void loadRunnerdStatus(sinks);
-    const id = setInterval(() => void loadRunnerdStatus(sinks), 8000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
-  }, [enabled, tick]);
+  // ~8s liveness poll, guarded: at most one status read in flight (no stacking
+  // under a stalled owner), paused while the tab is hidden, aborted on teardown.
+  // The fetch heart's `isMounted` is bridged to the poll's AbortSignal so a torn-
+  // down or superseded read never writes state (and never flips to a false error).
+  usePoller(
+    (signal) =>
+      loadRunnerdStatus({ isMounted: () => !signal.aborted, setRunners, setState }, signal),
+    8000,
+    enabled,
+    [tick],
+  );
 
   return {
     runners,

@@ -8,11 +8,12 @@
  * owner has no `/api/presences` route (404) → the strip renders its honest empty
  * state, never an error wall; only a genuine non-404 failure surfaces as an error.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { PresenceEntry, PresenceCollision } from '../types';
 import { resolveCollisions } from '../lib/presence';
 import { useLiveRefresh } from './useLiveRefresh';
+import { usePoller } from './usePoller';
 
 export interface PresenceState {
   presences: PresenceEntry[];
@@ -26,9 +27,10 @@ const EMPTY: PresenceState = { presences: [], collisions: [], error: null, loade
 export function usePresences(enabled: boolean, brain?: string | null): PresenceState {
   const [state, setState] = useState<PresenceState>(EMPTY);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const resp = await api.presences(brain);
+      const resp = await api.presences(brain, signal);
+      if (signal?.aborted) return;
       setState({
         presences: resp.presences ?? [],
         collisions: resolveCollisions(resp),
@@ -36,6 +38,9 @@ export function usePresences(enabled: boolean, brain?: string | null): PresenceS
         loaded: true,
       });
     } catch (err) {
+      // An aborted read (teardown / superseded poll) is not a failure — bail before
+      // it can flip the ambient strip into an error.
+      if (signal?.aborted) return;
       // A pre-P1 owner (no route) or any transient miss degrades to an empty
       // roster — presence is ambient, it never breaks the Hall (vigil-fail-open).
       // A non-404 error is surfaced honestly but still leaves the strip usable.
@@ -49,13 +54,13 @@ export function usePresences(enabled: boolean, brain?: string | null): PresenceS
     }
   }, [brain]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    void refresh();
-    const id = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(id);
-  }, [enabled, refresh]);
+  // ~5s roster nerve, guarded: at most one read in flight (no stacking under a
+  // stalled owner), paused while the tab is hidden, aborted on teardown.
+  usePoller((signal) => refresh(signal), 5000, enabled, [brain]);
 
+  // The same graph_changed nerve the tree/Hall ride also refetches the roster.
+  // Event-driven and debounced (not the interval poll), so it stays OUTSIDE the
+  // guard — a mutation must never be skipped because a poll is in flight.
   useLiveRefresh({ onRefresh: () => void refresh(), enabled });
 
   return state;
