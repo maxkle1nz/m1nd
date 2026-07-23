@@ -24,8 +24,21 @@ pub fn enrich_rust_workspace(
     graph: &mut m1nd_core::graph::Graph,
     root: &Path,
 ) -> M1ndResult<CargoWorkspaceStats> {
-    let Some(metadata) = load_metadata(root)? else {
-        return Ok(CargoWorkspaceStats::default());
+    let metadata = match load_metadata(root) {
+        Ok(Some(metadata)) => metadata,
+        // No Cargo.toml — not a cargo project, nothing to enrich.
+        Ok(None) => return Ok(CargoWorkspaceStats::default()),
+        // Best-effort: `cargo metadata` can fail for reasons orthogonal to the
+        // source graph — a workspace MEMBER ingested in isolation (its Cargo.toml
+        // inherits `x.workspace = true`, but the snapshot carries no workspace
+        // root), or a host without cargo on PATH. Workspace/dependency enrichment
+        // is ADDITIVE graph metadata, never the core of ingesting source files, so
+        // a metadata failure degrades to an un-enriched graph instead of failing
+        // the whole read-only ingest.
+        Err(error) => {
+            eprintln!("[m1nd ingest] cargo workspace enrichment skipped: {error}");
+            return Ok(CargoWorkspaceStats::default());
+        }
     };
 
     let workspace_root = PathBuf::from(metadata.workspace_root.as_str());

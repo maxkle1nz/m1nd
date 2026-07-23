@@ -765,3 +765,203 @@ pub struct VerificationImpact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristics_surface_ref: Option<HeuristicsSurfaceRef>,
 }
+
+// ---------------------------------------------------------------------------
+// m1nd.transplant — graph-addressed cross-file move of a top-level `fn`
+// (design + proof addresses: `docs/TRANSPLANT-PRD.md`). The verb resolves a
+// symbol via the graph, computes the dependency trichotomy from `calls` edges,
+// and writes source/dest/referencers atomically through the apply_batch machinery.
+// ---------------------------------------------------------------------------
+
+/// Input for m1nd.transplant.
+///
+/// Addresses the moved item by `symbol` + `source_file` — the canonical v1 form
+/// (owner decision D1: a `node_id` form waits for stable node identity across
+/// re-ingest). Paths are absolute or workspace-relative and resolved against the
+/// ingest roots.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TransplantInput {
+    /// Calling agent identifier (required by all m1nd tools).
+    pub agent_id: String,
+    /// Bare name of the top-level `fn` to move (matches the node label).
+    pub symbol: String,
+    /// File the symbol currently lives in.
+    pub source_file: String,
+    /// File the symbol is moved into (must already exist — PRD §7.3).
+    pub dest_file: String,
+    /// A3 — the explicit Money-Zone gesture. When a touched path (source, dest, or a
+    /// derived referencer) matches a `ci/protected-zones.json` glob, the transplant
+    /// refuses UNLESS this carries the caller's reason for crossing the guarded zone.
+    /// Absent (the default) means "I did not intend to touch a protected zone" — a
+    /// zone match then refuses, teaching the gesture. Recorded in the receipt when it
+    /// unlocks a crossing.
+    #[serde(default)]
+    pub allow_protected: Option<String>,
+}
+
+/// A1 — node-addressed state a transplant could NOT carry to the moved symbol's
+/// new home, because the re-ingest recreates the node under a new external_id (a
+/// fn node id is `file::<path>::fn::<name>`, path-dependent; the OpenRewrite stable
+/// identity is unimplemented). Each entry names the symbol, its old→new node id and
+/// the orphaned payload, so the verb NEVER silently orphans node-bound state.
+/// Following it fully needs owner-side wiring (a stable node id across re-ingest, or
+/// a paint-tag registry) — reported here, not faked.
+#[derive(Clone, Debug, Serialize)]
+pub struct StateLeftBehind {
+    /// The moved symbol whose node was recreated.
+    pub symbol: String,
+    /// The symbol's node id BEFORE the move (orphaned by the re-ingest).
+    pub old_node_id: String,
+    /// The symbol's node id AFTER the move (empty when the new node was not found).
+    pub new_node_id: String,
+    /// The class of orphaned state (currently `"xray_tags"`).
+    pub kind: String,
+    /// The orphaned payload: tags that were on the old node and the re-ingest did
+    /// NOT reproduce under any namespace on the new node (the painted tags a move
+    /// loses — structural tags the re-ingest regenerated are excluded).
+    pub detail: Vec<String>,
+}
+
+/// A3 — the Money-Zone gesture a transplant recorded when it crossed a protected
+/// zone with the caller's explicit `allow_protected` reason. Present in the receipt
+/// only when a guarded zone was actually crossed, so the crossing is auditable.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProtectedZoneGesture {
+    /// The `ci/protected-zones.json` glob the touched file matched.
+    pub zone: String,
+    /// The reason the zone is guarded (from the config).
+    pub zone_reason: String,
+    /// The touched path (source, dest, or a derived referencer) that matched.
+    pub matched_file: String,
+    /// The caller's `allow_protected` reason that unlocked the crossing.
+    pub gesture: String,
+}
+
+/// A dependency that STAYS in the source file but is shared by the moved item,
+/// so it gains a visibility bump and is back-imported into the destination.
+#[derive(Clone, Debug, Serialize)]
+pub struct SharedDepReport {
+    /// The dependency's symbol name.
+    pub name: String,
+    /// Visibility before the transplant (e.g. "private", "pub(crate)", "pub").
+    pub visibility_before: String,
+    /// Visibility after the transplant (bumped only when it was more private).
+    pub visibility_after: String,
+}
+
+/// Output for m1nd.transplant. Honest fields (`refs_unresolved`,
+/// `source_back_imported`) surface anything the verb could not confidently do,
+/// so a caller never mistakes a silent skip for a clean move.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantOutput {
+    /// The symbol that was moved.
+    pub moved_symbol: String,
+    /// Source module name (file stem) the symbol left.
+    pub source_module: String,
+    /// Destination module name (file stem) the symbol entered.
+    pub dest_module: String,
+    /// Absolute paths written by this transplant, in write order.
+    pub files_changed: Vec<String>,
+    /// Private dependencies that travelled with the moved item (trichotomy).
+    pub deps_travelled: Vec<String>,
+    /// Shared dependencies that stayed, with their visibility bumps (trichotomy).
+    pub deps_shared: Vec<SharedDepReport>,
+    /// Files whose references to the moved symbol were rewritten to the new home.
+    pub referencing_files: Vec<String>,
+    /// Total number of reference sites rewritten across all referencing files.
+    pub refs_rewritten: usize,
+    /// Reference sites the verb refused to rewrite (e.g. grouped `use` imports) —
+    /// surfaced honestly rather than silently skipped.
+    pub refs_unresolved: Vec<String>,
+    /// True when the source file kept a caller of the moved symbol and gained a
+    /// back-import `use crate::<dest_module>::<symbol>;` (the self-use case).
+    pub source_back_imported: bool,
+    /// `use` statements carried from the source into the destination because the
+    /// moved text references what they bind (rope's over-provision→prune law).
+    pub imports_carried: Vec<String>,
+    /// True when the moved fn was private and had to become `pub(crate)` in its
+    /// new home so the source's back-import keeps compiling (E0603 otherwise).
+    pub moved_visibility_bumped: bool,
+    /// How the dependency trichotomy was derived: "graph_edges" or "textual".
+    pub dependency_source: String,
+    /// How referencing files were discovered: "graph_edges", "textual", or "both".
+    pub referencer_source: String,
+    /// §7.7 post-compute formatting status: "applied" when every touched file was
+    /// piped through `rustfmt --edition 2021` before the atomic write; otherwise
+    /// an honest note (rustfmt unavailable / rejected a file) — never a silent
+    /// skip, because a fmt-gated repo would reprove CI without warning.
+    pub rustfmt: String,
+    /// D5b — SystemBlock ids whose ratified `boundary_version` this transplant aged
+    /// because their membership claims a touched file (PRD §10 D5 option b). The
+    /// bump stales those blocks' receipts by scope through the EXISTING rollup law,
+    /// closing the lie-window where a symbol crossed a ratified boundary but the
+    /// unchanged path-set membership left the receipts green. Empty when no skeleton
+    /// is present or no block claims a touched file — the verb never silently ages a
+    /// boundary.
+    pub blocks_touched: Vec<String>,
+    /// A1 — node-addressed state (currently xray/paint tags) the re-ingest orphaned
+    /// when it recreated a moved symbol's node under a new id. Empty when nothing was
+    /// left behind. The verb never silently orphans node-bound state; carrying it
+    /// fully needs owner-side wiring (see [`StateLeftBehind`]).
+    pub state_left_behind: Vec<StateLeftBehind>,
+    /// A3 — the Money-Zone gesture recorded when this transplant crossed a protected
+    /// zone with the caller's explicit `allow_protected` reason. `None` when no
+    /// guarded zone was touched (the common case).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protected_zone: Option<ProtectedZoneGesture>,
+    /// Elapsed milliseconds.
+    pub elapsed_ms: f64,
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.transplant_preview / m1nd.transplant_commit (A2 — two-phase)
+// ---------------------------------------------------------------------------
+
+/// One planned file of a staged two-phase transplant. `base_hash` is the hash of
+/// the ON-DISK content the plan was computed from — the commit re-validates every
+/// one and refuses on any drift (the TOCTOU anchor), so a stale plan can never
+/// clobber a file that moved on since the preview.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantPlannedFileReport {
+    pub file_path: String,
+    pub base_hash: String,
+    pub lines_added: i32,
+    pub lines_removed: i32,
+}
+
+/// Output for m1nd.transplant_preview.
+///
+/// The preview computes EVERYTHING the one-shot verb would (all new contents,
+/// referencer discovery, fmt pass, candidate receipt) and writes NOTHING; the
+/// staged plan is redeemable via `transplant_commit{preview_id, confirm:true}`
+/// within `ttl_ms`.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantPreviewOutput {
+    pub preview_id: String,
+    /// Staged-plan time-to-live in milliseconds (5 min, mirroring edit_preview).
+    pub ttl_ms: u64,
+    /// Per-file plan: source + dest + every DERIVED referencer, in write order.
+    pub files: Vec<TransplantPlannedFileReport>,
+    /// The receipt the commit will finalize (timing re-stamped at commit).
+    pub candidate: TransplantOutput,
+    pub elapsed_ms: f64,
+}
+
+/// Input for m1nd.transplant_commit.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TransplantCommitInput {
+    pub preview_id: String,
+    pub agent_id: String,
+    /// The caller must explicitly set true to land the staged plan.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Output for m1nd.transplant_commit.
+#[derive(Clone, Debug, Serialize)]
+pub struct TransplantCommitOutput {
+    pub preview_id: String,
+    /// The finalized transplant receipt (same shape as the one-shot verb's).
+    pub receipt: TransplantOutput,
+    pub elapsed_ms: f64,
+}
