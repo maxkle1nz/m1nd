@@ -17,6 +17,13 @@ const RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-v1";
 const CANONICAL_RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-manifest-v1";
 const CANONICAL_RELEASE_CANDIDATE_DOMAIN = CANONICAL_RELEASE_CANDIDATE_SCHEMA;
 const CANONICAL_GATE_RECEIPT_SCHEMA = "m1nd-gate-receipt-v1";
+// Custody floor of the authority custody era under which a receipt was minted
+// (era-scoped; a successor Path-A era will carry a different value). Mirror of
+// m1nd-control::release::{SECURE_ENCLAVE_CUSTODY_FLOOR_V1, RATIFIED_CUSTODY_FLOORS}.
+// The production value comes from the ratified constant / ceremony receipt, never
+// from request payload, and must be a member of this closed set.
+const CANONICAL_SECURE_ENCLAVE_CUSTODY_FLOOR = "secure-enclave-single-host-v1";
+const CANONICAL_RATIFIED_CUSTODY_FLOORS = new Set([CANONICAL_SECURE_ENCLAVE_CUSTODY_FLOOR]);
 const CANONICAL_REVIEW_RECEIPT_SCHEMA = "m1nd-independent-adversarial-review-receipt-v1";
 const CANONICAL_EVIDENCE_SET_EXTENSION_SCHEMA = "m1nd-release-evidence-set-json-extension-v1";
 const CANONICALIZATION_VERSION = "m1nd-canonical-json-v1";
@@ -334,7 +341,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-first/SKILL.md",
     checks: [
       { id: "session-companion-section", needles: ["Session Companion Bridge"] },
-      { id: "dext3r-continuity-only", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity-only", needles: ["COMPANION", "continuity"] },
       { id: "m1nd-agent-next-route", needles: ["m1nd agent next", "current task"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
       { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
@@ -358,7 +365,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-operator/SKILL.md",
     checks: [
       { id: "session-companion-routing", needles: ["Session Companion Routing"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "conversation continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "conversation continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -374,7 +381,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-universal-agent-pack.md",
     checks: [
       { id: "session-companions-section", needles: ["Session Companions"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -389,7 +396,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "docs/AGENT-PACKS.md",
     checks: [
       { id: "session-memory-companions-section", needles: ["Session Memory Companions"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -510,7 +517,7 @@ function packRoutingCheck(options = {}) {
     missing,
     non_claims: [
       "pack-routing-check verifies packaged doctrine text, not live host behavior.",
-      "pack-routing-check does not prove a session companion such as DEXT3R is installed.",
+      "pack-routing-check does not prove a session companion such as COMPANION is installed.",
       "pack-routing-check does not prove m1nd retrieval correctness or code behavior.",
       "pack-routing-check does not refresh MCP host bindings or cached tool lists.",
     ],
@@ -2102,6 +2109,16 @@ function githubReleaseAvailability(
       error: available ? null : "test override reported unavailable",
     };
   }
+  if (platform === "win32") {
+    return {
+      ok: false,
+      available: false,
+      asset,
+      url,
+      source: "windows-phase-2",
+      error: `m1nd ${version} does not ship a Windows binary; Windows support is phase-2`,
+    };
+  }
   const curl = trustedUpdateTool("curl");
   if (!curl) {
     return {
@@ -2987,7 +3004,7 @@ function validateCanonicalGateReceipt(value) {
   const core = requireExactFields(
     receipt.core,
     [
-      "candidate_digest", "gate_id", "spec_version", "metric_spec_digest",
+      "candidate_digest", "gate_id", "custody_floor", "spec_version", "metric_spec_digest",
       "harness_fixture_digest", "environment_digest", "provider_id", "provider_key_version",
       "input_digests", "command", "started_at", "ended_at", "exit_code", "verdict",
       "findings", "artifact_digests",
@@ -2996,6 +3013,10 @@ function validateCanonicalGateReceipt(value) {
   );
   requireCanonicalDigest(core.candidate_digest, "candidate_digest");
   if (!CANONICAL_GATE_IDS.includes(core.gate_id)) throw new Error(`invalid gate_id: ${String(core.gate_id)}`);
+  requireCanonicalText(core.custody_floor, "custody_floor");
+  if (!CANONICAL_RATIFIED_CUSTODY_FLOORS.has(core.custody_floor)) {
+    throw new Error(`custody_floor ${String(core.custody_floor)} is outside the ratified custody-floor set`);
+  }
   requireCanonicalText(core.spec_version, "spec_version");
   if (core.metric_spec_digest !== null) requireCanonicalDigest(core.metric_spec_digest, "metric_spec_digest");
   requireCanonicalDigest(core.harness_fixture_digest, "harness_fixture_digest");
@@ -4070,17 +4091,47 @@ function selfUpdateInternal(args, testDependencies = null) {
   }
 }
 
+// The ONLY sanctioned exception to the ambient-override refusal is the release
+// `verified-update-smoke` job, which must drive the real `update` command against a
+// local release directory. The seam opens only when BOTH fences hold: the explicit,
+// dedicated marker the smoke sets in its own child env (`M1ND_RELEASE_SMOKE=1`), AND a
+// source checkout — a packed/installed client has no `.git` at PACKAGE_ROOT (the same
+// fence `createSelfUpdateTestHarness` relies on), so this can never open in production.
+// Absent either fence, the ambient overrides remain firmly refused.
+function releaseSmokeSeamOpen() {
+  return (
+    process.env.M1ND_RELEASE_SMOKE === "1" &&
+    fs.existsSync(path.join(PACKAGE_ROOT, ".git"))
+  );
+}
+
+// Mirror the harness's dependency shape, but sourced from the smoke's child env,
+// because the public `update` command has no explicit dependency channel.
+function releaseSmokeDependencies() {
+  return Object.freeze({
+    releaseDirectory: process.env.M1ND_TEST_RELEASE_DIR
+      ? path.resolve(process.env.M1ND_TEST_RELEASE_DIR)
+      : null,
+    cosignPath: process.env.M1ND_TEST_COSIGN_PATH
+      ? path.resolve(process.env.M1ND_TEST_COSIGN_PATH)
+      : null,
+  });
+}
+
 function selfUpdate(args) {
   const forbiddenAmbientOverrides = [
     "M1ND_TEST_RELEASE_DIR",
     "M1ND_TEST_COSIGN_PATH",
   ].filter((name) => Object.prototype.hasOwnProperty.call(process.env, name));
   if (forbiddenAmbientOverrides.length > 0) {
-    throw new Error(
-      `unsafe self-update test overrides are not accepted by the production updater: ${forbiddenAmbientOverrides.join(
-        ", "
-      )}`
-    );
+    if (!releaseSmokeSeamOpen()) {
+      throw new Error(
+        `unsafe self-update test overrides are not accepted by the production updater: ${forbiddenAmbientOverrides.join(
+          ", "
+        )}`
+      );
+    }
+    return selfUpdateInternal(args, releaseSmokeDependencies());
   }
   return selfUpdateInternal(args, null);
 }
@@ -4789,6 +4840,7 @@ module.exports = {
   runtimeBinaryName,
   commandLooksLikeRuntime,
   githubReleaseAssetName,
+  githubReleaseAvailability,
   canonicalJson,
   canonicalJsonV1,
   parseIntegerJson,

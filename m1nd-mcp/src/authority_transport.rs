@@ -84,6 +84,7 @@ pub struct AuthoritySessionAuthenticateRequestV1 {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AuthoritySessionVerificationAssuranceV1 {
     ControlVerifiedEd25519,
+    ControlVerifiedEcdsaP256Sha256X962,
     SoftwareTestOnlyNotProven,
 }
 
@@ -119,6 +120,9 @@ impl From<AuthenticatedSessionV1> for AuthenticatedAuthoritySessionWireV1 {
             verification_assurance: match session.verification_assurance {
                 AuthorityVerificationAssurance::ControlVerifiedEd25519 => {
                     AuthoritySessionVerificationAssuranceV1::ControlVerifiedEd25519
+                }
+                AuthorityVerificationAssurance::ControlVerifiedEcdsaP256Sha256X962 => {
+                    AuthoritySessionVerificationAssuranceV1::ControlVerifiedEcdsaP256Sha256X962
                 }
                 AuthorityVerificationAssurance::SoftwareTestOnlyNotProven => {
                     AuthoritySessionVerificationAssuranceV1::SoftwareTestOnlyNotProven
@@ -848,6 +852,36 @@ mod tests {
 
     fn hash(label: &str) -> String {
         digest_canonical("authority-transport-receipt-test-v1", &label).unwrap()
+    }
+
+    #[test]
+    fn p256_session_assurance_mirrors_to_wire_without_relabeling() {
+        let session = crate::authority_runtime::AuthenticatedSessionV1 {
+            session_id: "session-1".to_string(),
+            subject_id: "owner-1".to_string(),
+            key_id: "owner-p256-key-1".to_string(),
+            app_host_identity: "host-1".to_string(),
+            audience: "audience-1".to_string(),
+            session_context_digest: hash("context"),
+            key_registry_epoch: 0,
+            authenticated_at: 100,
+            expires_at: 200,
+            authentication_body_digest: hash("body"),
+            verification_assurance:
+                AuthorityVerificationAssurance::ControlVerifiedEcdsaP256Sha256X962,
+        };
+        let wire = AuthenticatedAuthoritySessionWireV1::from(session);
+        assert_eq!(
+            wire.verification_assurance,
+            AuthoritySessionVerificationAssuranceV1::ControlVerifiedEcdsaP256Sha256X962
+        );
+        // The P-256 assurance carries a new, distinct SCREAMING_SNAKE wire name; it
+        // is never folded into the pre-existing Ed25519 label.
+        let json = serde_json::to_value(&wire).unwrap();
+        assert_eq!(
+            json["verification_assurance"],
+            serde_json::json!("CONTROL_VERIFIED_ECDSA_P256_SHA256_X962")
+        );
     }
 
     fn unsigned_receipt() -> AuthorityAuthorizationReceiptV1 {

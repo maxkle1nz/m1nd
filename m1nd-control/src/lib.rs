@@ -42,18 +42,18 @@ pub use canonical::{
     CANONICALIZATION_VERSION,
 };
 pub use crypto_authority::{
-    sign_canonical_authority_payload, sign_capability, sign_human_approval, sign_owner_challenge,
-    verify_authority_message_signature, verify_canonical_authority_payload_signature,
-    verify_capability, verify_capability_once, verify_human_approval, verify_human_approval_once,
-    verify_owner_challenge, verify_owner_challenge_once, AuthorityCapabilityV1,
-    AuthorityCryptoError, AuthoritySigner, AuthoritySignerError, CapabilityVerificationContext,
-    ChallengeVerificationContext, CryptographicIntegrity, VerificationKeyRegistryV1,
-    VerificationKeyV1, VerifiedArtifact, VerifiedAuthorityOnceV1, VerifiedAuthorityV1,
-    AUTHORITY_CAPABILITY_SCHEMA, AUTHORITY_CAPABILITY_SIGNATURE_DOMAIN,
-    DEFAULT_AUTHORITY_CLOCK_SKEW_MS, ECDSA_P256_SHA256_X962_ALGORITHM, ED25519_ALGORITHM,
-    HUMAN_APPROVAL_SIGNATURE_DOMAIN, HUMAN_APPROVAL_SIGNED_SCHEMA,
-    OWNER_CHALLENGE_SIGNATURE_DOMAIN, OWNER_CHALLENGE_SIGNED_SCHEMA, SIGNED_BODY_DIGEST_DOMAIN,
-    VERIFICATION_KEY_REGISTRY_SCHEMA,
+    sign_authority_message, sign_canonical_authority_payload, sign_capability, sign_human_approval,
+    sign_owner_challenge, verify_authority_message_signature,
+    verify_canonical_authority_payload_signature, verify_capability, verify_capability_once,
+    verify_human_approval, verify_human_approval_once, verify_owner_challenge,
+    verify_owner_challenge_once, AuthorityCapabilityV1, AuthorityCryptoError, AuthoritySigner,
+    AuthoritySignerError, CapabilityVerificationContext, ChallengeVerificationContext,
+    CryptographicIntegrity, VerificationKeyRegistryV1, VerificationKeyV1, VerifiedArtifact,
+    VerifiedAuthorityOnceV1, VerifiedAuthorityV1, AUTHORITY_CAPABILITY_SCHEMA,
+    AUTHORITY_CAPABILITY_SIGNATURE_DOMAIN, DEFAULT_AUTHORITY_CLOCK_SKEW_MS,
+    ECDSA_P256_SHA256_X962_ALGORITHM, ED25519_ALGORITHM, HUMAN_APPROVAL_SIGNATURE_DOMAIN,
+    HUMAN_APPROVAL_SIGNED_SCHEMA, OWNER_CHALLENGE_SIGNATURE_DOMAIN, OWNER_CHALLENGE_SIGNED_SCHEMA,
+    SIGNED_BODY_DIGEST_DOMAIN, VERIFICATION_KEY_REGISTRY_SCHEMA,
 };
 pub use envelope::{
     CausalEnvelopeV1, EnvelopeError, EnvelopeValidation, EnvelopeValidationContext, EventClass,
@@ -94,14 +94,15 @@ pub use policy::{
     ReachablePolicyTupleV1, RiskClass, ACTION_POLICY_DIGEST_DOMAIN, ACTION_POLICY_REGISTRY_SCHEMA,
 };
 pub use release::{
-    FindingSeverity, FindingStatus, GateId, GateReceiptCoreV1, GateReceiptV1, GateVerdict,
-    IndependentAdversarialReviewCoreV1, IndependentAdversarialReviewReceiptV1, MetricSpecCoreV1,
-    MetricSpecV1, ReleaseCandidateManifestCoreV1, ReleaseCandidateManifestV1, ReleaseContractError,
+    is_ratified_custody_floor, FindingSeverity, FindingStatus, GateId, GateReceiptCoreV1,
+    GateReceiptV1, GateVerdict, IndependentAdversarialReviewCoreV1,
+    IndependentAdversarialReviewReceiptV1, MetricSpecCoreV1, MetricSpecV1,
+    ReleaseCandidateManifestCoreV1, ReleaseCandidateManifestV1, ReleaseContractError,
     ReleaseEvidenceSetV1, ReleaseFindingV1, ReleaseIntegrityDisposition,
     ReleaseStructuralValidation, GATE_RECEIPT_DIGEST_DOMAIN, GATE_RECEIPT_SCHEMA,
     INDEPENDENT_REVIEW_RECEIPT_DIGEST_DOMAIN, INDEPENDENT_REVIEW_RECEIPT_SCHEMA,
-    METRIC_SPEC_DIGEST_DOMAIN, METRIC_SPEC_SCHEMA, RELEASE_CANDIDATE_DIGEST_DOMAIN,
-    RELEASE_CANDIDATE_SCHEMA,
+    METRIC_SPEC_DIGEST_DOMAIN, METRIC_SPEC_SCHEMA, RATIFIED_CUSTODY_FLOORS,
+    RELEASE_CANDIDATE_DIGEST_DOMAIN, RELEASE_CANDIDATE_SCHEMA, SECURE_ENCLAVE_CUSTODY_FLOOR_V1,
 };
 pub use replay_ledger::{
     MemoryReplayLedger, PersistentReplayLedger, ReplayClaimV1, ReplayDurability, ReplayLedger,

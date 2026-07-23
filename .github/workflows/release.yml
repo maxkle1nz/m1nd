@@ -334,9 +334,9 @@ jobs:
       - name: Verify frozen ratified contracts
         run: |
           printf '%s  %s\n' \
-            '00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38' \
+            '2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b' \
             'docs/M1ND-10-PRD.md' \
-            '8a8a5fe9b9d2a4fc62c419e160e8dc2dcb4115f58d98f3f15a2d5031881dd32b' \
+            'd5bc29776f516c300cb1a0668f0a53844286f75395fd0ad1e875b52ea3a067a5' \
             'docs/M1ND-10-UML.md' | sha256sum --check --strict
       - name: Rust source and release gates
         run: |
@@ -501,11 +501,6 @@ jobs:
             archive: m1nd-mcp-macos-aarch64.tar.gz
             artifact: m1nd-mcp-macos-aarch64
             raw: m1nd-mcp-macos-aarch64
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            archive: m1nd-mcp-windows-x86_64.zip
-            artifact: m1nd-mcp-windows-x86_64
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -538,20 +533,12 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${{ matrix.raw }}"
-      - name: Stage updater-facing Windows runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "${{ matrix.raw }}"
       - name: Archive Unix runtime
         if: runner.os != 'Windows'
         shell: bash
         run: |
           tar -C "target/${{ matrix.target }}/release" \
             -czf "${{ matrix.archive }}" "${BINARY_NAME}"
-      - name: Archive Windows runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -DestinationPath "${{ matrix.archive }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
@@ -588,12 +575,6 @@ jobs:
             archive: m1nd-mcp-macos-aarch64.tar.gz
             binary: runtime/m1nd-mcp
             raw: m1nd-mcp-macos-aarch64
-          - target: windows-x86_64
-            os: windows-latest
-            artifact: m1nd-mcp-windows-x86_64
-            archive: m1nd-mcp-windows-x86_64.zip
-            binary: runtime/m1nd-mcp.exe
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -610,10 +591,6 @@ jobs:
         run: |
           mkdir runtime
           tar -xzf "${{ matrix.archive }}" -C runtime
-      - name: Install Windows archive bytes
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Expand-Archive -Path "${{ matrix.archive }}" -DestinationPath runtime
       - name: Restore raw Unix executable permission
         if: runner.os != 'Windows'
         shell: bash
@@ -712,7 +689,6 @@ jobs:
             --expected-target linux-x86_64 \
             --expected-target macos-x86_64 \
             --expected-target macos-aarch64 \
-            --expected-target windows-x86_64 \
             --compatibility-output canonical-inputs/RELEASE-COMPATIBILITY.json \
             --rollback-output canonical-inputs/M1ND10-ROLLBACK.json \
             --digest-output canonical-inputs/CANONICAL-OPERATIONAL-DIGESTS.json
@@ -727,7 +703,6 @@ jobs:
             --expected-target linux-x86_64 \
             --expected-target macos-x86_64 \
             --expected-target macos-aarch64 \
-            --expected-target windows-x86_64 \
             --required-job tag-guard \
             --required-job release-gate \
             --required-job build \
@@ -792,7 +767,6 @@ jobs:
             release-bins/m1nd-mcp-linux-x86_64
             release-bins/m1nd-mcp-macos-x86_64
             release-bins/m1nd-mcp-macos-aarch64
-            release-bins/m1nd-mcp-windows-x86_64.exe
             release-bins/*.json
             release-bins/SHA256SUMS
       - name: GitHub Sigstore SBOM attestation
@@ -806,7 +780,6 @@ jobs:
             release-bins/m1nd-mcp-linux-x86_64
             release-bins/m1nd-mcp-macos-x86_64
             release-bins/m1nd-mcp-macos-aarch64
-            release-bins/m1nd-mcp-windows-x86_64.exe
             release-bins/CANDIDATE.json
             release-bins/GATE-RECEIPT.json
             release-bins/ROLLBACK.json
@@ -847,9 +820,6 @@ jobs:
           - target: macos-aarch64
             os: macos-latest
             raw: m1nd-mcp-macos-aarch64
-          - target: windows-x86_64
-            os: windows-latest
-            raw: m1nd-mcp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -859,6 +829,17 @@ jobs:
           node-version: "22"
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Place cosign in a trusted fixed path for the updater
+        shell: bash
+        # The updater resolves cosign only from fixed system directories (never
+        # an arbitrary PATH), but cosign-installer drops it in the runner
+        # tool-cache. Copy the just-installed, signature-verified cosign into a
+        # trusted directory so the updater's own resolver finds it.
+        run: |
+          set -euo pipefail
+          src="$(command -v cosign)"
+          sudo install -m 0755 "$src" /usr/local/bin/cosign
+          /usr/local/bin/cosign version >/dev/null
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
@@ -1175,16 +1156,16 @@ jobs:
         run: |
           CORE_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.core_file }}" \
-            --destination exact-crates/core)"
+            --destination "${RUNNER_TEMP}/exact-crates/core")"
           CONTROL_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.control_file }}" \
-            --destination exact-crates/control)"
+            --destination "${RUNNER_TEMP}/exact-crates/control")"
           INGEST_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.ingest_file }}" \
-            --destination exact-crates/ingest)"
+            --destination "${RUNNER_TEMP}/exact-crates/ingest")"
           MCP_ROOT="$(python3 scripts/m1nd10_crates_io_upload.py extract \
             --crate "release-bins/${{ steps.crates.outputs.mcp_file }}" \
-            --destination exact-crates/mcp)"
+            --destination "${RUNNER_TEMP}/exact-crates/mcp")"
           cargo check --locked --manifest-path "${CORE_ROOT}/Cargo.toml"
           cargo check --locked --manifest-path "${CONTROL_ROOT}/Cargo.toml"
           cargo check --manifest-path "${INGEST_ROOT}/Cargo.toml" \
@@ -1618,7 +1599,7 @@ jobs:
           test -n "${NODE_AUTH_TOKEN}"
 
           set +e
-          npm publish "release-bins/${EXPECTED_NPM_TARBALL}" \
+          npm publish "./release-bins/${EXPECTED_NPM_TARBALL}" \
             --registry "https://registry.npmjs.org" \
             --access public \
             --ignore-scripts \

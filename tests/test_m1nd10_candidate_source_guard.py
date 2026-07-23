@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -278,19 +279,29 @@ class CandidateSourceGuardTests(unittest.TestCase):
             )
 
     def test_frozen_prd_digest_exception_is_bound_to_exact_bytes(self) -> None:
-        # The owner-ratified C6 exception lets the frozen PRD's documented
-        # machine-local paths pass the content gate, but ONLY at its exact
-        # SHA-256. One byte of drift kills the exception and restores the normal
-        # personal_path_content refusal, in both the worktree projection and the
-        # enforced exact-commit mode. The real PRD bytes are read at runtime so
-        # this test source never embeds a personal path.
-        # see docs/proofs/m1nd10-public-path-migration-ratification-20260720.md
+        # The owner-ratified C6 exception exempts the canonical PRD from the
+        # content gate ONLY at its exact SHA-256. Since the 2026-07-23 re-freeze
+        # (docs/proofs/m1nd10-prd-refreeze-20260723.md) the real PRD carries no
+        # machine-local paths, so the exception is moot in effect; the binding
+        # mechanism is kept and proven here with synthetic canon bytes whose
+        # digest is patched in as the frozen one.
         prd_bytes = (ROOT / "docs" / "M1ND-10-PRD.md").read_bytes()
         self.assertEqual(
             hashlib.sha256(prd_bytes).hexdigest(),
             GUARD.FROZEN_PRD_SHA256,
             "the real PRD bytes must match the ratified frozen digest",
         )
+        # The cleaned canon must STAY clean: reintroducing a machine-local path
+        # into the public PRD is a regression, exception or not. The needles are
+        # assembled at runtime so this test source never embeds a personal path
+        # (the guard scans this file too).
+        macos_home = b"/" + b"Users" + b"/"
+        linux_home = b"/" + b"home" + b"/"
+        self.assertNotIn(macos_home, prd_bytes)
+        self.assertNotIn(linux_home, prd_bytes)
+
+        synthetic = b"# PRD\ncheckout at " + macos_home + b"example-operator/m1nd\n"
+        synthetic_digest = hashlib.sha256(synthetic).hexdigest()
         with tempfile.TemporaryDirectory() as temporary:
             repo = pathlib.Path(temporary)
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
@@ -324,25 +335,10 @@ class CandidateSourceGuardTests(unittest.TestCase):
 
             prd = repo / "docs" / "M1ND-10-PRD.md"
             prd.parent.mkdir(parents=True)
+            prd.write_bytes(synthetic)
 
-            # (a) Exact frozen bytes → the digest-bound exception makes the guard
-            # PASS in both inspection modes, even though the PRD embeds documented
-            # machine-local paths.
-            prd.write_bytes(prd_bytes)
-            self.assertEqual("PASS", GUARD.inspect_worktree_projection(repo)["status"])
-            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            subprocess.run(
-                ["git", "-C", str(repo), "commit", "-qm", "frozen-prd"], check=True
-            )
-            self.assertEqual("PASS", GUARD.inspect_candidate(repo, "HEAD")["status"])
-
-            # (b) One byte of drift → the exception dies and the machine-local
-            # path inside the now non-canonical document is refused again.
-            prd.write_bytes(prd_bytes + b"\n")
-            self.assertNotEqual(
-                hashlib.sha256(prd.read_bytes()).hexdigest(),
-                GUARD.FROZEN_PRD_SHA256,
-            )
+            # (a) Without a matching frozen digest, the machine-local path in
+            # the PRD is refused like any other content.
             projection = GUARD.inspect_worktree_projection(repo)
             self.assertEqual("FAIL", projection["status"])
             self.assertEqual(
@@ -353,16 +349,44 @@ class CandidateSourceGuardTests(unittest.TestCase):
                 {"personal_path_content"},
                 {row["reason"] for row in projection["violations"]},
             )
-            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            subprocess.run(
-                ["git", "-C", str(repo), "commit", "-qm", "prd-drift"], check=True
-            )
-            report = GUARD.inspect_candidate(repo, "HEAD")
-            self.assertEqual("FAIL", report["status"])
-            self.assertEqual(
-                {"personal_path_content"},
-                {row["reason"] for row in report["violations"]},
-            )
+
+            # (b) With the frozen digest bound to EXACTLY these bytes, the
+            # exception fires in both inspection modes.
+            with unittest.mock.patch.object(
+                GUARD, "FROZEN_PRD_SHA256", synthetic_digest
+            ):
+                self.assertEqual(
+                    "PASS", GUARD.inspect_worktree_projection(repo)["status"]
+                )
+                subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "-qm", "frozen-prd"],
+                    check=True,
+                )
+                self.assertEqual(
+                    "PASS", GUARD.inspect_candidate(repo, "HEAD")["status"]
+                )
+
+                # (c) One byte of drift kills the exception and restores the
+                # normal personal_path_content refusal in both modes.
+                prd.write_bytes(synthetic + b"\n")
+                drifted = GUARD.inspect_worktree_projection(repo)
+                self.assertEqual("FAIL", drifted["status"])
+                self.assertEqual(
+                    {"personal_path_content"},
+                    {row["reason"] for row in drifted["violations"]},
+                )
+                subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "-qm", "prd-drift"],
+                    check=True,
+                )
+                report = GUARD.inspect_candidate(repo, "HEAD")
+                self.assertEqual("FAIL", report["status"])
+                self.assertEqual(
+                    {"personal_path_content"},
+                    {row["reason"] for row in report["violations"]},
+                )
 
 
 if __name__ == "__main__":

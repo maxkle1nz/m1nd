@@ -135,7 +135,7 @@ merit; facts, never estimated savings (G1).
 | fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
 | `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
 | the bell | a call to the human (missions await landing) — never an error |
-| `needs_ingest` | "I don't know this repo yet" + its one-call repair — never a crash |
+| `needs_ingest` | "I don't know this repo yet" + the honest repair — never a crash. Follow the packet's `recovery_playbook`: where generic `ingest` is policy-allowed it names it; under the sovereign mutation policy it returns `blocked` (`brain_bootstrap_consumer_not_installed`) with the real paths (legacy snapshot adoption at owner restart, or the served owner's authenticated ingress) — never retry a verb the playbook did not name |
 | the tray | the human's door to land receipts — agents never land |
 
 **The verb families (translate by family, not tool-by-tool):**
@@ -179,7 +179,9 @@ this loop by default:
 
 1. Orient with `north(task)`. One round-trip returns binding trust, task
    context, prior cross-session memory, a sufficiency signal, one `next_move`,
-   and `honest_gaps`. `needs_ingest` → `ingest` → `north` again.
+   and `honest_gaps`. `needs_ingest` → follow the packet's `recovery_playbook`
+   (it consults the live mutation policy: generic `ingest` where allowed;
+   otherwise `blocked` with the real recovery steps) → `north` again.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to `recovery_playbook` before interpreting absence.
    `wrong_workspace_binding` means rebind, intentional ingest, or real
@@ -406,7 +408,7 @@ treated as orientation only.
 
 ## Session Companions
 
-If your host has a session-memory companion such as DEXT3R, use it for
+If your host has a session-memory companion such as COMPANION, use it for
 continuity, not code truth. Good uses are:
 
 - recovering the session north star

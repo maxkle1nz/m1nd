@@ -344,7 +344,7 @@ for the whole m1nd/L1GHT tool surface; treat it as a router, not a checklist.
 
 ## Session Companion Routing
 
-Some hosts expose an adjacent session-memory companion, for example DEXT3R. Use
+Some hosts expose an adjacent session-memory companion, for example COMPANION. Use
 that layer when the bottleneck is conversation continuity: north star, prior
 decisions, open loops, handoff context, workstyle/method friction, or a scoped
 `m1nd flash` summary stored with the session.

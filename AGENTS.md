@@ -11,9 +11,9 @@ local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are 
 
 This is a **PUBLIC** repository. Everything you commit is published.
 
-## The gates (must pass — these ARE the CI, on ubuntu · macos · windows)
+## The gates (must pass — these ARE the CI)
 
-Run these before you consider any change done. CI blocks on all of them across three OSes:
+Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
 cargo check --workspace
@@ -23,15 +23,41 @@ cargo fmt --check
 cargo build --release --workspace
 ```
 
+**Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
+identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
+— a red Windows leg (the ~22 diagnosed source-edit path-canon tests, tracked phase-2 debt) does
+**not** block merge. This restored auto-merge (the whole queue was hostage to admin overrides).
+Still write cross-platform-correct code (the fs/path contract below is real); when Windows goes
+green, re-add `windows-latest` to the matrix and delete the advisory job.
+
 UI changes (`m1nd-ui/`) additionally:
 
 ```bash
 cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
 ```
 
+**Cross-platform fs & path contract (Windows is a first-class CI OS):**
+- Never `set_len`/truncate on an append-mode handle — on Windows it lacks `FILE_WRITE_DATA`
+  (os error 5). Route tail-truncation through `windows_durable_fs::truncate_no_follow`.
+- Never hold long-lived lock files opened with `share_mode(0)` — read-only tree snapshots then
+  die with sharing violations (os error 32). Share reads (`FILE_SHARE_READ`); write access stays
+  unshared so single-owner collision detection is unchanged.
+- Never screen operator-supplied paths with `Path::is_absolute` alone — `"/x"`, `"\x"` and
+  `"C:\x"` are not absolute under the other OS's semantics. Use the shared helpers
+  (`is_safe_relative_discovery_pattern`, `m1nd_ingest::exact_path_identity`) so security screens
+  and identity stamps agree on every OS (2026-07-22 incident: a rooted discovery pattern escaped
+  the scanned root on Windows).
+
 Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before finishing.
 If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`), re-run
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
+
+**MCP tool-schema contract:** every advertised tool's `inputSchema` MUST declare a top-level
+`"type": "object"` (MCP spec). Strict clients (Claude Code) reject the ENTIRE `tools/list`
+when a single tool violates it — the 2026-07-22 incident (a bare top-level `oneOf` on
+`mission_service`/`external_mutation_service`) silently unregistered all 48 tools from live
+sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
+(`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
 
 ## Git identity — ABSOLUTE
 

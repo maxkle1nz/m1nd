@@ -166,6 +166,36 @@ class CanonicalReleaseContractTests(unittest.TestCase):
                     )
                 )
 
+    def test_checked_in_gate_receipts_carry_the_ratified_custody_floor(self):
+        vectors = self.vectors()
+        for receipt in vectors["evidence_set"]["gate_receipts"]:
+            self.assertEqual(
+                receipt["core"]["custody_floor"],
+                contract.SECURE_ENCLAVE_CUSTODY_FLOOR,
+            )
+
+    def test_custody_floor_outside_closed_set_is_refused(self):
+        receipt = copy.deepcopy(self.vectors()["evidence_set"]["gate_receipts"][0])
+        receipt["core"]["custody_floor"] = "software"
+        # Direct validator refusal (before any digest is entertained).
+        with self.assertRaisesRegex(contract.ReleaseContractError, "custody_floor"):
+            contract.validate_gate_receipt(receipt)
+        # Builder refusal: smuggling "software" through the seal-canonical-gate
+        # core-input must fail, so the closed set holds at emission time too.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            core = root / "core.json"
+            core.write_text(json.dumps(receipt["core"]), encoding="utf-8")
+            with self.assertRaisesRegex(contract.ReleaseContractError, "custody_floor"):
+                release.seal_canonical_gate(
+                    SimpleNamespace(
+                        core=core,
+                        signature="NOT_CRYPTOGRAPHIC:fixture-smuggle",
+                        fixture_only=True,
+                        output=root / "G0.json",
+                    )
+                )
+
     def test_fixture_builders_seal_candidate_gate_review_and_evidence(self):
         vectors = self.vectors()
         evidence = vectors["evidence_set"]

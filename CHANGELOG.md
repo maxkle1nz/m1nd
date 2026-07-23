@@ -6,34 +6,168 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-### Changed
+---
 
-- **Breaking Rust embedding API:** `http_server::spawn_background` and
+## [1.5.0] — 2026-07-22
+
+> **Active mode remains HUMAN_GATED.** The M1ND-10 authority/autonomy machinery ships **DORMANT**
+> and **NOT_INSTALLED** — this release does not activate autonomy; formal
+> G6/G7-LIVE/G8-hosted/G9-custody/G10 are not claimed.
+
+The era that grew a visual operating system for repositories, a mission spine with a single audited
+spawner, a human voice at the threshold, and — underneath, dormant and human-gated — the M1ND-10
+control-plane organism. Span `v1.4.0..HEAD`: roughly 85 pull requests (#302 → #387), 368 commits,
+855 files. None of it reaches installers until this version is published.
+
+### Human View v2 — the visual OS for a repository
+
+- **Build Map front door.** The map became the entry surface for a project brain, not a buried view.
+- **SystemBlock ontology.** A typed vocabulary for the parts of a system and how they compose.
+- **Typed receipts + reconciliation engine.** Every map assertion carries a typed receipt; a
+  reconciliation engine diffs the drawn model against the real graph and offers a two-step,
+  one-click-write Reconcile.
+- **Show Code + Copy Packet.** Jump from any block to its real code; copy a grounded packet for an
+  agent.
+- **`skeleton_candidate`.** Map any repository into a candidate skeleton, curated before it binds.
+
+### Mission layer
+
+- **Mission letters (hash-chain).** Missions are letters on an append-only, hash-chained ledger.
+- **`m1nd-runnerd` — the ONLY spawner.** A dedicated runner daemon executes pinned spawn missions in
+  an isolated git worktree, runs the gate, and emits mission letters on the chain — it never writes
+  `landed`.
+- **The human landing gesture.** Landing a mission is a human act, by design.
+- **Curation lane.** Candidates enter the graph through an explicit lane, never by leak.
+
+### The Voice + the human layer
+
+- **north landing bell.** `north` opens with a VOICE CARD when a served owner is live.
+- **Voice cards + scan-loading state machine.** The scan surface is a real state machine
+  (empty · loading · partial · error · ideal) rather than a spinner.
+- **Presences + the Hall.** Live presences per brain; the Hall gathers owner alerts.
+- **Cockpit.** An operator cockpit over the real queue.
+
+### The Universe
+
+- **Panorama of project brains as worlds.** Every project brain is a WORLD (mass = nodes, light =
+  manifest freshness shown as age, satellites = live presences, amber ring = pending gestures).
+- **Landing — one queue.** A single queue for every world's human gestures.
+- **Living map + hash router.** The map subscribes to scoped graph mutations and stays live; a hash
+  router adds deep links and a real Back, with brain keys as basenames (never abspaths).
+
+### Honest front door + CI reviewer
+
+- **Proven-vs-designed table.** The README front door separates what is proven today from what is
+  designed, with calibration language downgraded to what is actually measured.
+- **Ambient shim.** The npm-shipped SessionStart hook opens with the north voice card when a served
+  owner is live; cwd-independence proven.
+- **Retrieval battery.** A standing retrieval battery guards answer quality.
+
+### Binding immunity + plasticity
+
+- **Served owner pinned.** The served owner's binding is immune to foreign local runs — an HTTP
+  `ingest{path}` can no longer rebind the owner.
+- **Write-refusal under mismatch + mission-control persistence.** Writes fail closed under scope
+  mismatch; mission-control state persists across restarts.
+- **Breaking Rust embedding API.** `http_server::spawn_background` and
   `spawn_background_with_owner_authority` are now async readiness barriers that return
   `Result<BackgroundHttpHandle, OwnerAuthorityAssemblyError>`. A successful handle exposes the
-  effective bound address; `BackgroundHttpHandle::shutdown().await` now returns the final actor
-  checkpoint ACKs. Bind, security, publication, serve, actor-shutdown, and task-join failures are
-  no longer hidden behind a log-only background task.
-- **Actor-only transport transactions:** stdio, Streamable HTTP, REST routing, the combined
-  `--serve --stdio` mode, and OpenClaw now route tool execution through the bounded per-brain actor.
-  Tool errors remain callback errors until the actor restores the preimage, then become MCP
-  `isError` content. Crate-external raw session/dispatch access is closed.
-
-### Fixed
-
-- **Owner lifetime and shutdown:** read-write leases use an OS-backed lifetime lock in addition to
-  the durable lease record; the actor owns an independent heartbeat worker that remains live while
-  idle or inside a long command. Shutdown closes transport and runtime-job admission together,
-  drains admitted work, checkpoints actors in deterministic order, withdraws endpoints, revokes
-  stale heartbeat permits, and releases hosted instances only after actor stop.
-- **Combined MCP protocol parity:** `--serve --stdio` now supports line and `Content-Length`
-  framing, `initialize`, `ping`, `tools/list`, `tools/call`, notifications, parse errors, and
+  effective bound address; `BackgroundHttpHandle::shutdown().await` returns the final actor
+  checkpoint ACKs. Bind, security, publication, serve, actor-shutdown, and task-join failures are no
+  longer hidden behind a log-only background task.
+- **Actor-only transport transactions.** stdio, Streamable HTTP, REST routing, the combined
+  `--serve --stdio` mode, and OpenClaw route tool execution through the bounded per-brain actor. Tool
+  errors remain callback errors until the actor restores the preimage, then become MCP `isError`
+  content. Crate-external raw session/dispatch access is closed.
+- **Owner lifetime and shutdown.** Read-write leases use an OS-backed lifetime lock in addition to
+  the durable lease record; the actor owns an independent heartbeat worker that stays live while idle
+  or inside a long command. Shutdown closes transport and runtime-job admission together, drains
+  admitted work, checkpoints actors in deterministic order, withdraws endpoints, revokes stale
+  heartbeat permits, and releases hosted instances only after actor stop.
+- **Combined MCP protocol parity.** `--serve --stdio` supports line and `Content-Length` framing,
+  `initialize`, `ping`, `tools/list`, `tools/call`, notifications, parse errors, and
   method-not-found responses with the same wire shapes as stdio-only mode. Stdout backpressure is
   isolated on a bounded no-authority writer thread.
-- **No detached mutation after HTTP timeout:** a slow blocking MCP command is awaited to its
-  terminal actor result instead of returning a timeout while work continues in the background.
-- **Cooperative termination:** foreground HTTP and OpenClaw handle SIGINT and SIGTERM, drain
-  active clients/requests, require the final checkpoint ACK, and release ownership in order.
+- **No detached mutation after HTTP timeout; cooperative termination.** A slow blocking MCP command
+  is awaited to its terminal actor result instead of returning a timeout while work continues in the
+  background; foreground HTTP and OpenClaw handle SIGINT and SIGTERM, drain active clients/requests,
+  require the final checkpoint ACK, and release ownership in order.
+
+### Native Touch ID at the origin
+
+- The tray was rebuilt with a native Touch ID stamp live in the menu bar — a human gesture at the
+  point of origin.
+
+### M1ND-10 organism (control plane + authority) — DORMANT / HUMAN_GATED
+
+> Ships dormant and NOT_INSTALLED. Concrete hardware adapters are absent, the deployed owner stays
+> fail-closed, and this release neither claims `FULL_AUTONOMY` nor activates any autonomous path.
+
+- **Catalog of 169 actions + canonical identity.** A typed action catalog and a canonical organism
+  identity.
+- **Ed25519 / P-256 authority.** Domain-separated, independently signed authorization receipts,
+  transactions, execution/review results, and a signed AuthorityWAL whose `COMMIT` is the sovereign
+  mutation point.
+- **MissionService + AuthorityWAL.** Typed mission consumption over a durable, crash-recoverable
+  write-ahead log.
+- **Per-brain actors + runtime + checkpoints.** Bounded per-brain actors, a runtime, and
+  deterministic checkpoints.
+- **Universal ingest + evidence spine + calibration.** Universal document ingest, an evidence spine,
+  and a calibration dataset.
+- **G6 blind runner + G7 LIVE orchestrator.** A blind runner (G6) and a LIVE orchestrator (G7),
+  advanced to source-implemented / local-proven — not hosted-LIVE.
+- **Release machinery + constitutional autonomy A0–A5.** The release ceremony and the constitutional
+  autonomy ladder (A0–A5) exist in the tree, dormant and human-gated.
+
+### G4 phase 2 — Windows
+
+- **The dir-fsync law.** Directory-fsync durability on Windows, backed by roughly 150 curated Windows
+  tests. Full Windows support remains a declared phase 2.
+
+### Secure Enclave custody floor (G9 Path-B) — DORMANT / NOT_INSTALLED
+
+- **Enclave adapter + custody threading.** A Secure Enclave adapter (open / sign / persistence) and
+  the `custody_floor` threaded through the authority assembly; keys pinned to
+  `WhenUnlockedThisDeviceOnly`.
+- **Amendment G9-A1 ratified.** Path B (single-host Secure Enclave floor) is ratified with Path A
+  (multi-device) as the named successor. Autonomy is **NOT** activated; the amendment authorizes no
+  release or gate promotion.
+
+### Security hardening
+
+- **Candidate-source guard, fail-closed.** The candidate source guard refuses unexpected inputs.
+- **Governed migration.** A governed migration retired 246 benchmarks from the tree.
+- **Pinned gitleaks + cargo-audit.** gitleaks is pinned by binary + sha256; cargo-audit runs in CI.
+- **quick-xml 0.41.** Upgraded to clear 4 RUSTSEC advisories.
+- **Updater fsync fixes.** Durability fixes in the updater's write path.
+
+### Pre-tag dogfood hardening (2026-07-22)
+
+Found by running the new m1nd on m1nd. Every fix below was reproduced as a failing test before the
+fix landed.
+
+- **MCP tool-schema contract.** `mission_service` and `external_mutation_service` advertised a bare
+  top-level `oneOf` on `inputSchema`; strict MCP clients (Claude Code) reject the ENTIRE `tools/list`
+  when one tool omits the top-level `"type": "object"` — every m1nd tool silently vanished from live
+  sessions. Fixed, with a registry-wide regression test.
+- **Honest recovery playbook.** On an empty brain the playbook recommended the policy-refused generic
+  `ingest` verb (a refusal loop); it now consults the live mutation policy and names the real
+  recovery paths.
+- **Legacy snapshot adoption at boot.** A one-time, journaled adoption of a pre-1.5 cwd-layout graph
+  snapshot into the runtime root, so a 1.4→1.5 owner boots with its brain instead of `needs_ingest`.
+- **Windows path/handle hardening.** Closed a cross-platform **security** gap where a rooted
+  discovery pattern could escape the scanned root on Windows (`Path::is_absolute` is not
+  OS-independent); implemented the real Windows anchored walk for the peek allow-root (was a stub
+  that always refused); routed torn-journal truncation and directory removal through Windows-durable
+  primitives (os error 5/32); shared registry lock files for read.
+
+### Known gap (honest)
+
+- **Windows source-edit transaction suite.** A pre-existing Windows path-canonicalization mismatch in
+  the source-edit transaction subsystem (`fs::canonicalize` emits the `\\?\` verbatim prefix that
+  stored/constructed identities lack) leaves ~22 tests red on Windows — red since before this era,
+  not a regression, and gated behind DORMANT / HUMAN_GATED machinery. Tracked as a follow-up with a
+  full diagnosis; it does not affect the shipped read/graph paths. Windows remains a declared phase 2.
 
 ---
 

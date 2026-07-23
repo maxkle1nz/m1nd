@@ -17,6 +17,26 @@ pub const INDEPENDENT_REVIEW_RECEIPT_DIGEST_DOMAIN: &str =
 pub const METRIC_SPEC_SCHEMA: &str = "m1nd-metric-spec-v1";
 pub const METRIC_SPEC_DIGEST_DOMAIN: &str = "m1nd-metric-spec-v1";
 
+/// The custody-floor identifier ratified for the current M1ND-10 activation era
+/// (amendment G9-A1; `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5). It names
+/// the floor the *authority custody era* stands on, not a property of any
+/// candidate. `m1nd-mcp::enclave_authority` re-exports this constant so the
+/// custody-ceremony receipt and the gate/autonomy receipts name one literal.
+pub const SECURE_ENCLAVE_CUSTODY_FLOOR_V1: &str = "secure-enclave-single-host-v1";
+
+/// The closed set of custody floors a receipt minted in this era may declare.
+/// Today it holds exactly the ratified Secure Enclave single-host floor; a
+/// successor Path-A era will carry its own value here. Any other value is refused
+/// at the structural gate, so no receipt can name a floor the program never
+/// ratified. The production value is drawn from this constant / the ceremony
+/// receipt, never from request payload.
+pub const RATIFIED_CUSTODY_FLOORS: &[&str] = &[SECURE_ENCLAVE_CUSTODY_FLOOR_V1];
+
+/// Whether `floor` is a member of the closed [`RATIFIED_CUSTODY_FLOORS`] set.
+pub fn is_ratified_custody_floor(floor: &str) -> bool {
+    RATIFIED_CUSTODY_FLOORS.contains(&floor)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum GateId {
     G0,
@@ -212,6 +232,21 @@ impl ReleaseCandidateManifestV1 {
 pub struct GateReceiptCoreV1 {
     pub candidate_digest: String,
     pub gate_id: GateId,
+    /// Custody floor of the authority custody era under which this receipt was
+    /// minted (era-scoped; a successor Path-A era will carry a different value).
+    /// This is NOT a property of the candidate — it records the floor the minting
+    /// era stood on. The value is drawn from the ratified constant / ceremony
+    /// receipt, never from request payload, and must be a member of the closed
+    /// [`RATIFIED_CUSTODY_FLOORS`] set.
+    ///
+    /// Schema disposition (owner-ratified 2026-07-21): this field joins
+    /// `m1nd-gate-receipt-v1` without a version bump — the schema stays v1 while
+    /// its field set grows. Receipts minted before this floor existed are
+    /// historical/void and are never re-consumed by the pipeline; an activation
+    /// candidate's gates are re-minted under the floor, so the frozen canon is
+    /// regenerated rather than migrated
+    /// (`docs/proofs/m1nd10-g9-a1-custody-floor-ratification-20260721.md`).
+    pub custody_floor: String,
     pub spec_version: String,
     pub metric_spec_digest: Option<String>,
     pub harness_fixture_digest: String,
@@ -258,6 +293,7 @@ impl GateReceiptV1 {
     pub fn validate(&self) -> Result<ReleaseStructuralValidation, ReleaseContractError> {
         require_schema("gate receipt", &self.schema, GATE_RECEIPT_SCHEMA)?;
         require_digest("candidate_digest", &self.core.candidate_digest)?;
+        require_ratified_custody_floor("custody_floor", &self.core.custody_floor)?;
         require_non_empty("spec_version", &self.core.spec_version)?;
         if let Some(metric_spec_digest) = &self.core.metric_spec_digest {
             require_digest("metric_spec_digest", metric_spec_digest)?;
@@ -675,6 +711,26 @@ fn require_non_empty(field: &'static str, value: &str) -> Result<(), ReleaseCont
     Ok(())
 }
 
+/// Fail-closed: the custody floor must be present and a member of the closed
+/// [`RATIFIED_CUSTODY_FLOORS`] set. Mirrors the algorithm-set precedent in
+/// `m1nd-mcp::authorization_receipt_verifier` — a value outside the ratified set
+/// is refused before the receipt is trusted, so a smuggled floor (e.g.
+/// `"software"`) cannot claim custody the era never ratified.
+fn require_ratified_custody_floor(
+    field: &'static str,
+    value: &str,
+) -> Result<(), ReleaseContractError> {
+    require_non_empty(field, value)?;
+    if !is_ratified_custody_floor(value) {
+        return Err(ReleaseContractError::InvalidContract {
+            detail: format!(
+                "field '{field}' value '{value}' is outside the ratified custody-floor set"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn require_digest(field: &'static str, value: &str) -> Result<(), ReleaseContractError> {
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(ReleaseContractError::InvalidContract {
@@ -799,6 +855,7 @@ mod tests {
             GateReceiptCoreV1 {
                 candidate_digest: candidate_digest.to_string(),
                 gate_id,
+                custody_floor: SECURE_ENCLAVE_CUSTODY_FLOOR_V1.to_string(),
                 spec_version: "v1".to_string(),
                 metric_spec_digest: Some(digest('6')),
                 harness_fixture_digest: digest('7'),
@@ -982,6 +1039,44 @@ mod tests {
         let candidate = candidate();
         let mut receipt = gate(&candidate.candidate_digest, GateId::G0);
         receipt.signature = OpaqueSignature::new("");
+        assert!(matches!(
+            receipt.validate(),
+            Err(ReleaseContractError::InvalidContract { .. })
+        ));
+    }
+
+    #[test]
+    fn gate_receipt_names_the_ratified_custody_floor() {
+        let candidate = candidate();
+        let receipt = gate(&candidate.candidate_digest, GateId::G0);
+        assert_eq!(receipt.core.custody_floor, SECURE_ENCLAVE_CUSTODY_FLOOR_V1);
+        assert!(receipt.validate().is_ok());
+    }
+
+    #[test]
+    fn custody_floor_outside_the_closed_set_is_refused() {
+        // Smuggling a floor the era never ratified (e.g. plain "software") must
+        // fail at the structural gate, even with a self-consistent digest/id.
+        let candidate = candidate();
+        let mut receipt = gate(&candidate.candidate_digest, GateId::G0);
+        receipt.core.custody_floor = "software".to_string();
+        receipt.receipt_digest =
+            digest_canonical(GATE_RECEIPT_DIGEST_DOMAIN, &receipt.core).unwrap();
+        receipt.receipt_id = format!("gate:{}", receipt.receipt_digest);
+        assert!(matches!(
+            receipt.validate(),
+            Err(ReleaseContractError::InvalidContract { .. })
+        ));
+    }
+
+    #[test]
+    fn empty_custody_floor_is_refused() {
+        let candidate = candidate();
+        let mut receipt = gate(&candidate.candidate_digest, GateId::G0);
+        receipt.core.custody_floor = String::new();
+        receipt.receipt_digest =
+            digest_canonical(GATE_RECEIPT_DIGEST_DOMAIN, &receipt.core).unwrap();
+        receipt.receipt_id = format!("gate:{}", receipt.receipt_digest);
         assert!(matches!(
             receipt.validate(),
             Err(ReleaseContractError::InvalidContract { .. })

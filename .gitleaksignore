@@ -12,3 +12,7 @@
 272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:436
 272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:468
 272e799f0afb1b7cd668a42c7871f1dcb0bb5f05:tests/fixtures/M1ND10-CANONICAL-VECTORS.json:generic-api-key:496
+# Synthetic P-256 test signing key inside a #[cfg(test)] fixture builder
+# (fixture_request_p256) added by the G9 Path-B verifier work; a test vector,
+# not a credential. Pinned to the exact introducing commit/file/rule/line.
+61a2932646762e0dc78cc441b7fff80ac6016870:m1nd-mcp/src/authorization_receipt_verifier.rs:generic-api-key:417

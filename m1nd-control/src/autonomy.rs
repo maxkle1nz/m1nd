@@ -3338,6 +3338,17 @@ pub struct AutonomyActivationReceiptCoreV1 {
     pub g9_canary_receipts_digest: String,
     pub authority_decision_digest: String,
     pub prior_authority_variant: AuthorityVariant,
+    /// Custody floor of the authority custody era under which this activation
+    /// receipt was minted (era-scoped; a successor Path-A era will carry a
+    /// different value). This is NOT a candidate property — it records the floor
+    /// the minting era stood on. Drawn from the ratified constant / ceremony
+    /// receipt, never from request payload, and validated against the closed
+    /// [`crate::RATIFIED_CUSTODY_FLOORS`] set in `validate_transition`.
+    ///
+    /// Schema disposition matches the gate receipt: `custody_floor` joins
+    /// `m1nd-autonomy-activation-receipt-v1` without a version bump. This receipt
+    /// is Rust-only and regenerable, so there is no frozen canon to migrate.
+    pub custody_floor: String,
     pub rollback_plan_digest: String,
     pub activates_at: u64,
     pub issuer_subject_id: String,
@@ -3391,6 +3402,14 @@ impl AutonomyActivationReceiptV1 {
         )?;
         require_non_empty("activation.receipt_id", &self.core.receipt_id)?;
         require_non_empty("activation.issuer_subject_id", &self.core.issuer_subject_id)?;
+        require_non_empty("activation.custody_floor", &self.core.custody_floor)?;
+        if !crate::is_ratified_custody_floor(&self.core.custody_floor) {
+            // Fail-closed on the closed RATIFIED_CUSTODY_FLOORS set: an activation
+            // cannot claim a custody floor the era never ratified.
+            return Err(AutonomyContractError::Invariant {
+                rule: "activation custody_floor is outside the ratified closed set",
+            });
+        }
         if context.now_ms < self.core.activates_at {
             return Err(AutonomyContractError::Invariant {
                 rule: "activation receipt is not effective yet",
@@ -5212,6 +5231,7 @@ mod tests {
                 g9_canary_receipts_digest: hash('5'),
                 authority_decision_digest: authority.decision_digest().to_string(),
                 prior_authority_variant: AuthorityVariant::Human,
+                custody_floor: crate::SECURE_ENCLAVE_CUSTODY_FLOOR_V1.to_owned(),
                 rollback_plan_digest: hash('6'),
                 activates_at: NOW,
                 issuer_subject_id: "owner-human".to_string(),
@@ -5235,6 +5255,25 @@ mod tests {
                 },
             )
             .unwrap();
+
+        // Custody floor must be a member of the closed ratified set: a smuggled
+        // "software" floor is refused up front by validate_transition.
+        let mut smuggled = receipt.clone();
+        smuggled.core.custody_floor = "software".to_owned();
+        assert!(matches!(
+            smuggled.validate_transition(
+                &previous,
+                &target,
+                &fixture.constitution,
+                std::slice::from_ref(&fixture.grant),
+                AutonomyActivationValidationContext {
+                    exact_release_candidate_digest: &candidate,
+                    authority_decision: &authority,
+                    now_ms: NOW,
+                },
+            ),
+            Err(AutonomyContractError::Invariant { .. })
+        ));
 
         assert!(matches!(
             receipt.validate_transition(

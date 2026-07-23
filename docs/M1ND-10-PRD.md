@@ -105,7 +105,7 @@ Snapshot observado em `2026-07-17T21:35:38Z`:
 - `HEAD == origin/main == b59a1c2a1454a83164dfb4d5640c6b005154d1ee` para o source adotado;
 - working tree `DIRTY` apenas pelos dois drafts untracked deste pacote;
 - owner `status=ok`, generation 17, 10.606 nós, 37.110 arestas e 133/133 tools anunciadas;
-- binário em execução `1.4.0 (f1c025b)` em `/Users/kle1nz/.m1nd/bin/m1nd-mcp`;
+- binário em execução `1.4.0 (f1c025b)` em `~/.m1nd/bin/m1nd-mcp`;
 - `m1nd-system-block-store-v0`, store version 61, 12/12 blocos com `state=ratified` e 48 receipts dentro de `blocks[].receipts`;
 - CI run [29606661859](https://github.com/maxkle1nz/m1nd/actions/runs/29606661859), workflow `CI`, concluiu `success` em 2026-07-17T19:47:56Z para esse HEAD.
 
@@ -117,7 +117,7 @@ git rev-parse HEAD
 git rev-parse origin/main
 curl -fsS http://127.0.0.1:1338/api/health
 jq '{store_version,blocks:(.blocks|length),ratified_blocks:([.blocks[]|select(.state=="ratified")]|length),receipts:([.blocks[].receipts[]?]|length)}' \
-  /Users/kle1nz/.m1nd/runtimes/claude/system_blocks.json
+  ~/.m1nd/runtimes/claude/system_blocks.json
 gh run view 29606661859 --json headSha,status,conclusion,createdAt,updatedAt,url
 ```
 
@@ -155,7 +155,7 @@ Legenda de ação:
 | X-RAY/cirurgical writes | LIVE, parcial | Projeção estrutural e aplicação física controlada | `REUSE`, `CONNECT`; incluir todo write no proof policy |
 | Human View | LIVE e amplo | Projeção e gesto humano | `REUSE`, `CONNECT` manifest/authority; `HARDEN` identidade humana |
 | h4nd | Parcialmente LIVE | Cockpit externo e device-owner authentication | `CONNECT` ao owner por approval/capability; corrigir landing; adotar build limpo |
-| h4nd pool/god-runner | LIVE, mas política e cold lane parciais | Execução externa e run artifacts | `HARDEN` auth/policy; decidir drain humano vs autônomo; `PROVE` spawn real |
+| h4nd pool/dispatch-runner | LIVE, mas política e cold lane parciais | Execução externa e run artifacts | `HARDEN` auth/policy; decidir drain humano vs autônomo; `PROVE` spawn real |
 | Host adapters/skills/npm | Compostos, prova incompleta | Instalação e acesso por cliente | `REUSE`, `PROVE` paridade por host e upgrade |
 | Reviewer | Piloto real, abaixo do gate | Julgamento read-only calibrado | `PROVE`, depois promover por estágio |
 | SafetyKernel/constitution/grants/quorum/sentinel/actuator | Ausente | Autonomy mode, scoped authority decisions, epoch fencing e safety | `BUILD`, `PROVE` |
@@ -831,7 +831,7 @@ Quando estes componentes estiverem implementados, G9 estiver mecanicamente prova
 - Release promove o mesmo `ReleaseCandidateManifestV1` testado.
 - Packages possuem provenance, checksum e SBOM.
 - Upgrade e rollback preservam ou migram checkpoint de forma provada.
-- Cross-repo contracts do h4nd/pool/reviewer/god-runner entram na candidate e no rollback order.
+- Cross-repo contracts do cockpit/pool/reviewer/dispatch-runner entram na candidate e no rollback order.
 
 ---
 
@@ -1125,10 +1125,10 @@ Começar por UI polish, mais runners ou mais ferramentas antes de G2–G4 aument
 | Graph, ingest, owner, stores, missions | `m1nd` | Contratos canônicos e enforcement |
 | Human View | `m1nd/m1nd-ui` | Projeção e gestos sem duplicar domínio |
 | runnerd | `m1nd/m1nd-runnerd` | Spawn isolado e evidence capture |
-| h4nd | Repo lógico `h4nd` — checkout local do snapshot: `/Users/kle1nz/god-hud` | Cockpit e autenticação de intenção humana |
+| h4nd | Repo lógico `h4nd` — checkout local do snapshot: `~/cockpit` | Cockpit e autenticação de intenção humana |
 | Host adapters/skills | `m1nd` + instalações geradas | Paridade e recovery por host |
 | SafetyKernel/constitution/grants/quorum/sentinel/actuator | `m1nd` | Autonomy mode, authority decisions, scoped promotion/demotion, epoch fencing e safety |
-| Reviewer/pool/god-runner | Repo lógico `h4nd` até decisão de boundary | Operação externa, calibration e runs |
+| Reviewer/pool/dispatch-runner | Repo lógico `h4nd` até decisão de boundary | Operação externa, calibration e runs |
 | CI/release | Owners de `m1nd` + `h4nd` e cross-repo attestation | Required gates e promotion |
 | Ratificação | Authority do modo | Humano, policy ou constitutional quorum, sempre com origem explícita |
 
@@ -1143,7 +1143,7 @@ O h4nd permanece um boundary separado neste PRD. Mover seu source ou seus servi�
 3. Ratificar a state machine com `revising`, iteration invalidation e retry por nova missão.
 4. Escolher client enrollment e HumanApproval primitives no macOS e fallbacks nos demais SOs.
 5. Ratificar `AuthorityWALV1` como primeiro backend ou exigir store transacional unificado antes de G3.
-6. Definir a fronteira permanente de h4nd/pool/reviewer/god-runner.
+6. Definir a fronteira permanente de cockpit/pool/reviewer/dispatch-runner.
 7. Ratificar por ADR owner multi-brain versus owner/runtime por repo e, no segundo caso, RepoOwnerDirectory/migração.
 8. Ratificar hosts Tier A e sistemas operacionais oficialmente suportados.
 9. Definir SLOs finais de latency/scale após benchmark de baseline.

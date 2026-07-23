@@ -74,7 +74,7 @@
     <h1>Skeleton Coherence Vital Sign</h1>
     <p class="lead">A passive health signal that detects when a serving brain answers a request with a
       <em>foreign</em> skeleton — a skeleton whose slug does not belong to that brain. Born from a real
-      incident where a brain bound to <code>~/m1nd</code> served <code>sk_traykeep_candidate</code> for
+      incident where a brain bound to <code>~/m1nd</code> served <code>sk_keyvault_candidate</code> for
       days with no alarm.</p>
     <div class="pillrow">
       <span class="tag hl">signal-only</span>
@@ -104,8 +104,8 @@
   <h2>2 · The incident that made it necessary</h2>
   <div class="card">
     <p>A session bound to the root brain <code>~/m1nd</code> kept answering <code>system_blocks_snapshot</code>
-      with a store whose <code>skeleton_id</code> was <code>sk_traykeep_candidate</code> — a skeleton that
-      belonged to a <em>different</em> project (<code>traykeep</code>). For days nothing surfaced the
+      with a store whose <code>skeleton_id</code> was <code>sk_keyvault_candidate</code> — a skeleton that
+      belonged to a <em>different</em> project (<code>keyvault</code>). For days nothing surfaced the
       mismatch: the snapshot looked well-formed, the north packet read normally, no metric tripped.</p>
     <p>The missing piece was a <b>coherence check</b> — the serving brain's identity vs. the served
       skeleton's slug — surfaced where operators and agents already look: the snapshot result and the
@@ -140,12 +140,12 @@
       at <code>skeleton_scan.rs:489</code> and <code>sb_&lt;slug&gt;_…</code> block ids.</li>
     <li><b>Skeleton acceptance:</b> <code>skeleton_id == "sk_&lt;expected&gt;"</code> <em>or</em>
       <code>skeleton_id.starts_with("sk_&lt;expected&gt;_")</code>. So <code>sk_m1nd_candidate</code> matches
-      expected <code>m1nd</code> — and <code>sk_traykeep_candidate</code> does <em>not</em> match expected <code>m1nd</code>.</li>
+      expected <code>m1nd</code> — and <code>sk_keyvault_candidate</code> does <em>not</em> match expected <code>m1nd</code>.</li>
     <li><b>Block acceptance:</b> every block id must start with <code>sb_&lt;expected_slug&gt;_</code>; the first
       offender becomes the <code>reason</code>.</li>
     <li><b>found_slug extraction:</b> strip <code>sk_</code> then <code>_candidate</code>; fall back to
-      <code>sanitize_slug(skeleton_id)</code>. So a <code>sk_traykeep_candidate</code> served by the
-      <code>m1nd</code> brain yields <code>Mismatch{expected_slug:"m1nd", found_slug:"traykeep"}</code>.</li>
+      <code>sanitize_slug(skeleton_id)</code>. So a <code>sk_keyvault_candidate</code> served by the
+      <code>m1nd</code> brain yields <code>Mismatch{expected_slug:"m1nd", found_slug:"keyvault"}</code>.</li>
   </ul>
 
   <div class="law"><b>Reuse-first (binding):</b> there is exactly one slug sanitizer that matters — the one
@@ -199,7 +199,7 @@
   <span class="st">"skeleton_coherence"</span>: {
     "status": <span class="st">"mismatch"</span>,
     "expected_slug": <span class="st">"m1nd"</span>,
-    "found_slug": <span class="st">"traykeep"</span>,
+    "found_slug": <span class="st">"keyvault"</span>,
     "reason": <span class="st">"skeleton_id slug does not match …"</span>
   },
   "store": { … }
@@ -228,7 +228,7 @@
     <span class="st">"skeleton_coherence"</span>: {
       "status": <span class="st">"sick"</span>,
       "expected_slug": <span class="st">"m1nd"</span>,
-      "found_slug": <span class="st">"traykeep"</span>,
+      "found_slug": <span class="st">"keyvault"</span>,
       "advice": <span class="st">"this brain is serving a foreign skeleton; rebind or re-ingest before trusting block scope"</span>
     }
   }
@@ -254,11 +254,11 @@
     <tbody>
       <tr>
         <td>1</td><td><code>~/m1nd</code> → slug <code>m1nd</code></td>
-        <td class="mono">sk_traykeep_candidate</td>
-        <td class="mono">sb_traykeep_…</td>
+        <td class="mono">sk_keyvault_candidate</td>
+        <td class="mono">sb_keyvault_…</td>
         <td><span class="verdict v-bad">Mismatch</span><br>
-          <code>{expected:"m1nd", found:"traykeep"}</code></td>
-        <td>The incident. expected <code>m1nd</code>; the served slug is <code>traykeep</code>. Both named.</td>
+          <code>{expected:"m1nd", found:"keyvault"}</code></td>
+        <td>The incident. expected <code>m1nd</code>; the served slug is <code>keyvault</code>. Both named.</td>
       </tr>
       <tr>
         <td>2</td><td><code>~/m1nd</code> → slug <code>m1nd</code></td>

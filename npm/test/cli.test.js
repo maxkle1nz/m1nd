@@ -16,10 +16,12 @@ const {
   hostStatus,
   hostRecipe,
   githubReleaseAssetName,
+  githubReleaseAvailability,
   canonicalJsonV1,
   parseIntegerJson,
   domainSeparatedDigest,
   validateCanonicalCompatibility,
+  validateCanonicalGateReceipt,
   verifyCanonicalReleaseVectors,
   osGateOk,
   installSkills,
@@ -55,6 +57,20 @@ assert.deepStrictEqual(verifyCanonicalReleaseVectors(canonicalVectors), {
   ok: true,
   status: "STRUCTURALLY_VALID_NOT_CRYPTOGRAPHICALLY_VERIFIED",
 });
+// custody_floor must be a member of the closed ratified set; a smuggled value
+// (e.g. "software") is refused at the structural gate, mirroring the Rust/Python
+// closed-set validators. Mutating in place avoids re-serializing the BigInt u64s.
+{
+  const custodyVectors = parseIntegerJson(fs.readFileSync(canonicalVectors, "utf8"), "custody vectors");
+  const receipt = custodyVectors.evidence_set.gate_receipts[0];
+  assert.strictEqual(receipt.core.custody_floor, "secure-enclave-single-host-v1");
+  assert.doesNotThrow(() => validateCanonicalGateReceipt(receipt));
+  receipt.core.custody_floor = "software";
+  assert.throws(
+    () => validateCanonicalGateReceipt(receipt),
+    /custody_floor .* outside the ratified/
+  );
+}
 assert.strictEqual(
   canonicalJsonV1(parseIntegerJson('{"z":"coração","built_at":9007199254740993,"a":"α"}')),
   '{"a":"α","built_at":9007199254740993,"z":"coração"}'
@@ -113,6 +129,28 @@ assert.strictEqual(
   "m1nd-mcp-windows-x86_64.exe"
 );
 assert.strictEqual(githubReleaseAssetName("win32", "arm64"), null);
+{
+  // Windows is phase-2: the release ships no Windows binary, so runtime
+  // acquisition on win32 must refuse with a clear message instead of a later
+  // ENOENT on a m1nd-mcp.exe that was never downloaded. Clear the availability
+  // override so the guard, not a test fixture, decides — and prove it returns
+  // before any network probe.
+  const savedAvailable = process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  delete process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  const windowsAvailability = githubReleaseAvailability("1.5.0", "win32", "x64");
+  assert.strictEqual(windowsAvailability.ok, false);
+  assert.strictEqual(windowsAvailability.available, false);
+  assert.strictEqual(windowsAvailability.source, "windows-phase-2");
+  assert.strictEqual(
+    windowsAvailability.error,
+    "m1nd 1.5.0 does not ship a Windows binary; Windows support is phase-2"
+  );
+  if (savedAvailable === undefined) {
+    delete process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE;
+  } else {
+    process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE = savedAvailable;
+  }
+}
 assert.strictEqual(
   commandLooksLikeRuntime("/Us" + "ers/alice/.m1nd/bin/" + runtimeBinaryName() + " --stdio"),
   true
@@ -643,6 +681,40 @@ const fakeEnvBase = {
   assert.deepStrictEqual(fs.readFileSync(target), before);
   assert.strictEqual(fs.existsSync(marker), false);
   assert.strictEqual(fs.existsSync(statePath), false);
+}
+
+// The sanctioned release smoke seam: with the explicit marker AND a source checkout
+// (this test tree has `.git`), the PRODUCTION updater honors the ambient release
+// directory + verifier path the verified-update-smoke job depends on — the exact path
+// that unconditionally refused before. Fails red without the seam (the guard throws).
+{
+  const tmp = mkTmpDir();
+  const target = path.join(tmp, runtimeBinaryName());
+  const source = path.join(tmp, "candidate-runtime");
+  writeVersionBinary(target, STALE_VERSION, "old");
+  writeVersionBinary(source, CURRENT_VERSION, "new");
+  const fixture = writeVerifiedReleaseFixture(tmp, source);
+  const proof = withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_RELEASE_SMOKE: "1",
+      M1ND_TEST_RELEASE_DIR: fixture.releaseDir,
+      M1ND_TEST_COSIGN_PATH: fixture.cosign,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
+    },
+    () =>
+      productionSelfUpdate({
+        _: ["update", "check"],
+        binary: target,
+        channel: "latest",
+        "no-npm": true,
+        "no-skills": true,
+        "no-kill": true,
+      })
+  );
+  assert.strictEqual(proof.test_overrides.active, true);
+  assert.strictEqual(proof.test_overrides.release_transport, "local-test-directory");
+  assert.strictEqual(proof.test_overrides.verifier_source, "explicit-test-executable");
 }
 
 // A repository-controlled PATH must never become updater authority. Planning

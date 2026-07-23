@@ -609,8 +609,7 @@ impl AuthorityWal {
             })
             .transpose()?;
         if recovery.truncated_tail_bytes != 0 {
-            file.set_len(complete_len)?;
-            file.sync_all()?;
+            truncate_journal_tail(&file, &path, complete_len)?;
         }
         Ok(Self {
             path,
@@ -945,6 +944,28 @@ fn open_journal_no_follow(_path: &Path) -> io::Result<File> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "AuthorityWAL no-follow durable open is not proven on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn truncate_journal_tail(file: &File, _path: &Path, complete_len: u64) -> io::Result<()> {
+    file.set_len(complete_len)?;
+    file.sync_all()
+}
+
+#[cfg(windows)]
+fn truncate_journal_tail(_file: &File, path: &Path, complete_len: u64) -> io::Result<()> {
+    // The journal handle is append-only on Windows (no `FILE_WRITE_DATA`), so it
+    // cannot `SetEndOfFile`; truncate the torn tail through a dedicated write
+    // handle instead.
+    crate::windows_durable_fs::truncate_no_follow(path, complete_len)
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn truncate_journal_tail(_file: &File, _path: &Path, _complete_len: u64) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "AuthorityWAL torn-tail truncation is not proven on this platform",
     ))
 }
 

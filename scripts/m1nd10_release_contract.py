@@ -22,6 +22,13 @@ RELEASE_CANDIDATE_SCHEMA = "m1nd-release-candidate-manifest-v1"
 RELEASE_CANDIDATE_DIGEST_DOMAIN = RELEASE_CANDIDATE_SCHEMA
 GATE_RECEIPT_SCHEMA = "m1nd-gate-receipt-v1"
 GATE_RECEIPT_DIGEST_DOMAIN = GATE_RECEIPT_SCHEMA
+# Custody floor of the authority custody era under which a receipt was minted
+# (era-scoped; a successor Path-A era will carry a different value). Mirror of
+# m1nd-control::release::{SECURE_ENCLAVE_CUSTODY_FLOOR_V1, RATIFIED_CUSTODY_FLOORS}.
+# The production value comes from the ratified constant / ceremony receipt, never
+# from request payload, and must be a member of this closed set.
+SECURE_ENCLAVE_CUSTODY_FLOOR = "secure-enclave-single-host-v1"
+RATIFIED_CUSTODY_FLOORS = frozenset({SECURE_ENCLAVE_CUSTODY_FLOOR})
 INDEPENDENT_REVIEW_RECEIPT_SCHEMA = (
     "m1nd-independent-adversarial-review-receipt-v1"
 )
@@ -175,6 +182,18 @@ def _text(value: Any, field: str, *, trim: bool = True) -> str:
     if not isinstance(value, str) or (not value.strip() if trim else value == ""):
         raise ReleaseContractError(f"required field '{field}' is empty or not text")
     return value
+
+
+def _custody_floor(value: Any) -> str:
+    # Fail-closed on the closed RATIFIED_CUSTODY_FLOORS set: a value outside it
+    # (e.g. a smuggled "software") is refused before the receipt is trusted,
+    # mirroring the Rust require_ratified_custody_floor gate.
+    text = _text(value, "custody_floor")
+    if text not in RATIFIED_CUSTODY_FLOORS:
+        raise ReleaseContractError(
+            f"custody_floor {text!r} is outside the ratified custody-floor set"
+        )
+    return text
 
 
 def _digest(value: Any, field: str) -> str:
@@ -359,6 +378,7 @@ def validate_candidate(value: Any) -> dict[str, Any]:
 GATE_CORE_FIELDS = (
     "candidate_digest",
     "gate_id",
+    "custody_floor",
     "spec_version",
     "metric_spec_digest",
     "harness_fixture_digest",
@@ -382,6 +402,7 @@ def validate_gate_core(core_value: Any) -> dict[str, Any]:
     _digest(core["candidate_digest"], "candidate_digest")
     if core["gate_id"] not in GATE_IDS:
         raise ReleaseContractError(f"invalid gate_id: {core['gate_id']!r}")
+    _custody_floor(core["custody_floor"])
     _text(core["spec_version"], "spec_version")
     if core["metric_spec_digest"] is not None:
         _digest(core["metric_spec_digest"], "metric_spec_digest")

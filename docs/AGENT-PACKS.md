@@ -181,7 +181,7 @@ is installed.
 
 ## Session Memory Companions
 
-Some agent hosts may also expose a session-memory companion such as DEXT3R.
+Some agent hosts may also expose a session-memory companion such as COMPANION.
 That layer is useful for continuity, not for final code truth.
 
 Use a companion to recover the session north star, prior decisions, open loops,

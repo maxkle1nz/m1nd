@@ -1974,7 +1974,7 @@ flowchart TB
         H4["h4nd cockpit + approval client"]
         Poold["h4nd poold — autonomous actor"]
         Reviewer["Reviewer S1 pilot"]
-        GodRunner["god-runner"]
+        GodRunner["dispatch-runner"]
         GodData["~/.god runs / ledgers"]
         Reviewer --> GodData
         GodRunner --> GodData

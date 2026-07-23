@@ -192,7 +192,7 @@ fn journal_digest(journal: &MigrationJournalV1) -> M1ndResult<String> {
     )
 }
 
-fn durable_atomic_write(path: &Path, bytes: &[u8]) -> M1ndResult<()> {
+pub(crate) fn durable_atomic_write(path: &Path, bytes: &[u8]) -> M1ndResult<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)?;
     let name = path

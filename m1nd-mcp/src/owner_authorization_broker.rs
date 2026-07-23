@@ -539,12 +539,12 @@ impl OwnerAuthorizationBrokerV1 {
             })
             .transpose()?;
         if complete_len != bytes.len() {
-            file.set_len(complete_len as u64)
-                .and_then(|()| file.sync_all())
-                .map_err(|source| OwnerAuthorizationBrokerError::Io {
+            truncate_broker_tail(&file, &path, complete_len as u64).map_err(|source| {
+                OwnerAuthorizationBrokerError::Io {
                     operation: "truncate_torn_broker_tail",
                     source,
-                })?;
+                }
+            })?;
         }
         Ok(Self {
             config,
@@ -1715,6 +1715,20 @@ fn sync_parent(path: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn sync_parent(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn truncate_broker_tail(file: &File, _path: &Path, complete_len: u64) -> std::io::Result<()> {
+    file.set_len(complete_len)?;
+    file.sync_all()
+}
+
+#[cfg(windows)]
+fn truncate_broker_tail(_file: &File, path: &Path, complete_len: u64) -> std::io::Result<()> {
+    // The broker journal handle is append-only on Windows (no `FILE_WRITE_DATA`),
+    // so it cannot `SetEndOfFile`; truncate the torn tail through a dedicated
+    // write handle instead.
+    crate::windows_durable_fs::truncate_no_follow(path, complete_len)
 }
 
 #[cfg(test)]

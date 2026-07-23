@@ -1,6 +1,6 @@
 [package]
 name = "m1nd-mcp"
-version = "1.4.0"
+version = "1.5.0"
 edition = "2021"
 description = "Local MCP runtime for coding agents: structural retrieval, change reasoning, document grounding, and continuity."
 license = "MIT"
@@ -28,8 +28,8 @@ embed = ["m1nd-core/embed"]
 
 [dependencies]
 m1nd-control = { path = "../m1nd-control", version = "0.1.0" }
-m1nd-core = { path = "../m1nd-core", version = "1.4.0" }
-m1nd-ingest = { path = "../m1nd-ingest", version = "1.4.0" }
+m1nd-core = { path = "../m1nd-core", version = "1.5.0" }
+m1nd-ingest = { path = "../m1nd-ingest", version = "1.5.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }
@@ -73,6 +73,33 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_IO",
 ] }
 
+# macOS Secure Enclave custody floor (amendment G9-A1). The production
+# SecureEnclaveKeyStore adapter (enclave_authority.rs) provisions and signs P-256
+# keys through Security.framework. Declared here as the custody supply-chain
+# surface; both crates are already in Cargo.lock transitively (via reqwest/rustls
+# platform verification), so this adds no new crate to the build graph. Pinned to
+# an exact version because this is a security-custody surface.
+# NOTE: the kSecAccessControl flag values are hand-rolled (1<<30 private-key-usage,
+# 1<<0 user-presence) because the high-level crate does not export them; the
+# owner's live ceremony must run the documented conformance check that a
+# provisioned key actually carries those access-control semantics.
+# security-framework-sys is pulled in for the exact Keychain attribute constants
+# (kSecAttrTokenID/kSecAttrKeyType/kSecAttrKeySizeInBits) the enclave `open`/
+# provision read back via SecKeyCopyAttributes; the high-level crate does not
+# re-export them. It is the same version security-framework already depends on and
+# is already in Cargo.lock, so this adds no crate and does not move the lockfile.
+# The OSX_10_15 feature is REQUIRED, not cosmetic: Secure Enclave keys can only be
+# made permanent in the data-protection keychain, and both `Location::Data-
+# ProtectionKeychain` (provision) and `kSecUseDataProtectionKeychain` (the
+# `ignore_legacy_keychains` query scope) are gated behind it. It enables only
+# security-framework-sys/OSX_10_15, itself an empty cfg-only feature — no new crate,
+# no lockfile move. Persisting into that keychain also requires the calling binary
+# to be codesigned with a KeychainAccessGroups entitlement (owner ceremony).
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+security-framework-sys = "=2.17.0"
+core-foundation = "=0.10.1"
+
 [build-dependencies]
 sha2 = "0.10"
 
@@ -82,6 +109,11 @@ path = "src/main.rs"
 
 [dev-dependencies]
 ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
+# TEST-ONLY P-256 signing for custody-floor fixtures (offline receipt verifier,
+# enclave-crypto mock). Production m1nd-mcp gains NO p256 dependency: every P-256
+# signature is verified through m1nd-control's verifier. Already in Cargo.lock via
+# m1nd-control, so this adds NO new crate to the build graph.
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
 # `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
 # the owner-alive guard's port can be reserved-closed without a live listener that a
 # parallel test could collide with (see the `closed_port` helpers).

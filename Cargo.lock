@@ -1758,7 +1758,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-core"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "bincode",
  "cargo_metadata",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-ingest"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "cargo_metadata",
  "ignore",
@@ -1822,10 +1822,11 @@ dependencies = [
 
 [[package]]
 name = "m1nd-mcp"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "axum",
  "clap",
+ "core-foundation 0.10.1",
  "ed25519-dalek",
  "futures",
  "getrandom 0.3.4",
@@ -1836,10 +1837,13 @@ dependencies = [
  "m1nd-ingest",
  "mime_guess",
  "notify",
+ "p256",
  "parking_lot",
  "regex",
  "reqwest",
  "rust-embed",
+ "security-framework",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "sha2",
@@ -1868,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-runnerd"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "axum",
  "clap",

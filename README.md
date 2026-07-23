@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="https://gitrooms.com/github/maxkle1nz/m1nd">
-    <img src="https://gitrooms.com/api/badge/github/maxkle1nz/m1nd.svg?layout=card&amp;theme=signal&amp;density=standard&amp;accent=green&amp;radius=10&amp;width=700&amp;bg=%2307111f&amp;blocks=identity%3Aroom%3A%3Amark%3A22c55e%2Cmembers%3Amembers%3A%3A%25E2%2597%2589%3Ae8edf3%2Conline%3Aonline%3A%3A%25E2%2597%2590%3A22c55e%2Cmessages%3Amessages%3A%3A%25E2%2589%25A1%3Ae8edf3%2Crooms%3Arooms%3A%3A%25E2%2596%25A4%3Ae8edf3%2Clatest_message%3Alatest%3A%3A%25E2%259C%258E%3A06b6d4&amp;brand=cta_row" alt="m1nd live room on GitRooms — members, online now, and latest messages" width="700" />
+  <a href="https://coderooms.com/github/maxkle1nz/m1nd">
+    <img src="https://coderooms.com/api/badge/github/maxkle1nz/m1nd.svg?layout=card&amp;theme=signal&amp;density=standard&amp;accent=green&amp;radius=10&amp;width=700&amp;bg=%2307111f&amp;blocks=identity%3Aroom%3A%3Amark%3A22c55e%2Cmembers%3Amembers%3A%3A%25E2%2597%2589%3Ae8edf3%2Conline%3Aonline%3A%3A%25E2%2597%2590%3A22c55e%2Cmessages%3Amessages%3A%3A%25E2%2589%25A1%3Ae8edf3%2Crooms%3Arooms%3A%3A%25E2%2596%25A4%3Ae8edf3%2Clatest_message%3Alatest%3A%3A%25E2%259C%258E%3A06b6d4&amp;brand=cta_row" alt="m1nd live room on CodeRooms — members, online now, and latest messages" width="700" />
   </a>
 </p>
 
@@ -25,7 +25,7 @@
   <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
   <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
-  <a href="https://gitrooms.com/github/maxkle1nz/m1nd"><img src="https://gitrooms.com/api/badge/github/maxkle1nz/m1nd.svg" alt="Join the room on GitRooms" /></a>
+  <a href="https://coderooms.com/github/maxkle1nz/m1nd"><img src="https://coderooms.com/api/badge/github/maxkle1nz/m1nd.svg" alt="Join the room on CodeRooms" /></a>
 </p>
 
 <p align="center">
@@ -483,7 +483,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.4.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.5.0`; `m1nd-control` at `0.1.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />

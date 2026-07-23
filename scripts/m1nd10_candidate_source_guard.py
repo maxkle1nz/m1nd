@@ -268,7 +268,7 @@ def merged_violations(*groups: Iterable[dict[str, str]]) -> list[dict[str, str]]
 # never a path allowlist.
 # see docs/proofs/m1nd10-public-path-migration-ratification-20260720.md
 FROZEN_PRD_PATH = "docs/M1ND-10-PRD.md"
-FROZEN_PRD_SHA256 = "00658cd88ce9dc5866f9b1fc6b9fbe594923e32fb900bde5bbc7740894c25c38"
+FROZEN_PRD_SHA256 = "2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b"
 
 
 def scan_blob_for_personal_path(blob: bytes, path_text: str = "") -> str | None:

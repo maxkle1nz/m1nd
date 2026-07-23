@@ -6,6 +6,15 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [1.5.0] — 2026-07-22
+
+> **Active mode remains HUMAN_GATED.** The M1ND-10 authority/autonomy machinery ships **DORMANT**
+> and **NOT_INSTALLED** — this release does not activate autonomy; formal
+> G6/G7-LIVE/G8-hosted/G9-custody/G10 are not claimed. The canonical, arc-grouped entry for this
+> release lives in the repository-root `CHANGELOG.md`.
+
 ### Added
 
 - **M1ND-10 G2→G3 owner authority bridge (working tree, not yet published).** Added strict
@@ -377,7 +386,7 @@ rejected by `mission_verify`) as the core doctrine.
 - Updated the agent doctrine so hosts that expose only a session companion
   wrapper are classified as `missing_m1nd_host_tool_surface`, not as graph
   failure.
-- Refined DEXT3R/session-companion routing so agents use companion memory for
+- Refined COMPANION/session-companion routing so agents use companion memory for
   continuity, `m1nd agent next` for the first repo move, and direct proof for
   final claims.
 

@@ -30,6 +30,11 @@ pub mod owner_authorization_broker;
 pub mod auto_ingest;
 pub mod cli;
 pub mod daemon_handlers;
+/// macOS Secure Enclave custody floor (amendment G9-A1). On non-macOS targets it
+/// is absent by construction, so the production authority assembly stays
+/// NOT_INSTALLED and fails closed — never a software-assurance fallback.
+#[cfg(target_os = "macos")]
+pub mod enclave_authority;
 pub mod help_guidance;
 pub mod owner_security_config;
 pub mod protected_journal_head;
@@ -54,6 +59,8 @@ pub mod curation_runner;
 pub mod boot_memory_handlers;
 // M1ND-10 G6 — conservative one-way retirement of arbitrary Boot KV.
 pub mod boot_kv_migration;
+// Upgrade-path repair: one-time boot adoption of a pre-1.5 legacy graph snapshot.
+pub mod legacy_snapshot_adoption;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
 pub mod engine_ops;

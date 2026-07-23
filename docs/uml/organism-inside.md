@@ -16,7 +16,7 @@ auto-charter lifecycle with every refusal named.
 `m1nd-mcp/src/mailbox.rs` · the letter chain `m1nd-mcp/src/mission_letter.rs` (7-phase
 enum at `:83`) + `mission_letter_handlers.rs` · the spawner proxy + runnerd registry
 `server.rs` / `http_server.rs` (~`:334`) / `m1nd-runnerd/` · the warm pool
-`god-hud/h4nd-pool/poold.py` (judge arm-flag at `:660`) + `judge.py` · the landing gate
+`cockpit/h4nd-pool/poold.py` (judge arm-flag at `:660`) + `judge.py` · the landing gate
 `m1nd-mcp/src/system_blocks_handlers.rs:499` (`RECEIPT_IMPORT_HUMAN_ORIGINS`) · the
 delegation debrief `m1nd-mcp/src/delegation_handlers.rs` · the audited crossing
 `m1nd-mcp/src/promote_handlers.rs` (C8.2/C8.3) · the instance registry
