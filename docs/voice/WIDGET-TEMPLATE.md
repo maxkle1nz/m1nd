@@ -7,7 +7,7 @@ output is that JSON source) + this template; the agent pastes both.
 
 > Law source: askGOD verdict "the navigable cockpit" (`ASKGOD-VERDICT-COCKPIT.md`)
 > amendment 7 + the owner's field notes on the v3.2 prototype. Skin: h4nd
-> (`~/god-hud`). The widget renders READS and navigation only — it NEVER carries
+> (`~/cockpit`). The widget renders READS and navigation only — it NEVER carries
 > a write.
 
 ---

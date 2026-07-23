@@ -341,7 +341,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-first/SKILL.md",
     checks: [
       { id: "session-companion-section", needles: ["Session Companion Bridge"] },
-      { id: "dext3r-continuity-only", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity-only", needles: ["COMPANION", "continuity"] },
       { id: "m1nd-agent-next-route", needles: ["m1nd agent next", "current task"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
       { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
@@ -365,7 +365,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-operator/SKILL.md",
     checks: [
       { id: "session-companion-routing", needles: ["Session Companion Routing"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "conversation continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "conversation continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -381,7 +381,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "skills/m1nd-universal-agent-pack.md",
     checks: [
       { id: "session-companions-section", needles: ["Session Companions"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -396,7 +396,7 @@ const DEFAULT_PACK_ROUTING_FILES = [
     relative_path: "docs/AGENT-PACKS.md",
     checks: [
       { id: "session-memory-companions-section", needles: ["Session Memory Companions"] },
-      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-continuity", needles: ["COMPANION", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
       { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
@@ -517,7 +517,7 @@ function packRoutingCheck(options = {}) {
     missing,
     non_claims: [
       "pack-routing-check verifies packaged doctrine text, not live host behavior.",
-      "pack-routing-check does not prove a session companion such as DEXT3R is installed.",
+      "pack-routing-check does not prove a session companion such as COMPANION is installed.",
       "pack-routing-check does not prove m1nd retrieval correctness or code behavior.",
       "pack-routing-check does not refresh MCP host bindings or cached tool lists.",
     ],
