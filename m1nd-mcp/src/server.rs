@@ -5391,8 +5391,8 @@ fn resolve_node_file_path(state: &SessionState, node_id: &str) -> Option<String>
 /// nothing.
 ///   * `state.file_inventory` is the "what m1nd last saw" baseline — each entry
 ///     records the absolute `file_path` and the `sha256` captured at ingest.
-///   * `audit_handlers::simple_content_hash` recomputes the current on-disk hash
-///     with the SAME algorithm the ingest path used, so a recomputed hash is
+///   * `audit_handlers::content_sha256` recomputes the current on-disk SHA-256
+///     with the SAME routine the ingest path used, so a recomputed hash is
 ///     directly comparable to the stored one (shared fn — no second hasher).
 ///   * `state.coverage_sessions[agent_id].visited_files` is the DEFAULT working
 ///     set when the caller passes neither `files` nor `nodes`: "you don't even
@@ -5509,7 +5509,7 @@ fn handle_am_i_stale(
             stale.push(item);
             continue;
         }
-        let current_hash = crate::audit_handlers::simple_content_hash(disk_path);
+        let current_hash = crate::audit_handlers::content_sha256(disk_path);
         match (&entry.sha256, current_hash) {
             (Some(known), Some(now)) if known != &now => {
                 let mut item = serde_json::json!({ "path": path, "reason": "changed" });
