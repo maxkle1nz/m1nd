@@ -89,7 +89,8 @@ Update this list in the same PR that closes one; a front that dies silently is a
   This is the root of the CI pain, now advisory rather than blocking. Needs a real Windows box or CI-driven
   red→green loop, not a guess.
 - **Genesis P2 and P3** — P1 (medulla-only read fallback so a brainless repo is served doctrine instead of
-  blindness) is built; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
+  blindness) is implemented in PR #403, in the merge queue and NOT yet on main — checkpoint 32's "0 code
+  hits" above described the tree before that PR existed, and holds for main until it lands; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
   claiming it "built" is STALE — doc-gate when P2 lands) and **P3** (the typed consumer at `brain.bootstrap`'s
   `PositiveSovereign` floor — "last, NOT never"; burying it needs an explicit owner amendment) are open.
   P3's 12 requirements are recorded in checkpoint 32.
@@ -103,7 +104,9 @@ Update this list in the same PR that closes one; a front that dies silently is a
   not a unilateral patch.
 - Port `1337` vs `1338` disagree across surfaces (README attach example vs the owner AGENTS.md names).
   Unify or document which is which.
-- `m1nd-viz` is named as a workspace member in local build notes but is not one.
+- `m1nd-viz` was listed as a workspace member in the repo's agent guides — `AGENTS.md` (corrected in
+  PR #407, in queue) and the local gitignored build notes (corrected the same day) — but no such crate
+  exists anywhere in the tree and `Cargo.toml` never declared it.
 
 **Process debt**
 - The PR queue needs review, not just rebasing — `#401` ("the graph learned to write") is substantial and
