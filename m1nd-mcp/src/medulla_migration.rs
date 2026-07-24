@@ -114,19 +114,38 @@ pub struct MedullaMigration {
     /// The `Origin-Brain` value stamped on repo-fact claims moved to the project
     /// store (the m1nd repo root, e.g. `/path/to/repo`).
     project_origin: String,
-    /// Loopback port the owner-alive guard probes before mutating. An offline
+    /// Loopback ports the owner-alive guard probes before mutating. An offline
     /// migration must never race a live served owner keeping the store warm, so
-    /// `apply`/`rollback` refuse while something listens here. Defaults to the
-    /// served-owner port; overridable for tests via [`with_owner_guard_port`].
-    owner_guard_port: u16,
+    /// `apply`/`rollback` refuse while something listens on ANY of them (fail
+    /// closed). Defaults to [`default_owner_guard_ports`]; replaceable via
+    /// [`with_owner_guard_port`] / [`with_owner_guard_ports`].
+    owner_guard_ports: Vec<u16>,
 }
 
 /// Prefix that marks the timestamped backup dirs `apply` writes before mutating.
 const BACKUP_PREFIX: &str = ".m5a-backup-";
 
-/// The loopback port a served owner keeps a keepalive listener on. The offline
-/// migration refuses to run against a live owner on this port (owner-alive guard).
-const SERVED_OWNER_PORT: u16 = 1338;
+/// The loopback port THIS maintainer's launchd-kept owner is pinned to
+/// (TWO-TIER-BRAIN-PRD §"Address & discovery": the medulla is pinned `:1338`).
+/// It is a deployment fact, NOT the product default — see
+/// [`crate::cli::DEFAULT_SERVED_OWNER_PORT`] for the port an install actually gets.
+const MAINTAINER_SERVED_OWNER_PORT: u16 = 1338;
+
+/// Every loopback port the owner-alive guard probes by default, fail-closed: the
+/// port the product serves on when nobody says otherwise, plus the maintainer's
+/// pinned medulla port. A listener on ANY of them refuses the offline migration.
+///
+/// Probing only `1338` was a real data-safety hole (2026-07-24): a user serving on
+/// the product default (`1337`) was invisible to the guard, so the migration
+/// mutated the stores under a live owner whose persistence is load-all → dump-all,
+/// last-writer-wins (no WAL, no CAS, no merge). One extra `connect` on a closed
+/// port costs nothing; a missed live owner costs the store.
+fn default_owner_guard_ports() -> Vec<u16> {
+    vec![
+        crate::cli::DEFAULT_SERVED_OWNER_PORT,
+        MAINTAINER_SERVED_OWNER_PORT,
+    ]
+}
 
 /// Manifest file (inside each backup dir) recording the exact `.light.md` names
 /// `apply` moved into the project store — the authoritative rollback list, so a
@@ -161,36 +180,45 @@ impl MedullaMigration {
             project_dir: project_dir.into(),
             ingest_roots_path: ingest_roots_path.into(),
             project_origin: project_origin.into(),
-            owner_guard_port: SERVED_OWNER_PORT,
+            owner_guard_ports: default_owner_guard_ports(),
         }
     }
 
-    /// Point the owner-alive guard at a different loopback port. Production always
-    /// uses the default served-owner port; tests bind an ephemeral port and pass it
-    /// here to exercise the refusal deterministically.
-    pub fn with_owner_guard_port(mut self, port: u16) -> Self {
-        self.owner_guard_port = port;
+    /// Point the owner-alive guard at exactly ONE loopback port, replacing the
+    /// default set. This is the operator override (`M1ND_MEDULLA_GUARD_PORT`, for
+    /// an owner bound to a port the default set does not name) and the test seam:
+    /// tests pass a closed ephemeral port so the owner-down path is deterministic,
+    /// or a live one to prove the refusal.
+    pub fn with_owner_guard_port(self, port: u16) -> Self {
+        self.with_owner_guard_ports([port])
+    }
+
+    /// Replace the whole set of loopback ports the owner-alive guard probes.
+    /// Fail-closed: a listener on ANY of them refuses `apply`/`rollback`.
+    pub fn with_owner_guard_ports(mut self, ports: impl IntoIterator<Item = u16>) -> Self {
+        self.owner_guard_ports = ports.into_iter().collect();
         self
     }
 
     /// Owner-alive guard (§4.2 safety): the offline migration must not race a live
     /// served owner keeping the store warm. If anything accepts a loopback
-    /// connection on the guard port, refuse with a clear instruction to stop the
-    /// owner first. A short connect timeout keeps the probe cheap; a refused/closed
-    /// port (the owner-down case) passes silently.
+    /// connection on ANY guarded port, refuse — naming the port that answered — with
+    /// a clear instruction to stop the owner first. A short connect timeout keeps
+    /// each probe cheap; refused/closed ports (the owner-down case) pass silently.
     fn ensure_owner_down(&self) -> M1ndResult<()> {
         use std::net::{SocketAddr, TcpStream};
         use std::time::Duration;
-        let addr = SocketAddr::from(([127, 0, 0, 1], self.owner_guard_port));
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
-            return Err(M1ndError::InvalidParams {
-                tool: "medulla_migration".into(),
-                detail: format!(
-                    "a served owner is listening on 127.0.0.1:{} — stop the served owner first; \
-                     the offline migration must not run against a live owner",
-                    self.owner_guard_port
-                ),
-            });
+        for port in &self.owner_guard_ports {
+            let addr = SocketAddr::from(([127, 0, 0, 1], *port));
+            if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+                return Err(M1ndError::InvalidParams {
+                    tool: "medulla_migration".into(),
+                    detail: format!(
+                        "a served owner is listening on 127.0.0.1:{port} — stop the served owner \
+                         first; the offline migration must not run against a live owner"
+                    ),
+                });
+            }
         }
         Ok(())
     }
@@ -1690,6 +1718,91 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("stop the served owner"),
             "rollback refusal is the same guard, got: {err}"
+        );
+    }
+
+    /// RED (guard miscalibration, 2026-07-24): the owner-alive guard probed ONLY
+    /// `1338` — the port THIS maintainer's launchd owner happens to sit on — while
+    /// the port the PRODUCT ships as its default (`--port`, `cli.rs`) is `1337`.
+    /// A user serving an owner on the default port and then running the offline
+    /// migration sailed straight past the guard: it probed a port nobody was on,
+    /// concluded "no live owner", and mutated the stores under a live load-all →
+    /// dump-all, last-writer-wins owner (no WAL, no CAS, no merge) — exactly the
+    /// corruption this guard exists to prevent. The default guard set must cover
+    /// the port the CLI actually hands the world.
+    #[test]
+    fn owner_guard_covers_the_product_default_served_owner_port() {
+        use clap::Parser;
+        // The default the world really gets, read from the CLI itself (a bare
+        // invocation) rather than re-typed here — the two must never diverge.
+        let product_default = crate::cli::Cli::parse_from(["m1nd-mcp"]).port;
+        let s = scratch();
+        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        assert!(
+            mig.owner_guard_ports.contains(&product_default),
+            "the owner-alive guard must probe the product's default served-owner port \
+             ({product_default}), got {:?}",
+            mig.owner_guard_ports
+        );
+        // The maintainer's pinned launchd owner stays covered too — the fix widens
+        // the guard, it never trades one deployment for another.
+        assert!(
+            mig.owner_guard_ports
+                .contains(&MAINTAINER_SERVED_OWNER_PORT),
+            "the guard must still cover the pinned medulla port, got {:?}",
+            mig.owner_guard_ports
+        );
+    }
+
+    /// The guard is fail-closed across the WHOLE set: a closed port earlier in the
+    /// set must not end the scan, and the refusal must name the port that actually
+    /// answered (the maintainer's only clue about which owner to stop). Both ports
+    /// here are ephemeral on purpose — standing in for the product-default slot
+    /// without ever binding the real `1337`/`1338`, which would collide with the
+    /// machine's own served owner.
+    #[test]
+    fn apply_refuses_when_any_guarded_port_answers() {
+        use std::net::TcpListener;
+        let s = scratch();
+        write_claim(&s.medulla, "alpha.light.md", &repo_fact("Alpha"));
+
+        let listener = match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!(
+                    "SKIP multi-port owner-alive proof: loopback bind is unavailable in this sandbox: {err}"
+                );
+                return;
+            }
+            Err(err) => panic!("bind stand-in owner: {err}"),
+        };
+        let live = listener.local_addr().unwrap().port();
+        let quiet = closed_port();
+
+        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo")
+            .with_owner_guard_ports([quiet, live]);
+
+        let err = mig
+            .apply()
+            .expect_err("apply must refuse while any guarded port answers");
+        let msg = err.to_string();
+        assert!(
+            msg.to_ascii_lowercase().contains("stop the served owner"),
+            "refusal tells the maintainer to stop the served owner, got: {msg}"
+        );
+        assert!(
+            msg.contains(&live.to_string()),
+            "refusal names the port that answered ({live}), got: {msg}"
+        );
+
+        // Nothing was mutated: the guard runs before the first write.
+        assert!(
+            s.medulla.join("alpha.light.md").is_file(),
+            "the refused apply left the medulla store untouched"
+        );
+        assert!(
+            !s.project.exists(),
+            "the refused apply never created the destination store"
         );
     }
 }
