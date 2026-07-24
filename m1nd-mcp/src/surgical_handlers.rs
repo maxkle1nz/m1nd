@@ -1477,23 +1477,36 @@ fn build_excerpt(lines: &[&str], start: usize, end: usize) -> String {
 }
 
 /// Collect graph neighbours of a node within a given BFS radius.
-/// Returns (callers, callees, test_neighbours).
+/// Returns capped callers/callees/test neighbours plus honest pre-cap counts.
+const DEFAULT_SURGICAL_NEIGHBOURS_PER_SIDE: usize = 50;
+const DEFAULT_SURGICAL_PRIMARY_FILE_LINES: usize = 400;
+const DEFAULT_SURGICAL_PRIMARY_FILE_CHARS: usize = 40_000;
+
+#[derive(Default)]
+struct CollectedNeighbours {
+    callers: Vec<surgical::SurgicalNeighbour>,
+    callees: Vec<surgical::SurgicalNeighbour>,
+    tests: Vec<surgical::SurgicalNeighbour>,
+    total_callers: usize,
+    total_callees: usize,
+    total_tests: usize,
+    total_neighbours: usize,
+    truncated: bool,
+}
+
 fn collect_neighbours(
     state: &SessionState,
     node: NodeId,
     radius: u32,
     include_tests: bool,
-) -> (
-    Vec<surgical::SurgicalNeighbour>,
-    Vec<surgical::SurgicalNeighbour>,
-    Vec<surgical::SurgicalNeighbour>,
-) {
+    max_per_side: usize,
+) -> CollectedNeighbours {
     let graph = state.graph.read();
     let n = graph.num_nodes() as usize;
     let idx = node.as_usize();
 
     if idx >= n || !graph.finalized {
-        return (vec![], vec![], vec![]);
+        return CollectedNeighbours::default();
     }
 
     let mut callers = Vec::new();
@@ -1615,24 +1628,95 @@ fn collect_neighbours(
         current_frontier = next_frontier;
     }
 
-    // Sort by edge weight descending for relevance
-    callers.sort_by(|a, b| {
-        b.edge_weight
-            .partial_cmp(&a.edge_weight)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    callees.sort_by(|a, b| {
-        b.edge_weight
-            .partial_cmp(&a.edge_weight)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    tests.sort_by(|a, b| {
-        b.edge_weight
-            .partial_cmp(&a.edge_weight)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    shape_neighbours(callers, callees, tests, max_per_side)
+}
 
-    (callers, callees, tests)
+fn shape_neighbours(
+    mut callers: Vec<surgical::SurgicalNeighbour>,
+    mut callees: Vec<surgical::SurgicalNeighbour>,
+    mut tests: Vec<surgical::SurgicalNeighbour>,
+    max_per_side: usize,
+) -> CollectedNeighbours {
+    fn sort_and_dedupe(entries: &mut Vec<surgical::SurgicalNeighbour>) {
+        entries.sort_by(|a, b| {
+            b.edge_weight
+                .total_cmp(&a.edge_weight)
+                .then_with(|| a.node_id.cmp(&b.node_id))
+        });
+        let mut seen = HashSet::new();
+        entries.retain(|entry| seen.insert(entry.node_id.clone()));
+    }
+
+    sort_and_dedupe(&mut callers);
+    sort_and_dedupe(&mut callees);
+    sort_and_dedupe(&mut tests);
+
+    let total_callers = callers.len();
+    let total_callees = callees.len();
+    let total_tests = tests.len();
+    let total_neighbours = callers
+        .iter()
+        .chain(callees.iter())
+        .chain(tests.iter())
+        .map(|entry| entry.node_id.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let truncated =
+        total_callers > max_per_side || total_callees > max_per_side || total_tests > max_per_side;
+
+    callers.truncate(max_per_side);
+    callees.truncate(max_per_side);
+    tests.truncate(max_per_side);
+
+    CollectedNeighbours {
+        callers,
+        callees,
+        tests,
+        total_callers,
+        total_callees,
+        total_tests,
+        total_neighbours,
+        truncated,
+    }
+}
+
+fn cap_primary_file_contents(contents: &str, max_lines: usize, max_chars: usize) -> (String, bool) {
+    let total_lines = contents.lines().count();
+    let total_chars = contents.chars().count();
+    let line_truncated = total_lines > max_lines;
+    let line_capped = if line_truncated {
+        contents
+            .lines()
+            .take(max_lines)
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        contents.to_string()
+    };
+    let char_truncated = line_capped.chars().count() > max_chars;
+
+    if !line_truncated && !char_truncated {
+        return (line_capped, false);
+    }
+    if max_chars == 0 {
+        return (String::new(), true);
+    }
+
+    let marker = format!("... [truncated; total_lines={total_lines}; total_chars={total_chars}]");
+    let separator = if line_capped.is_empty() { "" } else { "\n" };
+    let marker_chars = separator.chars().count() + marker.chars().count();
+    if marker_chars >= max_chars {
+        return (marker.chars().take(max_chars).collect(), true);
+    }
+
+    let content_budget = max_chars - marker_chars;
+    let mut prefix = line_capped.chars().take(content_budget).collect::<String>();
+    if char_truncated {
+        while prefix.ends_with('\r') {
+            prefix.pop();
+        }
+    }
+    (format!("{prefix}{separator}{marker}"), true)
 }
 
 /// Resolve the external string ID for a NodeId.
@@ -1898,14 +1982,14 @@ pub fn handle_surgical_context(
 
     // Step 1: Resolve and read the file
     let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
-    let (resolved_path, file_contents) =
+    let (resolved_path, full_file_contents) =
         read_authorized_source(state, &resolved_path, "m1nd_surgical_context")?;
 
-    let line_count = file_contents.lines().count() as u32;
+    let line_count = full_file_contents.lines().count() as u32;
 
     // Step 2: Extract symbols from file content
     let path_str = resolved_path.to_string_lossy().to_string();
-    let symbols = extract_symbols(&file_contents, &path_str);
+    let symbols = extract_symbols(&full_file_contents, &path_str);
 
     // Step 3: Find graph nodes for this file
     let graph = state.graph.read();
@@ -1929,21 +2013,53 @@ pub fn handle_surgical_context(
         .unwrap_or_default();
 
     // Step 4: Collect graph neighbours via BFS
-    let (callers, callees, tests) = if let Some((nid, _)) = &primary_node {
-        collect_neighbours(state, *nid, input.radius, input.include_tests)
+    let max_neighbours_per_side = input
+        .max_neighbours_per_side
+        .unwrap_or(DEFAULT_SURGICAL_NEIGHBOURS_PER_SIDE);
+    let neighbours = if let Some((nid, _)) = &primary_node {
+        collect_neighbours(
+            state,
+            *nid,
+            input.radius,
+            input.include_tests,
+            max_neighbours_per_side,
+        )
     } else {
         // No graph node found -- also try collecting from all file nodes
         let mut all_callers = Vec::new();
         let mut all_callees = Vec::new();
         let mut all_tests = Vec::new();
         for (nid, _) in &file_nodes {
-            let (c, d, t) = collect_neighbours(state, *nid, input.radius, input.include_tests);
-            all_callers.extend(c);
-            all_callees.extend(d);
-            all_tests.extend(t);
+            let collected =
+                collect_neighbours(state, *nid, input.radius, input.include_tests, usize::MAX);
+            all_callers.extend(collected.callers);
+            all_callees.extend(collected.callees);
+            all_tests.extend(collected.tests);
         }
-        (all_callers, all_callees, all_tests)
+        shape_neighbours(all_callers, all_callees, all_tests, max_neighbours_per_side)
     };
+    let max_primary_file_lines = input
+        .max_primary_file_lines
+        .unwrap_or(DEFAULT_SURGICAL_PRIMARY_FILE_LINES);
+    let max_primary_file_chars = input
+        .max_primary_file_chars
+        .unwrap_or(DEFAULT_SURGICAL_PRIMARY_FILE_CHARS);
+    let (file_contents, primary_truncated) = cap_primary_file_contents(
+        &full_file_contents,
+        max_primary_file_lines,
+        max_primary_file_chars,
+    );
+    let truncated = primary_truncated || neighbours.truncated;
+    let CollectedNeighbours {
+        callers,
+        callees,
+        tests,
+        total_callers,
+        total_callees,
+        total_tests,
+        total_neighbours,
+        ..
+    } = neighbours;
 
     // Step 5: Focused symbol (if requested)
     let focused_symbol = input.symbol.as_ref().and_then(|sym_name| {
@@ -1994,6 +2110,12 @@ pub fn handle_surgical_context(
         callers,
         callees,
         tests,
+        total_callers,
+        total_callees,
+        total_tests,
+        total_neighbours,
+        truncated,
+        primary_truncated,
         heuristic_summary,
         elapsed_ms,
     })
@@ -2432,6 +2554,13 @@ pub fn handle_surgical_context_v2(
         symbol: input.symbol.clone(),
         radius: input.radius,
         include_tests: input.include_tests,
+        max_neighbours_per_side: Some(
+            input
+                .max_connected_files
+                .max(DEFAULT_SURGICAL_NEIGHBOURS_PER_SIDE),
+        ),
+        max_primary_file_lines: input.max_primary_file_lines,
+        max_primary_file_chars: input.max_primary_file_chars,
     };
     let primary = handle_surgical_context(state, v1_input)?;
 
@@ -2583,23 +2712,8 @@ pub fn handle_surgical_context_v2(
         }
     }
 
-    // Cap the primary file's contents if needed
-    let max_primary_lines = input.max_primary_file_lines.unwrap_or(400);
-    let (primary_file_contents, primary_truncated) = {
-        let all_lines: Vec<&str> = primary.file_contents.lines().collect();
-        if all_lines.len() > max_primary_lines {
-            let truncated_lines = all_lines.len() - max_primary_lines;
-            let mut capped = all_lines[..max_primary_lines].join("\n");
-            capped.push_str(&format!(
-                "\n// ... [truncated {} of {} lines]",
-                truncated_lines,
-                all_lines.len()
-            ));
-            (capped, true)
-        } else {
-            (primary.file_contents.clone(), false)
-        }
-    };
+    let primary_file_contents = primary.file_contents.clone();
+    let primary_truncated = primary.primary_truncated;
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) = surgical_v2_next_step(
         &primary.file_path,
@@ -2646,13 +2760,18 @@ pub fn handle_surgical_context_v2(
     // of that exact file through. Only the primary `file_path` is proved here —
     // connected files are context, not cleared edit targets.
     let proof_mark = if proof_state == "ready_to_edit" {
+        let primary_source_for_proof = if primary_truncated {
+            read_authorized_source(state, Path::new(&primary.file_path), "surgical_context_v2")?.1
+        } else {
+            primary.file_contents.clone()
+        };
         Some(
             state
                 .note_proof_ready_for_content(
                     &input.agent_id,
                     &primary.file_path,
                     "surgical_context_v2",
-                    primary.file_contents.as_bytes(),
+                    primary_source_for_proof.as_bytes(),
                 )
                 .map_err(|detail| M1ndError::InvalidParams {
                     tool: "surgical_context_v2".to_string(),
@@ -4405,6 +4524,101 @@ mod tests {
         state
     }
 
+    fn build_surgical_star_state(
+        root: &std::path::Path,
+        leaf_count: usize,
+    ) -> (SessionState, String) {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            read_only: true,
+            ..Default::default()
+        };
+
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).expect("src dir");
+        let hub_path = src_dir.join("hub.rs");
+        let hub_contents = (0..600)
+            .map(|line| format!("// primary source line {line}: {}", "x".repeat(96)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&hub_path, format!("{hub_contents}\n")).expect("write hub");
+        let hub_path_str = hub_path.to_string_lossy().to_string();
+
+        let mut graph = Graph::new();
+        let hub = graph
+            .add_node(
+                &format!("file::{hub_path_str}"),
+                "hub.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add hub");
+        graph.set_node_provenance(
+            hub,
+            NodeProvenanceInput {
+                source_path: Some(&hub_path_str),
+                line_start: Some(1),
+                line_end: Some(600),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        for i in 0..leaf_count {
+            let leaf_path = src_dir.join(format!("leaf_{i}.rs"));
+            std::fs::write(&leaf_path, format!("pub fn leaf_{i}() {{}}\n")).expect("write leaf");
+            let leaf_path_str = leaf_path.to_string_lossy().to_string();
+            let leaf = graph
+                .add_node(
+                    &format!("file::{leaf_path_str}"),
+                    &format!("leaf_{i}.rs"),
+                    NodeType::File,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add leaf");
+            graph.set_node_provenance(
+                leaf,
+                NodeProvenanceInput {
+                    source_path: Some(&leaf_path_str),
+                    line_start: Some(1),
+                    line_end: Some(1),
+                    excerpt: None,
+                    namespace: None,
+                    canonical: true,
+                },
+            );
+            graph
+                .add_edge(
+                    hub,
+                    leaf,
+                    "imports",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.8),
+                )
+                .expect("add hub edge");
+        }
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        (state, hub_path_str)
+    }
+
     fn recent_test_timestamp() -> f64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -4802,6 +5016,9 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_neighbours_per_side: None,
+                max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect_err("surgical_context must reject an external absolute path");
@@ -4850,6 +5067,9 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_neighbours_per_side: None,
+                max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect("existing in-root surgical context must remain available");
@@ -4901,6 +5121,111 @@ mod tests {
         assert!(!excerpt.contains("truncated"));
         assert!(excerpt.contains("line1"));
         assert!(excerpt.contains("line3"));
+    }
+
+    #[test]
+    fn surgical_context_radius_two_default_caps_bound_star_hub_output() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_path) = build_surgical_star_state(temp.path(), 140);
+
+        let output = handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: hub_path,
+                agent_id: "f5-caps-red".into(),
+                symbol: None,
+                radius: 2,
+                include_tests: true,
+                max_neighbours_per_side: None,
+                max_primary_file_lines: None,
+                max_primary_file_chars: None,
+            },
+        )
+        .expect("surgical context");
+        let uncapped_output = handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: output.file_path.clone(),
+                agent_id: "f5-caps-control".into(),
+                symbol: None,
+                radius: 2,
+                include_tests: true,
+                max_neighbours_per_side: Some(usize::MAX),
+                max_primary_file_lines: Some(usize::MAX),
+                max_primary_file_chars: Some(usize::MAX),
+            },
+        )
+        .expect("uncapped surgical context control");
+        let serialized = serde_json::to_string(&output).expect("serialize output");
+        let uncapped_serialized =
+            serde_json::to_string(&uncapped_output).expect("serialize uncapped output");
+
+        assert!(
+            uncapped_serialized.chars().count() > 80_000,
+            "the star fixture must exceed the default output envelope before caps"
+        );
+
+        assert!(
+            serialized.chars().count() <= 80_000,
+            "default surgical_context output must stay bounded, got {} chars",
+            serialized.chars().count()
+        );
+        assert!(output.truncated, "the star hub must report truncation");
+        assert!(
+            output.primary_truncated,
+            "the 600-line primary file must report truncation"
+        );
+        assert!(
+            output.total_callees > output.callees.len(),
+            "pre-cap callee count must remain visible"
+        );
+        assert_eq!(output.total_neighbours, output.total_callees);
+        assert!(
+            output.callees.len() <= 50,
+            "default per-side neighbour ceiling must apply at radius=2"
+        );
+        assert_eq!(
+            output.file_contents.chars().count(),
+            40_000,
+            "the default primary character cap must be exact"
+        );
+        assert!(
+            output.file_contents.contains("truncated; total_lines=600"),
+            "the capped primary content must carry an honest marker"
+        );
+    }
+
+    #[test]
+    fn surgical_context_explicit_caps_can_raise_defaults() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_path) = build_surgical_star_state(temp.path(), 65);
+
+        let output = handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: hub_path,
+                agent_id: "f5-caps-raised".into(),
+                symbol: None,
+                radius: 2,
+                include_tests: true,
+                max_neighbours_per_side: Some(65),
+                max_primary_file_lines: Some(600),
+                max_primary_file_chars: Some(80_000),
+            },
+        )
+        .expect("surgical context");
+        let serialized = serde_json::to_string(&output).expect("serialize output");
+
+        assert_eq!(output.callees.len(), 65);
+        assert_eq!(output.total_callees, 65);
+        assert_eq!(output.total_neighbours, 65);
+        assert_eq!(output.line_count, 600);
+        assert!(!output.truncated);
+        assert!(!output.primary_truncated);
+        assert!(
+            serialized.chars().count() > 50_000,
+            "raising both caps must allow output beyond the default primary character ceiling"
+        );
     }
 
     #[test]
@@ -4965,6 +5290,9 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_neighbours_per_side: None,
+                max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect("surgical context");
@@ -5138,6 +5466,7 @@ mod tests {
                 max_lines_per_file: 60,
                 proof_focused: false,
                 max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect("surgical context v2");
@@ -5181,6 +5510,7 @@ mod tests {
                 max_lines_per_file: 60,
                 proof_focused: false,
                 max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect("surgical context v2");
@@ -5366,6 +5696,7 @@ mod tests {
                 max_lines_per_file: 60,
                 proof_focused: true,
                 max_primary_file_lines: None,
+                max_primary_file_chars: None,
             },
         )
         .expect("surgical context v2");

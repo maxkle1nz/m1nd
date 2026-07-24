@@ -1382,6 +1382,10 @@ fn activated_node_token_estimate(node: &ActivatedNodeOutput) -> usize {
 
 /// Handle impact (03-MCP Section 2.2).
 /// Replaces: ImpactRadiusCalculator.compute() + CausalChainDetector.detect()
+const DEFAULT_IMPACT_MAX_NODES: usize = 150;
+const DEFAULT_IMPACT_MAX_CHAINS: usize = 20;
+const DEFAULT_IMPACT_MAX_OUTPUT_CHARS: usize = 50_000;
+
 pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult<ImpactOutput> {
     let graph = state.graph.read();
 
@@ -1432,6 +1436,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 next_suggested_target: projection.next_suggested_target,
                 next_step_hint: projection.next_step_hint,
                 total_blast_nodes: 0,
+                total_causal_chains: 0,
                 truncated: false,
             });
         }
@@ -1464,7 +1469,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         }
     };
 
-    let max_nodes_cap = input.max_nodes.unwrap_or(150);
+    let max_nodes_cap = input.max_nodes.unwrap_or(DEFAULT_IMPACT_MAX_NODES);
     let total_blast_nodes = impact.blast_radius.len();
 
     // Reverse lookup NodeId -> external_id, so the rank below can detect
@@ -1631,8 +1636,12 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             }
         })
         .collect();
-    let truncated = total_blast_nodes > max_nodes_cap;
-
+    let total_causal_chains = if input.include_causal_chains {
+        chains.len()
+    } else {
+        0
+    };
+    let max_chains_cap = input.max_chains.unwrap_or(DEFAULT_IMPACT_MAX_CHAINS);
     let causal_chains: Vec<CausalChainOutput> = chains
         .iter()
         .map(|c| {
@@ -1659,9 +1668,11 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 cumulative_strength: c.cumulative_strength.get(),
             }
         })
+        .take(max_chains_cap)
         .collect();
-
-    Ok(ImpactOutput {
+    let truncated = total_blast_nodes > max_nodes_cap
+        || (input.include_causal_chains && total_causal_chains > max_chains_cap);
+    let mut output = ImpactOutput {
         source: input.node_id,
         source_label,
         direction: input.direction,
@@ -1695,8 +1706,49 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             .as_ref()
             .and_then(|projection| projection.next_step_hint.clone()),
         total_blast_nodes,
+        total_causal_chains,
         truncated,
-    })
+    };
+    let max_output_chars = input
+        .max_output_chars
+        .unwrap_or(DEFAULT_IMPACT_MAX_OUTPUT_CHARS);
+    shape_impact_to_serialized_budget(&mut output, max_output_chars)?;
+    Ok(output)
+}
+
+fn shape_impact_to_serialized_budget(
+    output: &mut ImpactOutput,
+    max_output_chars: usize,
+) -> M1ndResult<()> {
+    let serialized_chars = |value: &ImpactOutput| -> M1ndResult<usize> {
+        serde_json::to_string(value)
+            .map(|json| json.chars().count())
+            .map_err(M1ndError::Serde)
+    };
+
+    if serialized_chars(output)? <= max_output_chars {
+        return Ok(());
+    }
+    output.truncated = true;
+
+    while !output.causal_chains.is_empty() && serialized_chars(output)? > max_output_chars {
+        output.causal_chains.pop();
+    }
+    while !output.blast_radius.is_empty() && serialized_chars(output)? > max_output_chars {
+        output.blast_radius.pop();
+    }
+
+    let minimum_chars = serialized_chars(output)?;
+    if minimum_chars > max_output_chars {
+        return Err(M1ndError::InvalidParams {
+            tool: "impact".into(),
+            detail: format!(
+                "max_output_chars={max_output_chars} is smaller than the minimum serialized impact envelope ({minimum_chars} chars); raise max_output_chars"
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 /// Handle m1nd.missing (03-MCP Section 2.3).
@@ -5127,7 +5179,9 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
+            read_only: true,
             ..Default::default()
         };
 
@@ -5240,6 +5294,8 @@ mod tests {
                 direction: "forward".into(),
                 include_causal_chains: false,
                 max_nodes: Some(5),
+                max_chains: None,
+                max_output_chars: None,
             },
         )
         .expect("impact should succeed");
@@ -5265,6 +5321,91 @@ mod tests {
                 output.total_blast_nodes
             );
         }
+    }
+
+    #[test]
+    fn impact_causal_chain_output_respects_serialized_budget() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_id) = build_star_graph(temp.path(), 80);
+        let budget = 6_000;
+
+        let output = super::handle_impact(
+            &mut state,
+            crate::protocol::core::ImpactInput {
+                node_id: hub_id,
+                agent_id: "f5-caps-red".into(),
+                direction: "forward".into(),
+                include_causal_chains: true,
+                max_nodes: Some(12),
+                max_chains: None,
+                max_output_chars: Some(budget),
+            },
+        )
+        .expect("impact should succeed");
+        let serialized = serde_json::to_string(&output).expect("serialize output");
+
+        assert!(
+            serialized.chars().count() <= budget,
+            "impact output must stay within max_output_chars={budget}, got {} chars",
+            serialized.chars().count()
+        );
+        assert!(output.truncated, "the over-budget star hub must be honest");
+        assert!(
+            output.total_causal_chains > output.causal_chains.len(),
+            "pre-cap causal-chain count must remain visible"
+        );
+        assert!(
+            output.causal_chains.len() <= 20,
+            "default max_chains must bound causal chains"
+        );
+    }
+
+    #[test]
+    fn impact_explicit_chain_cap_can_raise_default() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_id) = build_star_graph(temp.path(), 30);
+
+        let output = super::handle_impact(
+            &mut state,
+            crate::protocol::core::ImpactInput {
+                node_id: hub_id,
+                agent_id: "f5-caps-raised".into(),
+                direction: "forward".into(),
+                include_causal_chains: true,
+                max_nodes: Some(30),
+                max_chains: Some(30),
+                max_output_chars: Some(100_000),
+            },
+        )
+        .expect("impact should succeed");
+
+        assert_eq!(output.total_causal_chains, 30);
+        assert_eq!(output.causal_chains.len(), 30);
+        assert!(!output.truncated);
+    }
+
+    #[test]
+    fn impact_impossibly_small_serialized_budget_is_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_id) = build_star_graph(temp.path(), 1);
+
+        let error = super::handle_impact(
+            &mut state,
+            crate::protocol::core::ImpactInput {
+                node_id: hub_id,
+                agent_id: "f5-caps-tiny".into(),
+                direction: "forward".into(),
+                include_causal_chains: true,
+                max_nodes: Some(1),
+                max_chains: Some(1),
+                max_output_chars: Some(1),
+            },
+        )
+        .expect_err("an impossible serialized budget must not return an oversized payload");
+
+        let message = error.to_string();
+        assert!(message.contains("max_output_chars=1"));
+        assert!(message.contains("minimum serialized impact envelope"));
     }
 
     /// Unit test for `resolve_light_evidence`.
@@ -5801,6 +5942,8 @@ mod tests {
                 direction: "reverse".into(),
                 include_causal_chains: false,
                 max_nodes: None,
+                max_chains: None,
+                max_output_chars: None,
             },
         )
         .expect("impact should succeed");

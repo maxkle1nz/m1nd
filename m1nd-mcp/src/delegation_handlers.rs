@@ -968,6 +968,8 @@ fn static_dependents(
             direction: "reverse".into(),
             include_causal_chains: false,
             max_nodes: Some(max_nodes),
+            max_chains: None,
+            max_output_chars: None,
         },
     );
     match out {
