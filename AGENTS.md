@@ -184,10 +184,12 @@ bound brain because the writer never checked which brain it was talking to.
    NOT cover your repo. A read under mismatch is a warning (don't trust retrieval for this
    repo). A **write** under mismatch is prohibited by doctrine — every write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
-   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. The one correct
-   gesture BEFORE any write: `ingest project_root=<your repo root>` — a single call
-   creates/resolves YOUR brain, ingests it, binds the session, and returns its north in the
-   same response; from then on your root routes to your brain automatically. Then write.
+   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
+   gesture lifts this.** The brain-bootstrap consumer is NOT installed: `ingest` does not
+   accept `project_root` (the parameter is absent from the published schema) and cross-root
+   bootstrap is POSITIVE_SOVEREIGN, failing closed with
+   `brain_bootstrap_consumer_not_installed`. Reconnect to an owner that already hosts the
+   intended repo, or stay read-only with the mismatch warning intact — do not write.
    (The mechanical write-refusal has LANDED — every skeleton write verb
    (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
    `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching
@@ -195,9 +197,10 @@ bound brain because the writer never checked which brain it was talking to.
 2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or WORKTREE of
    an existing brain is refused with a teaching error (`overlap_parent` / `overlap_child` /
    `overlap_worktree`) that names the conflict and the two ways forward: bind to the existing
-   brain (`ingest project_root=<existing>`), or pass `allow_overlap:true` only when you know
-   exactly why. It holds on BOTH doors — the MCP wire and REST `POST /api/tools/ingest` route
-   through one guarded core. A burst worktree does NOT get its own brain; bind to the main
+   brain, or mint a separate one anyway only when you know exactly why. It holds on BOTH
+   doors — the MCP wire and REST `POST /api/tools/ingest` route through one guarded core —
+   but neither way is reachable from the public MCP surface while the bootstrap consumer is
+   absent (`project_root` and `allow_overlap` are not in the published `ingest` schema). A burst worktree does NOT get its own brain; bind to the main
    repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
 3. **Memory writes never move your code root.** `memorize` (and any agent-memory ingest
    merge) can no longer demote a brain's `workspace_root` onto its own memory-store dir —
@@ -206,6 +209,16 @@ bound brain because the writer never checked which brain it was talking to.
    (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
    `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
    disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
+
+**When you withdraw a capability, sweep the prose in the same PR.** The cross-root bootstrap
+was withdrawn in the runtime (the published `ingest` schema lost `project_root` and
+`allow_overlap`, and `server.rs` asserts the served instructions never name them) — but seven
+prose surfaces kept teaching it, and `v1.5.0` shipped that way: quickstart, lifecycle,
+changelog, README, this file, and both agent skills all sent readers to a call that fails
+closed. A guard that covers only the wire is half a guard: the prose IS the interface for
+every agent and every new user. `tests/test_agent_surface_bootstrap_honesty.py` now extends
+the runtime's assertion to every instructional surface, so the two can no longer disagree in
+silence. Withdraw a verb, add it to that list.
 
 Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
 a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no
