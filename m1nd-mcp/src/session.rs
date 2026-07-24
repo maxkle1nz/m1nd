@@ -634,6 +634,20 @@ pub const PROOF_READY_TTL_MS: u64 = 5 * 60 * 1000;
 /// array is served by `doctor` under `runtime_state.ingest_roots`.
 pub const FINGERPRINT_INGEST_ROOTS_HEAD: usize = 10;
 
+/// The canonical TT-INV-2 gap LABEL for a caller root that no project brain
+/// covers while the medulla legitimately serves its cross-project doctrine
+/// (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3). Doc-only until P1; this is now the
+/// real symbol the medulla-only read fallback stamps on `reception`.
+pub const PROJECT_BRAIN_ABSENT: &str = "project_brain_absent";
+
+/// The one honest sentence for the `project_brain_absent` gap, authored ONCE so
+/// every degraded read beat (north's `honest_gaps`) speaks it byte-equal. It
+/// names the label, states what IS served (the medulla's cross-project doctrine,
+/// legitimately) and what is NOT (code anchors for the caller's repo), and gives
+/// the honest recovery — the SAME closed-bootstrap posture the write path uses
+/// (never an invented `m1nd init` birth, which is unbuilt today).
+pub const PROJECT_BRAIN_ABSENT_GAP: &str = "project_brain_absent — no project brain covers your caller root; the medulla's cross-project doctrine is served as a legitimate transversal feed, but no code anchors for your repo exist. Creating a project brain is unavailable until the typed bootstrap consumer is installed (TT-INV-2 · TWO-TIER-BRAIN-PRD §10.4 rung 3).";
+
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
     // Host-neutral contract. Any MCP host can set one of these.
     "M1ND_WORKSPACE_ROOT",
@@ -1156,7 +1170,13 @@ impl SessionState {
         // never advertise the internal bootstrap seam as a public repair. The
         // generic route is POSITIVE_SOVEREIGN and no exact typed G2/G3 consumer
         // exists yet.
-        Some(serde_json::json!({
+        // Base mismatch block. Its shape is a CONTRACT with two consumers that
+        // read it back: `human_view` (reads `honest`/`caller_root`/`bound_workspace`
+        // verbatim into the S3 card) and `mcp_http::enrich_reception_with_roster`
+        // (gates on `match == "caller_root_mismatch"` and rewrites the
+        // `bootstrap_unavailable` option). Every field below stays in place; the
+        // medulla enrichment is strictly ADDITIVE.
+        let mut block = serde_json::json!({
             "schema": "m1nd-reception-degraded-v0",
             "match": "caller_root_mismatch",
             "caller_root": caller_root,
@@ -1173,7 +1193,58 @@ impl SessionState {
                     "note": "creating or rebinding a project brain is unavailable until an exact typed G2/G3 bootstrap consumer is installed; no mutation was attempted"
                 }
             ]
-        }))
+        });
+
+        // P1 medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3 ·
+        // TT-INV-2). When the bound store is the MEDULLA, a mismatch is NOT a
+        // misbinding to distrust wholesale — it is the brainless-root case the
+        // canon names: the medulla's cross-project doctrine + promoted memory is
+        // served as a LEGITIMATE transversal source, while no project brain maps
+        // the caller's repo. Label it `project_brain_absent` and reframe the
+        // continue option so the agent trusts the DOCTRINE and distrusts only the
+        // CODE answers (the `honest` line stays byte-exact — it speaks of the CODE
+        // graph, which genuinely does not cover the repo, and the human_view card
+        // pins it). A project-brain mismatch (a real misbind) keeps the plain
+        // "don't trust" block below untouched.
+        if self.is_medulla_store() {
+            if let Some(obj) = block.as_object_mut() {
+                obj.insert(PROJECT_BRAIN_ABSENT.to_string(), serde_json::json!(true));
+                obj.insert("medulla_served".to_string(), serde_json::json!(true));
+                if let Some(first) = obj
+                    .get_mut("options")
+                    .and_then(|o| o.as_array_mut())
+                    .and_then(|opts| opts.first_mut())
+                    .and_then(|o| o.as_object_mut())
+                {
+                    first.insert(
+                        "note".to_string(),
+                        serde_json::json!(
+                            "the medulla's promoted doctrine + memory is served as a legitimate cross-project source; treat only CODE answers as NOT covering your repo — verify those against local files"
+                        ),
+                    );
+                }
+            }
+        }
+        Some(block)
+    }
+
+    /// The "brainless root" condition (MEDULLA-PRD §2.3 S2): the caller's resolved
+    /// root is KNOWN, THIS store is the medulla, and the medulla does not cover
+    /// that root. It is the SAME triple the WRITE path refuses inline
+    /// (`light_author_handlers` `brainless_root`, left untouched); on the READ path
+    /// (`north`) it is the medulla-only fallback — serve the medulla's
+    /// cross-project doctrine as a legitimate feed, cut the foreign code anchors,
+    /// and label `project_brain_absent` (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3).
+    /// `false` on an unknown caller root (absent ≠ wrong) and on a project brain
+    /// (it owns its own answers).
+    pub fn caller_root_is_brainless(&self) -> bool {
+        if !self.is_medulla_store() {
+            return false;
+        }
+        match self.caller_root.as_deref() {
+            Some(root) => !self.covers_root(root),
+            None => false,
+        }
     }
 
     /// True when `root` falls under this brain's bound territory — the
@@ -5014,6 +5085,125 @@ mod tests {
         let persisted_roots: Vec<String> =
             serde_json::from_str(&persisted).expect("persisted ingest roots json");
         assert!(persisted_roots.contains(&workspace.to_string_lossy().to_string()));
+    }
+
+    /// Build a bare medulla session for the reception tests. Returns the state,
+    /// the tempdir (kept alive), plus the created brain_root + caller_root dirs.
+    fn reception_state() -> (
+        tempfile::TempDir,
+        SessionState,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let brain_root = temp.path().join("repo-alpha");
+        let caller_root = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::fs::create_dir_all(&brain_root).expect("brain root");
+        std::fs::create_dir_all(&caller_root).expect("caller root");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+        state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+        (temp, state, brain_root, caller_root)
+    }
+
+    /// P1: a medulla store whose caller root no project brain covers stamps the
+    /// canonical `project_brain_absent` label ADDITIVELY — every field the two
+    /// downstream consumers read (`human_view`: honest/caller_root/bound_workspace;
+    /// `enrich_reception_with_roster`: match + the bootstrap_unavailable option)
+    /// stays in place. The continue option is reframed to trust the doctrine.
+    #[test]
+    fn reception_verdict_medulla_mismatch_labels_project_brain_absent_additively() {
+        let (_temp, mut state, brain_root, caller_root) = reception_state();
+        state.workspace_root_source = None; // the medulla is not a project manifest
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(state.is_medulla_store());
+        assert!(state.caller_root_is_brainless());
+
+        let r = state.reception_verdict().expect("mismatch reception");
+        // Additive: the contract fields are all preserved.
+        assert_eq!(r["match"], "caller_root_mismatch");
+        assert_eq!(r["caller_root"], caller_root.to_string_lossy().as_ref());
+        assert_eq!(r["bound_workspace"], brain_root.to_string_lossy().as_ref());
+        assert_eq!(
+            r["honest"], "this graph does NOT cover your repo",
+            "the honest CODE-coverage line is byte-stable (human_view pins it)"
+        );
+        // The canonical label + medulla-served signal.
+        assert_eq!(r["project_brain_absent"], true);
+        assert_eq!(r["medulla_served"], true);
+        let opts = r["options"].as_array().expect("options array");
+        assert!(
+            opts.iter().any(|o| o["action"] == "bootstrap_unavailable"),
+            "the roster-enrich seam still finds its option: {r}"
+        );
+        let cont = opts
+            .iter()
+            .find(|o| o["action"] == "continue_bound")
+            .expect("continue_bound option");
+        assert!(
+            cont["note"]
+                .as_str()
+                .unwrap()
+                .contains("legitimate cross-project source"),
+            "the continue option trusts the doctrine, distrusts only code: {cont}"
+        );
+    }
+
+    /// P1: a genuine PROJECT-brain misbind (a manifest-source store whose caller
+    /// root it does not cover) is NOT the medulla fallback — it keeps the plain
+    /// "don't trust" block and never claims `project_brain_absent`.
+    #[test]
+    fn reception_verdict_project_brain_mismatch_stays_a_plain_distrust_block() {
+        let (_temp, mut state, _brain_root, caller_root) = reception_state();
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(!state.is_medulla_store());
+        assert!(
+            !state.caller_root_is_brainless(),
+            "a project brain is never brainless"
+        );
+
+        let r = state.reception_verdict().expect("mismatch reception");
+        assert_eq!(r["match"], "caller_root_mismatch");
+        assert!(
+            r.get("project_brain_absent").is_none(),
+            "a project-brain misbind is not project_brain_absent: {r}"
+        );
+        assert!(r.get("medulla_served").is_none());
+        let opts = r["options"].as_array().expect("options array");
+        let cont = opts
+            .iter()
+            .find(|o| o["action"] == "continue_bound")
+            .expect("continue_bound option");
+        assert!(
+            cont["note"]
+                .as_str()
+                .unwrap()
+                .contains("verify against local files"),
+            "the plain distrust wording is intact: {cont}"
+        );
+    }
+
+    /// P1: a covered caller gets silence (TT-INV-12) and is never brainless.
+    #[test]
+    fn reception_verdict_covered_caller_is_silent() {
+        let (_temp, mut state, brain_root, _caller_root) = reception_state();
+        state.caller_root = Some(brain_root.to_string_lossy().to_string());
+        assert!(state.covers_root(&brain_root.to_string_lossy()));
+        assert!(!state.caller_root_is_brainless());
+        assert!(
+            state.reception_verdict().is_none(),
+            "a covered caller flows silently (TT-INV-12)"
+        );
     }
 
     #[test]

@@ -65,6 +65,55 @@ fn terminal(wait: RuntimeJobWait) -> runtime_jobs::RuntimeJobV1 {
     }
 }
 
+/// Wall-clock a deliberately-slow worker sleeps so that a transient lifecycle
+/// state (Cancelling, or running-after-timeout) stays observable for far longer
+/// than any scheduling delay these tests can suffer under load. Robustness comes
+/// from widening this window and polling it — never from timing a single fixed
+/// sleep to land inside a tight interval. (Previously a 180ms worker sleep paired
+/// with a 65ms observation sleep; under CI load — measured load average ~140-160
+/// here, plus slow/variable GitHub macOS runners — the 65ms routinely fell past
+/// the worker finish and the intermediate state was already gone.)
+const SLOW_WORK: Duration = Duration::from_secs(2);
+/// Upper bound for polling an intermediate state into view. Generous on purpose:
+/// it only bounds a stuck run — a healthy run returns on the first matching poll,
+/// in milliseconds.
+const OBSERVE_BUDGET: Duration = Duration::from_secs(5);
+/// Upper bound for awaiting a terminal state. `wait_terminal` is condvar-based and
+/// returns the instant the job finishes, so this only caps a stuck run.
+const TERMINAL_BUDGET: Duration = Duration::from_secs(10);
+/// Gap between polls — small relative to SLOW_WORK so many polls land inside the
+/// observation window even when individual polls are delayed by scheduling.
+const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Poll `registry.get(job_id)` until `predicate` holds, returning the matching
+/// observation, or panic with the last observation once `OBSERVE_BUDGET` elapses.
+/// This replaces `sleep(fixed) + single assert`, which gambled that the fixed
+/// instant fell inside the state's timing window; polling waits *for* the state,
+/// which is robust to scheduling delay under load.
+fn poll_until(
+    registry: &RuntimeJobRegistry,
+    job_id: &str,
+    label: &str,
+    predicate: impl Fn(&runtime_jobs::RuntimeJobV1) -> bool,
+) -> runtime_jobs::RuntimeJobV1 {
+    let deadline = Instant::now() + OBSERVE_BUDGET;
+    loop {
+        let job = registry.get(job_id).expect("observable job");
+        if predicate(&job) {
+            return job;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "job '{job_id}' never reached {label} within {OBSERVE_BUDGET:?}; last observed \
+             state={:?} running_after_timeout={} commit_in_progress={}",
+            job.state,
+            job.running_after_timeout,
+            job.commit_in_progress
+        );
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
 #[test]
 fn success_is_registered_then_committed_once_and_survives_restart() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -146,9 +195,11 @@ fn timeout_is_observable_and_late_prepared_write_never_commits() {
     let commit_counter = Arc::clone(&commits);
     let job_id = registry
         .submit_prepared(
+            // Short deadline so the timeout fires while the deliberately-slow
+            // worker below is still running.
             request("job-timeout", Duration::from_millis(35)),
             |_context| {
-                thread::sleep(Duration::from_millis(180));
+                thread::sleep(SLOW_WORK);
                 Ok::<_, RuntimeJobFailure>("late-prepared-write")
             },
             move |_prepared| {
@@ -158,15 +209,19 @@ fn timeout_is_observable_and_late_prepared_write_never_commits() {
         )
         .expect("submit");
 
-    thread::sleep(Duration::from_millis(65));
-    let during_timeout = registry.get(&job_id).expect("observable job");
+    // The worker holds the job in Cancelling for ~SLOW_WORK after the 35ms
+    // deadline, so polling observes the intermediate state reliably instead of
+    // gambling that a fixed 65ms sleep lands inside [deadline, worker-finish].
+    let during_timeout = poll_until(&registry, &job_id, "Cancelling", |job| {
+        job.state == RuntimeJobState::Cancelling
+    });
     assert_eq!(during_timeout.state, RuntimeJobState::Cancelling);
     assert!(during_timeout.running_after_timeout);
     assert_eq!(commits.load(Ordering::SeqCst), 0);
 
     let completed = terminal(
         registry
-            .wait_terminal(&job_id, Duration::from_secs(2))
+            .wait_terminal(&job_id, TERMINAL_BUDGET)
             .expect("wait"),
     );
     assert_eq!(completed.state, RuntimeJobState::Cancelled);
@@ -273,7 +328,11 @@ fn reserved_commit_crossing_deadline_stays_observable_and_is_not_false_cancelled
     let release = Arc::clone(&release_commit);
     let job_id = registry
         .submit_prepared(
-            request("job-commit-over-deadline", Duration::from_millis(300)),
+            // Deadline generous enough that the instant `prepare` always reserves
+            // the commit before it elapses (even under load, so the barrier below
+            // is always reached); the test then observes the reserved commit cross
+            // that deadline while barrier-held.
+            request("job-commit-over-deadline", SLOW_WORK),
             |_context| Ok::<_, RuntimeJobFailure>(()),
             move |_| {
                 entered.wait();
@@ -283,9 +342,13 @@ fn reserved_commit_crossing_deadline_stays_observable_and_is_not_false_cancelled
         )
         .expect("submit");
     commit_entered.wait();
-    thread::sleep(Duration::from_millis(350));
 
-    let observable = registry.get(&job_id).expect("observable job");
+    // Poll until the barrier-held commit crosses its deadline instead of sleeping
+    // a fixed 350ms and gambling the deadline has passed; the commit is held, so
+    // the job stays Running past the deadline until we release it.
+    let observable = poll_until(&registry, &job_id, "running after deadline", |job| {
+        job.running_after_timeout
+    });
     assert_eq!(observable.state, RuntimeJobState::Running);
     assert!(observable.commit_in_progress);
     assert!(observable.running_after_timeout);
@@ -299,7 +362,7 @@ fn reserved_commit_crossing_deadline_stays_observable_and_is_not_false_cancelled
     release_commit.wait();
     let completed = terminal(
         registry
-            .wait_terminal(&job_id, Duration::from_secs(2))
+            .wait_terminal(&job_id, TERMINAL_BUDGET)
             .expect("wait"),
     );
     assert_eq!(completed.state, RuntimeJobState::Succeeded);
@@ -468,9 +531,12 @@ fn shutdown_timeout_fails_closed_with_observable_active_job() {
     let commit_counter = Arc::clone(&commits);
     registry
         .submit_prepared(
-            request("job-slow-shutdown", Duration::from_secs(2)),
+            // Deadline far beyond SLOW_WORK so it never fires: the Cancelling
+            // state under test comes from the shutdown grace elapsing, not from
+            // the deadline.
+            request("job-slow-shutdown", Duration::from_secs(30)),
             |_context| {
-                thread::sleep(Duration::from_millis(180));
+                thread::sleep(SLOW_WORK);
                 Ok::<_, RuntimeJobFailure>(())
             },
             move |_| {
@@ -484,13 +550,16 @@ fn shutdown_timeout_fails_closed_with_observable_active_job() {
         shutdown,
         Err(RuntimeJobError::ShutdownIncomplete(_))
     ));
-    assert_eq!(
-        registry.get("job-slow-shutdown").expect("job").state,
-        RuntimeJobState::Cancelling
-    );
+    // shutdown requests the cancel before it returns, and the slow worker keeps
+    // the job non-terminal for ~SLOW_WORK, so Cancelling is observable without
+    // racing a fixed instant.
+    let observable = poll_until(&registry, "job-slow-shutdown", "Cancelling", |job| {
+        job.state == RuntimeJobState::Cancelling
+    });
+    assert_eq!(observable.state, RuntimeJobState::Cancelling);
     let completed = terminal(
         registry
-            .wait_terminal("job-slow-shutdown", Duration::from_secs(2))
+            .wait_terminal("job-slow-shutdown", TERMINAL_BUDGET)
             .expect("wait"),
     );
     assert_eq!(completed.state, RuntimeJobState::Cancelled);

@@ -5012,10 +5012,33 @@ fn handle_north(
     // say what it can't see rather than imply omniscience.
     let mut honest_gaps: Vec<String> = Vec::new();
 
+    // P1 medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3 ·
+    // TT-INV-2). The caller's root is KNOWN, no project brain covers it, and THIS
+    // store is the medulla. The medulla's cross-project doctrine + promoted memory
+    // (composed above, tier/origin-labeled) is a LEGITIMATE feed — but its own
+    // CODE graph maps a DIFFERENT repo, so handing back its focus_nodes/anchors as
+    // "your context" is context poisoning. Under the fallback the honest story is
+    // `project_brain_absent`, NOT an unfinished ingest: suppress the needs_ingest
+    // (empty/unbound) narrative so a served-medulla beat is never mislabeled as
+    // "nothing ingested" (requirement 4).
+    let brainless_caller = state.caller_root_is_brainless();
+    let needs_ingest = needs_ingest && !brainless_caller;
+
     // 3 + 4. CONTEXT + SUFFICIENCY — only meaningful once the graph is bound and
     //    populated. When it isn't, we say so honestly (needs_ingest) instead of
     //    running orient/focus over an empty graph and returning a fake packet.
-    let (context, sufficiency, next_move) = if needs_ingest || !graph_populated {
+    let (context, sufficiency, next_move) = if brainless_caller {
+        // Cut the poison: NO code anchors from the foreign graph cross to the
+        // caller. Context is null, the gap is the canonical project_brain_absent,
+        // and the next move is the honest recovery (the same closed-bootstrap
+        // language the write path uses — never an invented `m1nd init` birth).
+        honest_gaps.push(crate::session::PROJECT_BRAIN_ABSENT_GAP.to_string());
+        (
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            "No project brain covers your repo — the medulla's cross-project doctrine is served as memory, but its code graph does not map your repo. Creating a project brain is unavailable until the typed bootstrap consumer is installed; see `reception` for the honest options.".to_string(),
+        )
+    } else if needs_ingest || !graph_populated {
         // ONE authoring site for this fact (human_view amendment 5): the same
         // constant the S4 voice card wraps verbatim — byte-equal by construction.
         honest_gaps.push(crate::human_view::NEEDS_INGEST_GAP.into());
@@ -5391,8 +5414,8 @@ fn resolve_node_file_path(state: &SessionState, node_id: &str) -> Option<String>
 /// nothing.
 ///   * `state.file_inventory` is the "what m1nd last saw" baseline — each entry
 ///     records the absolute `file_path` and the `sha256` captured at ingest.
-///   * `audit_handlers::simple_content_hash` recomputes the current on-disk hash
-///     with the SAME algorithm the ingest path used, so a recomputed hash is
+///   * `audit_handlers::content_sha256` recomputes the current on-disk SHA-256
+///     with the SAME routine the ingest path used, so a recomputed hash is
 ///     directly comparable to the stored one (shared fn — no second hasher).
 ///   * `state.coverage_sessions[agent_id].visited_files` is the DEFAULT working
 ///     set when the caller passes neither `files` nor `nodes`: "you don't even
@@ -5509,7 +5532,7 @@ fn handle_am_i_stale(
             stale.push(item);
             continue;
         }
-        let current_hash = crate::audit_handlers::simple_content_hash(disk_path);
+        let current_hash = crate::audit_handlers::content_sha256(disk_path);
         match (&entry.sha256, current_hash) {
             (Some(known), Some(now)) if known != &now => {
                 let mut item = serde_json::json!({ "path": path, "reason": "changed" });
@@ -12439,6 +12462,169 @@ mod tests {
             );
         }
         assert_human_view_cap(card);
+    }
+
+    /// P1 — the medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3
+    /// · TT-INV-2). A caller whose resolved root NO project brain covers must
+    /// receive the medulla's cross-project DOCTRINE as a legitimate feed, but
+    /// NEVER the medulla's own CODE anchors as "its context" — that leak is
+    /// context poisoning (a foreign graph's focus_nodes passed off as the
+    /// caller's). The packet carries the canonical `project_brain_absent` label.
+    ///
+    /// RED before P1: north ran orient over the bound graph and returned its
+    /// focus_nodes/anchors as `context`, and carried no project_brain_absent
+    /// label — the foreign graph's anchors leaked to the brainless caller.
+    #[test]
+    fn north_brainless_caller_serves_medulla_not_foreign_anchors() {
+        let (temp, mut state) = build_state_populated(false);
+
+        // Seed a legitimate medulla doctrine claim WHILE the session is the plain
+        // owner (no foreign caller yet) — an owner doctrine write is legal.
+        super::dispatch_tool(
+            &mut state,
+            "memorize",
+            &serde_json::json!({
+                "agent_id": "owner",
+                "node_label": "CrossProjectDoctrine",
+                "claims": [{
+                    "label": "trust-first",
+                    "text": "north before acting is the standing doctrine",
+                    "confidence": 0.8
+                }]
+            }),
+        )
+        .expect("owner medulla doctrine write");
+
+        // Now a foreign caller arrives: its root is covered by NO project brain,
+        // and the bound store is the medulla.
+        let brain_root = temp.path().join("repo-alpha");
+        let caller_root = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&brain_root).expect("brain root");
+        std::fs::create_dir_all(&caller_root).expect("caller root");
+        state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+        state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(
+            state.is_medulla_store(),
+            "precondition: the bound store is the medulla"
+        );
+        assert!(
+            !state.covers_root(&caller_root.to_string_lossy()),
+            "precondition: no project brain covers the caller"
+        );
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "foreign-caller",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed");
+
+        // (c) POISON CUT — the bound graph's code anchors/focus_nodes NEVER
+        //     surface as the caller's context.
+        assert!(
+            out["context"].is_null(),
+            "brainless caller must not receive the foreign graph's context, got: {}",
+            out["context"]
+        );
+
+        // (a) the canonical project_brain_absent label rides the reception + gaps.
+        assert_eq!(
+            out["reception"]["project_brain_absent"], true,
+            "reception must carry the canonical project_brain_absent label"
+        );
+        assert_eq!(
+            out["reception"]["match"], "caller_root_mismatch",
+            "the mismatch code is preserved (roster-enrich + human_view depend on it)"
+        );
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter().any(|g| g
+                .as_str()
+                .map(|s| s.contains("project_brain_absent"))
+                .unwrap_or(false)),
+            "honest_gaps must name project_brain_absent, got: {gaps:?}"
+        );
+
+        // MEDULLA SERVED — the doctrine store is intact and served (not wiped by
+        // the cut): the on-disk count is honest, and every served memory row is
+        // medulla-tier (its light recall is scoped to `light::`, so it
+        // structurally cannot carry code anchors).
+        assert!(
+            out["memory_exists"].as_u64().unwrap_or(0) >= 1,
+            "the medulla doctrine store is served, not wiped: {}",
+            out["memory_exists"]
+        );
+        for row in out["memory"].as_array().expect("memory array") {
+            assert_eq!(
+                row["tier"], "medulla",
+                "every served memory row is medulla-tier under the fallback: {row}"
+            );
+        }
+
+        // (4) needs_ingest must NOT lie as "empty of known brain" — the honest
+        //     story is project_brain_absent, not an unfinished ingest.
+        assert!(
+            out["needs"].is_null(),
+            "the served-medulla beat is not an empty-graph needs_ingest, got: {}",
+            out["needs"]
+        );
+    }
+
+    /// P1 no-regression: a caller whose root IS covered by the bound brain gets
+    /// the normal grounded context — the fallback must never fire for a home
+    /// caller, and no project_brain_absent gap appears.
+    #[test]
+    fn north_covered_caller_keeps_grounded_context() {
+        let (temp, mut state) = build_state_populated(false);
+        let root = temp.path().join("repo-home");
+        std::fs::create_dir_all(&root).expect("home root");
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        // The caller IS the bound brain's root — a covered, home caller.
+        state.caller_root = Some(root.to_string_lossy().to_string());
+        assert!(
+            state.covers_root(&root.to_string_lossy()),
+            "precondition: the caller is covered"
+        );
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "home-caller",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed");
+
+        // Covered → no reception block, real context with activated focus nodes.
+        assert!(
+            out["reception"].is_null(),
+            "covered caller gets no reception packet, got: {}",
+            out["reception"]
+        );
+        assert!(
+            !out["context"].is_null(),
+            "covered caller gets grounded context"
+        );
+        let focus = out["context"]["focus_nodes"]
+            .as_array()
+            .expect("focus_nodes array");
+        assert!(
+            !focus.is_empty(),
+            "the lease task activates focus nodes for a covered caller"
+        );
+        // The project_brain_absent label never fires for a home caller.
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter()
+                .all(|g| !g.as_str().unwrap_or("").contains("project_brain_absent")),
+            "no project_brain_absent gap for a covered caller: {gaps:?}"
+        );
     }
 
     /// MANDATORY shape (amendment 4): the empty/unbound graph serves the honest
