@@ -221,11 +221,12 @@ binding trust, task context, prior cross-session memory, a sufficiency signal,
 one `next_move`, and `honest_gaps` (what m1nd does not yet know). Heed
 `reception` when present: `reception.match == "caller_root_mismatch"` means the
 bound graph does NOT cover your current repo — do not trust retrieval for it;
-read `reception.options[]`. ONE call sets you up: `ingest` with
-`project_root=<your repo root>` creates a per-project brain inside the served
-owner and binds you to it — thereafter every call from your root routes there
-automatically. Absent/null `reception` = your root matches the brain serving
-you.
+read `reception.options[]`. The public brain-bootstrap consumer is **not
+installed**: `ingest` does not accept `project_root`, and cross-root bootstrap
+fails closed with `brain_bootstrap_consumer_not_installed`. Continue only
+against the bound graph with the mismatch warning intact, or reconnect to an
+owner that already hosts the intended repo. Absent/null `reception` = your root
+matches the brain serving you.
 
 ```jsonc
 {
