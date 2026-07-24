@@ -460,10 +460,12 @@ fn run_medulla_migrate(
         &ingest_roots_path,
         project_origin.clone(),
     );
-    // Operational override for the owner-alive guard port (default: the served-owner
-    // port). A maintainer running the owner on a non-default port sets this so the
-    // guard probes the right listener; the CLI integration tests set it to a closed
-    // port so they can exercise `apply`/`rollback` without a live owner interfering.
+    // Operational override for the owner-alive guard. By default the guard probes a
+    // SET of loopback ports — the product's default served-owner port AND the pinned
+    // medulla port — and refuses if any answers. This env var REPLACES that set with
+    // one explicit port: a maintainer serving outside the set points the guard at the
+    // right listener, and the CLI integration tests point it at a closed port so they
+    // exercise `apply`/`rollback` without racing the machine's real owner.
     if let Ok(p) = std::env::var("M1ND_MEDULLA_GUARD_PORT") {
         if let Ok(port) = p.parse::<u16>() {
             mig = mig.with_owner_guard_port(port);
