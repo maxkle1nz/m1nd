@@ -56,6 +56,18 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
   provenance addresses the whole item rather than its declaration line. Measured on `m1nd-core`:
   791 of 794 function nodes gained a real extent (99.6%), snapshot size −73 bytes, ingest time
   inside the existing noise band.
+### Changed
+- **Bounded tool output for `surgical_context` v1 and `impact` causal chains.** On large brains
+  (measured on a 103k-node graph) `surgical_context` at `radius=2` could serialize 2.09M chars and
+  `impact` with `include_causal_chains` 195K chars. Both are now capped by default, mirroring the
+  existing v2/search/report budget pattern: v1 gets a 50-per-side neighbour ceiling plus
+  line/char caps on the primary file (`max_neighbours_per_side`, `max_primary_file_lines`,
+  `max_primary_file_chars`); `impact` gets `max_chains` (20) and `max_output_chars` (50000), and
+  `max_nodes` is now exposed on the wire schema. Caps are defaults with explicit params to raise
+  them; truncation is always honest — `truncated`/`primary_truncated` flags plus pre-cap
+  `total_*` counts, and v2 re-reads the full file before registering proof when the primary was
+  truncated. Internal delegate-packet impact calls are exempt from the wire budget by
+  construction.
 
 ---
 
