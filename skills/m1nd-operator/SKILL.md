@@ -56,7 +56,16 @@ measured high-signal pattern starts by never starting cold:
    already hosts the intended repo. Absent/null = your root matches the brain
    serving you. Reception governs WRITES too, not only reads: a read under
    mismatch is a warning, a WRITE under mismatch is prohibited (see Write-Mode
-   Laws below) — and no public bootstrap lifts it.
+   Laws below) — and no public bootstrap lifts it. VERSION SKEW: this skill
+   describes the CURRENT product; check `binding.fingerprint.binary_version`
+   (and its `binary_drift` warning) in the same packet before trusting either
+   era's rule. A legacy 1.4.x served owner still HAS the one-call bootstrap,
+   and there `ingest {project_root: <your repo root>}` is the correct
+   foreign-repo gesture — it mints a SEPARATE per-project brain, never
+   replacing the bound one. A plain `ingest {path}` from a foreign root is
+   wrong in EVERY era: on a legacy owner it wholesale-REPLACES the bound brain
+   (2026-07-24 incident — a 29k-node brain swapped for a foreign graph,
+   restored the same day).
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).

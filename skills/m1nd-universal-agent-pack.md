@@ -40,6 +40,18 @@ governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
 under mismatch is PROHIBITED — see Write-Mode Laws below, and no public
 bootstrap lifts it.
 
+**Version skew — read the fingerprint before trusting either era's rule.** This
+skill describes the CURRENT product; the machine may be serving an OLDER owner.
+`health`/`north` carry `binding.fingerprint.binary_version` and a `binary_drift`
+warning — read them first. On a legacy 1.4.x served owner the withdrawn
+bootstrap still EXISTS and is the correct gesture there: from a repo the owner
+does not cover, `ingest {project_root: <your repo root>}` mints a SEPARATE
+per-project brain and never replaces the bound graph. What is NEVER correct in
+ANY era is a plain `ingest {path}` from a foreign root — on a legacy owner it
+REPLACES the bound brain wholesale (2026-07-24 incident: a foreign session's
+plain ingest swapped a 29k-node brain for its own graph; restored the same
+day). When in doubt, read-only plus your own repo's docs is always legal.
+
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:
 
