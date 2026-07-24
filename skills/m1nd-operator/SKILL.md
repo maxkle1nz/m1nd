@@ -445,7 +445,11 @@ source reads, tests, runtime probes, or CI evidence.
   retrieval returns `blocked`/zero candidates unexpectedly, call
   `recovery_playbook` before inventing the next step. Use its ordered steps and
   `binding_fingerprint` to compare host, stdio, HTTP, runtime root, graph paths,
-  generation counters, and ingest roots.
+  generation counters, and ingest roots. The fingerprint is budget-capped: it
+  carries `ingest_root_count` (always the real total) plus the first 10 roots,
+  and declares any omission in `ingest_roots_truncated` /
+  `ingest_roots_omitted`. When you need the whole array, read `doctor` under
+  `runtime_state.ingest_roots` — the surface `ingest_roots_full_surface` names.
 - If a retrieval/orientation response includes `agent_runtime_contract`, treat
   it as the authoritative agent-facing envelope for that call. Read
   `trust_mode`, `session_identity`, `workspace_binding`, `graph_identity`, and

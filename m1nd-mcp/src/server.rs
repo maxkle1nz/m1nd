@@ -13093,10 +13093,12 @@ mod tests {
     }
 
     /// R1(a) — Budget Law "no duplicate serialization" (RED→GREEN): a north packet
-    /// embeds BOTH `binding.fingerprint` and `binding.graph_state`. The full
-    /// `ingest_roots` array must appear exactly ONCE across the two (in the
-    /// fingerprint) — never byte-identically duplicated. `graph_state` carries only
-    /// the COUNT. Before the fix the same array was serialized in both blocks.
+    /// embeds BOTH `binding.fingerprint` and `binding.graph_state`. The roots must
+    /// never be serialized byte-identically in both blocks — `graph_state` carries
+    /// only the COUNT. Before the fix the same array was serialized in both.
+    /// The fingerprint's own block is now bounded too (a head of
+    /// `FINGERPRINT_INGEST_ROOTS_HEAD` with the omission declared); below that
+    /// bound — as here — it still lists every root and says it is untruncated.
     #[test]
     fn north_binding_serializes_ingest_roots_once_not_duplicated() {
         let (_temp, mut state) = build_state_populated(false);
@@ -13117,11 +13119,16 @@ mod tests {
         )
         .expect("north on a multi-root binding");
 
-        // The fingerprint is the ONE canonical home for the full array.
-        let fp_roots = out["binding"]["fingerprint"]["ingest_roots"]
+        // Three roots is under the head bound, so the fingerprint still lists them
+        // all — and says so instead of leaving the reader to guess.
+        let fp = &out["binding"]["fingerprint"];
+        let fp_roots = fp["ingest_roots"]
             .as_array()
-            .expect("fingerprint carries the full ingest_roots array");
+            .expect("fingerprint carries the ingest_roots head");
         assert_eq!(fp_roots.len(), 3, "fingerprint lists all three roots");
+        assert_eq!(fp["ingest_root_count"].as_u64(), Some(3));
+        assert_eq!(fp["ingest_roots_truncated"], serde_json::json!(false));
+        assert_eq!(fp["ingest_roots_omitted"].as_u64(), Some(0));
 
         // graph_state must NOT re-serialize the full array — only the count.
         assert!(

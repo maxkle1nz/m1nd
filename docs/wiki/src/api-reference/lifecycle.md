@@ -20,10 +20,21 @@ store holds claims that simply did not match this task, `memory_exists` is `> 0`
 and `honest_gaps` says the store has memory that did not match — the false
 "no durable memory yet" line is emitted **only** when the store is truly empty.
 
-**Packet budget.** The binding serializes the `ingest_roots` array exactly once
-(in `binding.fingerprint`); `binding.graph_state` carries only the
-`ingest_root_count`, never a duplicate copy of the array. Durable memory sidecars
-in the `agent-memory` store collapse into the single store-directory root rather
+**Packet budget.** The binding block is **fixed-cost**: it may not grow with the
+brain, because `north` runs on every session and every task. `binding.graph_state`
+carries only the `ingest_root_count`, never a copy of the array.
+`binding.fingerprint` carries at most the **first 10** ingest roots (the array is
+ordered oldest → newest, so the head is the identity-bearing prefix and stays
+stable across writes, which is what makes cross-seam fingerprint comparison
+meaningful) and always states the real total in `ingest_root_count`. Truncation
+is **declared, never silent**: `ingest_roots_truncated` (bool, always present),
+`ingest_roots_omitted` (how many entries are not shown), and
+`ingest_roots_full_surface` — the pointer to the surface that serves the whole
+array, [`doctor`](#m1nddoctor) under `runtime_state.ingest_roots` (`null` when
+nothing was omitted). Measured on a live owner 2026-07-24: 380 roots cost 25,907
+bytes (~6.5k tokens) on **every** `north` before the head-truncation; the same
+fingerprint now serializes in under 2,000 bytes. Durable memory sidecars in the
+`agent-memory` store also collapse into the single store-directory root rather
 than minting one ingest root per `.light.md` file, so the packet stays within its
 2,000-token MCP budget as the memory store grows.
 
@@ -763,6 +774,11 @@ If the suspicious call included a path from another repo, pass it as `scope`.
 `doctor` will surface `context_guard.wrong_workspace_binding=true` and suggest
 rebinding with `M1ND_WORKSPACE_ROOT`, same-binding ingest, or explicit
 federation instead of diagnosing a stale graph.
+
+`doctor` is also the surface that serves the **complete** `ingest_roots` array,
+under `runtime_state.ingest_roots`. The `north` binding fingerprint is
+budget-capped and carries only a head plus the count (see
+[Packet budget](#m1ndnorth)); when you need every root, ask `doctor`.
 
 ### Parameters
 
