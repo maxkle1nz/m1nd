@@ -11,6 +11,17 @@ use clap::Parser;
 /// version-honesty moat (see `build.rs` / `session::binary_version_info`).
 const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("M1ND_GIT_SHA"), ")");
 
+/// The loopback port a served owner listens on when the operator names none —
+/// the port the PRODUCT hands the world (`--serve` with no `--port`). It is the
+/// SINGLE source of this default: `--port`'s clap default is derived from it, and
+/// so is the offline migration's owner-alive guard
+/// (`medulla_migration::MedullaMigration`). Keeping one constant is the fix for a
+/// real miscalibration (2026-07-24): the guard used to probe only `1338` — the
+/// port this maintainer's launchd owner happens to sit on — so a user serving on
+/// the default port passed the guard unseen and the offline migration mutated the
+/// stores under a live owner.
+pub const DEFAULT_SERVED_OWNER_PORT: u16 = 1337;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "m1nd-mcp",
@@ -30,7 +41,11 @@ pub struct Cli {
     pub serve: bool,
 
     /// HTTP server port
-    #[arg(long, default_value = "1337")]
+    // The default is NOT a literal here: it comes from `DEFAULT_SERVED_OWNER_PORT`,
+    // the one constant the owner-alive guard also reads, so the port the product
+    // serves on and the port the guard watches for can never drift apart. (`--help`
+    // still shows the concrete `[default: 1337]`, rendered by clap.)
+    #[arg(long, default_value_t = DEFAULT_SERVED_OWNER_PORT)]
     pub port: u16,
 
     /// Bind address override (default: 127.0.0.1). Every non-loopback bind (for

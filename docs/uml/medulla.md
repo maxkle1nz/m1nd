@@ -69,6 +69,8 @@ classDiagram
         +apply() : backup-first, count-conserving
         +rollback(backup, moved) : wipe+restore
         +stamp_origin_brain()
+        -ensure_owner_down() : refuse if ANY guarded port answers
+        %% guard set = product default 1337 (cli::DEFAULT_SERVED_OWNER_PORT) + pinned 1338
     }
 
     class Destination {
