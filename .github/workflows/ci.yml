@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  # Required for the merge queue: without this event the same gates never run on
+  # the queued `gh-readonly-queue/*` ref, so every PR would enter the queue and
+  # hang forever. The aggregator `Test` job runs here too and is the single check
+  # the queue waits on. (2026-07-24 — restoring throughput without strict serial
+  # rebasing.)
+  merge_group:
 
 permissions:
   contents: read
