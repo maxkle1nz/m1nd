@@ -119,7 +119,13 @@ field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
 
 ## The box — carve out-of-scope findings in stone (mandatory, every repo)
 
-Every repo has a mailbox: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
+**The spool above IS the box.** `~/.m1nd/field-reports.jsonl` is the ONE append-only write slot
+(`mailbox.rs`); a distributor routes each entry by its `repo` field into that project's box.
+Writing a field report and writing a letter are the same gesture, not two — the classes are the
+same set (`bug` / `honesty` / `friction` / `win`). What follows is the half that was never
+stated: what the box is FOR, and the duty to read and close it.
+
+Every repo has a box: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
 consent-deferred `.gitignore` (`mailbox.rs` §C7.5); the repo's own `m1nd init` is the ONE
 consent moment that flips it to committed, after which what the project knows travels with the
 project. An existing `.gitignore` is never rewritten. **Committing a box publishes its letters —
