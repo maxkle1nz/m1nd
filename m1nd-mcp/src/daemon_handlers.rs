@@ -5,7 +5,6 @@ use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde_json::json;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -169,13 +168,6 @@ fn run_auto_reconcile(state: &mut SessionState) -> (&'static str, Option<String>
     settle_auto_reconcile_outcome(state, outcome)
 }
 
-fn simple_content_hash(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    Some(format!("{:016x}", hasher.finish()))
-}
-
 fn join_repo_relative(root: &Path, rel: &str) -> PathBuf {
     normalize_path_text(rel)
         .split('/')
@@ -274,7 +266,7 @@ fn inventory_from_watch_paths(watch_paths: &[String]) -> HashMap<String, FileInv
                     language: extension_language(extension),
                     commit_count: 0,
                     loc: None,
-                    sha256: simple_content_hash(&root_path),
+                    sha256: crate::audit_handlers::content_sha256(&root_path),
                 },
             );
             continue;
@@ -306,7 +298,7 @@ fn inventory_from_watch_paths(watch_paths: &[String]) -> HashMap<String, FileInv
                     language: extension_language(file.extension.as_deref()),
                     commit_count: file.commit_count,
                     loc: None,
-                    sha256: simple_content_hash(&file.path),
+                    sha256: crate::audit_handlers::content_sha256(&file.path),
                 },
             );
         }
