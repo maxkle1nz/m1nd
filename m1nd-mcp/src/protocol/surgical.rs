@@ -62,6 +62,17 @@ pub struct SurgicalContextInput {
     /// Include test files in the neighbourhood. Default: true.
     #[serde(default = "default_true")]
     pub include_tests: bool,
+    /// Maximum neighbours returned in each of callers/callees/tests.
+    /// Default: 50. Set higher explicitly to widen the neighbourhood.
+    #[serde(default)]
+    pub max_neighbours_per_side: Option<usize>,
+    /// Maximum primary-file lines returned. Default: 400.
+    #[serde(default)]
+    pub max_primary_file_lines: Option<usize>,
+    /// Maximum primary-file characters returned after the line cap.
+    /// Default: 40,000.
+    #[serde(default)]
+    pub max_primary_file_chars: Option<usize>,
 }
 
 fn default_radius() -> u32 {
@@ -93,6 +104,18 @@ pub struct SurgicalContextOutput {
     pub callees: Vec<SurgicalNeighbour>,
     /// Neighbourhood: test files that cover this file.
     pub tests: Vec<SurgicalNeighbour>,
+    /// Total callers discovered before the per-side cap.
+    pub total_callers: usize,
+    /// Total callees discovered before the per-side cap.
+    pub total_callees: usize,
+    /// Total test neighbours discovered before the per-side cap.
+    pub total_tests: usize,
+    /// Total unique neighbours across callers/callees/tests before caps.
+    pub total_neighbours: usize,
+    /// True when primary content or any neighbour list was capped.
+    pub truncated: bool,
+    /// True when file_contents was capped by line and/or character limits.
+    pub primary_truncated: bool,
     /// Heuristic explanation for why this file may be risky to patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
@@ -321,6 +344,9 @@ pub struct SurgicalContextV2Input {
     /// Lines beyond this limit are replaced with a truncation marker.
     #[serde(default)]
     pub max_primary_file_lines: Option<usize>,
+    /// Maximum characters to return for the primary file. Default: 40,000.
+    #[serde(default)]
+    pub max_primary_file_chars: Option<usize>,
 }
 
 fn default_max_connected_files() -> usize {
