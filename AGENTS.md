@@ -117,6 +117,35 @@ unless m1nd is served at a reachable address.
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
 
+## The box — carve out-of-scope findings in stone (mandatory, every repo)
+
+Every repo has a mailbox: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
+consent-deferred `.gitignore` (`mailbox.rs` §C7.5); the repo's own `m1nd init` is the ONE
+consent moment that flips it to committed, after which what the project knows travels with the
+project. An existing `.gitignore` is never rewritten. **Committing a box publishes its letters —
+in a public repo, treat that as a publishing decision, not a formality.**
+
+The box exists for one specific case, and it is the case that bites subagents hardest: **you
+hit a real defect that is NOT in your scope.** Do not fix it mid-mission (that is how a focused
+change becomes an unreviewable sprawl) and do not swallow it. Write one letter — what you saw,
+what you expected, the evidence — so the system's MAIN agent can fix it at the opportune
+moment. Carving it in stone is the whole point: the finding outlives your session.
+
+**Two boxes, always.** The project you are working in, and m1nd's own — m1nd is the tool every
+agent here depends on, so a defect in it belongs to everyone to report and to its main agent to
+fix. Read a box with `GET /api/mailbox?brain=<root>` or `m1nd-mcp --inbox-sweep`; these are
+CLI/REST surfaces, never MCP tools, never in the agent loop.
+
+**A letter nobody answers is pressure, not honesty** (`mailbox.rs`'s own words). Whoever holds a
+system answers its box: closing a letter is as much the duty as writing one. Proof this matters:
+on 2026-07-04 a subagent filed `Job Test(windows-latest) marks FAIL on the last 3 merges though
+every cargo test inside it passes`. Nobody read the box. Twenty days later the same condition
+was rediscovered from zero, after it had held the entire merge queue hostage and forced an owner
+override to publish 1.5.0. The write half worked perfectly; the read half did not exist.
+
+**Subagents get specs, not session hooks** — so a subagent spec must carry this duty verbatim,
+or the population most likely to find out-of-scope defects is the one least likely to file them.
+
 ## Wear the wire — the cards, the voice, the presences (when m1nd is served)
 
 When you can reach the served owner, the organism should SEE the work, SPEAK to the human, and
