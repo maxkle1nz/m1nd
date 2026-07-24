@@ -31,11 +31,12 @@ On first contact the packet may also carry a `reception` field (First-Contact
 Reception, degraded mode): `reception.match == "caller_root_mismatch"` means the
 bound graph does **not** cover your current repo (its root ≠ your resolved
 caller root) — do not trust retrieval for this repo; read `reception.options[]`.
-ONE call sets you up: `ingest` with `project_root=<your repo root>` creates a
-per-project brain inside the served owner, ingests your repo into it, binds your
-session to it, and returns its north packet in the same response — thereafter
-every call from your root (this session or a brand-new one) routes to YOUR brain
-automatically. It is `null` when your root matches the brain serving you (silent
+The public brain-bootstrap consumer is **not installed**: `ingest` does not
+accept `project_root` (the parameter is absent from the published schema), and
+cross-root bootstrap is POSITIVE_SOVEREIGN — it fails closed with
+`brain_bootstrap_consumer_not_installed`. Continue only against the bound graph
+with the mismatch warning intact, or reconnect to an owner that already hosts
+the intended repo. It is `null` when your root matches the brain serving you (silent
 bind is legal only on a match) or when the caller root is unknown (direct-HTTP
 callers).
 
