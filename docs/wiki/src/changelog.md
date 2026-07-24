@@ -88,6 +88,10 @@ with a red-first proof.
   thereafter every call from that root — including brand-new sessions — routes to that brain
   silently. Registry entries gain a serde-default `brain_kind` field; owner restarts warm-boot
   each project brain from its own store.
+  **Superseded — do not follow this entry today:** the public bootstrap consumer was later
+  withdrawn. `project_root` and `allow_overlap` are absent from the published `ingest` schema,
+  and cross-root bootstrap fails closed with `brain_bootstrap_consumer_not_installed`. This
+  entry stands as a record of what that release shipped, not as a usable instruction.
 - **Reception — degraded mode.** A caller outside the bound repo now gets an explicit
   `caller_root_mismatch` reception block with honest options (continue bound, or one-call
   ingest your repo), instead of silent wrong-graph answers. A silent bind is legal only on a
