@@ -7,7 +7,6 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use regex::Regex;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -406,17 +405,23 @@ fn supports_external_reference_scan(kind: AuditFileKind) -> bool {
 
 /// Canonical on-disk content hash used across freshness/staleness checks.
 ///
-/// Reads the whole file and hashes its bytes with the same algorithm the
-/// ingest path records into `FileInventoryEntry::sha256` (see
-/// `tools::build_file_inventory_entries`), so a recomputed hash can be compared
-/// directly against the stored inventory value. Shared by `cross_verify`'s
-/// evidence-freshness check and the `am_i_stale` self-awareness tool — do NOT
-/// roll a second hashing routine.
-pub(crate) fn simple_content_hash(path: &Path) -> Option<String> {
+/// Returns a REAL SHA-256 of the file bytes (64 lowercase hex chars), computed
+/// by the workspace's single hashing routine `m1nd_ingest::ownership::sha256_bytes`.
+/// This is the value the ingest path records into `FileInventoryEntry::sha256`
+/// (see `tools::build_file_inventory_entries`) and the value the daemon records
+/// into its tracked files, so a recomputed hash can be compared directly against
+/// the stored inventory value. Shared by `cross_verify`'s evidence-freshness
+/// check and the `am_i_stale` self-awareness tool — do NOT roll a second hashing
+/// routine.
+///
+/// History: this used to be a 16-hex fold of `DefaultHasher` (SipHash 1-3, 64-bit,
+/// non-cryptographic, and NOT stable across rustc versions) while the wire field
+/// was already named `sha256` — a naming lie that made the value uncomparable
+/// with any real digest. It now tells the truth; the one-time cost is that
+/// inventories captured before this change no longer match and re-ingest once.
+pub(crate) fn content_sha256(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    Some(format!("{:016x}", hasher.finish()))
+    Some(m1nd_ingest::ownership::sha256_bytes(&bytes))
 }
 
 fn loc_map_from_graph(state: &SessionState) -> HashMap<String, u32> {
@@ -482,7 +487,7 @@ fn inventory_from_roots(
                     language: extension_language(extension),
                     commit_count: 0,
                     loc: loc_by_external_id.get(&external_id).copied(),
-                    sha256: simple_content_hash(&root_path),
+                    sha256: content_sha256(&root_path),
                 },
             );
             continue;
@@ -515,7 +520,7 @@ fn inventory_from_roots(
                     language: extension_language(file.extension.as_deref()),
                     commit_count: file.commit_count,
                     loc: loc_by_external_id.get(&external_id).copied(),
-                    sha256: simple_content_hash(&file.path),
+                    sha256: content_sha256(&file.path),
                 },
             );
         }
@@ -819,7 +824,7 @@ pub fn handle_cross_verify(
         disk_entries
             .iter()
             .filter_map(|entry| {
-                let current_hash = simple_content_hash(Path::new(&entry.file_path))?;
+                let current_hash = content_sha256(Path::new(&entry.file_path))?;
                 let known_hash = stored_inventory
                     .get(&entry.external_id)
                     .and_then(|item| item.sha256.clone())?;
@@ -924,7 +929,7 @@ pub fn handle_cross_verify(
                     }
 
                     // Recompute hash and compare to stored value.
-                    let current_hash = match simple_content_hash(&abs_path) {
+                    let current_hash = match content_sha256(&abs_path) {
                         Some(h) => h,
                         None => continue, // can't read file — skip
                     };
@@ -3383,7 +3388,9 @@ mod tests {
             language: "rust".into(),
             commit_count: 0,
             loc: None,
-            sha256: Some("000000000000dead".into()), // deliberately wrong hash
+            // Deliberately wrong hash — shaped like a real sha256 (64 hex chars)
+            // so the fixture cannot pass by accident of length.
+            sha256: Some("0".repeat(64)),
         }]);
 
         let output = handle_cross_verify(
@@ -4429,5 +4436,95 @@ mod tests {
         let mut used = BTreeSet::new();
         let namespace = suggest_repo_namespace(root, &mut used);
         assert_eq!(namespace, "m1nd");
+    }
+
+    /// REGRESSION (honesty): the value stored in `FileInventoryEntry::sha256`
+    /// and re-derived by `am_i_stale`/`cross_verify` must be a REAL SHA-256 of
+    /// the file bytes, not the old 16-hex `DefaultHasher` fold that shipped
+    /// under the `sha256` name. Proven against the published NIST/RFC vectors,
+    /// so this test fails if the routine is ever swapped back to a non-crypto
+    /// or truncated hash.
+    #[test]
+    fn content_sha256_is_a_real_sha256_digest() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Known-answer vectors: sha256("") and sha256("abc").
+        for (contents, expected) in [
+            (
+                "",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                "abc",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+        ] {
+            let path = dir.path().join(format!("vector-{}.bin", expected));
+            std::fs::write(&path, contents).expect("write vector");
+            let digest = content_sha256(&path).expect("hash the vector file");
+            assert_eq!(
+                digest, expected,
+                "content_sha256 must return the real SHA-256 of the file bytes"
+            );
+            assert_eq!(digest.len(), 64, "a SHA-256 hex digest is 64 chars");
+            assert!(
+                digest
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                "digest must be lowercase hex"
+            );
+        }
+
+        // Agreement with the workspace's single hashing routine — the reuse
+        // contract: no second hasher anywhere in the freshness path.
+        let path = dir.path().join("agreement.bin");
+        let bytes = b"m1nd content addressing must be honest\n";
+        std::fs::write(&path, bytes).expect("write agreement file");
+        assert_eq!(
+            content_sha256(&path).expect("hash the agreement file"),
+            m1nd_ingest::ownership::sha256_bytes(bytes),
+            "content_sha256 must agree with ownership::sha256_bytes"
+        );
+
+        // A missing file is an honest None, never a hash of nothing.
+        assert!(content_sha256(&dir.path().join("absent.bin")).is_none());
+    }
+
+    /// The inventory the ingest path builds must carry the SAME real SHA-256 —
+    /// otherwise the `sha256` field on the wire would still be a lie even with
+    /// an honest helper behind it.
+    #[test]
+    fn file_inventory_records_the_real_sha256() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let file = root.join("lib.rs");
+        let contents = b"pub fn answer() -> u32 { 42 }\n";
+        std::fs::write(&file, contents).expect("write source file");
+
+        let graph = Graph::new();
+        let entries = crate::tools::build_file_inventory_entries(
+            &graph,
+            &[m1nd_ingest::walker::DiscoveredFile {
+                path: file.clone(),
+                relative_path: "lib.rs".to_string(),
+                extension: Some("rs".to_string()),
+                size_bytes: contents.len() as u64,
+                last_modified: 0.0,
+                commit_count: 0,
+                last_commit_time: 0.0,
+            }],
+        );
+
+        let entry = entries.first().expect("one inventory entry");
+        assert_eq!(
+            entry.sha256.as_deref(),
+            Some(m1nd_ingest::ownership::sha256_bytes(contents).as_str()),
+            "FileInventoryEntry::sha256 must be the real SHA-256 of the file"
+        );
+        assert_eq!(
+            entry.sha256.as_deref().map(str::len),
+            Some(64),
+            "the recorded sha256 must be 64 hex chars"
+        );
     }
 }
