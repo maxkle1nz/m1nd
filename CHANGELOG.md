@@ -6,6 +6,57 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### The graph learned to write — `transplant`
+
+- **New verb `transplant`** (plus `transplant_preview` / `transplant_commit`). Move a top-level
+  Rust `fn` between files of the SAME crate **by reference**: the caller sends a symbol and two
+  paths, and the server computes the whole move from the graph — the widened item extent (doc
+  comments and attributes travel), the dependency trichotomy from `calls` edges (private deps
+  travel; shared deps stay, gain `pub(crate)` and a back-import), and every referencer
+  re-qualified across N files — then writes atomically through `apply_batch`, re-ingests, and
+  returns a receipt. Measured on a real 714-line move: **256× fewer output tokens** than the
+  whole-file path (12,235 → 48).
+- **The receipt is an honesty contract.** `refs_unresolved` names every reference site the verb
+  refused to rewrite (grouped/nested `use`, globs), `state_left_behind` names node-addressed state
+  the re-ingest orphaned, `blocks_touched` names the SystemBlocks whose ratified boundary this move
+  aged, `rustfmt` says whether the computed contents were formatted before the write. A zero in
+  those fields is a proven zero, never an unchecked one.
+- **A refusal never touches a byte, and teaches the retry.** A destination collision names the
+  occupant (over the FULL item namespace, not just `fn`); a poisonous module stem (`lib`/`main`/
+  `mod`) names the invalid path it would produce; a cross-crate move names both crate roots; a
+  missing destination, a nested symbol, or a repeated move each get their own precise message.
+- **Two-phase path.** `transplant_preview` stages the complete multi-file plan (per-file base hash
+  and line deltas) behind a 5-minute handle; `transplant_commit{confirm:true}` re-validates the
+  hash of EVERY planned file — source, destination and each derived referencer — and refuses a
+  stale plan instead of clobbering drift.
+- **Wired into the existing laws, not around them.** Denied under a read-only attach; classified in
+  the action catalog as a source write; the armed proof gate covers the DERIVED referencer set (not
+  only source and destination); a protected-zone match (`ci/protected-zones.json`) refuses
+  fail-closed unless the caller passes an explicit `allow_protected` reason, which the receipt
+  records; the write relays as `graph_changed` so live viewers refetch.
+- **Declared v1 boundaries** (`docs/TRANSPLANT-PRD.md` §7): top-level `fn` only, module = file
+  stem, same crate, the destination file must already exist, grouped/nested `use` in the source
+  file is reported rather than rewritten, macro-generated references are invisible to the parser,
+  and a re-ingest failure AFTER the write leaves changed files with an error return.
+- **Proof:** 55 tests in 12 binaries (53 active + 2 declared `#[ignore]`) — contract battery,
+  stress/refusal battery, adversarial harness with a "nothing else changed" certificate,
+  property-based battery with pinned regressions, a self-hosting oracle that moves a real `fn`
+  inside `m1nd-core` and compiles it, plus dedicated suites for the proof gate, protected zones,
+  node identity, boundary aging and concurrency.
+- **Known follow-ups, declared:** full paint-tag follow across a move needs owner-side wiring
+  (stable node identity or a paint-tag registry) — the ideal is pinned by an `#[ignore]`d
+  acceptance test; the incremental re-ingest leaves the moved symbol's OLD node lingering in the
+  graph (pre-existing, surfaced by this work); the post-commit reverse-gate (auto-rollback on an
+  ERROR delta) is its own cycle.
+
+### Ingest
+
+- **Rust function nodes now carry their real extent.** The extractor records a `function_item`'s
+  true end row from the parsed tree instead of leaving `line_end == line_start`, so graph
+  provenance addresses the whole item rather than its declaration line. Measured on `m1nd-core`:
+  791 of 794 function nodes gained a real extent (99.6%), snapshot size −73 bytes, ingest time
+  inside the existing noise band.
+
 ---
 
 ## [1.5.0] — 2026-07-22

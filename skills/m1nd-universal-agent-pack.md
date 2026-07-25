@@ -161,6 +161,7 @@ merit; facts, never estimated savings (G1).
 | simulate | the crystal ball | `predict`, `counterfactual`, `hypothesize`, `epidemic` |
 | memory | the notebook | `memorize`, `boot_memory`, `promote`, `learn` |
 | missions | the order board | `mission_post`, `mission_spawn`, `mission_*` |
+| write | the surgeon's hand | `apply`, `apply_batch`, `edit_preview`/`edit_commit`, `transplant` (+ `transplant_preview`/`transplant_commit`) |
 | skeleton | the wall map | `skeleton_candidate`, `candidate_edit`, `system_blocks_*` |
 | proof | the receipt ledger | `receipt_import`, `cross_verify`, `soul_check` |
 | health | the doctor | `doctor`, `trust_selftest`, `health`, `recovery_playbook` |
@@ -303,10 +304,14 @@ the writer never checked which brain answered it.
    `allow_overlap` are not in the published `ingest` schema). A burst worktree
    does NOT earn its own brain — bind to the main repo's.
 
-**The write surface, briefly.** The block map (skeleton) is edited by one atomic
-verb, `candidate_edit` (six typed ops under `expected_store_version`; refuses on a
-ratified skeleton — candidate-only); `candidate_lease` is advisory and never
-blocks. **Ratify is EXCLUSIVELY human — no agent ratifies a skeleton, ever.** A
+**The write surface, briefly.** Source is written by `apply`/`apply_batch` (you
+author the new contents) or by `transplant` (you name a symbol and two paths and
+the SERVER authors them — the move of a top-level Rust `fn` inside one crate,
+with referencers re-qualified; its receipt states what it could NOT do instead of
+going quiet, and a refusal touches zero bytes). The block map (skeleton) is edited
+by one atomic verb, `candidate_edit` (six typed ops under
+`expected_store_version`; refuses on a ratified skeleton — candidate-only);
+`candidate_lease` is advisory and never blocks. **Ratify is EXCLUSIVELY human — no agent ratifies a skeleton, ever.** A
 mission is a letter (`mission_post`): `brain_ref` is the brain's display name (the
 basename of its root, never an absolute path; a wrong one is `brain_mismatch`),
 `block_id` must name a real block (else `unknown_block`; a smoke/probe letter sets

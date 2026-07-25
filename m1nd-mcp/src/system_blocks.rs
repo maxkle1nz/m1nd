@@ -1863,6 +1863,110 @@ pub fn reconcile_store(store: &mut SystemBlockStore, file_list: &[String]) -> Re
     }
 }
 
+// ---------------------------------------------------------------------------
+// D5b — the transplant receipt-aging event (PRD §10 D5 option b, §5.B3).
+//
+// `membership_fingerprint` hashes only the ordered PATH set, so a transplant
+// between two files that BOTH already belong to ratified blocks changes no
+// membership → `reconcile` reports `Unchanged` → the blocks' receipts stay green
+// while a symbol crossed a ratified boundary. That is a structural lie-window.
+// The ratified fix REUSES the boundary_version/stale_scope law (never a parallel
+// mechanism): the transplant bumps the `boundary_version` of every block whose
+// membership CLAIMS a touched file, which by `receipt_stale_reason` /
+// `import_receipt` ages those blocks' receipts to stale-by-scope.
+// ---------------------------------------------------------------------------
+
+/// Path-suffix match between a transplant-touched file (typically an ABSOLUTE
+/// path) and a block's repo-relative membership entry. Mirrors the suffix law
+/// `surgical_paths_match`/`transplant::file_matches` use: equal, or either ends
+/// with the other on a path-component boundary.
+fn touched_matches_member(touched: &str, member: &str) -> bool {
+    let a = touched.replace('\\', "/");
+    let b = member.replace('\\', "/");
+    a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
+}
+
+/// Every path-component suffix of a normalized path, longest first:
+/// `/tmp/x/src/a.rs` → `tmp/x/src/a.rs`, `x/src/a.rs`, `src/a.rs`, `a.rs`. Lets a
+/// repo-relative glob member (`src/**`) match an absolute touched path by its tail.
+fn path_tails(path: &str) -> Vec<String> {
+    let norm = path.replace('\\', "/");
+    let segments: Vec<&str> = norm.split('/').filter(|s| !s.is_empty()).collect();
+    (0..segments.len())
+        .map(|i| segments[i..].join("/"))
+        .collect()
+}
+
+/// Does `block` CLAIM `touched_file` through any declared membership entry? Exact
+/// entries match by path suffix (an absolute touched path matches a repo-relative
+/// member); glob entries reuse `glob::Pattern` — the SAME matcher `reconcile`
+/// uses — against each repo-relative tail of the touched path. The honest "did a
+/// moved symbol cross THIS block's ratified boundary?" test.
+fn block_claims_file(block: &SystemBlock, touched_file: &str) -> bool {
+    for entry in &block.membership {
+        if is_glob_pattern(&entry.path) {
+            if let Ok(pat) = glob::Pattern::new(&entry.path) {
+                if path_tails(touched_file)
+                    .iter()
+                    .any(|tail| pat.matches(tail))
+                {
+                    return true;
+                }
+            }
+        } else if touched_matches_member(touched_file, &entry.path) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Age the boundaries touched by a transplant. Given the files a transplant WROTE,
+/// bump the `boundary_version` of every block whose declared membership claims a
+/// touched file. By the EXISTING rollup + `stale_scope` law this ages every
+/// receipt earned against the older boundary to stale-by-scope — no parallel
+/// staleness code. The `membership_fingerprint`/`resolved_members` cache is left
+/// INTACT on purpose: the membership SET did not change (no file entered or left a
+/// block, both endpoints still exist) — only a symbol crossed the boundary — so a
+/// later `reconcile` sees the set unchanged and does not double-bump. Pure over
+/// `(store, touched_files)`; bumps `store_version` exactly once iff any block aged.
+/// Returns the aged block ids in store order.
+pub fn age_touched_boundaries(
+    store: &mut SystemBlockStore,
+    touched_files: &[String],
+) -> Vec<String> {
+    let mut aged = Vec::new();
+    for block in store.blocks.iter_mut() {
+        if touched_files.iter().any(|f| block_claims_file(block, f)) {
+            block.boundary_version = block.boundary_version.saturating_add(1);
+            aged.push(block.block_id.clone());
+        }
+    }
+    if !aged.is_empty() {
+        store.store_version += 1;
+    }
+    aged
+}
+
+/// Age transplant-touched boundaries against the store in a brain dir: load →
+/// [`age_touched_boundaries`] → save (only when something aged). A missing store
+/// is an honest no-op (`Ok(None)`) — most repos carry no skeleton. There is NO
+/// caller OCC key: the aging is a server-internal CONSEQUENCE of a write that
+/// already landed (like a reconcile the server runs for itself), so it reads the
+/// current version and bumps once, mirroring `reconcile_in_dir`'s save-if-dirty.
+pub fn age_touched_boundaries_in_dir(
+    dir: &Path,
+    touched_files: &[String],
+) -> Result<Option<(SystemBlockStore, Vec<String>)>, SeedError> {
+    let Some(mut store) = SystemBlockStore::load(dir)? else {
+        return Ok(None);
+    };
+    let aged = age_touched_boundaries(&mut store, touched_files);
+    if !aged.is_empty() {
+        store.save(dir)?;
+    }
+    Ok(Some((store, aged)))
+}
+
 /// Archive/restore mode for [`SystemBlockStore::set_archive`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveMode {
@@ -3412,6 +3516,55 @@ mod tests {
         let err = import_receipt_in_dir(dir.path(), v, "sb_glob", stale_scoped)
             .expect_err("an old-scope receipt must be refused after the bump");
         assert!(matches!(err, SeedError::ReceiptStaleScope { .. }));
+    }
+
+    // --- D5b: the transplant receipt-aging event (pure function) -----------------
+
+    #[test]
+    fn age_touched_boundaries_bumps_only_glob_claiming_blocks_and_keeps_the_cache() {
+        // sb_glob claims `src/**` (+ exact README.md); sb_other claims `other/**`.
+        let mut store = glob_store();
+        assert!(
+            store.blocks[0].membership_fingerprint.is_none(),
+            "a never-reconciled block carries no fingerprint cache"
+        );
+
+        // An ABSOLUTE touched path under src/ is claimed by sb_glob's glob (matched
+        // by its repo-relative tail), never by sb_other.
+        let aged = age_touched_boundaries(&mut store, &files(&["/tmp/repo/src/moved.rs"]));
+        assert_eq!(
+            aged,
+            vec!["sb_glob".to_string()],
+            "only the block whose membership claims a touched file ages"
+        );
+        assert_eq!(store.blocks[0].boundary_version, 2, "sb_glob bumped 1 -> 2");
+        assert_eq!(store.blocks[1].boundary_version, 1, "sb_other untouched");
+        assert_eq!(store.store_version, 2, "one OCC bump for the whole aging");
+        // The path-set membership did NOT change (no file entered/left the block) —
+        // only a symbol crossed the boundary — so the fingerprint cache is left
+        // intact and a later reconcile will NOT double-bump.
+        assert!(
+            store.blocks[0].membership_fingerprint.is_none(),
+            "aging never fabricates a fingerprint; the membership set is unchanged"
+        );
+    }
+
+    #[test]
+    fn age_touched_boundaries_matches_exact_member_by_path_suffix_and_no_op_is_free() {
+        let mut store = glob_store();
+        // The exact `README.md` member matches an absolute touched path by suffix.
+        let aged = age_touched_boundaries(&mut store, &files(&["/tmp/repo/README.md"]));
+        assert_eq!(aged, vec!["sb_glob".to_string()]);
+        assert_eq!(store.blocks[0].boundary_version, 2);
+
+        // A file claimed by NO block ages nothing and never bumps the OCC counter.
+        let v = store.store_version;
+        let aged = age_touched_boundaries(&mut store, &files(&["/tmp/repo/docs/guide.md"]));
+        assert!(aged.is_empty(), "no block claims docs/guide.md");
+        assert_eq!(
+            store.store_version, v,
+            "a no-op aging never bumps store_version"
+        );
     }
 
     #[test]

@@ -2173,6 +2173,49 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     "required": ["agent_id", "preview_id", "confirm"]
                 }
             },
+            {
+                "name": "transplant",
+                "description": "Move a top-level Rust `fn` between files of the same crate BY REFERENCE: you name the symbol and two paths, the server computes everything from the graph — widened extent (doc comments and attributes travel), dependency trichotomy from call edges (private deps travel; shared deps stay, gain pub(crate) and a back-import), referencers re-qualified across every file that names it — then writes atomically, re-ingests, and returns an honest receipt (refs_unresolved is never silently empty-when-wrong; state_left_behind names node-addressed state the re-ingest orphaned). Refusals never touch a byte and TEACH the retry: a collision names the occupant, a poisonous stem (lib/main/mod) names the invalid module path, a cross-crate move names both crate roots. v1 boundaries: top-level fn only, module = file stem, same crate, destination file must already exist, macro-generated references are invisible. See docs/TRANSPLANT-PRD.md.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path. Omitted (the default) means a zone match refuses instead of writing; the reason is recorded in the receipt when it unlocks a crossing." }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_preview",
+                "description": "Stage a transplant WITHOUT touching disk. Takes the same inputs as transplant and computes the whole plan — every new file content, referencer discovery, the rustfmt pass and the candidate receipt — then returns a preview_id (5-minute TTL) plus the per-file plan with each file's base hash and line deltas. Redeem it with transplant_commit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path; same law as transplant" }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_commit",
+                "description": "Land a staged transplant_preview after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale and writes nothing; otherwise the plan lands atomically and returns the finalized receipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "preview_id": { "type": "string", "description": "Handle returned by transplant_preview (expires after 5 minutes)" },
+                        "confirm": { "type": "boolean", "default": false, "description": "Must be true to land the staged plan. Safety guard against accidental writes." }
+                    },
+                    "required": ["agent_id", "preview_id", "confirm"]
+                }
+            },
             // =================================================================
             // v0.4.0: search, help, report, panoramic
             // =================================================================
@@ -4109,6 +4152,13 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // dispatch arm here only surfaces an honest "http-only" message to an MCP-stdio
     // caller. Listing it keeps the read-only law + the tool surface consistent.
     "mission_spawn",
+    // transplant writes source/dest/referencer files atomically (through
+    // apply_batch), so a read-only attach must refuse it.
+    // `transplant_commit` lands a staged plan — the same write under a handle.
+    // `transplant_preview` is deliberately ABSENT (it stages in memory and never
+    // writes, mirroring the `edit_preview` exemption).
+    "transplant",
+    "transplant_commit",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4206,6 +4256,23 @@ fn proof_gate_targets(
             .ok_or_else(|| M1ndError::InvalidParams {
                 tool: bare_tool.to_string(),
                 detail: "edit_commit preview target is missing or expired".to_string(),
+            })?),
+        // B1: transplant writes source + dest + DERIVED referencer files the
+        // caller never named. The full touched set is derived read-only (same
+        // discovery the verb itself runs) so the armed gate covers ALL of them —
+        // a referencer without a permit refuses the whole call before any write.
+        "transplant" => Ok(crate::transplant::proof_gate_touched_files(state, params)),
+        // A2: a staged transplant already KNOWS its full touched set — recover it
+        // from the preview (mirrors the `edit_commit` arm above), failing closed
+        // with an explicit error when the preview is missing or expired.
+        "transplant_commit" => Ok(params
+            .get("preview_id")
+            .and_then(|v| v.as_str())
+            .and_then(|pid| state.transplant_previews.get(pid))
+            .map(|p| p.planned.iter().map(|f| f.file_path.clone()).collect())
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: bare_tool.to_string(),
+                detail: "transplant_commit preview target is missing or expired".to_string(),
             })?),
         "xray_apply" => {
             let input: crate::xray_handlers::XrayApplyInput =
@@ -5807,8 +5874,12 @@ pub(crate) fn dispatch_generic_tool(
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
+/// Public so the transplant proof-harness integration suites (tests/) can drive
+/// the SAME gated dispatch path a live agent takes — the M1ND_PROOF_GATE / catalog
+/// gating lives inside this function, so an in-process caller gets it unchanged.
+///
 /// v0.4.0: wraps all responses with _m1nd metadata.
-pub(crate) fn dispatch_tool(
+pub fn dispatch_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,
@@ -6693,6 +6764,33 @@ fn dispatch_core_tool(
             } else {
                 surgical_handlers::handle_apply_batch(state, input)?
             };
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_preview" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_preview".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_preview(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_commit" => {
+            let input: crate::protocol::surgical::TransplantCommitInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_commit".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_commit(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "edit_preview" => {

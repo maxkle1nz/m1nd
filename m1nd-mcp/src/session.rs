@@ -83,6 +83,35 @@ pub struct EditPreviewState {
     pub created_at_ms: u64,
 }
 
+/// One planned write of a staged two-phase transplant (A2): the exact content
+/// the commit will land and the hash of the on-disk text the plan was computed
+/// FROM (`base_hash` — the TOCTOU anchor: any drift refuses the commit).
+#[derive(Clone, Debug)]
+pub struct PlannedTransplantWrite {
+    pub file_path: String,
+    pub new_content: String,
+    pub base_hash: String,
+    pub description: Option<String>,
+}
+
+/// A staged `transplant_preview` awaiting `transplant_commit` (A2, PRD §4.2).
+/// Mirrors [`EditPreviewState`] (same 5-min TTL, same consume-on-commit law) but
+/// carries the FULL multi-file plan — source + dest + every derived referencer —
+/// plus the candidate receipt the commit finalizes.
+#[derive(Clone, Debug)]
+pub struct TransplantPreviewState {
+    pub preview_id: String,
+    pub agent_id: String,
+    pub symbol: String,
+    pub source_file: String,
+    pub dest_file: String,
+    /// Planned writes in write order (source, dest, referencers).
+    pub planned: Vec<PlannedTransplantWrite>,
+    /// The receipt computed at plan time; the commit re-stamps its timing.
+    pub receipt: crate::protocol::surgical::TransplantOutput,
+    pub created_at_ms: u64,
+}
+
 /// Generation-bound lexical document prepared once and reused by narrative
 /// `seek` calls. It is deliberately runtime-only: graph_generation is the
 /// authoritative invalidation fence, so no stale on-disk search index can be
@@ -451,6 +480,9 @@ pub struct SessionState {
     pub sessions: HashMap<String, AgentSession>,
     /// In-memory preview states for Ultra Edit phase 1.
     pub edit_previews: HashMap<String, EditPreviewState>,
+    /// Staged two-phase transplants (A2): preview_id → full multi-file plan.
+    /// Same in-memory/TTL discipline as `edit_previews`.
+    pub transplant_previews: HashMap<String, TransplantPreviewState>,
     /// Lazily-built, graph-generation-fenced file lexical index for narrative
     /// seek. Rebuilt after ingest/mutation; never persisted or trusted across boot.
     pub(crate) seek_file_index: Option<SeekFileIndexCache>,
@@ -1940,7 +1972,7 @@ impl SessionState {
     /// let config = McpConfig::default();
     /// let _state = SessionState::initialize(Graph::new(), &config, DomainConfig::code());
     /// ```
-    pub(crate) fn initialize(
+    pub fn initialize(
         graph: Graph,
         config: &crate::server::McpConfig,
         domain: DomainConfig,
@@ -2060,6 +2092,7 @@ impl SessionState {
             embeddings_cache_path,
             sessions: HashMap::new(),
             edit_previews: HashMap::new(),
+            transplant_previews: HashMap::new(),
             seek_file_index: None,
             // Perspective MCP state
             graph_generation: 0,
@@ -3660,6 +3693,17 @@ impl SessionState {
         format!("preview_{}_{}", short_id, now_ms)
     }
 
+    /// Mint a staged-transplant handle (A2), mirroring [`Self::next_edit_preview_id`]
+    /// with a verb-naming prefix so an agent can tell the two handle families apart.
+    pub fn next_transplant_preview_id(&self, agent_id: &str) -> String {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let short_id = &agent_id[..agent_id.len().min(8)];
+        format!("transplant_preview_{}_{}", short_id, now_ms)
+    }
+
     /// Log a tool call to the query log ring buffer (max 1000 entries).
     pub fn log_query(
         &mut self,
@@ -3965,7 +4009,14 @@ impl SessionState {
         let mut validated = Vec::with_capacity(raw_targets.len());
         let mut seen = BTreeSet::new();
         for raw_target in raw_targets {
-            let (identity, mark) = self.validate_proof_mark(agent_id, raw_target, false)?;
+            // Name the exact offending target in the refusal. A source write may
+            // touch DERIVED files the caller never named (e.g. a transplant's
+            // referencers); naming the unproven one makes the fail-closed refusal
+            // actionable — "Run surgical_context_v2 for each exact target" points
+            // at a concrete path instead of a generic scope.
+            let (identity, mark) = self
+                .validate_proof_mark(agent_id, raw_target, false)
+                .map_err(|detail| format!("{raw_target}: {detail}"))?;
             if seen.insert(identity.clone()) {
                 validated.push((identity, mark));
             }
