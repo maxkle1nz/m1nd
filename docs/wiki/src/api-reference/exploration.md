@@ -58,6 +58,16 @@ only re-orders within the relevance-cleared pool; it never drops a node. With no
 `conformance_aware=false`, every boost is 0.0 and ranking is byte-identical to the base formula above.
 `focus` rides the same rerank, so it is conformance-aware too.
 
+**Build output is demoted, not hidden.** Two kinds of node carry rank they did not earn: anything
+from a file whose content is machine-written (ingest stamps `noise:minified` after a bounded shape
+probe) and any label of 1-2 characters, which is what a minifier renames every symbol to. Both scale
+a node's score down — softly and multiplicatively, at every ranking m1nd builds (activation/PageRank,
+`seek`, the `top_pagerank` anchors) — so a deliberately vendored bundle stays retrievable and simply
+stops burying real code. Two guarantees bound this: a short label **the query itself named** is never
+demoted (`id`, `ok`, `db` are real identifiers, and an agent that types one must still get it), and
+only an unreadable label — never provenance alone — can cost a hit outright. Named build artifacts
+(`*.min.<ext>`, sourcemaps) never reach the graph at all; see the ingest path policy.
+
 ### Example Request
 
 ```json
