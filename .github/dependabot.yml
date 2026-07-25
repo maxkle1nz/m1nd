@@ -8,14 +8,24 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        # Majors get their own deliberate PR — see the note above the cargo group.
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    # Grouped bumps carry MINOR and PATCH only. A major inside a group has broken
+    # this repo four times in one week: bincode 3.0 (a published `compile_error!`),
+    # bincode 2.0 (API rewrite), the ecdsa/p256 family (crypto API break in
+    # m1nd-control), and typescript 7 (peer-rejected, npm ci impossible). One
+    # unmigratable crate takes the whole 33-crate group down and the other 32
+    # wanted bumps wait behind it. Majors still get their OWN PR from dependabot,
+    # where the migration is the point of the change rather than a passenger.
     groups:
       rust:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       # bincode 3.x is not a release: the published crate's lib.rs is a single
       # `compile_error!("https://xkcd.com/2347/")`, so any tree that resolves it
@@ -38,6 +48,8 @@ updates:
     groups:
       ui:
         patterns: ["*"]
+        # Majors get their own deliberate PR — see the note above the cargo group.
+        update-types: ["minor", "patch"]
     ignore:
       # TypeScript 7 is the native-port era: typescript-eslint 8.x refuses it as
       # a peer, so a grouped bump that carries it can never `npm ci` (proven on
