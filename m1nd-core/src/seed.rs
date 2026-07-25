@@ -80,6 +80,85 @@ pub fn source_path_bias(source_path: Option<&str>, query_tokens: &[String]) -> f
 }
 
 // ---------------------------------------------------------------------------
+// Ranking-noise demote — shared by every ranker (askGOD F5 verdict, 2026-07-24)
+// ---------------------------------------------------------------------------
+
+/// Tag prefix marking a node as ranking noise. Ingest stamps `noise:minified`
+/// on nodes from files whose content looks machine-generated
+/// (`m1nd_ingest::path_policy::looks_minified_source`).
+pub const NOISE_TAG_PREFIX: &str = "noise:";
+
+/// Labels this short carry no lexical signal a query can match, so their rank is
+/// bought entirely with centrality. Minifiers rename every symbol to one or two
+/// characters and funnel the whole bundle through a handful of helpers, which is
+/// exactly how `…::fn::s` came to out-rank real code on a 103k-node brain.
+pub const NOISE_SHORT_LABEL_MAX: usize = 2;
+
+/// Multiplier applied to a `noise:`-tagged node's score.
+const NOISE_TAG_DEMOTE: f32 = 0.35;
+/// Multiplier applied to a node whose label is at most [`NOISE_SHORT_LABEL_MAX`]
+/// characters and that the query did not ask for by name.
+const SHORT_LABEL_DEMOTE: f32 = 0.5;
+
+/// True for a tag in the reserved `noise:` namespace.
+pub fn is_noise_tag(tag: &str) -> bool {
+    tag.starts_with(NOISE_TAG_PREFIX)
+}
+
+/// True when `query_lower` (already lowercased) contains `label` as a WHOLE
+/// token. This is the escape hatch that keeps short *real* identifiers findable:
+/// `id`, `ok`, `go`, `db` are legitimate names, and an agent that types one of
+/// them by hand must still get it — only unasked-for short labels are demoted.
+pub fn query_names_label(query_lower: &str, label: &str) -> bool {
+    if label.is_empty() || query_lower.is_empty() {
+        return false;
+    }
+    query_lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|token| token.eq_ignore_ascii_case(label))
+}
+
+/// Multiplicative demote in `(0, 1]` for a node that is ranking noise.
+///
+/// SOFT by construction: the node keeps its score, its edges, and its place in
+/// the result set — it just stops burying the code an agent actually asked for.
+/// Nothing here deletes or hides a node, because a bundle committed on purpose
+/// is still part of the repository.
+pub fn ranking_noise_demote(label: &str, noise_tagged: bool, query_lower: &str) -> f32 {
+    let mut factor = 1.0f32;
+    if noise_tagged {
+        factor *= NOISE_TAG_DEMOTE;
+    }
+    let label_len = label.chars().count();
+    if label_len > 0 && label_len <= NOISE_SHORT_LABEL_MAX && !query_names_label(query_lower, label)
+    {
+        factor *= SHORT_LABEL_DEMOTE;
+    }
+    factor
+}
+
+/// [`ranking_noise_demote`] resolved against a graph node. Returns `1.0` (no
+/// demote) for an out-of-range index, so a caller can apply it blindly.
+pub fn graph_ranking_noise_demote(graph: &Graph, idx: usize, query_lower: &str) -> f32 {
+    // Callers pass NodeIds that may predate a rebuild, so bound on the actual
+    // column lengths, not only on `count`.
+    if idx >= graph.nodes.count as usize
+        || idx >= graph.nodes.label.len()
+        || idx >= graph.nodes.tags.len()
+    {
+        return 1.0;
+    }
+    let label = graph
+        .strings
+        .try_resolve(graph.nodes.label[idx])
+        .unwrap_or("");
+    let noise_tagged = graph.nodes.tags[idx]
+        .iter()
+        .any(|tag| graph.strings.try_resolve(*tag).is_some_and(is_noise_tag));
+    ranking_noise_demote(label, noise_tagged, query_lower)
+}
+
+// ---------------------------------------------------------------------------
 // SeedFinder — fuzzy query -> node matching
 // Replaces: engine_v2.py SeedFinder, engine_fast.py FastSeedFinder
 // ---------------------------------------------------------------------------
@@ -413,5 +492,65 @@ impl SeedFinder {
         seeds.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         seeds.truncate(max_seeds.min(MAX_SEEDS));
         Ok(seeds)
+    }
+}
+
+#[cfg(test)]
+mod ranking_noise_tests {
+    use super::*;
+
+    #[test]
+    fn short_and_noise_tagged_labels_are_demoted() {
+        // Minifier-shaped: no lexical signal, rank bought with centrality.
+        assert!(ranking_noise_demote("s", false, "handle function call") < 1.0);
+        assert!(ranking_noise_demote("ab", false, "handle function call") < 1.0);
+        // Machine-generated provenance, whatever the label.
+        assert!(ranking_noise_demote("renderRow", true, "render a row") < 1.0);
+        // Both signals compound.
+        assert!(
+            ranking_noise_demote("s", true, "unrelated")
+                < ranking_noise_demote("s", false, "unrelated")
+        );
+        // Ordinary authored code is untouched.
+        assert_eq!(
+            ranking_noise_demote("handle_function_call", false, "handle_function_call"),
+            1.0
+        );
+        // Empty labels carry no shape to judge.
+        assert_eq!(ranking_noise_demote("", false, "anything"), 1.0);
+    }
+
+    #[test]
+    fn a_short_label_the_query_names_is_never_demoted() {
+        // The escape hatch for real short identifiers.
+        for query in [
+            "what does id do",
+            "trace db writes",
+            "ok()",
+            "the `go` helper",
+        ] {
+            let label = query
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .find(|t| t.len() <= 2 && !t.is_empty())
+                .expect("fixture query names a short token");
+            assert_eq!(
+                ranking_noise_demote(label, false, query),
+                1.0,
+                "query {query:?} named {label:?} and must not demote it"
+            );
+        }
+        // ... but only as a WHOLE token: `s` inside `strings` is not a naming.
+        assert!(ranking_noise_demote("s", false, "strings resolve") < 1.0);
+        // The exemption is lexical only — it never rescues generated provenance.
+        assert!(ranking_noise_demote("id", true, "what does id do") < 1.0);
+    }
+
+    #[test]
+    fn noise_tag_namespace_is_prefix_scoped() {
+        assert!(is_noise_tag("noise:minified"));
+        assert!(is_noise_tag("noise:generated"));
+        assert!(!is_noise_tag("public"));
+        assert!(!is_noise_tag("async"));
+        assert!(!is_noise_tag("denoise"));
     }
 }

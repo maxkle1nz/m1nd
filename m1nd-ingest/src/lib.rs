@@ -1241,7 +1241,18 @@ impl Ingestor {
                             ),
                         }
                     })?;
-                    let result = extractor.extract(&content, &file_id)?;
+                    let mut result = extractor.extract(&content, &file_id)?;
+                    // Content-shaped build output (a bundle NOT named `*.min.js`,
+                    // a generated blob) is TAGGED, never dropped: a vendored
+                    // bundle can be committed on purpose, so a false positive
+                    // must cost a ranking demote and not the file's existence in
+                    // the graph. Ranking reads the `noise:` prefix
+                    // (`m1nd_core::seed::is_noise_tag`); nothing else changes.
+                    if path_policy::looks_minified_source(&content) {
+                        for node in &mut result.nodes {
+                            node.tags.push(path_policy::MINIFIED_NOISE_TAG.to_string());
+                        }
+                    }
                     cancellation.check()?;
                     // Behavioral excerpts sliced here while the file content is live,
                     // so embeddings later see what each symbol DOES, not just its name.

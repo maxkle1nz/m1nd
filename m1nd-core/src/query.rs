@@ -287,7 +287,15 @@ impl QueryOrchestrator {
                     node.activation = FiniteF32::new(node.activation.get() + pr_boost);
                 }
             }
-            // Re-sort after PageRank boost.
+        }
+
+        // Step 5b: Ranking-noise demote (see `apply_ranking_noise_demote`).
+        // Runs whether or not the PageRank boost applied: a minifier helper wins
+        // on accumulated structural activation too, not only on centrality.
+        let demoted = Self::apply_ranking_noise_demote(graph, config, &mut activation);
+
+        // One re-sort covering both adjustments.
+        if !graph.pagerank_dirty || demoted {
             activation
                 .activated
                 .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
@@ -471,7 +479,15 @@ impl QueryOrchestrator {
                     node.activation = FiniteF32::new(node.activation.get() + pr_boost);
                 }
             }
-            // Re-sort after PageRank boost.
+        }
+
+        // Step 5b: Ranking-noise demote — reads labels/tags, mutates only the
+        // LOCAL `activation` struct owned here (same zero-mutation guarantee as
+        // the boost above). Identical to `query()` so both paths rank alike.
+        let demoted = Self::apply_ranking_noise_demote(graph, config, &mut activation);
+
+        // One re-sort covering both adjustments.
+        if !graph.pagerank_dirty || demoted {
             activation
                 .activated
                 .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
@@ -504,6 +520,41 @@ impl QueryOrchestrator {
             plasticity: empty_plasticity,
             elapsed_ms,
         })
+    }
+
+    /// Demote ranking noise in place; returns whether anything moved.
+    ///
+    /// Minifiers rename symbols to one or two characters and funnel a whole
+    /// bundle through a handful of helpers, so those helpers accumulate an
+    /// enormous in-degree and ride centrality to the top of every query. That is
+    /// a property of the build tool, not of the codebase, and it buried real code
+    /// on a 103k-node brain (askGOD F5 verdict, 2026-07-24).
+    ///
+    /// The demote is multiplicative and SOFT: a demoted node keeps its place in
+    /// the result set and is still returned — it just stops out-ranking what the
+    /// agent asked for. A short label the query NAMES is exempt, so real short
+    /// identifiers (`id`, `ok`, `db`) stay findable. Only positive activations
+    /// are scaled, so a demote can never raise a score.
+    fn apply_ranking_noise_demote(
+        graph: &Graph,
+        config: &QueryConfig,
+        activation: &mut ActivationResult,
+    ) -> bool {
+        let query_lower = config.query.to_lowercase();
+        let mut demoted = false;
+        for node in &mut activation.activated {
+            let current = node.activation.get();
+            if current <= 0.0 {
+                continue;
+            }
+            let factor =
+                crate::seed::graph_ranking_noise_demote(graph, node.node.as_usize(), &query_lower);
+            if factor < 1.0 {
+                node.activation = FiniteF32::new(current * factor);
+                demoted = true;
+            }
+        }
+        demoted
     }
 
     /// Detect ghost edges from multi-dimensional resonance.
