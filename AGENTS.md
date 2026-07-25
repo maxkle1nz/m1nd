@@ -94,6 +94,13 @@ owner on port `1338` — all tests use temp dirs.
   as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
   State the groundwork's provenance honestly in the commit body — never claim an authorship
   the platform did not produce.
+- **How PRs merge (owner-ratified 2026-07-24): squash is the default.** One PR = one
+  conventional commit on main — the changelog is generated from commit subjects, branch noise
+  (WIP commits, conflict-resolution merges) never lands individually, and any PR reverts as one
+  gesture. **Merge commits are reserved** for ceremonies where the commit LINEAGE is itself the
+  artifact — the M1ND-10 candidate freezes, where each preserved commit carries its own guard
+  PASS (squash would destroy the proof). Auto-merge (squash) is armed on a PR once it has a
+  review verdict; never arm what nobody read.
 - The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
   `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
   the docs reflect it.
