@@ -118,6 +118,19 @@ pub fn query_names_label(query_lower: &str, label: &str) -> bool {
         .any(|token| token.eq_ignore_ascii_case(label))
 }
 
+/// True when a label carries the shape a minifier leaves behind — 1-2 characters
+/// the query never named — and therefore nothing a static embedding can mean.
+///
+/// This is a NARROWER test than "is ranking noise": a `noise:` tag says where a
+/// node came from, this says the label itself is unreadable. A caller that wants
+/// to drop a hit rather than rank it lower must gate on THIS, never on the tag —
+/// a tagged file still holds readable exports, and losing those would contradict
+/// what the tag is for.
+pub fn is_minifier_shaped_label(label: &str, query_lower: &str) -> bool {
+    let label_len = label.chars().count();
+    label_len > 0 && label_len <= NOISE_SHORT_LABEL_MAX && !query_names_label(query_lower, label)
+}
+
 /// Multiplicative demote in `(0, 1]` for a node that is ranking noise.
 ///
 /// SOFT by construction: the node keeps its score, its edges, and its place in
@@ -129,9 +142,7 @@ pub fn ranking_noise_demote(label: &str, noise_tagged: bool, query_lower: &str) 
     if noise_tagged {
         factor *= NOISE_TAG_DEMOTE;
     }
-    let label_len = label.chars().count();
-    if label_len > 0 && label_len <= NOISE_SHORT_LABEL_MAX && !query_names_label(query_lower, label)
-    {
+    if is_minifier_shaped_label(label, query_lower) {
         factor *= SHORT_LABEL_DEMOTE;
     }
     factor
@@ -542,6 +553,30 @@ mod ranking_noise_tests {
         // ... but only as a WHOLE token: `s` inside `strings` is not a naming.
         assert!(ranking_noise_demote("s", false, "strings resolve") < 1.0);
         // The exemption is lexical only — it never rescues generated provenance.
+        assert!(ranking_noise_demote("id", true, "what does id do") < 1.0);
+    }
+
+    #[test]
+    fn only_an_unreadable_label_is_minifier_shaped_not_mere_provenance() {
+        // What a caller may DROP on: a 1-2 char label nobody asked for.
+        assert!(is_minifier_shaped_label("h", "render the widget row"));
+        assert!(is_minifier_shaped_label("qz", "decode the payload"));
+
+        // What a caller may NOT drop on, even though both are demoted:
+        // a readable export that merely lives in a generated file...
+        assert!(!is_minifier_shaped_label(
+            "decodeTelemetryEnvelope",
+            "how is telemetry unpacked"
+        ));
+        assert!(
+            ranking_noise_demote("decodeTelemetryEnvelope", true, "how is telemetry unpacked")
+                < 1.0
+        );
+
+        // ...and a short label the query named by hand, tag or no tag. Seek's
+        // tokenizer discards tokens of 2 chars or fewer, so a keyword-gated drop
+        // would silence exactly the search that asked for it.
+        assert!(!is_minifier_shaped_label("id", "what does id do"));
         assert!(ranking_noise_demote("id", true, "what does id do") < 1.0);
     }
 

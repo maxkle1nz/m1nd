@@ -12,7 +12,9 @@ use crate::scope::normalize_scope_path;
 use crate::session::{SeekFileIndexCache, SeekFileIndexDocument, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
-use m1nd_core::seed::{is_noise_tag, ranking_noise_demote, source_path_bias};
+use m1nd_core::seed::{
+    is_minifier_shaped_label, is_noise_tag, ranking_noise_demote, source_path_bias,
+};
 use m1nd_core::types::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1083,12 +1085,19 @@ pub fn handle_seek(
                 .any(|&ti| is_noise_tag(graph.strings.resolve(ti))),
             &query_lower,
         );
-        // Zero LEXICAL signal + a noise shape = not a hit. `sem` alone admitted
-        // it, and a 1-character label has nothing for a static embedding to mean,
-        // so its cosine is an artifact. A noise-shaped node with real lexical
-        // overlap still gets in (demoted): a deliberately vendored bundle stays
-        // retrievable when you actually search for it.
-        if noise_demote < 1.0 && kw < 0.01 && tri < 0.15 {
+        // Zero LEXICAL signal + a MINIFIER-SHAPED LABEL = not a hit: a 1-2 char
+        // label has nothing for a static embedding to mean, so the `sem` that
+        // admitted it is an artifact of a meaningless string.
+        //
+        // The test is the short label alone, never the noise tag. A tagged file
+        // holds real, readable exports too, and dropping those on a semantic-only
+        // query would contradict what the tag is for — a deliberately vendored
+        // bundle stays retrievable, it just ranks lower. And a short label the
+        // query itself named keeps the seed.rs escape hatch here as well: seek's
+        // tokenizer discards tokens of 2 chars or fewer, so `kw` can never rise
+        // for those queries and a kw-gated drop would silence the exact search
+        // that asked for them.
+        if is_minifier_shaped_label(&label_lower, &query_lower) && kw < 0.01 && tri < 0.15 {
             continue;
         }
 

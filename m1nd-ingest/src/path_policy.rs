@@ -106,7 +106,7 @@ pub fn is_editor_temp_file_name(name: &str) -> bool {
 /// tagged, not skipped (see [`looks_minified_source`]).
 pub fn is_minified_asset_file_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    for ext in ["js", "mjs", "cjs", "css"] {
+    for ext in ["js", "mjs", "cjs", "jsx", "ts", "tsx", "css"] {
         if name.ends_with(&format!(".min.{ext}")) || name.ends_with(&format!("-min.{ext}")) {
             return true;
         }
@@ -188,6 +188,10 @@ mod tests {
         assert!(is_noise_path(Path::new("/repo/assets/lib-min.js")));
         assert!(is_noise_path(Path::new("/repo/assets/app.js.map")));
         assert!(is_noise_path(Path::new("/repo/assets/main.css.map")));
+        // A bundler emits the same convention for the typed web extensions.
+        assert!(is_noise_path(Path::new("/repo/assets/widget.min.ts")));
+        assert!(is_noise_path(Path::new("/repo/assets/panel.min.tsx")));
+        assert!(is_noise_path(Path::new("/repo/assets/legacy-min.jsx")));
         // Authored sources that merely mention "min", and non-sourcemap `.map`
         // data files, stay in the corpus.
         assert!(!is_noise_path(Path::new("/repo/src/minify.js")));
