@@ -6,8 +6,9 @@ the confirmation verdict, then owner ratification.** Provenance: the checkpoint-
 workspace reading, whose refutations are receipts below. Nothing here authorizes code.
 
 **Provenance honesty (verdict RC-8):** `graph.ingest.refresh_declared_root` (SPEC-1) is a
-**NEW item, not part of the cp32-ratified P1→P2→P3 order**. P1 (#403) merged to main on
-2026-07-25. Owner ratification for this document covers the **insertion of SPEC-1 into the
+**NEW item, not part of the cp32-ratified P1→P2→P3 order**. P1 (#403, commit `476f73be`)
+merged to main on 2026-07-24 (git is the tiebreaker — the first draft copied the verdict's
+date instead of checking, the exact cp33 anti-pattern). Owner ratification for this document covers the **insertion of SPEC-1 into the
 queue**, not merely its floor. SPEC-2 (birth) is the cp32 P2/P3 line itself.
 
 ## 0 · Receipts
@@ -64,6 +65,12 @@ pure/pre-brain invariant (R-I) is untouched. This spec does **not** use trusted 
 because that plumbing is dead (R-I); any future need for one must first wire it and prove by
 test that `default()` is no longer passed in production.
 
+**The action's floor, named for ratification: `ScopedGrantA2`, admitted A2-LOCAL** (no
+lease plane) through the action-keyed allowlist below. The lowering argument, restored from
+v1 and now standing on the exact-root predicate instead of the refuted prefix one: an action
+that structurally cannot cross brains does not lower the floor of any action that can —
+and §6 asks the owner to ratify precisely this named floor, not an unnamed one.
+
 The generic-dispatch admission is opened **keyed BY ACTION, never by floor**: an explicit
 allowlist containing exactly `graph.ingest.refresh_declared_root`, with regression tests
 proving `source.edit.commit` and `graph.ingest.merge_existing` keep today's refusal bytes
@@ -81,11 +88,17 @@ gate at `server.rs:5940-5960`) and is explicitly not touched by this spec.
 
 - SPEC-1a: a caller at `<root>/m1nd-ui` refuses `refresh_root_not_exact` — the verdict's
   own kill-shot case, now the first test.
-- SPEC-1b: `caller_root` is canonicalized **at ingress** — the seams where the header
-  becomes `session.caller_root` (`mcp_http.rs:2636`; the REST session constructors) route
-  through `canonical_key`. Tests: `<root>/../out` refuses; a symlink inside the root pointing
-  out refuses; `/tmp` vs `/private/tmp` reach the same decision; a nonexistent path is never
-  admitted by string comparison. **SPEC-1 cannot be implemented before this exists**
+- SPEC-1b: `caller_root` is canonicalized **at ingress** — every seam where a value
+  becomes `session.caller_root` (`mcp_http.rs:2636`, and the same class at `:448-449` and
+  `:614`; the REST session constructors) routes through canonicalization. **The primitive
+  alone does not suffice:** `canonical_key` itself falls back to the raw string when a path
+  does not resolve (`project_brains.rs:1146-1147`), so the ingress/predicate must REFUSE
+  unresolvable paths explicitly (`refresh_root_unresolvable`) — two textually-equal
+  nonexistent paths must never match. The external-mutation path already canonicalizes at
+  its own seam (`mcp_http.rs:976`) — reuse that precedent. Tests, run against BOTH
+  transports (MCP and REST): `<root>/../out` refuses; a symlink inside the root pointing out
+  refuses; `/tmp` vs `/private/tmp` reach the same decision; a nonexistent path refuses
+  rather than string-matching. **SPEC-1 cannot be implemented before this exists**
   (verdict RC-2).
 - SPEC-1c: single-flight per canonical root — a second refresh in flight refuses
   `refresh_in_flight` (TOCTOU, cp32 req).
@@ -93,7 +106,8 @@ gate at `server.rs:5940-5960`) and is explicitly not touched by this spec.
   `refresh_would_change_roots` with nothing mutated.
 - SPEC-1e: **`refresh_would_shrink_graph` — HARD, fail-closed** (verdict RC-6): the refresh
   is computed as a candidate first; if the candidate's node count falls below a declared
-  floor fraction of the live graph (ratified default: 60%), the refresh REFUSES, names both
+  floor fraction of the live graph (proposed default: 60%, ratified in §6), the refresh
+  REFUSES, names both
   counts, and mutates nothing. This is deliberate armor the persist layer does not provide
   (R-G is fail-open and stays as-is at its layer). The R-D damage signature — a narrow scan
   replacing a wide graph — dies here even for legitimate callers.
@@ -169,7 +183,14 @@ version-gated truth; the guard list grows with any newly withdrawn teaching).
 
 ## 6 · Gates
 
-Second askGOD verdict on this v2 (confirming the eleven required changes) → owner
-ratification of: SPEC-1's **insertion into the queue** (it is new, not cp32), its floor and
-the 60% shrink-floor default, and SPEC-2's `human-cli` allowlist entry → implementation,
-battery-first, in the proof-grown rite.
+Verdict history: v1 → `CHANGE` (11 required changes) → v2 → `CHANGE` (10/11 satisfied, spine
+confirmed, four one-line fixes) → v3 (this text) applies all four. Per the anti-ceremony
+ceiling (1 review + 1 independent re-review per source delta; a third internal pass over the
+same artifact is prohibited), **the next gate is the owner**, who ratifies four named things:
+
+1. SPEC-1's **insertion into the queue** (it is new, outside cp32's P1→P2→P3);
+2. SPEC-1's floor: **`ScopedGrantA2`, A2-local**, via the action-keyed allowlist;
+3. the shrink-floor default (**60%**);
+4. SPEC-2's **`human-cli`** allowlist entry (minted only by `m1nd init --birth`).
+
+Then implementation, battery-first, in the proof-grown rite.
