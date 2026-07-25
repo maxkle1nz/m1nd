@@ -59,11 +59,12 @@ Use one stable `agent_id` for one investigation.
    `orient` + `boot_memory` + `focus`. Heed `reception`:
    `reception.match == "caller_root_mismatch"` means the bound graph does NOT
    cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. ONE call sets you up: `ingest` with
-   `project_root=<your repo root>` creates a per-project brain inside the
-   served owner, ingests your repo, binds your session, and returns its north
-   packet — thereafter every call from your root routes to YOUR brain
-   automatically. Absent/null = your root matches the brain serving you.
+   `reception.options[]`. The public brain-bootstrap consumer is NOT
+   installed: `ingest` does not accept `project_root` and cross-root bootstrap
+   fails closed with `brain_bootstrap_consumer_not_installed`. Continue only
+   against the bound graph with the mismatch warning intact, or reconnect to an
+   owner that already hosts the intended repo. Absent/null = your root matches
+   the brain serving you.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the
    intended repo, then `north` again. `needs_ingest` is a REAL answer.
 3. Act on the verdicts (see "Verdict Discipline" below); then use retrieval or

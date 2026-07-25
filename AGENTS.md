@@ -11,17 +11,29 @@ local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are 
 
 This is a **PUBLIC** repository. Everything you commit is published.
 
-## The gates (must pass — these ARE the CI, on ubuntu · macos · windows)
+## The gates (must pass — these ARE the CI)
 
-Run these before you consider any change done. CI blocks on all of them across three OSes:
+Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
-cargo check --workspace
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
-cargo build --release --workspace
 ```
+
+There is deliberately no standalone `cargo check` (clippy type-checks every target on its way
+to linting — a separate pass was a redundant full compile), and the `--release` workspace
+build runs on **main pushes only**, not on PRs (2026-07-24: it proved nothing tests+clippy
+don't and cost ~half of every 70-minute CI round; the signed release pipeline rebuilds
+`--release` at tag time regardless). A release-profile-only breakage is caught on the main
+push — if you suspect one, run `cargo build --release --workspace` locally before merging.
+
+**Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
+identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
+— a red Windows leg (the ~22 diagnosed source-edit path-canon tests, tracked phase-2 debt) does
+**not** block merge. This restored auto-merge (the whole queue was hostage to admin overrides).
+Still write cross-platform-correct code (the fs/path contract below is real); when Windows goes
+green, re-add `windows-latest` to the matrix and delete the advisory job.
 
 UI changes (`m1nd-ui/`) additionally:
 
@@ -87,6 +99,13 @@ owner on port `1338` — all tests use temp dirs.
   as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
   State the groundwork's provenance honestly in the commit body — never claim an authorship
   the platform did not produce.
+- **How PRs merge (owner-ratified 2026-07-24): squash is the default.** One PR = one
+  conventional commit on main — the changelog is generated from commit subjects, branch noise
+  (WIP commits, conflict-resolution merges) never lands individually, and any PR reverts as one
+  gesture. **Merge commits are reserved** for ceremonies where the commit LINEAGE is itself the
+  artifact — the M1ND-10 candidate freezes, where each preserved commit carries its own guard
+  PASS (squash would destroy the proof). Auto-merge (squash) is armed on a PR once it has a
+  review verdict; never arm what nobody read.
 - The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
   `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
   the docs reflect it.
@@ -109,6 +128,41 @@ unless m1nd is served at a reachable address.
 
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
+
+## The box — carve out-of-scope findings in stone (mandatory, every repo)
+
+**The spool above IS the box.** `~/.m1nd/field-reports.jsonl` is the ONE append-only write slot
+(`mailbox.rs`); a distributor routes each entry by its `repo` field into that project's box.
+Writing a field report and writing a letter are the same gesture, not two — the classes are the
+same set (`bug` / `honesty` / `friction` / `win`). What follows is the half that was never
+stated: what the box is FOR, and the duty to read and close it.
+
+Every repo has a box: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
+consent-deferred `.gitignore` (`mailbox.rs` §C7.5); the repo's own `m1nd init` is the ONE
+consent moment that flips it to committed, after which what the project knows travels with the
+project. An existing `.gitignore` is never rewritten. **Committing a box publishes its letters —
+in a public repo, treat that as a publishing decision, not a formality.**
+
+The box exists for one specific case, and it is the case that bites subagents hardest: **you
+hit a real defect that is NOT in your scope.** Do not fix it mid-mission (that is how a focused
+change becomes an unreviewable sprawl) and do not swallow it. Write one letter — what you saw,
+what you expected, the evidence — so the system's MAIN agent can fix it at the opportune
+moment. Carving it in stone is the whole point: the finding outlives your session.
+
+**Two boxes, always.** The project you are working in, and m1nd's own — m1nd is the tool every
+agent here depends on, so a defect in it belongs to everyone to report and to its main agent to
+fix. Read a box with `GET /api/mailbox?brain=<root>` or `m1nd-mcp --inbox-sweep`; these are
+CLI/REST surfaces, never MCP tools, never in the agent loop.
+
+**A letter nobody answers is pressure, not honesty** (`mailbox.rs`'s own words). Whoever holds a
+system answers its box: closing a letter is as much the duty as writing one. Proof this matters:
+on 2026-07-04 a subagent filed `Job Test(windows-latest) marks FAIL on the last 3 merges though
+every cargo test inside it passes`. Nobody read the box. Twenty days later the same condition
+was rediscovered from zero, after it had held the entire merge queue hostage and forced an owner
+override to publish 1.5.0. The write half worked perfectly; the read half did not exist.
+
+**Subagents get specs, not session hooks** — so a subagent spec must carry this duty verbatim,
+or the population most likely to find out-of-scope defects is the one least likely to file them.
 
 ## Wear the wire — the cards, the voice, the presences (when m1nd is served)
 
@@ -177,10 +231,12 @@ bound brain because the writer never checked which brain it was talking to.
    NOT cover your repo. A read under mismatch is a warning (don't trust retrieval for this
    repo). A **write** under mismatch is prohibited by doctrine — every write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
-   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. The one correct
-   gesture BEFORE any write: `ingest project_root=<your repo root>` — a single call
-   creates/resolves YOUR brain, ingests it, binds the session, and returns its north in the
-   same response; from then on your root routes to your brain automatically. Then write.
+   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
+   gesture lifts this.** The brain-bootstrap consumer is NOT installed: `ingest` does not
+   accept `project_root` (the parameter is absent from the published schema) and cross-root
+   bootstrap is POSITIVE_SOVEREIGN, failing closed with
+   `brain_bootstrap_consumer_not_installed`. Reconnect to an owner that already hosts the
+   intended repo, or stay read-only with the mismatch warning intact — do not write.
    (The mechanical write-refusal has LANDED — every skeleton write verb
    (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
    `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching
@@ -188,9 +244,10 @@ bound brain because the writer never checked which brain it was talking to.
 2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or WORKTREE of
    an existing brain is refused with a teaching error (`overlap_parent` / `overlap_child` /
    `overlap_worktree`) that names the conflict and the two ways forward: bind to the existing
-   brain (`ingest project_root=<existing>`), or pass `allow_overlap:true` only when you know
-   exactly why. It holds on BOTH doors — the MCP wire and REST `POST /api/tools/ingest` route
-   through one guarded core. A burst worktree does NOT get its own brain; bind to the main
+   brain, or mint a separate one anyway only when you know exactly why. It holds on BOTH
+   doors — the MCP wire and REST `POST /api/tools/ingest` route through one guarded core —
+   but neither way is reachable from the public MCP surface while the bootstrap consumer is
+   absent (`project_root` and `allow_overlap` are not in the published `ingest` schema). A burst worktree does NOT get its own brain; bind to the main
    repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
 3. **Memory writes never move your code root.** `memorize` (and any agent-memory ingest
    merge) can no longer demote a brain's `workspace_root` onto its own memory-store dir —
@@ -199,6 +256,16 @@ bound brain because the writer never checked which brain it was talking to.
    (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
    `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
    disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
+
+**When you withdraw a capability, sweep the prose in the same PR.** The cross-root bootstrap
+was withdrawn in the runtime (the published `ingest` schema lost `project_root` and
+`allow_overlap`, and `server.rs` asserts the served instructions never name them) — but seven
+prose surfaces kept teaching it, and `v1.5.0` shipped that way: quickstart, lifecycle,
+changelog, README, this file, and both agent skills all sent readers to a call that fails
+closed. A guard that covers only the wire is half a guard: the prose IS the interface for
+every agent and every new user. `tests/test_agent_surface_bootstrap_honesty.py` now extends
+the runtime's assertion to every instructional surface, so the two can no longer disagree in
+silence. Withdraw a verb, add it to that list.
 
 Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
 a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no
