@@ -39,6 +39,14 @@ updates:
       ui:
         patterns: ["*"]
     ignore:
+      # TypeScript 7 is the native-port era: typescript-eslint 8.x refuses it as
+      # a peer, so a grouped bump that carries it can never `npm ci` (proven on
+      # the recreated ui group: ERESOLVE, typescript@7.0.2 vs
+      # typescript-eslint@8.65.0). Migrating to TS 7 is a deliberate project —
+      # drop this entry when that project happens, never inside a grouped ride.
+      - dependency-name: typescript
+        versions: ["7.x"]
+    ignore:
       # TypeScript 7 is the ground-up native (Go) compiler — a migration, not a
       # bump. The grouped ui update (#421) pulled typescript 7.0.2 into the same
       # group as typescript-eslint 8.65.0, whose peer range rejects it, so
