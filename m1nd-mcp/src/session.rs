@@ -2624,6 +2624,24 @@ impl SessionState {
         true
     }
 
+    /// Declare that a durable sidecar owner changed in a way only the checkpoint
+    /// inventory carries, without demanding an immediate whole-brain write.
+    ///
+    /// This is the floor for a verb that is NOT classified a mutation but still
+    /// dirties durable state (an antibody scan bumping match counters, a document
+    /// verb refreshing its cache row). Without it the drift is invisible: the
+    /// actor's witness only sees graph structure and session generations, no
+    /// persist flag is raised, the staged-persist debounce never advances, and
+    /// the change survives only until the process dies. With it the turn joins the
+    /// debounce and is flushed by it, by the next real mutation, or by the
+    /// shutdown checkpoint.
+    ///
+    /// Outside an actor stage this is deliberately a no-op — those owners have no
+    /// eager writer of their own anyway, exactly as before.
+    pub(crate) fn note_durable_sidecar_drift(&self) {
+        let _ = self.note_staged_persist();
+    }
+
     /// Serialize the fixed candidate inventory directly from live in-memory
     /// owners. Kept stage-agnostic so strict recovery can produce the same state
     /// witness without manufacturing a persistence capability.
@@ -4380,6 +4398,519 @@ mod tests {
                 },
             }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The durability class guard
+    //
+    // The brain actor decides "does this turn owe a durable checkpoint?" from an
+    // O(1) witness of GRAPH STRUCTURE plus the session generations, from the
+    // command's read/write CLASSIFICATION, and from the staged-persist debounce.
+    // A verb that writes a durable SIDECAR — the antibody store, the trust
+    // ledger, daemon state, the document cache — moves none of those on its own.
+    // If it is neither classified a mutation nor routed through a persist choke
+    // point, its write is durable to nobody: the ack returns, the debounce
+    // counter never advances, and `kill -9` loses it (or resurrects what it
+    // deleted). That is exactly how `antibody_create` slipped through.
+    //
+    // `READ_ONLY_DENIED_TOOLS` was designed as the read-only-attach gate and
+    // became, by accident, the durability classifier. These three tests make the
+    // accident explicit and make the next omission fail LOUD instead of silent:
+    //   1. the sidecar inventory is frozen — a new durable file forces a verdict;
+    //   2. every declared writer's route agrees with the live classification;
+    //   3. the source is scanned for writers, so a NEW one that forgets the
+    //      table fails here instead of shipping a silent durability hole.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// In-memory owners on `SessionState` whose ONLY durability channel is an
+    /// explicit persist request or a mutating classification.
+    ///
+    /// Deliberately excluded, each because it already has a channel of its own:
+    /// `graph` (watched by `DurableWitnessV1`), `plasticity` and `temporal`
+    /// (regenerable learning drift, excluded by design — FM-PL-006),
+    /// `auto_ingest` (owns `checkpoint_persist_requested`), and the boot-KV
+    /// inventory (rebuilt from `boot_memory`, which IS listed).
+    const DURABLE_SIDECAR_OWNERS: &[&str] = &[
+        "antibodies",
+        "tremor_registry",
+        "trust_ledger",
+        "calibration_table",
+        "daemon_alerts",
+        "daemon_state",
+        "ingest_roots",
+        "document_cache",
+        "document_artifacts",
+        "boot_memory",
+    ];
+
+    /// The fixed logical names a checkpoint candidate carries for a brain with no
+    /// migrated boot-KV lights and no ingested documents. Adding a durable file
+    /// without classifying its writers fails `durable_sidecar_inventory_is_frozen`.
+    const FROZEN_CHECKPOINT_INVENTORY: &[&str] = &[
+        "antibodies",
+        "auto_ingest_state",
+        "binary_graph_snapshot",
+        "boot_config",
+        "boot_kv_migration",
+        "boot_kv_migration_journal",
+        "boot_memory_state",
+        "calibration_state",
+        "daemon_alerts",
+        "daemon_state",
+        "document_artifact_inventory",
+        "document_cache_index",
+        "embeddings_cache",
+        "graph_snapshot",
+        "ingest_roots",
+        "plasticity_state",
+        "temporal_state",
+        "tremor_state",
+        "trust_state",
+    ];
+
+    /// How a durable-sidecar writer earns its place in a checkpoint.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum DurabilityRoute {
+        /// The verb is in `READ_ONLY_DENIED_TOOLS`: the actor classifies the turn
+        /// a mutation and publishes on that very turn.
+        ClassifiedMutation,
+        /// The write reaches a persist choke point (`persist`,
+        /// `persist_daemon_state`, `persist_daemon_alerts`, `persist_boot_memory`,
+        /// `AutoIngestState::persist`, or `note_durable_sidecar_drift`), so it
+        /// joins the staged-persist debounce. Declared loss window: up to
+        /// `auto_persist_interval` deferring turns before the flush.
+        StagedPersistDebounce,
+        /// Not reached through verb dispatch at all — an owner-side loop whose
+        /// writes ride the enclosing tick's own persist.
+        OwnerLoop,
+    }
+
+    /// Every function outside `#[cfg(test)]` that writes a durable sidecar owner,
+    /// with the verb it serves and how that verb earns durability. Kept in lockstep
+    /// with the source by `no_undeclared_durable_sidecar_writer_exists`.
+    const DURABLE_SIDECAR_WRITERS: &[(&str, &str, DurabilityRoute)] = &[
+        // ── classified mutations: published on the turn they are acked ──
+        (
+            "start",
+            "auto_ingest_start",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "handle_daemon_start",
+            "daemon_start",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "handle_antibody_create",
+            "antibody_create",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "finalize_ingest_with_inventory",
+            "ingest",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        ("handle_learn", "learn", DurabilityRoute::ClassifiedMutation),
+        // ── debounced: durable within the staged-persist window, not on the turn ──
+        (
+            "tick",
+            "auto_ingest_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_boot_memory",
+            "boot_memory",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_alerts_ack",
+            "alerts_ack",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_daemon_stop",
+            "daemon_stop",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_daemon_tick",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "run_auto_reconcile",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "settle_auto_reconcile_outcome",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_antibody_scan",
+            "antibody_scan",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_calibrate_envelope",
+            "calibrate_envelope",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_calibrate_predict",
+            "calibrate_predict",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "document_bindings",
+            "document_bindings",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "document_drift",
+            "document_drift",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "refresh_document_cache_entry",
+            "document_resolve",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "ensure_cache_root_in_ingest_roots",
+            "document_resolve",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "daemon_loop_view",
+            "daemon_status",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        // ── owner-side loops: no verb, covered by the enclosing tick's persist ──
+        (
+            "persist_daemon_alerts_from_insights",
+            "(apply/apply_batch/daemon_tick)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        (
+            "refresh_daemon_watcher",
+            "(owner daemon loop)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        (
+            "run_daemon_tick",
+            "(owner daemon loop)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        ("serve", "(owner daemon loop)", DurabilityRoute::OwnerLoop),
+    ];
+
+    /// Drop every `#[cfg(test)]` item so the scan only sees shipped code.
+    fn strip_cfg_test_items(lines: &[&str]) -> Vec<String> {
+        let mut kept = Vec::new();
+        let mut index = 0usize;
+        while index < lines.len() {
+            let trimmed = lines[index].trim_start();
+            if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#[cfg(all(test") {
+                let mut item = index + 1;
+                while item < lines.len()
+                    && (lines[item].trim().is_empty() || lines[item].trim_start().starts_with("#["))
+                {
+                    item += 1;
+                }
+                if item >= lines.len() {
+                    break;
+                }
+                if lines[item].contains('{') {
+                    let mut depth = 0i32;
+                    let mut cursor = item;
+                    while cursor < lines.len() {
+                        depth += lines[cursor].matches('{').count() as i32;
+                        depth -= lines[cursor].matches('}').count() as i32;
+                        cursor += 1;
+                        if depth <= 0 {
+                            break;
+                        }
+                    }
+                    index = cursor;
+                } else {
+                    index = item + 1;
+                }
+                continue;
+            }
+            kept.push(lines[index].to_string());
+            index += 1;
+        }
+        kept
+    }
+
+    fn collapse_for_scan(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut pending_space = false;
+        for ch in text.chars() {
+            if ch.is_whitespace() {
+                pending_space = !out.is_empty();
+                continue;
+            }
+            if pending_space && ch != '.' && !out.ends_with('.') {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push(ch);
+        }
+        out
+    }
+
+    fn declared_fn_name(line: &str) -> Option<String> {
+        let mut rest = line.trim_start();
+        for prefix in ["pub(crate) ", "pub(super) ", "pub(in crate) ", "pub "] {
+            if let Some(stripped) = rest.strip_prefix(prefix) {
+                rest = stripped.trim_start();
+            }
+        }
+        for prefix in ["const ", "async ", "unsafe ", "extern \"C\" "] {
+            if let Some(stripped) = rest.strip_prefix(prefix) {
+                rest = stripped.trim_start();
+            }
+        }
+        let rest = rest.strip_prefix("fn ")?;
+        let name = rest
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .next()?;
+        (!name.is_empty()).then(|| name.to_string())
+    }
+
+    /// True when the text right after `state.<owner>` is a write: an assignment
+    /// into the owner (or a field of it), or a mutating call anywhere along its
+    /// field chain. The chain walk stops at the first call, so
+    /// `state.ingest_roots.iter().map(..).collect()` is a read and
+    /// `state.document_cache.entries.get_mut(..)` is a write.
+    fn is_write_after_owner(rest_of_window: &str, rest_of_line: &str) -> bool {
+        const MUTATORS: &[&str] = &[
+            "push",
+            "retain",
+            "insert",
+            "remove",
+            "clear",
+            "pop",
+            "extend",
+            "truncate",
+            "drain",
+            "sort",
+            "sort_by",
+            "sort_unstable",
+            "iter_mut",
+            "get_mut",
+            "values_mut",
+            "entry",
+            "append",
+            "dedup",
+            "set",
+            "record_defect",
+            "record_false_alarm",
+            "record_partial",
+            "record_observation",
+        ];
+        let mut cursor = rest_of_window;
+        while let Some(after_dot) = cursor.strip_prefix('.') {
+            let end = after_dot
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(after_dot.len());
+            if end == 0 {
+                break;
+            }
+            let (name, tail) = after_dot.split_at(end);
+            if tail.starts_with('(') {
+                return MUTATORS.contains(&name);
+            }
+            cursor = tail;
+        }
+        // Assignment is single-line by construction: `owner.field = value;`.
+        let statement = rest_of_line.split(';').next().unwrap_or("");
+        let bytes = statement.as_bytes();
+        for (index, byte) in bytes.iter().enumerate() {
+            if *byte != b'=' {
+                continue;
+            }
+            if matches!(bytes.get(index + 1), Some(b'=') | Some(b'>')) {
+                continue;
+            }
+            if index > 0 && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>') {
+                continue;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Scan the shipped source for functions that write a durable sidecar owner.
+    /// `session.rs` and `brain_runtime.rs` are excluded: they ARE the durability
+    /// machinery, not consumers of it.
+    fn scan_durable_sidecar_writers() -> BTreeMap<String, String> {
+        // Recursive on purpose: real handler code lives in `surgical_handlers/`,
+        // `external_mutation_service/`, `protocol/` and `perspective/` too, and a
+        // scan that only saw the top level would miss a writer placed there.
+        fn collect_rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
+            let mut entries = std::fs::read_dir(directory)
+                .expect("read crate source directory")
+                .map(|entry| entry.expect("source dir entry").path())
+                .collect::<Vec<_>>();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    // `internal_tests` is `#[cfg(test)]` at every declaration site.
+                    if path
+                        .file_name()
+                        .is_some_and(|name| name == "internal_tests")
+                    {
+                        continue;
+                    }
+                    collect_rust_sources(&path, found);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut writers = BTreeMap::new();
+        let mut files = Vec::new();
+        collect_rust_sources(&source_root, &mut files);
+        for path in files {
+            let name = path
+                .strip_prefix(&source_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            // These two ARE the durability machinery, not consumers of it.
+            if name == "session.rs" || name == "brain_runtime.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read crate source file");
+            let raw = text.lines().collect::<Vec<_>>();
+            let lines = strip_cfg_test_items(&raw);
+            let mut current = String::from("<file scope>");
+            for index in 0..lines.len() {
+                if let Some(declared) = declared_fn_name(&lines[index]) {
+                    current = declared;
+                }
+                let window_end = (index + 3).min(lines.len());
+                let window = collapse_for_scan(&lines[index..window_end].join(" "));
+                let line = collapse_for_scan(&lines[index]);
+                for owner in DURABLE_SIDECAR_OWNERS {
+                    let key = format!("state.{owner}");
+                    let borrowed = format!("&mut {key}");
+                    let hit = window.contains(&borrowed)
+                        || window.find(&key).is_some_and(|at| {
+                            let after_window = &window[at + key.len()..];
+                            let after_line = line
+                                .find(&key)
+                                .map(|at| &line[at + key.len()..])
+                                .unwrap_or("");
+                            is_write_after_owner(after_window, after_line)
+                        });
+                    if hit {
+                        writers
+                            .entry(current.clone())
+                            .or_insert_with(|| format!("{name}:{owner}"));
+                        break;
+                    }
+                }
+            }
+        }
+        writers
+    }
+
+    /// A new durable file in the checkpoint inventory must not slip in without a
+    /// verdict on who writes it and how that write becomes durable.
+    #[test]
+    fn durable_sidecar_inventory_is_frozen() {
+        let (_temp, _runtime, _registry, state) = strict_recovery_fixture();
+        let mut observed = state
+            .checkpoint_candidate_files()
+            .expect("candidate inventory")
+            .into_iter()
+            .map(|file| file.logical_name)
+            .collect::<Vec<_>>();
+        observed.sort();
+        let expected = FROZEN_CHECKPOINT_INVENTORY
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            observed, expected,
+            "the durable checkpoint inventory changed. Classify every writer of the \
+             new/renamed file in DURABLE_SIDECAR_WRITERS (and add its owner field to \
+             DURABLE_SIDECAR_OWNERS) before updating this list"
+        );
+    }
+
+    /// The declared route of every writer must agree with the live read-only
+    /// classification. Dropping a verb from `READ_ONLY_DENIED_TOOLS` — or adding
+    /// one and forgetting the table — fails here.
+    #[test]
+    fn durable_writer_routes_agree_with_the_read_only_classification() {
+        for (function, verb, route) in DURABLE_SIDECAR_WRITERS {
+            match route {
+                DurabilityRoute::ClassifiedMutation => {
+                    assert!(
+                        crate::server::read_only_denied(verb, &serde_json::json!({})),
+                        "{function} writes a durable sidecar and is declared a classified \
+                         mutation, but '{verb}' is not in READ_ONLY_DENIED_TOOLS — the write \
+                         would be durable to nobody"
+                    );
+                }
+                DurabilityRoute::StagedPersistDebounce => {
+                    assert!(
+                        !crate::server::read_only_denied(verb, &serde_json::json!({})),
+                        "{function} is declared debounced but '{verb}' is now a classified \
+                         mutation — promote the row to ClassifiedMutation"
+                    );
+                    assert!(
+                        crate::action_routes::MCP_TOOL_ROUTE_NAMES.contains(verb),
+                        "{function} names '{verb}', which is not a routed MCP tool"
+                    );
+                }
+                DurabilityRoute::OwnerLoop => {}
+            }
+        }
+    }
+
+    /// The guard that closes the class: the shipped source is scanned for durable
+    /// sidecar writers, and every one must be declared. A new verb that writes a
+    /// sidecar and forgets its durability fails HERE, loudly, instead of shipping
+    /// an ack that promises a persistence nobody performed.
+    #[test]
+    fn no_undeclared_durable_sidecar_writer_exists() {
+        let observed = scan_durable_sidecar_writers();
+        let declared = DURABLE_SIDECAR_WRITERS
+            .iter()
+            .map(|(function, ..)| *function)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let undeclared = observed
+            .iter()
+            .filter(|(function, _)| !declared.contains(function.as_str()))
+            .map(|(function, evidence)| format!("{function} ({evidence})"))
+            .collect::<Vec<_>>();
+        assert!(
+            undeclared.is_empty(),
+            "these functions write a durable checkpoint sidecar but are absent from \
+             DURABLE_SIDECAR_WRITERS: {undeclared:?}. Decide how each write becomes durable \
+             — a mutating classification in READ_ONLY_DENIED_TOOLS, or a persist choke point \
+             (`state.persist()` / `note_durable_sidecar_drift()`) — then declare it"
+        );
+
+        let stale = declared
+            .iter()
+            .filter(|function| !observed.contains_key(**function))
+            .collect::<Vec<_>>();
+        assert!(
+            stale.is_empty(),
+            "these DURABLE_SIDECAR_WRITERS rows no longer write a durable sidecar: {stale:?}. \
+             Remove them so the table keeps meaning something"
+        );
     }
 
     fn strict_recovery_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, SessionState) {
