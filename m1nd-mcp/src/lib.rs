@@ -239,6 +239,9 @@ mod medulla_m5b_tier_recall_internal_tests;
 #[path = "internal_tests/medulla_m6_promote.rs"]
 mod medulla_m6_promote_internal_tests;
 #[cfg(all(test, feature = "serve"))]
+#[path = "internal_tests/ranking_noise_f5.rs"]
+mod ranking_noise_f5_internal_tests;
+#[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/retrieval_battery.rs"]
 mod retrieval_battery_internal_tests;
 #[cfg(all(test, feature = "serve"))]

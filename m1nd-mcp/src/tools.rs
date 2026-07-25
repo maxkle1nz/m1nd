@@ -3655,14 +3655,25 @@ pub fn handle_session_handshake(
     {
         let n = graph.nodes.count as usize;
         // Collect (pagerank, node_idx) pairs; skip zero scores.
+        //
+        // Ranking noise is EXCLUDED here rather than demoted. This surface has no
+        // query and no relevance signal to balance against, and a minifier helper's
+        // centrality is not a small edge over real code — it is the entire bundle's
+        // fan-in (blast_backward 16690 on the measured 103k-node brain), so no
+        // multiplicative demote could keep it out of five slots. A 1-2 character
+        // label is never a useful orientation anchor. Same reasoning, and the same
+        // shape, as the L1GHT marker-fragment exclusion in `top_pagerank_anchors`
+        // (server.rs). askGOD F5 verdict, 2026-07-24.
         let mut ranked: Vec<(f32, usize)> = (0..n)
             .filter_map(|i| {
                 let pr = graph.nodes.pagerank[i].get();
-                if pr > 0.0 {
-                    Some((pr, i))
-                } else {
-                    None
+                if pr <= 0.0 {
+                    return None;
                 }
+                if m1nd_core::seed::graph_ranking_noise_demote(&graph, i, "") < 1.0 {
+                    return None;
+                }
+                Some((pr, i))
             })
             .collect();
         // Partial descending sort, keep top-5.

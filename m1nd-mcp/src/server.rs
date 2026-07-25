@@ -4501,6 +4501,13 @@ fn top_pagerank_anchors(graph: &m1nd_core::graph::Graph, n: usize) -> Vec<serde_
             if is_marker_fragment(ext, label) {
                 return None;
             }
+            // Same reason, same shape, one class later: minifier-renamed symbols
+            // (1-2 char labels) and nodes from machine-generated files collect a
+            // bundle's whole fan-in and win PageRank outright, wasting the anchor
+            // slots on build-tool artifacts (askGOD F5 verdict, 2026-07-24).
+            if m1nd_core::seed::graph_ranking_noise_demote(graph, i, "") < 1.0 {
+                return None;
+            }
             Some((pr, i))
         })
         .collect();
