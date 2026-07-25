@@ -272,6 +272,18 @@ now explicit and mechanically guarded — `session.rs` freezes the sidecar inven
 every declared writer against the live classification, and SCANS the shipped source so a new
 writer that forgets to declare a route fails loudly (`no_undeclared_durable_sidecar_writer_exists`).
 
+**The guard is closed on one side only.** Sidecar writers are scanned; INTERIOR COLUMN writers
+are a hand-kept list. The strict fence admits interior drift (tags, provenance, edge weights) by
+design — the transport path runs on every call and a content-sensitive fence would have to
+serialize, which is the tasteless digest this change removed. The compensating control is
+classification, and the five known column-writing verbs (`xray_retag`, `xray_paint`,
+`xray_apply`, `ingest`, `apply`) are pinned as a literal list, not discovered by scan. So a NEW
+verb that writes a tag and forgets its classification passes the fence as an honest read and
+seals in the next checkpoint without a receipt — the residue of that decision, named here so it
+is a known limit rather than a surprise. Closing this side means either a column-writer scan of
+the same shape as the sidecar one, or a witness that covers interior columns; both are their own
+verdict.
+
 **Honest limit of the debounce.** Nothing about plasticity drift raises a persist request, so
 pure learning drift does NOT advance the debounce counter. On a read-only workload with the
 daemon stopped and auto-ingest idle, no turn requests a persist, the counter never moves, and a

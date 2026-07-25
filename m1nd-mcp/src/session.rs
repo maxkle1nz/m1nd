@@ -2638,7 +2638,20 @@ impl SessionState {
     ///
     /// Outside an actor stage this is deliberately a no-op — those owners have no
     /// eager writer of their own anyway, exactly as before.
+    ///
+    /// CALLERS MUST RUN INSIDE AN ACTOR STAGE. Every caller today does (verb
+    /// handlers, and the pull-based `auto_ingest::tick`, which has no spawn of its
+    /// own), so the no-op never fires in production. But it is SILENT: a future
+    /// caller from boot, a CLI path, or a spawned task would lose its drift with
+    /// no alarm at all. The `debug_assert` makes that mistake loud in test and
+    /// debug builds without changing release behaviour, since the release no-op
+    /// is the historically correct fallback.
     pub(crate) fn note_durable_sidecar_drift(&self) {
+        debug_assert!(
+            self.persistence_stage.get().is_some(),
+            "note_durable_sidecar_drift called outside an actor stage: the drift is \
+             silently dropped. Route this writer through a staged actor turn."
+        );
         let _ = self.note_staged_persist();
     }
 
@@ -4881,6 +4894,15 @@ mod tests {
     /// sidecar writers, and every one must be declared. A new verb that writes a
     /// sidecar and forgets its durability fails HERE, loudly, instead of shipping
     /// an ack that promises a persistence nobody performed.
+    ///
+    /// HONEST LIMIT — this is a TEXTUAL heuristic, not semantic analysis. It sees
+    /// the direct `state.<owner>` write shape that every writer uses today (and
+    /// this crate has no `macro_rules!`, so nothing hides behind expansion). It
+    /// would NOT see a rebinding writer (`let s = &mut state; s.antibodies…`), a
+    /// write behind a differently-named helper, or anything outside
+    /// `m1nd-mcp/src`. None of those shapes exists today; if one appears, this
+    /// guard goes quiet rather than red. Do not read a green here as proof of
+    /// total coverage — read it as proof that the shape we do write is declared.
     #[test]
     fn no_undeclared_durable_sidecar_writer_exists() {
         let observed = scan_durable_sidecar_writers();
