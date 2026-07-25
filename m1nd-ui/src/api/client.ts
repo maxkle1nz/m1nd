@@ -340,7 +340,8 @@ export const api = {
    * read. A pre-P1 owner has no route (404) → the caller degrades to the honest
    * empty roster rather than an error wall (`usePresences`, vigil-fail-open).
    */
-  presences: (brain?: string | null) => apiFetch<PresenceResponse>(withBrain('/api/presences', brain)),
+  presences: (brain?: string | null, signal?: AbortSignal) =>
+    apiFetch<PresenceResponse>(withBrain('/api/presences', brain), signal ? { signal } : undefined),
 
   instanceSelf: () => apiFetch<InstanceSelfResponse>('/api/instance/self'),
   instances: () => apiFetch<InstanceListResponse>('/api/instances'),
@@ -353,7 +354,8 @@ export const api = {
    * owner's own alert scope — and it never hydrates a brain. A pre-F30 owner has no
    * route (404) → the caller degrades to the honest empty panorama.
    */
-  universe: () => apiFetch<UniverseResponse>('/api/universe'),
+  universe: (signal?: AbortSignal) =>
+    apiFetch<UniverseResponse>('/api/universe', signal ? { signal } : undefined),
 
   /**
    * The owner's daemon-alert list (honest doors: the Landing's owner item lands on
@@ -455,8 +457,8 @@ export const api = {
    * field-report shape (no `missions`); the tray reads that as "needs an updated
    * owner". `brain` scopes the read to a hosted brain (absent = the bound graph).
    */
-  missionHeads: (brain?: string | null) =>
-    apiFetch<MissionsResponse>(withBrain('/api/mailbox?kind=mission', brain)),
+  missionHeads: (brain?: string | null, signal?: AbortSignal) =>
+    apiFetch<MissionsResponse>(withBrain('/api/mailbox?kind=mission', brain), signal ? { signal } : undefined),
 
   /**
    * The tray's compose write (HUMAN-VIEW-V2 F2.5 §2c) — `mission_post` appends one
@@ -483,7 +485,8 @@ export const api = {
    * pinned-live runners. Empty `runners` = no daemon connected. NOT `?brain=`-scoped
    * (the registry is owner-process-global liveness, not per-brain).
    */
-  runnerdStatus: () => apiFetch<RunnerdStatus>('/api/runnerd/status'),
+  runnerdStatus: (signal?: AbortSignal) =>
+    apiFetch<RunnerdStatus>('/api/runnerd/status', signal ? { signal } : undefined),
 
   /**
    * The compose panel's spawn write (HUMAN-VIEW-V2 F2.5c §4b) — `mission_spawn` is

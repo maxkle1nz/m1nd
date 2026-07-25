@@ -289,4 +289,30 @@ test('a deep-link to an evicted world key falls back to the landing rule (no emp
   // the Universe. Never a stranded, empty world map.
   await expect(page.locator('[data-role="universe"]')).toBeVisible();
   await expect(page.locator('[data-surface="map"]')).toHaveCount(0);
+  // …and the address bar is canonicalized to what we actually show — the dead
+  // `#/world/ghost/…` route never survives in the URL.
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/universe');
+});
+
+// ── 5. an invalid hash is canonicalized away — the bar never keeps a dead route ──
+test('an invalid hash on load canonicalizes to the landed surface', async ({ page }) => {
+  // Zero worlds → the landing lands the tree; the junk `#/zzz` must not survive.
+  await mockOwner(page);
+  await page.goto('/#/zzz');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/tree');
+  await expect(page.locator('[data-role="universe"]')).toHaveCount(0);
+});
+
+test('backing into a junk hash canonicalizes it away (popstate replaceState, no new entry)', async ({
+  page,
+}) => {
+  await mockOwner(page);
+  await page.goto('/#/zzz');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/tree');
+  // A human types a junk hash (a real history entry), navigates on, then hits BACK.
+  await page.evaluate(() => history.pushState(null, '', '#/qqq'));
+  await page.evaluate(() => history.pushState(null, '', '#/tree'));
+  await page.goBack(); // → popstate onto the junk `#/qqq`
+  // The fallback lands the tree AND replaces the dead route out of the address bar.
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/tree');
 });

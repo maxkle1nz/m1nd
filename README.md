@@ -395,7 +395,7 @@ Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn p
 m1nd agent first-minute --repo /your/project --query "understand this system" --json
 ```
 
-Pin the binary if you need to: `--version` prints `1.4.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
+Pin the binary if you need to: `--version` prints `1.5.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
 
 Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md) · the ambient orientation layer on every agent host (session-start hooks, rules files, tiering): [docs/HOST-INTEGRATION-MATRIX.md](docs/HOST-INTEGRATION-MATRIX.md).
 

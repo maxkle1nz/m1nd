@@ -26,17 +26,21 @@ test('present:false → the honest empty screen renders (no fabricated blocks)',
   assert.doesNotMatch(out, /data-role="block-card"/, 'no cards when there is no skeleton');
 });
 
-test('the empty screen carries the backend\'s honest copy', () => {
+test('the empty screen states the condition once and shows the backend\'s honest copy', () => {
   const text = visibleText(<BuildMap snapshot={empty} rollup={null} />);
-  assert.match(text, /No skeleton yet for this repo/);
+  // The heading frames the state ("isn't mapped yet"); the backend honest line
+  // teaches the next step — they no longer both say "no skeleton yet" (the dedupe).
+  assert.match(text, /has no map yet/);
   assert.match(text, /import a seed or run a scan/, 'the backend honest string is shown verbatim');
 });
 
-test('the Import CTA is DISABLED and points at the write verb (F1 is read-only)', () => {
+test('the Import CTA is DISABLED and names the HUMAN path, not the agent verb', () => {
   const out = html(<BuildMap snapshot={empty} rollup={null} />);
   assert.match(out, /data-role="import-seed"[^>]*disabled/, 'import is disabled — never a fake mutation');
   const text = visibleText(<BuildMap snapshot={empty} rollup={null} />);
-  assert.match(text, /system_blocks_seed_import verb/, 'the CTA names the verb to run from the CLI');
+  // The human sees the human path; the raw agent verb no longer leaks into body copy.
+  assert.match(text, /import an authored seed from the CLI/);
+  assert.doesNotMatch(text, /system_blocks_seed_import/, 'the agent verb stays in the tooltip, not human copy');
 });
 
 test('COPY LAW holds on the empty screen too', () => {

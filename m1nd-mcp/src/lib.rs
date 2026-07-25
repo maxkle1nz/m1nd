@@ -171,6 +171,9 @@ mod file_view_brain_root_internal_tests;
 #[path = "internal_tests/hall_brains_listing.rs"]
 mod hall_brains_listing_internal_tests;
 #[cfg(all(test, feature = "serve"))]
+#[path = "internal_tests/http_compression.rs"]
+mod http_compression_internal_tests;
+#[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/mailbox_m7b.rs"]
 mod mailbox_m7b_internal_tests;
 #[cfg(all(test, feature = "serve"))]

@@ -22,6 +22,7 @@ import {
   languageOf,
   nameMatches,
   filterResidue,
+  residueHiddenBy,
   textNotMeaningCaption,
   resultBelongsToBrain,
   type FilterContext,
@@ -116,11 +117,18 @@ test('§4A.10: the "changed since read" filter keeps only am_i_stale-flagged pat
   assert.ok(kept.every((r) => r.path === somePath), 'only the flagged path survives the changed filter');
 });
 
-test('§4A.10: filter residue is exact — "N rows · M hidden by filters" never lies', () => {
+test('§4A.10: filter residue is exact — "N rows · M hidden" never lies', () => {
   const r = filterResidue(41, 6520);
   assert.deepEqual(r, { shown: 41, hidden: 6479 });
   // clearing (shown === total) → zero hidden.
   assert.deepEqual(filterResidue(6520, 6520), { shown: 6520, hidden: 0 });
+});
+
+test('§4A.10: residue attribution blames the lens, not a filter the human never set', () => {
+  // Zero user filters/search → the hidden rows are the LENS's subset, never "filters".
+  assert.equal(residueHiddenBy(false), 'lens', 'a flat lens hiding rows is not a filter');
+  // An active filter/search → the caption is honestly "filters".
+  assert.equal(residueHiddenBy(true), 'filters');
 });
 
 // ── Search: name mode ─────────────────────────────────────────────────────────

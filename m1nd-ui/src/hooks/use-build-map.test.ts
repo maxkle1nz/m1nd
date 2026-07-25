@@ -87,6 +87,32 @@ test('an unmounted sink stops the write-through after the fetch resolves', async
   assert.equal(statusWrites, 0, 'nothing lands after unmount');
 });
 
+test('a rejected snapshot read lands the honest error state, never a stuck loading', async () => {
+  const statuses: string[] = [];
+  let errored: string | null = null;
+  const sinks: BuildMapSinks = {
+    isMounted: () => true,
+    setSnapshot: () => {},
+    setMemberStates: () => {},
+    setStatus: (s) => statuses.push(s),
+    setError: (e) => {
+      errored = e;
+    },
+  };
+  const fetchMock = (async () => {
+    throw new TypeError('Failed to fetch');
+  }) as typeof fetch;
+  const real = globalThis.fetch;
+  globalThis.fetch = fetchMock;
+  try {
+    await loadBuildMap(null, sinks);
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.deepEqual(statuses, ['error'], 'a failed read is `error`, not a silent forever-load');
+  assert.equal(errored, 'Failed to fetch', 'the honest failure detail is carried, never swallowed');
+});
+
 // ── stale-while-revalidate: a reload never blanks the map ─────────────────────
 
 test('nextReadStatus: a same-brain reload with last-good stays MOUNTED (refreshing)', () => {

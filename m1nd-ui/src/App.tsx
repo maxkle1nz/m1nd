@@ -414,12 +414,27 @@ export default function App() {
         view: BOUND_VIEW,
         block: null,
       });
+      // The browser moved the URL on its own (history:'none'), so a FALLBACK — a
+      // human who backed into a junk (`#/zzz`) or unresolvable (`#/world/ghost`) hash
+      // — would otherwise leave that dead route stranded in the address bar while the
+      // tree/universe shows. Canonicalize it to the surface we actually land on
+      // (replaceState — no new history entry).
+      const land = (target: NavTarget) => {
+        navigate(target, { history: 'none' });
+        if (typeof window !== 'undefined') {
+          const canonical = serializeRoute(target.surface, target.view ?? BOUND_VIEW, target.block ?? null);
+          if (window.location.hash !== canonical) window.history.replaceState(null, '', canonical);
+        }
+      };
       if (!route) {
-        navigate(fallback(), { history: 'none' });
+        land(fallback());
         return;
       }
       const outcome = resolveDeepLink(route, universe.worlds, brains, true);
-      navigate(outcome.kind === 'apply' ? outcome.intent : fallback(), { history: 'none' });
+      // A resolved route: the browser already sits on its canonical URL — apply it
+      // without a rewrite. Unresolvable → fall back AND canonicalize the junk away.
+      if (outcome.kind === 'apply') navigate(outcome.intent, { history: 'none' });
+      else land(fallback());
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
