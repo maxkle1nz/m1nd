@@ -223,6 +223,24 @@ record each have a separate domain-signature boundary; REST/MCP transport sessio
 correlation labels and never authenticate the subject. Software fixture backends are test-only and
 rejected by the production loader; h4nd is a caller of the ceremony, never an authority or key source.
 
+## Who pays the checkpoint (brain actor, corrected 2026-07-25)
+
+An actor turn publishes a durable checkpoint when it is a CLASSIFIED MUTATION, when the
+`DurableWitnessV1` (`Graph::generation` + the session generations, all O(1)) moved — i.e.
+STRUCTURE changed under a read-classified callback — or when the staged-persist debounce
+elapses. Every read routinely dirties small regenerable sidecars: plasticity Step 8 rewrites
+edge weights on every graph verb, and the freshness-by-traffic daemon tick persists daemon
+state on nearly every dispatch. That drift is DEFERRED — drained by the debounce
+(`SessionState::auto_persist_interval`, 50), by the next real mutation, or by the shutdown
+checkpoint — never by turning each read into a durable whole-brain write.
+
+The actor used to decide this by byte-digest of the serialized state, which serialized
+~100 MB twice per call (once BEFORE argument validation) and published a ~113 MB checkpoint
+per read. Measured in the lab (17,415 nodes): 87% of a warm `seek` turn was that machinery,
+and 10 reads produced 10 checkpoints (+1.1 GB of store). The strict `read_snapshot` (which
+refuses ANY change) keeps the byte-digest. (`m1nd-mcp/src/brain_runtime.rs`; the perf hunt
+of 2026-07-25 — seek 5.0s → 0.40s warm, mutation checkpoints unchanged at exactly one.)
+
 ---
 
 *Atlas curated at the design seat from twenty-two code-grounded system maps; diagrams mechanically drafted from those maps and parser-validated; every load-bearing claim carries a file:line hint in its sheet. Where a sheet and reality diverge tomorrow, trust reality, re-anchor the sheet, and log a letter.*

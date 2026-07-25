@@ -2926,6 +2926,37 @@ impl SessionState {
         })
     }
 
+    /// Cheap, stage-preserving answer to "must this transaction publish a
+    /// checkpoint?". It reports exactly the two persist flags
+    /// [`Self::checkpoint_candidate`] folds into `persist_requested`, plus any
+    /// queued post-CURRENT effect (which only the checkpoint path can drain),
+    /// WITHOUT serializing the ~100 MB candidate to find out.
+    ///
+    /// The read path asks this question on every single call. Answering it by
+    /// serializing graph + temporal + plasticity is what turned a warm `seek`
+    /// into seconds of work.
+    /// A derived post-CURRENT effect is queued and only the checkpoint path can
+    /// drain it. Unlike a routine persist request, this cannot be deferred: the
+    /// stage refuses to close while one is outstanding.
+    pub(crate) fn has_unresolved_staged_effects(&self) -> bool {
+        !self.staged_binary_snapshot_effects.is_empty()
+    }
+
+    pub(crate) fn checkpoint_publish_required(
+        &self,
+        stage: &CheckpointPersistenceStage,
+    ) -> M1ndResult<bool> {
+        self.verify_checkpoint_stage(stage)?;
+        if self.has_unresolved_staged_effects() {
+            return Ok(true);
+        }
+        let session_requested = self
+            .persistence_stage
+            .get()
+            .is_some_and(|active| active.persist_requested);
+        Ok(session_requested || self.auto_ingest.checkpoint_persist_requested(stage.id)?)
+    }
+
     /// Stage-free witness of the currently rebuilt authoritative in-memory
     /// working set. The brain actor compares this with the digest stored in the
     /// checkpoint working-set envelope after rollback/reconciliation. An active
