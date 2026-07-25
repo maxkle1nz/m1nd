@@ -16,12 +16,17 @@ This is a **PUBLIC** repository. Everything you commit is published.
 Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
-cargo check --workspace
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
-cargo build --release --workspace
 ```
+
+There is deliberately no standalone `cargo check` (clippy type-checks every target on its way
+to linting — a separate pass was a redundant full compile), and the `--release` workspace
+build runs on **main pushes only**, not on PRs (2026-07-24: it proved nothing tests+clippy
+don't and cost ~half of every 70-minute CI round; the signed release pipeline rebuilds
+`--release` at tag time regardless). A release-profile-only breakage is caught on the main
+push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
 **Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
 identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator

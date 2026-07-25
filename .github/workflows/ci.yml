@@ -46,15 +46,20 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-gates-${{ matrix.os }}
-      - name: Check every target
-        run: cargo check --locked --workspace --all-targets
+      # No standalone `cargo check`: clippy type-checks every target on its way
+      # to linting, so a separate check pass was a full redundant compile.
       - name: Test every target
         run: cargo test --locked --workspace --all-targets
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
         run: cargo fmt --all --check
+      # Release-profile build runs on main pushes only (2026-07-24): on a PR it
+      # proved nothing tests+clippy don't, at ~half the round's wall-clock, and
+      # the signed release pipeline rebuilds --release at tag time anyway. A
+      # release-profile-only breakage is now caught on the main push instead.
       - name: Build the complete release workspace
+        if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
   # ADVISORY (phase-2, since 2026-07-23): Windows runs the full Rust gate and
@@ -73,8 +78,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-gates-windows-latest
-      - name: Check every target
-        run: cargo check --locked --workspace --all-targets
+      # Mirrors the required gate exactly: no standalone check (clippy subsumes
+      # it), release-profile build on main pushes only.
       - name: Test every target
         run: cargo test --locked --workspace --all-targets
       - name: Deny clippy warnings
@@ -82,6 +87,7 @@ jobs:
       - name: Verify formatting
         run: cargo fmt --all --check
       - name: Build the complete release workspace
+        if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
   test-status:
