@@ -225,21 +225,60 @@ rejected by the production loader; h4nd is a caller of the ceremony, never an au
 
 ## Who pays the checkpoint (brain actor, corrected 2026-07-25)
 
-An actor turn publishes a durable checkpoint when it is a CLASSIFIED MUTATION, when the
-`DurableWitnessV1` (`Graph::generation` + the session generations, all O(1)) moved — i.e.
-STRUCTURE changed under a read-classified callback — or when the staged-persist debounce
-elapses. Every read routinely dirties small regenerable sidecars: plasticity Step 8 rewrites
-edge weights on every graph verb, and the freshness-by-traffic daemon tick persists daemon
-state on nearly every dispatch. That drift is DEFERRED — drained by the debounce
-(`SessionState::auto_persist_interval`, 50), by the next real mutation, or by the shutdown
-checkpoint — never by turning each read into a durable whole-brain write.
+An actor turn publishes a durable checkpoint on exactly four conditions: the command is a
+CLASSIFIED MUTATION (`server::READ_ONLY_DENIED_TOOLS`); the `DurableWitnessV1`
+(`Graph::generation` + the session generations, all O(1)) moved, i.e. graph STRUCTURE changed
+under a read-classified callback; a post-CURRENT effect is queued (only the checkpoint path
+drains one, so it can never be deferred); or the staged-persist debounce comes due.
 
 The actor used to decide this by byte-digest of the serialized state, which serialized
 ~100 MB twice per call (once BEFORE argument validation) and published a ~113 MB checkpoint
 per read. Measured in the lab (17,415 nodes): 87% of a warm `seek` turn was that machinery,
-and 10 reads produced 10 checkpoints (+1.1 GB of store). The strict `read_snapshot` (which
-refuses ANY change) keeps the byte-digest. (`m1nd-mcp/src/brain_runtime.rs`; the perf hunt
-of 2026-07-25 — seek 5.0s → 0.40s warm, mutation checkpoints unchanged at exactly one.)
+and 10 reads produced 10 checkpoints (+1.1 GB of store). Post-fix: seek 5.0s → 0.40s warm,
+70 reads → 0 checkpoints, a real mutation → exactly one.
+(`m1nd-mcp/src/brain_runtime.rs`; the perf hunt of 2026-07-25.)
+
+**What the strict `read_snapshot` fence actually promises.** It compares the same
+`DurableWitnessV1`, not a byte digest, and it refuses a change to graph STRUCTURE or to the
+session generations — not "any change". An interior column write (a tag, a provenance row, an
+edge weight) does NOT move the witness and is admitted. That is deliberate: this path runs on
+EVERY transport call, so it cannot serialize the world to answer, and the digest it used to
+take was unsound here — `rebind_detached_graph` rebuilds `edge_plasticity` from the current
+weights, so once plasticity had drifted a weight the postimage could never match and honest
+reads were refused as mutation attempts. The compensating control is CLASSIFICATION, not the
+witness: every verb that writes a graph tag or provenance column (`xray_retag`, `xray_paint`,
+`xray_apply`, `ingest`, `apply`) is on the mutating deny-list, so its durability is carried by
+the classification. Pinned by
+`read_snapshot_fence_refuses_structure_and_admits_interior_column_drift`.
+
+**The deferring branch still pays the isolation fence.** A turn that publishes nothing rebinds
+the graph when — and only when — a second owner of the graph Arc exists (`strong_count > 1` or
+any live `Weak`), i.e. a callback kept a handle. Skipping it would let that handle alias
+actor-owned state BETWEEN turns, where
+mutations arrive with no classification at all. When nothing escaped, the fence is O(1) and the
+turn pays no deep clone. Pinned by
+`escaped_execute_read_graph_arc_is_detached_from_actor_owner` and
+`execute_read_without_an_escaped_arc_does_not_rebind_the_graph`.
+
+**Durable sidecars are NOT witnessed, and that is the sharp edge.** The witness watches graph
+structure and session generations only. A verb that writes the antibody store, the trust
+ledger, daemon state or the document cache moves neither, so its durability must come from one
+of two declared routes: a mutating classification (published on the acked turn), or a persist
+choke point (`SessionState::persist`, `persist_daemon_*`, `persist_boot_memory`, or
+`note_durable_sidecar_drift`) that enters the staged-persist debounce. Verbs on the debounce
+route are durable within a WINDOW, not on their turn. `READ_ONLY_DENIED_TOOLS` was designed as
+the read-only-attach gate and became, by accident, the durability classifier; the accident is
+now explicit and mechanically guarded — `session.rs` freezes the sidecar inventory, cross-checks
+every declared writer against the live classification, and SCANS the shipped source so a new
+writer that forgets to declare a route fails loudly (`no_undeclared_durable_sidecar_writer_exists`).
+
+**Honest limit of the debounce.** Nothing about plasticity drift raises a persist request, so
+pure learning drift does NOT advance the debounce counter. On a read-only workload with the
+daemon stopped and auto-ingest idle, no turn requests a persist, the counter never moves, and a
+`kill -9` loses the whole session's learning. Plasticity drift is flushed only when something
+ELSE publishes: a classified mutation, a debounce that some other request drove to term, or the
+graceful shutdown checkpoint — which is single-attempt and refusable
+(`project_brains.rs::shutdown`), so it is not a guarantee.
 
 ---
 

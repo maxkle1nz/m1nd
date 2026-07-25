@@ -110,6 +110,40 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - `m1nd-viz` was listed as a workspace member in the repo's agent guides — `AGENTS.md` (corrected in
   PR #407, in queue) and the local gitignored build notes (corrected the same day) — but no such crate
   exists anywhere in the tree and `Cargo.toml` never declared it.
+- **Durability is now a WINDOW for verbs the witness cannot see (2026-07-25, PR #426).** The brain actor
+  stopped answering "did this turn change durable state?" with a SHA-256 of the whole ~100 MB state and
+  now answers with `DurableWitnessV1` (`Graph::generation` + session generations, O(1)) — the fix that took
+  a warm `seek` from 5.0s to 0.40s. The witness sees graph STRUCTURE and session generations, nothing else,
+  so a verb that writes only a durable SIDECAR is invisible to it. Two declared routes now carry those:
+  a mutating classification (`READ_ONLY_DENIED_TOOLS` → published on the acked turn — `antibody_create`,
+  `ingest`, `learn`, `daemon_start`, `auto_ingest_start`), or a persist choke point that enters the
+  staged-persist debounce. **Debounce route = a real `kill -9` loss window of up to
+  `auto_persist_interval` (50) deferring turns**: `alerts_ack`, `daemon_stop`, `daemon_tick`,
+  `boot_memory`, `antibody_scan`, `calibrate_envelope`, `calibrate_predict`, `document_bindings`,
+  `document_drift`, `document_resolve`, `auto_ingest_tick`, `auto_ingest_stop`. An acked `daemon_stop` or
+  `auto_ingest_stop` inside that window can therefore RESURRECT as running after a hard kill — note that
+  `daemon_start` IS a classified mutation while `daemon_stop` is not, an asymmetry that predates this
+  change and now has a durability consequence.
+  **Worse for pure learning drift:** plasticity raises no persist request at all, so it does not even
+  advance the debounce counter — on a read-only workload with the daemon stopped and auto-ingest idle,
+  a `kill -9` loses the entire session's learning. The only backstop is the graceful shutdown checkpoint,
+  which is **single-attempt and refusable** (`m1nd-mcp/src/project_brains.rs::shutdown` — terminal
+  lifecycle, refuses a second attempt, and can time out with 0 checkpoint ACKs). Not a guarantee.
+  Open: decide whether plasticity drift should tick the debounce (bounded loss) or stay free (cheapest
+  reads), and whether the debounce-route verbs above deserve promotion to classified mutations. The
+  classification itself is mechanically guarded — `session.rs` freezes the sidecar inventory and scans
+  the shipped source, so a new sidecar writer that declares no route fails CI loudly. Doctrine in
+  `docs/UML-ORGANISM.md` § "Who pays the checkpoint".
+- **The strict `read_snapshot` still deep-clones the graph on EVERY transport call.** Brain resolution asks
+  the actor whether the bound brain covers the caller root, so `read_snapshot` runs per call, and it ends
+  with an UNCONDITIONAL `rebind_after_callback` — a full `encode_graph_json` + `decode_graph_json` of the
+  whole graph. Read from the code, NOT measured here (the perf lab was deleted); the PR's own
+  `M1ND_BRAIN_TIMING=1` prints `rebind_detached_graph` as its own stage, so the number is one lab run away.
+  The deferring `execute` branch already proves the cheap shape: rebind only when a second owner of the
+  graph Arc exists (`strong_count > 1` or a live `Weak`), i.e. only when a callback actually kept a handle
+  (`execute_read_without_an_escaped_arc_does_not_rebind_the_graph`). Applying the same gate to the strict
+  path is deliberately NOT done here — it is the hardened fence and deserves its own verdict and its own
+  A/B, not a drive-by. Measured claim, unmeasured fix.
 
 **Process debt**
 - The PR queue needs review, not just rebasing — `#401` ("the graph learned to write") is substantial and
