@@ -2639,19 +2639,34 @@ impl SessionState {
     /// Outside an actor stage this is deliberately a no-op — those owners have no
     /// eager writer of their own anyway, exactly as before.
     ///
-    /// CALLERS MUST RUN INSIDE AN ACTOR STAGE. Every caller today does (verb
-    /// handlers, and the pull-based `auto_ingest::tick`, which has no spawn of its
-    /// own), so the no-op never fires in production. But it is SILENT: a future
-    /// caller from boot, a CLI path, or a spawned task would lose its drift with
-    /// no alarm at all. The `debug_assert` makes that mistake loud in test and
-    /// debug builds without changing release behaviour, since the release no-op
-    /// is the historically correct fallback.
+    /// Every SHIPPED caller runs inside an actor stage. A `&mut SessionState` is
+    /// reachable only through `BrainSessionCell::checkout`, whose call sites are
+    /// the five actor turn primitives — `read_snapshot`, `execute`,
+    /// `execute_with_checkpoint_ack`, `commit`, `checkpoint_current` — each of
+    /// which opens the stage before the callback runs, plus actor startup, which
+    /// runs no verb. Every transport seam dispatches inside one of the five, and
+    /// so do the pull-based `auto_ingest::tick` and the owner daemon loop, whose
+    /// every branch is wrapped in `actor_execute`. The drift is therefore never
+    /// dropped in production. But it IS silent, and a future caller from boot, a
+    /// CLI path, or a spawned task would lose its drift with no alarm.
+    ///
+    /// That guard cannot live here as a runtime assert. A pre-actor session and a
+    /// session the actor simply has not staged yet are the SAME shape at this
+    /// level, and the unstaged shape is legitimate and tested: with a stage open
+    /// both `Self::persist` and `AutoIngestState::persist` record intent instead
+    /// of writing, so the tests that drive these handlers against a bare
+    /// `SessionState` and then reload from disk are exercising exactly the
+    /// unstaged fallback. Asserting a stage here fails those, and would say
+    /// nothing about the caller that actually escapes the actor.
+    ///
+    /// The guard is instead a source-level one, in the same registry that already
+    /// classifies durable writers: `no_undeclared_staged_drift_caller_exists`
+    /// requires every shipped caller of this function to be declared in
+    /// `DURABLE_SIDECAR_WRITERS`, and `durable_writer_routes_agree_with_the_read_only_classification`
+    /// requires that row to name a real routed verb. A boot/CLI/spawn caller has
+    /// no such verb, so it cannot be declared quietly — it fails at the moment it
+    /// is written, not only if some test happens to run it.
     pub(crate) fn note_durable_sidecar_drift(&self) {
-        debug_assert!(
-            self.persistence_stage.get().is_some(),
-            "note_durable_sidecar_drift called outside an actor stage: the drift is \
-             silently dropped. Route this writer through a staged actor turn."
-        );
         let _ = self.note_staged_persist();
     }
 
@@ -4757,35 +4772,35 @@ mod tests {
         false
     }
 
+    /// Recursive on purpose: real handler code lives in `surgical_handlers/`,
+    /// `external_mutation_service/`, `protocol/` and `perspective/` too, and a
+    /// scan that only saw the top level would miss a writer placed there.
+    fn collect_rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
+        let mut entries = std::fs::read_dir(directory)
+            .expect("read crate source directory")
+            .map(|entry| entry.expect("source dir entry").path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                // `internal_tests` is `#[cfg(test)]` at every declaration site.
+                if path
+                    .file_name()
+                    .is_some_and(|name| name == "internal_tests")
+                {
+                    continue;
+                }
+                collect_rust_sources(&path, found);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                found.push(path);
+            }
+        }
+    }
+
     /// Scan the shipped source for functions that write a durable sidecar owner.
     /// `session.rs` and `brain_runtime.rs` are excluded: they ARE the durability
     /// machinery, not consumers of it.
     fn scan_durable_sidecar_writers() -> BTreeMap<String, String> {
-        // Recursive on purpose: real handler code lives in `surgical_handlers/`,
-        // `external_mutation_service/`, `protocol/` and `perspective/` too, and a
-        // scan that only saw the top level would miss a writer placed there.
-        fn collect_rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
-            let mut entries = std::fs::read_dir(directory)
-                .expect("read crate source directory")
-                .map(|entry| entry.expect("source dir entry").path())
-                .collect::<Vec<_>>();
-            entries.sort();
-            for path in entries {
-                if path.is_dir() {
-                    // `internal_tests` is `#[cfg(test)]` at every declaration site.
-                    if path
-                        .file_name()
-                        .is_some_and(|name| name == "internal_tests")
-                    {
-                        continue;
-                    }
-                    collect_rust_sources(&path, found);
-                } else if path.extension().is_some_and(|ext| ext == "rs") {
-                    found.push(path);
-                }
-            }
-        }
-
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut writers = BTreeMap::new();
         let mut files = Vec::new();
@@ -4932,6 +4947,88 @@ mod tests {
             stale.is_empty(),
             "these DURABLE_SIDECAR_WRITERS rows no longer write a durable sidecar: {stale:?}. \
              Remove them so the table keeps meaning something"
+        );
+    }
+
+    /// Scan the shipped source for functions that call `note_durable_sidecar_drift`.
+    /// Only `session.rs` is excluded — it DEFINES and documents the function, so
+    /// every mention there is machinery, not a caller.
+    fn scan_staged_drift_callers() -> BTreeMap<String, String> {
+        const DRIFT_CALL: &str = "note_durable_sidecar_drift(";
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut callers = BTreeMap::new();
+        let mut files = Vec::new();
+        collect_rust_sources(&source_root, &mut files);
+        for path in files {
+            let name = path
+                .strip_prefix(&source_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            if name == "session.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read crate source file");
+            let raw = text.lines().collect::<Vec<_>>();
+            let lines = strip_cfg_test_items(&raw);
+            let mut current = String::from("<file scope>");
+            for line in &lines {
+                if let Some(declared) = declared_fn_name(line) {
+                    current = declared;
+                }
+                if collapse_for_scan(line).contains(DRIFT_CALL) {
+                    // File only, like the sibling scan: `lines` is the cfg(test)-stripped
+                    // view, so its index is NOT the line number in the real file.
+                    callers
+                        .entry(current.clone())
+                        .or_insert_with(|| name.clone());
+                }
+            }
+        }
+        callers
+    }
+
+    /// The oracle for the drift note itself, and the reason it is not a runtime
+    /// assert inside `note_durable_sidecar_drift`.
+    ///
+    /// Outside an actor stage that function is a deliberate no-op, so a caller
+    /// reached from boot, a CLI path, or a spawned task would lose its drift in
+    /// silence. A stage check at the call site cannot catch that: a pre-actor
+    /// session is indistinguishable from a bare one, and the bare shape is
+    /// legitimate — the crate's own tests drive these handlers without an actor
+    /// precisely to exercise the unstaged direct-persist path.
+    ///
+    /// So the guard is here instead, and it is stronger: every shipped caller must
+    /// be declared in `DURABLE_SIDECAR_WRITERS`, which
+    /// `durable_writer_routes_agree_with_the_read_only_classification` forces to
+    /// name a real routed verb. A boot/CLI/spawn caller has no verb to name, so it
+    /// fails when it is WRITTEN rather than only if some test happens to run it.
+    #[test]
+    fn no_undeclared_staged_drift_caller_exists() {
+        let observed = scan_staged_drift_callers();
+        assert!(
+            !observed.is_empty(),
+            "the drift-caller scan found nothing — it has gone blind (renamed function \
+             or moved call shape), which would make this guard silently useless"
+        );
+
+        let declared = DURABLE_SIDECAR_WRITERS
+            .iter()
+            .map(|(function, ..)| *function)
+            .collect::<std::collections::BTreeSet<_>>();
+        let undeclared = observed
+            .iter()
+            .filter(|(function, _)| !declared.contains(function.as_str()))
+            .map(|(function, evidence)| format!("{function} ({evidence})"))
+            .collect::<Vec<_>>();
+        assert!(
+            undeclared.is_empty(),
+            "these functions note durable sidecar drift but are absent from \
+             DURABLE_SIDECAR_WRITERS: {undeclared:?}. The note is a NO-OP outside an actor \
+             stage, so declare the verb this runs under — if there is none, this caller is \
+             reached from boot, a CLI path, or a spawned task and its drift is lost: route it \
+             through a staged actor turn instead"
         );
     }
 

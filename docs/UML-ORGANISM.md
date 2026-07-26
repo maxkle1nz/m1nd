@@ -272,6 +272,17 @@ now explicit and mechanically guarded — `session.rs` freezes the sidecar inven
 every declared writer against the live classification, and SCANS the shipped source so a new
 writer that forgets to declare a route fails loudly (`no_undeclared_durable_sidecar_writer_exists`).
 
+**The drift note is guarded at the source, not at runtime.** `note_durable_sidecar_drift` is a
+deliberate NO-OP outside an actor stage, so a caller reached from boot, a CLI path or a spawned
+task would lose its drift in silence. That cannot be caught by asserting a live stage inside the
+function: a pre-actor session is indistinguishable from a bare one, and the bare shape is
+legitimate and tested — with a stage open `persist` records intent instead of writing, which is
+exactly the unstaged path the auto-ingest and document tests reload from disk to prove. A second
+scan (`no_undeclared_staged_drift_caller_exists`) instead requires every shipped caller of the
+note to appear in `DURABLE_SIDECAR_WRITERS`, whose rows must name a real routed verb. A
+boot/CLI/spawn caller has no verb to name, so it fails when it is WRITTEN rather than only if
+some test happens to run it.
+
 **The guard is closed on one side only.** Sidecar writers are scanned; INTERIOR COLUMN writers
 are a hand-kept list. The strict fence admits interior drift (tags, provenance, edge weights) by
 design — the transport path runs on every call and a content-sensitive fence would have to
