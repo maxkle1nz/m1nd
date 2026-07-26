@@ -1599,6 +1599,32 @@ fn path_text(path: &Path) -> String {
     crate::scope::normalize_path_text(&path.to_string_lossy())
 }
 
+/// Component-wise position of `target` inside `root`, with both sides first
+/// projected into the single identity domain this subsystem stores paths in.
+///
+/// Every sealed record (`target_identity`, `managed_root`, `candidate_temp_path`,
+/// `transaction_directory`, ...) is written through [`path_text`], which flips
+/// separators and STRIPS the Windows verbatim prefix (`\\?\C:\repo` -> `C:/repo`).
+/// Every live path is produced by `fs::canonicalize`, which ADDS that prefix. The
+/// two domains coincide on Unix and are disjoint on Windows — `Path` compares
+/// prefix components by kind, and `VerbatimDisk('C')` never equals `Disk('C')` —
+/// so relating a live root to a durable identity could not succeed on Windows at
+/// all. Projecting both sides through `path_text` puts them in one domain.
+///
+/// The containment test itself stays `Path::strip_prefix`, i.e. component-wise:
+/// `C:/repo-evil` is still not inside `C:/repo`. This resolves a spelling, it
+/// never widens what counts as "inside".
+fn relative_within_root(root: &Path, target: &Path) -> Result<PathBuf, SourceEditTransactionError> {
+    let root_text = path_text(root);
+    let target_text = path_text(target);
+    Path::new(&target_text)
+        .strip_prefix(Path::new(&root_text))
+        .map(Path::to_path_buf)
+        .map_err(|_| {
+            SourceEditTransactionError::Preflight("target escapes managed root".to_string())
+        })
+}
+
 fn canonical_runtime_root(state: &SessionState) -> Result<PathBuf, SourceEditTransactionError> {
     let raw_metadata = fs::symlink_metadata(&state.runtime_root)
         .map_err(|error| io_error("runtime_root_lstat", error))?;
@@ -1653,17 +1679,23 @@ fn managed_target(
             target.display()
         ))
     })?;
-    validate_no_symlink_components(&managed_root, &target)?;
+    let target = validate_no_symlink_components(&managed_root, &target)?;
     Ok((managed_root, target))
 }
 
+/// Refuse any target that is not a symlink-free descent from `root`, and return
+/// the exact path that was walked.
+///
+/// The returned path is `root` plus the validated components, so a caller that
+/// then opens it touches precisely the chain that was `lstat`ed — the target can
+/// no longer be validated under one spelling and opened under another. `target`
+/// may legitimately arrive in either identity domain (see
+/// [`relative_within_root`]); the walk always proceeds from `root`.
 fn validate_no_symlink_components(
     root: &Path,
     target: &Path,
-) -> Result<(), SourceEditTransactionError> {
-    let relative = target.strip_prefix(root).map_err(|_| {
-        SourceEditTransactionError::Preflight("target escapes managed root".to_string())
-    })?;
+) -> Result<PathBuf, SourceEditTransactionError> {
+    let relative = relative_within_root(root, target)?;
     let mut cursor = root.to_path_buf();
     for component in relative.components() {
         match component {
@@ -1683,14 +1715,16 @@ fn validate_no_symlink_components(
             )));
         }
     }
-    Ok(())
+    Ok(cursor)
 }
 
 fn read_target_snapshot(
     managed_root: &Path,
     target: &Path,
 ) -> Result<SourceEditTargetSnapshotV1, SourceEditTransactionError> {
-    validate_no_symlink_components(managed_root, target)?;
+    // Read the chain that was just walked, never the caller's spelling of it.
+    let validated = validate_no_symlink_components(managed_root, target)?;
+    let target = validated.as_path();
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -2118,7 +2152,7 @@ fn validate_pre_stage_intent_for_prepared(
         descriptor_core_for_prepared(prepared, intent.core.descriptor.core.created_at_ms)?;
     let expected_directory = prepared.transaction_root.join(&prepared.transaction_id);
     if intent.core.descriptor.core != expected_descriptor
-        || Path::new(&intent.core.transaction_directory) != expected_directory
+        || intent.core.transaction_directory != path_text(&expected_directory)
     {
         return Err(SourceEditTransactionError::ContextBinding(
             "durable pre-stage intent differs from the prepared source edit".to_string(),
@@ -2677,7 +2711,7 @@ fn validate_stage_descriptor_binding(
     validate_pre_stage_intent(&intent)?;
     if intent.intent_digest != staged.core.pre_stage_intent_digest
         || intent.core.descriptor != *descriptor
-        || Path::new(&intent.core.transaction_directory) != directory
+        || intent.core.transaction_directory != path_text(directory)
     {
         return Err(SourceEditTransactionError::ContextBinding(
             "durable stage differs from its first-write pre-stage intent".to_string(),
@@ -3382,7 +3416,7 @@ fn load_pre_stage_intent_from_root(
     )?;
     validate_pre_stage_intent(&intent)?;
     if intent.core.transaction_id != transaction_id
-        || Path::new(&intent.core.transaction_directory) != transaction_root.join(transaction_id)
+        || intent.core.transaction_directory != path_text(&transaction_root.join(transaction_id))
     {
         return Err(SourceEditTransactionError::ContextBinding(
             "pre-stage intent differs from its transaction-root identity".to_string(),
@@ -3699,7 +3733,7 @@ fn cleanup_aborted_pre_stage<F: SourceEditFaults>(
     let intent = &receipt.core.pre_stage_intent;
     let transaction_id = &intent.core.transaction_id;
     let directory = root.join(transaction_id);
-    if Path::new(&intent.core.transaction_directory) != directory {
+    if intent.core.transaction_directory != path_text(&directory) {
         return Err(SourceEditTransactionError::ContextBinding(
             "pre-stage abort transaction directory escapes its canonical root".to_string(),
         ));
@@ -4021,7 +4055,7 @@ fn validate_abort_artifact_paths(
     let expected_rollback = expected_candidate.with_extension("rollback");
     if Path::new(&descriptor.core.candidate_temp_path) != expected_candidate
         || Path::new(&descriptor.core.rollback_temp_path) != expected_rollback
-        || Path::new(&descriptor.core.backup_path) != directory.join("before.bytes")
+        || descriptor.core.backup_path != path_text(&directory.join("before.bytes"))
         || Path::new(&descriptor.core.candidate_temp_path) == target
         || Path::new(&descriptor.core.rollback_temp_path) == target
     {
@@ -4047,7 +4081,7 @@ fn validate_abort_receipt_paths(
     if Path::new(&receipt.core.candidate_temp_path) != expected_candidate
         || Path::new(&receipt.core.rollback_temp_path)
             != expected_candidate.with_extension("rollback")
-        || Path::new(&receipt.core.backup_path) != directory.join("before.bytes")
+        || receipt.core.backup_path != path_text(&directory.join("before.bytes"))
         || Path::new(&receipt.core.candidate_temp_path) == target
         || Path::new(&receipt.core.rollback_temp_path) == target
     {
@@ -4590,6 +4624,69 @@ mod tests {
             SourceEditCommitAdapterV1::prepare(&fixture.cell, &fixture.request, &context)
                 .expect("prepare");
         (prepared, context)
+    }
+
+    /// Every sealed source-edit record stores its paths through [`path_text`],
+    /// which strips the Windows verbatim prefix (`\\?\C:\repo` -> `C:/repo`),
+    /// while every live path comes from `fs::canonicalize`, which ADDS it. The
+    /// two spellings name the same directory, so a live canonical root must be
+    /// able to relate a durable identity — and a sibling directory must still
+    /// be refused, because a textual prefix is not containment.
+    #[test]
+    fn a_live_canonical_root_relates_a_durable_identity_without_admitting_a_sibling() {
+        let verbatim_root = PathBuf::from(r"\\?\C:\repo");
+        assert_eq!(
+            relative_within_root(&verbatim_root, Path::new("C:/repo/src/lib.rs"))
+                .expect("one directory, two spellings"),
+            PathBuf::from("src/lib.rs")
+        );
+        for escape in [
+            "C:/repo-evil/src/lib.rs",
+            "C:/other/lib.rs",
+            r"\\?\C:\repo-evil\src\lib.rs",
+        ] {
+            assert!(
+                relative_within_root(&verbatim_root, Path::new(escape)).is_err(),
+                "a textual prefix must never be read as containment: {escape}"
+            );
+        }
+    }
+
+    /// A resolved spelling must still be the walked chain: the path
+    /// `validate_no_symlink_components` returns is what a caller opens, so it
+    /// can never validate one path and touch another.
+    #[test]
+    fn the_validated_path_is_the_chain_that_was_walked() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().canonicalize().expect("canonical root");
+        fs::create_dir_all(root.join("src")).expect("tree");
+        fs::write(root.join("src/lib.rs"), BEFORE).expect("target");
+
+        let walked = validate_no_symlink_components(&root, &root.join("src/lib.rs"))
+            .expect("symlink-free descent");
+        assert_eq!(walked, root.join("src").join("lib.rs"));
+
+        // `..` is refused before any of it is walked, resolved spelling or not.
+        let escape = root.join("src").join("..").join("..").join("passwd");
+        assert!(validate_no_symlink_components(&root, &escape).is_err());
+    }
+
+    /// The property that makes a durable identity and a live canonical path
+    /// converge at all: projecting twice is projecting once.
+    #[test]
+    fn path_text_is_the_single_identity_domain_for_stored_and_live_paths() {
+        for raw in [
+            r"\\?\C:\repo\runtime\tx",
+            "C:/repo/runtime/tx",
+            "/srv/repo/runtime/tx",
+        ] {
+            let once = path_text(Path::new(raw));
+            assert_eq!(path_text(Path::new(&once)), once, "not idempotent: {raw}");
+        }
+        assert_eq!(
+            path_text(Path::new(r"\\?\C:\repo\runtime\tx")),
+            path_text(Path::new("C:/repo/runtime/tx"))
+        );
     }
 
     #[test]
