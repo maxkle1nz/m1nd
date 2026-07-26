@@ -1699,7 +1699,21 @@ fn validate_no_symlink_components(
     let mut cursor = root.to_path_buf();
     for component in relative.components() {
         match component {
-            Component::Normal(value) => cursor.push(value),
+            Component::Normal(value) => {
+                cursor.push(value);
+                // `PathBuf::push` REPLACES the buffer when what it pushes carries
+                // a prefix — and on Windows a `Normal` component can spell one
+                // (`Path::new("C:")` is `Prefix(Disk('C'))` with no root), which
+                // would silently re-root the cursor drive-relative to the process
+                // CWD. The walk is only a containment proof if the cursor never
+                // leaves `root`, so state that invariant instead of assuming it.
+                if !cursor.starts_with(root) {
+                    return Err(SourceEditTransactionError::Preflight(format!(
+                        "path component '{}' escapes the managed root",
+                        Path::new(value).display()
+                    )));
+                }
+            }
             _ => {
                 return Err(SourceEditTransactionError::Preflight(
                     "target contains a non-normal path component".to_string(),
@@ -4660,13 +4674,16 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().canonicalize().expect("canonical root");
         fs::create_dir_all(root.join("src")).expect("tree");
-        fs::write(root.join("src/lib.rs"), BEFORE).expect("target");
+        // Never `join("src/lib.rs")` off a canonicalized root: the Windows
+        // verbatim prefix turns OFF path normalization, so `/` stops being a
+        // separator and asks NTFS for a file literally named `src/lib.rs`.
+        fs::write(root.join("src").join("lib.rs"), BEFORE).expect("target");
 
-        let walked = validate_no_symlink_components(&root, &root.join("src/lib.rs"))
+        let walked = validate_no_symlink_components(&root, &root.join("src").join("lib.rs"))
             .expect("symlink-free descent");
         assert_eq!(walked, root.join("src").join("lib.rs"));
 
-        // `..` is refused before any of it is walked, resolved spelling or not.
+        // `..` is refused when the walk reaches it, resolved spelling or not.
         let escape = root.join("src").join("..").join("..").join("passwd");
         assert!(validate_no_symlink_components(&root, &escape).is_err());
     }
