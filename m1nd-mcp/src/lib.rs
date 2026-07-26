@@ -138,8 +138,12 @@ pub mod promote_handlers;
 pub mod skeleton_scan;
 pub mod soul_handlers;
 pub mod surgical_handlers;
+// The `transplant` verb (graph-addressed cross-file move of a top-level `fn`):
+// resolve via the graph, trichotomy from `calls` edges, atomic write through the
+// apply_batch machinery. Design + proof addresses: `docs/TRANSPLANT-PRD.md`.
 pub mod system_blocks;
 pub mod system_blocks_handlers;
+pub mod transplant;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;
@@ -170,6 +174,9 @@ mod file_view_brain_root_internal_tests;
 #[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/hall_brains_listing.rs"]
 mod hall_brains_listing_internal_tests;
+#[cfg(all(test, feature = "serve"))]
+#[path = "internal_tests/http_compression.rs"]
+mod http_compression_internal_tests;
 #[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/mailbox_m7b.rs"]
 mod mailbox_m7b_internal_tests;

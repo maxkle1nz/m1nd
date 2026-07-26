@@ -631,6 +631,33 @@ pub fn m1nd10_action_catalog() -> Result<ActionCatalogV1, ActionCatalogError> {
             Medium,
             Ordinary,
         ),
+        // The transplant verb moves a top-level item across files, writing
+        // source + dest + every derived referencer. Its
+        // effect tuple mirrors source.apply/source.edit.commit — a real on-disk
+        // source write consumed under the armed proof gate. `transplant_commit`
+        // lands a staged plan (the same write under a handle); `transplant_preview`
+        // only stages in memory, so it carries the read stance of source.edit.preview.
+        entry(
+            "source.transplant.single",
+            [Mcp],
+            [SourceFilesystemWrite, RuntimeStoreWrite, CoordinationRecord],
+            High,
+            ScopedGrantA2,
+        ),
+        entry(
+            "source.transplant.commit",
+            [Mcp],
+            [SourceFilesystemWrite, RuntimeStoreWrite, CoordinationRecord],
+            High,
+            ScopedGrantA2,
+        ),
+        entry(
+            "source.transplant.preview",
+            [Mcp],
+            [Read, CoordinationRecord],
+            Low,
+            Ordinary,
+        ),
         entry("xray.apply.dry_run", [Mcp], [Read], Medium, Ordinary),
         entry(
             "xray.apply.commit",
@@ -2005,7 +2032,7 @@ mod tests {
         // `graph.ingest.preview` is now an explicit read-only governed action
         // rather than an untracked pre-mutation side channel.  Keep this pin in
         // lock-step with the exhaustive consumer registry.
-        assert_eq!(catalog.entries.len(), 169);
+        assert_eq!(catalog.entries.len(), 172);
         assert_eq!(ingresses.len(), 7);
     }
 }

@@ -15,9 +15,10 @@
  * The classification is the pure `reduceUniversePoll` (DOM-free, unit-tested — the
  * repo's `loadBuildMap`/`landCandidate` pattern); the hook is the thin poll shell.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { UniverseResponse } from '../lib/universe';
+import { usePoller } from './usePoller';
 
 export type UniverseStatus = 'loading' | 'ready' | 'error';
 
@@ -98,27 +99,26 @@ export function useUniverse(enabled: boolean): UniverseData {
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  useEffect(() => {
-    if (!enabled) return;
-    let mounted = true;
-    const poll = () =>
+  // ~5s panorama nerve, guarded: at most one read in flight (no stacking under a
+  // stalled owner), paused while the tab is hidden, aborted on teardown. An abort
+  // is NOT a real failure — a torn-down/superseded read returns before it can be
+  // misread as an `error` that would blank or fly the retry note over the sky.
+  usePoller(
+    (signal) =>
       api
-        .universe()
+        .universe(signal)
         .then((u) => {
-          if (mounted) setState((prev) => reduceUniversePoll(prev, { ok: true, data: u }));
+          if (!signal.aborted) setState((prev) => reduceUniversePoll(prev, { ok: true, data: u }));
         })
         .catch((err) => {
-          if (!mounted) return;
+          if (signal.aborted) return;
           const is404 = err instanceof ApiError && err.status === 404;
           setState((prev) => reduceUniversePoll(prev, { ok: false, is404 }));
-        });
-    poll();
-    const id = setInterval(poll, 5000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
-  }, [enabled, tick]);
+        }),
+    5000,
+    enabled,
+    [tick],
+  );
 
   return { status: state.status, universe: state.universe, note: state.note, reload };
 }

@@ -3,10 +3,11 @@
 Vendor-neutral instructions for autonomous agents (Jules, Codex, Claude Code, Cursor, …)
 working on this repository. Read this first; it is the contract.
 
-**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2):
-`m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) · `m1nd-mcp`
-(the served MCP owner + every verb) · `m1nd-openclaw`. Plus `m1nd-ui` (the served web
-UI, Vite/React) and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
+**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2, six
+members): `m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) ·
+`m1nd-mcp` (the served MCP owner + every verb) · `m1nd-control` · `m1nd-runnerd` (the
+write/execution lane — the only spawner) · `m1nd-openclaw`. Outside the Rust workspace:
+`m1nd-ui` (the served web UI, Vite/React), `m1nd-demo`, and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
 local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are real answers).
 
 This is a **PUBLIC** repository. Everything you commit is published.
@@ -16,12 +17,17 @@ This is a **PUBLIC** repository. Everything you commit is published.
 Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
-cargo check --workspace
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
-cargo build --release --workspace
 ```
+
+There is deliberately no standalone `cargo check` (clippy type-checks every target on its way
+to linting — a separate pass was a redundant full compile), and the `--release` workspace
+build runs on **main pushes only**, not on PRs (2026-07-24: it proved nothing tests+clippy
+don't and cost ~half of every 70-minute CI round; the signed release pipeline rebuilds
+`--release` at tag time regardless). A release-profile-only breakage is caught on the main
+push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
 **Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
 identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
@@ -94,6 +100,13 @@ owner on port `1338` — all tests use temp dirs.
   as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
   State the groundwork's provenance honestly in the commit body — never claim an authorship
   the platform did not produce.
+- **How PRs merge (owner-ratified 2026-07-24): squash is the default.** One PR = one
+  conventional commit on main — the changelog is generated from commit subjects, branch noise
+  (WIP commits, conflict-resolution merges) never lands individually, and any PR reverts as one
+  gesture. **Merge commits are reserved** for ceremonies where the commit LINEAGE is itself the
+  artifact — the M1ND-10 candidate freezes, where each preserved commit carries its own guard
+  PASS (squash would destroy the proof). Auto-merge (squash) is armed on a PR once it has a
+  review verdict; never arm what nobody read.
 - The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
   `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
   the docs reflect it.
@@ -116,6 +129,41 @@ unless m1nd is served at a reachable address.
 
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
+
+## The box — carve out-of-scope findings in stone (mandatory, every repo)
+
+**The spool above IS the box.** `~/.m1nd/field-reports.jsonl` is the ONE append-only write slot
+(`mailbox.rs`); a distributor routes each entry by its `repo` field into that project's box.
+Writing a field report and writing a letter are the same gesture, not two — the classes are the
+same set (`bug` / `honesty` / `friction` / `win`). What follows is the half that was never
+stated: what the box is FOR, and the duty to read and close it.
+
+Every repo has a box: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
+consent-deferred `.gitignore` (`mailbox.rs` §C7.5); the repo's own `m1nd init` is the ONE
+consent moment that flips it to committed, after which what the project knows travels with the
+project. An existing `.gitignore` is never rewritten. **Committing a box publishes its letters —
+in a public repo, treat that as a publishing decision, not a formality.**
+
+The box exists for one specific case, and it is the case that bites subagents hardest: **you
+hit a real defect that is NOT in your scope.** Do not fix it mid-mission (that is how a focused
+change becomes an unreviewable sprawl) and do not swallow it. Write one letter — what you saw,
+what you expected, the evidence — so the system's MAIN agent can fix it at the opportune
+moment. Carving it in stone is the whole point: the finding outlives your session.
+
+**Two boxes, always.** The project you are working in, and m1nd's own — m1nd is the tool every
+agent here depends on, so a defect in it belongs to everyone to report and to its main agent to
+fix. Read a box with `GET /api/mailbox?brain=<root>` or `m1nd-mcp --inbox-sweep`; these are
+CLI/REST surfaces, never MCP tools, never in the agent loop.
+
+**A letter nobody answers is pressure, not honesty** (`mailbox.rs`'s own words). Whoever holds a
+system answers its box: closing a letter is as much the duty as writing one. Proof this matters:
+on 2026-07-04 a subagent filed `Job Test(windows-latest) marks FAIL on the last 3 merges though
+every cargo test inside it passes`. Nobody read the box. Twenty days later the same condition
+was rediscovered from zero, after it had held the entire merge queue hostage and forced an owner
+override to publish 1.5.0. The write half worked perfectly; the read half did not exist.
+
+**Subagents get specs, not session hooks** — so a subagent spec must carry this duty verbatim,
+or the population most likely to find out-of-scope defects is the one least likely to file them.
 
 ## Wear the wire — the cards, the voice, the presences (when m1nd is served)
 

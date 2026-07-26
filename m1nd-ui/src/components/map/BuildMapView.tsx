@@ -34,6 +34,12 @@ import { useSSE } from '../../hooks/useSSE';
 import { scanServerPhaseFromEvent } from '../../lib/scanMachine';
 import BuildMap from './BuildMap';
 import ReviewRatify from './ReviewRatify';
+import { MapErrorScreen, MapLoadingScreen } from './MapStatusScreen';
+
+/** After this much of a continuous cold load the loading screen promotes to its
+ *  `slow` note + Retry (mirrors the scan wait's SCAN_SLOW_AFTER_MS): the map can
+ *  never sit on a silent forever-spin when the engine is unreachable/hung. */
+const MAP_LOADING_SLOW_AFTER_MS = 10_000;
 
 export interface BuildMapViewProps {
   /** Open the Living Tree (kept one click away — PRD: the deterministic surface
@@ -64,6 +70,28 @@ export default function BuildMapView({
   // open panel are preserved — a live refresh never yanks them.
   const [liveRefreshKey, setLiveRefreshKey] = useState(0);
   const { status, snapshot, rollup, error, reload } = useBuildMap(enabled, brainRoot, liveRefreshKey);
+
+  // Cold-load honesty (5-stati): a hung read (engine unreachable but the socket
+  // stays open, so the fetch never rejects) used to leave 'loading' up forever with
+  // no note and no way out. Past ~10s of continuous loading, promote to the `slow`
+  // screen (honest note + Retry). `loadAttempt` bumps on Retry so a manual retry
+  // restarts the grace window even when status stays 'loading' (loading→loading).
+  const [loadingSlow, setLoadingSlow] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setLoadingSlow(false);
+    setLoadAttempt((n) => n + 1);
+    reload();
+  }, [reload]);
+  useEffect(() => {
+    if (status !== 'loading') {
+      setLoadingSlow(false);
+      return;
+    }
+    setLoadingSlow(false);
+    const id = setTimeout(() => setLoadingSlow(true), MAP_LOADING_SLOW_AFTER_MS);
+    return () => clearTimeout(id);
+  }, [status, loadAttempt]);
   // Subscribe ONLY this surface (never the App-level front-door read — that would
   // double-refetch). SCOPED to the brain in view (§4A.9.6): a mutation on another
   // brain leaves this map untouched. Gated off the cold 'loading' start (the first
@@ -338,30 +366,11 @@ export default function BuildMapView({
   }, [sendingCuration, snapshot, brainRoot, runnerd.available, reload]);
 
   if (status === 'loading') {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-loading">
-        <div className="text-sm text-ink-soft">Loading repository map…</div>
-      </div>
-    );
+    return <MapLoadingScreen slow={loadingSlow} onRetry={retry} />;
   }
 
   if (status === 'error') {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-error">
-        <div className="text-center space-y-3 px-6">
-          <div className="text-sm text-state-failure">Failed to load map</div>
-          {error && <div className="text-xs text-ink-soft font-mono max-w-md break-words">{error}</div>}
-          <button
-            type="button"
-            data-role="retry"
-            onClick={reload}
-            className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
+    return <MapErrorScreen error={error} onRetry={retry} />;
   }
 
   // ready | empty — BuildMap renders the canvas or the honest empty screen; the

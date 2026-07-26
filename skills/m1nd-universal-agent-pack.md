@@ -40,6 +40,18 @@ governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
 under mismatch is PROHIBITED — see Write-Mode Laws below, and no public
 bootstrap lifts it.
 
+**Version skew — read the fingerprint before trusting either era's rule.** This
+skill describes the CURRENT product; the machine may be serving an OLDER owner.
+`health`/`north` carry `binding.fingerprint.binary_version` and a `binary_drift`
+warning — read them first. On a legacy 1.4.x served owner the withdrawn
+bootstrap still EXISTS and is the correct gesture there: from a repo the owner
+does not cover, `ingest {project_root: <your repo root>}` mints a SEPARATE
+per-project brain and never replaces the bound graph. What is NEVER correct in
+ANY era is a plain `ingest {path}` from a foreign root — on a legacy owner it
+REPLACES the bound brain wholesale (2026-07-24 incident: a foreign session's
+plain ingest swapped a 29k-node brain for its own graph; restored the same
+day). When in doubt, read-only plus your own repo's docs is always legal.
+
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:
 
@@ -149,6 +161,7 @@ merit; facts, never estimated savings (G1).
 | simulate | the crystal ball | `predict`, `counterfactual`, `hypothesize`, `epidemic` |
 | memory | the notebook | `memorize`, `boot_memory`, `promote`, `learn` |
 | missions | the order board | `mission_post`, `mission_spawn`, `mission_*` |
+| write | the surgeon's hand | `apply`, `apply_batch`, `edit_preview`/`edit_commit`, `transplant` (+ `transplant_preview`/`transplant_commit`) |
 | skeleton | the wall map | `skeleton_candidate`, `candidate_edit`, `system_blocks_*` |
 | proof | the receipt ledger | `receipt_import`, `cross_verify`, `soul_check` |
 | health | the doctor | `doctor`, `trust_selftest`, `health`, `recovery_playbook` |
@@ -291,10 +304,14 @@ the writer never checked which brain answered it.
    `allow_overlap` are not in the published `ingest` schema). A burst worktree
    does NOT earn its own brain — bind to the main repo's.
 
-**The write surface, briefly.** The block map (skeleton) is edited by one atomic
-verb, `candidate_edit` (six typed ops under `expected_store_version`; refuses on a
-ratified skeleton — candidate-only); `candidate_lease` is advisory and never
-blocks. **Ratify is EXCLUSIVELY human — no agent ratifies a skeleton, ever.** A
+**The write surface, briefly.** Source is written by `apply`/`apply_batch` (you
+author the new contents) or by `transplant` (you name a symbol and two paths and
+the SERVER authors them — the move of a top-level Rust `fn` inside one crate,
+with referencers re-qualified; its receipt states what it could NOT do instead of
+going quiet, and a refusal touches zero bytes). The block map (skeleton) is edited
+by one atomic verb, `candidate_edit` (six typed ops under
+`expected_store_version`; refuses on a ratified skeleton — candidate-only);
+`candidate_lease` is advisory and never blocks. **Ratify is EXCLUSIVELY human — no agent ratifies a skeleton, ever.** A
 mission is a letter (`mission_post`): `brain_ref` is the brain's display name (the
 basename of its root, never an absolute path; a wrong one is `brain_mismatch`),
 `block_id` must name a real block (else `unknown_block`; a smoke/probe letter sets

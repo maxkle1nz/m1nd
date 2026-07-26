@@ -14,9 +14,10 @@
  * refetches immediately. The fetch heart is extracted as `loadMissions` so the
  * routing + the degraded-owner branch are provable DOM-free.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from '../api/client';
 import type { MissionHead } from '../lib/missions';
+import { usePoller } from './usePoller';
 
 /** loading → the first fetch is in flight · ready → heads served · unsupported →
  *  the owner has no `kind=mission` read (a pre-F2.5a owner: needs an update) ·
@@ -46,9 +47,13 @@ export interface MissionsSinks {
  * honest "mission letters need an updated owner", never an empty tray pretending
  * there are no missions. A thrown fetch (network/404) is `error`.
  */
-export async function loadMissions(brainRoot: string | null, sinks: MissionsSinks): Promise<void> {
+export async function loadMissions(
+  brainRoot: string | null,
+  sinks: MissionsSinks,
+  signal?: AbortSignal,
+): Promise<void> {
   try {
-    const resp = await api.missionHeads(brainRoot);
+    const resp = await api.missionHeads(brainRoot, signal);
     if (!sinks.isMounted()) return;
     if (!Array.isArray(resp.missions)) {
       // The owner does not speak kind=mission — degrade honestly, do not blank.
@@ -76,23 +81,22 @@ export function useMissions(
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  useEffect(() => {
-    if (!enabled) return;
-    let mounted = true;
-    const sinks: MissionsSinks = {
-      isMounted: () => mounted,
-      setMissions,
-      setStatus,
-      setError,
-    };
-    void loadMissions(brainRoot, sinks);
-    // Live only while expanded — the collapsed strip keeps the last snapshot.
-    const id = expanded ? setInterval(() => void loadMissions(brainRoot, sinks), 8000) : null;
-    return () => {
-      mounted = false;
-      if (id != null) clearInterval(id);
-    };
-  }, [enabled, brainRoot, expanded, tick]);
+  // One fetch on mount/dep-change; the ~8s interval runs ONLY while expanded (the
+  // collapsed strip keeps its last snapshot — `intervalMs = null` = poll once, no
+  // timer). Guarded: at most one read in flight (no stacking under a stalled
+  // owner), paused while the tab is hidden, aborted on teardown. `isMounted` is
+  // bridged to the AbortSignal so a torn-down/superseded read never writes state.
+  usePoller(
+    (signal) =>
+      loadMissions(
+        brainRoot,
+        { isMounted: () => !signal.aborted, setMissions, setStatus, setError },
+        signal,
+      ),
+    expanded ? 8000 : null,
+    enabled,
+    [brainRoot, expanded, tick],
+  );
 
   return { missions, status, error, reload };
 }

@@ -5,7 +5,7 @@
  * the blast-radius floor line (§3.4). Read-only.
  *
  * §4A.10 adds the READING instruments: three LENSES (directory | kind | layer),
- * six matte FILTER chips (each a real field, "N hidden by filters" residue), and
+ * six matte FILTER chips (each a real field, "N hidden by lens|filters" residue), and
  * SEARCH in two modes — `name` (instant substring, shipped) and `meaning`
  * (`seek`, with the sufficiency line + verdict rendered honestly). A breadcrumb
  * of the focused node; a density toggle (a preference). No map here — the map is
@@ -24,6 +24,7 @@ import {
   rowPasses,
   nameMatches,
   filterResidue,
+  residueHiddenBy,
   type Lens,
   type FilterKey,
   type GroupRow,
@@ -647,11 +648,14 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
               <div className="px-3 h-6 flex items-center gap-2 border-t border-ink/10 text-[11px] text-ink-soft" data-role="filter-residue">
                 <span>
                   <span className="font-mono tabular-nums">{residue.shown.toLocaleString()}</span> rows ·{' '}
-                  <span className="font-mono tabular-nums">{residue.hidden.toLocaleString()}</span> hidden by filters
+                  <span className="font-mono tabular-nums">{residue.hidden.toLocaleString()}</span> hidden by{' '}
+                  {residueHiddenBy(filtersOrSearchActive)}
                 </span>
-                <button type="button" onClick={clearFilters} className="text-ink-soft/80 hover:text-ink underline">
-                  clear
-                </button>
+                {filtersOrSearchActive && (
+                  <button type="button" onClick={clearFilters} className="text-ink-soft/80 hover:text-ink underline">
+                    clear
+                  </button>
+                )}
               </div>
             )}
 

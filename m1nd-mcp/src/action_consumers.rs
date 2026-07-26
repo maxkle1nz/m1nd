@@ -24,8 +24,8 @@ pub const ACTION_CONSUMER_CONTRACT_SCHEMA: &str = "m1nd-action-consumer-contract
 /// declarations and this digest together; silently regenerating the registry
 /// from a changed catalog is forbidden.
 pub const EXPECTED_M1ND10_ACTION_CATALOG_DIGEST: &str =
-    "fabea7bd34c3a8770d01807cd5339c5fa4ba9da98485da75f11891562d1b14f7";
-pub const EXPECTED_M1ND10_ACTION_COUNT: usize = 169;
+    "9d738cfad09d8ac4de7fcc4b848cda703cb0b46c874a658cc4d2243b774ff493";
+pub const EXPECTED_M1ND10_ACTION_COUNT: usize = 172;
 
 pub const MISSION_SERVICE_CONTRACT_VERSION: &str = "m1nd-mission-service-transport-request-v1";
 pub const EXTERNAL_MUTATION_SERVICE_CONTRACT_VERSION: &str = "m1nd-external-mutation-consumer-v1";

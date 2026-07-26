@@ -132,4 +132,8 @@ m1nd-ui/test-results/
 m1nd-ui/playwright-report/
 m1nd-ui/e2e/artifacts/
 .vitals-due
+
+# Content-addressed brain store minted at the repo root by another profile's
+# runtime — a runtime artifact, never source. One `git add -A` away from
+# publishing a brain; keep it invisible to git. (Salvaged from PR #398.)
 checkpoint-store/

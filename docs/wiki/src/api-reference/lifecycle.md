@@ -20,10 +20,21 @@ store holds claims that simply did not match this task, `memory_exists` is `> 0`
 and `honest_gaps` says the store has memory that did not match — the false
 "no durable memory yet" line is emitted **only** when the store is truly empty.
 
-**Packet budget.** The binding serializes the `ingest_roots` array exactly once
-(in `binding.fingerprint`); `binding.graph_state` carries only the
-`ingest_root_count`, never a duplicate copy of the array. Durable memory sidecars
-in the `agent-memory` store collapse into the single store-directory root rather
+**Packet budget.** The binding block is **fixed-cost**: it may not grow with the
+brain, because `north` runs on every session and every task. `binding.graph_state`
+carries only the `ingest_root_count`, never a copy of the array.
+`binding.fingerprint` carries at most the **first 10** ingest roots (the array is
+ordered oldest → newest, so the head is the identity-bearing prefix and stays
+stable across writes, which is what makes cross-seam fingerprint comparison
+meaningful) and always states the real total in `ingest_root_count`. Truncation
+is **declared, never silent**: `ingest_roots_truncated` (bool, always present),
+`ingest_roots_omitted` (how many entries are not shown), and
+`ingest_roots_full_surface` — the pointer to the surface that serves the whole
+array, [`doctor`](#m1nddoctor) under `runtime_state.ingest_roots` (`null` when
+nothing was omitted). Measured on a live owner 2026-07-24: 380 roots cost 25,907
+bytes (~6.5k tokens) on **every** `north` before the head-truncation; the same
+fingerprint now serializes in under 2,000 bytes. Durable memory sidecars in the
+`agent-memory` store also collapse into the single store-directory root rather
 than minting one ingest root per `.light.md` file, so the packet stays within its
 2,000-token MCP budget as the memory store grows.
 
@@ -763,6 +774,11 @@ If the suspicious call included a path from another repo, pass it as `scope`.
 `doctor` will surface `context_guard.wrong_workspace_binding=true` and suggest
 rebinding with `M1ND_WORKSPACE_ROOT`, same-binding ingest, or explicit
 federation instead of diagnosing a stale graph.
+
+`doctor` is also the surface that serves the **complete** `ingest_roots` array,
+under `runtime_state.ingest_roots`. The `north` binding fingerprint is
+budget-capped and carries only a head plus the count (see
+[Packet budget](#m1ndnorth)); when you need every root, ask `doctor`.
 
 ### Parameters
 
@@ -1508,6 +1524,96 @@ Commit a previously previewed edit after freshness re-check and explicit confirm
 
 - [`edit_preview`](#m1ndedit_preview)
 - [`apply`](../api-reference/lifecycle.md)
+
+---
+
+<a id="m1ndtransplant"></a>
+
+## `transplant`
+Move a top-level Rust `fn` to another file of the SAME crate by reference. The server computes the whole move from the graph — the item's real extent (doc comments and attributes travel), the dependency trichotomy from `calls` edges (a private dependency travels; a shared one stays, gains `pub(crate)` and is back-imported), and every referencer re-qualified — then writes source, destination and referencers atomically and re-ingests. A refusal writes nothing and names what blocked it. Design and proof addresses: `docs/TRANSPLANT-PRD.md`.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `symbol` | `string` | Yes | Bare name of the top-level `fn` to move. |
+| `source_file` | `string` | Yes | File the symbol currently lives in. |
+| `dest_file` | `string` | Yes | File the symbol moves into; must exist and share the source's crate root. |
+| `allow_protected` | `string` | No | Explicit reason for crossing a `ci/protected-zones.json` path. Absent means a zone match refuses instead of writing. |
+
+### Returns
+
+`moved_symbol`, `files_changed`, `deps_travelled`, `deps_shared`, `referencing_files`, `refs_rewritten`, `refs_unresolved`, `imports_carried`, `moved_visibility_bumped`, `source_back_imported`, `dependency_source`, `referencer_source`, `rustfmt`, `blocks_touched`, `state_left_behind`, `protected_zone`, `elapsed_ms`.
+
+### When to Use
+
+- The change IS a move — you send four fields instead of whole file contents
+- You want the referencers found and rewritten from the graph, not by hand
+- You want a receipt that names what it could not do
+
+### v1 Boundaries
+
+- top-level `fn` only; module = file stem; same crate; the destination file must already exist
+- grouped/nested `use` in the source file is reported in `refs_unresolved`, never rewritten
+- macro-generated references are invisible to the parser
+
+### Related Tools
+
+- [`transplant_preview`](#m1ndtransplant_preview)
+- [`apply_batch`](#m1ndapplybatch)
+
+---
+
+<a id="m1ndtransplant_preview"></a>
+
+## `transplant_preview`
+Stage a transplant without touching disk: the complete multi-file plan (each planned file with its base hash and line deltas), the candidate receipt, and a handle valid for five minutes.
+
+### Parameters
+
+Same as [`transplant`](#m1ndtransplant).
+
+### Returns
+
+`preview_id`, `ttl_ms`, `files`, `candidate`, `elapsed_ms`.
+
+### When to Use
+
+- When the move should be inspected or approved before it lands
+
+### Related Tools
+
+- [`transplant_commit`](#m1ndtransplant_commit)
+- [`edit_preview`](#m1ndedit_preview)
+
+---
+
+<a id="m1ndtransplant_commit"></a>
+
+## `transplant_commit`
+Land a staged plan after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale, and nothing is written.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `preview_id` | `string` | Yes | Handle returned by `transplant_preview`. |
+| `confirm` | `boolean` | Yes | Must be `true` to land the staged plan. |
+
+### Returns
+
+`preview_id`, `receipt`, `elapsed_ms`.
+
+### When to Use
+
+- To redeem a `transplant_preview` handle within its TTL
+
+### Related Tools
+
+- [`transplant_preview`](#m1ndtransplant_preview)
+- [`edit_commit`](#m1ndedit_commit)
 
 ---
 

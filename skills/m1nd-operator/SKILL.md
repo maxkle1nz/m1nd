@@ -56,7 +56,16 @@ measured high-signal pattern starts by never starting cold:
    already hosts the intended repo. Absent/null = your root matches the brain
    serving you. Reception governs WRITES too, not only reads: a read under
    mismatch is a warning, a WRITE under mismatch is prohibited (see Write-Mode
-   Laws below) — and no public bootstrap lifts it.
+   Laws below) — and no public bootstrap lifts it. VERSION SKEW: this skill
+   describes the CURRENT product; check `binding.fingerprint.binary_version`
+   (and its `binary_drift` warning) in the same packet before trusting either
+   era's rule. A legacy 1.4.x served owner still HAS the one-call bootstrap,
+   and there `ingest {project_root: <your repo root>}` is the correct
+   foreign-repo gesture — it mints a SEPARATE per-project brain, never
+   replacing the bound one. A plain `ingest {path}` from a foreign root is
+   wrong in EVERY era: on a legacy owner it wholesale-REPLACES the bound brain
+   (2026-07-24 incident — a 29k-node brain swapped for a foreign graph,
+   restored the same day).
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).
@@ -445,7 +454,11 @@ source reads, tests, runtime probes, or CI evidence.
   retrieval returns `blocked`/zero candidates unexpectedly, call
   `recovery_playbook` before inventing the next step. Use its ordered steps and
   `binding_fingerprint` to compare host, stdio, HTTP, runtime root, graph paths,
-  generation counters, and ingest roots.
+  generation counters, and ingest roots. The fingerprint is budget-capped: it
+  carries `ingest_root_count` (always the real total) plus the first 10 roots,
+  and declares any omission in `ingest_roots_truncated` /
+  `ingest_roots_omitted`. When you need the whole array, read `doctor` under
+  `runtime_state.ingest_roots` — the surface `ingest_roots_full_surface` names.
 - If a retrieval/orientation response includes `agent_runtime_contract`, treat
   it as the authoritative agent-facing envelope for that call. Read
   `trust_mode`, `session_identity`, `workspace_binding`, `graph_identity`, and
@@ -565,7 +578,7 @@ When you conclude something durable — a verified finding, a design decision, w
 
 Then one field-telemetry signal, keep working (report, never detour): when a retrieval was right/wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl` (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) — LOCAL-ONLY, never phones home. A memory-delivery fault (a claim leaked across brains, a false absence, a write to the wrong store) is `class:"memory_misdelivery"` + `kind:leak|false_absence|wrong_store_write|misattribution|vanished`. NEVER fix m1nd mid-mission; work around, note the workaround, report.
 
-The mailbox (MEDULLA §9.2, slice M7b): the spool is the ONE write slot; letters distribute LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl`, travels with git) + the medulla box for projectless letters — a letter naming a project NEVER lands in the medulla. Triage with `m1nd-mcp --inbox-sweep` (CLI) or `GET /api/inbox_sweep` (union of spool + every box, each letter once); read one project's box via `GET /api/mailbox?brain=<root>` (the §4A.9 selector, `served_brain` echo). Fates are derived from `answers[]` (`wet_ink`/`in_flight`/`fired_clay`/`external`); "abertas" = `wet_ink + in_flight`. These are CLI/REST surfaces — NOT MCP tools (never in the loop).
+The mailbox (MEDULLA §9.2, slice M7b): the spool is the ONE write slot; letters distribute LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl` — born local behind a consent-deferred `.gitignore`; the repo's own `m1nd init` is the ONE consent moment that flips it to committed and lets it travel with git, so do NOT assume a box is shared) + the medulla box for projectless letters — a letter naming a project NEVER lands in the medulla. Triage with `m1nd-mcp --inbox-sweep` (CLI) or `GET /api/inbox_sweep` (union of spool + every box, each letter once); read one project's box via `GET /api/mailbox?brain=<root>` (the §4A.9 selector, `served_brain` echo). Fates are derived from `answers[]` (`wet_ink`/`in_flight`/`fired_clay`/`external`); "abertas" = `wet_ink + in_flight`. These are CLI/REST surfaces — NOT MCP tools (never in the loop).
 
 Caveat: `ingest mode:replace` wipes light memory nodes. Prefer `mode:merge` when re-ingesting code to preserve agent memory.
 

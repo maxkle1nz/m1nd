@@ -168,6 +168,10 @@ THE CURATOR is a near-PR/doc-gate WORKFLOW, not a verb (the judgment is agent wo
 - `apply_batch`: atomic multi-file write through m1nd.
 - `edit_preview`: two-phase preview without touching disk.
 - `edit_commit`: freshness-checked commit for a preview.
+- `transplant`: move a top-level Rust `fn` to another file of the SAME crate BY REFERENCE — you send the symbol and two paths, the server computes the whole move from the graph (widened extent, dependency trichotomy from call edges, referencers re-qualified across every file) and writes it atomically. Refusals touch zero bytes and teach the retry.
+- `transplant_preview` / `transplant_commit`: the same move staged. The preview returns the full multi-file plan plus a 5-minute handle; the commit re-validates the hash of every planned file and refuses on drift.
+
+The write verbs differ in what YOU must compute. `apply`/`apply_batch` take whole new file contents — you author them. `transplant` takes 4 fields and the server authors the contents: prefer it whenever the change IS a move, and read its receipt instead of re-reading the files (`refs_unresolved`, `state_left_behind`, `blocks_touched`, `rustfmt` are the honesty contract — a zero there is a proven zero, never an unchecked one). v1 boundaries, stated so a refusal is never a surprise: top-level `fn` only, module = file stem, same crate, destination file must already exist, macro-generated references are invisible. Design and proof addresses: `docs/TRANSPLANT-PRD.md`.
 
 In Codex, prefer this family for analysis and change-prep. Use local `apply_patch` for actual file mutation unless the task explicitly wants or benefits from m1nd's own write lane.
 
@@ -228,7 +232,7 @@ Recent source builds include these canonical families:
 - `hypothesize`, `differential`, `trace`, `validate_plan`, `federate`
 - `antibody_scan`, `antibody_list`, `antibody_create`, `flow_simulate`, `epidemic`, `tremor`, `trust`, `layers`, `layer_inspect`
 - `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay`
-- `heuristics_surface`, `surgical_context`, `apply`, `view`, `batch_view`, `surgical_context_v2`, `apply_batch`, `edit_preview`, `edit_commit`
+- `heuristics_surface`, `surgical_context`, `apply`, `view`, `batch_view`, `surgical_context_v2`, `apply_batch`, `edit_preview`, `edit_commit`, `transplant`, `transplant_preview`, `transplant_commit`
 - `search`, `glob`, `scan_all`, `cross_verify`, `soul_check`, `soul_read`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
 - `daemon_start`, `daemon_stop`, `daemon_status`, `daemon_tick`, `alerts_list`, `alerts_ack`
 - `panoramic`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`

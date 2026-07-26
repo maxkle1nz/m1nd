@@ -247,7 +247,13 @@ fn multi_brain_actors_are_isolated() {
             Ok::<_, RuntimeJobFailure>(())
         })
         .expect("brain B remains readable while A actor is blocked");
-    assert!(b_read_started.elapsed() < Duration::from_secs(1));
+    // Isolation is proved by the STRUCTURE, not by this clock: A is parked
+    // inside its callback and is only released further down, on this very
+    // thread, so a B read that serialized behind A would deadlock here rather
+    // than merely run late. The bound is kept as a coarse "did not hang" net
+    // and is deliberately generous — at one second it was measuring how loaded
+    // the CI runner was, and failed on Windows for exactly that reason.
+    assert!(b_read_started.elapsed() < Duration::from_secs(60));
     release.wait();
     blocked_a
         .join()
