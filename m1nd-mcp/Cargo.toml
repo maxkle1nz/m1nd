@@ -44,7 +44,7 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # machines. DefaultHasher (SipHash) is NOT cross-version/platform stable, which
 # would break that contract. sha2 0.10 is already in Cargo.lock transitively —
 # declaring it direct adds NO new crate to the build graph.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Tree-sitter, declared direct ONLY so the `transplant` verb can recover an item's
 # TRUE extent (closing-brace line) by PARSING instead of counting braces (which a
@@ -109,7 +109,7 @@ security-framework-sys = "=2.17.0"
 core-foundation = "=0.10.1"
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 
 [[bin]]
 name = "m1nd-mcp"
