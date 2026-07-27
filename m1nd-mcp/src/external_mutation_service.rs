@@ -6134,7 +6134,7 @@ fn sync_parent(path: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         let _ = path;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     std::fs::File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()
