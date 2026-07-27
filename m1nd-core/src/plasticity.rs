@@ -34,8 +34,10 @@ pub struct SynapticState {
     pub source_label: String,
     pub target_label: String,
     pub relation: String,
-    /// Complete edge identity for current sidecars. `None` marks a legacy
-    /// triple-only row and is accepted only when that triple is unambiguous.
+    /// Complete edge identity for current sidecars — complete, but not unique:
+    /// parallel edges share it, and [`PlasticityEngine::import_state`] resolves
+    /// those positionally. `None` marks a legacy triple-only row and is accepted
+    /// only when that triple is unambiguous.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<u8>,
     /// Complete edge identity for current sidecars. See [`Self::direction`].
@@ -791,8 +793,13 @@ impl PlasticityEngine {
     /// Import synaptic state from persistence.
     /// FM-PL-007 fix: validates JSON schema, wraps in try/catch.
     /// Current sidecars match the complete structural identity
-    /// `(source, target, relation, direction, inhibitory)`. Legacy triple-only
-    /// rows are migrated only when exactly one live edge owns that triple.
+    /// `(source, target, relation, direction, inhibitory)`. Parallel edges share
+    /// that identity, so the rows owning one are consumed in file order against
+    /// that identity's CSR slots in slot order — the same order `export_state`
+    /// wrote them in — and only while those slots are interchangeable. More rows
+    /// than slots is corruption; a parallel group that disagrees on causal
+    /// strength is dropped instead of guessed. Legacy triple-only rows are
+    /// migrated only when exactly one live edge owns that triple.
     /// Replaces: plasticity.py PlasticityEngine.import_state()
     pub fn import_state(&mut self, graph: &mut Graph, states: &[SynapticState]) -> M1ndResult<u32> {
         let n = graph.num_nodes() as usize;
@@ -881,7 +888,9 @@ impl PlasticityEngine {
         }
 
         // Resolve and validate the entire sidecar before mutating one slot.
-        let mut seen_full_keys = HashSet::<FullKey>::new();
+        // Rows are consumed in file order, so the cursor walks each identity's
+        // parallel edges in the same CSR order `export_state` wrote them in.
+        let mut full_key_cursor = HashMap::<FullKey, usize>::new();
         let mut selected_slots = HashSet::<usize>::new();
         let mut plans = Vec::with_capacity(states.len());
 
@@ -922,29 +931,46 @@ impl PlasticityEngine {
                         direction,
                         inhibitory,
                     );
-                    if !seen_full_keys.insert(key.clone()) {
+                    let slots = match full_to_edges.get(&key).map(Vec::as_slice) {
+                        None | Some([]) => continue,
+                        Some(slots) => slots,
+                    };
+                    // Parallel edges share every persisted identity field, so
+                    // `export_state` necessarily writes one row per slot with the
+                    // same key: rejecting that would refuse the file the previous
+                    // clean shutdown wrote. Bind positionally instead — but only
+                    // while the candidate slots are interchangeable. Causal
+                    // strength is the one structural column outside the persisted
+                    // key, so a group that disagrees on it is dropped rather than
+                    // guessed: losing relearnable weights beats binding a record
+                    // to an edge it did not come from.
+                    let cursor = full_key_cursor.entry(key).or_insert(0);
+                    if slots.len() > 1 && !parallel_slots_are_interchangeable(graph, slots) {
+                        if *cursor == 0 {
+                            eprintln!(
+                                "[m1nd] WARNING: {} parallel edges for {} -> {} ({}) differ outside the persisted synaptic key; their learned weights are dropped and relearned",
+                                slots.len(),
+                                state.source_label,
+                                state.target_label,
+                                state.relation
+                            );
+                        }
+                        *cursor += 1;
+                        continue;
+                    }
+                    let Some(&slot) = slots.get(*cursor) else {
                         return Err(M1ndError::CorruptState {
                             reason: format!(
-                                "duplicate full synaptic key for {} -> {} ({}, direction={direction}, inhibitory={inhibitory})",
-                                state.source_label, state.target_label, state.relation
+                                "duplicate full synaptic key for {} -> {} ({}, direction={direction}, inhibitory={inhibitory}): more rows than the {} parallel edge(s) that own it",
+                                state.source_label,
+                                state.target_label,
+                                state.relation,
+                                slots.len()
                             ),
                         });
-                    }
-                    match full_to_edges.get(&key).map(Vec::as_slice) {
-                        None | Some([]) => continue,
-                        Some([slot]) => *slot,
-                        Some(matches) => {
-                            return Err(M1ndError::CorruptState {
-                                reason: format!(
-                                    "full synaptic key for {} -> {} ({}) is ambiguous across {} parallel edges",
-                                    state.source_label,
-                                    state.target_label,
-                                    state.relation,
-                                    matches.len()
-                                ),
-                            });
-                        }
-                    }
+                    };
+                    *cursor += 1;
+                    slot
                 }
                 (None, None) => match triple_to_edges.get(&triple).map(Vec::as_slice) {
                     None | Some([]) => continue,
@@ -1029,6 +1055,26 @@ impl PlasticityEngine {
     pub fn top_node_access_frequencies(&self, n: usize) -> Vec<(NodeId, u32)> {
         self.memory.top_node_frequencies(n)
     }
+}
+
+/// Parallel edges (same source, target, relation, direction and inhibitory flag)
+/// can only be restored positionally, so they must first be proven mutually
+/// substitutable: causal strength is the one structural column outside the
+/// persisted synaptic key. A column that cannot be read counts as disagreement —
+/// dropping relearnable weights is cheaper than binding a record to an edge it
+/// did not come from.
+fn parallel_slots_are_interchangeable(graph: &Graph, slots: &[usize]) -> bool {
+    let Some(reference) = graph.csr.causal_strengths.get(slots[0]) else {
+        return false;
+    };
+    let reference = reference.get().to_bits();
+    slots.iter().all(|&slot| {
+        graph
+            .csr
+            .causal_strengths
+            .get(slot)
+            .is_some_and(|value| value.get().to_bits() == reference)
+    })
 }
 
 #[cfg(test)]
