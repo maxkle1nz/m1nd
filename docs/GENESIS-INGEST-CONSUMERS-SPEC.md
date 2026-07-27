@@ -15,11 +15,28 @@ queue**, not merely its floor. SPEC-2 (birth) is the cp32 P2/P3 line itself.
 
 From the adoption lab (measured, serve-mode, authenticated REST, 17,408-node runtime copy):
 
-- **R-A** — adoption works: the current-main binary loads a populated runtime whole. Migration
-  needs no verb (`legacy_snapshot_adoption.rs`) — with the verdict's caveat kept loud:
-  **adoption is ONE-TIME and journaled**; it is a birth path, not a recovery net. If a
-  destructive write lands after first boot, adoption will not rebuild — recovery is the
-  `.bak-<ts>` plus a human hand.
+- **R-A — CORRECTED BY THE FIELD, 2026-07-27.** The lab measured that adoption works, and the
+  lab was right about what it measured: a binary loads a populated runtime whole. **What the lab
+  did not have was a stale checkpoint.** In the field, the brain actor's `start` restores
+  checkpoint `CURRENT` and rebuilds its whole session from disk, and adoption ran *before any
+  actor existed* — so on a runtime whose `CURRENT` predated the adoption, **the actor reverted
+  it on the same boot**. The owner's own repo loaded 5540 nodes and served **0**, every boot,
+  for five days, while the journal recorded `status: "adopted"`. Read together with the caveat
+  below, that is the worst combination available: the rescue was **spent without ever having
+  worked**, and its own one-time guard forbade retrying it.
+  **Fixed:** adoption now runs *inside* the actor boundary and commits through the checkpoint,
+  so `CURRENT` is never older than the files it describes; the journal is written only after the
+  commit is acknowledged; and a journal beside an EMPTY brain — the exact footprint of a
+  reverted adoption — is re-adoptable rather than spent. An affected installation recovers on
+  its next boot with no operator step.
+  The verdict's caveat still holds and is unchanged by this: **adoption is ONE-TIME and
+  journaled** — it is a birth path, not a recovery net. A destructive write *after* a
+  successful first boot still will not rebuild; recovery is the `.bak-<ts>` plus a human hand.
+  What changed is only that an adoption which never landed no longer counts as one that did.
+  **Method note worth more than the fix:** a lab can only measure the states it reproduces. This
+  one was structurally unable to see the defect, and nothing in 1458 green tests could either —
+  it needed a *second boot* on a runtime carrying prior state. See `docs/PATHOS.md`, the
+  lifecycle-proof front.
 - **R-B** — the daily loop (`north`/`seek`/`memorize`) answers with zero authority walls.
 - **R-C (corrected per verdict RC-9)** — every ingest form is refused, but the mechanism is
   NOT a missing A2 consumer: `graph.ingest.merge_existing` **already has a typed A2 consumer
