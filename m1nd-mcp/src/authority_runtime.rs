@@ -4981,7 +4981,7 @@ fn sync_parent(path: &Path) -> Result<(), AuthorityRuntimeError> {
     #[cfg(windows)]
     {
         let _ = parent;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     File::open(parent)
