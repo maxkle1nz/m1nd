@@ -2002,11 +2002,24 @@ impl SessionState {
         )?;
         let mut temporal = TemporalEngine::build(&graph)?;
         let temporal_state_path = runtime_root.join(crate::temporal_state::TEMPORAL_STATE_FILE);
-        if let Some((primary, orchestrator_matrix)) =
-            crate::temporal_state::load_temporal_state(&temporal_state_path, &graph)?
-        {
-            temporal.co_change = primary;
-            orchestrator.temporal.co_change = orchestrator_matrix;
+        match crate::temporal_state::load_temporal_state(&temporal_state_path, &graph) {
+            Ok(Some((primary, orchestrator_matrix))) => {
+                temporal.co_change = primary;
+                orchestrator.temporal.co_change = orchestrator_matrix;
+            }
+            Ok(None) => {}
+            // A co-change matrix is indexed by the graph it was learned on, so a
+            // sidecar bound to a different graph must never be adopted. Refusing
+            // the whole boot over it is the wrong consequence: it takes every MCP
+            // tool down and leaves hand-deleting the file as the only recovery.
+            // Drop it like every other stale sidecar on this path and relearn.
+            Err(M1ndError::SchemaDrift { reason }) => {
+                eprintln!(
+                    "[m1nd] WARNING: co-change state at {} does not match the loaded graph ({reason}); continuing without it — the matrix will be relearned and rewritten on the next persist",
+                    temporal_state_path.display()
+                );
+            }
+            Err(error) => return Err(error),
         }
         let counterfactual = CounterfactualEngine::with_defaults();
         let topology = TopologyAnalyzer::with_defaults();
