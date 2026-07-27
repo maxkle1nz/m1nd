@@ -69,6 +69,36 @@ fn parallel_graph() -> Graph {
     graph
 }
 
+/// Two structurally identical edges between the same pair: same relation, same
+/// direction, same inhibitory flag, same causal strength. Ingest emits these for
+/// a duplicated relation (the owner's graph carries them on `contains` edges),
+/// and `export_state` writes one row per CSR slot — so the sidecar a clean
+/// shutdown produces necessarily contains two rows with the same complete key.
+fn twin_edge_graph() -> Graph {
+    let mut graph = Graph::new();
+    let alpha = graph
+        .add_node("alpha", "alpha", NodeType::File, &[], 0.0, 0.0)
+        .unwrap();
+    let beta = graph
+        .add_node("beta", "beta", NodeType::Struct, &[], 0.0, 0.0)
+        .unwrap();
+    for _ in 0..2 {
+        graph
+            .add_edge(
+                alpha,
+                beta,
+                "contains",
+                FiniteF32::new(0.5),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::ZERO,
+            )
+            .unwrap();
+    }
+    graph.finalize().unwrap();
+    graph
+}
+
 fn edge_slot(graph: &Graph, source: NodeId, target: NodeId, inhibitory: bool) -> usize {
     graph
         .csr
@@ -236,6 +266,122 @@ fn complete_identity_disambiguates_parallel_edges() {
     );
     assert_eq!(restored.edge_plasticity.last_used_query[excitatory], 11);
     assert_eq!(restored.edge_plasticity.last_used_query[inhibitory], 72);
+}
+
+#[test]
+fn twin_parallel_edges_survive_persist_then_import() {
+    // The boot-after-clean-shutdown contract: whatever `export_state` writes must
+    // be re-importable by the very next boot. Twin edges share every persisted
+    // identity field, so the sidecar holds two rows with the same complete key;
+    // rejecting that file bricks a brain that shut down cleanly.
+    let source_graph = twin_edge_graph();
+    let source_engine = PlasticityEngine::new(&source_graph, PlasticityConfig::default());
+    let mut states = source_engine.export_state(&source_graph).unwrap();
+    assert_eq!(states.len(), 2, "twin edges must occupy two CSR slots");
+    states[0].original_weight = 0.10;
+    states[0].current_weight = 0.11;
+    states[0].last_used_query = 11;
+    states[1].original_weight = 0.70;
+    states[1].current_weight = 0.72;
+    states[1].last_used_query = 72;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("plasticity_state.json");
+    save_plasticity_state(&states, &path).unwrap();
+    let persisted = load_plasticity_state(&path).unwrap();
+
+    let mut restored = twin_edge_graph();
+    let mut engine = PlasticityEngine::new(&restored, PlasticityConfig::default());
+    assert_eq!(
+        engine.import_state(&mut restored, &persisted).unwrap(),
+        2,
+        "both twin rows must bind to their own CSR slot"
+    );
+    let alpha = restored.resolve_id("alpha").unwrap();
+    let slots: Vec<usize> = restored.csr.out_range(alpha).collect();
+    assert_eq!(slots.len(), 2);
+    assert_eq!(
+        restored.edge_plasticity.original_weight[slots[0]].get(),
+        0.10
+    );
+    assert_eq!(
+        restored.edge_plasticity.current_weight[slots[0]].get(),
+        0.11
+    );
+    assert_eq!(restored.edge_plasticity.last_used_query[slots[0]], 11);
+    assert_eq!(
+        restored.edge_plasticity.original_weight[slots[1]].get(),
+        0.70
+    );
+    assert_eq!(
+        restored.edge_plasticity.current_weight[slots[1]].get(),
+        0.72
+    );
+    assert_eq!(restored.edge_plasticity.last_used_query[slots[1]], 72);
+    assert_eq!(
+        restored
+            .csr
+            .read_weight(EdgeIdx::new(slots[1] as u32))
+            .get(),
+        0.72
+    );
+}
+
+#[test]
+fn parallel_edges_disagreeing_outside_the_key_are_dropped_not_guessed() {
+    // Same complete key, different causal strength: the two slots are NOT
+    // interchangeable and nothing in the sidecar says which row came from which.
+    // Positional binding would be a coin flip, so the group is dropped — the
+    // boot still proceeds and the two slots keep their bootstrap weights.
+    let mut graph = Graph::new();
+    let alpha = graph
+        .add_node("alpha", "alpha", NodeType::File, &[], 0.0, 0.0)
+        .unwrap();
+    let beta = graph
+        .add_node("beta", "beta", NodeType::Struct, &[], 0.0, 0.0)
+        .unwrap();
+    for causal in [0.1_f32, 0.9_f32] {
+        graph
+            .add_edge(
+                alpha,
+                beta,
+                "contains",
+                FiniteF32::new(0.5),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(causal),
+            )
+            .unwrap();
+    }
+    graph.finalize().unwrap();
+
+    let engine = PlasticityEngine::new(&graph, PlasticityConfig::default());
+    let mut states = engine.export_state(&graph).unwrap();
+    assert_eq!(states.len(), 2);
+    states[0].current_weight = 0.11;
+    states[1].current_weight = 0.72;
+    let before: Vec<f32> = graph
+        .edge_plasticity
+        .current_weight
+        .iter()
+        .map(|weight| weight.get())
+        .collect();
+
+    let mut importer = PlasticityEngine::new(&graph, PlasticityConfig::default());
+    assert_eq!(
+        importer.import_state(&mut graph, &states).unwrap(),
+        0,
+        "an unresolvable parallel group must apply nothing, not guess"
+    );
+    assert_eq!(
+        graph
+            .edge_plasticity
+            .current_weight
+            .iter()
+            .map(|weight| weight.get())
+            .collect::<Vec<_>>(),
+        before
+    );
 }
 
 #[test]
