@@ -89,11 +89,23 @@ Everything promised or planned and not yet done, named here rather than left in 
 Update this list in the same PR that closes one; a front that dies silently is a lie.
 
 **Blocking the product**
-- **Windows phase-2** — the ~22 source-edit path-canon tests. Single diagnosed cause (`fs::canonicalize`
-  emits the `\\?\` verbatim prefix; stored/constructed identities lack it, so every preflight refuses
-  "target escapes managed root"). Security-sensitive and not locally verifiable (no mingw C++ toolchain).
-  This is the root of the CI pain, now advisory rather than blocking. Needs a real Windows box or CI-driven
-  red→green loop, not a guess.
+- **Windows phase-2** — the source-edit path-canon suite is FIXED (`d8668591`, #435): the two identity
+  domains are related in one spelling, the containment test stays component-wise `strip_prefix`, and a
+  latent `PathBuf::push` re-root was closed with it. The CI-driven red→green loop this entry asked for is
+  what closed it — no Windows box was needed.
+  **But "~22" was never the size of this front, and the number itself was the lie.** `cargo test` stops at
+  the first test binary that fails, so the source-edit family was MASKING the rest: fixing it revealed one
+  transplant-harness failure (#436 — where the product was correct and the harness's own path keys were
+  not), and fixing that revealed four `m1nd-runnerd` fixtures that spell absolute paths the Unix way only
+  (`/abs/repo` has a root but no prefix on Windows, so it is not absolute — the product is right to refuse
+  it). Each fix cost a full CI round to learn the next layer, so the advisory leg now runs `--no-fail-fast`:
+  an advisory job exists to MEASURE debt, and one that reports a layer at a time measures nothing.
+  **The true remaining surface is therefore still unknown** and will be known for the first time on the next
+  advisory run. Two latent items already found on the way, both filed: `config::workspace_allowed` carries
+  the same verbatim-prefix split `d8668591` just fixed (fail-closed, so a legitimate workspace is refused on
+  Windows and allowed on Unix — same input, opposite verdict), and `m1nd-mcp` does not compile with `serve`
+  off (an ungated `getrandom::fill` against an optional dep), which `--workspace` feature unification hides
+  from CI entirely.
 - **Genesis P2 and P3** — P1 (medulla-only read fallback so a brainless repo is served doctrine instead of
   blindness) is implemented in PR #403, in the merge queue and NOT yet on main — checkpoint 32's "0 code
   hits" above described the tree before that PR existed, and holds for main until it lands; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
