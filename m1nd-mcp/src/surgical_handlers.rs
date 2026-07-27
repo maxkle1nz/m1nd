@@ -1128,7 +1128,7 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
 }
 
 /// Simple line-based diff summary: count added and removed lines.
-fn diff_summary(old: &str, new: &str) -> (i32, i32) {
+pub(crate) fn diff_summary(old: &str, new: &str) -> (i32, i32) {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
     let old_set: HashSet<&str> = old_lines.iter().copied().collect();
@@ -1139,7 +1139,7 @@ fn diff_summary(old: &str, new: &str) -> (i32, i32) {
     (added, removed)
 }
 
-fn content_hash(content: &str) -> String {
+pub(crate) fn content_hash(content: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     content.hash(&mut hasher);
     format!("{:016x}", hasher.finish())

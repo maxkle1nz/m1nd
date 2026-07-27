@@ -106,10 +106,11 @@ test('the Scan button locks while a scan is in flight', () => {
   assert.match(visible(<BuildMap snapshot={emptySnap} rollup={null} onScan={noop} scanning />), /Scanning…/);
 });
 
-test('Import stays the honest DISABLED CLI-verb affordance alongside the live scan', () => {
+test('Import stays the honest DISABLED CLI affordance alongside the live scan', () => {
   const out = html(<BuildMap snapshot={emptySnap} rollup={null} onScan={noop} />);
   assert.match(out, /data-role="import-seed"[^>]*disabled/);
-  assert.match(visible(<BuildMap snapshot={emptySnap} rollup={null} onScan={noop} />), /system_blocks_seed_import verb/);
+  // The human path ("from the CLI"), not the raw agent verb leaked into body copy.
+  assert.match(visible(<BuildMap snapshot={emptySnap} rollup={null} onScan={noop} />), /import an authored seed from the CLI/);
 });
 
 test('a read-only scan refusal surfaces its honest toast in the empty state', () => {

@@ -531,7 +531,7 @@ fn sync_parent(path: &Path) -> Result<(), HttpSecurityError> {
     #[cfg(windows)]
     {
         let _ = parent;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     fs::File::open(parent)

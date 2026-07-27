@@ -102,6 +102,7 @@ Two doctrine points frame the whole surface. First, [`north`](lifecycle.md#m1ndn
 | [`validate_plan`](lifecycle.md#m1ndvalidate_plan) | Validate a modification plan against the code graph |
 | [`surgical_context_v2`](lifecycle.md#m1ndsurgicalcontextv2) | Pull connected edit context with proof-oriented options |
 | [`apply_batch`](lifecycle.md#m1ndapplybatch) | Atomic multi-file write with progress, verification, and handoff |
+| [`transplant`](lifecycle.md#m1ndtransplant) | Move a top-level Rust `fn` across files of one crate, computed from the graph |
 
 The grouped reference pages below still organize the surface by area, but the current best operational map is in `help`, the README tool table, and the live `tools/list` response.
 

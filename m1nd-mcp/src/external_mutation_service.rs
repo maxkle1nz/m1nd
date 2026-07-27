@@ -6134,7 +6134,7 @@ fn sync_parent(path: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         let _ = path;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     std::fs::File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()
@@ -6149,6 +6149,16 @@ fn is_digest(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Grace a test gives a retiring actor to land its shutdown checkpoint.
+    ///
+    /// This bounds an actor writing a graph snapshot to disk, so it is a
+    /// function of the SLOWEST machine that runs the suite, not of the work.
+    /// At two seconds it was a CI coin-flip on a loaded Windows runner
+    /// ("did not checkpoint before the shutdown deadline"). Being generous
+    /// cannot hide a defect: an actor that never checkpoints still fails the
+    /// same assertion, only later.
+    const ACTOR_SHUTDOWN_CHECKPOINT_GRACE: Duration = Duration::from_secs(60);
+
     use super::*;
     use std::collections::BTreeSet;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -6437,7 +6447,7 @@ mod tests {
         label: &str,
     ) {
         actor_registry
-            .shutdown(Duration::from_secs(2))
+            .shutdown(ACTOR_SHUTDOWN_CHECKPOINT_GRACE)
             .unwrap_or_else(|error| panic!("shutdown simulated dead {label} actor: {error}"));
         brain
             .lock_mut_before_actor()
@@ -7456,7 +7466,7 @@ mod tests {
                 )
                 .expect("source boot recovery");
             recovery_registry
-                .shutdown(Duration::from_secs(2))
+                .shutdown(ACTOR_SHUTDOWN_CHECKPOINT_GRACE)
                 .expect("shutdown recovered source actor before restart inspection");
             report
         }
@@ -7756,7 +7766,7 @@ mod tests {
                     .execute(&fixture.context, retry, replay_host)
                     .expect("source terminal replay");
                 replay_registry
-                    .shutdown(Duration::from_secs(2))
+                    .shutdown(ACTOR_SHUTDOWN_CHECKPOINT_GRACE)
                     .expect("shutdown source replay actor");
                 assert!(replay.graph_resync_required);
                 assert_eq!(replay.reconciliation_state, "PENDING_RECONCILIATION");
@@ -10317,7 +10327,16 @@ mod tests {
             preview.ingress_context_digest,
             context.ingress_context_digest.clone().unwrap()
         );
-        assert_eq!(preview.root_identity, fixture.repo_root.to_string_lossy());
+        // Not `to_string_lossy`: the preview's root identity is contractually
+        // `m1nd_ingest`'s own identity for the canonical root (it has to match
+        // `CodeOwnershipManifestV1::root_identity` byte-for-byte), and on Windows
+        // that normalizes `\\?\C:\...` to `//?/C:/...`. Deriving the expectation
+        // through the same function is what keeps the assertion honest instead of
+        // accidentally asserting the OS separator.
+        assert_eq!(
+            preview.root_identity,
+            m1nd_ingest::exact_path_identity(&fixture.repo_root).expect("canonical root identity")
+        );
         assert_eq!(preview.expected_graph_generation, graph_before.0);
         assert_eq!(preview.expected_source_projection_digest, graph_before.1);
         let scan_job = fixture

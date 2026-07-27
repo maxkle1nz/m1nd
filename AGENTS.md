@@ -3,10 +3,11 @@
 Vendor-neutral instructions for autonomous agents (Jules, Codex, Claude Code, Cursor, …)
 working on this repository. Read this first; it is the contract.
 
-**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2):
-`m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) · `m1nd-mcp`
-(the served MCP owner + every verb) · `m1nd-openclaw`. Plus `m1nd-ui` (the served web
-UI, Vite/React) and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
+**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2, six
+members): `m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) ·
+`m1nd-mcp` (the served MCP owner + every verb) · `m1nd-control` · `m1nd-runnerd` (the
+write/execution lane — the only spawner) · `m1nd-openclaw`. Outside the Rust workspace:
+`m1nd-ui` (the served web UI, Vite/React), `m1nd-demo`, and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
 local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are real answers).
 
 This is a **PUBLIC** repository. Everything you commit is published.
@@ -16,12 +17,17 @@ This is a **PUBLIC** repository. Everything you commit is published.
 Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
-cargo check --workspace
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
-cargo build --release --workspace
 ```
+
+There is deliberately no standalone `cargo check` (clippy type-checks every target on its way
+to linting — a separate pass was a redundant full compile), and the `--release` workspace
+build runs on **main pushes only**, not on PRs (2026-07-24: it proved nothing tests+clippy
+don't and cost ~half of every 70-minute CI round; the signed release pipeline rebuilds
+`--release` at tag time regardless). A release-profile-only breakage is caught on the main
+push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
 **Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
 identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
@@ -94,6 +100,13 @@ owner on port `1338` — all tests use temp dirs.
   as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
   State the groundwork's provenance honestly in the commit body — never claim an authorship
   the platform did not produce.
+- **How PRs merge (owner-ratified 2026-07-24): squash is the default.** One PR = one
+  conventional commit on main — the changelog is generated from commit subjects, branch noise
+  (WIP commits, conflict-resolution merges) never lands individually, and any PR reverts as one
+  gesture. **Merge commits are reserved** for ceremonies where the commit LINEAGE is itself the
+  artifact — the M1ND-10 candidate freezes, where each preserved commit carries its own guard
+  PASS (squash would destroy the proof). Auto-merge (squash) is armed on a PR once it has a
+  review verdict; never arm what nobody read.
 - The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
   `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
   the docs reflect it.

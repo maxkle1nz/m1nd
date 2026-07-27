@@ -2181,6 +2181,49 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     "required": ["agent_id", "preview_id", "confirm"]
                 }
             },
+            {
+                "name": "transplant",
+                "description": "Move a top-level Rust `fn` between files of the same crate BY REFERENCE: you name the symbol and two paths, the server computes everything from the graph — widened extent (doc comments and attributes travel), dependency trichotomy from call edges (private deps travel; shared deps stay, gain pub(crate) and a back-import), referencers re-qualified across every file that names it — then writes atomically, re-ingests, and returns an honest receipt (refs_unresolved is never silently empty-when-wrong; state_left_behind names node-addressed state the re-ingest orphaned). Refusals never touch a byte and TEACH the retry: a collision names the occupant, a poisonous stem (lib/main/mod) names the invalid module path, a cross-crate move names both crate roots. v1 boundaries: top-level fn only, module = file stem, same crate, destination file must already exist, macro-generated references are invisible. See docs/TRANSPLANT-PRD.md.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path. Omitted (the default) means a zone match refuses instead of writing; the reason is recorded in the receipt when it unlocks a crossing." }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_preview",
+                "description": "Stage a transplant WITHOUT touching disk. Takes the same inputs as transplant and computes the whole plan — every new file content, referencer discovery, the rustfmt pass and the candidate receipt — then returns a preview_id (5-minute TTL) plus the per-file plan with each file's base hash and line deltas. Redeem it with transplant_commit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
+                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
+                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
+                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path; same law as transplant" }
+                    },
+                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
+                }
+            },
+            {
+                "name": "transplant_commit",
+                "description": "Land a staged transplant_preview after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale and writes nothing; otherwise the plan lands atomically and returns the finalized receipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "preview_id": { "type": "string", "description": "Handle returned by transplant_preview (expires after 5 minutes)" },
+                        "confirm": { "type": "boolean", "default": false, "description": "Must be true to land the staged plan. Safety guard against accidental writes." }
+                    },
+                    "required": ["agent_id", "preview_id", "confirm"]
+                }
+            },
             // =================================================================
             // v0.4.0: search, help, report, panoramic
             // =================================================================
@@ -4058,6 +4101,15 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // promote writes a medulla copy + a witness stamp to disk (MEDULLA M6).
     "promote",
     "learn",
+    // antibody_create is the antibody store's writer: create/delete/enable/disable
+    // all rewrite `state.antibodies`, which the checkpoint inventory carries as the
+    // `antibodies` sidecar. A read-only attach must refuse it on its own merits,
+    // and the classification is ALSO what makes the write durable the turn it is
+    // acked — the actor's O(1) witness watches graph structure and session
+    // generations, so a sidecar-only write is invisible to it. `antibody_scan` and
+    // `antibody_list` stay ABSENT: scan's counter drift joins the staged-persist
+    // debounce instead (see `handle_antibody_scan`), list is a pure read.
+    "antibody_create",
     "daemon_start",
     "auto_ingest_start",
     // xray_retag commits tag mutations to graph_path on disk, so a read-only
@@ -4117,6 +4169,13 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // dispatch arm here only surfaces an honest "http-only" message to an MCP-stdio
     // caller. Listing it keeps the read-only law + the tool surface consistent.
     "mission_spawn",
+    // transplant writes source/dest/referencer files atomically (through
+    // apply_batch), so a read-only attach must refuse it.
+    // `transplant_commit` lands a staged plan — the same write under a handle.
+    // `transplant_preview` is deliberately ABSENT (it stages in memory and never
+    // writes, mirroring the `edit_preview` exemption).
+    "transplant",
+    "transplant_commit",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4214,6 +4273,23 @@ fn proof_gate_targets(
             .ok_or_else(|| M1ndError::InvalidParams {
                 tool: bare_tool.to_string(),
                 detail: "edit_commit preview target is missing or expired".to_string(),
+            })?),
+        // B1: transplant writes source + dest + DERIVED referencer files the
+        // caller never named. The full touched set is derived read-only (same
+        // discovery the verb itself runs) so the armed gate covers ALL of them —
+        // a referencer without a permit refuses the whole call before any write.
+        "transplant" => Ok(crate::transplant::proof_gate_touched_files(state, params)),
+        // A2: a staged transplant already KNOWS its full touched set — recover it
+        // from the preview (mirrors the `edit_commit` arm above), failing closed
+        // with an explicit error when the preview is missing or expired.
+        "transplant_commit" => Ok(params
+            .get("preview_id")
+            .and_then(|v| v.as_str())
+            .and_then(|pid| state.transplant_previews.get(pid))
+            .map(|p| p.planned.iter().map(|f| f.file_path.clone()).collect())
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: bare_tool.to_string(),
+                detail: "transplant_commit preview target is missing or expired".to_string(),
             })?),
         "xray_apply" => {
             let input: crate::xray_handlers::XrayApplyInput =
@@ -5027,10 +5103,33 @@ fn handle_north(
     // say what it can't see rather than imply omniscience.
     let mut honest_gaps: Vec<String> = Vec::new();
 
+    // P1 medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3 ·
+    // TT-INV-2). The caller's root is KNOWN, no project brain covers it, and THIS
+    // store is the medulla. The medulla's cross-project doctrine + promoted memory
+    // (composed above, tier/origin-labeled) is a LEGITIMATE feed — but its own
+    // CODE graph maps a DIFFERENT repo, so handing back its focus_nodes/anchors as
+    // "your context" is context poisoning. Under the fallback the honest story is
+    // `project_brain_absent`, NOT an unfinished ingest: suppress the needs_ingest
+    // (empty/unbound) narrative so a served-medulla beat is never mislabeled as
+    // "nothing ingested" (requirement 4).
+    let brainless_caller = state.caller_root_is_brainless();
+    let needs_ingest = needs_ingest && !brainless_caller;
+
     // 3 + 4. CONTEXT + SUFFICIENCY — only meaningful once the graph is bound and
     //    populated. When it isn't, we say so honestly (needs_ingest) instead of
     //    running orient/focus over an empty graph and returning a fake packet.
-    let (context, sufficiency, next_move) = if needs_ingest || !graph_populated {
+    let (context, sufficiency, next_move) = if brainless_caller {
+        // Cut the poison: NO code anchors from the foreign graph cross to the
+        // caller. Context is null, the gap is the canonical project_brain_absent,
+        // and the next move is the honest recovery (the same closed-bootstrap
+        // language the write path uses — never an invented `m1nd init` birth).
+        honest_gaps.push(crate::session::PROJECT_BRAIN_ABSENT_GAP.to_string());
+        (
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            "No project brain covers your repo — the medulla's cross-project doctrine is served as memory, but its code graph does not map your repo. Creating a project brain is unavailable until the typed bootstrap consumer is installed; see `reception` for the honest options.".to_string(),
+        )
+    } else if needs_ingest || !graph_populated {
         // ONE authoring site for this fact (human_view amendment 5): the same
         // constant the S4 voice card wraps verbatim — byte-equal by construction.
         honest_gaps.push(crate::human_view::NEEDS_INGEST_GAP.into());
@@ -5406,8 +5505,8 @@ fn resolve_node_file_path(state: &SessionState, node_id: &str) -> Option<String>
 /// nothing.
 ///   * `state.file_inventory` is the "what m1nd last saw" baseline — each entry
 ///     records the absolute `file_path` and the `sha256` captured at ingest.
-///   * `audit_handlers::simple_content_hash` recomputes the current on-disk hash
-///     with the SAME algorithm the ingest path used, so a recomputed hash is
+///   * `audit_handlers::content_sha256` recomputes the current on-disk SHA-256
+///     with the SAME routine the ingest path used, so a recomputed hash is
 ///     directly comparable to the stored one (shared fn — no second hasher).
 ///   * `state.coverage_sessions[agent_id].visited_files` is the DEFAULT working
 ///     set when the caller passes neither `files` nor `nodes`: "you don't even
@@ -5524,7 +5623,7 @@ fn handle_am_i_stale(
             stale.push(item);
             continue;
         }
-        let current_hash = crate::audit_handlers::simple_content_hash(disk_path);
+        let current_hash = crate::audit_handlers::content_sha256(disk_path);
         match (&entry.sha256, current_hash) {
             (Some(known), Some(now)) if known != &now => {
                 let mut item = serde_json::json!({ "path": path, "reason": "changed" });
@@ -5799,8 +5898,12 @@ pub(crate) fn dispatch_generic_tool(
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
+/// Public so the transplant proof-harness integration suites (tests/) can drive
+/// the SAME gated dispatch path a live agent takes — the M1ND_PROOF_GATE / catalog
+/// gating lives inside this function, so an in-process caller gets it unchanged.
+///
 /// v0.4.0: wraps all responses with _m1nd metadata.
-pub(crate) fn dispatch_tool(
+pub fn dispatch_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,
@@ -6687,6 +6790,33 @@ fn dispatch_core_tool(
             };
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
+        "transplant" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_preview" => {
+            let input: crate::protocol::surgical::TransplantInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_preview".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_preview(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "transplant_commit" => {
+            let input: crate::protocol::surgical::TransplantCommitInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "transplant_commit".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = crate::transplant::handle_transplant_commit(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
         "edit_preview" => {
             let input: crate::protocol::surgical::EditPreviewInput =
                 serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
@@ -7367,8 +7497,14 @@ impl McpServer {
         self.actor_execute(false, move |state| {
             if !state.read_only {
                 if let Some(dropped) = dropped {
-                    state.daemon_state.watch_events_dropped =
-                        state.daemon_state.watch_events_dropped.max(dropped);
+                    let previous = state.daemon_state.watch_events_dropped;
+                    state.daemon_state.watch_events_dropped = previous.max(dropped);
+                    if state.daemon_state.watch_events_dropped != previous {
+                        // `daemon_state` is a durable checkpoint file and this turn
+                        // is read-classified, so the actor's witness cannot see the
+                        // write. Join the staged-persist debounce.
+                        state.note_durable_sidecar_drift();
+                    }
                 }
             }
             Ok(DaemonLoopView {
@@ -12456,6 +12592,169 @@ mod tests {
         assert_human_view_cap(card);
     }
 
+    /// P1 — the medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3
+    /// · TT-INV-2). A caller whose resolved root NO project brain covers must
+    /// receive the medulla's cross-project DOCTRINE as a legitimate feed, but
+    /// NEVER the medulla's own CODE anchors as "its context" — that leak is
+    /// context poisoning (a foreign graph's focus_nodes passed off as the
+    /// caller's). The packet carries the canonical `project_brain_absent` label.
+    ///
+    /// RED before P1: north ran orient over the bound graph and returned its
+    /// focus_nodes/anchors as `context`, and carried no project_brain_absent
+    /// label — the foreign graph's anchors leaked to the brainless caller.
+    #[test]
+    fn north_brainless_caller_serves_medulla_not_foreign_anchors() {
+        let (temp, mut state) = build_state_populated(false);
+
+        // Seed a legitimate medulla doctrine claim WHILE the session is the plain
+        // owner (no foreign caller yet) — an owner doctrine write is legal.
+        super::dispatch_tool(
+            &mut state,
+            "memorize",
+            &serde_json::json!({
+                "agent_id": "owner",
+                "node_label": "CrossProjectDoctrine",
+                "claims": [{
+                    "label": "trust-first",
+                    "text": "north before acting is the standing doctrine",
+                    "confidence": 0.8
+                }]
+            }),
+        )
+        .expect("owner medulla doctrine write");
+
+        // Now a foreign caller arrives: its root is covered by NO project brain,
+        // and the bound store is the medulla.
+        let brain_root = temp.path().join("repo-alpha");
+        let caller_root = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&brain_root).expect("brain root");
+        std::fs::create_dir_all(&caller_root).expect("caller root");
+        state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+        state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(
+            state.is_medulla_store(),
+            "precondition: the bound store is the medulla"
+        );
+        assert!(
+            !state.covers_root(&caller_root.to_string_lossy()),
+            "precondition: no project brain covers the caller"
+        );
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "foreign-caller",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed");
+
+        // (c) POISON CUT — the bound graph's code anchors/focus_nodes NEVER
+        //     surface as the caller's context.
+        assert!(
+            out["context"].is_null(),
+            "brainless caller must not receive the foreign graph's context, got: {}",
+            out["context"]
+        );
+
+        // (a) the canonical project_brain_absent label rides the reception + gaps.
+        assert_eq!(
+            out["reception"]["project_brain_absent"], true,
+            "reception must carry the canonical project_brain_absent label"
+        );
+        assert_eq!(
+            out["reception"]["match"], "caller_root_mismatch",
+            "the mismatch code is preserved (roster-enrich + human_view depend on it)"
+        );
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter().any(|g| g
+                .as_str()
+                .map(|s| s.contains("project_brain_absent"))
+                .unwrap_or(false)),
+            "honest_gaps must name project_brain_absent, got: {gaps:?}"
+        );
+
+        // MEDULLA SERVED — the doctrine store is intact and served (not wiped by
+        // the cut): the on-disk count is honest, and every served memory row is
+        // medulla-tier (its light recall is scoped to `light::`, so it
+        // structurally cannot carry code anchors).
+        assert!(
+            out["memory_exists"].as_u64().unwrap_or(0) >= 1,
+            "the medulla doctrine store is served, not wiped: {}",
+            out["memory_exists"]
+        );
+        for row in out["memory"].as_array().expect("memory array") {
+            assert_eq!(
+                row["tier"], "medulla",
+                "every served memory row is medulla-tier under the fallback: {row}"
+            );
+        }
+
+        // (4) needs_ingest must NOT lie as "empty of known brain" — the honest
+        //     story is project_brain_absent, not an unfinished ingest.
+        assert!(
+            out["needs"].is_null(),
+            "the served-medulla beat is not an empty-graph needs_ingest, got: {}",
+            out["needs"]
+        );
+    }
+
+    /// P1 no-regression: a caller whose root IS covered by the bound brain gets
+    /// the normal grounded context — the fallback must never fire for a home
+    /// caller, and no project_brain_absent gap appears.
+    #[test]
+    fn north_covered_caller_keeps_grounded_context() {
+        let (temp, mut state) = build_state_populated(false);
+        let root = temp.path().join("repo-home");
+        std::fs::create_dir_all(&root).expect("home root");
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        // The caller IS the bound brain's root — a covered, home caller.
+        state.caller_root = Some(root.to_string_lossy().to_string());
+        assert!(
+            state.covers_root(&root.to_string_lossy()),
+            "precondition: the caller is covered"
+        );
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "home-caller",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed");
+
+        // Covered → no reception block, real context with activated focus nodes.
+        assert!(
+            out["reception"].is_null(),
+            "covered caller gets no reception packet, got: {}",
+            out["reception"]
+        );
+        assert!(
+            !out["context"].is_null(),
+            "covered caller gets grounded context"
+        );
+        let focus = out["context"]["focus_nodes"]
+            .as_array()
+            .expect("focus_nodes array");
+        assert!(
+            !focus.is_empty(),
+            "the lease task activates focus nodes for a covered caller"
+        );
+        // The project_brain_absent label never fires for a home caller.
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter()
+                .all(|g| !g.as_str().unwrap_or("").contains("project_brain_absent")),
+            "no project_brain_absent gap for a covered caller: {gaps:?}"
+        );
+    }
+
     /// MANDATORY shape (amendment 4): the empty/unbound graph serves the honest
     /// needs_ingest card — the zero IS the message and the gap string rides
     /// verbatim (wrapped whole, never truncated).
@@ -13108,10 +13407,12 @@ mod tests {
     }
 
     /// R1(a) — Budget Law "no duplicate serialization" (RED→GREEN): a north packet
-    /// embeds BOTH `binding.fingerprint` and `binding.graph_state`. The full
-    /// `ingest_roots` array must appear exactly ONCE across the two (in the
-    /// fingerprint) — never byte-identically duplicated. `graph_state` carries only
-    /// the COUNT. Before the fix the same array was serialized in both blocks.
+    /// embeds BOTH `binding.fingerprint` and `binding.graph_state`. The roots must
+    /// never be serialized byte-identically in both blocks — `graph_state` carries
+    /// only the COUNT. Before the fix the same array was serialized in both.
+    /// The fingerprint's own block is now bounded too (a head of
+    /// `FINGERPRINT_INGEST_ROOTS_HEAD` with the omission declared); below that
+    /// bound — as here — it still lists every root and says it is untruncated.
     #[test]
     fn north_binding_serializes_ingest_roots_once_not_duplicated() {
         let (_temp, mut state) = build_state_populated(false);
@@ -13132,11 +13433,16 @@ mod tests {
         )
         .expect("north on a multi-root binding");
 
-        // The fingerprint is the ONE canonical home for the full array.
-        let fp_roots = out["binding"]["fingerprint"]["ingest_roots"]
+        // Three roots is under the head bound, so the fingerprint still lists them
+        // all — and says so instead of leaving the reader to guess.
+        let fp = &out["binding"]["fingerprint"];
+        let fp_roots = fp["ingest_roots"]
             .as_array()
-            .expect("fingerprint carries the full ingest_roots array");
+            .expect("fingerprint carries the ingest_roots head");
         assert_eq!(fp_roots.len(), 3, "fingerprint lists all three roots");
+        assert_eq!(fp["ingest_root_count"].as_u64(), Some(3));
+        assert_eq!(fp["ingest_roots_truncated"], serde_json::json!(false));
+        assert_eq!(fp["ingest_roots_omitted"].as_u64(), Some(0));
 
         // graph_state must NOT re-serialize the full array — only the count.
         assert!(

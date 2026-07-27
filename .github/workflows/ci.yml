@@ -39,22 +39,27 @@ jobs:
         # green. (2026-07-23 — CI throughput was hostage to admin overrides.)
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-gates-${{ matrix.os }}
-      - name: Check every target
-        run: cargo check --locked --workspace --all-targets
+      # No standalone `cargo check`: clippy type-checks every target on its way
+      # to linting, so a separate check pass was a full redundant compile.
       - name: Test every target
         run: cargo test --locked --workspace --all-targets
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
         run: cargo fmt --all --check
+      # Release-profile build runs on main pushes only (2026-07-24): on a PR it
+      # proved nothing tests+clippy don't, at ~half the round's wall-clock, and
+      # the signed release pipeline rebuilds --release at tag time anyway. A
+      # release-profile-only breakage is now caught on the main push instead.
       - name: Build the complete release workspace
+        if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
   # ADVISORY (phase-2, since 2026-07-23): Windows runs the full Rust gate and
@@ -66,22 +71,30 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-gates-windows-latest
-      - name: Check every target
-        run: cargo check --locked --workspace --all-targets
+      # Mirrors the required gate exactly: no standalone check (clippy subsumes
+      # it), release-profile build on main pushes only.
+      #
+      # `--no-fail-fast` ONLY here, and deliberately. Cargo stops after the first
+      # test binary that fails, so on a leg carrying known debt every fix reveals
+      # the next failure one CI round at a time — the source-edit family masked a
+      # transplant-harness bug, which was in turn masking runnerd's. An advisory
+      # leg exists to MEASURE the debt, so it has to report all of it in one run.
+      # The required gate keeps failing fast.
       - name: Test every target
-        run: cargo test --locked --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets --no-fail-fast
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
         run: cargo fmt --all --check
       - name: Build the complete release workspace
+        if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
   test-status:
@@ -120,8 +133,8 @@ jobs:
       run:
         working-directory: m1nd-ui
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -147,8 +160,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
       - run: npm test
@@ -162,8 +175,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -176,7 +189,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
       - name: Refuse private, operator-only, secret, or cache paths in the candidate commit
@@ -200,7 +213,7 @@ jobs:
         run: |
           cargo install cargo-audit --locked --version 0.22.2
           cargo audit --file ./Cargo.lock
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
       - name: Root wrapper must remain dependency-free
@@ -213,7 +226,7 @@ jobs:
             }
           }
           NODE
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -223,7 +236,7 @@ jobs:
         run: npm audit --audit-level=high
       - name: Review dependency changes
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
 
@@ -231,7 +244,7 @@ jobs:
     name: Frozen contracts and documentation coupling
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
       - name: Verify ratified M1ND-10 contract bytes

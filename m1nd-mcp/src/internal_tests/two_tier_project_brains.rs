@@ -329,8 +329,23 @@ fn fingerprint(north: &serde_json::Value) -> &serde_json::Value {
     &north["binding"]["fingerprint"]
 }
 
+/// The binding's ingest roots as seen from a north packet. The fingerprint block
+/// is budget-capped (Budget Law §C1.3.4) and carries only a head once a brain
+/// accumulates roots, so this helper REFUSES a truncated block: the negative
+/// assertions below ("root X must not be here") would silently pass on a partial
+/// list. These fixtures bootstrap one root per brain, far under the cap; a future
+/// fixture that trips this must read `doctor -> runtime_state.ingest_roots`.
 fn ingest_roots_of(north: &serde_json::Value) -> Vec<String> {
-    fingerprint(north)["ingest_roots"]
+    let fp = fingerprint(north);
+    assert_ne!(
+        fp["ingest_roots_truncated"],
+        serde_json::json!(true),
+        "fingerprint roots are truncated ({} of {} shown) — read the full array \
+         from doctor instead of asserting over a head",
+        fp["ingest_roots"].as_array().map(|a| a.len()).unwrap_or(0),
+        fp["ingest_root_count"],
+    );
+    fp["ingest_roots"]
         .as_array()
         .map(|a| {
             a.iter()

@@ -12,7 +12,6 @@ use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
 use m1nd_core::types::*;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -132,13 +131,6 @@ fn extension_language(ext: Option<&str>) -> String {
     .to_string()
 }
 
-fn simple_content_hash(path: &std::path::Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    Some(format!("{:016x}", hasher.finish()))
-}
-
 pub(crate) fn build_file_inventory_entries(
     graph: &m1nd_core::graph::Graph,
     discovered_files: &[m1nd_ingest::walker::DiscoveredFile],
@@ -175,7 +167,7 @@ pub(crate) fn build_file_inventory_entries(
                 language: extension_language(file.extension.as_deref()),
                 commit_count: file.commit_count,
                 loc: loc_by_external_id.get(&external_id).copied(),
-                sha256: simple_content_hash(&file.path),
+                sha256: crate::audit_handlers::content_sha256(&file.path),
             }
         })
         .collect()

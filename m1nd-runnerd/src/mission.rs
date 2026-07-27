@@ -1010,32 +1010,38 @@ mod tests {
 
     #[test]
     fn validate_run_pins_and_allowlists() {
+        // The allowlist takes only paths the platform agrees are ABSOLUTE, and
+        // `/allowed/repo` is not one on Windows — see `crate::config::abs_path`.
+        // Substituted rather than `format!`ed in: the fixture carries a literal
+        // `{packet_file}` token that a format string would try to expand.
+        let allowed = crate::config::abs_path("/allowed/repo");
         let cfg = crate::config::parse(
-            r#"
+            &r#"
 [[runner]]
 id = "build-1"
 capability = "build-runner"
 command = ["c", "{packet_file}"]
 gate_command = ["t"]
-workspace_allowlist = ["/allowed/repo"]
-"#,
+workspace_allowlist = ["{allowed_root}"]
+"#
+            .replace("{allowed_root}", &allowed),
         )
         .unwrap();
 
         // Unpinned runner id → 403 unpinned_runner.
-        let mut r = req("/allowed/repo");
+        let mut r = req(&allowed);
         r.runner_id = "ghost".to_string();
         let err = validate_run(&cfg, &r).expect_err("unpinned");
         assert_eq!(err.keyword(), "unpinned_runner");
         assert_eq!(err.status(), 403);
 
         // Workspace outside the allowlist → 403 workspace_not_allowed.
-        let r = req("/somewhere/else");
+        let r = req(&crate::config::abs_path("/somewhere/else"));
         let err = validate_run(&cfg, &r).expect_err("outside allowlist");
         assert_eq!(err.keyword(), "workspace_not_allowed");
 
         // In-allowlist → the pinned runner.
-        let r = req("/allowed/repo");
+        let r = req(&allowed);
         assert_eq!(validate_run(&cfg, &r).unwrap().id, "build-1");
     }
 

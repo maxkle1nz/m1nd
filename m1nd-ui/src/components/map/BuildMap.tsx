@@ -155,9 +155,9 @@ function BuildMapEmpty({
   return (
     <div className="flex-1 flex items-center justify-center bg-porcelain" data-role="build-map-empty">
       <div className="max-w-sm text-center space-y-3 px-6">
-        <div className="text-ink font-semibold">No skeleton yet for this repo.</div>
+        <div className="text-ink font-semibold">This repo has no map yet.</div>
         <p className="text-xs text-ink-soft font-mono">
-          {honest ?? 'no skeleton yet — import a seed or run a scan'}
+          {honest ?? 'import a seed or scan the repo to propose one'}
         </p>
 
         {/* The primary gesture — scan the repo into a candidate map (F0c §5). */}
@@ -253,8 +253,8 @@ function BuildMapEmpty({
         >
           Import seed
         </button>
-        <p className="text-[10px] text-ink-soft">
-          or import an authored seed via the <span className="font-mono">system_blocks_seed_import</span> verb
+        <p className="text-[10px] text-ink-soft" title="CLI verb: system_blocks_seed_import">
+          or import an authored seed from the CLI
         </p>
       </div>
     </div>

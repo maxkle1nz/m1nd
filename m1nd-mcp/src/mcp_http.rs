@@ -109,6 +109,15 @@ const GRAPH_MUTATION_TOOLS: &[&str] = &[
     "apply",
     "apply_batch",
     "edit_commit",
+    // A6, the #376 lesson: `transplant` is the first verb where the GRAPH
+    // writes. It lands source/dest/referencer edits, so a
+    // viewer (attached agent OR the served Living Tree / Build Map) must refetch —
+    // naming it here replaces its accidental apply_batch_progress coverage with a
+    // proven relay. `transplant_commit` (A2) lands the same write from a staged
+    // plan. Both confirmed present in `READ_ONLY_DENIED_TOOLS` (server.rs);
+    // `transplant_preview` stages only and is deliberately absent.
+    "transplant",
+    "transplant_commit",
     "memorize",
     "learn",
     "daemon_start",
@@ -3271,6 +3280,83 @@ mod tests {
             let frame = graph_changed_notification(&e)
                 .unwrap_or_else(|| panic!("{tool} must relay as graph_changed"));
             assert_eq!(frame["params"]["event"], tool, "{tool} names itself");
+        }
+    }
+
+    #[test]
+    fn transplant_relays_as_graph_changed_and_is_read_only_denied() {
+        // A6 (the #376 lesson): `transplant` is the first verb where the GRAPH
+        // writes. Its living-map coverage was ACCIDENTAL (via apply_batch_progress)
+        // and unproven — the exact class of #376. It must name ITSELF as a
+        // graph_changed relay so a viewer refetches on a move; before this it
+        // relayed NOTHING under its own name (the natural RED).
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant", "success": true, "agent_id": "surgeon"}),
+        );
+        let frame = graph_changed_notification(&e).expect("transplant must relay as graph_changed");
+        assert_eq!(
+            frame["params"]["event"], "transplant",
+            "transplant names itself"
+        );
+        assert_eq!(frame["method"], "notifications/m1nd/graph_changed");
+
+        // A failed transplant changed nothing → suppressed (mirrors failed_mutation).
+        let failed = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant", "success": false}),
+        );
+        assert!(
+            graph_changed_notification(&failed).is_none(),
+            "a failed transplant is not a graph change"
+        );
+
+        // The documented subset invariant: GRAPH_MUTATION_TOOLS ⊆
+        // READ_ONLY_DENIED_TOOLS — transplant is a write, so a read-only attach
+        // must refuse it.
+        assert!(
+            crate::server::read_only_denied("transplant", &serde_json::json!({})),
+            "transplant must be read-only-denied (the subset law)"
+        );
+
+        // A2: `transplant_commit` lands the same write from a staged plan — same
+        // relay, same denial. `transplant_preview` stages only: NO relay, and a
+        // read-only attach may run it (the edit_preview exemption).
+        let commit = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant_commit", "success": true}),
+        );
+        assert!(
+            graph_changed_notification(&commit).is_some(),
+            "transplant_commit must relay as graph_changed"
+        );
+        assert!(
+            crate::server::read_only_denied("transplant_commit", &serde_json::json!({})),
+            "transplant_commit must be read-only-denied (the subset law)"
+        );
+        let preview = ev(
+            "tool_result",
+            serde_json::json!({"tool": "transplant_preview", "success": true}),
+        );
+        assert!(
+            graph_changed_notification(&preview).is_none(),
+            "transplant_preview stages only — never a graph change"
+        );
+        assert!(
+            !crate::server::read_only_denied("transplant_preview", &serde_json::json!({})),
+            "transplant_preview writes nothing — read-only attach may run it"
+        );
+
+        // Prefixed forms resolve the same (mirrors prefixed_mutation_tool_is_relayed).
+        for tool in ["m1nd.transplant", "m1nd_transplant"] {
+            let e = ev(
+                "tool_result",
+                serde_json::json!({"tool": tool, "success": true}),
+            );
+            assert!(
+                graph_changed_notification(&e).is_some(),
+                "{tool} should relay"
+            );
         }
     }
 

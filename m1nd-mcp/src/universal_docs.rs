@@ -147,6 +147,10 @@ pub fn ensure_cache_root_in_ingest_roots(state: &mut SessionState) {
     } else {
         state.ingest_roots.push(cache_root);
     }
+    // `ingest_roots` is a durable checkpoint file. Reordering or appending the
+    // cache root is routine, so it joins the staged-persist debounce rather than
+    // forcing a checkpoint of its own.
+    state.note_durable_sidecar_drift();
 }
 
 pub fn load_document_cache(runtime_root: &Path) -> DocumentCacheState {
@@ -1158,6 +1162,10 @@ fn refresh_document_cache_entry(state: &mut SessionState, source_path: &str) -> 
         entry.drift_summary = drift.summary;
         entry.last_binding_refresh_generation = state.graph_generation;
         entry.last_drift_refresh_generation = state.graph_generation;
+        // `document_cache` is the in-memory owner of the `document_cache_index`
+        // sidecar. The refresh is routine and regenerable, so it joins the
+        // staged-persist debounce instead of forcing a whole-brain checkpoint.
+        state.note_durable_sidecar_drift();
     }
     Ok(())
 }
@@ -1235,6 +1243,7 @@ pub fn document_bindings(
         cache_entry.last_binding_count = bindings.len();
         cache_entry.binding_preview = bindings.iter().take(8).cloned().collect();
         cache_entry.last_binding_refresh_generation = state.graph_generation;
+        state.note_durable_sidecar_drift();
     }
     serde_json::to_value(DocumentBindingsOutput {
         source_path,
@@ -1263,6 +1272,7 @@ pub fn document_drift(
         cache_entry.drift_summary = drift.summary.clone();
         cache_entry.last_binding_refresh_generation = state.graph_generation;
         cache_entry.last_drift_refresh_generation = state.graph_generation;
+        state.note_durable_sidecar_drift();
     }
     serde_json::to_value(drift).map_err(M1ndError::Serde)
 }

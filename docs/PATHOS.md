@@ -2,7 +2,19 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-22 (**checkpoint 31 — 1.5.0 PUBLISHED BY OWNER OVERRIDE; A DOGFOOD NIGHT HEALED A P0 (MCP tools vanished) + WINDOWS SECURITY/PATH/HANDLE GAPS; A PRE-EXISTING WINDOWS SOURCE-EDIT PATH-CANON SUITE (~22) REMAINS RED, DIAGNOSED, TRACKED**).
+> Last checkpoint: 2026-07-26 (**checkpoint 35 — THE RELEASE PUBLISHED BUT DID NOT INSTALL: macOS SIGNING + NOTARIZATION WIRED AND CREDENTIALED; THREE AUDIT CLAIMS GRADED**).
+> Checkpoint 35, condensed: installing the PUBLISHED 1.5.0 the way a stranger would exposed the gap the release pipeline could not see. The npm updater behaved exactly as designed — `state: stale`, `1.4.0-dirty -> 1.5.0`, then a clean REFUSAL because `cosign` is absent (it never degrades to an unverified path). The GitHub asset verified against the release `SHA256SUMS`, but its FIRST run parked in uninterruptible `UE` state: the shipped macOS binary is ad-hoc signed only (`codesign -dv` shows no Developer ID authority), so Gatekeeper blocks every user's first launch of a 69MB unsigned binary. **The release published, but it did not install well.** PR #433 (merged) wires Developer ID signing (hardened runtime + secure timestamp) and `notarytool` notarization BETWEEN the build and the staging steps, so both the raw updater-facing binary and the tarball carry the signature; the honest posture is that absent Apple secrets the step SKIPS loudly (today's behaviour) while present secrets make any failure FAIL the build, with a final check proving an `Authority=Developer ID Application` on the shipped bytes (a raw executable cannot be stapled — Gatekeeper resolves the ticket online, stated not hidden). The credentials are now REAL: a `Developer ID Application: Max Elias Kleinschmidt (4KLJ4N9D5K)` certificate (G2 Sub-CA, valid to 2031-07-27, minted from a locally generated CSR so the private key never left the machine) and an App Store Connect API key scoped to `Developer` only; all six `APPLE_*` secrets are set and verified, and the key/cert pair was proven to match by modulus comparison. **The next tag ships signed and notarized.** Audit claims from an external reader were graded rather than trusted: the `sha256`-field-computed-with-`DefaultHasher` claim was REAL but had already been fixed on main by a parallel session (`content_sha256` now calls the true `sha256_bytes`, guarded by a 64-hex-char test); the `agent_id` falls-back-to-`unknown` claim is PARTIALLY REFUTED — 136 tool schemas declare `agent_id` required, handlers refuse without it, and the write path types it as non-optional `String`, so the `"unknown"` lives only in an SSE telemetry label, not an authority path; the root-orphans claim was PARTIAL (one untracked third-party web directory is a genuine leak-guard risk, two were inert). Method note that paid for itself twice tonight: verify before acting, and verify before DECLARING — a `find -newermt "-3 minutes"` window wrongly pronounced a downloaded API key lost when it had been in `~/Downloads` all along.
+>
+> Previous checkpoint: 2026-07-25 (**checkpoint 34 — THE GRAPH LEARNED TO WRITE: `transplant` promoted from an isolated prove-first lab into the main line, with its boundaries stated**).
+> Checkpoint 34, condensed: m1nd read by graph and wrote by whole file. `transplant` is the first verb where the GRAPH writes — the caller names a symbol and two paths (48 tokens) and the server computes the move: the widened item extent (doc comments and attributes travel), the dependency trichotomy from `calls` edges (private deps travel; shared deps stay, gain `pub(crate)` and a back-import), every referencer re-qualified across N files, an atomic `apply_batch` write, a re-ingest, and a receipt that states what it could NOT do. Measured on a real 714-line move: **256× fewer output tokens** than the whole-file path (12,235 → 48). The road here was a full prove-first cycle: a donor study (26 repos read at architecture level — the market slot for "move code by reference" documented EMPTY; rust-analyzer #2178 open since 2019), an isolated lab (own worktree, own owner, own fixture), contract batteries born RED, the spike, then adversarial + property hardening (proptest found a real dest-is-referencer corruption; the self-hosting oracle — moving a real private `fn` inside `m1nd-core` and compiling it — forced the visibility-bump law), a PRD distilled with a proof address on every normative sentence (`docs/TRANSPLANT-PRD.md`), a review verdict `CHANGE` carrying three structural own-findings (the SystemBlocks lie-window, the "false ideal" state, the #376 class), owner ratification (D1-D5), and two closure waves. What the closure waves bought: the **false ideal is dead at preflight** (poisonous module stems `lib`/`main`/`mod` and cross-crate moves now refuse, naming what they would have produced) · the destination collision check covers the **full item namespace**, not only `fn` · the armed proof gate covers the **derived referencer set**, not only source and dest · the write relays as `graph_changed`, so the live map is proven, not accidental · the computed contents are rustfmt-ed BEFORE the write · `transplant_preview → transplant_commit` stages the whole multi-file plan behind a 5-minute handle and re-validates the hash of EVERY planned file · a protected-zone match refuses fail-closed unless the caller passes an explicit reason, which the receipt records · and the move ages the `boundary_version` of every SystemBlock whose membership claims a touched file, so a symbol can no longer cross a ratified boundary while that block's receipts stay green. Promotion ships as TWO PRs: real function extents in the Rust ingest (791 of 794 function nodes gain a true extent, 99.6%; snapshot −73 bytes; time inside the noise band) and the verb itself — 55 tests in 12 binaries (53 active + 2 declared `#[ignore]`), the whole workspace green, clippy/fmt clean, the UI suite green. Boundaries, unchanged by the promotion and always travelling with the numbers: top-level `fn` only · module = file stem · same crate · the destination file must already exist · grouped/nested `use` in the SOURCE file is reported in `refs_unresolved`, never rewritten · macro-generated references are invisible to the parser · a re-ingest failure AFTER the write leaves changed files behind an error return. Two owner-side items declared, not hidden: (1) **full paint-tag follow** across a move needs owner-side wiring (stable node identity OR a paint-tag registry) — the ideal is pinned by the `#[ignore]`d acceptance test `a1_xray_tags_full_follow_ideal_needs_owner_wiring`, which IS the gate for that fix; until then the receipt's `state_left_behind[]` names every orphaned tag instead of going quiet; (2) the **incremental re-ingest leaves the moved symbol's OLD node lingering** in the graph — pre-existing, surfaced by this work. Next in the same line: the reverse-gate (auto-rollback on a post-commit ERROR delta), which protects EVERY write verb, as its own cycle.
+>
+> Previous checkpoint: 2026-07-24 (**checkpoint 33 — AUTO-MERGE RESTORED (PROVEN BY SELF-MERGE UNDER A RED ADVISORY LEG); THE FIRST-CONTACT INSTRUCTION WAS A LIE ON SEVEN SURFACES OF `v1.5.0` AND IS NOW GUARDED BY TEST**).
+> Checkpoint 33, condensed: two honesty defects closed, one throughput blocker removed. **(1) The CI freed itself.** #404 moved `windows-latest` out of the required `Test` aggregator into an advisory `rust-gates-windows` job that still runs the identical gate and reports its own honest red — then **merged itself with Windows red**, which is the proof the restoration works: the whole queue had been hostage to per-PR admin overrides. Branch protection now requires exactly `["Test"]` (two phantom `Clippy`/`Format` contexts, which no workflow had emitted since the aggregator landed, were removed). The Windows source-edit path-canon debt (~22 tests) stays visible and tracked; it did not get quieter, it stopped being a toll booth. **(2) The first-contact instruction was lying, and had shipped.** The runtime withdrew the public cross-root bootstrap long ago — `brain.bootstrap` has NO typed external consumer (`action_consumers.rs` installs `brain.promote` + `graph.ingest.{preview,replace,merge_existing}` and nothing else), the published `ingest` schema carries neither `project_root` nor `allow_overlap`, and `server.rs` asserts the served `M1ND_INSTRUCTIONS` never name the call. **The prose never followed.** `v1.5.0` shipped SEVEN surfaces still teaching `ingest project_root=` as the remedy for `caller_root_mismatch`: the quickstart (the first thing a new user reads), the lifecycle reference, the changelog, the README's owner pitch, this repo's own `AGENTS.md` write laws (twice), and both agent skills (four spots each). An agent obeying first contact either sent an argument the schema rejects or hit `brain_bootstrap_consumer_not_installed` with no honest next step — exactly the loop `tools.rs:4133` already refuses to create. Fixed in #405: every surface now names the absent consumer and the real ways forward (reconnect to an owner that hosts the repo, or stay read-only with the warning intact); the changelog keeps its historical entry under a superseded banner rather than falsifying history. **The structural half matters more than the nine edits:** `tests/test_agent_surface_bootstrap_honesty.py` extends the guard `server.rs` already applied to the wire across every instructional surface, proven to bite (reinjecting the sentence turns it red), with the changelog exemption itself guarded by the presence of its banner so it cannot rot into a loophole. Lesson written into `AGENTS.md`: **withdraw a capability and you sweep the prose in the same PR — a guard that covers only the wire is half a guard, because the prose IS the interface.** Provenance: surfaced by a house telemetry handoff whose reading was that the honest skill was the stale one and should be aligned TO the advertisement; the code said the opposite, and following it would have propagated the dead call into the last surface still telling the truth — verify-before-assert, with the runtime as the tiebreaker. Field-report filed (`class: honesty`). **Traction datum (first ever, per verb):** ~6 weeks of one operator's real use = 807 calls, and only **29 of 133 verbs were ever called**; the live loop is `memorize` · `north` · `receipt_import` · `ingest` · `seek`, while `perspective_*`, `daemon_*`, `antibody_*`, `federate*`, `mission_*`, `trail_*` and nearly all `xray_*` recorded ZERO. Read it with its honest caveats (one operator, one window, recently-shipped verbs had no time to land, REST/CLI traffic invisible to it) — it is not a verdict on those verbs, it is the first real evidence for the surface-diet-vs-discovery question the relaunch has to answer.
+>
+> Previous checkpoint: 2026-07-23 (**checkpoint 32 — THE GENESIS "GAP" IS THREE PROBLEMS, NOT ONE; PANEL-RATIFIED ORDER P1→P2→P3; AGENT-FIRST ARGUES *FOR* THE SOVEREIGN FLOOR**).
+> Checkpoint 32, condensed: scoping the owner's item-zero (genesis) before code. An askGOD panel (grok `CHANGE`/alta + glm `APPROVE`/alta; divergence resolved by the owner) split the single "genesis gap" into THREE distinct problems: **P1** — a repo with NO project brain leaves the agent blind, when the canon (`docs/TWO-TIER-BRAIN-PRD.md:267`) mandates serving the MEDULLA (doctrine + cross-project memory) wearing `project_brain_absent` — NOT implemented today (the symbol has 0 code hits; only WRITE refuses via `brainless_root` at `light_author_handlers.rs:222`). **P2** — the birth ceremony does NOT exist: `m1nd init` (`npm/lib/cli.js:4712`) is the host installer (`installSkills`), not brain.json/first-ingest/certificate; the PRD claims it "built" → STALE (doc-gate when P2 lands). **P3** — the 1.5.0 owner boots the governed runtime EMPTY (the ~28k-node brain lives in an OLD binary); this is the owner-ratified item-zero "fresh-brain GENESIS via MCP" (cp31). Ratified order (both voices agree): **P1 (medulla-only) → P2 (human CLI birth ceremony; the agent DETECTS and OFFERS the exact string, human runs it 1×) → P3 (typed consumer at the `PositiveSovereign` floor of `brain.bootstrap`, scoped to empty-owner/consented-bootstrap)**. The panel's decisive catch (grok saw it, glm missed it): my proposed "P3 last OR **never**" contradicts the owner-ratified item-zero — so P3 is "last, NOT never"; burying it would need an explicit owner amendment, never an executor's call. Agent-first thesis confirmed by both voices: "agent-first" ≠ "agent mints its own brain" — twin brains (root vs worktree) fragment the inheritance and kill "what one agent proves, the next reads", so the sovereign floor is PRO-agent; the real pain is being blind, not being unable to birth. The 12 P3 requirements (grok, for when it comes): distinct action if lower floor, TOCTOU single-flight per canonical root, forbid `allow_overlap:true` off the sovereign path, "empty destination" defined ON DISK (no orphan manifest/snapshot/checkpoint), partial-birth recovery, MCP/REST parity, separate the ~28k-node MIGRATION (adoption) from fresh birth. Now building: **P1 (medulla-only read fallback)** — the highest agent-first ROI, unanimous, independent of birth.
+>
+> Previous checkpoint: 2026-07-22 (**checkpoint 31 — 1.5.0 PUBLISHED BY OWNER OVERRIDE; A DOGFOOD NIGHT HEALED A P0 (MCP tools vanished) + WINDOWS SECURITY/PATH/HANDLE GAPS; A PRE-EXISTING WINDOWS SOURCE-EDIT PATH-CANON SUITE (~22) REMAINS RED, DIAGNOSED, TRACKED**).
 > Checkpoint 31, condensed: the guardian installed the new binary and dogfooded m1nd on m1nd, which immediately caught a release P0 — `mission_service`/`external_mutation_service` shipped a bare top-level `oneOf`, so strict MCP clients (Claude Code) rejected the ENTIRE tools/list and every m1nd tool silently vanished from live sessions; field-report → RED test → fix (#389), the registry now guarded by `every_tool_input_schema_is_top_level_object`. The house doc-gate correctly bit two PRs whose surfaces still taught `needs_ingest → ingest` (a policy-refused verb) and forced the honest recovery text (#390, which also added one-time journaled legacy-snapshot adoption at boot). Investigating the CI then exposed the real state: **main had been Windows-red the whole era** (36 deterministic failures, advisory gate, admin-overridden per PR), never a regression. #391 healed 10+ (append-handle `set_len`/os-error-5 via `windows_durable_fs::truncate_no_follow`, lock share-mode/os-error-32, the flaky macOS source-matrix latch) and closed a genuine **cross-platform security gap** — a rooted discovery pattern escaped the scanned root on Windows (`Path::is_absolute` is not OS-independent, mirrored in the peek allow-root walk which had been a `not(unix)` stub that always refused). The remaining ~22 collapsed to a SINGLE pre-existing cause: the source-edit transaction subsystem canonicalizes paths (`fs::canonicalize` emits `\\?\` verbatim → `//?/` after normalize) but compares against stored/constructed identities that lack the prefix, so every preflight refuses "target escapes managed root" on Windows only — delicate, security-sensitive, and unverifiable locally (mingw C++ cross-toolchain absent). Rather than rush a security-boundary patch that can't be Windows-tested, the owner chose to **override-merge #391/#389/#390/#388 and publish 1.5.0** on the project's actual (long-standing) bar, with the Windows source-edit gap declared honestly in the CHANGELOG "Known gap" and tracked as a proper GOD-loop follow-up (diagnosis in hand). 1.5.0 still ships materially better on Windows than 1.4.0. Post-tag item zero (owner-ratified): fresh-brain GENESIS via MCP (the served owner runs an OLD binary; the new binary boots the governed runtime EMPTY — five fail-closed walls mapped, field-reports filed as the wave's adversarial fixtures; acceptance = the machine's ~28k-node brain active through the governed path). AGY memory research (bi-temporal/taint/stale-filter) ratified as PANTRY, not north; north = the organism that self-corrects with proof — which is exactly what this night was. COMPLETION (2026-07-23): after five release-machinery walls fell one per run (VCS-dirty guard, Windows UI-digest attestation → Windows target dropped as phase-2, updater-cosign trusted-path, PRD re-freeze amendment `bf7b03c7…` after the owner's no-leak cleanup tripped the tag-guard exactly as designed, exact-crates workspace extraction), run `30004342668` published the FOUR crates (core/ingest/mcp `1.5.0`, control `0.1.0`) and the signed 46-asset GitHub Release; the npm job alone failed on a latent `npm publish dir/x.tgz` git-shorthand parsing quirk, and the EXACT candidate tarball (sha256 bound inside the signed CANDIDATE.json) was published from the Release bytes the same hour — npm `latest: 1.5.0`, crates↔npm parity same-day. The `./` prefix fix landed for 1.6.0+. Remaining declared fronts: v1tals (9 merges due), genesis wave (item zero), Windows phase-2 suite, CI tiering, graceful attach.
 >
 > Previous checkpoint: 2026-07-21 (**checkpoint 30 — G9 PATH-B SECURE ENCLAVE CUSTODY FLOOR IMPLEMENTED IN AN OPEN PR (proof-grown, not merged; the owner's live custody ceremony is NOT_RUN)**).
@@ -70,6 +82,130 @@
 > duplicate-basename misrouting to the honest abstain, ran the first real `--inbox-sweep`
 > (idempotence proven live), and brought `skills/` to the serve-attach/medulla/delegation/soul era.
 > Prior checkpoints (10 → 7) are summarized in **Prior Eras** below; full text in git history.
+
+## Open fronts — the declared debt (2026-07-24)
+
+Everything promised or planned and not yet done, named here rather than left in a chat.
+Update this list in the same PR that closes one; a front that dies silently is a lie.
+
+**Blocking the product**
+- **Windows phase-2** — the source-edit path-canon suite is FIXED (`d8668591`, #435): the two identity
+  domains are related in one spelling, the containment test stays component-wise `strip_prefix`, and a
+  latent `PathBuf::push` re-root was closed with it. The CI-driven red→green loop this entry asked for is
+  what closed it — no Windows box was needed.
+  **But "~22" was never the size of this front, and the number itself was the lie.** `cargo test` stops at
+  the first test binary that fails, so the source-edit family was MASKING the rest: fixing it revealed one
+  transplant-harness failure (#436 — where the product was correct and the harness's own path keys were
+  not), and fixing that revealed four `m1nd-runnerd` fixtures that spell absolute paths the Unix way only
+  (`/abs/repo` has a root but no prefix on Windows, so it is not absolute — the product is right to refuse
+  it). Each fix cost a full CI round to learn the next layer, so the advisory leg now runs `--no-fail-fast`:
+  an advisory job exists to MEASURE debt, and one that reports a layer at a time measures nothing.
+  **The true remaining surface is therefore still unknown** and will be known for the first time on the next
+  advisory run. Two latent items already found on the way, both filed: `config::workspace_allowed` carries
+  the same verbatim-prefix split `d8668591` just fixed (fail-closed, so a legitimate workspace is refused on
+  Windows and allowed on Unix — same input, opposite verdict), and `m1nd-mcp` does not compile with `serve`
+  off (an ungated `getrandom::fill` against an optional dep), which `--workspace` feature unification hides
+  from CI entirely.
+- **Genesis P2 and P3** — P1 (medulla-only read fallback so a brainless repo is served doctrine instead of
+  blindness) is implemented in PR #403, in the merge queue and NOT yet on main — checkpoint 32's "0 code
+  hits" above described the tree before that PR existed, and holds for main until it lands; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
+  claiming it "built" is STALE — doc-gate when P2 lands) and **P3** (the typed consumer at `brain.bootstrap`'s
+  `PositiveSovereign` floor — "last, NOT never"; burying it needs an explicit owner amendment) are open.
+  P3's 12 requirements are recorded in checkpoint 32.
+
+**Honesty defects found and not yet all closed**
+- `sha256` field carrying a non-cryptographic 64-bit `DefaultHasher` value (`m1nd-mcp/src/tools.rs`
+  `simple_content_hash` → `session.rs` `pub sha256`). The real `sha256_bytes` already exists in
+  `m1nd-ingest/src/ownership.rs`. Fix in flight.
+- `agent_id` defaulting to `"unknown"` at `m1nd-mcp/src/http_server.rs:1272` while the doctrine says every
+  call carries one — needs an owner decision (enforce globally / write-verbs only / rewrite the doctrine),
+  not a unilateral patch.
+- Port `1337` vs `1338` disagree across surfaces (README attach example vs the owner AGENTS.md names).
+  Unify or document which is which.
+- `m1nd-viz` was listed as a workspace member in the repo's agent guides — `AGENTS.md` (corrected in
+  PR #407, in queue) and the local gitignored build notes (corrected the same day) — but no such crate
+  exists anywhere in the tree and `Cargo.toml` never declared it.
+- **Durability is now a WINDOW for verbs the witness cannot see (2026-07-25, PR #426).** The brain actor
+  stopped answering "did this turn change durable state?" with a SHA-256 of the whole ~100 MB state and
+  now answers with `DurableWitnessV1` (`Graph::generation` + session generations, O(1)) — the fix that took
+  a warm `seek` from 5.0s to 0.40s. The witness sees graph STRUCTURE and session generations, nothing else,
+  so a verb that writes only a durable SIDECAR is invisible to it. Two declared routes now carry those:
+  a mutating classification (`READ_ONLY_DENIED_TOOLS` → published on the acked turn — `antibody_create`,
+  `ingest`, `learn`, `daemon_start`, `auto_ingest_start`), or a persist choke point that enters the
+  staged-persist debounce. **Debounce route = a real `kill -9` loss window of up to
+  `auto_persist_interval` (50) deferring turns**: `alerts_ack`, `daemon_stop`, `daemon_tick`,
+  `boot_memory`, `antibody_scan`, `calibrate_envelope`, `calibrate_predict`, `document_bindings`,
+  `document_drift`, `document_resolve`, `auto_ingest_tick`, `auto_ingest_stop`. An acked `daemon_stop` or
+  `auto_ingest_stop` inside that window can therefore RESURRECT as running after a hard kill — note that
+  `daemon_start` IS a classified mutation while `daemon_stop` is not, an asymmetry that predates this
+  change and now has a durability consequence.
+  **Worse for pure learning drift:** plasticity raises no persist request at all, so it does not even
+  advance the debounce counter — on a read-only workload with the daemon stopped and auto-ingest idle,
+  a `kill -9` loses the entire session's learning. The only backstop is the graceful shutdown checkpoint,
+  which is **single-attempt and refusable** (`m1nd-mcp/src/project_brains.rs::shutdown` — terminal
+  lifecycle, refuses a second attempt, and can time out with 0 checkpoint ACKs). Not a guarantee.
+  Open: decide whether plasticity drift should tick the debounce (bounded loss) or stay free (cheapest
+  reads), and whether the debounce-route verbs above deserve promotion to classified mutations. The
+  classification itself is mechanically guarded — `session.rs` freezes the sidecar inventory and scans
+  the shipped source, so a new sidecar writer that declares no route fails CI loudly. Doctrine in
+  `docs/UML-ORGANISM.md` § "Who pays the checkpoint".
+- **The strict `read_snapshot` still deep-clones the graph on EVERY transport call.** Brain resolution asks
+  the actor whether the bound brain covers the caller root, so `read_snapshot` runs per call, and it ends
+  with an UNCONDITIONAL `rebind_after_callback` — a full `encode_graph_json` + `decode_graph_json` of the
+  whole graph. Read from the code, NOT measured here (the perf lab was deleted); the PR's own
+  `M1ND_BRAIN_TIMING=1` prints `rebind_detached_graph` as its own stage, so the number is one lab run away.
+  The deferring `execute` branch already proves the cheap shape: rebind only when a second owner of the
+  graph Arc exists (`strong_count > 1` or a live `Weak`), i.e. only when a callback actually kept a handle
+  (`execute_read_without_an_escaped_arc_does_not_rebind_the_graph`). Applying the same gate to the strict
+  path is deliberately NOT done here — it is the hardened fence and deserves its own verdict and its own
+  A/B, not a drive-by. Measured claim, unmeasured fix.
+
+**Process debt**
+- The PR queue needs review, not just rebasing — `#401` ("the graph learned to write") is substantial and
+  unread.
+- Registry↔dispatch parity oracle: a structural test that every advertised verb reaches a live handler,
+  proposed to kill the whole class of "advertised but unreachable" defects (of which the bootstrap prose
+  was one instance).
+- CI tiering and graceful attach, both declared in checkpoint 31 and untouched since.
+- v1tals checkup is due (merge count passed its trigger).
+
+## Inherited lessons — custody from the June era (2026-06-23 → 06-27)
+
+Taken into the repo's own memory on 2026-07-24 so they survive independently of any external
+note. Each was paid for once; none is derivable from the code or the git log.
+
+- **One writer per runtime root is a design conclusion, not an accident.** Persistence is
+  load-all → dump-all, last-writer-wins, with no WAL, CAS, or merge — so concurrent writers on
+  one runtime root cannot be made safe by care. The safe shape is one owner + N clients, with
+  real isolation via `--runtime-dir`. Anyone proposing multi-writer must first replace the
+  persistence model.
+- **Never accept a subagent's green.** A registry slice was reported "9 tests ok" while a
+  coexistence test failed even in isolation: instance ids collided (no nonce), entries
+  overwrote each other, and discovery would have broken in production. The orchestrator found
+  it only by running the tests itself.
+- **Distinguish a race from a bug with a decisive test, not a verdict.** A push-relay measured
+  22/30 looked like a defect; a long-window run proved it was a race with no replay after
+  subscribe. Condemning the code would have been wrong.
+- **Measure honesty in the units of the decision.** The sufficiency signal computed mass and
+  marginal score in `base_score` while the kept/dropped partition ran on `combined`
+  (= base × trust/tremor). On a graph with tremor history a strong dropped node looked retained,
+  producing a false `sufficient`. Two adversarial lenses caught what synthetic tests could not.
+- **Run a real smoke with the real model.** A non-total-order comparator (an intransitive
+  score/specificity switch) sat latent since v1.0 and panicked Rust's `sort_by` only once
+  default embeddings clustered scores into near-ties on real graphs. Synthetic tests never
+  produced the tie density that triggers it.
+- **Model size claims: check `content-length`, never infer from parameter count.** The `potion`
+  "NM" suffix names PARAMETERS, not megabytes — a mistake made three times. The shipped choice
+  (`potion-base-8M`, ~29MB, MIT, pure-Rust, off by default) was made for one embedding space
+  serving both code and prose; the recorded successor for when nodes carry real bodies and an
+  ANN index exists is `jina-v2-base-code` (Apache-2.0, pure-Rust via candle, no ONNX).
+- **Self-updating architectural knowledge is intrinsic, not a chore — and the README holds only
+  the contract, never the mechanism.** Grown context that merely accumulates measurably degrades
+  an agent; the reflexion model must confront the code rather than mirror it, which is why its
+  first useful output is "where your code already violates your own rules".
+- **Re-ground `file:line` in the right tree.** A review once declared a shipped verb "fictional"
+  because it read a stale checkout. Verify which tree you are standing in before you call
+  something absent.
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain

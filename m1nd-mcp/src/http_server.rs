@@ -20,6 +20,7 @@ use rust_embed::Embed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::brain_runtime::BrainSessionCell;
@@ -1584,7 +1585,7 @@ pub fn build_router(state: Arc<AppState>, filesystem_ui: bool) -> Router {
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
 
-    if let Some(ui_dir) = state.ui_authority.serve_dir() {
+    let router = if let Some(ui_dir) = state.ui_authority.serve_dir() {
         debug_assert!(filesystem_ui, "UI attestor/router mode mismatch");
         let cors = CorsLayer::new()
             .allow_origin(Any)
@@ -1595,7 +1596,16 @@ pub fn build_router(state: Arc<AppState>, filesystem_ui: bool) -> Router {
     } else {
         debug_assert!(!filesystem_ui, "UI attestor/router mode mismatch");
         api.fallback(serve_embedded_ui)
-    }
+    };
+
+    // Response compression (gzip). The big read surfaces — `/api/graph/snapshot`
+    // (tens of MB of node/edge JSON) and the served JS bundle — dominate the wire
+    // cost; gzip shrinks that JSON by roughly an order of magnitude. Outermost so it
+    // wraps every route including the UI fallback. `CompressionLayer::new()` uses
+    // tower-http's `DefaultPredicate`, which excludes `text/event-stream`, so the
+    // `/api/events` SSE stream is never buffered or compressed (streaming stays live).
+    // Only `compression-gzip` is enabled, so no brotli/zstd crate enters the graph.
+    router.layer(CompressionLayer::new())
 }
 
 // ---------------------------------------------------------------------------

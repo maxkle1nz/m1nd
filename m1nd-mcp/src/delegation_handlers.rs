@@ -760,7 +760,7 @@ fn compose_staleness(state: &SessionState) -> Value {
             files_changed += 1;
             continue;
         }
-        let current = crate::audit_handlers::simple_content_hash(path);
+        let current = crate::audit_handlers::content_sha256(path);
         match (&entry.sha256, current) {
             (Some(known), Some(now)) if known != &now => files_changed += 1,
             _ => {}

@@ -314,9 +314,38 @@ fn read_valid_secret(path: &Path) -> std::io::Result<String> {
     Ok(secret)
 }
 
+/// Test support: spell an absolute path the way the CURRENT platform means it.
+///
+/// The platforms genuinely disagree here, and the obvious literal gets it wrong:
+/// `Path::new("/abs/repo").is_absolute()` is `true` on Unix and **`false` on
+/// Windows**. There a leading `/` carries a root but no prefix, which leaves the
+/// path drive-RELATIVE — "that directory on whichever drive happens to be
+/// current" — so it is ambiguous, [`validate`] is right to refuse it, and it must
+/// keep refusing it. A fixture that needs a root the validator ACCEPTS therefore
+/// has to carry a drive letter on Windows; forward slashes stay legal separators
+/// there, so gluing `C:` in front is the whole fix and the TOML needs no
+/// backslash escaping.
+#[cfg(test)]
+pub(crate) fn abs_path(unix_path: &str) -> String {
+    if cfg!(windows) {
+        format!("C:{unix_path}")
+    } else {
+        unix_path.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Render a config fixture: `{abs_root}` becomes a repo root the validator
+    /// accepts on the platform running the test. It cannot be written as a literal
+    /// — see [`abs_path`]. Fixtures that spell a DELIBERATELY relative entry
+    /// (`not/absolute`, the ones proving the refusal) carry no token and go
+    /// straight to [`parse`].
+    fn fixture(toml: &str) -> String {
+        toml.replace("{abs_root}", &abs_path("/abs/repo"))
+    }
 
     const GOOD: &str = r#"
 [[runner]]
@@ -324,19 +353,19 @@ id = "build-1"
 capability = "build-runner"
 command = ["agent-cli", "run", "{packet_file}"]
 gate_command = ["cargo", "test"]
-workspace_allowlist = ["/abs/repo"]
+workspace_allowlist = ["{abs_root}"]
 
 [[runner]]
 id = "name-1"
 capability = "naming-runner"
 command = ["namer", "{packet_file}"]
 gate_command = ["true"]
-workspace_allowlist = ["/abs/repo"]
+workspace_allowlist = ["{abs_root}"]
 "#;
 
     #[test]
     fn valid_config_parses_both_runners() {
-        let cfg = parse(GOOD).expect("valid config parses");
+        let cfg = parse(&fixture(GOOD)).expect("valid config parses");
         assert_eq!(cfg.runners.len(), 2);
         assert_eq!(cfg.runners[0].parsed_capability(), Capability::BuildRunner);
         assert_eq!(cfg.runners[1].timeout_secs, DEFAULT_TIMEOUT_SECS);
@@ -357,9 +386,9 @@ id = "x"
 capability = "loop-runner"
 command = ["c", "{packet_file}"]
 gate_command = ["t"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 "#;
-        let err = parse(toml).expect_err("loop-runner is out of the MVP");
+        let err = parse(&fixture(toml)).expect_err("loop-runner is out of the MVP");
         match err {
             ConfigError::Field { field, .. } => assert_eq!(field, "capability"),
             other => panic!("expected a capability field error, got {other}"),
@@ -374,9 +403,9 @@ id = "x"
 capability = "build-runner"
 command = ["agent-cli", "run"]
 gate_command = ["t"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 "#;
-        let err = parse(toml).expect_err("no {packet_file} token");
+        let err = parse(&fixture(toml)).expect_err("no {packet_file} token");
         assert!(err.to_string().contains("packet_file"), "got {err}");
     }
 
@@ -388,10 +417,10 @@ workspace_allowlist = ["/abs"]
 id = "x"
 capability = "build-runner"
 command = ["c", "{packet_file}"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 "#;
         assert!(matches!(
-            parse(no_gate).unwrap_err(),
+            parse(&fixture(no_gate)).unwrap_err(),
             ConfigError::Field {
                 field: "gate_command",
                 ..
@@ -422,16 +451,16 @@ id = "x"
 capability = "build-runner"
 command = ["c", "{packet_file}"]
 gate_command = ["t"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 [[runner]]
 id = "x"
 capability = "naming-runner"
 command = ["c", "{packet_file}"]
 gate_command = ["t"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 "#;
         assert!(matches!(
-            parse(dup).unwrap_err(),
+            parse(&fixture(dup)).unwrap_err(),
             ConfigError::DuplicateId(_)
         ));
     }
@@ -463,12 +492,14 @@ id = "b"
 capability = "build-runner"
 command = ["agent-cli"]
 gate_command = ["t"]
-workspace_allowlist = ["/abs"]
+workspace_allowlist = ["{abs_root}"]
 "#;
-        assert!(
-            parse(build_no_token).is_err(),
-            "a build-runner still requires the packet_file token"
-        );
+        // Assert the REASON, not merely that something failed: a bare `is_err()`
+        // would stay green if the refusal ever came from an unrelated field, and
+        // this test's whole claim is about the token.
+        let err = parse(&fixture(build_no_token))
+            .expect_err("a build-runner still requires the packet_file token");
+        assert!(err.to_string().contains("packet_file"), "got {err}");
 
         // A zero per-block naming timeout is refused honestly by field.
         let zero = r#"
@@ -569,12 +600,21 @@ command = ["c"]
 
     #[test]
     fn workspace_allowlist_prefix_and_alias() {
-        let cfg = parse(GOOD).unwrap();
+        let cfg = parse(&fixture(GOOD)).unwrap();
         let r = find(&cfg, "build-1").unwrap();
-        assert!(workspace_allowed(r, "/abs/repo"), "exact root");
-        assert!(workspace_allowed(r, "/abs/repo/sub/dir"), "under the root");
-        assert!(!workspace_allowed(r, "/abs/other"), "outside the root");
-        assert!(!workspace_allowed(r, "/abs"), "the parent is not allowed");
+        assert!(workspace_allowed(r, &abs_path("/abs/repo")), "exact root");
+        assert!(
+            workspace_allowed(r, &abs_path("/abs/repo/sub/dir")),
+            "under the root"
+        );
+        assert!(
+            !workspace_allowed(r, &abs_path("/abs/other")),
+            "outside the root"
+        );
+        assert!(
+            !workspace_allowed(r, &abs_path("/abs")),
+            "the parent is not allowed"
+        );
     }
 
     #[test]

@@ -83,6 +83,35 @@ pub struct EditPreviewState {
     pub created_at_ms: u64,
 }
 
+/// One planned write of a staged two-phase transplant (A2): the exact content
+/// the commit will land and the hash of the on-disk text the plan was computed
+/// FROM (`base_hash` — the TOCTOU anchor: any drift refuses the commit).
+#[derive(Clone, Debug)]
+pub struct PlannedTransplantWrite {
+    pub file_path: String,
+    pub new_content: String,
+    pub base_hash: String,
+    pub description: Option<String>,
+}
+
+/// A staged `transplant_preview` awaiting `transplant_commit` (A2, PRD §4.2).
+/// Mirrors [`EditPreviewState`] (same 5-min TTL, same consume-on-commit law) but
+/// carries the FULL multi-file plan — source + dest + every derived referencer —
+/// plus the candidate receipt the commit finalizes.
+#[derive(Clone, Debug)]
+pub struct TransplantPreviewState {
+    pub preview_id: String,
+    pub agent_id: String,
+    pub symbol: String,
+    pub source_file: String,
+    pub dest_file: String,
+    /// Planned writes in write order (source, dest, referencers).
+    pub planned: Vec<PlannedTransplantWrite>,
+    /// The receipt computed at plan time; the commit re-stamps its timing.
+    pub receipt: crate::protocol::surgical::TransplantOutput,
+    pub created_at_ms: u64,
+}
+
 /// Generation-bound lexical document prepared once and reused by narrative
 /// `seek` calls. It is deliberately runtime-only: graph_generation is the
 /// authoritative invalidation fence, so no stale on-disk search index can be
@@ -451,6 +480,9 @@ pub struct SessionState {
     pub sessions: HashMap<String, AgentSession>,
     /// In-memory preview states for Ultra Edit phase 1.
     pub edit_previews: HashMap<String, EditPreviewState>,
+    /// Staged two-phase transplants (A2): preview_id → full multi-file plan.
+    /// Same in-memory/TTL discipline as `edit_previews`.
+    pub transplant_previews: HashMap<String, TransplantPreviewState>,
     /// Lazily-built, graph-generation-fenced file lexical index for narrative
     /// seek. Rebuilt after ingest/mutation; never persisted or trusted across boot.
     pub(crate) seek_file_index: Option<SeekFileIndexCache>,
@@ -622,6 +654,31 @@ const MAX_FLAGGED_FINDINGS: usize = 4096;
 /// the edit-preview OCC window while still forcing a fresh graph/disk read for a
 /// later write.
 pub const PROOF_READY_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// Budget Law (§C1.3.4) — how many ingest roots the binding fingerprint carries
+/// inline. The fingerprint answers ONE question ("am I bound to the m1nd I think
+/// I am?") and it rides on every `north`, so it must cost a fixed number of
+/// bytes no matter how many roots the brain accumulates. Ten is the smallest
+/// head that still shows the founding roots — the array is ordered oldest →
+/// newest ([`crate::tools`] ingest tracking), so the head is both the identity-
+/// bearing prefix and STABLE across writes, which is what makes cross-seam
+/// fingerprint comparison (`compare_binding_fingerprint`) meaningful. The whole
+/// array is served by `doctor` under `runtime_state.ingest_roots`.
+pub const FINGERPRINT_INGEST_ROOTS_HEAD: usize = 10;
+
+/// The canonical TT-INV-2 gap LABEL for a caller root that no project brain
+/// covers while the medulla legitimately serves its cross-project doctrine
+/// (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3). Doc-only until P1; this is now the
+/// real symbol the medulla-only read fallback stamps on `reception`.
+pub const PROJECT_BRAIN_ABSENT: &str = "project_brain_absent";
+
+/// The one honest sentence for the `project_brain_absent` gap, authored ONCE so
+/// every degraded read beat (north's `honest_gaps`) speaks it byte-equal. It
+/// names the label, states what IS served (the medulla's cross-project doctrine,
+/// legitimately) and what is NOT (code anchors for the caller's repo), and gives
+/// the honest recovery — the SAME closed-bootstrap posture the write path uses
+/// (never an invented `m1nd init` birth, which is unbuilt today).
+pub const PROJECT_BRAIN_ABSENT_GAP: &str = "project_brain_absent — no project brain covers your caller root; the medulla's cross-project doctrine is served as a legitimate transversal feed, but no code anchors for your repo exist. Creating a project brain is unavailable until the typed bootstrap consumer is installed (TT-INV-2 · TWO-TIER-BRAIN-PRD §10.4 rung 3).";
 
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
     // Host-neutral contract. Any MCP host can set one of these.
@@ -884,6 +941,17 @@ impl SessionState {
     pub fn binding_fingerprint(&self) -> serde_json::Value {
         let (binary_info, _drift_summary) = self.binary_version_info();
         let graph = self.graph.read();
+        // Budget Law (§C1.3.4 "fixed-cost binding"): the fingerprint rides on
+        // EVERY `north` — the verb doctrine makes every agent call it first — so
+        // it may not carry a block that grows with the brain. Measured on the
+        // live owner 2026-07-24: 380 roots = 25,907 bytes (~6.5k tokens) per
+        // call. The array is head-truncated to a fixed cost; the omission is
+        // DECLARED, never silent (honesty contract), the real total always
+        // ships, and the pointer names the surface that serves the whole list.
+        let omitted = self
+            .ingest_roots
+            .len()
+            .saturating_sub(FINGERPRINT_INGEST_ROOTS_HEAD);
         serde_json::json!({
             "schema": "m1nd-binding-fingerprint-v0",
             "process_id": std::process::id(),
@@ -896,7 +964,17 @@ impl SessionState {
             "plasticity_path": self.plasticity_path.to_string_lossy(),
             "workspace_root": self.workspace_root,
             "workspace_root_source": self.workspace_root_source,
-            "ingest_roots": self.ingest_roots,
+            "ingest_roots": self.ingest_roots.iter().take(FINGERPRINT_INGEST_ROOTS_HEAD).collect::<Vec<_>>(),
+            "ingest_root_count": self.ingest_roots.len(),
+            "ingest_roots_truncated": omitted > 0,
+            "ingest_roots_omitted": omitted,
+            "ingest_roots_full_surface": if omitted > 0 {
+                serde_json::Value::String(
+                    "doctor -> runtime_state.ingest_roots (the whole array; this block carries the oldest-first head only)".into(),
+                )
+            } else {
+                serde_json::Value::Null
+            },
             "graph_path_exists": self.graph_path.exists(),
             "graph_generation": self.graph_generation,
             "plasticity_generation": self.plasticity_generation,
@@ -909,12 +987,13 @@ impl SessionState {
 
     pub fn graph_runtime_summary(&self) -> serde_json::Value {
         let graph = self.graph.read();
-        // Budget Law (§C1.3.4 "no duplicate serialization"): the full `ingest_roots`
-        // array is serialized ONCE, in `binding_fingerprint`. Here we carry only the
-        // COUNT — a north packet embeds both this `graph_state` and the fingerprint,
-        // so listing the array in both duplicated the roots byte-identical and blew
-        // the packet budget. Count + the canonical array in the fingerprint is the
-        // whole truth without the duplication.
+        // Budget Law (§C1.3.4 "no duplicate serialization"): a north packet embeds
+        // both this `graph_state` and the fingerprint, so listing the roots array in
+        // both duplicated it byte-identical and blew the packet budget. Here we carry
+        // only the COUNT. The fingerprint no longer holds the canonical array either
+        // — it carries a fixed head plus the same count and an explicit truncation
+        // declaration (see `binding_fingerprint`); the whole array is served by
+        // `doctor` under `runtime_state.ingest_roots`.
         serde_json::json!({
             "node_count": graph.num_nodes(),
             "edge_count": graph.num_edges(),
@@ -1123,7 +1202,13 @@ impl SessionState {
         // never advertise the internal bootstrap seam as a public repair. The
         // generic route is POSITIVE_SOVEREIGN and no exact typed G2/G3 consumer
         // exists yet.
-        Some(serde_json::json!({
+        // Base mismatch block. Its shape is a CONTRACT with two consumers that
+        // read it back: `human_view` (reads `honest`/`caller_root`/`bound_workspace`
+        // verbatim into the S3 card) and `mcp_http::enrich_reception_with_roster`
+        // (gates on `match == "caller_root_mismatch"` and rewrites the
+        // `bootstrap_unavailable` option). Every field below stays in place; the
+        // medulla enrichment is strictly ADDITIVE.
+        let mut block = serde_json::json!({
             "schema": "m1nd-reception-degraded-v0",
             "match": "caller_root_mismatch",
             "caller_root": caller_root,
@@ -1140,7 +1225,58 @@ impl SessionState {
                     "note": "creating or rebinding a project brain is unavailable until an exact typed G2/G3 bootstrap consumer is installed; no mutation was attempted"
                 }
             ]
-        }))
+        });
+
+        // P1 medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3 ·
+        // TT-INV-2). When the bound store is the MEDULLA, a mismatch is NOT a
+        // misbinding to distrust wholesale — it is the brainless-root case the
+        // canon names: the medulla's cross-project doctrine + promoted memory is
+        // served as a LEGITIMATE transversal source, while no project brain maps
+        // the caller's repo. Label it `project_brain_absent` and reframe the
+        // continue option so the agent trusts the DOCTRINE and distrusts only the
+        // CODE answers (the `honest` line stays byte-exact — it speaks of the CODE
+        // graph, which genuinely does not cover the repo, and the human_view card
+        // pins it). A project-brain mismatch (a real misbind) keeps the plain
+        // "don't trust" block below untouched.
+        if self.is_medulla_store() {
+            if let Some(obj) = block.as_object_mut() {
+                obj.insert(PROJECT_BRAIN_ABSENT.to_string(), serde_json::json!(true));
+                obj.insert("medulla_served".to_string(), serde_json::json!(true));
+                if let Some(first) = obj
+                    .get_mut("options")
+                    .and_then(|o| o.as_array_mut())
+                    .and_then(|opts| opts.first_mut())
+                    .and_then(|o| o.as_object_mut())
+                {
+                    first.insert(
+                        "note".to_string(),
+                        serde_json::json!(
+                            "the medulla's promoted doctrine + memory is served as a legitimate cross-project source; treat only CODE answers as NOT covering your repo — verify those against local files"
+                        ),
+                    );
+                }
+            }
+        }
+        Some(block)
+    }
+
+    /// The "brainless root" condition (MEDULLA-PRD §2.3 S2): the caller's resolved
+    /// root is KNOWN, THIS store is the medulla, and the medulla does not cover
+    /// that root. It is the SAME triple the WRITE path refuses inline
+    /// (`light_author_handlers` `brainless_root`, left untouched); on the READ path
+    /// (`north`) it is the medulla-only fallback — serve the medulla's
+    /// cross-project doctrine as a legitimate feed, cut the foreign code anchors,
+    /// and label `project_brain_absent` (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3).
+    /// `false` on an unknown caller root (absent ≠ wrong) and on a project brain
+    /// (it owns its own answers).
+    pub fn caller_root_is_brainless(&self) -> bool {
+        if !self.is_medulla_store() {
+            return false;
+        }
+        match self.caller_root.as_deref() {
+            Some(root) => !self.covers_root(root),
+            None => false,
+        }
     }
 
     /// True when `root` falls under this brain's bound territory — the
@@ -1836,7 +1972,7 @@ impl SessionState {
     /// let config = McpConfig::default();
     /// let _state = SessionState::initialize(Graph::new(), &config, DomainConfig::code());
     /// ```
-    pub(crate) fn initialize(
+    pub fn initialize(
         graph: Graph,
         config: &crate::server::McpConfig,
         domain: DomainConfig,
@@ -1956,6 +2092,7 @@ impl SessionState {
             embeddings_cache_path,
             sessions: HashMap::new(),
             edit_previews: HashMap::new(),
+            transplant_previews: HashMap::new(),
             seek_file_index: None,
             // Perspective MCP state
             graph_generation: 0,
@@ -2487,6 +2624,52 @@ impl SessionState {
         true
     }
 
+    /// Declare that a durable sidecar owner changed in a way only the checkpoint
+    /// inventory carries, without demanding an immediate whole-brain write.
+    ///
+    /// This is the floor for a verb that is NOT classified a mutation but still
+    /// dirties durable state (an antibody scan bumping match counters, a document
+    /// verb refreshing its cache row). Without it the drift is invisible: the
+    /// actor's witness only sees graph structure and session generations, no
+    /// persist flag is raised, the staged-persist debounce never advances, and
+    /// the change survives only until the process dies. With it the turn joins the
+    /// debounce and is flushed by it, by the next real mutation, or by the
+    /// shutdown checkpoint.
+    ///
+    /// Outside an actor stage this is deliberately a no-op — those owners have no
+    /// eager writer of their own anyway, exactly as before.
+    ///
+    /// Every SHIPPED caller runs inside an actor stage. A `&mut SessionState` is
+    /// reachable only through `BrainSessionCell::checkout`, whose call sites are
+    /// the five actor turn primitives — `read_snapshot`, `execute`,
+    /// `execute_with_checkpoint_ack`, `commit`, `checkpoint_current` — each of
+    /// which opens the stage before the callback runs, plus actor startup, which
+    /// runs no verb. Every transport seam dispatches inside one of the five, and
+    /// so do the pull-based `auto_ingest::tick` and the owner daemon loop, whose
+    /// every branch is wrapped in `actor_execute`. The drift is therefore never
+    /// dropped in production. But it IS silent, and a future caller from boot, a
+    /// CLI path, or a spawned task would lose its drift with no alarm.
+    ///
+    /// That guard cannot live here as a runtime assert. A pre-actor session and a
+    /// session the actor simply has not staged yet are the SAME shape at this
+    /// level, and the unstaged shape is legitimate and tested: with a stage open
+    /// both `Self::persist` and `AutoIngestState::persist` record intent instead
+    /// of writing, so the tests that drive these handlers against a bare
+    /// `SessionState` and then reload from disk are exercising exactly the
+    /// unstaged fallback. Asserting a stage here fails those, and would say
+    /// nothing about the caller that actually escapes the actor.
+    ///
+    /// The guard is instead a source-level one, in the same registry that already
+    /// classifies durable writers: `no_undeclared_staged_drift_caller_exists`
+    /// requires every shipped caller of this function to be declared in
+    /// `DURABLE_SIDECAR_WRITERS`, and `durable_writer_routes_agree_with_the_read_only_classification`
+    /// requires that row to name a real routed verb. A boot/CLI/spawn caller has
+    /// no such verb, so it cannot be declared quietly — it fails at the moment it
+    /// is written, not only if some test happens to run it.
+    pub(crate) fn note_durable_sidecar_drift(&self) {
+        let _ = self.note_staged_persist();
+    }
+
     /// Serialize the fixed candidate inventory directly from live in-memory
     /// owners. Kept stage-agnostic so strict recovery can produce the same state
     /// witness without manufacturing a persistence capability.
@@ -2787,6 +2970,37 @@ impl SessionState {
             persist_requested: session_requested || auto_ingest_requested,
             state_digest,
         })
+    }
+
+    /// Cheap, stage-preserving answer to "must this transaction publish a
+    /// checkpoint?". It reports exactly the two persist flags
+    /// [`Self::checkpoint_candidate`] folds into `persist_requested`, plus any
+    /// queued post-CURRENT effect (which only the checkpoint path can drain),
+    /// WITHOUT serializing the ~100 MB candidate to find out.
+    ///
+    /// The read path asks this question on every single call. Answering it by
+    /// serializing graph + temporal + plasticity is what turned a warm `seek`
+    /// into seconds of work.
+    /// A derived post-CURRENT effect is queued and only the checkpoint path can
+    /// drain it. Unlike a routine persist request, this cannot be deferred: the
+    /// stage refuses to close while one is outstanding.
+    pub(crate) fn has_unresolved_staged_effects(&self) -> bool {
+        !self.staged_binary_snapshot_effects.is_empty()
+    }
+
+    pub(crate) fn checkpoint_publish_required(
+        &self,
+        stage: &CheckpointPersistenceStage,
+    ) -> M1ndResult<bool> {
+        self.verify_checkpoint_stage(stage)?;
+        if self.has_unresolved_staged_effects() {
+            return Ok(true);
+        }
+        let session_requested = self
+            .persistence_stage
+            .get()
+            .is_some_and(|active| active.persist_requested);
+        Ok(session_requested || self.auto_ingest.checkpoint_persist_requested(stage.id)?)
     }
 
     /// Stage-free witness of the currently rebuilt authoritative in-memory
@@ -3556,6 +3770,17 @@ impl SessionState {
         format!("preview_{}_{}", short_id, now_ms)
     }
 
+    /// Mint a staged-transplant handle (A2), mirroring [`Self::next_edit_preview_id`]
+    /// with a verb-naming prefix so an agent can tell the two handle families apart.
+    pub fn next_transplant_preview_id(&self, agent_id: &str) -> String {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let short_id = &agent_id[..agent_id.len().min(8)];
+        format!("transplant_preview_{}_{}", short_id, now_ms)
+    }
+
     /// Log a tool call to the query log ring buffer (max 1000 entries).
     pub fn log_query(
         &mut self,
@@ -3861,7 +4086,14 @@ impl SessionState {
         let mut validated = Vec::with_capacity(raw_targets.len());
         let mut seen = BTreeSet::new();
         for raw_target in raw_targets {
-            let (identity, mark) = self.validate_proof_mark(agent_id, raw_target, false)?;
+            // Name the exact offending target in the refusal. A source write may
+            // touch DERIVED files the caller never named (e.g. a transplant's
+            // referencers); naming the unproven one makes the fail-closed refusal
+            // actionable — "Run surgical_context_v2 for each exact target" points
+            // at a concrete path instead of a generic scope.
+            let (identity, mark) = self
+                .validate_proof_mark(agent_id, raw_target, false)
+                .map_err(|detail| format!("{raw_target}: {detail}"))?;
             if seen.insert(identity.clone()) {
                 validated.push((identity, mark));
             }
@@ -4106,7 +4338,7 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 mod tests {
     use super::{
         basename_of, CheckpointCandidatePresence, ProofReadyMark, SeekFileIndexCache, SessionState,
-        WORKSPACE_ROOT_ENV_CANDIDATES,
+        FINGERPRINT_INGEST_ROOTS_HEAD, WORKSPACE_ROOT_ENV_CANDIDATES,
     };
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
@@ -4194,6 +4426,610 @@ mod tests {
                 },
             }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The durability class guard
+    //
+    // The brain actor decides "does this turn owe a durable checkpoint?" from an
+    // O(1) witness of GRAPH STRUCTURE plus the session generations, from the
+    // command's read/write CLASSIFICATION, and from the staged-persist debounce.
+    // A verb that writes a durable SIDECAR — the antibody store, the trust
+    // ledger, daemon state, the document cache — moves none of those on its own.
+    // If it is neither classified a mutation nor routed through a persist choke
+    // point, its write is durable to nobody: the ack returns, the debounce
+    // counter never advances, and `kill -9` loses it (or resurrects what it
+    // deleted). That is exactly how `antibody_create` slipped through.
+    //
+    // `READ_ONLY_DENIED_TOOLS` was designed as the read-only-attach gate and
+    // became, by accident, the durability classifier. These three tests make the
+    // accident explicit and make the next omission fail LOUD instead of silent:
+    //   1. the sidecar inventory is frozen — a new durable file forces a verdict;
+    //   2. every declared writer's route agrees with the live classification;
+    //   3. the source is scanned for writers, so a NEW one that forgets the
+    //      table fails here instead of shipping a silent durability hole.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// In-memory owners on `SessionState` whose ONLY durability channel is an
+    /// explicit persist request or a mutating classification.
+    ///
+    /// Deliberately excluded, each because it already has a channel of its own:
+    /// `graph` (watched by `DurableWitnessV1`), `plasticity` and `temporal`
+    /// (regenerable learning drift, excluded by design — FM-PL-006),
+    /// `auto_ingest` (owns `checkpoint_persist_requested`), and the boot-KV
+    /// inventory (rebuilt from `boot_memory`, which IS listed).
+    const DURABLE_SIDECAR_OWNERS: &[&str] = &[
+        "antibodies",
+        "tremor_registry",
+        "trust_ledger",
+        "calibration_table",
+        "daemon_alerts",
+        "daemon_state",
+        "ingest_roots",
+        "document_cache",
+        "document_artifacts",
+        "boot_memory",
+    ];
+
+    /// The fixed logical names a checkpoint candidate carries for a brain with no
+    /// migrated boot-KV lights and no ingested documents. Adding a durable file
+    /// without classifying its writers fails `durable_sidecar_inventory_is_frozen`.
+    const FROZEN_CHECKPOINT_INVENTORY: &[&str] = &[
+        "antibodies",
+        "auto_ingest_state",
+        "binary_graph_snapshot",
+        "boot_config",
+        "boot_kv_migration",
+        "boot_kv_migration_journal",
+        "boot_memory_state",
+        "calibration_state",
+        "daemon_alerts",
+        "daemon_state",
+        "document_artifact_inventory",
+        "document_cache_index",
+        "embeddings_cache",
+        "graph_snapshot",
+        "ingest_roots",
+        "plasticity_state",
+        "temporal_state",
+        "tremor_state",
+        "trust_state",
+    ];
+
+    /// How a durable-sidecar writer earns its place in a checkpoint.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum DurabilityRoute {
+        /// The verb is in `READ_ONLY_DENIED_TOOLS`: the actor classifies the turn
+        /// a mutation and publishes on that very turn.
+        ClassifiedMutation,
+        /// The write reaches a persist choke point (`persist`,
+        /// `persist_daemon_state`, `persist_daemon_alerts`, `persist_boot_memory`,
+        /// `AutoIngestState::persist`, or `note_durable_sidecar_drift`), so it
+        /// joins the staged-persist debounce. Declared loss window: up to
+        /// `auto_persist_interval` deferring turns before the flush.
+        StagedPersistDebounce,
+        /// Not reached through verb dispatch at all — an owner-side loop whose
+        /// writes ride the enclosing tick's own persist.
+        OwnerLoop,
+    }
+
+    /// Every function outside `#[cfg(test)]` that writes a durable sidecar owner,
+    /// with the verb it serves and how that verb earns durability. Kept in lockstep
+    /// with the source by `no_undeclared_durable_sidecar_writer_exists`.
+    const DURABLE_SIDECAR_WRITERS: &[(&str, &str, DurabilityRoute)] = &[
+        // ── classified mutations: published on the turn they are acked ──
+        (
+            "start",
+            "auto_ingest_start",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "handle_daemon_start",
+            "daemon_start",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "handle_antibody_create",
+            "antibody_create",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        (
+            "finalize_ingest_with_inventory",
+            "ingest",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        ("handle_learn", "learn", DurabilityRoute::ClassifiedMutation),
+        // ── debounced: durable within the staged-persist window, not on the turn ──
+        (
+            "tick",
+            "auto_ingest_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_boot_memory",
+            "boot_memory",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_alerts_ack",
+            "alerts_ack",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_daemon_stop",
+            "daemon_stop",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_daemon_tick",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "run_auto_reconcile",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "settle_auto_reconcile_outcome",
+            "daemon_tick",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_antibody_scan",
+            "antibody_scan",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_calibrate_envelope",
+            "calibrate_envelope",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "handle_calibrate_predict",
+            "calibrate_predict",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "document_bindings",
+            "document_bindings",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "document_drift",
+            "document_drift",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "refresh_document_cache_entry",
+            "document_resolve",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "ensure_cache_root_in_ingest_roots",
+            "document_resolve",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        (
+            "daemon_loop_view",
+            "daemon_status",
+            DurabilityRoute::StagedPersistDebounce,
+        ),
+        // ── owner-side loops: no verb, covered by the enclosing tick's persist ──
+        (
+            "persist_daemon_alerts_from_insights",
+            "(apply/apply_batch/daemon_tick)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        (
+            "refresh_daemon_watcher",
+            "(owner daemon loop)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        (
+            "run_daemon_tick",
+            "(owner daemon loop)",
+            DurabilityRoute::OwnerLoop,
+        ),
+        ("serve", "(owner daemon loop)", DurabilityRoute::OwnerLoop),
+    ];
+
+    /// Drop every `#[cfg(test)]` item so the scan only sees shipped code.
+    fn strip_cfg_test_items(lines: &[&str]) -> Vec<String> {
+        let mut kept = Vec::new();
+        let mut index = 0usize;
+        while index < lines.len() {
+            let trimmed = lines[index].trim_start();
+            if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#[cfg(all(test") {
+                let mut item = index + 1;
+                while item < lines.len()
+                    && (lines[item].trim().is_empty() || lines[item].trim_start().starts_with("#["))
+                {
+                    item += 1;
+                }
+                if item >= lines.len() {
+                    break;
+                }
+                if lines[item].contains('{') {
+                    let mut depth = 0i32;
+                    let mut cursor = item;
+                    while cursor < lines.len() {
+                        depth += lines[cursor].matches('{').count() as i32;
+                        depth -= lines[cursor].matches('}').count() as i32;
+                        cursor += 1;
+                        if depth <= 0 {
+                            break;
+                        }
+                    }
+                    index = cursor;
+                } else {
+                    index = item + 1;
+                }
+                continue;
+            }
+            kept.push(lines[index].to_string());
+            index += 1;
+        }
+        kept
+    }
+
+    fn collapse_for_scan(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut pending_space = false;
+        for ch in text.chars() {
+            if ch.is_whitespace() {
+                pending_space = !out.is_empty();
+                continue;
+            }
+            if pending_space && ch != '.' && !out.ends_with('.') {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push(ch);
+        }
+        out
+    }
+
+    fn declared_fn_name(line: &str) -> Option<String> {
+        let mut rest = line.trim_start();
+        for prefix in ["pub(crate) ", "pub(super) ", "pub(in crate) ", "pub "] {
+            if let Some(stripped) = rest.strip_prefix(prefix) {
+                rest = stripped.trim_start();
+            }
+        }
+        for prefix in ["const ", "async ", "unsafe ", "extern \"C\" "] {
+            if let Some(stripped) = rest.strip_prefix(prefix) {
+                rest = stripped.trim_start();
+            }
+        }
+        let rest = rest.strip_prefix("fn ")?;
+        let name = rest
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .next()?;
+        (!name.is_empty()).then(|| name.to_string())
+    }
+
+    /// True when the text right after `state.<owner>` is a write: an assignment
+    /// into the owner (or a field of it), or a mutating call anywhere along its
+    /// field chain. The chain walk stops at the first call, so
+    /// `state.ingest_roots.iter().map(..).collect()` is a read and
+    /// `state.document_cache.entries.get_mut(..)` is a write.
+    fn is_write_after_owner(rest_of_window: &str, rest_of_line: &str) -> bool {
+        const MUTATORS: &[&str] = &[
+            "push",
+            "retain",
+            "insert",
+            "remove",
+            "clear",
+            "pop",
+            "extend",
+            "truncate",
+            "drain",
+            "sort",
+            "sort_by",
+            "sort_unstable",
+            "iter_mut",
+            "get_mut",
+            "values_mut",
+            "entry",
+            "append",
+            "dedup",
+            "set",
+            "record_defect",
+            "record_false_alarm",
+            "record_partial",
+            "record_observation",
+        ];
+        let mut cursor = rest_of_window;
+        while let Some(after_dot) = cursor.strip_prefix('.') {
+            let end = after_dot
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(after_dot.len());
+            if end == 0 {
+                break;
+            }
+            let (name, tail) = after_dot.split_at(end);
+            if tail.starts_with('(') {
+                return MUTATORS.contains(&name);
+            }
+            cursor = tail;
+        }
+        // Assignment is single-line by construction: `owner.field = value;`.
+        let statement = rest_of_line.split(';').next().unwrap_or("");
+        let bytes = statement.as_bytes();
+        for (index, byte) in bytes.iter().enumerate() {
+            if *byte != b'=' {
+                continue;
+            }
+            if matches!(bytes.get(index + 1), Some(b'=') | Some(b'>')) {
+                continue;
+            }
+            if index > 0 && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>') {
+                continue;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Recursive on purpose: real handler code lives in `surgical_handlers/`,
+    /// `external_mutation_service/`, `protocol/` and `perspective/` too, and a
+    /// scan that only saw the top level would miss a writer placed there.
+    fn collect_rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
+        let mut entries = std::fs::read_dir(directory)
+            .expect("read crate source directory")
+            .map(|entry| entry.expect("source dir entry").path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                // `internal_tests` is `#[cfg(test)]` at every declaration site.
+                if path
+                    .file_name()
+                    .is_some_and(|name| name == "internal_tests")
+                {
+                    continue;
+                }
+                collect_rust_sources(&path, found);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                found.push(path);
+            }
+        }
+    }
+
+    /// Scan the shipped source for functions that write a durable sidecar owner.
+    /// `session.rs` and `brain_runtime.rs` are excluded: they ARE the durability
+    /// machinery, not consumers of it.
+    fn scan_durable_sidecar_writers() -> BTreeMap<String, String> {
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut writers = BTreeMap::new();
+        let mut files = Vec::new();
+        collect_rust_sources(&source_root, &mut files);
+        for path in files {
+            let name = path
+                .strip_prefix(&source_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            // These two ARE the durability machinery, not consumers of it.
+            if name == "session.rs" || name == "brain_runtime.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read crate source file");
+            let raw = text.lines().collect::<Vec<_>>();
+            let lines = strip_cfg_test_items(&raw);
+            let mut current = String::from("<file scope>");
+            for index in 0..lines.len() {
+                if let Some(declared) = declared_fn_name(&lines[index]) {
+                    current = declared;
+                }
+                let window_end = (index + 3).min(lines.len());
+                let window = collapse_for_scan(&lines[index..window_end].join(" "));
+                let line = collapse_for_scan(&lines[index]);
+                for owner in DURABLE_SIDECAR_OWNERS {
+                    let key = format!("state.{owner}");
+                    let borrowed = format!("&mut {key}");
+                    let hit = window.contains(&borrowed)
+                        || window.find(&key).is_some_and(|at| {
+                            let after_window = &window[at + key.len()..];
+                            let after_line = line
+                                .find(&key)
+                                .map(|at| &line[at + key.len()..])
+                                .unwrap_or("");
+                            is_write_after_owner(after_window, after_line)
+                        });
+                    if hit {
+                        writers
+                            .entry(current.clone())
+                            .or_insert_with(|| format!("{name}:{owner}"));
+                        break;
+                    }
+                }
+            }
+        }
+        writers
+    }
+
+    /// A new durable file in the checkpoint inventory must not slip in without a
+    /// verdict on who writes it and how that write becomes durable.
+    #[test]
+    fn durable_sidecar_inventory_is_frozen() {
+        let (_temp, _runtime, _registry, state) = strict_recovery_fixture();
+        let mut observed = state
+            .checkpoint_candidate_files()
+            .expect("candidate inventory")
+            .into_iter()
+            .map(|file| file.logical_name)
+            .collect::<Vec<_>>();
+        observed.sort();
+        let expected = FROZEN_CHECKPOINT_INVENTORY
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            observed, expected,
+            "the durable checkpoint inventory changed. Classify every writer of the \
+             new/renamed file in DURABLE_SIDECAR_WRITERS (and add its owner field to \
+             DURABLE_SIDECAR_OWNERS) before updating this list"
+        );
+    }
+
+    /// The declared route of every writer must agree with the live read-only
+    /// classification. Dropping a verb from `READ_ONLY_DENIED_TOOLS` — or adding
+    /// one and forgetting the table — fails here.
+    #[test]
+    fn durable_writer_routes_agree_with_the_read_only_classification() {
+        for (function, verb, route) in DURABLE_SIDECAR_WRITERS {
+            match route {
+                DurabilityRoute::ClassifiedMutation => {
+                    assert!(
+                        crate::server::read_only_denied(verb, &serde_json::json!({})),
+                        "{function} writes a durable sidecar and is declared a classified \
+                         mutation, but '{verb}' is not in READ_ONLY_DENIED_TOOLS — the write \
+                         would be durable to nobody"
+                    );
+                }
+                DurabilityRoute::StagedPersistDebounce => {
+                    assert!(
+                        !crate::server::read_only_denied(verb, &serde_json::json!({})),
+                        "{function} is declared debounced but '{verb}' is now a classified \
+                         mutation — promote the row to ClassifiedMutation"
+                    );
+                    assert!(
+                        crate::action_routes::MCP_TOOL_ROUTE_NAMES.contains(verb),
+                        "{function} names '{verb}', which is not a routed MCP tool"
+                    );
+                }
+                DurabilityRoute::OwnerLoop => {}
+            }
+        }
+    }
+
+    /// The guard that closes the class: the shipped source is scanned for durable
+    /// sidecar writers, and every one must be declared. A new verb that writes a
+    /// sidecar and forgets its durability fails HERE, loudly, instead of shipping
+    /// an ack that promises a persistence nobody performed.
+    ///
+    /// HONEST LIMIT — this is a TEXTUAL heuristic, not semantic analysis. It sees
+    /// the direct `state.<owner>` write shape that every writer uses today (and
+    /// this crate has no `macro_rules!`, so nothing hides behind expansion). It
+    /// would NOT see a rebinding writer (`let s = &mut state; s.antibodies…`), a
+    /// write behind a differently-named helper, or anything outside
+    /// `m1nd-mcp/src`. None of those shapes exists today; if one appears, this
+    /// guard goes quiet rather than red. Do not read a green here as proof of
+    /// total coverage — read it as proof that the shape we do write is declared.
+    #[test]
+    fn no_undeclared_durable_sidecar_writer_exists() {
+        let observed = scan_durable_sidecar_writers();
+        let declared = DURABLE_SIDECAR_WRITERS
+            .iter()
+            .map(|(function, ..)| *function)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let undeclared = observed
+            .iter()
+            .filter(|(function, _)| !declared.contains(function.as_str()))
+            .map(|(function, evidence)| format!("{function} ({evidence})"))
+            .collect::<Vec<_>>();
+        assert!(
+            undeclared.is_empty(),
+            "these functions write a durable checkpoint sidecar but are absent from \
+             DURABLE_SIDECAR_WRITERS: {undeclared:?}. Decide how each write becomes durable \
+             — a mutating classification in READ_ONLY_DENIED_TOOLS, or a persist choke point \
+             (`state.persist()` / `note_durable_sidecar_drift()`) — then declare it"
+        );
+
+        let stale = declared
+            .iter()
+            .filter(|function| !observed.contains_key(**function))
+            .collect::<Vec<_>>();
+        assert!(
+            stale.is_empty(),
+            "these DURABLE_SIDECAR_WRITERS rows no longer write a durable sidecar: {stale:?}. \
+             Remove them so the table keeps meaning something"
+        );
+    }
+
+    /// Scan the shipped source for functions that call `note_durable_sidecar_drift`.
+    /// Only `session.rs` is excluded — it DEFINES and documents the function, so
+    /// every mention there is machinery, not a caller.
+    fn scan_staged_drift_callers() -> BTreeMap<String, String> {
+        const DRIFT_CALL: &str = "note_durable_sidecar_drift(";
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut callers = BTreeMap::new();
+        let mut files = Vec::new();
+        collect_rust_sources(&source_root, &mut files);
+        for path in files {
+            let name = path
+                .strip_prefix(&source_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            if name == "session.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read crate source file");
+            let raw = text.lines().collect::<Vec<_>>();
+            let lines = strip_cfg_test_items(&raw);
+            let mut current = String::from("<file scope>");
+            for line in &lines {
+                if let Some(declared) = declared_fn_name(line) {
+                    current = declared;
+                }
+                if collapse_for_scan(line).contains(DRIFT_CALL) {
+                    // File only, like the sibling scan: `lines` is the cfg(test)-stripped
+                    // view, so its index is NOT the line number in the real file.
+                    callers
+                        .entry(current.clone())
+                        .or_insert_with(|| name.clone());
+                }
+            }
+        }
+        callers
+    }
+
+    /// The oracle for the drift note itself, and the reason it is not a runtime
+    /// assert inside `note_durable_sidecar_drift`.
+    ///
+    /// Outside an actor stage that function is a deliberate no-op, so a caller
+    /// reached from boot, a CLI path, or a spawned task would lose its drift in
+    /// silence. A stage check at the call site cannot catch that: a pre-actor
+    /// session is indistinguishable from a bare one, and the bare shape is
+    /// legitimate — the crate's own tests drive these handlers without an actor
+    /// precisely to exercise the unstaged direct-persist path.
+    ///
+    /// So the guard is here instead, and it is stronger: every shipped caller must
+    /// be declared in `DURABLE_SIDECAR_WRITERS`, which
+    /// `durable_writer_routes_agree_with_the_read_only_classification` forces to
+    /// name a real routed verb. A boot/CLI/spawn caller has no verb to name, so it
+    /// fails when it is WRITTEN rather than only if some test happens to run it.
+    #[test]
+    fn no_undeclared_staged_drift_caller_exists() {
+        let observed = scan_staged_drift_callers();
+        assert!(
+            !observed.is_empty(),
+            "the drift-caller scan found nothing — it has gone blind (renamed function \
+             or moved call shape), which would make this guard silently useless"
+        );
+
+        let declared = DURABLE_SIDECAR_WRITERS
+            .iter()
+            .map(|(function, ..)| *function)
+            .collect::<std::collections::BTreeSet<_>>();
+        let undeclared = observed
+            .iter()
+            .filter(|(function, _)| !declared.contains(function.as_str()))
+            .map(|(function, evidence)| format!("{function} ({evidence})"))
+            .collect::<Vec<_>>();
+        assert!(
+            undeclared.is_empty(),
+            "these functions note durable sidecar drift but are absent from \
+             DURABLE_SIDECAR_WRITERS: {undeclared:?}. The note is a NO-OP outside an actor \
+             stage, so declare the verb this runs under — if there is none, this caller is \
+             reached from boot, a CLI path, or a spawned task and its drift is lost: route it \
+             through a staged actor turn instead"
+        );
     }
 
     fn strict_recovery_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, SessionState) {
@@ -4983,6 +5819,125 @@ mod tests {
         assert!(persisted_roots.contains(&workspace.to_string_lossy().to_string()));
     }
 
+    /// Build a bare medulla session for the reception tests. Returns the state,
+    /// the tempdir (kept alive), plus the created brain_root + caller_root dirs.
+    fn reception_state() -> (
+        tempfile::TempDir,
+        SessionState,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let brain_root = temp.path().join("repo-alpha");
+        let caller_root = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::fs::create_dir_all(&brain_root).expect("brain root");
+        std::fs::create_dir_all(&caller_root).expect("caller root");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(brain_root.to_string_lossy().to_string());
+        state.ingest_roots = vec![brain_root.to_string_lossy().to_string()];
+        (temp, state, brain_root, caller_root)
+    }
+
+    /// P1: a medulla store whose caller root no project brain covers stamps the
+    /// canonical `project_brain_absent` label ADDITIVELY — every field the two
+    /// downstream consumers read (`human_view`: honest/caller_root/bound_workspace;
+    /// `enrich_reception_with_roster`: match + the bootstrap_unavailable option)
+    /// stays in place. The continue option is reframed to trust the doctrine.
+    #[test]
+    fn reception_verdict_medulla_mismatch_labels_project_brain_absent_additively() {
+        let (_temp, mut state, brain_root, caller_root) = reception_state();
+        state.workspace_root_source = None; // the medulla is not a project manifest
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(state.is_medulla_store());
+        assert!(state.caller_root_is_brainless());
+
+        let r = state.reception_verdict().expect("mismatch reception");
+        // Additive: the contract fields are all preserved.
+        assert_eq!(r["match"], "caller_root_mismatch");
+        assert_eq!(r["caller_root"], caller_root.to_string_lossy().as_ref());
+        assert_eq!(r["bound_workspace"], brain_root.to_string_lossy().as_ref());
+        assert_eq!(
+            r["honest"], "this graph does NOT cover your repo",
+            "the honest CODE-coverage line is byte-stable (human_view pins it)"
+        );
+        // The canonical label + medulla-served signal.
+        assert_eq!(r["project_brain_absent"], true);
+        assert_eq!(r["medulla_served"], true);
+        let opts = r["options"].as_array().expect("options array");
+        assert!(
+            opts.iter().any(|o| o["action"] == "bootstrap_unavailable"),
+            "the roster-enrich seam still finds its option: {r}"
+        );
+        let cont = opts
+            .iter()
+            .find(|o| o["action"] == "continue_bound")
+            .expect("continue_bound option");
+        assert!(
+            cont["note"]
+                .as_str()
+                .unwrap()
+                .contains("legitimate cross-project source"),
+            "the continue option trusts the doctrine, distrusts only code: {cont}"
+        );
+    }
+
+    /// P1: a genuine PROJECT-brain misbind (a manifest-source store whose caller
+    /// root it does not cover) is NOT the medulla fallback — it keeps the plain
+    /// "don't trust" block and never claims `project_brain_absent`.
+    #[test]
+    fn reception_verdict_project_brain_mismatch_stays_a_plain_distrust_block() {
+        let (_temp, mut state, _brain_root, caller_root) = reception_state();
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.caller_root = Some(caller_root.to_string_lossy().to_string());
+        assert!(!state.is_medulla_store());
+        assert!(
+            !state.caller_root_is_brainless(),
+            "a project brain is never brainless"
+        );
+
+        let r = state.reception_verdict().expect("mismatch reception");
+        assert_eq!(r["match"], "caller_root_mismatch");
+        assert!(
+            r.get("project_brain_absent").is_none(),
+            "a project-brain misbind is not project_brain_absent: {r}"
+        );
+        assert!(r.get("medulla_served").is_none());
+        let opts = r["options"].as_array().expect("options array");
+        let cont = opts
+            .iter()
+            .find(|o| o["action"] == "continue_bound")
+            .expect("continue_bound option");
+        assert!(
+            cont["note"]
+                .as_str()
+                .unwrap()
+                .contains("verify against local files"),
+            "the plain distrust wording is intact: {cont}"
+        );
+    }
+
+    /// P1: a covered caller gets silence (TT-INV-12) and is never brainless.
+    #[test]
+    fn reception_verdict_covered_caller_is_silent() {
+        let (_temp, mut state, brain_root, _caller_root) = reception_state();
+        state.caller_root = Some(brain_root.to_string_lossy().to_string());
+        assert!(state.covers_root(&brain_root.to_string_lossy()));
+        assert!(!state.caller_root_is_brainless());
+        assert!(
+            state.reception_verdict().is_none(),
+            "a covered caller flows silently (TT-INV-12)"
+        );
+    }
+
     #[test]
     fn workspace_root_uses_claude_hint_for_managed_runtime_graph_path() {
         let _guard = env_lock().lock().expect("env lock");
@@ -5459,5 +6414,123 @@ mod tests {
         state.bump_graph_generation();
         assert!(!state.is_proof_ready("agent", &target.to_string_lossy()));
         assert!(state.proof_ready.is_empty());
+    }
+
+    // ---------------------------------------------------------------------
+    // Budget Law (§C1.3.4) — the binding fingerprint is a FIXED-COST identity
+    // block. It rides on every `north`, the verb doctrine makes every agent
+    // call first, so any variable-size array inside it is a per-call tax.
+    // ---------------------------------------------------------------------
+
+    fn state_with_ingest_roots(temp: &Path, count: usize) -> SessionState {
+        let config = McpConfig {
+            graph_source: temp.join("graph_snapshot.json"),
+            plasticity_state: temp.join("plasticity_state.json"),
+            runtime_dir: Some(temp.to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        // Field-shaped roots: ~70 bytes each, the average measured on the live
+        // owner (25,907 bytes / 380 entries).
+        state.ingest_roots = (0..count)
+            .map(|index| {
+                format!(
+                    "/srv/workspaces/project-alpha/crates/engine/src/module_{index:04}/handlers.rs"
+                )
+            })
+            .collect();
+        state
+    }
+
+    /// RED-first guard for the packet budget. Measured on the live owner
+    /// 2026-07-24: 380 ingest roots serialized to 25,907 bytes (~6.5k tokens)
+    /// inside `binding_fingerprint`, burned on EVERY `north` call — and 360 of
+    /// those entries were individual files, not repo roots. The fingerprint's
+    /// job is binding identity, so it carries a stable HEAD of the roots plus
+    /// the real total; the omission is declared, never silent.
+    #[test]
+    fn binding_fingerprint_ingest_roots_stay_within_packet_budget() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = state_with_ingest_roots(temp.path(), 400);
+
+        let fingerprint = state.binding_fingerprint();
+        let serialized = serde_json::to_string(&fingerprint).expect("serialize fingerprint");
+        assert!(
+            serialized.len() < 4_000,
+            "binding_fingerprint must stay under the 4,000-byte packet budget with 400 \
+             ingest roots, got {} bytes",
+            serialized.len()
+        );
+
+        // Honest truncation: head kept, total always stated, omission declared.
+        let head = fingerprint["ingest_roots"]
+            .as_array()
+            .expect("ingest_roots array");
+        assert_eq!(head.len(), FINGERPRINT_INGEST_ROOTS_HEAD);
+        assert_eq!(head[0], state.ingest_roots[0]);
+        assert_eq!(
+            head[FINGERPRINT_INGEST_ROOTS_HEAD - 1],
+            state.ingest_roots[FINGERPRINT_INGEST_ROOTS_HEAD - 1]
+        );
+        assert_eq!(
+            fingerprint["ingest_root_count"].as_u64(),
+            Some(400),
+            "the real total is never hidden by truncation"
+        );
+        assert_eq!(
+            fingerprint["ingest_roots_truncated"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            fingerprint["ingest_roots_omitted"].as_u64(),
+            Some(400 - FINGERPRINT_INGEST_ROOTS_HEAD as u64)
+        );
+        let surface = fingerprint["ingest_roots_full_surface"]
+            .as_str()
+            .expect("truncation names where the full list is served");
+        assert!(
+            surface.contains("doctor"),
+            "the pointer must name the tool that serves the whole array, got {surface:?}"
+        );
+    }
+
+    /// The declaration is always present, so an agent reads it unconditionally
+    /// instead of inferring truth from a missing key. Below the head size the
+    /// array is complete and the fingerprint says so.
+    #[test]
+    fn binding_fingerprint_declares_untruncated_ingest_roots() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = state_with_ingest_roots(temp.path(), 3);
+
+        let fingerprint = state.binding_fingerprint();
+        let roots = fingerprint["ingest_roots"]
+            .as_array()
+            .expect("ingest_roots array");
+        assert_eq!(roots.len(), 3);
+        assert_eq!(fingerprint["ingest_root_count"].as_u64(), Some(3));
+        assert_eq!(
+            fingerprint["ingest_roots_truncated"],
+            serde_json::json!(false)
+        );
+        assert_eq!(fingerprint["ingest_roots_omitted"].as_u64(), Some(0));
+        assert_eq!(
+            fingerprint["ingest_roots_full_surface"],
+            serde_json::Value::Null,
+            "no truncation means no elsewhere to point at"
+        );
+    }
+
+    /// The Budget Law's original clause still holds: `graph_runtime_summary`
+    /// carries the COUNT only — the head lives in the fingerprint and the array
+    /// is never serialized twice in one packet.
+    #[test]
+    fn graph_runtime_summary_still_carries_only_the_root_count() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = state_with_ingest_roots(temp.path(), 400);
+
+        let summary = state.graph_runtime_summary();
+        assert!(summary.get("ingest_roots").is_none());
+        assert_eq!(summary["ingest_root_count"].as_u64(), Some(400));
     }
 }

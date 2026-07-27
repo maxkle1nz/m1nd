@@ -103,6 +103,9 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "apply_batch",
     "edit_preview",
     "edit_commit",
+    "transplant",
+    "transplant_preview",
+    "transplant_commit",
     "search",
     "glob",
     "scan_all",
@@ -600,6 +603,13 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "apply_batch" => "source.apply.batch",
         "edit_preview" => "source.edit.preview",
         "edit_commit" => "source.edit.commit",
+        // The transplant verb family, routed so the fail-closed proof middleware
+        // classifies it instead of refusing an unknown tool.
+        // transplant/transplant_commit carry SOURCE_FILESYSTEM_WRITE;
+        // transplant_preview stages only, mirroring edit_preview's read stance.
+        "transplant" => "source.transplant.single",
+        "transplant_commit" => "source.transplant.commit",
+        "transplant_preview" => "source.transplant.preview",
         "scan_all" => "query.scan_all",
         "mission_start" => "mission.start",
         "mission_next" => "mission.next",

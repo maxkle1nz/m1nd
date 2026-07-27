@@ -8596,6 +8596,16 @@ pub fn handle_antibody_scan(
         g.generation.0
     };
 
+    // A scan is a READ verb, but `scan_antibodies` writes back into the antibody
+    // store: match counters, `last_match_at`, and the auto-disable of an antibody
+    // that timed out. That is durable sidecar drift with no classification behind
+    // it, so it joins the staged-persist debounce rather than forcing a
+    // whole-brain checkpoint per scan. Declared window: up to
+    // `auto_persist_interval` deferring turns, then flushed — see PATHOS.
+    if !result.matches.is_empty() || !result.auto_disabled_antibodies.is_empty() {
+        state.note_durable_sidecar_drift();
+    }
+
     Ok(serde_json::json!({
         "matches": result.matches,
         "antibodies_checked": result.antibodies_checked,
@@ -8644,7 +8654,14 @@ pub fn handle_antibody_create(
 
     state.track_agent(&input.agent_id);
 
-    match input.action.as_str() {
+    // Every arm below rewrites `state.antibodies`, the in-memory owner of the
+    // `antibodies` checkpoint sidecar. The actor decides durability from an O(1)
+    // witness of graph structure + session generations, so a sidecar-only write is
+    // invisible to it: without the persist request here (and without
+    // `antibody_create` sitting in `READ_ONLY_DENIED_TOOLS`) the ack would say
+    // "created" while the antibody lived only in memory — a `kill -9` would lose it,
+    // or resurrect one that was deleted.
+    let acted: M1ndResult<serde_json::Value> = match input.action.as_str() {
         "disable" => {
             let ab_id =
                 input
@@ -8821,7 +8838,15 @@ pub fn handle_antibody_create(
                 "warning": warning
             }))
         }
-    }
+    };
+    let outcome = acted?;
+    // Deliberate durability through the actor-aware persistence choke point, the
+    // same stance `handle_calibrate_envelope` takes for `calibration_table`. Under
+    // an actor stage this raises the staged-persist flag; the mutating
+    // classification is what turns it into a checkpoint on this very turn. A
+    // refused action returns above and persists nothing.
+    state.persist()?;
+    Ok(outcome)
 }
 
 /// Handle m1nd.flow_simulate — concurrent flow simulation for race detection.
