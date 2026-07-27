@@ -4,6 +4,7 @@ use clap::Parser;
 use m1nd_mcp::server::{McpConfig, McpServer, McpToolClient};
 #[cfg(unix)]
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
 use serde_json::Value;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
@@ -62,10 +63,12 @@ struct BridgeResponse {
     elapsed_ms: f64,
 }
 
+#[cfg(unix)]
 fn normalize_tool_name(tool: &str) -> &str {
     tool.strip_prefix("m1nd.").unwrap_or(tool)
 }
 
+#[cfg(unix)]
 fn inject_default_agent_id(arguments: &Value, default_agent_id: &str) -> Value {
     let mut next = arguments.clone();
     if let Some(map) = next.as_object_mut() {
@@ -312,7 +315,7 @@ fn main() {
     std::process::exit(2);
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::{inject_default_agent_id, normalize_tool_name};
     use serde_json::json;
