@@ -7,15 +7,31 @@
 //! untouched in the old location — stranding the whole graph and dropping every
 //! upgrader into `needs_ingest` with its brain sitting right there.
 //!
-//! This module adopts the legacy snapshot ONCE at boot: it copies the exact
-//! legacy bytes into the runtime root so the normal load path then finds them. A
-//! typed journal (mirroring `boot_kv_migration`) makes the adoption idempotent
-//! and auditable, and the adoption never overwrites a populated runtime graph.
+//! This module adopts the legacy snapshot ONCE, **through the brain actor**: the
+//! legacy graph is installed into the live session and the SAME actor turn
+//! commits it through the checkpoint. A typed journal (mirroring
+//! `boot_kv_migration`) makes the adoption idempotent and auditable, and the
+//! adoption never overwrites a populated runtime graph.
+//!
+//! The actor detour is the whole point. The adoption used to run pre-actor, in
+//! `McpServer::new`, copying the legacy bytes straight into the runtime root.
+//! `BrainActorHandle::start` then reconciled the checkpoint by itself —
+//! `restore_checkpoint` + `reload_authoritative_from_disk` — and rebuilt the
+//! session from a CURRENT that was captured while the runtime graph was still
+//! empty. The adopted graph was therefore reverted on the same boot, before the
+//! first tool call, while the journal still recorded `status: "adopted"`: the
+//! one-time rescue was spent without ever having worked. CURRENT stays the
+//! single source of truth; a boot-time migration must commit through it instead
+//! of writing behind it.
 
+use crate::brain_runtime::BrainActorHandle;
+use crate::runtime_jobs::RuntimeJobFailure;
+use crate::session::SessionState;
 use m1nd_core::error::M1ndResult;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Journal file written under the runtime root once adoption commits.
 pub const ADOPTION_JOURNAL_FILE: &str = "legacy_graph_adoption_v1.json";
@@ -39,17 +55,18 @@ pub struct LegacyGraphAdoptionJournalV1 {
 /// is a deliberate, safe no-op.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LegacyAdoptionOutcome {
-    /// The legacy snapshot was copied into the runtime root.
+    /// The legacy snapshot was installed into the session and checkpointed.
     Adopted { node_count: u64 },
     /// The runtime graph already has nodes — never overwrite it.
     SkippedRuntimeAlreadyPopulated,
     /// No legacy snapshot exists (or it is empty), so there is nothing to adopt.
     SkippedNoLegacySnapshot,
-    /// A prior boot already adopted (the journal is present) — one-time.
+    /// A prior boot already adopted AND that adoption stuck — one-time.
     SkippedAlreadyAdopted,
     /// The runtime graph path IS the legacy path — no separate location to adopt.
     SkippedSameLocation,
-    /// The legacy snapshot exists but could not be read/parsed; left untouched.
+    /// The legacy snapshot exists but could not be read/parsed/committed; the
+    /// runtime is left exactly as the checkpoint restored it.
     SkippedLegacyUnreadable(String),
 }
 
@@ -68,31 +85,27 @@ fn now_ms() -> u64 {
 
 /// Adopt a pre-1.5 legacy graph snapshot into the runtime root exactly once.
 ///
-/// Owner boot only (a read-only attach never writes). Returns a
+/// Owner boot only (a read-only attach never writes), and only AFTER the brain
+/// actor has started: the actor's own checkpoint restore has already run, so the
+/// runtime graph read here is exactly what CURRENT holds. Returns a
 /// [`LegacyAdoptionOutcome`]; the only writing path is `Adopted`, and it can
-/// never fire over a populated runtime graph, a previously adopted runtime
-/// (journal present), or a legacy file that fails to parse. The one honest
-/// stderr line is emitted here so the behavior is identical wherever it runs.
+/// never fire over a populated runtime graph, an adoption that already stuck, or
+/// a legacy file that fails to parse. The one honest stderr line is emitted here
+/// so the behavior is identical wherever it runs.
 ///
 /// When (and only when) the graph is adopted, the legacy plasticity sidecar is
-/// adopted alongside it — best-effort, and ONLY if it parses cleanly. A
+/// imported alongside it — best-effort, and ONLY if it parses cleanly. A
 /// known-corrupt legacy-format plasticity file is skipped with a warning so the
-/// graph still boots (Step 4's own "continuing without it" import guard stays
-/// intact).
+/// graph still boots (the same "continuing without it" guard the boot import
+/// already applies).
 pub(crate) fn maybe_adopt_legacy_snapshot(
+    actor: &BrainActorHandle,
     runtime_graph_path: &Path,
     legacy_graph_path: &Path,
-    runtime_plasticity_path: &Path,
     legacy_plasticity_path: &Path,
     runtime_root: &Path,
 ) -> LegacyAdoptionOutcome {
     let journal_path = runtime_root.join(ADOPTION_JOURNAL_FILE);
-
-    // One-time: a committed journal means adoption already ran. Never re-adopt,
-    // even if the runtime graph was later emptied.
-    if journal_path.exists() {
-        return LegacyAdoptionOutcome::SkippedAlreadyAdopted;
-    }
 
     // No separate legacy location (no runtime dir, or an explicit --graph that
     // already points at the legacy file): there is nothing to adopt onto itself.
@@ -105,6 +118,16 @@ pub(crate) fn maybe_adopt_legacy_snapshot(
     // repair adds no load cost to a normal warm boot.
     if !legacy_graph_path.exists() {
         return LegacyAdoptionOutcome::SkippedNoLegacySnapshot;
+    }
+
+    // One-time — but only for an adoption that actually STUCK. A journal beside
+    // an empty runtime graph is the exact footprint of the reverted adoption
+    // this module used to produce: it recorded `status: "adopted"` for a graph
+    // the actor threw away on the same boot. Treating that record as spent would
+    // leave the brain permanently empty with its rescue already burned, so a
+    // recorded-but-absent adoption is re-adoptable.
+    if journal_path.exists() && runtime_graph_is_populated(runtime_graph_path) {
+        return LegacyAdoptionOutcome::SkippedAlreadyAdopted;
     }
 
     // A legacy candidate exists — only now is it worth the reads. It must parse
@@ -138,83 +161,117 @@ pub(crate) fn maybe_adopt_legacy_snapshot(
         return LegacyAdoptionOutcome::SkippedRuntimeAlreadyPopulated;
     }
 
-    // Adopt: copy the EXACT legacy bytes into the checkpoint-managed runtime
-    // path (durable, cross-platform), then journal the one-time event.
-    if let Err(error) =
-        crate::boot_kv_migration::durable_atomic_write(runtime_graph_path, &legacy_bytes)
-    {
+    // Adopt INSIDE the actor boundary: the legacy graph is installed into the
+    // live session and this same turn publishes CURRENT from it. The canonical
+    // working files are written by the checkpoint projection, so CURRENT can
+    // never be older than the adopted runtime graph.
+    let legacy_display = legacy_graph_path.display().to_string();
+    let graph_source = legacy_graph_path.to_path_buf();
+    let plasticity_source = legacy_plasticity_path.to_path_buf();
+    if let Err(error) = actor.try_execute_with_checkpoint_ack(move |state| {
+        install_legacy_graph(state, &graph_source, &plasticity_source)
+    }) {
         eprintln!(
-            "[m1nd] legacy graph snapshot at {} not adopted (copy failed): {error}",
-            legacy_graph_path.display()
+            "[m1nd] legacy graph snapshot at {legacy_display} not adopted (checkpoint refused): {error}"
         );
-        return LegacyAdoptionOutcome::SkippedLegacyUnreadable(format!("copy failed: {error}"));
+        return LegacyAdoptionOutcome::SkippedLegacyUnreadable(format!(
+            "checkpoint refused: {error}"
+        ));
     }
-    // The graph is adopted — bring its plasticity sidecar along, best-effort.
-    adopt_legacy_plasticity(runtime_plasticity_path, legacy_plasticity_path);
 
+    // The journal is written ONLY after that ACK. An adoption is recorded when
+    // it is durable, never before — a crash between the two simply leaves the
+    // committed graph un-journaled, and the next boot skips it as an already
+    // populated runtime instead of claiming an adoption that never landed.
     let journal = LegacyGraphAdoptionJournalV1 {
         schema: JOURNAL_SCHEMA.into(),
         version: VERSION,
         status: "adopted".into(),
-        legacy_source_path: legacy_graph_path.display().to_string(),
+        legacy_source_path: legacy_display.clone(),
         source_digest: sha256(&legacy_bytes),
         node_count,
         adopted_at_ms: now_ms(),
     };
     if let Err(error) = write_journal(&journal_path, &journal) {
-        // The graph copy already succeeded; a journal-write failure must not
-        // crash boot. Re-adoption is still prevented by the now non-empty
+        // CURRENT already holds the adopted graph; a journal-write failure must
+        // not crash boot. Re-adoption is still prevented by the now non-empty
         // runtime graph on the next boot.
         eprintln!("[m1nd] legacy snapshot adopted but journal write failed: {error}");
     }
     eprintln!(
-        "[m1nd] adopted legacy graph snapshot from {} ({node_count} nodes) into runtime root {}",
-        legacy_graph_path.display(),
+        "[m1nd] adopted legacy graph snapshot from {legacy_display} ({node_count} nodes) into runtime root {}",
         runtime_root.display()
     );
     LegacyAdoptionOutcome::Adopted { node_count }
 }
 
-/// Best-effort adoption of the legacy plasticity sidecar, run only when the
-/// graph was just adopted. Copies the exact legacy bytes into the runtime
-/// plasticity path ONLY when the runtime plasticity is absent AND the legacy
-/// file parses cleanly as plasticity state. Every failure is a graceful skip
-/// with one honest warning — the graph is already adopted and boots regardless.
-fn adopt_legacy_plasticity(runtime_plasticity_path: &Path, legacy_plasticity_path: &Path) {
-    if runtime_plasticity_path.exists()
-        || !legacy_plasticity_path.exists()
-        || same_file(runtime_plasticity_path, legacy_plasticity_path)
-    {
+/// Install the legacy graph into the live session, exactly the way the `persist`
+/// load action swaps a snapshot in: replace the graph, rebuild the engines that
+/// are bound to it, and bump the generation. Nothing is written here — the
+/// actor's checkpoint serializes the new session and projects the canonical
+/// working files after CURRENT.
+fn install_legacy_graph(
+    state: &mut SessionState,
+    legacy_graph_path: &Path,
+    legacy_plasticity_path: &Path,
+) -> Result<u32, RuntimeJobFailure> {
+    let mut graph = m1nd_core::snapshot::load_graph(legacy_graph_path)
+        .map_err(|error| RuntimeJobFailure::new("legacy_graph_unreadable", error.to_string()))?;
+    if !graph.finalized && graph.num_nodes() > 0 {
+        graph
+            .finalize()
+            .map_err(|error| RuntimeJobFailure::new("legacy_graph_finalize", error.to_string()))?;
+    }
+    let node_count = graph.num_nodes();
+    state.graph = Arc::new(parking_lot::RwLock::new(graph));
+    state
+        .rebuild_engines()
+        .map_err(|error| RuntimeJobFailure::new("legacy_graph_rebuild", error.to_string()))?;
+    state.bump_graph_generation();
+    import_legacy_plasticity(state, legacy_plasticity_path);
+    Ok(node_count)
+}
+
+/// Best-effort import of the legacy plasticity sidecar, run only when the graph
+/// was just installed (`rebuild_engines` has reset plasticity to a fresh engine
+/// bound to the adopted graph). Every failure is a graceful skip with one honest
+/// warning — the graph is already adopted and checkpoints regardless.
+fn import_legacy_plasticity(state: &mut SessionState, legacy_plasticity_path: &Path) {
+    if !legacy_plasticity_path.exists() {
         return;
     }
-    // Adopt ONLY if it parses cleanly. The field's legacy plasticity is a known
-    // corrupt legacy format — skipped here rather than copied forward.
-    if let Err(error) = m1nd_core::snapshot::load_plasticity_state(legacy_plasticity_path) {
-        eprintln!(
-            "[m1nd] legacy plasticity at {} not adopted (invalid legacy format): {error}; continuing without it",
-            legacy_plasticity_path.display()
-        );
-        return;
-    }
-    let bytes = match std::fs::read(legacy_plasticity_path) {
-        Ok(bytes) => bytes,
+    // Import ONLY if it parses cleanly. The field's legacy plasticity is a known
+    // corrupt legacy format — skipped here rather than carried forward.
+    let states = match m1nd_core::snapshot::load_plasticity_state(legacy_plasticity_path) {
+        Ok(states) => states,
         Err(error) => {
             eprintln!(
-                "[m1nd] legacy plasticity at {} not adopted (unreadable): {error}; continuing without it",
+                "[m1nd] legacy plasticity at {} not adopted (invalid legacy format): {error}; continuing without it",
                 legacy_plasticity_path.display()
             );
             return;
         }
     };
-    match crate::boot_kv_migration::durable_atomic_write(runtime_plasticity_path, &bytes) {
-        Ok(()) => eprintln!(
+    let mut graph = state.graph.write();
+    match state.plasticity.import_state(&mut graph, &states) {
+        Ok(_) => eprintln!(
             "[m1nd] adopted legacy plasticity state from {}",
             legacy_plasticity_path.display()
         ),
-        Err(error) => eprintln!(
-            "[m1nd] legacy plasticity at {} not adopted (copy failed): {error}; continuing without it",
-            legacy_plasticity_path.display()
-        ),
+        Err(error) => {
+            // A refused import can stop halfway. The graph is the rescue and the
+            // sidecar is a nicety, so drop the half-imported engine for a clean
+            // one bound to the adopted graph rather than let partial synaptic
+            // state reach the checkpoint that is about to publish it.
+            state.plasticity = m1nd_core::plasticity::PlasticityEngine::new(
+                &graph,
+                m1nd_core::plasticity::PlasticityConfig::default(),
+            );
+            eprintln!(
+                "[m1nd] legacy plasticity at {} not adopted ({error}); continuing without it",
+                legacy_plasticity_path.display()
+            );
+        }
     }
 }
 
@@ -231,6 +288,9 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// node. An absent, empty, or unparseable runtime snapshot counts as "not
 /// populated" — boot would start fresh from it anyway, so adopting a valid
 /// legacy snapshot over it is a recovery, never a loss of real graph data.
+///
+/// Read after actor start, so this file is the checkpoint's own projection of
+/// CURRENT, not a stale pre-actor byte image.
 fn runtime_graph_is_populated(path: &Path) -> bool {
     if !path.exists() {
         return false;
@@ -247,6 +307,9 @@ fn write_journal(path: &Path, journal: &LegacyGraphAdoptionJournalV1) -> M1ndRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::brain_runtime::{
+        BrainSessionCell, UnboundBrainCheckpointAuthority, BRAIN_CHECKPOINT_DIRECTORY,
+    };
     use m1nd_core::graph::Graph;
     use m1nd_core::types::NodeType;
     use std::path::PathBuf;
@@ -281,15 +344,75 @@ mod tests {
     }
 
     impl Layout {
+        /// Boot the owner session and start its actor exactly as the registry
+        /// does, then run the one boot-time adoption attempt against it.
         fn adopt(&self) -> LegacyAdoptionOutcome {
-            maybe_adopt_legacy_snapshot(
+            self.boot(|_| {})
+        }
+
+        /// Same, with a hook that runs on the started actor BEFORE the adoption
+        /// attempt (used to publish a CURRENT the adoption must reconcile with).
+        fn boot(&self, before: impl FnOnce(&BrainActorHandle)) -> LegacyAdoptionOutcome {
+            let session = Arc::new(BrainSessionCell::new(owner_session(&self.runtime_root)));
+            let actor = BrainActorHandle::start(
+                "legacy-adoption-owner".to_string(),
+                Arc::clone(&session),
+                self.runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+                Arc::new(UnboundBrainCheckpointAuthority),
+                2,
+                None,
+            )
+            .expect("start the bound actor");
+            before(&actor);
+            let outcome = maybe_adopt_legacy_snapshot(
+                &actor,
                 &self.runtime_graph,
                 &self.legacy_graph,
-                &self.runtime_plasticity,
                 &self.legacy_plasticity,
                 &self.runtime_root,
-            )
+            );
+            actor.stop().expect("stop the bound actor");
+            drop(actor);
+            drop(session);
+            outcome
         }
+
+        fn served_nodes(&self) -> u32 {
+            let session = Arc::new(BrainSessionCell::new(owner_session(&self.runtime_root)));
+            let actor = BrainActorHandle::start(
+                "legacy-adoption-owner".to_string(),
+                Arc::clone(&session),
+                self.runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+                Arc::new(UnboundBrainCheckpointAuthority),
+                2,
+                None,
+            )
+            .expect("restart the bound actor");
+            let served = actor
+                .try_read_snapshot(|state| {
+                    Ok::<u32, RuntimeJobFailure>(state.graph.read().num_nodes())
+                })
+                .expect("read the served node count")
+                .value;
+            actor.stop().expect("stop the bound actor");
+            drop(actor);
+            drop(session);
+            served
+        }
+    }
+
+    /// The owner boot the adoption runs behind: `McpServer::new` over the
+    /// runtime root, exactly as `--serve`/stdio boot it.
+    fn owner_session(runtime_root: &Path) -> crate::session::SessionState {
+        crate::server::McpServer::new(crate::server::McpConfig {
+            graph_source: runtime_root.join("graph_snapshot.json"),
+            plasticity_state: runtime_root.join("plasticity_state.json"),
+            runtime_dir: Some(runtime_root.to_path_buf()),
+            registry_dir: Some(runtime_root.join("registry")),
+            ..Default::default()
+        })
+        .expect("boot owner session")
+        .into_session_state()
     }
 
     fn layout() -> Layout {
@@ -323,10 +446,12 @@ mod tests {
         assert_eq!(journal.node_count, 5);
         assert_eq!(journal.schema, JOURNAL_SCHEMA);
 
-        // Boot loads N nodes from the runtime path.
+        // Boot loads N nodes from the runtime path, and the NEXT actor start —
+        // the one that used to revert the adoption — still serves them.
         let loaded =
             m1nd_core::snapshot::load_graph(&l.runtime_graph).expect("load adopted snapshot");
         assert_eq!(loaded.num_nodes(), 5);
+        assert_eq!(l.served_nodes(), 5);
     }
 
     #[test]
@@ -340,6 +465,32 @@ mod tests {
         // Still exactly the adopted graph.
         let loaded = m1nd_core::snapshot::load_graph(&l.runtime_graph).expect("load");
         assert_eq!(loaded.num_nodes(), 3);
+    }
+
+    /// The owner's exact machine: the journal says `adopted` but the graph the
+    /// adoption produced is gone (the pre-actor copy was reverted by the actor's
+    /// CURRENT restore). A record of an adoption that did not stick must not
+    /// spend the one-time rescue.
+    #[test]
+    fn a_recorded_adoption_that_did_not_stick_is_re_adoptable() {
+        let l = layout();
+        write_snapshot_with_nodes(&l.legacy_graph, 7);
+        write_journal(
+            &l.runtime_root.join(ADOPTION_JOURNAL_FILE),
+            &LegacyGraphAdoptionJournalV1 {
+                schema: JOURNAL_SCHEMA.into(),
+                version: VERSION,
+                status: "adopted".into(),
+                legacy_source_path: l.legacy_graph.display().to_string(),
+                source_digest: "0".repeat(64),
+                node_count: 7,
+                adopted_at_ms: 1,
+            },
+        )
+        .expect("seed a spent-looking journal");
+
+        assert_eq!(l.adopt(), LegacyAdoptionOutcome::Adopted { node_count: 7 });
+        assert_eq!(l.served_nodes(), 7);
     }
 
     #[test]
@@ -374,14 +525,14 @@ mod tests {
             "corrupt legacy must be skipped gracefully, got {outcome:?}"
         );
 
-        // Nothing adopted: runtime graph absent, no journal, boot starts empty.
-        assert!(!l.runtime_graph.exists(), "runtime graph must stay absent");
+        // Nothing adopted: no journal, and the served brain stays empty.
         assert!(!l.runtime_root.join(ADOPTION_JOURNAL_FILE).exists());
+        assert_eq!(l.served_nodes(), 0);
     }
 
     #[test]
     fn valid_legacy_plasticity_is_adopted_but_corrupt_is_skipped() {
-        // Valid plasticity → copied alongside the graph.
+        // Valid plasticity → imported alongside the graph.
         {
             let l = layout();
             write_snapshot_with_nodes(&l.legacy_graph, 4);
@@ -391,12 +542,12 @@ mod tests {
             assert_eq!(l.adopt(), LegacyAdoptionOutcome::Adopted { node_count: 4 });
             assert!(
                 l.runtime_plasticity.exists(),
-                "valid legacy plasticity must be adopted alongside the graph"
+                "the adopting checkpoint must project the runtime plasticity sidecar"
             );
             m1nd_core::snapshot::load_plasticity_state(&l.runtime_plasticity)
                 .expect("adopted plasticity still parses at the runtime path");
         }
-        // Corrupt (known legacy-format) plasticity → graph adopted, plasticity skipped.
+        // Corrupt (known legacy-format) plasticity → graph adopted, import skipped.
         {
             let l = layout();
             write_snapshot_with_nodes(&l.legacy_graph, 4);
@@ -404,13 +555,47 @@ mod tests {
                 .expect("write corrupt plasticity");
 
             assert_eq!(l.adopt(), LegacyAdoptionOutcome::Adopted { node_count: 4 });
-            assert!(
-                !l.runtime_plasticity.exists(),
-                "corrupt legacy plasticity must be skipped, never copied forward"
-            );
             // The graph adoption is unaffected — it still boots.
             let loaded = m1nd_core::snapshot::load_graph(&l.runtime_graph).expect("graph loads");
             assert_eq!(loaded.num_nodes(), 4);
+            assert_eq!(l.served_nodes(), 4);
         }
+    }
+
+    /// The field's plasticity sidecar PARSES and is then refused mid-import.
+    /// The rescue is the graph: a refused import must leave a clean engine
+    /// behind, never half-imported synaptic state, because the very next thing
+    /// that happens is the checkpoint publishing that engine.
+    #[test]
+    fn legacy_plasticity_refused_mid_import_still_adopts_a_clean_sidecar() {
+        let l = layout();
+        write_snapshot_with_nodes(&l.legacy_graph, 4);
+        // Two rows with the identical full synaptic key: parses fine, refused by
+        // `import_state` as a duplicate.
+        let row = m1nd_core::plasticity::SynapticState {
+            source_label: "file::src/mod0.rs".into(),
+            target_label: "file::src/mod1.rs".into(),
+            relation: "calls".into(),
+            direction: Some(0),
+            inhibitory: Some(false),
+            original_weight: 1.0,
+            current_weight: 1.0,
+            strengthen_count: 0,
+            weaken_count: 0,
+            ltp_applied: false,
+            ltd_applied: false,
+            last_used_query: 0,
+        };
+        m1nd_core::snapshot::save_plasticity_state(&[row.clone(), row], &l.legacy_plasticity)
+            .expect("save duplicate-key legacy plasticity");
+
+        assert_eq!(l.adopt(), LegacyAdoptionOutcome::Adopted { node_count: 4 });
+        assert_eq!(l.served_nodes(), 4);
+        assert!(
+            m1nd_core::snapshot::load_plasticity_state(&l.runtime_plasticity)
+                .expect("the projected sidecar parses")
+                .is_empty(),
+            "a refused import must not leave partial synaptic state in the checkpoint"
+        );
     }
 }
