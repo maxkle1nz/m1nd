@@ -6439,6 +6439,198 @@ mod tests {
         actor.stop().expect("stop reconciled actor");
     }
 
+    /// A checkpoint CURRENT captured while the runtime graph was EMPTY must never
+    /// silently revert the graph a boot-time migration legitimately installed.
+    ///
+    /// This is the stdio/`--serve` owner's exact shape: a prior boot checkpointed
+    /// an empty runtime, then the 1.5 legacy-snapshot adoption brings the pre-1.5
+    /// graph in. It used to do that pre-actor, and `BrainActorHandle::start`
+    /// reconciled CURRENT by itself — restore + `reload_authoritative_from_disk`
+    /// — so the server reported "Loaded graph snapshot: N nodes" followed by
+    /// "Server ready. 0 nodes", the on-disk snapshot was overwritten with the
+    /// empty one, and the adoption journal still claimed success.
+    ///
+    /// The repair keeps CURRENT the single source of truth and moves the
+    /// migration behind the actor, so it commits a checkpoint by construction.
+    /// The proof is the RESTART: the boot after the adoption loads N nodes and
+    /// the actor start that used to revert them serves N.
+    #[test]
+    fn actor_start_serves_the_graph_the_owner_boot_loaded() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let brain_id = "owner-empty-graph-revert".to_string();
+        let graph_path = runtime_root.join("graph_snapshot.json");
+        let legacy_graph_path = temporary.path().join("graph_snapshot.json");
+
+        // A prior boot checkpointed an EMPTY runtime. This CURRENT is what every
+        // later actor start reconciles against.
+        let empty_session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let empty_actor = BrainActorHandle::start(
+            brain_id.clone(),
+            Arc::clone(&empty_session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor over the empty runtime");
+        empty_actor
+            .checkpoint_and_ack()
+            .expect("checkpoint the empty runtime");
+        empty_actor.stop().expect("stop the empty-runtime actor");
+        drop(empty_actor);
+        // Release the first boot's instance lease so the second boot can own the
+        // same runtime root, exactly as a restarted process would.
+        drop(empty_session);
+
+        // The pre-1.5 graph is sitting in the legacy location, stranded.
+        let mut populated = m1nd_core::graph::Graph::new();
+        populated
+            .add_node(
+                "file::src/lib.rs",
+                "lib.rs",
+                m1nd_core::types::NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("seed the legacy snapshot");
+        m1nd_core::snapshot::save_graph(&populated, &legacy_graph_path)
+            .expect("write the legacy snapshot");
+
+        // The owner boot: it loads the empty runtime graph, opens the bound
+        // actor, and only then adopts — exactly the order the registry uses.
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            brain_id.clone(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start the bound actor over the empty runtime");
+        assert_eq!(
+            crate::legacy_snapshot_adoption::maybe_adopt_legacy_snapshot(
+                &actor,
+                &graph_path,
+                &legacy_graph_path,
+                &temporary.path().join("plasticity_state.json"),
+                &runtime_root,
+            ),
+            crate::legacy_snapshot_adoption::LegacyAdoptionOutcome::Adopted { node_count: 1 }
+        );
+        actor.stop().expect("stop the adopting actor");
+        drop(actor);
+        drop(session);
+
+        // The adoption committed through the checkpoint, so the canonical
+        // snapshot survives the process — this is the "Loaded graph snapshot"
+        // line of the NEXT boot.
+        let booted = test_state(&runtime_root);
+        assert_eq!(
+            booted.graph.read().num_nodes(),
+            1,
+            "the owner boot must load the adopted runtime snapshot"
+        );
+
+        // Starting the bound actor must not take that graph away.
+        let session = Arc::new(BrainSessionCell::new(booted));
+        let actor = BrainActorHandle::start(
+            brain_id,
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start the bound actor over the populated runtime");
+        let served = actor
+            .try_read_snapshot(|state| Ok::<u32, RuntimeJobFailure>(state.graph.read().num_nodes()))
+            .expect("read the served node count")
+            .value;
+        actor.stop().expect("stop the bound actor");
+
+        assert_eq!(
+            served, 1,
+            "the served session must expose the nodes the boot loaded, not a stale empty checkpoint"
+        );
+    }
+
+    /// The other half of the same decision, pinned so nobody "fixes" the bug
+    /// above by inverting it: a graph that merely APPEARS in the runtime root,
+    /// with no checkpoint behind it, still loses to CURRENT. Letting an
+    /// uncommitted file outrank a committed generation would let a half-written
+    /// or corrupted snapshot beat good durable state, which is the whole point
+    /// of checkpointing. Boot-time writers must commit, not sneak.
+    #[test]
+    fn actor_start_reverts_an_uncommitted_out_of_band_graph() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let brain_id = "owner-uncommitted-out-of-band".to_string();
+        let graph_path = runtime_root.join("graph_snapshot.json");
+
+        let empty_session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let empty_actor = BrainActorHandle::start(
+            brain_id.clone(),
+            Arc::clone(&empty_session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor over the empty runtime");
+        empty_actor
+            .checkpoint_and_ack()
+            .expect("checkpoint the empty runtime");
+        empty_actor.stop().expect("stop the empty-runtime actor");
+        drop(empty_actor);
+        drop(empty_session);
+
+        // The empty boot also persisted a co-change sidecar bound to the empty
+        // graph, beside which `McpServer::new` refuses to load ANY populated
+        // graph (SchemaDrift). That refusal is a separate defect and not what
+        // this test pins, so the sidecar is cleared to isolate the revert.
+        std::fs::remove_file(runtime_root.join("temporal_state_v1.json")).ok();
+
+        let mut populated = m1nd_core::graph::Graph::new();
+        populated
+            .add_node(
+                "file::src/lib.rs",
+                "lib.rs",
+                m1nd_core::types::NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("seed the out-of-band snapshot");
+        m1nd_core::snapshot::save_graph(&populated, &graph_path)
+            .expect("write the out-of-band snapshot");
+
+        let booted = test_state(&runtime_root);
+        assert_eq!(booted.graph.read().num_nodes(), 1);
+        let session = Arc::new(BrainSessionCell::new(booted));
+        let actor = BrainActorHandle::start(
+            brain_id,
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start the bound actor");
+        let served = actor
+            .try_read_snapshot(|state| Ok::<u32, RuntimeJobFailure>(state.graph.read().num_nodes()))
+            .expect("read the served node count")
+            .value;
+        actor.stop().expect("stop the bound actor");
+
+        assert_eq!(
+            served, 0,
+            "an uncommitted out-of-band graph must lose to CURRENT"
+        );
+    }
+
     #[test]
     fn actor_checkout_releases_storage_mutex_during_long_command() {
         let temporary = tempfile::tempdir().expect("temporary runtime");

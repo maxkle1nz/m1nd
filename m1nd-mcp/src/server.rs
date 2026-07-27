@@ -7584,30 +7584,14 @@ impl McpServer {
         };
         eprintln!("[m1nd] Domain: {}", domain_config.name);
 
-        // Step 0: One-time legacy-snapshot adoption (upgrade-path repair).
-        //
-        // Field-triage 2026-07-22: a pre-1.5 layout kept its populated snapshot at
-        // the legacy `./graph_snapshot.json` (cwd) while the new runtime graph is
-        // born empty under the runtime dir — stranding the whole graph and dropping
-        // upgraders into needs_ingest. Adopt it ONCE into the runtime root before
-        // the load below finds it. Owner boot only (a read-only attach never
-        // writes); idempotent + journaled; never over a populated runtime graph.
-        // Best-effort: the honest stderr line is emitted inside the call, and any
-        // skip/failure leaves the normal load path unchanged.
-        if !config.read_only {
-            if let Some(runtime_root) = config.runtime_dir.as_deref() {
-                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                let legacy_graph_path = cwd.join("graph_snapshot.json");
-                let legacy_plasticity_path = cwd.join("plasticity_state.json");
-                let _ = crate::legacy_snapshot_adoption::maybe_adopt_legacy_snapshot(
-                    &config.graph_source,
-                    &legacy_graph_path,
-                    &config.plasticity_state,
-                    &legacy_plasticity_path,
-                    runtime_root,
-                );
-            }
-        }
+        // The one-time legacy-snapshot adoption (upgrade-path repair for a
+        // pre-1.5 layout that kept its populated snapshot at `./graph_snapshot.json`)
+        // used to run HERE, writing the legacy bytes into the runtime root before
+        // the load below found them. It cannot: no actor exists yet, so
+        // `BrainActorHandle::start` reverted the adopted files to a CURRENT that
+        // predated them, on the same boot. It now runs once the bound actor is up
+        // — see `legacy_snapshot_adoption::maybe_adopt_legacy_snapshot`, invoked
+        // from `ProjectBrainRegistry::runtime_for_target`.
 
         // Step 1: Try to load graph snapshot
         let (mut graph, graph_loaded) = if config.graph_source.exists() {

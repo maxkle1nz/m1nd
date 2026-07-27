@@ -1010,7 +1010,7 @@ impl ProjectBrainRegistry {
                 // `lock_mut_before_actor()` double-checks the ownership fence,
                 // so a foreign/duplicate actor cannot be adopted silently by
                 // this registry. No guard survives actor startup.
-                let (runtime_root, identity) = {
+                let (runtime_root, graph_path, plasticity_path, read_only, identity) = {
                     let session = target
                         .lock_mut_before_actor()
                         .map_err(|error| error.to_string())?;
@@ -1019,9 +1019,15 @@ impl ProjectBrainRegistry {
                         .clone()
                         .or_else(|| session.ingest_roots.first().cloned())
                         .unwrap_or_else(|| session.runtime_root.to_string_lossy().into_owned());
-                    (session.runtime_root.clone(), identity)
+                    (
+                        session.runtime_root.clone(),
+                        session.graph_path.clone(),
+                        session.plasticity_path.clone(),
+                        session.read_only,
+                        identity,
+                    )
                 };
-                BrainActorHandle::start(
+                let runtime = BrainActorHandle::start(
                     project_brain_id(&format!("bound:{identity}")),
                     target.clone(),
                     runtime_root.join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
@@ -1029,11 +1035,27 @@ impl ProjectBrainRegistry {
                     self.actor_queue_capacity,
                     None,
                 )
-                .map(|runtime| BoundRuntime {
+                .map_err(|error| error.to_string())?;
+                // The one seam where the OWNER's brain actor is born — both the
+                // stdio and the `--serve` boot reach it. The pre-1.5 snapshot
+                // adoption runs here and nowhere earlier: the actor has just
+                // reconciled CURRENT, so this is the first moment a boot-time
+                // migration can install a graph without the restore taking it
+                // straight back. A read-only attach never adopts.
+                if !read_only {
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                    let _ = crate::legacy_snapshot_adoption::maybe_adopt_legacy_snapshot(
+                        &runtime,
+                        &graph_path,
+                        &cwd.join("graph_snapshot.json"),
+                        &cwd.join("plasticity_state.json"),
+                        &runtime_root,
+                    );
+                }
+                Ok(BoundRuntime {
                     session: target.clone(),
                     runtime,
                 })
-                .map_err(|error| error.to_string())
             });
             return match opened {
                 Ok(bound_runtime) if Arc::ptr_eq(&bound_runtime.session, &target) => {
