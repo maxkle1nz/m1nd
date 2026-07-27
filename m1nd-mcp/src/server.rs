@@ -4093,6 +4093,15 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // promote writes a medulla copy + a witness stamp to disk (MEDULLA M6).
     "promote",
     "learn",
+    // antibody_create is the antibody store's writer: create/delete/enable/disable
+    // all rewrite `state.antibodies`, which the checkpoint inventory carries as the
+    // `antibodies` sidecar. A read-only attach must refuse it on its own merits,
+    // and the classification is ALSO what makes the write durable the turn it is
+    // acked — the actor's O(1) witness watches graph structure and session
+    // generations, so a sidecar-only write is invisible to it. `antibody_scan` and
+    // `antibody_list` stay ABSENT: scan's counter drift joins the staged-persist
+    // debounce instead (see `handle_antibody_scan`), list is a pure read.
+    "antibody_create",
     "daemon_start",
     "auto_ingest_start",
     // xray_retag commits tag mutations to graph_path on disk, so a read-only
@@ -7473,8 +7482,14 @@ impl McpServer {
         self.actor_execute(false, move |state| {
             if !state.read_only {
                 if let Some(dropped) = dropped {
-                    state.daemon_state.watch_events_dropped =
-                        state.daemon_state.watch_events_dropped.max(dropped);
+                    let previous = state.daemon_state.watch_events_dropped;
+                    state.daemon_state.watch_events_dropped = previous.max(dropped);
+                    if state.daemon_state.watch_events_dropped != previous {
+                        // `daemon_state` is a durable checkpoint file and this turn
+                        // is read-classified, so the actor's witness cannot see the
+                        // write. Join the staged-persist debounce.
+                        state.note_durable_sidecar_drift();
+                    }
                 }
             }
             Ok(DaemonLoopView {

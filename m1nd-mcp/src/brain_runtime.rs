@@ -47,7 +47,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::{Condvar, Mutex as ParkingMutex, MutexGuard as ParkingMutexGuard};
 use serde::de::DeserializeOwned;
@@ -1144,6 +1144,7 @@ impl BrainActorHandle {
             pending_rollback: None,
             active_checkpoint_stage: None,
             managed_working_paths,
+            deferred_read_publishes: 0,
             admission: Arc::clone(&admission),
             health: actor_health,
         };
@@ -1632,11 +1633,35 @@ struct PendingAuthoritativeRollback {
     stage: Option<CheckpointPersistenceStage>,
 }
 
-type StateTransactionStartV1 = (
-    CheckpointPersistenceStage,
-    SessionCheckpointCandidate,
-    (u64, u64, u64),
-);
+/// O(1) witness of the durable shape of a session, captured on both sides of an
+/// actor callback.
+///
+/// The actor used to answer "did this turn change durable state?" by serializing
+/// the whole world twice and comparing SHA-256 digests. That question is asked on
+/// every call, and the answer for a graph verb is *always yes* — plasticity Step 8
+/// legitimately rewrites edge weights on every read (`query()` calls
+/// `plasticity.update(graph, ..)`), so the byte digest always moves and every read
+/// published a full durable checkpoint of the entire state.
+///
+/// These counters answer the question the fence actually cares about — did the
+/// callback change the *structure* of the graph, or the session's own generations —
+/// without touching a byte of the state. `Graph::generation` is incremented by
+/// `add_node`/`add_edge` and deliberately NOT by plasticity (FM-PL-006 only asserts
+/// it), which is exactly the read-versus-mutation line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DurableWitnessV1 {
+    session_generations: (u64, u64, u64),
+    graph_generation: m1nd_core::types::Generation,
+}
+
+impl DurableWitnessV1 {
+    fn capture(state: &SessionState) -> Self {
+        Self {
+            session_generations: session_generation_tuple(state),
+            graph_generation: state.graph.read().generation,
+        }
+    }
+}
 
 struct BrainActorState {
     brain_id: String,
@@ -1663,6 +1688,9 @@ struct BrainActorState {
     /// candidate attempted by this actor. Post-CURRENT projection removes
     /// entries absent from the new explicit PRESENT/ABSENT inventory.
     managed_working_paths: BTreeSet<String>,
+    /// Read turns whose only durable claim was a routine staged persist, held
+    /// back from publishing a whole-brain checkpoint. Reset by every checkpoint.
+    deferred_read_publishes: u32,
     admission: Arc<Mutex<BrainActorAdmission>>,
     health: Arc<Mutex<BrainRuntimeHealthState>>,
 }
@@ -2153,10 +2181,15 @@ impl BrainActorState {
         }
     }
 
-    fn begin_state_transaction(
+    /// Open the candidate-first persistence stage and arm the authoritative
+    /// rollback packet. Deliberately serializes NOTHING: a turn that ends up
+    /// changing no durable state must not pay for a preimage nobody reads, and an
+    /// argument-validation refusal must not pay for one before it is even allowed
+    /// to refuse.
+    fn begin_state_stage(
         &mut self,
         state: &mut SessionState,
-    ) -> Result<StateTransactionStartV1, BrainRuntimeError> {
+    ) -> Result<CheckpointPersistenceStage, BrainRuntimeError> {
         let stage = state
             .begin_checkpoint_staging()
             .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
@@ -2166,11 +2199,24 @@ impl BrainActorState {
             version_before: self.version,
             stage: Some(stage.clone()),
         });
+        Ok(stage)
+    }
+
+    /// Open the stage AND serialize the current state as the candidate.
+    ///
+    /// Only [`Self::checkpoint_current`] needs this: it publishes the state as it
+    /// stands, with no callback in between, so its candidate IS the preimage.
+    /// Every callback path uses [`Self::begin_state_stage`] and serializes once,
+    /// at the end, if it turns out to owe a checkpoint — the pre-callback
+    /// "baseline" those paths used to take was read by nothing and cost a full
+    /// ~100 MB serialization of the brain per call.
+    fn begin_state_stage_with_candidate(
+        &mut self,
+        state: &mut SessionState,
+    ) -> Result<(CheckpointPersistenceStage, SessionCheckpointCandidate), BrainRuntimeError> {
+        let stage = self.begin_state_stage(state)?;
         match Self::candidate_with_panic_fence(state, &stage) {
-            Ok(candidate) => {
-                let generations = session_generation_tuple(state);
-                Ok((stage, candidate, generations))
-            }
+            Ok(candidate) => Ok((stage, candidate)),
             Err(error) => match Self::finish_stage_with_panic_fence(state, stage) {
                 Ok(_) => {
                     self.active_checkpoint_stage = None;
@@ -2184,12 +2230,14 @@ impl BrainActorState {
         }
     }
 
-    fn post_callback_candidate(
-        state: &mut SessionState,
-        stage: &CheckpointPersistenceStage,
-    ) -> Result<SessionCheckpointCandidate, BrainRuntimeError> {
-        match catch_unwind(AssertUnwindSafe(|| state.rebind_detached_graph())) {
-            Ok(Ok(())) => Self::candidate_with_panic_fence(state, stage),
+    /// Replace the live graph with a deep clone so an Arc a callback escaped can
+    /// no longer reach actor-owned state. This is the isolation fence, kept
+    /// independent of candidate serialization so a turn can pay for the fence
+    /// without paying to serialize the whole brain.
+    fn rebind_after_callback(state: &mut SessionState) -> Result<(), BrainRuntimeError> {
+        let rebind_started = Instant::now();
+        let result = match catch_unwind(AssertUnwindSafe(|| state.rebind_detached_graph())) {
+            Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => Err(BrainRuntimeError::Persistence(format!(
                 "could not detach actor-owned graph after callback: {error}"
             ))),
@@ -2197,20 +2245,58 @@ impl BrainActorState {
                 "detaching actor-owned graph panicked: {}",
                 panic_payload_detail(payload)
             ))),
+        };
+        log_brain_stage("  rebind_detached_graph", rebind_started);
+        result
+    }
+
+    /// The isolation fence for turns that do NOT serialize a candidate.
+    ///
+    /// A deep clone of a 17k-node graph is not free, and a turn that publishes
+    /// nothing is exactly the turn that must stay cheap. The fence is only needed
+    /// when a second owner of the graph Arc actually exists: the only way a
+    /// callback can reach actor-owned state after its boundary is by having kept
+    /// an `Arc` clone alive, and that is precisely what `strong_count > 1` reports.
+    /// If both counts are at their floor the actor is the sole owner, nothing can
+    /// alias it, and rebinding would only burn a full encode/decode. Racing the
+    /// check is not possible in the direction that matters: a new strong clone can
+    /// only be minted FROM a live strong clone or by upgrading a `Weak`, and both
+    /// are counted here BEFORE the stage closes.
+    fn rebind_if_callback_escaped_graph(state: &mut SessionState) -> Result<(), BrainRuntimeError> {
+        // `weak_count` matters as much as `strong_count`: a callback that escaped a
+        // `Weak` can upgrade it after this check and reach the live graph again.
+        if Arc::strong_count(&state.graph) > 1 || Arc::weak_count(&state.graph) > 0 {
+            return Self::rebind_after_callback(state);
         }
+        Ok(())
+    }
+
+    fn post_callback_candidate(
+        state: &mut SessionState,
+        stage: &CheckpointPersistenceStage,
+    ) -> Result<SessionCheckpointCandidate, BrainRuntimeError> {
+        Self::rebind_after_callback(state)?;
+        let candidate_started = Instant::now();
+        let candidate = Self::candidate_with_panic_fence(state, stage);
+        log_brain_stage("  checkpoint_candidate", candidate_started);
+        candidate
     }
 
     // Each argument is independent rollback evidence captured at a different
     // boundary; keeping them explicit avoids an ambiguously partially-filled packet.
     #[allow(clippy::too_many_arguments)]
+    /// Close out a refused callback by restoring the authoritative preimage.
+    ///
+    /// A refused command is always rolled back, including in-memory state the
+    /// checkpoint inventory does not carry (`queries_processed` and friends):
+    /// reloading from the authoritative checkpoint is the only mechanism that
+    /// reverts those, and `domain_error_is_returned_exactly_and_partial_mutation_is_rolled_back`
+    /// holds that line.
     fn callback_failure(
         &mut self,
         mut state: CheckedOutSession,
         version_before: BrainVersionV1,
         stage: CheckpointPersistenceStage,
-        baseline_digest: &str,
-        baseline_generations: (u64, u64, u64),
-        force_rollback: bool,
         callback_error: BrainRuntimeError,
     ) -> BrainRuntimeError {
         let post = match Self::post_callback_candidate(&mut state, &stage) {
@@ -2226,25 +2312,6 @@ impl BrainActorState {
                 return self.rollback_callback_state(state, version_before, stage, callback_error);
             }
         };
-        if !force_rollback
-            && post.state_digest == baseline_digest
-            && session_generation_tuple(&state) == baseline_generations
-            && !post.persist_requested
-        {
-            return match Self::finish_stage_with_panic_fence(&mut state, stage) {
-                Ok(_) => {
-                    self.clear_rollback_packet();
-                    callback_error
-                }
-                Err(close_error) => self.quarantine_failed_state(
-                    state,
-                    version_before,
-                    BrainRuntimeError::Persistence(format!(
-                        "{callback_error}; unchanged callback stage could not close: {close_error}"
-                    )),
-                ),
-            };
-        }
 
         self.managed_working_paths
             .extend(post.files.iter().map(|file| file.relative_path.clone()));
@@ -2314,71 +2381,45 @@ impl BrainActorState {
         let mut state = session.checkout()?;
         self.refresh_external_generation(&state);
         let version_before = self.version;
-        let (stage, baseline, baseline_generations) = match self.begin_state_transaction(&mut state)
-        {
-            Ok(transaction) => transaction,
+        let stage = match self.begin_state_stage(&mut state) {
+            Ok(stage) => stage,
             Err(error) => {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
         };
+        let baseline_witness = DurableWitnessV1::capture(&state);
         let value = match catch_unwind(AssertUnwindSafe(|| read(&state))) {
             Ok(Ok(value)) => value,
             Ok(Err(failure)) => {
                 let error = BrainRuntimeError::SnapshotRead(failure);
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
             Err(payload) => {
                 let error = BrainRuntimeError::Worker(format!(
                     "read snapshot callback panicked: {}",
                     panic_payload_detail(payload)
                 ));
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
         };
-        let post = match Self::post_callback_candidate(&mut state, &stage) {
-            Ok(candidate) => candidate,
-            Err(error) => {
-                return Err(self.rollback_callback_state(
-                    state,
-                    version_before,
-                    stage,
-                    BrainRuntimeError::Worker(format!(
-                        "read snapshot callback produced an invalid actor-owned state: {error}"
-                    )),
-                ));
-            }
-        };
-        if post.state_digest != baseline.state_digest
-            || session_generation_tuple(&state) != baseline_generations
-        {
+        // This runs on EVERY transport call (brain resolution asks the actor
+        // whether the bound brain covers the caller root), so it must not
+        // serialize the world to answer. The byte digest it used to compare was
+        // also unsound here: `rebind_detached_graph` rebuilds `edge_plasticity`
+        // from the current weights, so once a graph verb had drifted a weight the
+        // postimage could never match the preimage and an honest read was refused
+        // as a mutation attempt.
+        if DurableWitnessV1::capture(&state) != baseline_witness {
             let error = BrainRuntimeError::Worker(
                 "read snapshot callback attempted to mutate actor-owned durable state".to_string(),
             );
-            return Err(self.callback_failure(
-                state,
-                version_before,
-                stage,
-                &baseline.state_digest,
-                baseline_generations,
-                true,
-                error,
-            ));
+            return Err(self.callback_failure(state, version_before, stage, error));
+        }
+        // The mutation verdict is about what the CALLBACK did, so it is decided
+        // above, before this fence rebuilds the graph. Any Arc the callback
+        // escaped now points at a detached clone.
+        if let Err(error) = Self::rebind_after_callback(&mut state) {
+            return Err(self.rollback_callback_state(state, version_before, stage, error));
         }
         if let Err(error) = Self::finish_stage_with_panic_fence(&mut state, stage) {
             return Err(self.quarantine_failed_state(state, version_before, error));
@@ -2412,103 +2453,146 @@ impl BrainActorState {
         if mutating {
             self.ensure_writable()?;
         }
+        let turn_started = Instant::now();
         let session = Arc::clone(&self.session);
         let mut state = session.checkout()?;
         self.refresh_external_generation(&state);
         let version_before = self.version;
-        let (stage, baseline, baseline_generations) = match self.begin_state_transaction(&mut state)
-        {
-            Ok(transaction) => transaction,
+        let staged = Instant::now();
+        let stage = match self.begin_state_stage(&mut state) {
+            Ok(stage) => stage,
             Err(error) => {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
         };
+        let baseline_witness = DurableWitnessV1::capture(&state);
+        log_brain_stage("begin_state_transaction", staged);
+        let callback_started = Instant::now();
         let output = match catch_unwind(AssertUnwindSafe(|| execute(&mut state))) {
             Ok(Ok(output)) => output,
             Ok(Err(failure)) => {
                 let error = BrainRuntimeError::SnapshotRead(failure);
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
             Err(payload) => {
                 let error = BrainRuntimeError::Worker(format!(
                     "brain command callback panicked: {}",
                     panic_payload_detail(payload)
                 ));
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
         };
+
+        log_brain_stage("callback", callback_started);
 
         if let Err(error) = self.ensure_checkpointable() {
-            return Err(self.callback_failure(
-                state,
-                version_before,
-                stage,
-                &baseline.state_digest,
-                baseline_generations,
-                true,
-                error,
-            ));
+            return Err(self.callback_failure(state, version_before, stage, error));
         }
 
-        let candidate = match Self::post_callback_candidate(&mut state, &stage) {
-            Ok(candidate) => candidate,
+        // Decide whether this turn owes a durable checkpoint BEFORE serializing
+        // anything, keeping the reasons it might apart.
+        //
+        // A read turn routinely dirties small, regenerable sidecars: plasticity
+        // Step 8 rewrites edge weights on every graph verb, and the
+        // freshness-by-traffic daemon tick calls `persist_daemon_state` on nearly
+        // every dispatch. Publishing a whole-brain checkpoint for that is what made
+        // a warm `seek` cost seconds and grew the store by ~113 MB per read. That
+        // drift is DEFERRED here and flushed by the debounce below, by the next
+        // real mutation, or by the shutdown checkpoint.
+        //
+        // Everything else is sealed on the spot: a classified mutation, a
+        // structural change under a callback that claimed to be read-only, and a
+        // queued post-CURRENT effect.
+        //
+        // NOTE what this decision CANNOT see. The witness watches graph structure
+        // and the session generations; a verb that writes only a durable SIDECAR
+        // (the antibody store, the trust ledger, daemon state, the document cache)
+        // moves neither. Such a verb owes its durability to being classified a
+        // mutation or to reaching a persist choke point — `session.rs` holds that
+        // invariant mechanically (`no_undeclared_durable_sidecar_writer_exists`).
+        let publish_requested = match state.checkpoint_publish_required(&stage) {
+            Ok(requested) => requested,
             Err(error) => {
-                return Err(self.rollback_callback_state(
+                return Err(self.quarantine_failed_state(
                     state,
                     version_before,
-                    stage,
-                    BrainRuntimeError::Worker(format!(
-                        "brain command callback produced an invalid actor-owned state: {error}"
-                    )),
+                    BrainRuntimeError::Persistence(error.to_string()),
                 ));
             }
         };
-        let durable_state_changed = candidate.state_digest != baseline.state_digest
-            || session_generation_tuple(&state) != baseline_generations
-            || candidate.persist_requested;
+        // A queued post-CURRENT effect is the one persist reason that CANNOT be
+        // deferred: `finish_checkpoint_staging` refuses to close a stage while one
+        // is outstanding, and only the checkpoint path drains it. Folding it into
+        // the deferrable `publish_requested` would send the turn down the debounce
+        // branch and straight into `quarantine_failed_state`. No PRODUCTION verb
+        // reaches it today — `persist`, the only verb that queues one, is a
+        // classified mutation — but ANY read-classified callback that queues an
+        // effect does, and the quarantine is one line of code away.
+        let staged_effect_pending = state.has_unresolved_staged_effects();
+        let witness_moved = DurableWitnessV1::capture(&state) != baseline_witness;
+        let debounce = state.auto_persist_interval.max(1);
+        let debounce_due = publish_requested && self.deferred_read_publishes + 1 >= debounce;
+        let durable_state_changed =
+            mutating || witness_moved || staged_effect_pending || debounce_due;
+        if publish_requested && !durable_state_changed {
+            self.deferred_read_publishes = self.deferred_read_publishes.saturating_add(1);
+        }
         if durable_state_changed && !mutating {
             if let Err(error) = self.ensure_writable() {
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
         }
-        if mutating || durable_state_changed {
+        if durable_state_changed {
+            let post_started = Instant::now();
+            let candidate = match Self::post_callback_candidate(&mut state, &stage) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    return Err(self.rollback_callback_state(
+                        state,
+                        version_before,
+                        stage,
+                        BrainRuntimeError::Worker(format!(
+                            "brain command callback produced an invalid actor-owned state: {error}"
+                        )),
+                    ));
+                }
+            };
+            log_brain_stage("post_callback_candidate", post_started);
             let observed = session_generation(&state);
             self.version.generation = self.version.generation.saturating_add(1).max(observed);
             self.version.revision = self.version.revision.saturating_add(1);
+            let checkpoint_started = Instant::now();
             if let Err(error) = self.checkpoint_with_panic_fence(&mut state, stage, candidate) {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
+            log_brain_stage("checkpoint", checkpoint_started);
+            self.deferred_read_publishes = 0;
             self.clear_persistence_failure();
         } else {
+            // The deferring branch still owes the ISOLATION FENCE. Before this
+            // branch existed every turn rebound through `post_callback_candidate`;
+            // skipping it here would let an Arc a callback escaped keep aliasing
+            // the live actor graph BETWEEN turns — mutations through it would land
+            // with no classification at all, and would race the next turn's
+            // witness capture. `rebind_if_callback_escaped_graph` keeps the fence
+            // and keeps the turn O(1) when nothing escaped, which is every honest
+            // read.
+            if let Err(error) = Self::rebind_if_callback_escaped_graph(&mut state) {
+                return Err(self.rollback_callback_state(state, version_before, stage, error));
+            }
             if let Err(error) = Self::finish_stage_with_panic_fence(&mut state, stage) {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
             self.clear_rollback_packet();
         }
+        log_brain_stage(
+            if mutating {
+                "TURN(mutating)"
+            } else {
+                "TURN(read)"
+            },
+            turn_started,
+        );
 
         Ok(output)
     }
@@ -2525,9 +2609,8 @@ impl BrainActorState {
         let mut state = session.checkout()?;
         self.refresh_external_generation(&state);
         let version_before = self.version;
-        let (stage, baseline, baseline_generations) = match self.begin_state_transaction(&mut state)
-        {
-            Ok(transaction) => transaction,
+        let stage = match self.begin_state_stage(&mut state) {
+            Ok(stage) => stage,
             Err(error) => {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
@@ -2536,42 +2619,18 @@ impl BrainActorState {
             Ok(Ok(output)) => output,
             Ok(Err(failure)) => {
                 let error = BrainRuntimeError::SnapshotRead(failure);
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
             Err(payload) => {
                 let error = BrainRuntimeError::Worker(format!(
                     "checkpointed brain callback panicked: {}",
                     panic_payload_detail(payload)
                 ));
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
         };
         if let Err(error) = self.ensure_checkpointable() {
-            return Err(self.callback_failure(
-                state,
-                version_before,
-                stage,
-                &baseline.state_digest,
-                baseline_generations,
-                true,
-                error,
-            ));
+            return Err(self.callback_failure(state, version_before, stage, error));
         }
         let candidate = match Self::post_callback_candidate(&mut state, &stage) {
             Ok(candidate) => candidate,
@@ -2619,9 +2678,8 @@ impl BrainActorState {
                 observed: self.version,
             });
         }
-        let (stage, baseline, baseline_generations) = match self.begin_state_transaction(&mut state)
-        {
-            Ok(transaction) => transaction,
+        let stage = match self.begin_state_stage(&mut state) {
+            Ok(stage) => stage,
             Err(error) => {
                 return Err(self.quarantine_failed_state(state, version_before, error));
             }
@@ -2631,42 +2689,18 @@ impl BrainActorState {
             Ok(Ok(success)) => success,
             Ok(Err(failure)) => {
                 let error = BrainRuntimeError::SnapshotRead(failure);
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
             Err(payload) => {
                 let error = BrainRuntimeError::Worker(format!(
                     "brain proposal apply callback panicked: {}",
                     panic_payload_detail(payload)
                 ));
-                return Err(self.callback_failure(
-                    state,
-                    version_before,
-                    stage,
-                    &baseline.state_digest,
-                    baseline_generations,
-                    true,
-                    error,
-                ));
+                return Err(self.callback_failure(state, version_before, stage, error));
             }
         };
         if let Err(error) = self.ensure_checkpointable() {
-            return Err(self.callback_failure(
-                state,
-                version_before,
-                stage,
-                &baseline.state_digest,
-                baseline_generations,
-                true,
-                error,
-            ));
+            return Err(self.callback_failure(state, version_before, stage, error));
         }
         let candidate = match Self::post_callback_candidate(&mut state, &stage) {
             Ok(candidate) => candidate,
@@ -2698,13 +2732,12 @@ impl BrainActorState {
         let mut state = session.checkout()?;
         self.refresh_external_generation(&state);
         let version_before = self.version;
-        let (stage, candidate, _baseline_generations) =
-            match self.begin_state_transaction(&mut state) {
-                Ok(transaction) => transaction,
-                Err(error) => {
-                    return Err(self.quarantine_failed_state(state, version_before, error));
-                }
-            };
+        let (stage, candidate) = match self.begin_state_stage_with_candidate(&mut state) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                return Err(self.quarantine_failed_state(state, version_before, error));
+            }
+        };
         match self.checkpoint_with_panic_fence(&mut state, stage, candidate) {
             Ok(ack) => {
                 self.clear_persistence_failure();
@@ -3929,6 +3962,29 @@ fn validate_relative_path(value: &str) -> Result<(), BrainRuntimeError> {
         )));
     }
     Ok(())
+}
+
+/// Per-stage actor timing, opt-in via `M1ND_BRAIN_TIMING=1`. The read path is
+/// the hottest code in the product and its cost is invisible from the outside:
+/// one HTTP duration cannot tell a slow retrieval from a slow checkpoint. This
+/// prints the actual boundary each turn crossed, so a regression is diagnosed
+/// with numbers instead of a guess.
+fn brain_timing_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("M1ND_BRAIN_TIMING")
+            .map(|value| !matches!(value.as_str(), "" | "0" | "false"))
+            .unwrap_or(false)
+    })
+}
+
+fn log_brain_stage(stage: &str, started: Instant) {
+    if brain_timing_enabled() {
+        eprintln!(
+            "[m1nd brain-timing] {stage} {:.3}s",
+            started.elapsed().as_secs_f64()
+        );
+    }
 }
 
 fn session_generation(state: &SessionState) -> u64 {
@@ -5561,6 +5617,489 @@ mod tests {
                 Ok::<(), RuntimeJobFailure>(())
             })
             .expect("later valid mutation remains admitted");
+        actor.stop().expect("stop actor");
+    }
+
+    /// A graph verb legitimately rewrites non-structural node/edge numbers on
+    /// every call (plasticity Step 8). That drift must NOT publish a durable
+    /// checkpoint of the whole brain: before this was fixed, every single warm
+    /// `seek` wrote a ~113 MB checkpoint, the store grew by one checkpoint per
+    /// read, and a warm read cost seconds instead of milliseconds.
+    #[test]
+    fn execute_false_with_only_non_structural_drift_publishes_no_checkpoint() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "read-drift-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        actor
+            .try_execute(true, |state| {
+                add_consistent_test_node(state, "drift::anchor", "drift anchor")
+            })
+            .expect("seed a node to drift");
+        let baseline = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("CURRENT after the seeding mutation");
+
+        for _ in 0..3 {
+            actor
+                .try_execute(false, |state| {
+                    let mut graph = state.graph.write();
+                    let previous = graph.nodes.change_frequency[0].get();
+                    graph.nodes.change_frequency[0] =
+                        m1nd_core::types::FiniteF32::new(previous + 0.125);
+                    Ok::<(), RuntimeJobFailure>(())
+                })
+                .expect("non-structural drift on a read turn is admitted");
+        }
+
+        assert_eq!(
+            actor.health_snapshot().current_checkpoint_id.as_deref(),
+            Some(baseline.as_str()),
+            "read turns must not publish a durable checkpoint for learning drift"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    /// The freshness-by-traffic daemon tick calls `persist_daemon_state` on
+    /// nearly every dispatch, and under the old rule that single staged flag
+    /// published a whole-brain checkpoint per read. The request is now debounced:
+    /// it accumulates and flushes once, not once per call.
+    #[test]
+    fn read_turn_staged_persist_is_debounced_instead_of_published_per_call() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "read-debounce-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        let debounce = actor
+            .try_read_snapshot(|state| Ok::<u32, RuntimeJobFailure>(state.auto_persist_interval))
+            .expect("read the debounce interval")
+            .value
+            .max(1);
+        let baseline = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("baseline CURRENT");
+
+        for turn in 1..debounce {
+            actor
+                .try_execute(false, |state| {
+                    state
+                        .persist_daemon_state()
+                        .map_err(|error| RuntimeJobFailure::new("daemon_state", error.to_string()))
+                })
+                .expect("read turn with a routine staged persist");
+            assert_eq!(
+                actor.health_snapshot().current_checkpoint_id.as_deref(),
+                Some(baseline.as_str()),
+                "turn {turn} must not publish its own checkpoint"
+            );
+        }
+
+        actor
+            .try_execute(false, |state| {
+                state
+                    .persist_daemon_state()
+                    .map_err(|error| RuntimeJobFailure::new("daemon_state", error.to_string()))
+            })
+            .expect("the debounced turn");
+        assert_ne!(
+            actor.health_snapshot().current_checkpoint_id.as_deref(),
+            Some(baseline.as_str()),
+            "the accumulated drift must be flushed once the debounce is due"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    fn single_node_antibody_pattern() -> crate::protocol::layers::AntibodyPatternInput {
+        crate::protocol::layers::AntibodyPatternInput {
+            nodes: vec![crate::protocol::layers::PatternNodeInput {
+                role: "suspect".into(),
+                node_type: Some("concept".into()),
+                required_tags: Vec::new(),
+                label_contains: Some("antibody-durability".into()),
+            }],
+            edges: Vec::new(),
+            negative_edges: Vec::new(),
+        }
+    }
+
+    /// `antibody_create` writes the `antibodies` checkpoint sidecar and NOTHING
+    /// else: no node, no edge, no session generation. The actor's O(1) witness is
+    /// blind to that by construction, so the verb's durability rests entirely on
+    /// being classified a mutation. Before that classification existed the ack said
+    /// "created" while the antibody lived only in memory — a `kill -9` lost it, or
+    /// resurrected one that had been deleted.
+    ///
+    /// The `mutating` flag here comes from the REAL classifier, not a literal, so
+    /// dropping `antibody_create` from `READ_ONLY_DENIED_TOOLS` fails this test.
+    #[test]
+    fn antibody_create_is_durable_on_the_turn_it_is_acked() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "antibody-durability-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        let baseline = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("baseline CURRENT");
+
+        let mutating = crate::server::read_only_denied(
+            "antibody_create",
+            &serde_json::json!({ "action": "create" }),
+        );
+        assert!(
+            mutating,
+            "antibody_create writes the antibodies sidecar, so the classifier must call it a mutation"
+        );
+        let created = actor
+            .try_execute(mutating, |state| {
+                crate::layer_handlers::handle_antibody_create(
+                    state,
+                    crate::protocol::layers::AntibodyCreateInput {
+                        agent_id: "durability-test".into(),
+                        action: "create".into(),
+                        antibody_id: None,
+                        name: Some("durability probe".into()),
+                        description: Some("pins sidecar durability".into()),
+                        severity: "warning".into(),
+                        pattern: Some(single_node_antibody_pattern()),
+                    },
+                )
+                .map_err(|error| RuntimeJobFailure::new("antibody_create", error.to_string()))
+            })
+            .expect("antibody_create is admitted");
+        assert!(
+            created.get("antibody_id").is_some(),
+            "the ack claims creation"
+        );
+
+        let after_create = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("CURRENT after antibody_create");
+        assert_ne!(
+            after_create, baseline,
+            "an acked antibody_create must be sealed in a durable checkpoint on its own turn"
+        );
+        let durable = actor
+            .try_read_snapshot(|state| Ok::<usize, RuntimeJobFailure>(state.antibodies.len()))
+            .expect("read the antibody store")
+            .value;
+        assert_eq!(durable, 1, "the created antibody is in the live store");
+        actor.stop().expect("stop actor");
+    }
+
+    /// The isolation fence must survive the branch that publishes nothing. Every
+    /// turn used to rebind through `post_callback_candidate`; the deferring read
+    /// branch skips that, so without an explicit fence an `Arc` a callback escaped
+    /// keeps aliasing the live actor graph BETWEEN turns. This is the execute-read
+    /// mirror of `escaped_read_graph_arc_is_detached_from_actor_owner`.
+    #[test]
+    fn escaped_execute_read_graph_arc_is_detached_from_actor_owner() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "execute-arc-detach-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        let escaped: Arc<Mutex<Option<m1nd_core::graph::SharedGraph>>> = Arc::new(Mutex::new(None));
+        let escaped_from_callback = Arc::clone(&escaped);
+        actor
+            .try_execute(false, move |state| {
+                *lock_unpoisoned(&escaped_from_callback) = Some(Arc::clone(&state.graph));
+                Ok::<(), RuntimeJobFailure>(())
+            })
+            .expect("a read turn that escapes its graph Arc is admitted");
+        let old_graph = lock_unpoisoned(&escaped)
+            .take()
+            .expect("callback escaped its old graph Arc");
+        old_graph
+            .write()
+            .add_node(
+                "execute-escaped-arc::sentinel",
+                "execute escaped arc sentinel",
+                m1nd_core::types::NodeType::Concept,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("mutate detached old graph");
+        let visible = actor
+            .try_read_snapshot(|state| {
+                Ok::<bool, RuntimeJobFailure>(
+                    state
+                        .graph
+                        .read()
+                        .resolve_id("execute-escaped-arc::sentinel")
+                        .is_some(),
+                )
+            })
+            .expect("read live actor graph")
+            .value;
+        assert!(
+            !visible,
+            "an Arc escaped by a read-classified execute still mutated actor-owned graph"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    /// The fence above must stay O(1) on the hot path. An honest read leaves no
+    /// second owner of the graph Arc, so nothing can alias the actor and the deep
+    /// clone is skipped entirely — the graph the next turn sees is the SAME
+    /// allocation. This is what keeps the deferring branch cheap; if it starts
+    /// rebinding unconditionally, a warm read pays a full encode/decode again.
+    #[test]
+    fn execute_read_without_an_escaped_arc_does_not_rebind_the_graph() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "execute-no-rebind-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        fn graph_identity(state: &SessionState) -> usize {
+            Arc::as_ptr(&state.graph) as usize
+        }
+        let before = actor
+            .try_execute(false, |state| {
+                Ok::<usize, RuntimeJobFailure>(graph_identity(state))
+            })
+            .expect("first read turn");
+        let after = actor
+            .try_execute(false, |state| {
+                Ok::<usize, RuntimeJobFailure>(graph_identity(state))
+            })
+            .expect("second read turn");
+        assert_eq!(
+            before, after,
+            "a read turn with no escaped Arc must not pay for a graph deep clone"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    /// A queued post-CURRENT effect is the one persist reason that cannot be
+    /// deferred: only the checkpoint path drains it and `finish_checkpoint_staging`
+    /// refuses to close a stage while one is outstanding. Folding it into the
+    /// deferrable persist request would send the turn into `quarantine_failed_state`
+    /// instead of publishing.
+    #[test]
+    fn execute_read_with_an_unresolved_staged_effect_publishes_instead_of_deferring() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "staged-effect-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        let baseline = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("baseline CURRENT");
+
+        actor
+            .try_execute(false, |state| {
+                state
+                    .persist_binary_snapshot()
+                    .map(|_| ())
+                    .map_err(|error| {
+                        RuntimeJobFailure::new("persist_binary_snapshot", error.to_string())
+                    })
+            })
+            .expect("a read turn that queues a derived export must still close cleanly");
+
+        assert_ne!(
+            actor.health_snapshot().current_checkpoint_id.as_deref(),
+            Some(baseline.as_str()),
+            "a queued post-CURRENT effect must publish on its own turn, never wait for the debounce"
+        );
+        assert!(
+            !actor.health_snapshot().degraded_persistence,
+            "the turn must publish, not quarantine"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    /// The perf contract of this change, held as an assertion instead of a lab
+    /// note: a long run of honest reads publishes NOTHING, and the mutation that
+    /// follows publishes EXACTLY ONE checkpoint.
+    #[test]
+    fn a_long_run_of_reads_publishes_nothing_and_one_mutation_publishes_exactly_one() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "read-volume-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        actor
+            .try_execute(true, |state| {
+                add_consistent_test_node(state, "volume::anchor", "volume anchor")
+            })
+            .expect("seed the brain");
+        let baseline = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("CURRENT after the seeding mutation");
+
+        for _ in 0..70 {
+            actor
+                .try_execute(false, |state| {
+                    let mut graph = state.graph.write();
+                    let previous = graph.nodes.change_frequency[0].get();
+                    graph.nodes.change_frequency[0] =
+                        m1nd_core::types::FiniteF32::new(previous + 0.001);
+                    Ok::<(), RuntimeJobFailure>(())
+                })
+                .expect("warm read turn");
+        }
+        assert_eq!(
+            actor.health_snapshot().current_checkpoint_id.as_deref(),
+            Some(baseline.as_str()),
+            "70 reads must publish 0 checkpoints"
+        );
+
+        actor
+            .try_execute(true, |state| {
+                add_consistent_test_node(state, "volume::real", "a real mutation")
+            })
+            .expect("the real mutation");
+        let after = actor
+            .health_snapshot()
+            .current_checkpoint_id
+            .expect("CURRENT after the mutation");
+        assert_ne!(after, baseline, "a real mutation publishes");
+
+        for _ in 0..10 {
+            actor
+                .try_execute(false, |state| {
+                    Ok::<u64, RuntimeJobFailure>(state.graph.read().generation.0)
+                })
+                .expect("read after the mutation");
+        }
+        assert_eq!(
+            actor.health_snapshot().current_checkpoint_id.as_deref(),
+            Some(after.as_str()),
+            "the mutation published exactly one checkpoint and the reads after it published none"
+        );
+        actor.stop().expect("stop actor");
+    }
+
+    /// What the strict `read_snapshot` fence actually promises, pinned so the doc
+    /// cannot drift from it again.
+    ///
+    /// It refuses a change to durable STRUCTURE (nodes, edges) and to the session
+    /// generations. It does NOT refuse an interior column write — a tag, a
+    /// provenance row, an edge weight — because answering that question needs a
+    /// content digest, and this path runs on EVERY transport call. The digest it
+    /// used to take was also unsound here: plasticity legitimately rewrites weights
+    /// on every read, so honest reads were refused as mutation attempts.
+    ///
+    /// The compensating control is classification, not the witness: every verb that
+    /// writes a graph tag or provenance column (`xray_retag`, `xray_paint`,
+    /// `xray_apply`, `ingest`, `apply`) is in `READ_ONLY_DENIED_TOOLS`, so its
+    /// durability comes from being a declared mutation.
+    #[test]
+    fn read_snapshot_fence_refuses_structure_and_admits_interior_column_drift() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "read-fence-contract-brain".to_string(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        actor
+            .try_execute(true, |state| {
+                add_consistent_test_node(state, "fence::anchor", "fence anchor")
+            })
+            .expect("seed a node to tag");
+
+        let refused = actor
+            .try_read_snapshot(|state| {
+                state
+                    .graph
+                    .write()
+                    .add_node(
+                        "fence::structural",
+                        "structural change",
+                        m1nd_core::types::NodeType::Concept,
+                        &[],
+                        0.0,
+                        0.0,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| RuntimeJobFailure::new("add_node", error.to_string()))
+            })
+            .expect_err("a structural change under the strict fence is refused");
+        assert_eq!(refused.code(), "brain_worker_failed");
+
+        let tagged = actor
+            .try_read_snapshot(|state| {
+                let mut graph = state.graph.write();
+                let node = graph.resolve_id("fence::anchor").ok_or_else(|| {
+                    RuntimeJobFailure::new("resolve", "anchor missing".to_string())
+                })?;
+                Ok::<usize, RuntimeJobFailure>(graph.add_node_tags(node, &["fence:interior"]))
+            })
+            .expect("an interior column write is ADMITTED — the fence is structural, by design");
+        assert_eq!(tagged.value, 1);
+
+        for verb in ["xray_retag", "xray_paint", "xray_apply", "ingest", "apply"] {
+            assert!(
+                crate::server::read_only_denied(verb, &serde_json::json!({})),
+                "{verb} writes graph columns the witness cannot see, so classification must carry its durability"
+            );
+        }
         actor.stop().expect("stop actor");
     }
 
