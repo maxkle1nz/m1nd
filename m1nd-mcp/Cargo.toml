@@ -19,7 +19,7 @@ include = [
 # `embed` is ON by default so the shipped server has semantic recall out of the
 # box. Build a lean, embeddings-free binary with `--no-default-features --features serve`.
 default = ["serve", "embed"]
-serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest", "dep:getrandom"]
+serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
 # Real local static embeddings in `seek` (semantic recall by meaning), forwarded
 # to m1nd-core. The model (~29 MB, model2vec/potion-base-8M) is fetched on first
 # use and cached; if it cannot load, `seek` falls back to trigram matching
@@ -62,7 +62,12 @@ mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
-getrandom = { version = "0.3", optional = true }
+# NOT optional: `external_mutation_service` is compiled unconditionally (`lib.rs`,
+# ungated) and mints its scan-job ids with `getrandom::fill`. The other three
+# callers — http_security, http_server, mcp_http — ARE behind `serve`, which is
+# why this read as a serve-only dep for so long. `--workspace` unifies features,
+# so CI never built m1nd-mcp without `serve` and never saw the break.
+getrandom = { version = "0.3" }
 
 # Already present transitively (via sysinfo/tokio); declared directly ONLY to call
 # `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).

@@ -54,6 +54,15 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
         run: cargo fmt --all --check
+      # `--workspace` UNIFIES features, so every gate above builds m1nd-mcp with
+      # `serve` on no matter who asked for it. That hid a real break: m1nd-runnerd
+      # declares `default-features = false`, and m1nd-mcp had not compiled that way
+      # since an ungated `getrandom` call entered `external_mutation_service` — it
+      # only linked because a sibling in the same build widened it. A declared lean
+      # edge that nothing builds is not an edge. This is the one gate that asks for
+      # a crate ALONE, and it is cheap (~20s) precisely because nothing else does.
+      - name: Build the lean edge nothing else builds
+        run: cargo check --locked -p m1nd-mcp --no-default-features
       # Release-profile build runs on main pushes only (2026-07-24): on a PR it
       # proved nothing tests+clippy don't, at ~half the round's wall-clock, and
       # the signed release pipeline rebuilds --release at tag time anyway. A
