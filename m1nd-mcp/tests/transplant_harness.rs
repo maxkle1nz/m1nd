@@ -202,11 +202,17 @@ fn snapshot_src(root: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let src = root.join("src");
     for entry in walk_rs(&src) {
+        // These keys are matched against expectations that spell paths with
+        // '/' (`src_rel: "src/alpha.rs"`), so they must arrive in that one
+        // identity domain. On Windows `strip_prefix` hands back '\', no key
+        // ever matches, and the certificate silently grades the source file of
+        // a move as "unrelated" — asserting it must not change, when changing
+        // is precisely its job.
         let rel = entry
             .strip_prefix(root)
             .unwrap()
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
         out.insert(rel, std::fs::read_to_string(&entry).unwrap());
     }
     out
