@@ -6,6 +6,23 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Fixed — the owner boot now serves the graph it loaded
+
+- **A pre-1.5 runtime could load a full graph and serve zero nodes, on every boot.** The brain
+  actor restores checkpoint `CURRENT` and rebuilds its whole session from disk when it starts.
+  The 1.5 legacy adoption wrote the pre-1.5 graph into the runtime root *before any actor
+  existed*, so the actor reverted it on the same boot — and the adoption journal still recorded
+  `status: "adopted"`, whose own guard forbids re-adoption. **The rescue was spent without ever
+  having worked**, and the symptom was silent: `Loaded graph snapshot: N nodes` followed by
+  `Server ready. 0 nodes`. Adoption now runs *inside* the actor boundary and commits through the
+  checkpoint, so `CURRENT` is never older than the files it describes. The journal is written
+  only after the commit is acknowledged, and an adoption that did not stick is re-adoptable —
+  a journal beside an empty brain is exactly the footprint of a reverted adoption. **An affected
+  installation recovers on its next boot with no operator step.**
+  The rejected alternative — letting an uncommitted file outrank `CURRENT` — is pinned as
+  *correct* by its own test, so this cannot later be "fixed" by inverting it: a half-written
+  graph must never beat a committed one.
+
 ### The graph learned to write — `transplant`
 
 - **New verb `transplant`** (plus `transplant_preview` / `transplant_commit`). Move a top-level
