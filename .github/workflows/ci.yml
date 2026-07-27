@@ -80,8 +80,15 @@ jobs:
           key: rust-gates-windows-latest
       # Mirrors the required gate exactly: no standalone check (clippy subsumes
       # it), release-profile build on main pushes only.
+      #
+      # `--no-fail-fast` ONLY here, and deliberately. Cargo stops after the first
+      # test binary that fails, so on a leg carrying known debt every fix reveals
+      # the next failure one CI round at a time — the source-edit family masked a
+      # transplant-harness bug, which was in turn masking runnerd's. An advisory
+      # leg exists to MEASURE the debt, so it has to report all of it in one run.
+      # The required gate keeps failing fast.
       - name: Test every target
-        run: cargo test --locked --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets --no-fail-fast
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
