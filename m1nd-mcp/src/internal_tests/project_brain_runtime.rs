@@ -16,6 +16,24 @@ use m1nd_mcp::runtime_jobs::{
     RUNTIME_JOB_BINDING_SCHEMA,
 };
 
+/// Upper bound for awaiting a runtime job's TERMINAL state. `wait_terminal` is
+/// condvar-based and returns the instant the job finishes, so this only caps a
+/// stuck run: a healthy run pays nothing for the headroom. Generous on purpose —
+/// on the loaded two-core Windows runner the m1nd-mcp lib suite measures ~1001s
+/// against ~440-700s on a developer Mac, so a five-second wait was measuring the
+/// runner rather than the job.
+const TERMINAL_BUDGET: Duration = Duration::from_secs(60);
+
+/// Grace handed to `ProjectBrainRegistry::shutdown`. The product contract is
+/// "fail closed unless every actor checkpoints within the grace the CALLER gave";
+/// this constant is only the test's tolerance for a slow machine. Shutdown returns
+/// the instant the last ACK lands, so the headroom costs nothing when healthy.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
+
+/// Upper bound for waiting on a condition (a refusal arriving, a health status
+/// flipping) rather than timing a single look. Bounds a stuck run only.
+const OBSERVE_BUDGET: Duration = Duration::from_secs(30);
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -185,14 +203,14 @@ fn stale_concurrent_worker_never_mutates_and_only_one_write_commits() {
     let fast_id = submit_root_append(&registry, &root, "fast-winner", "winner-marker");
     let jobs = registry.runtime_job_registry().expect("job registry");
     let fast = terminal(
-        jobs.wait_terminal(&fast_id, Duration::from_secs(5))
+        jobs.wait_terminal(&fast_id, TERMINAL_BUDGET)
             .expect("wait fast"),
     );
     assert_eq!(fast.state, RuntimeJobState::Succeeded);
 
     release_tx.send(()).expect("release stale worker");
     let slow = terminal(
-        jobs.wait_terminal(&slow_id, Duration::from_secs(5))
+        jobs.wait_terminal(&slow_id, TERMINAL_BUDGET)
             .expect("wait slow"),
     );
     assert_eq!(slow.state, RuntimeJobState::Failed);
@@ -211,7 +229,7 @@ fn stale_concurrent_worker_never_mutates_and_only_one_write_commits() {
         .value;
     assert!(roots.iter().any(|root| root == "winner-marker"));
     assert!(!roots.iter().any(|root| root == "stale-marker"));
-    registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+    registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
 }
 
 #[test]
@@ -263,11 +281,7 @@ fn multi_brain_actors_are_isolated() {
     let job_a = submit_root_append(&registry, &root_a, "brain-a-job", "only-a");
     let jobs = registry.runtime_job_registry().expect("jobs");
     assert_eq!(
-        terminal(
-            jobs.wait_terminal(&job_a, Duration::from_secs(5))
-                .expect("wait A")
-        )
-        .state,
+        terminal(jobs.wait_terminal(&job_a, TERMINAL_BUDGET).expect("wait A")).state,
         RuntimeJobState::Succeeded
     );
     let roots_a = registry
@@ -288,7 +302,7 @@ fn multi_brain_actors_are_isolated() {
         registry.brain_id_for(&root_a.to_string_lossy()),
         registry.brain_id_for(&root_b.to_string_lossy())
     );
-    let acks = registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+    let acks = registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
     assert_eq!(acks.len(), 2);
     assert_ne!(acks[0].brain_id, acks[1].brain_id);
 }
@@ -302,7 +316,17 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
     const WRITES_PER_BRAIN: usize = OPERATIONS_PER_BRAIN / WRITE_EVERY;
     const TOTAL_WRITES: usize = BRAIN_COUNT * WRITES_PER_BRAIN;
     const TOTAL_READS: usize = TOTAL_OPERATIONS - TOTAL_WRITES;
-    const COMPLETION_BOUND: Duration = Duration::from_secs(60);
+    // A LIVELOCK / LOST-WORKER net, not a throughput SLO: nothing in the product
+    // promises 10,000 actor operations inside any wall-clock window, and the proof
+    // this test carries is isolation plus the exact read/write ledger below. At
+    // sixty seconds the bound was measuring the runner instead — eight worker
+    // threads doing real OCC submissions on a loaded two-core box (the m1nd-mcp lib
+    // suite measures ~1001s there against ~440-700s on a developer Mac) blew it and
+    // reported "exceeded 60s or lost a worker". Five minutes still catches a real
+    // hang in minutes, and a healthy run neither waits for it nor hides behind it:
+    // the true elapsed time is asserted-on-nothing but PRINTED below, so a genuine
+    // throughput regression stays visible in the log.
+    const COMPLETION_BOUND: Duration = Duration::from_secs(300);
 
     let temp = tempfile::tempdir().expect("tempdir");
     let registry = Arc::new(
@@ -360,13 +384,13 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
                         let job = match registry
                             .runtime_job_registry()
                             .map_err(|error| format!("open stress job registry: {error}"))?
-                            .wait_terminal(&job_id, Duration::from_secs(15))
+                            .wait_terminal(&job_id, TERMINAL_BUDGET)
                             .map_err(|error| format!("wait stress job {job_id}: {error}"))?
                         {
                             RuntimeJobWait::Terminal(job) => job,
                             RuntimeJobWait::ObservableNonTerminal(job) => {
                                 return Err(format!(
-                                    "stress job {job_id} did not terminate before its 15s wait: {:?}",
+                                    "stress job {job_id} did not terminate before its {TERMINAL_BUDGET:?} wait: {:?}",
                                     job.state
                                 ));
                             }
@@ -426,7 +450,7 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
         let remaining = deadline.saturating_duration_since(Instant::now());
         worker_results.push(result_rx.recv_timeout(remaining).unwrap_or_else(|error| {
             panic!(
-                "10,000-operation stress exceeded {COMPLETION_BOUND:?} or lost a worker: {error}"
+                "10,000-operation stress hung past {COMPLETION_BOUND:?} or lost a worker: {error}"
             )
         }));
     }
@@ -445,7 +469,7 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
     let stress_elapsed = started.elapsed();
     assert!(
         stress_elapsed < COMPLETION_BOUND,
-        "10,000 logical actor operations exceeded {COMPLETION_BOUND:?}"
+        "10,000 logical actor operations hung past {COMPLETION_BOUND:?}"
     );
     assert_eq!(completed.load(Ordering::SeqCst), TOTAL_OPERATIONS);
     assert_eq!(reads.load(Ordering::SeqCst), TOTAL_READS);
@@ -473,7 +497,7 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
     }
 
     let acks = registry
-        .shutdown(Duration::from_secs(15))
+        .shutdown(SHUTDOWN_GRACE)
         .expect("bounded stress shutdown");
     assert_eq!(acks.len(), BRAIN_COUNT);
     assert_eq!(
@@ -531,7 +555,7 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
         }));
     }
     let refused = result_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(OBSERVE_BUDGET)
         .expect("one contender must fail fast while actor+queue are occupied");
     assert!(refused
         .expect_err("one contender must be refused")
@@ -542,7 +566,7 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
         .expect("blocker thread")
         .expect("blocker read");
     let accepted = result_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(OBSERVE_BUDGET)
         .expect("queued contender completes");
     assert!(accepted.is_ok());
     for contender in contenders {
@@ -578,7 +602,13 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
         |_state, ()| Ok(RuntimeJobSuccess::new("unexpected", "must not commit")),
     );
     assert!(overload.is_err());
-    assert!(overload_started.elapsed() < Duration::from_secs(1));
+    // Fail-fast is proved by the STRUCTURE, not by this clock: the only worker slot
+    // is parked inside `prepare` waiting on `prepare_release_tx`, which is only sent
+    // further down on THIS thread — so an overload submission that queued for a slot
+    // instead of refusing would deadlock here rather than merely run late. The bound
+    // is kept as a coarse "did not block" net and is deliberately generous; at one
+    // second it was measuring how loaded the runner was.
+    assert!(overload_started.elapsed() < OBSERVE_BUDGET);
     assert!(overload
         .expect_err("overload")
         .to_string()
@@ -587,13 +617,13 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
     let jobs = registry.runtime_job_registry().expect("jobs");
     assert_eq!(
         terminal(
-            jobs.wait_terminal(&first_job, Duration::from_secs(5))
+            jobs.wait_terminal(&first_job, TERMINAL_BUDGET)
                 .expect("wait first")
         )
         .state,
         RuntimeJobState::Succeeded
     );
-    registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+    registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
 }
 
 #[test]
@@ -636,7 +666,7 @@ fn persistence_failure_closes_admission_marks_reconciling_and_checkpoint_retry_r
     );
     let jobs = registry.runtime_job_registry().expect("jobs");
     let failed = terminal(
-        jobs.wait_terminal(&failed_job, Duration::from_secs(5))
+        jobs.wait_terminal(&failed_job, TERMINAL_BUDGET)
             .expect("wait persistence failure"),
     );
     assert_eq!(failed.state, RuntimeJobState::Failed);
@@ -701,7 +731,9 @@ fn persistence_failure_closes_admission_marks_reconciling_and_checkpoint_retry_r
 
     std::fs::remove_file(graph_path.join("projection-blocker")).expect("remove projection blocker");
     std::fs::remove_dir(&graph_path).expect("clear projection obstruction");
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Poll the reconciliation OUT of the health surface; the loop exits on the first
+    // non-reconciling read, so the budget only caps a stuck run.
+    let deadline = Instant::now() + OBSERVE_BUDGET;
     while registry
         .runtime_health(&root.to_string_lossy())
         .expect("poll recovery health")
@@ -754,14 +786,14 @@ fn persistence_failure_closes_admission_marks_reconciling_and_checkpoint_retry_r
     );
     assert_eq!(
         terminal(
-            jobs.wait_terminal(&post_recovery_job, Duration::from_secs(5))
+            jobs.wait_terminal(&post_recovery_job, TERMINAL_BUDGET)
                 .expect("wait post-recovery write")
         )
         .state,
         RuntimeJobState::Succeeded
     );
     std::fs::remove_file(graph_backup).expect("remove test-only graph backup");
-    registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+    registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
 }
 
 #[test]
@@ -780,16 +812,10 @@ fn shutdown_ack_and_exact_current_restore_overwrite_corrupt_canonical_files() {
         replay_job_id = job.clone();
         let jobs = registry.runtime_job_registry().expect("jobs");
         assert_eq!(
-            terminal(
-                jobs.wait_terminal(&job, Duration::from_secs(5))
-                    .expect("wait")
-            )
-            .state,
+            terminal(jobs.wait_terminal(&job, TERMINAL_BUDGET).expect("wait")).state,
             RuntimeJobState::Succeeded
         );
-        let acks = registry
-            .shutdown(Duration::from_secs(5))
-            .expect("shutdown ACK");
+        let acks = registry.shutdown(SHUTDOWN_GRACE).expect("shutdown ACK");
         assert_eq!(acks.len(), 1);
         assert_eq!(acks[0].brain_id, registry.brain_id_for(&canonical_root));
         store_dir = registry.store_dir_for(&canonical_root);
@@ -828,7 +854,7 @@ fn shutdown_ack_and_exact_current_restore_overwrite_corrupt_canonical_files() {
             .state,
         RuntimeJobState::Succeeded
     );
-    registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+    registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
 }
 
 #[test]
@@ -846,15 +872,11 @@ fn corrupt_latest_checkpoint_recovers_only_with_degraded_fallback_receipt() {
         for (job_id, marker) in [("fallback-first", "first"), ("fallback-second", "second")] {
             let job = submit_root_append(&registry, &root, job_id, marker);
             assert_eq!(
-                terminal(
-                    jobs.wait_terminal(&job, Duration::from_secs(5))
-                        .expect("wait")
-                )
-                .state,
+                terminal(jobs.wait_terminal(&job, TERMINAL_BUDGET).expect("wait")).state,
                 RuntimeJobState::Succeeded
             );
         }
-        registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+        registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
         checkpoint_root = registry
             .store_dir_for(&canonical_root)
             .join(BRAIN_CHECKPOINT_DIRECTORY);
@@ -928,7 +950,7 @@ fn corrupt_latest_checkpoint_recovers_only_with_degraded_fallback_receipt() {
         registry
             .runtime_job_registry()
             .expect("jobs")
-            .wait_terminal(&job_id, Duration::from_secs(5))
+            .wait_terminal(&job_id, TERMINAL_BUDGET)
             .expect("wait degraded refusal"),
     );
     assert_eq!(job.state, RuntimeJobState::Failed);
@@ -954,14 +976,10 @@ fn corrupt_current_pointer_fails_closed_instead_of_fresh_boot() {
         let job = submit_root_append(&registry, &root, "pointer-write", "pointer-root");
         let jobs = registry.runtime_job_registry().expect("jobs");
         assert_eq!(
-            terminal(
-                jobs.wait_terminal(&job, Duration::from_secs(5))
-                    .expect("wait")
-            )
-            .state,
+            terminal(jobs.wait_terminal(&job, TERMINAL_BUDGET).expect("wait")).state,
             RuntimeJobState::Succeeded
         );
-        registry.shutdown(Duration::from_secs(5)).expect("shutdown");
+        registry.shutdown(SHUTDOWN_GRACE).expect("shutdown");
         checkpoint_root = registry
             .store_dir_for(&canonical_root)
             .join(BRAIN_CHECKPOINT_DIRECTORY);

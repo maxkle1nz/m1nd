@@ -10502,8 +10502,10 @@ mod tests {
             .expect("preview worker joined")
             .expect_err("cancelled scan cannot publish a preview");
         assert_eq!(cancelled.code(), "graph_ingest_scan_job_failed");
+        // Condvar-based: returns the instant the job finishes, so the budget only
+        // caps a stuck run and can be generous enough for a loaded two-core runner.
         let terminal = limited_jobs
-            .wait_terminal(&job_id, Duration::from_secs(2))
+            .wait_terminal(&job_id, Duration::from_secs(60))
             .expect("cancelled scan terminal");
         let RuntimeJobWait::Terminal(terminal) = terminal else {
             panic!("cancelled scan remained non-terminal")

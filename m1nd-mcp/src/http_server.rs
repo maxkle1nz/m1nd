@@ -5728,8 +5728,11 @@ mod tests {
             .install_read_snapshot_test_hook(snapshot_entered_tx, release_rx);
 
         let request = tokio::spawn(request);
+        // Waits FOR the seam to be reached and returns the instant it is, so the
+        // budget only caps a stuck run; two seconds was measuring how long a loaded
+        // runner takes to schedule the spawned request.
         snapshot_entered_rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(60))
             .expect("request reached actor snapshot seam");
         assert!(
             !request.is_finished(),
@@ -5748,7 +5751,7 @@ mod tests {
         );
 
         release_tx.send(()).expect("release graph analysis");
-        tokio::time::timeout(Duration::from_secs(10), request)
+        tokio::time::timeout(Duration::from_secs(60), request)
             .await
             .expect("request completed after graph release")
             .expect("request task joined")
@@ -5916,6 +5919,13 @@ mod tests {
             .iter()
             .filter(|latency| **latency >= Duration::from_millis(100))
             .count();
+        // DO NOT widen these two to appease a slow runner: unlike every other
+        // wall-clock budget in this suite, 100ms here is a PRODUCT contract, frozen
+        // in docs/M1ND-10-PRD.md ("/health p99 abaixo de 100 ms durante uma operação
+        // de 30 s", and the same row in its acceptance matrix). The bound is the
+        // guarantee, not the test's tolerance, so a red here is either a real
+        // regression or evidence that the runner class cannot host the SLO — a
+        // decision for the PRD, not for this assertion.
         assert!(
             p99 < Duration::from_millis(100),
             "busy health p99 was {p99:?} across {SAMPLE_COUNT} samples during a measured {measured_stall:?} owner stall"

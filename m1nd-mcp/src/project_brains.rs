@@ -2079,10 +2079,26 @@ pub struct StoreFacts {
 }
 
 #[cfg(test)]
-// Persistence fixtures exercise real embedding-cache/checkpoint I/O. Match the
-// owner's five-second shutdown budget so workspace stress cannot turn scheduler
-// delay into a false lifecycle failure; dedicated deadline tests stay tighter.
-const TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+// Wall-clock grace every lifecycle test hands to `shutdown`. The PRODUCT contract
+// is "fail closed unless every actor checkpoints within the grace the CALLER gave"
+// — the number below is only this caller's tolerance for a slow machine, never the
+// guarantee. Persistence fixtures do real embedding-cache/checkpoint I/O, so on a
+// loaded two-core runner (the m1nd-mcp lib suite measures ~1001s there against
+// ~440-700s on a developer Mac) a five-second grace was measuring the runner rather
+// than the shutdown fence: `hosted_actor_binding_survives_restart_...`,
+// `concurrent_dormant_resolve_...` and `shutdown_releases_hosted_instance_...` went
+// red on a ROTATING basis with "did not checkpoint before the shutdown deadline",
+// while the other 63 test binaries stayed green. A minute is generous on purpose —
+// a healthy shutdown returns the instant the last ACK lands and pays nothing for
+// the headroom, and a genuinely stuck checkpoint still fails closed with exactly
+// the same message.
+const TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
+
+#[cfg(test)]
+// Upper bound for polling a lifecycle FACT into view (today: the admission fence
+// closing). Only caps a stuck run — a healthy run breaks on the first matching
+// poll, in milliseconds — so it can be generous without costing wall-clock time.
+const TEST_LIFECYCLE_OBSERVE_BUDGET: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod external_mutation_actor_binding_tests {
@@ -2216,7 +2232,7 @@ mod external_mutation_actor_binding_tests {
             "an erroring command cannot checkpoint its partial postimage"
         );
         registry
-            .shutdown(Duration::from_secs(2))
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
             .expect("shutdown rollback fixture");
     }
 }
@@ -2367,13 +2383,16 @@ mod lifecycle_shutdown_tests {
 
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
         let shutdown_registry = Arc::clone(&registry);
+        // This grace starts ticking HERE, but the inflight callback below is only
+        // released after several intervening assertions — so the budget has to
+        // cover this thread's own scheduling too, not just the drain.
         let shutdown = std::thread::spawn(move || {
             shutdown_tx
-                .send(shutdown_registry.shutdown(Duration::from_secs(3)))
+                .send(shutdown_registry.shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE))
                 .expect("report shutdown");
         });
 
-        let deadline = Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + TEST_LIFECYCLE_OBSERVE_BUDGET;
         loop {
             if !registry.lifecycle.lock().accepting {
                 break;
@@ -2456,7 +2475,7 @@ mod lifecycle_shutdown_tests {
             .expect("capture hosted lifecycle facts");
 
         let acks = first
-            .shutdown(Duration::from_secs(3))
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
             .expect("shutdown hosted owner");
         assert_eq!(acks.len(), 1);
         assert!(
@@ -2500,7 +2519,7 @@ mod lifecycle_shutdown_tests {
             "revoked permit cannot overwrite a successor owner"
         );
         successor
-            .shutdown(Duration::from_secs(3))
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
             .expect("shutdown successor");
     }
 }

@@ -326,8 +326,10 @@ impl Owner {
             .project_brains
             .runtime_job_registry()
             .map_err(|error| error.to_string())?;
+        // Condvar-based: returns the instant the job finishes, so the budget only
+        // caps a stuck run and can be generous enough for a loaded two-core runner.
         let terminal = jobs
-            .wait_terminal(&submitted, Duration::from_secs(5))
+            .wait_terminal(&submitted, Duration::from_secs(60))
             .map_err(|error| error.to_string())?;
         let job = match terminal {
             RuntimeJobWait::Terminal(job) => job,
@@ -336,7 +338,7 @@ impl Owner {
             }
         };
         let dispatched = result_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .map_err(|error| format!("debrief fixture result missing: {error}"))?;
         if job.state != RuntimeJobState::Succeeded {
             return dispatched.and_then(|_| {

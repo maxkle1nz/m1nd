@@ -57,9 +57,16 @@ fn actor_call(
         .expect("actor tool call")
 }
 
+/// Retries the queue-depth polls below are allowed before they call a run stuck.
+/// Both loops exit on the FIRST observation that meets the bar, so this only caps a
+/// stuck run: a healthy run pays one poll. At 50 retries (≈1s of sleep) it was a bet
+/// on how fast the machine drains a scan — the same bet that makes the shutdown
+/// deadlines rotate red on the loaded two-core runner.
+const QUEUE_POLL_RETRIES: usize = 1_500;
+
 fn wait_for_actor_queue(actor: &BrainActorHandle, expected_min: usize) {
     let mut last_queue_depth = 0;
-    for _ in 0..50 {
+    for _ in 0..QUEUE_POLL_RETRIES {
         let status = actor_call(
             actor,
             "auto_ingest_status",
@@ -77,8 +84,8 @@ fn wait_for_actor_queue(actor: &BrainActorHandle, expected_min: usize) {
         thread::sleep(Duration::from_millis(20));
     }
     panic!(
-        "timed out waiting for actor auto-ingest queue depth to reach at least {}; last observed queue depth was {} after 50 retries with 20ms sleep",
-        expected_min, last_queue_depth
+        "timed out waiting for actor auto-ingest queue depth to reach at least {}; last observed queue depth was {} after {} retries with 20ms sleep",
+        expected_min, last_queue_depth, QUEUE_POLL_RETRIES
     );
 }
 
@@ -129,7 +136,7 @@ fn search_file_paths(state: &mut SessionState, query: &str) -> Vec<String> {
 
 fn wait_for_queue(state: &mut SessionState, expected_min: usize) {
     let mut last_queue_depth = 0;
-    for _ in 0..50 {
+    for _ in 0..QUEUE_POLL_RETRIES {
         let status = call(state, "auto_ingest_status", json!({ "agent_id": "tester" }));
         let queue_depth = status
             .get("queue_depth")
@@ -142,9 +149,10 @@ fn wait_for_queue(state: &mut SessionState, expected_min: usize) {
         thread::sleep(Duration::from_millis(20));
     }
     panic!(
-        "timed out waiting for auto-ingest queue depth to reach at least {}; last observed queue depth was {} after 50 retries with 20ms sleep",
+        "timed out waiting for auto-ingest queue depth to reach at least {}; last observed queue depth was {} after {} retries with 20ms sleep",
         expected_min,
-        last_queue_depth
+        last_queue_depth,
+        QUEUE_POLL_RETRIES
     );
 }
 

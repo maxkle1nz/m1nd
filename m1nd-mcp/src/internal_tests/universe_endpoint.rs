@@ -364,29 +364,40 @@ async fn universe_is_sidecar_only_while_a_legacy_session_guard_is_held() {
     let root = write_dormant_brain(&app, &repo, 64, 128, now_ms());
 
     // Simulate the gardener tick: a background holder grabs the session lock and
-    // keeps it far longer than any acceptable panorama latency (the real tick holds
-    // it across a re-ingest + rebuild_engines — minutes).
+    // keeps it held across the WHOLE panorama read (the real tick holds it across a
+    // re-ingest + rebuild_engines — minutes). The holder only lets go once this
+    // thread reports the read is done, so "the panorama did not queue behind graph
+    // work" is proved by the STRUCTURE — a panorama that took the session lock would
+    // wait out the watchdog — instead of by racing a fixed two-second sleep against a
+    // 500ms ceiling, which is a bet on how loaded the machine is. The watchdog keeps
+    // a real regression FAILING rather than hanging, and the ceiling below stays far
+    // under it so the verdict is unambiguous.
+    const HOLD_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(120);
+    const PANORAMA_CEILING: std::time::Duration = std::time::Duration::from_secs(20);
     let held = app.session.clone();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
     let holder = std::thread::spawn(move || {
         let _guard = held.lock();
         tx.send(()).unwrap(); // the lock is provably HELD now
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        let _ = release_rx.recv_timeout(HOLD_WATCHDOG);
     });
     rx.recv().unwrap(); // only drive the read once the lock is held
 
-    // The panorama must answer within a tight ceiling DESPITE the held lock.
+    // The panorama must answer while that lock is STILL held.
     let start = std::time::Instant::now();
     let (status, body) = get_universe(&app).await;
     let elapsed = start.elapsed();
+    let _ = release_tx.send(());
 
     assert_eq!(
         status, 200,
         "the panorama serves 200 even under a held lock: {body}"
     );
     assert!(
-        elapsed < std::time::Duration::from_millis(500),
-        "the panorama must NEVER queue behind graph work: took {elapsed:?} (ceiling 500ms)"
+        elapsed < PANORAMA_CEILING,
+        "the panorama must NEVER queue behind graph work: took {elapsed:?} while the session \
+         lock was held (ceiling {PANORAMA_CEILING:?}, holder watchdog {HOLD_WATCHDOG:?})"
     );
 
     // The dormant world is still served from its on-disk manifest (the sidecar path
