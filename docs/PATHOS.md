@@ -92,17 +92,25 @@ Everything promised or planned and not yet done, named here rather than left in 
 Update this list in the same PR that closes one; a front that dies silently is a lie.
 
 **Blocking the product**
-- **NO END-TO-END LIFECYCLE PROOF — the front that outranks the rest.** m1nd is a CONTINUITY system: its
-  whole promise is that state crosses time. That is the one capability with no gate. On 2026-07-27 three
-  independent bricking defects were found in a single night, all in the boot path — the owner's brain had
-  been loading 5540 nodes and serving **0** for five days (#441), a clean shutdown bricked the next boot
-  (#442), and a graph-stale co-change sidecar killed all 48 tools (#442). **None of the 1458 green lib
-  tests caught any of them**, because every one is a unit and nothing tests
-  *boot → serve → mutate → clean shutdown → boot again → still serves*. They surfaced because the OWNER
-  asked whether m1nd was working. Build that gate in CI, on a real graph: it would have caught all three,
-  and it is the highest-leverage completeness work available. Read next to the traction datum in
-  checkpoint 33 — 138 registry verbs, 48 advertised, **29 ever called** — the system's problem is not
-  width.
+- **LIFECYCLE PROOF — first slice LANDED 2026-07-29; the crash half stays declared open.** m1nd is a
+  CONTINUITY system, and until this slice the property *boot → serve → mutate → clean shutdown → boot
+  again → still serves* had no proof anywhere — which is how three bricking boot defects (#441, #442)
+  lived undetected under 1458 green unit tests until the OWNER asked whether m1nd was working. The gate
+  now exists: `brain_serves_its_own_state_across_clean_shutdowns_and_second_boots` in
+  `m1nd-mcp/tests/persist_runtime_root.rs`, driving the REAL binary over stdio JSON-RPC (the harness's
+  own "faithful seam") across FOUR boots on one runtime root, covering BOTH durable-write families a
+  plain MCP client can still reach (classified `memorize`, debounce `alerts_ack` — the ack is durable to
+  nobody unless the shutdown checkpoint carries it), asserting zero sidecar refusals on captured stderr,
+  designed by an askGOD verdict (CHANGE, applied), condition-based from birth, and **proven to bite**:
+  temporarily reverting either boot fix turns it red with a message naming the regression. Cost measured:
+  ≈ +2.6s. **What remains NOT_RUN, said loudly: Cycle B — crash/kill-9 without a checkpoint — is wave 2,
+  and G4's "fault injection" claim stays open until it lands.** Two finds the build itself surfaced, both
+  filed: under the M1ND-10 authority floors **~29 mutating verbs that `tools/list` still advertises are
+  unreachable from a plain MCP client** (`generic_action_authority_required` — measured live, converges
+  with the bootstrap-instruction front and genesis P2/P3); and the light-ingest merge behind `memorize`
+  **silently erases parallel edges**, contradicting the premise of #442's fixture — needs a decision and
+  a pinned test. Read next to the traction datum in checkpoint 33 — 138 registry verbs, 48 advertised,
+  **29 ever called** — the system's problem is not width.
 - **Windows phase-2 — CLOSED 2026-07-27.** 63 test binaries green on Windows, clippy clean (#435 · #436 ·
   #437 · #438 · #440). Never needed a Windows box: a CI-driven red→green loop plus mirror probes
   (flipping `cfg(unix)`↔`cfg(windows)` locally compiles the exact branch Windows compiles) closed it.
