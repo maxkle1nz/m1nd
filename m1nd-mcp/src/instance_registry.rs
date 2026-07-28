@@ -2098,12 +2098,16 @@ mod tests {
 
         // Drive the sweep through the boot entry point. `spawn_boot_gc` must
         // return the handle promptly (fire-and-forget) rather than block on the
-        // sweep — a 25k-file dir at boot must not stall the handshake.
+        // sweep — a 25k-file dir at boot must not stall the handshake. This bound is
+        // a coarse "returned rather than joined the sweep" net only: with a fixture
+        // this small the sweep itself is milliseconds, so the number can be generous
+        // without giving anything up, and a one-second ceiling on a bare
+        // `thread::spawn` was measuring machine load.
         let started = std::time::Instant::now();
         let handle = spawn_boot_gc(live.registry_root());
         let spawn_elapsed = started.elapsed();
         assert!(
-            spawn_elapsed < std::time::Duration::from_secs(1),
+            spawn_elapsed < std::time::Duration::from_secs(30),
             "spawn_boot_gc must return immediately (non-blocking); took {:?}",
             spawn_elapsed,
         );

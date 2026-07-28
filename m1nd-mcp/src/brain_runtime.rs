@@ -4079,6 +4079,16 @@ pub type BrainPrepare<P, S> =
 mod tests {
     use super::*;
 
+    /// Upper bound for polling a lifecycle FACT into view — a health status
+    /// flipping, an actor fence dropping, a heartbeat landing. Every loop that uses
+    /// it exits on the first matching observation, so this caps a stuck run and
+    /// nothing else: a healthy run returns in milliseconds and pays nothing for the
+    /// headroom. Deliberately generous — at two and five seconds these budgets were
+    /// measuring how loaded the machine is (the m1nd-mcp lib suite measures ~1001s
+    /// on the two-core Windows runner against ~440-700s on a developer Mac), which
+    /// is the same failure mode that makes the shutdown-deadline tests rotate red.
+    const OBSERVE_BUDGET: Duration = Duration::from_secs(60);
+
     fn add_consistent_test_node(
         state: &mut SessionState,
         id: &str,
@@ -4513,7 +4523,7 @@ mod tests {
         )
         .expect("decode candidate CURRENT");
         assert_ne!(current.current_checkpoint_id, baseline);
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status != "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -4540,7 +4550,7 @@ mod tests {
         assert!(session.is_actor_active());
 
         injector.enabled.store(false, Ordering::SeqCst);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status == "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -4594,7 +4604,7 @@ mod tests {
         assert!(session.try_lock().is_none());
         injector.enabled.store(false, Ordering::SeqCst);
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while session.is_actor_active() && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
         }
@@ -4637,7 +4647,7 @@ mod tests {
             })
             .expect_err("post-CURRENT adapter panic cannot yield an ACK");
         assert_eq!(error.code(), "brain_checkpoint_committed_unconfirmed");
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status != "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -4651,7 +4661,7 @@ mod tests {
         assert!(session.try_lock().is_none());
 
         injector.enabled.store(false, Ordering::SeqCst);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status == "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -4691,7 +4701,7 @@ mod tests {
         assert!(session.try_lock().is_none());
 
         injector.enabled.store(false, Ordering::SeqCst);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status == "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -6302,7 +6312,7 @@ mod tests {
         std::fs::remove_file(graph_path.join("rollback-blocker"))
             .expect("remove temporary rollback blocker");
         std::fs::remove_dir(&graph_path).expect("clear temporary rollback obstruction");
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status == "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -6420,7 +6430,7 @@ mod tests {
         assert!(session.try_lock().is_none());
 
         fail_validation.store(false, Ordering::SeqCst);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         while actor.health_snapshot().status == "reconciling"
             && std::time::Instant::now() < deadline
         {
@@ -6721,7 +6731,7 @@ mod tests {
     }
 
     fn wait_for_matching_heartbeat(entry_path: &Path, lease_path: &Path) -> u64 {
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
         loop {
             let entry = std::fs::read(entry_path).ok().and_then(|bytes| {
                 serde_json::from_slice::<crate::instance_registry::InstanceRegistryEntry>(&bytes)

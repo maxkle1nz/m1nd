@@ -419,10 +419,14 @@ async fn warm_boots_dormant_store_on_first_selector() {
     let (warm_sess, _e) =
         resolve_brain(&owner.app, Some(&project_repo.to_string_lossy())).expect("warm resolves");
     let warm_n = owner.graph_node_count(Some(&project_repo)).await;
+    // The grace is this caller's tolerance for a slow machine, not the guarantee:
+    // shutdown returns the instant the last ACK lands, and still fails closed if a
+    // real checkpoint never arrives. Three seconds was too tight for a hosted brain
+    // doing real checkpoint I/O on a loaded two-core runner.
     let shutdown_acks = owner
         .app
         .project_brains
-        .shutdown(std::time::Duration::from_secs(3))
+        .shutdown(std::time::Duration::from_secs(60))
         .expect("graceful owner shutdown checkpoints and releases hosted brains");
     assert!(
         !shutdown_acks.is_empty(),

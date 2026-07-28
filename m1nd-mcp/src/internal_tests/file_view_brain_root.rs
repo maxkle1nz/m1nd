@@ -167,8 +167,10 @@ fn set_hosted_workspace_root(
     let jobs = registry
         .runtime_job_registry()
         .expect("runtime job registry");
+    // Condvar-based: returns the instant the job finishes, so the budget only caps a
+    // stuck run and can be generous enough for a loaded two-core runner.
     match jobs
-        .wait_terminal(&submitted, Duration::from_secs(5))
+        .wait_terminal(&submitted, Duration::from_secs(60))
         .expect("wait for hosted fixture mutation")
     {
         RuntimeJobWait::Terminal(job) => assert_eq!(
