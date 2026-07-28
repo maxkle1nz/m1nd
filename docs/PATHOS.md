@@ -1292,8 +1292,9 @@ levers above capture the waste without that risk.
   maintainer-reviewed PR remains the promotion boundary; hosted execution is still `NOT_RUN` here.
 - **Multi-session hygiene.** A served owner holds the live brain and sibling worktrees may hold
   parallel work — `git fetch` before acting, confirm `git branch --show-current` before commit, do
-  feature work in an isolated worktree with the shared `CARGO_TARGET_DIR`
-  (`$HOME/.m1nd-build-cache/target`), and `git worktree remove` it when done.
+  feature work in an isolated worktree under that worktree's OWN `CARGO_TARGET_DIR`
+  (`export CARGO_TARGET_DIR="$(scripts/cargo_target_dir.sh)"` — sharing one lets a gate link a
+  sibling's binary, checkpoint 36), and `git worktree remove` it when done.
 
 ## Proof Standard
 Done = `cargo test --workspace` green + clippy `-D warnings` + `cargo fmt` clean + the BATTERY
@@ -1352,7 +1353,8 @@ mid-mission; `honesty` class is calibration ground truth; a triage session START
 mailbox, and a confirmed bug becomes a battery case BEFORE the fix); the **UNIVERSAL DOC GATE incl.
 agent surfaces** (docs/wiki/README/PATHOS current before "done"; any change to HOW agents work
 updates the agent-read surfaces in the SAME PR — the agent-docs CI gate enforces this); the **DISK
-HYGIENE rule** (shared `CARGO_TARGET_DIR` + worktree sweeps).
+HYGIENE rule** (per-checkout `CARGO_TARGET_DIR` under one auto-deletable cache root + worktree
+sweeps).
 
 ---
 

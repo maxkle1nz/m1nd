@@ -58,6 +58,22 @@ Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before fini
 If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`), re-run
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
 
+**A gate is evidence only about the tree it ran in.** Cargo's metadata hash does not encode
+the source path, so two checkouts sharing one `CARGO_TARGET_DIR` emit the same artifact name
+and one can link the other's binary. Measured across parallel worktrees on 2026-07-27/28: a
+checkout whose `m1nd-control/src/action_catalog.rs` held 169 entries linked a sibling's 172
+and failed 47 tests with `CatalogDrift` — cured by `touch` alone, with no code change. The
+red is the harmless half; a gate that PASSES on another checkout's binary makes the claim
+unfalsifiable. So before running gates anywhere parallel checkouts exist, take this one's
+own directory:
+
+```bash
+export CARGO_TARGET_DIR="$(scripts/cargo_target_dir.sh)"   # deterministic, per-checkout
+```
+
+Deliberately not a checked-in `.cargo/config.toml`: CI and a lone clone already build in
+isolation, and no contributor should inherit this machine's build layout.
+
 **MCP tool-schema contract:** every advertised tool's `inputSchema` MUST declare a top-level
 `"type": "object"` (MCP spec). Strict clients (Claude Code) reject the ENTIRE `tools/list`
 when a single tool violates it — the 2026-07-22 incident (a bare top-level `oneOf` on
