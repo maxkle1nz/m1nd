@@ -1,9 +1,14 @@
 # GENESIS — Ingest Consumers Spec (v2, post-verdict)
 
-**Status: DRAFT v2 — rewritten under an askGOD `CHANGE` verdict (alta, 2026-07-25); awaiting
-the confirmation verdict, then owner ratification.** Provenance: the checkpoint-32 panel
-(P1→P2→P3, the 12 requirements), the 2026-07-25 adoption lab, and the first verdict's own
-workspace reading, whose refutations are receipts below. Nothing here authorizes code.
+**Status: RATIFIED — owner ratification received 2026-07-29 00:52 CEST, all four §6 items
+answered individually in-session.** The confirmation verdict ran 2026-07-29 (glm, full gear,
+`CHANGE` alta): its two live findings were the stale premise about the ingest first-contact
+lie (already swept by #405 and guarded by the `POLICY-DISABLED` test at `server.rs:~10220`)
+and the annotate-not-filter decision for the ~29 floor-gated verbs (dispatched the same
+night as its own orthogonal honesty PR). Provenance: the checkpoint-32 panel (P1→P2→P3, the
+12 requirements), the 2026-07-25 adoption lab, and the first verdict's own workspace
+reading, whose refutations are receipts below. **This document now authorizes
+implementation, battery-first, in the proof-grown rite (§6).**
 
 **Provenance honesty (verdict RC-8):** `graph.ingest.refresh_declared_root` (SPEC-1) is a
 **NEW item, not part of the cp32-ratified P1→P2→P3 order**. P1 (#403, commit `476f73be`)
@@ -209,5 +214,15 @@ same artifact is prohibited), **the next gate is the owner**, who ratifies four 
 2. SPEC-1's floor: **`ScopedGrantA2`, A2-local**, via the action-keyed allowlist;
 3. the shrink-floor default (**60%**);
 4. SPEC-2's **`human-cli`** allowlist entry (minted only by `m1nd init --birth`).
+
+**RATIFIED — owner, 2026-07-29 00:52 CEST, each item answered individually in-session:**
+
+1. **RATIFIED as written** — SPEC-1 enters the queue, and its A2-local floor with it
+   (the owner's answer covered both jointly: "Ratifica os dois");
+2. *(covered by item 1's joint answer)*;
+3. **RATIFIED at 60%** — the proposed default stands;
+4. **RATIFIED** — `human-cli` exists, minted only by the P2 ceremony.
+
+Implementation is **now unblocked**, battery-first, in the proof-grown rite.
 
 Then implementation, battery-first, in the proof-grown rite.
