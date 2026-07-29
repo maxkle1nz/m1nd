@@ -138,6 +138,22 @@ owner on port `1338` — all tests use temp dirs.
 - **`docs/ORGANISM-PRD.md`** — the constitution (the spine, the four grammars, the build ladder).
 - **`CLAUDE.md`** — the repo's canonical build/gate/automation notes (also read by Claude Code).
 
+## The G6 blind benchmark is the owner's, not yours
+
+The G6 knowledge-quality ceremony is staged to one command
+(`scripts/benchmark/g6_formal_run.sh`, described in
+`docs/benchmarks/G6-FORMAL-CEREMONY.md`) and **only the owner runs it**. Agents may
+stage it, verify it, and run `--dry-run` or `g6_formal_preflight.sh`, which touch
+nothing but public artifacts. Three hard rules:
+
+- **Never open `docs/benchmarks/**/operator-only/` or `**/runner-results/`.** Those hold
+  the labels and the raw measurements. The blindness is structural — do not be the
+  hole in it. Hashing a sealed file against its pinned digest is fine; parsing it is not.
+- **Never simulate the ceremony.** A run that did not happen is `NOT_RUN`; a verdict
+  that was not measured is fraud. `NOT_PROVEN` is a legitimate, valuable outcome.
+- **Never re-run to chase green.** The metric spec allows one sealed run per revision
+  (`one_sealed_run_only_no_rerun_until_pass`); a `FAIL` stays in the record.
+
 ## Dogfood m1nd — for LOCAL agents only
 
 If you can reach the served m1nd owner (a local process on `127.0.0.1:1338`), orient with
