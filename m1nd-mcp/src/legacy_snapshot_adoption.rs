@@ -233,9 +233,9 @@ fn install_legacy_graph(
 }
 
 /// Best-effort import of the legacy plasticity sidecar, run only when the graph
-/// was just installed (`rebuild_engines` has reset plasticity to a fresh engine
-/// bound to the adopted graph). Every failure is a graceful skip with one honest
-/// warning — the graph is already adopted and checkpoints regardless.
+/// was just installed (`rebuild_engines` has reset BOTH plasticity engines to
+/// fresh ones bound to the adopted graph). Every failure is a graceful skip with
+/// one honest warning — the graph is already adopted and checkpoints regardless.
 fn import_legacy_plasticity(state: &mut SessionState, legacy_plasticity_path: &Path) {
     if !legacy_plasticity_path.exists() {
         return;
@@ -253,17 +253,43 @@ fn import_legacy_plasticity(state: &mut SessionState, legacy_plasticity_path: &P
         }
     };
     let mut graph = state.graph.write();
-    match state.plasticity.import_state(&mut graph, &states) {
+    // BOTH engines restore from the sidecar, exactly as strict recovery does
+    // (`SessionState::recover_from_checkpoint`) and as the friendly boot import
+    // does. `state.orchestrator.plasticity` is the engine `activate`/`query`
+    // actually update (query.rs `query()` step 8), and it stamps its own
+    // `query_count` into `last_used_query`. Left at zero by the `rebuild_engines`
+    // above while the adopted graph carries the restored counts, the first
+    // strengthen marks a just-used edge 1 — i.e. OLDER than every edge the
+    // sidecar restored — and the adopting checkpoint publishes that skew right
+    // back out. Re-applying the same validated plan to the same topology is
+    // idempotent and cannot fail where the first import succeeded, so the two
+    // share one report below.
+    let imported = state
+        .plasticity
+        .import_state(&mut graph, &states)
+        .and_then(|_| {
+            state
+                .orchestrator
+                .plasticity
+                .import_state(&mut graph, &states)
+        });
+    match imported {
         Ok(_) => eprintln!(
             "[m1nd] adopted legacy plasticity state from {}",
             legacy_plasticity_path.display()
         ),
         Err(error) => {
             // A refused import can stop halfway. The graph is the rescue and the
-            // sidecar is a nicety, so drop the half-imported engine for a clean
-            // one bound to the adopted graph rather than let partial synaptic
-            // state reach the checkpoint that is about to publish it.
+            // sidecar is a nicety, so drop the half-imported engines for clean
+            // ones bound to the adopted graph rather than let partial synaptic
+            // state reach the checkpoint that is about to publish it. BOTH are
+            // dropped: keeping one restored beside one fresh is the very
+            // divergence this import closes, only inverted.
             state.plasticity = m1nd_core::plasticity::PlasticityEngine::new(
+                &graph,
+                m1nd_core::plasticity::PlasticityConfig::default(),
+            );
+            state.orchestrator.plasticity = m1nd_core::plasticity::PlasticityEngine::new(
                 &graph,
                 m1nd_core::plasticity::PlasticityConfig::default(),
             );
@@ -413,6 +439,67 @@ mod tests {
         })
         .expect("boot owner session")
         .into_session_state()
+    }
+
+    /// Write a two-node legacy snapshot plus a legacy plasticity sidecar aged
+    /// through a real engine, and return the `last_used_query` that sidecar
+    /// carries — well above the 0/1/2 a freshly rebuilt engine would stamp.
+    fn write_legacy_pair_with_warm_plasticity(l: &Layout) -> u32 {
+        use m1nd_core::plasticity::{PlasticityConfig, PlasticityEngine};
+        use m1nd_core::types::{EdgeDirection, FiniteF32};
+
+        /// Warm queries the previous boot is pretended to have run.
+        const WARM_QUERIES: u32 = 41;
+
+        let mut graph = Graph::new();
+        let lib = graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add lib node");
+        let core = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        graph
+            .add_edge(
+                lib,
+                core,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        graph.finalize().expect("finalize graph");
+        // Saved BEFORE warming: the snapshot is pristine, the sidecar is the
+        // only thing carrying the previous boot's counters.
+        m1nd_core::snapshot::save_graph(&graph, &l.legacy_graph).expect("save legacy snapshot");
+
+        let mut warm = PlasticityEngine::new(&graph, PlasticityConfig::default());
+        let activated = vec![(lib, FiniteF32::new(0.9)), (core, FiniteF32::new(0.8))];
+        for _ in 0..WARM_QUERIES {
+            warm.update(&mut graph, &activated, &activated, "warm")
+                .expect("warm plasticity cycle");
+        }
+        let states = warm.export_state(&graph).expect("export warm state");
+        let restored_max = states
+            .iter()
+            .map(|state| state.last_used_query)
+            .max()
+            .expect("sidecar carries at least one synapse");
+        assert_eq!(
+            restored_max, WARM_QUERIES,
+            "fixture must carry a non-zero restored query counter"
+        );
+        m1nd_core::snapshot::save_plasticity_state(&states, &l.legacy_plasticity)
+            .expect("save legacy plasticity sidecar");
+        restored_max
     }
 
     fn layout() -> Layout {
@@ -596,6 +683,158 @@ mod tests {
                 .expect("the projected sidecar parses")
                 .is_empty(),
             "a refused import must not leave partial synaptic state in the checkpoint"
+        );
+    }
+
+    /// Regression: the adoption must restore the plasticity query counter into
+    /// the ORCHESTRATOR's engine too, not only `state.plasticity`.
+    ///
+    /// `install_legacy_graph` calls `rebuild_engines`, which zeroes BOTH
+    /// engines, and `activate`/`query` then strengthen through
+    /// `state.orchestrator.plasticity` (query.rs `query()` step 8), which stamps
+    /// its own `query_count` into `graph.edge_plasticity.last_used_query`.
+    /// Importing the legacy sidecar into `state.plasticity` alone left that
+    /// counter at zero while the adopted graph carried the restored counts, so
+    /// the first strengthen after an adoption stamped a just-used edge with 1 —
+    /// making it look OLDER than every edge the sidecar restored, and the
+    /// adopting checkpoint publishes the skew straight back out. Sibling of the
+    /// friendly boot fix in `server.rs`
+    /// (`friendly_boot_restores_plasticity_counter_into_orchestrator_engine`);
+    /// strict recovery (`SessionState::recover_from_checkpoint`) already imports
+    /// into both.
+    ///
+    /// Driven through `install_legacy_graph` — the entire body of the actor turn
+    /// `maybe_adopt_legacy_snapshot` runs, and its only caller — because the
+    /// engine under test lives in memory on the session the adoption produced,
+    /// which the actor owns and the tests above stop before returning. The
+    /// end-to-end boot is what those tests already prove.
+    #[test]
+    fn adoption_restores_plasticity_counter_into_orchestrator_engine() {
+        let l = layout();
+        let restored_max = write_legacy_pair_with_warm_plasticity(&l);
+
+        let mut state = owner_session(&l.runtime_root);
+        assert_eq!(
+            install_legacy_graph(&mut state, &l.legacy_graph, &l.legacy_plasticity)
+                .expect("install the legacy graph"),
+            2
+        );
+        state.ingest_roots = vec![l.runtime_root.to_string_lossy().to_string()];
+        state.workspace_root = Some(l.runtime_root.to_string_lossy().to_string());
+
+        let before: Vec<u32> = state.graph.read().edge_plasticity.last_used_query.clone();
+        assert!(
+            before.contains(&restored_max),
+            "the adoption must import the legacy sidecar into the adopted graph, got {before:?}"
+        );
+
+        // One orchestrator-driven query (the production `activate` path).
+        let output = crate::tools::handle_activate(
+            &mut state,
+            crate::protocol::core::ActivateInput {
+                query: "lib core".into(),
+                agent_id: "legacy-adoption-plasticity-parity".into(),
+                top_k: 5,
+                dimensions: vec!["structural".into(), "semantic".into()],
+                xlr: false,
+                include_ghost_edges: false,
+                include_structural_holes: false,
+                token_budget: None,
+            },
+        )
+        .expect("activate");
+        assert!(
+            output.plasticity.edges_strengthened >= 1,
+            "the query must strengthen at least one edge for this test to mean anything"
+        );
+
+        let after: Vec<u32> = state.graph.read().edge_plasticity.last_used_query.clone();
+        let touched: Vec<(usize, u32)> = after
+            .iter()
+            .enumerate()
+            .filter(|(slot, value)| before.get(*slot) != Some(*value))
+            .map(|(slot, value)| (slot, *value))
+            .collect();
+        assert!(
+            !touched.is_empty(),
+            "a strengthened edge must restamp last_used_query"
+        );
+        for (slot, value) in touched {
+            assert!(
+                value >= restored_max,
+                "just-used edge at CSR slot {slot} was stamped {value}, older than the restored \
+                 maximum {restored_max}: the adoption left the orchestrator's plasticity engine \
+                 with a zeroed query counter"
+            );
+        }
+    }
+
+    /// The refusal arm pins the other half of the same parity: a refused import
+    /// must drop BOTH engines for clean ones. Leaving one restored and one fresh
+    /// is the identical divergence, only inverted, and the adopting checkpoint
+    /// publishes whichever engine it finds.
+    #[test]
+    fn refused_legacy_plasticity_leaves_both_engines_reset() {
+        use m1nd_core::types::FiniteF32;
+
+        let l = layout();
+        write_legacy_pair_with_warm_plasticity(&l);
+        // Overwrite the good sidecar with two rows sharing one full synaptic
+        // key: parses fine, refused by `import_state` as a duplicate.
+        let row = m1nd_core::plasticity::SynapticState {
+            source_label: "file::src/lib.rs".into(),
+            target_label: "file::src/core.rs".into(),
+            relation: "imports".into(),
+            direction: Some(0),
+            inhibitory: Some(false),
+            original_weight: 1.0,
+            current_weight: 1.0,
+            strengthen_count: 0,
+            weaken_count: 0,
+            ltp_applied: false,
+            ltd_applied: false,
+            last_used_query: 77,
+        };
+        m1nd_core::snapshot::save_plasticity_state(&[row.clone(), row], &l.legacy_plasticity)
+            .expect("save duplicate-key legacy plasticity");
+
+        let mut state = owner_session(&l.runtime_root);
+        install_legacy_graph(&mut state, &l.legacy_graph, &l.legacy_plasticity)
+            .expect("install the legacy graph");
+
+        // A clean engine's first update stamps 1. Probe the two engines in turn
+        // over the same co-activated pair: a counter that survived the refusal
+        // in either one stamps far above that.
+        let mut graph = state.graph.write();
+        let lib = graph.resolve_id("file::src/lib.rs").expect("lib node");
+        let core = graph.resolve_id("file::src/core.rs").expect("core node");
+        let activated = vec![(lib, FiniteF32::new(0.9)), (core, FiniteF32::new(0.8))];
+
+        state
+            .plasticity
+            .update(&mut graph, &activated, &activated, "probe-session-engine")
+            .expect("probe the session engine");
+        assert_eq!(
+            graph.edge_plasticity.last_used_query.iter().max().copied(),
+            Some(1),
+            "a refused import must leave `state.plasticity` clean"
+        );
+
+        state
+            .orchestrator
+            .plasticity
+            .update(
+                &mut graph,
+                &activated,
+                &activated,
+                "probe-orchestrator-engine",
+            )
+            .expect("probe the orchestrator engine");
+        assert_eq!(
+            graph.edge_plasticity.last_used_query.iter().max().copied(),
+            Some(1),
+            "a refused import must leave the orchestrator's engine clean too — a half-reset is \
+             the same divergence as a half-import"
         );
     }
 }
