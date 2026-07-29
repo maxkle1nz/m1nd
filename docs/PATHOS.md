@@ -95,7 +95,7 @@ Everything promised or planned and not yet done, named here rather than left in 
 Update this list in the same PR that closes one; a front that dies silently is a lie.
 
 **Blocking the product**
-- **LIFECYCLE PROOF — first slice LANDED 2026-07-29; the crash half stays declared open.** m1nd is a
+- **LIFECYCLE PROOF — BOTH CYCLES LANDED 2026-07-29 (clean shutdown AND crash).** m1nd is a
   CONTINUITY system, and until this slice the property *boot → serve → mutate → clean shutdown → boot
   again → still serves* had no proof anywhere — which is how three bricking boot defects (#441, #442)
   lived undetected under 1458 green unit tests until the OWNER asked whether m1nd was working. The gate
@@ -106,8 +106,35 @@ Update this list in the same PR that closes one; a front that dies silently is a
   nobody unless the shutdown checkpoint carries it), asserting zero sidecar refusals on captured stderr,
   designed by an askGOD verdict (CHANGE, applied), condition-based from birth, and **proven to bite**:
   temporarily reverting either boot fix turns it red with a message naming the regression. Cost measured:
-  ≈ +2.6s. **What remains NOT_RUN, said loudly: Cycle B — crash/kill-9 without a checkpoint — is wave 2,
-  and G4's "fault injection" claim stays open until it lands.** Two finds the build itself surfaced, both
+  ≈ +2.6s. **Cycle B — crash/`kill -9` with no checkpoint — landed the same day**, as
+  `brain_survives_a_kill_nine_between_boots` in the same file, reusing the same harness (one new spawn
+  method, no second harness): three boots on one runtime root with the clean shutdown replaced by an
+  uncatchable SIGKILL of a fully-serving owner — asserted through the exit status, not assumed, and
+  delivered to the child pid the harness itself spawned and reaped, never to a name. It pins the two
+  durability classes on opposite sides of ONE crash. The CLASSIFIED write survives, including the
+  `memorize` committed seconds before the kill with no clean shutdown behind it; the DEBOUNCED
+  `alerts_ack` does NOT, and that is the point — measured `acked: false` on the recovered boot, cleanly
+  on the OLD state, which is the declared loss window demonstrated rather than described (Cycle A asserts
+  the same ack SURVIVES a clean shutdown, so the pair brackets the window from both sides). It is held to
+  COHERENCE and not to survival on purpose: pinning the loss would turn the gate red the day someone
+  narrows the window. Also asserted: the recovery boot comes up AT ALL (the #442 class), never serves an
+  empty graph (the #441 class), sweeps its own unpublished checkpoint temporaries, and prints none of the
+  blind-boot signatures. **Proven to bite**: deferring the actor's publish decision to the debounce turns
+  it red at `strict recovery refused non-current or lossy plasticity_state checkpoint payload` — and it
+  takes Cycle A red with it, which is itself the finding: there is no weakening of publish-on-turn that
+  leaves the clean cycle green, so the two cycles really are one property seen from two premises. Cost
+  measured: the test itself runs ≈10.1s, but the binary's wall-clock goes 8.94s → 10.21s, so **≈ +1.3s**
+  — it runs in parallel with the two tests already there and is simply the new longest pole. Two probes
+  that did NOT bite are worth as much as the one that did, both recorded in
+  the test: reverting #442's co-change `?` does not reach this path (the crash cycle never produces that
+  drift), and dropping `memorize` from `READ_ONLY_DENIED_TOOLS` leaves the gate GREEN because the actor's
+  graph-generation witness catches it anyway — the classification is NOT the load-bearing half for a verb
+  that ingests, only for one that dirties a sidecar alone. **What remains NOT_RUN, said precisely: a kill
+  DURING boot and a kill DURING the checkpoint write itself** — the latter belongs at the store's own
+  `CheckpointFaultPoint` seam (`RenameCurrent`, `FsyncCurrentParent`), in-process and deterministic, not
+  behind a sleep in an integration test; both were declared out rather than shipped as timing races.
+  **G4's "fault injection" claim is now true for the crash class and still open for disk-full and
+  corruption**, which are its own separate items. Two finds the build itself surfaced, both
   filed: under the M1ND-10 authority floors **~29 mutating verbs that `tools/list` still advertises are
   unreachable from a plain MCP client** (`generic_action_authority_required` — measured live, converges
   with the bootstrap-instruction front and genesis P2/P3); and the light-ingest merge behind `memorize`
@@ -120,11 +147,13 @@ Update this list in the same PR that closes one; a front that dies silently is a
   The lesson worth keeping: **"~22 tests" was a count taken behind fail-fast** — `cargo test` stops at the
   first failing binary, so each fix only revealed the next masked layer. The advisory leg now runs
   `--no-fail-fast`, because a job that exists to MEASURE debt and reports one layer at a time measures
-  nothing. **Remaining flip:** return `windows-latest` to the required matrix and DELETE the
-  `rust-gates-windows` advisory job (added 2026-07-23 as a scaffold) — do it against a green run, not a
-  hopeful one. One latent item still filed, not fixed: `config::workspace_allowed` carries the same
-  verbatim-prefix split `d8668591` fixed in source-edit (fail-closed, so the same input is refused on
-  Windows and allowed on Unix).
+  nothing. **The flip is DONE (2026-07-29):** `windows-latest` is back in the required matrix and the
+  `rust-gates-windows` advisory scaffold is deleted — made against a fully green advisory run on main
+  (run 30426528487, carrying SPEC-1 + the RustCrypto sweep + Cycle B), not a hopeful one. Windows red
+  now blocks merge again, six days after it was demoted for holding the queue hostage — this time with
+  the debt paid instead of overridden. One latent item still filed, not fixed: `config::workspace_allowed`
+  carries the same verbatim-prefix split `d8668591` fixed in source-edit (fail-closed, so the same input
+  is refused on Windows and allowed on Unix).
 - **Genesis — CODE-COMPLETE with this PR.** P1 (medulla-only read fallback) landed in #403. SPEC-1
   (the freshness door, `graph.ingest.refresh_declared_root` at `ScopedGrantA2`, shrink-floor 60%)
   landed in #463. **P2 + SPEC-2 land HERE**: `brain.bootstrap.birth` at `PositiveSovereign`, admission

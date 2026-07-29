@@ -129,9 +129,25 @@ pub fn mint_mission_id() -> String {
 
 /// `sha256(bytes)` as lowercase hex — the SAME digest the mailbox/receipt taxonomy
 /// uses, so a candidate is a direct hand-off at import time (§5c).
+/// Lowercase hex of a byte slice.
+///
+/// `digest` 0.11 returns `hybrid_array::Array`, which — unlike the old
+/// `generic_array::GenericArray` — does not implement `LowerHex`, so the
+/// former `format!("{d:x}")` spelling no longer compiles. This is the
+/// workspace's existing hex idiom, kept local so the digest call sites stay
+/// dependency-free.
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
-    let d = Sha256::digest(bytes);
-    format!("{d:x}")
+    hex_lower(&Sha256::digest(bytes))
 }
 
 /// The current instant as `YYYY-MM-DDTHH:MM:SSZ` (UTC) — the repo's dependency-free

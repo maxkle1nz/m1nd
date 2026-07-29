@@ -29,12 +29,14 @@ don't and cost ~half of every 70-minute CI round; the signed release pipeline re
 `--release` at tag time regardless). A release-profile-only breakage is caught on the main
 push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
-**Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
-identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
-— a red Windows leg (the ~22 diagnosed source-edit path-canon tests, tracked phase-2 debt) does
-**not** block merge. This restored auto-merge (the whole queue was hostage to admin overrides).
-Still write cross-platform-correct code (the fs/path contract below is real); when Windows goes
-green, re-add `windows-latest` to the matrix and delete the advisory job.
+**Windows is REQUIRED again (since 2026-07-29):** `windows-latest` runs in the same
+`rust-gates` matrix as ubuntu/macos and its red blocks merge. It spent 2026-07-23→29 as an
+advisory job while the phase-2 debt was diagnosed and paid (#435–#440, #444); the flip back was
+made against a fully green advisory run on main, and the scaffold is deleted. The fs/path
+contract below is load-bearing — the whole debt family was path identity and cfg-gated code the
+Unix legs are structurally blind to, so a green local run on macOS proves nothing about your
+`#[cfg(windows)]` branches: mirror-probe them (flip `cfg(unix)`↔`cfg(windows)` locally) when
+you touch one.
 
 UI changes (`m1nd-ui/`) additionally:
 

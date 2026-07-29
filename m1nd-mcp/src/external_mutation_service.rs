@@ -6126,7 +6126,7 @@ fn require_file_digest(path: &Path, expected: Option<&str>) -> Result<(), Extern
 }
 
 fn sha256_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex_lower_bytes(&Sha256::digest(bytes))
 }
 
 fn sync_parent(path: &Path) -> std::io::Result<()> {

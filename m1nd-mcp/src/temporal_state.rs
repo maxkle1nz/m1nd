@@ -47,7 +47,7 @@ fn digest(state: &TemporalRuntimeStateV1) -> M1ndResult<String> {
     let mut hasher = Sha256::new();
     hasher.update(b"m1nd/temporal-runtime-state/v1\0");
     hasher.update(bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(crate::util::hex_lower(&hasher.finalize()))
 }
 
 fn durable_atomic_write(path: &Path, bytes: &[u8], fail_before_rename: bool) -> M1ndResult<()> {

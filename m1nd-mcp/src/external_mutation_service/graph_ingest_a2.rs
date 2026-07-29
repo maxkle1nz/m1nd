@@ -1219,7 +1219,7 @@ fn open_candidate_artifact_handle(
 }
 
 fn sha256_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    super::hex_lower_bytes(&Sha256::digest(bytes))
 }
 
 pub(super) fn capture_inspection_snapshot(

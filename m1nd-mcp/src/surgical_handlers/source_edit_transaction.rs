@@ -1575,7 +1575,7 @@ fn now_ms() -> Result<u64, SourceEditTransactionError> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::util::hex_lower(&Sha256::digest(bytes))
 }
 
 fn is_digest(value: &str) -> bool {

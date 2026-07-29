@@ -139,7 +139,7 @@ struct JournalDigestView<'a> {
 fn sha256(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    crate::util::hex_lower(&hasher.finalize())
 }
 
 fn domain_digest<T: Serialize>(domain: &[u8], value: &T) -> M1ndResult<String> {
@@ -147,7 +147,7 @@ fn domain_digest<T: Serialize>(domain: &[u8], value: &T) -> M1ndResult<String> {
     let mut hasher = Sha256::new();
     hasher.update(domain);
     hasher.update(bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(crate::util::hex_lower(&hasher.finalize()))
 }
 
 fn marker_digest(marker: &BootKvMigrationMarkerV1) -> M1ndResult<String> {

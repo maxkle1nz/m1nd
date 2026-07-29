@@ -642,7 +642,7 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    Ok(sha256_label(&format!("{:x}", hasher.finalize())))
+    Ok(sha256_label(&crate::util::hex_lower(&hasher.finalize())))
 }
 
 fn binary_sha256() -> String {

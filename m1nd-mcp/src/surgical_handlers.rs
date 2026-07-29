@@ -1146,7 +1146,7 @@ pub(crate) fn content_hash(content: &str) -> String {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::util::hex_lower(&Sha256::digest(bytes))
 }
 
 fn invalid_params(tool: &str, detail: impl Into<String>) -> M1ndError {

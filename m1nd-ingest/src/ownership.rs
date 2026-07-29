@@ -934,8 +934,25 @@ impl OwnershipCollectorV1 {
     }
 }
 
+/// Lowercase hex of a byte slice.
+///
+/// `digest` 0.11 returns `hybrid_array::Array`, which — unlike the old
+/// `generic_array::GenericArray` — does not implement `LowerHex`, so the
+/// former `format!("{:x}", ..)` spelling no longer compiles. This is the
+/// workspace's existing hex idiom, kept local so the digest call sites stay
+/// dependency-free.
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 pub fn sha256_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex_lower(&Sha256::digest(bytes))
 }
 
 /// Identity of the exact executable image acting as the ingest producer. The
@@ -1047,7 +1064,7 @@ pub fn compiled_producer_build_identity() -> String {
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
-    format!("{:x}", hasher.finalize())
+    hex_lower(&hasher.finalize())
 }
 
 #[derive(Serialize)]
