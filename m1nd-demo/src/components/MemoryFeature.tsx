@@ -83,7 +83,7 @@ export function MemoryFeature() {
     <FeatureSection
       title="Pick Up Exactly Where It Left Off"
       subtitle="Persistent Memory"
-      description="When your agent returns to an investigation across sessions, m1nd restores the full trail — which nodes were visited, in what order, across how many hops. No re-reading files. No reconstructing context from scratch. Continued in milliseconds."
+      description="When your agent returns to an investigation across sessions, m1nd restores the full trail: which nodes were visited, in what order, across how many hops. No re-reading files. No reconstructing context from scratch. Continued in milliseconds."
       align="left"
     >
       <MemoryScene />

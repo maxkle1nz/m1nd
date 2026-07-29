@@ -5,13 +5,13 @@ import * as THREE from "three";
 export interface CameraRigProps {
   /** World-space camera positions to visit, in order */
   targets: [number, number, number][];
-  /** Point the camera looks toward — default [0,0,0] */
+  /** Point the camera looks toward: default [0,0,0] */
   lookAt?: [number, number, number];
   /** Seconds between waypoint advances */
   secondsPerWaypoint?: number;
-  /** Spring constant — higher = faster response */
+  /** Spring constant: higher = faster response */
   spring?: number;
-  /** Velocity damping factor — lower = more overshoot */
+  /** Velocity damping factor: lower = more overshoot */
   damping?: number;
   /** Amplitude of micro-noise for organic drift */
   noiseAmp?: number;
@@ -55,7 +55,7 @@ export function CameraRig({
     vel.current.multiplyScalar(damping);
     cam.position.add(vel.current);
 
-    // Prime-frequency micro-noise — feels organic, never repeats
+    // Prime-frequency micro-noise: feels organic, never repeats
     if (noiseAmp > 0) {
       cam.position.x += Math.sin(t * 0.19 + 1.3) * noiseAmp * 0.4;
       cam.position.y += Math.sin(t * 0.13 + 0.7) * noiseAmp * 0.25;

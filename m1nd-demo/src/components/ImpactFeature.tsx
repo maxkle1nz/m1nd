@@ -28,7 +28,7 @@ function SupernovaRing({ delay, color, maxR, speed = 4 }: { delay: number; color
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = ((clock.getElapsedTime() + delay) % speed) / speed;
-    // Cubic ease-out — expands fast then slows
+    // Cubic ease-out: expands fast then slows
     const eased = 1 - Math.pow(1 - t, 2.4);
     ref.current.scale.set(eased * maxR, eased * maxR, 1);
     // Opacity: bright in first half, fades quickly after

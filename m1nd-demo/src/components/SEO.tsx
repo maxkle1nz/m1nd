@@ -52,7 +52,7 @@ export function SEO({
     canonical.href = canonicalUrl;
 
     return () => {
-      document.title = "m1nd — Graph Intelligence";
+      document.title = "m1nd · Memory that knows when it's wrong";
     };
   }, [title, description, canonicalPath, ogImage]);
 

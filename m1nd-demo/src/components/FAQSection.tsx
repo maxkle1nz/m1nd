@@ -13,39 +13,39 @@ const FAQS: FAQ[] = [
     q: "How is m1nd different from Copilot, Cursor, or semantic search?",
     a: (
       <>
-        Copilot and Cursor are agent hosts and editors. m1nd is the operational intelligence layer those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. It is less about "find me similar text" and more about "show me what this touches, what moves with it, and what should be verified next."
+        Copilot and Cursor are agent hosts and editors. m1nd is the layer those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. Ask it what a change touches, what moves with it, and what should be verified next.
       </>
     ),
   },
   {
     tag: "languages",
     q: "Does it work with any language, or only Python?",
-    a: "m1nd indexes 14 languages out of the box: Python, TypeScript, JavaScript, Rust, Go, Java, C, C++, C#, Kotlin, Ruby, PHP, Swift, and Bash. The graph is built from AST-level analysis — function calls, imports, class hierarchies, module boundaries — not text patterns. If your codebase mixes languages (e.g. a Python API with a TypeScript frontend), m1nd indexes both and cross-links them.",
+    a: "m1nd ships dedicated extractors for more than twenty languages, routed by file extension: Python, TypeScript, JavaScript, Rust, Go, Java, C, C++, C#, Kotlin, Ruby, PHP, Swift, Scala, Bash, SQL, Lua, R, Elixir, Dart, Zig, Haskell and OCaml. The stricter claim (call-graph edges plus cross-file import resolution, proven end to end) covers 12 of them; the rest fall back to file-level structure. Mixed codebases land in one graph: a Python API and a TypeScript frontend get indexed together and cross-linked.",
   },
   {
     tag: "privacy",
     q: "Does my code get sent to an external server?",
-    a: "No. m1nd is local-first and always will be. The binary runs on your machine, the graph lives in RAM on your machine, and all queries are answered locally. Nothing leaves your environment. This is a deliberate architectural decision — it's why the traversal is 543ns instead of a round-trip to an API.",
+    a: "No. m1nd is local-first and always will be. The binary runs on your machine, the graph lives in memory on your machine, and every query is answered locally. There is no telemetry, no account, and no API key. It also means there is no second copy of your code sitting in someone else's index, going stale on its own schedule.",
   },
   {
     tag: "model support",
     q: "Which LLMs and AI clients does m1nd support?",
     a: (
       <>
-        m1nd is MCP-native — it works with every client and model that speaks the Model Context Protocol, across <strong style={{ color: "rgba(226,232,240,0.8)" }}>22 supported hosts</strong> (run <code>m1nd hosts plan</code> for yours):
+        m1nd is MCP-native: it works with every client and model that speaks the Model Context Protocol, across <strong style={{ color: "rgba(226,232,240,0.8)" }}>22 supported hosts</strong> (run <code>m1nd hosts plan</code> for yours):
         <br /><br />
-        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Models:</strong> Claude Opus · Claude Sonnet · GPT-5 · Gemini 2.5 Pro · Llama — and any model released tomorrow that runs through an MCP client.
+        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Models:</strong> Claude Opus · Claude Sonnet · GPT-5 · Gemini 2.5 Pro · Llama, and any model released tomorrow that runs through an MCP client.
         <br /><br />
         <strong style={{ color: "rgba(226,232,240,0.8)" }}>Clients:</strong> Claude Code · Codex · Cursor · Windsurf · GitHub Copilot · VS Code · Cline · Continue · Zed · Antigravity · and any custom agent that speaks MCP.
         <br /><br />
-        You configure m1nd once. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent — GPT-5 calls <code>seek()</code> the same way Claude Opus does.
+        You configure m1nd once. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent. GPT-5 calls <code>seek()</code> the same way Claude Opus does.
       </>
     ),
   },
   {
     tag: "how it works",
     q: "How does m1nd decide which 4 nodes to return from 9,767?",
-    a: "Three stages in 0.18s. First, your query is scored against pre-computed 128-dimensional embeddings for every node in the graph (PageRank-weighted TF-IDF + cosine similarity). The top-k candidates become seeds. Second, a spreading activation wave fires outward from each seed, following typed edges across up to 4 hops — 120 nodes get scored. Third, a composite score (PageRank × activation strength × edge weight) eliminates 116 of those 120. The 4 survivors are returned with their caller chains, callees, and test references already attached.",
+    a: "seek scores every node three ways: exact keyword match, trigram similarity, and a PageRank-style centrality prior that is gated so a well-connected hub can never outrank an actually relevant hit. Compile the optional embed feature and a small local embedding model joins the mix (fetched once, then fully offline). Spreading activation then expands from the top candidates along typed edges, and the survivors come back with their callers, callees and test references attached.",
   },
   {
     tag: "m1nd vs l1ght",
@@ -57,14 +57,14 @@ const FAQS: FAQ[] = [
     q: "How much does it cost?",
     a: (
       <>
-        m1nd is free to self-host. The binary is open source under MIT — you can clone, build, and run it today. A managed cloud version (zero-config, team sharing, hosted graph updates) is in private beta. If you want early access to the cloud version or need a commercial license for enterprise use, reach out at <a href="mailto:kleinz@m1nd.world" className="text-primary underline-offset-2 underline">kleinz@m1nd.world</a>.
+        m1nd is free and MIT. Clone it, build it, run it, ship it inside your company. There is no cloud tier and no account; your graph never leaves your machine. If you need commercial support, a signed contract, or an invoice with a legal entity behind it, write me at <a href="mailto:kleinz@m1nd.world" className="text-primary underline-offset-2 underline">kleinz@m1nd.world</a> and we will sort it out.
       </>
     ),
   },
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: 'Under 2 minutes. Install the agent pack with npx -y @maxkle1nz/m1nd (it is on the official MCP Registry as io.github.maxkle1nz/m1nd), install the native runtime with cargo install m1nd-mcp, add it to your MCP client config, and run m1nd warmup to build the initial graph. First warmup on a 50K-line codebase takes about 8 seconds. After that, incremental updates run in the background as files change.',
+    a: "A few minutes. Run npx -y @maxkle1nz/m1nd update apply --yes to install the signed native runtime (it needs cosign on your PATH; cargo install m1nd-mcp is the unverified alternative). Confirm with npx -y @maxkle1nz/m1nd doctor, then m1nd hosts plan --host claude prints the exact MCP config for your host. Paste it, restart your agent, and its first north call orients on its own, ingesting the repo if the graph is empty. The ingest runs once; the graph stays warm after that.",
   },
 ];
 
