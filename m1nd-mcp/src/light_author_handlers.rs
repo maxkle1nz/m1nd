@@ -1556,6 +1556,174 @@ mod tests {
         );
     }
 
+    /// External id of a node, the way every other reader here spells it.
+    fn external_id(graph: &Graph, node: m1nd_core::types::NodeId) -> String {
+        graph
+            .id_to_node
+            .iter()
+            .find_map(|(interned, &nid)| {
+                (nid == node).then(|| graph.strings.resolve(*interned).to_string())
+            })
+            .expect("every node in the graph carries an external id")
+    }
+
+    /// Count the CSR slots carrying `relation` from `source_ext` to
+    /// `target_ext`. Two is a parallel edge; one is a parallel edge some writer
+    /// erased.
+    fn parallel_slots(graph: &Graph, source_ext: &str, target_ext: &str, relation: &str) -> usize {
+        let (Some(source), Some(target)) =
+            (graph.resolve_id(source_ext), graph.resolve_id(target_ext))
+        else {
+            return 0;
+        };
+        graph
+            .csr
+            .out_range(source)
+            .filter(|&slot| {
+                graph.csr.targets[slot] == target
+                    && graph.strings.resolve(graph.csr.relations[slot]) == relation
+            })
+            .count()
+    }
+
+    // -----------------------------------------------------------------------
+    // #442's premise defended at the WRITER. `memorize` is the only mutating
+    // verb a plain MCP client can reach under the authority floors, and it
+    // re-ingests — so its merge decides whether a parallel edge survives the
+    // session at all. Measured RED before the positional merge in
+    // `m1nd_ingest::merge`: a runtime graph carrying a parallel pair (the shape
+    // a legacy adoption hands the runtime, and the shape the owner's real graph
+    // carries on `contains`) came back from ONE `memorize` call with a single
+    // slot. The plasticity sidecar a clean shutdown writes binds one row per
+    // slot POSITIONALLY, so the reader #442 hardened was being handed a graph
+    // whose second slot the writer had already deleted.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn memorize_preserves_a_parallel_edge_and_its_plasticity_rows() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+        std::fs::write(proj.join("auth.rs"), "pub fn f() -> bool { true }\n").expect("write");
+
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: proj.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "code".into(),
+                mode: "replace".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+                project_root: None,
+            },
+        )
+        .expect("code ingest");
+
+        // Plant the condition, then ASSERT it — a fixture that quietly stops
+        // carrying a parallel edge would pass while covering nothing.
+        let (source_ext, target_ext, relation) = {
+            let mut graph = state.graph.write();
+            let source = (0..graph.num_nodes() as usize)
+                .find(|&index| graph.csr.offsets[index + 1] > graph.csr.offsets[index])
+                .map(|index| m1nd_core::types::NodeId::new(index as u32))
+                .expect("the ingested graph must have at least one edge to twin");
+            let slot = graph.csr.offsets[source.as_usize()] as usize;
+            let target = graph.csr.targets[slot];
+            let relation = graph.strings.resolve(graph.csr.relations[slot]).to_string();
+            let direction = graph.csr.directions[slot];
+            let inhibitory = graph.csr.inhibitory[slot];
+            let causal_strength = graph.csr.causal_strengths[slot];
+            graph
+                .add_edge(
+                    source,
+                    target,
+                    &relation,
+                    m1nd_core::types::FiniteF32::new(0.5),
+                    direction,
+                    inhibitory,
+                    causal_strength,
+                )
+                .expect("plant the twin edge");
+            graph.finalize().expect("re-finalize with the twin edge");
+
+            let source_ext = external_id(&graph, source);
+            let target_ext = external_id(&graph, target);
+            assert_eq!(
+                parallel_slots(&graph, &source_ext, &target_ext, &relation),
+                2,
+                "precondition: the runtime graph must carry a parallel edge before memorize"
+            );
+            (source_ext, target_ext, relation)
+        };
+
+        let mut input = make_input(vec![LightClaim {
+            label: "Fact".into(),
+            text: Some("A durable fact.".into()),
+            kind: Some("entity".into()),
+            confidence: Some("0.9".into()),
+            ambiguity: None,
+            evidence: vec![],
+            depends_on: vec![],
+        }]);
+        input.ingest_after = true;
+        input.mode = "merge".into();
+        handle_light_author(&mut state, input).expect("memorize ok");
+
+        let mut graph = state.graph.write();
+        assert_eq!(
+            parallel_slots(&graph, &source_ext, &target_ext, &relation),
+            2,
+            "memorize's merge must not erase a parallel edge — the plasticity \
+             rows a clean shutdown writes are bound to those slots by position"
+        );
+
+        // ...and the surviving graph must still round-trip its own sidecar, the
+        // exact property #442 restored on the reader.
+        let rows = m1nd_core::plasticity::PlasticityEngine::new(
+            &graph,
+            m1nd_core::plasticity::PlasticityConfig::default(),
+        )
+        .export_state(&graph)
+        .expect("export the merged graph's plasticity state");
+        let mut rows_per_key = std::collections::HashMap::<_, usize>::new();
+        for row in &rows {
+            *rows_per_key
+                .entry((
+                    row.source_label.clone(),
+                    row.target_label.clone(),
+                    row.relation.clone(),
+                    row.direction,
+                    row.inhibitory,
+                ))
+                .or_default() += 1;
+        }
+        assert_eq!(
+            rows_per_key.values().copied().max().unwrap_or(0),
+            2,
+            "the merged graph must still export two rows under one full synaptic key"
+        );
+        m1nd_core::plasticity::PlasticityEngine::new(
+            &graph,
+            m1nd_core::plasticity::PlasticityConfig::default(),
+        )
+        .import_state(&mut graph, &rows)
+        .expect("the merged graph must re-import the sidecar it just wrote (#442)");
+    }
+
     // -----------------------------------------------------------------------
     // Test 3: provenance frontmatter (Created + Source-Agent) is stamped
     // -----------------------------------------------------------------------

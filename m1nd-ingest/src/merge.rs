@@ -418,21 +418,49 @@ pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {
         }
     }
 
-    let mut edge_records: HashMap<EdgeKey, EdgeRecord> = HashMap::new();
+    // Parallel edges — two edges between the same pair carrying the same
+    // relation, direction and inhibitory flag — are legal graph content, not
+    // noise to fold away. `Graph::add_edge` admits them; the snapshot round trip
+    // writes and reads back one row per CSR slot (`edge_slot_queues` /
+    // `pop_unconsumed_slot` exist for exactly that); and plasticity binds the
+    // rows a clean shutdown persisted to those slots POSITIONALLY (#442). A
+    // merge that collapsed a key's occurrences onto one edge would erase real
+    // structure and leave the sidecar's rows pointing at slots it just deleted —
+    // reintroducing, from the writer, the ambiguity #442 hardened the reader
+    // against.
+    //
+    // So the merge is positional too: the Nth occurrence of a key in the base
+    // pairs with the Nth in the overlay, and the side with more occurrences sets
+    // the multiplicity. Re-ingesting the same source therefore still cannot
+    // double an edge (max(1, 1) == 1), which is what the old fold bought.
+    let mut edge_records: HashMap<EdgeKey, Vec<EdgeRecord>> = HashMap::new();
     let (base_edges, skipped_base_edges) = collect_edges(base);
     let (overlay_edges, skipped_overlay_edges) = collect_edges(overlay);
 
-    for record in base_edges.into_iter().chain(overlay_edges) {
+    for record in base_edges {
         edge_records
             .entry(record.key.clone())
-            .and_modify(|existing| {
-                existing.weight = existing.weight.max(record.weight);
-                existing.causal_strength = existing.causal_strength.max(record.causal_strength);
-            })
-            .or_insert(record);
+            .or_default()
+            .push(record);
     }
 
-    for record in edge_records.values() {
+    let mut overlay_occurrences: HashMap<EdgeKey, usize> = HashMap::new();
+    for record in overlay_edges {
+        let occurrence = *overlay_occurrences
+            .entry(record.key.clone())
+            .and_modify(|seen| *seen += 1)
+            .or_insert(0);
+        let slots = edge_records.entry(record.key.clone()).or_default();
+        match slots.get_mut(occurrence) {
+            Some(existing) => {
+                existing.weight = existing.weight.max(record.weight);
+                existing.causal_strength = existing.causal_strength.max(record.causal_strength);
+            }
+            None => slots.push(record),
+        }
+    }
+
+    for record in edge_records.values().flatten() {
         let source = merged.resolve_id(&record.key.source).unwrap();
         let target = merged.resolve_id(&record.key.target).unwrap();
         merged.add_edge(
@@ -545,6 +573,84 @@ mod tests {
             .resolve_id("memory::memory::entry::batman-mode")
             .is_some());
         assert!(merged.num_edges() >= 2);
+    }
+
+    /// Build a graph whose one file node `contains` one struct node over
+    /// `twins` edges that share their COMPLETE synaptic key — the shape a
+    /// clean shutdown turns into `twins` plasticity rows under one key (#442).
+    fn graph_with_parallel_contains(twins: usize) -> Graph {
+        let mut graph = Graph::with_capacity(2, twins);
+        let file = graph
+            .add_node(
+                "file::Cargo.toml",
+                "Cargo.toml",
+                NodeType::File,
+                &["code"],
+                10.0,
+                0.3,
+            )
+            .unwrap();
+        let table = graph
+            .add_node(
+                "file::Cargo.toml::struct::package",
+                "package",
+                NodeType::Struct,
+                &["code"],
+                10.0,
+                0.3,
+            )
+            .unwrap();
+        for _ in 0..twins {
+            graph
+                .add_edge(
+                    file,
+                    table,
+                    "contains",
+                    FiniteF32::new(0.8),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.4),
+                )
+                .unwrap();
+        }
+        graph.finalize().unwrap();
+        graph
+    }
+
+    /// The merge must preserve parallel edges — and must still not breed them.
+    ///
+    /// RED before the positional merge: the fold keyed on `EdgeKey` collapsed
+    /// every occurrence of a key onto one edge, so the merge behind `memorize`
+    /// silently deleted a slot the snapshot and the plasticity sidecar both
+    /// address by position (#442). The three legs pin the whole rule, because
+    /// preserving the pair is only correct if re-ingesting a source still
+    /// cannot double its edges.
+    #[test]
+    fn merge_graphs_preserves_parallel_edges_without_breeding_them() {
+        let twinned = graph_with_parallel_contains(2);
+        let single = graph_with_parallel_contains(1);
+
+        assert_eq!(
+            merge_graphs(&twinned, &twinned).unwrap().num_edges(),
+            2,
+            "a parallel pair re-ingested from the same source must stay a pair"
+        );
+        assert_eq!(
+            merge_graphs(&twinned, &single).unwrap().num_edges(),
+            2,
+            "an overlay carrying one edge must not erase the base's second slot"
+        );
+        assert_eq!(
+            merge_graphs(&single, &twinned).unwrap().num_edges(),
+            2,
+            "an overlay carrying a pair must bring its second slot into the merge"
+        );
+        assert_eq!(
+            merge_graphs(&single, &single).unwrap().num_edges(),
+            1,
+            "one edge merged with itself must stay one edge — the merge must \
+             never breed a parallel edge out of a plain re-ingest"
+        );
     }
 
     #[test]
