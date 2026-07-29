@@ -208,9 +208,7 @@ m1nd complements the compiler, the test runner and your security tooling. It rep
 
 ## Evidence
 
-Everything in this file ships in the current release and is backed by an artifact in this tree. The documents under `docs/` marked PRD are design intent, and I keep the two labeled apart. If the narrative ever outruns the artifact, that is a bug. File it.
-
-Every row is hedged to exactly what was measured. m1nd does not lead with token savings or ROI, and that is deliberate: those are the least falsifiable numbers in this category.
+Everything above ships in the current release; the documents under `docs/` marked PRD are design intent, kept labeled apart. Every row is hedged to exactly what was measured. m1nd does not lead with token savings or ROI, and that is deliberate: those are the least falsifiable numbers in this category.
 
 | Claim | Result | Reproduce / hedge |
 |---|---|---|
