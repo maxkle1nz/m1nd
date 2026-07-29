@@ -3970,23 +3970,38 @@ async fn handle_tool_call(
     // the same shape the wire uses, where `mcp_http::run_mission_service_wire`
     // intercepts its typed consumers before `enforce_generic_action_policy`.
     //
-    // `mission_spawn` (F2.5c §4b) is the OWNER→runnerd proxy and `candidate_naming`
-    // (F11-c §2b) is the in-screen "Name with runner" path. Neither is a graph verb
-    // and neither is generic dispatch: each needs owner-process state (the announce
-    // registry + the shared secret the browser never holds) and its own
-    // async/blocking forward to the daemon, none of which the sync `dispatch_tool`
-    // sees — the same reason `mission_service` above returns before the gate.
+    // `mission_spawn` (F2.5c §4b) is the OWNER→runnerd proxy, `candidate_naming`
+    // (F11-c §2b) is the in-screen "Name with runner" path and `curation_spawn`
+    // (F12 §3) is the propose-apply curation lane. None is a graph verb and none is
+    // generic dispatch: each needs owner-process state (the announce registry + the
+    // shared secret the browser never holds) and its own async/blocking forward to
+    // the daemon, none of which the sync `dispatch_tool` sees — the same reason
+    // `mission_service` above returns before the gate.
     //
-    // Both sit at SCOPED_GRANT_A2, so running the generic floor FIRST refused them
-    // before the proxy built to serve them ever saw the request: the REST paths
-    // behind the Human View v2 spawn and the "Name with runner" button were dead
-    // code behind a 403 (project mailbox letter from `opus5-annotate`, high/bug).
+    // All three sit at SCOPED_GRANT_A2, so running the generic floor FIRST refused
+    // them before the proxy built to serve them ever saw the request: the REST paths
+    // behind the Human View v2 spawn, the "Name with runner" button and the
+    // candidate banner's SPAWN were dead code behind a 403 (project mailbox letters
+    // from `opus5-annotate`, high/bug, and `opus5-restorder`, medium).
+    //
+    // `curation_spawn` did not even reach a floor: the catalog ratifies
+    // `mission.curation_spawn` at High/SCOPED_GRANT_A2 with `[Rest]`-ONLY ingress, so
+    // by design it has no MCP tool route and the gate answered
+    // `generic_action_policy_unresolved: unknown or unrouted MCP tool`. Teaching the
+    // MCP router about it would be the WRONG repair — `MCP_TOOL_ROUTE_NAMES` is held
+    // exactly equal to the MCP schema registry, so routing an HTTP-only verb would
+    // advertise it as an MCP tool and contradict its ratified ingress. Interception
+    // here is its designed path, so the MCP gate correctly never sees it.
+    //
     // Authority is not widened — the policy function is untouched, so every other
-    // seam that consults it still refuses these two HTTP-only verbs, and each
+    // seam that consults it still refuses these three HTTP-only verbs, and each
     // handler keeps its own read-only refusal, OCC key and live-runner checks.
-    if matches!(bare_tool, "mission_spawn" | "candidate_naming") {
+    if matches!(
+        bare_tool,
+        "mission_spawn" | "candidate_naming" | "curation_spawn"
+    ) {
         // Scoped to the SELECTED brain (its store, its graph, its project_root), so
-        // both proxies work on any hosted brain. They resolve it themselves; the
+        // the proxies work on any hosted brain. They resolve it themselves; the
         // gate below must keep preceding brain resolution for every generic verb.
         let (target_session, served_echo) = match resolve_brain(&state, brain.brain.as_deref()) {
             Ok(pair) => pair,
@@ -3999,7 +4014,11 @@ async fn handle_tool_call(
             .get("project_root")
             .and_then(|value| value.as_str())
             .map(str::to_string);
-        return handle_candidate_naming(&state, &target_session, selected_project_root, body).await;
+        if bare_tool == "candidate_naming" {
+            return handle_candidate_naming(&state, &target_session, selected_project_root, body)
+                .await;
+        }
+        return handle_curation_spawn(&state, &target_session, selected_project_root, body).await;
     }
 
     // F-01: reject elevated generic actions before brain resolution/warm boot,
@@ -4017,19 +4036,6 @@ async fn handle_tool_call(
         Ok(pair) => pair,
         Err(e) => return graph_response(Err(e)),
     };
-
-    // F12 (§3): `curation_spawn` is likewise HTTP-only — it needs the owner-process
-    // announce registry + the shared secret (never sent to the browser) + a blocking
-    // /curate forward, then applies the hand's proposal through candidate_edit (runner
-    // seat, o5 + o1, OCC) and posts the mission letters. Intercepted here, scoped to
-    // the RESOLVED brain (its store, its graph, its mission box).
-    if bare_tool == "curation_spawn" {
-        let selected_project_root = served_echo
-            .get("project_root")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        return handle_curation_spawn(&state, &target_session, selected_project_root, body).await;
-    }
 
     // Two-Tier one-call bootstrap — REST-seam parity (field hole 2026-07-10):
     // `ingest` whose body carries a non-empty `project_root` is a BOOTSTRAP
@@ -6120,15 +6126,23 @@ mod tests {
         );
     }
 
-    /// Field defect (project mailbox letter from `opus5-annotate`, high/bug): the
-    /// generic floor gate ran BEFORE the owner-proxy interceptions, so the two
-    /// REST paths built FOR the Human View v2 spawn and the in-screen "Name with
-    /// runner" flow were dead code behind a 403 — both verbs sit at
-    /// `SCOPED_GRANT_A2`, so the floor refused before the proxy that exists to
-    /// serve them ever saw the request. The proxies are NOT generic dispatch (they
-    /// need owner-process state the generic dispatcher does not have), exactly like
-    /// `mission_service` above, so they are intercepted AHEAD of the gate — the
-    /// same shape `mcp_http::run_mission_service_wire` uses on the wire.
+    /// Field defect (project mailbox letters from `opus5-annotate`, high/bug, and
+    /// `opus5-restorder`, medium): the generic floor gate ran BEFORE the owner-proxy
+    /// interceptions, so the three REST paths built FOR the Human View v2 spawn, the
+    /// in-screen "Name with runner" flow and the F12 propose-apply curation were dead
+    /// code behind a 403 — all three verbs sit at `SCOPED_GRANT_A2`, so the floor
+    /// refused before the proxy that exists to serve them ever saw the request. The
+    /// proxies are NOT generic dispatch (they need owner-process state the generic
+    /// dispatcher does not have), exactly like `mission_service` above, so they are
+    /// intercepted AHEAD of the gate — the same shape
+    /// `mcp_http::run_mission_service_wire` uses on the wire.
+    ///
+    /// `curation_spawn` failed one step earlier still: the catalog ratifies
+    /// `mission.curation_spawn` at `[Rest]`-only ingress, so it has no MCP tool route
+    /// by design and the gate could not even classify it
+    /// (`generic_action_policy_unresolved`). Routing it would be the wrong repair —
+    /// it would force an HTTP-only verb into the MCP schema registry. Interception
+    /// ahead of the gate is the designed path, so the gate never sees it.
     ///
     /// The proof is the HANDLER's own honest refusal: with no runner daemon
     /// announced and no system-block store in the fixture runtime, each proxy
@@ -6186,9 +6200,34 @@ mod tests {
                 "{name} must answer with the proxy's own honest refusal: {rendered}"
             );
         }
+
+        for name in [
+            "curation_spawn",
+            "m1nd.curation_spawn",
+            "m1nd_curation_spawn",
+        ] {
+            let (status, payload) = call_tool(
+                &app,
+                name,
+                None,
+                serde_json::json!({ "expected_store_version": 1 }),
+            )
+            .await;
+            let rendered = payload.to_string();
+            assert!(
+                !rendered.contains("generic_action_authority_required")
+                    && !rendered.contains("generic_action_policy_unresolved"),
+                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
+            assert!(
+                rendered.contains("no system-block store here yet"),
+                "{name} must answer with the proxy's own honest refusal: {rendered}"
+            );
+        }
     }
 
-    /// No widening: the interception is keyed to the two verbs that HAVE an owner
+    /// No widening: the interception is keyed to the verbs that HAVE an owner
     /// proxy, never to their authority floor. `edit_commit` (`source.edit.commit`)
     /// sits at the same `SCOPED_GRANT_A2` — the REST-seam twin of the spec1 pin
     /// `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`. Its refusal
