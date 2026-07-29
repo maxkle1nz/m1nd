@@ -3966,6 +3966,42 @@ async fn handle_tool_call(
         }
     };
 
+    // The OWNER PROXIES are intercepted HERE, ahead of the generic floor gate —
+    // the same shape the wire uses, where `mcp_http::run_mission_service_wire`
+    // intercepts its typed consumers before `enforce_generic_action_policy`.
+    //
+    // `mission_spawn` (F2.5c §4b) is the OWNER→runnerd proxy and `candidate_naming`
+    // (F11-c §2b) is the in-screen "Name with runner" path. Neither is a graph verb
+    // and neither is generic dispatch: each needs owner-process state (the announce
+    // registry + the shared secret the browser never holds) and its own
+    // async/blocking forward to the daemon, none of which the sync `dispatch_tool`
+    // sees — the same reason `mission_service` above returns before the gate.
+    //
+    // Both sit at SCOPED_GRANT_A2, so running the generic floor FIRST refused them
+    // before the proxy built to serve them ever saw the request: the REST paths
+    // behind the Human View v2 spawn and the "Name with runner" button were dead
+    // code behind a 403 (project mailbox letter from `opus5-annotate`, high/bug).
+    // Authority is not widened — the policy function is untouched, so every other
+    // seam that consults it still refuses these two HTTP-only verbs, and each
+    // handler keeps its own read-only refusal, OCC key and live-runner checks.
+    if matches!(bare_tool, "mission_spawn" | "candidate_naming") {
+        // Scoped to the SELECTED brain (its store, its graph, its project_root), so
+        // both proxies work on any hosted brain. They resolve it themselves; the
+        // gate below must keep preceding brain resolution for every generic verb.
+        let (target_session, served_echo) = match resolve_brain(&state, brain.brain.as_deref()) {
+            Ok(pair) => pair,
+            Err(e) => return graph_response(Err(e)),
+        };
+        if bare_tool == "mission_spawn" {
+            return handle_mission_spawn(&state, &served_echo, body).await;
+        }
+        let selected_project_root = served_echo
+            .get("project_root")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        return handle_candidate_naming(&state, &target_session, selected_project_root, body).await;
+    }
+
     // F-01: reject elevated generic actions before brain resolution/warm boot,
     // proxy lookup, presence tracking, freshness ticks, or handler effects.
     if let Err(error) = enforce_generic_action_policy(&tool_name, &body) {
@@ -3981,28 +4017,6 @@ async fn handle_tool_call(
         Ok(pair) => pair,
         Err(e) => return graph_response(Err(e)),
     };
-
-    // F2.5c (§4b): `mission_spawn` is the OWNER→runnerd PROXY, not a graph verb. It
-    // is intercepted HERE — before the blocking dispatch — because it needs
-    // owner-process state (the announce registry + the shared secret) and an async
-    // HTTP forward to the daemon, neither of which the sync `dispatch_tool` sees. The
-    // browser never holds the secret (the amendment's signed decision); the owner
-    // reads it and signs the forward. `mission_spawn` is on the read-only deny-list.
-    if bare_tool == "mission_spawn" {
-        return handle_mission_spawn(&state, &served_echo, body).await;
-    }
-
-    // F11-c (§2b): `candidate_naming` is likewise HTTP-only — it needs the
-    // owner-process announce registry + the shared secret (never sent to the
-    // browser) + a blocking /name forward. Intercepted here, scoped to the RESOLVED
-    // brain (its store, its graph), so "Name with runner" works on any hosted brain.
-    if bare_tool == "candidate_naming" {
-        let selected_project_root = served_echo
-            .get("project_root")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        return handle_candidate_naming(&state, &target_session, selected_project_root, body).await;
-    }
 
     // F12 (§3): `curation_spawn` is likewise HTTP-only — it needs the owner-process
     // announce registry + the shared secret (never sent to the browser) + a blocking
@@ -6104,6 +6118,131 @@ mod tests {
                 && !rendered.contains("generic_action_authority_required"),
             "typed mission service must not be collapsed into generic policy: {rendered}"
         );
+    }
+
+    /// Field defect (project mailbox letter from `opus5-annotate`, high/bug): the
+    /// generic floor gate ran BEFORE the owner-proxy interceptions, so the two
+    /// REST paths built FOR the Human View v2 spawn and the in-screen "Name with
+    /// runner" flow were dead code behind a 403 — both verbs sit at
+    /// `SCOPED_GRANT_A2`, so the floor refused before the proxy that exists to
+    /// serve them ever saw the request. The proxies are NOT generic dispatch (they
+    /// need owner-process state the generic dispatcher does not have), exactly like
+    /// `mission_service` above, so they are intercepted AHEAD of the gate — the
+    /// same shape `mcp_http::run_mission_service_wire` uses on the wire.
+    ///
+    /// The proof is the HANDLER's own honest refusal: with no runner daemon
+    /// announced and no system-block store in the fixture runtime, each proxy
+    /// answers with its own domain refusal instead of the authority floor.
+    #[tokio::test]
+    async fn rest_owner_proxies_are_intercepted_ahead_of_the_generic_floor_gate() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = rest_owner(temp.path());
+
+        for name in ["mission_spawn", "m1nd.mission_spawn", "m1nd_mission_spawn"] {
+            let (status, payload) = call_tool(
+                &app,
+                name,
+                None,
+                serde_json::json!({
+                    "runner_id": "runner-that-never-announced",
+                    "packet_markdown": "# packet",
+                    "block_id": "blk-1",
+                    "brain_ref": "bound"
+                }),
+            )
+            .await;
+            let rendered = payload.to_string();
+            assert!(
+                !rendered.contains("generic_action_authority_required"),
+                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
+            assert!(
+                rendered.contains("no live runner 'runner-that-never-announced'"),
+                "{name} must answer with the proxy's own honest refusal: {rendered}"
+            );
+        }
+
+        for name in [
+            "candidate_naming",
+            "m1nd.candidate_naming",
+            "m1nd_candidate_naming",
+        ] {
+            let (status, payload) = call_tool(
+                &app,
+                name,
+                None,
+                serde_json::json!({ "expected_store_version": 1 }),
+            )
+            .await;
+            let rendered = payload.to_string();
+            assert!(
+                !rendered.contains("generic_action_authority_required"),
+                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
+            assert!(
+                rendered.contains("no system-block store here yet"),
+                "{name} must answer with the proxy's own honest refusal: {rendered}"
+            );
+        }
+    }
+
+    /// No widening: the interception is keyed to the two verbs that HAVE an owner
+    /// proxy, never to their authority floor. `edit_commit` (`source.edit.commit`)
+    /// sits at the same `SCOPED_GRANT_A2` — the REST-seam twin of the spec1 pin
+    /// `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`. Its refusal
+    /// bytes are pinned here verbatim so admitting the proxies cannot silently
+    /// admit the floor.
+    #[tokio::test]
+    async fn rest_scoped_grant_a2_siblings_keep_todays_refusal_bytes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = rest_owner(temp.path());
+
+        let (status, payload) = call_tool(
+            &app,
+            "edit_commit",
+            None,
+            serde_json::json!({ "agent_id": "attacker", "edit_id": "e-1" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{payload}");
+        assert_eq!(
+            payload["message"].as_str().unwrap_or_default(),
+            "invalid params for edit_commit: generic_action_authority_required: \
+             semantic_action=source.edit.commit authority_floor=SCOPED_GRANT_A2 \
+             cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease \
+             consumer is installed for this action",
+            "REST-seam A2 sibling refusal bytes moved: {payload}"
+        );
+
+        // And the policy function itself is untouched: the two proxy verbs stay
+        // refused for every OTHER seam that consults it (the MCP wire, where they
+        // are HTTP-only by design — the browser never holds the runner secret).
+        for (tool, params) in [
+            (
+                "mission_spawn",
+                serde_json::json!({
+                    "runner_id": "r-1",
+                    "packet_markdown": "# p",
+                    "block_id": "b-1",
+                    "brain_ref": "bound"
+                }),
+            ),
+            (
+                "candidate_naming",
+                serde_json::json!({ "expected_store_version": 1 }),
+            ),
+        ] {
+            let refusal = crate::server::enforce_generic_action_policy(tool, &params)
+                .expect_err("the generic policy must still refuse the HTTP-only proxies")
+                .to_string();
+            assert!(
+                refusal.contains("generic_action_authority_required")
+                    && refusal.contains("SCOPED_GRANT_A2"),
+                "{tool}: {refusal}"
+            );
+        }
     }
 
     fn bound_node_count(app: &Arc<AppState>) -> u32 {
