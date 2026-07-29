@@ -80,7 +80,7 @@ v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the d
 
 ## Born agent-first
 
-All of it local. Nothing leaves your machine, there is no account, and the graph answers in microseconds precisely because there is no API in the way.
+No account, no telemetry, and no API in the way, which is also why the graph answers in microseconds.
 
 The development of m1nd is not very normal either. Building it meant building a whole workflow where agents direct, verify and prove the work, and the logic of the product is aimed at the agent's pain, not the human's dashboard. Very few programs start from that in their initial design. So m1nd is born different: the verbs, the refusals and the packets are shaped for the reader that actually uses them, and you do not even have to remind the model the tool exists. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation at spawn: your agent, and every subagent it spawns, starts oriented before anyone types a word.
 
