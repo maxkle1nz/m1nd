@@ -405,7 +405,7 @@ mod tests {
     fn p256_low_s_der_lower_hex(signing_key: &p256::ecdsa::SigningKey, message: &[u8]) -> String {
         use p256::ecdsa::signature::Signer as _;
         let signature: p256::ecdsa::Signature = signing_key.sign(message);
-        let normalized = signature.normalize_s().unwrap_or(signature);
+        let normalized = signature.normalize_s();
         hex_lower(normalized.to_der().as_bytes())
     }
 
@@ -418,12 +418,7 @@ mod tests {
             key_id: "owner-p256-key-1".to_owned(),
             subject_id: "owner-1".to_owned(),
             algorithm: ECDSA_P256_SHA256_X962_ALGORITHM.to_owned(),
-            public_key: hex_lower(
-                signing_key
-                    .verifying_key()
-                    .to_encoded_point(false)
-                    .as_bytes(),
-            ),
+            public_key: hex_lower(signing_key.verifying_key().to_sec1_point(false).as_bytes()),
             created_at: NOW - 10_000,
             activated_at: NOW - 9_000,
             expires_at: None,

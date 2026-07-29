@@ -417,7 +417,7 @@ fn now_iso() -> String {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::util::hex_lower(&Sha256::digest(bytes))
 }
 
 /// Build one curation mission letter (§3/§4). Every curation letter is seat `oracle`

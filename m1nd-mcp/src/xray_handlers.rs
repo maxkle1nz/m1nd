@@ -746,7 +746,7 @@ pub struct XrayApplyOutput {
 
 /// Cryptographic content digest for both within-call and cross-call OCC.
 fn content_hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::util::hex_lower(&Sha256::digest(bytes))
 }
 
 /// Cross-call OCC fingerprint over the PLANNED files' current on-disk content.
@@ -767,7 +767,7 @@ fn plan_version(entries: &[(PathBuf, String)]) -> String {
         hasher.update((guard.len() as u64).to_be_bytes());
         hasher.update(guard.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    crate::util::hex_lower(&hasher.finalize())
 }
 
 /// Pure FILE transform: returns `Some(new_content)` if it changes the file,

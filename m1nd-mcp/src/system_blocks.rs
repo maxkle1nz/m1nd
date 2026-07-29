@@ -1674,7 +1674,7 @@ fn membership_fingerprint(sorted_members: &[String]) -> String {
         hasher.update(m.as_bytes());
         hasher.update(b"\n");
     }
-    format!("sha256:{:x}", hasher.finalize())
+    format!("sha256:{}", crate::util::hex_lower(&hasher.finalize()))
 }
 
 /// Resolve a block's EFFECTIVE membership against a real file list. Exact-path

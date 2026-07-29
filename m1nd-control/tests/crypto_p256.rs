@@ -36,7 +36,7 @@ impl TestP256Signer {
 
     fn public_key_bytes(&self) -> Vec<u8> {
         VerifyingKey::from(&self.signing_key)
-            .to_encoded_point(false)
+            .to_sec1_point(false)
             .as_bytes()
             .to_vec()
     }
@@ -324,7 +324,7 @@ fn p256_rejects_compressed_keys_and_non_der_signer_output() {
         .unwrap();
     key.public_key = hex_lower(
         VerifyingKey::from(&fixtures.owner_signer.signing_key)
-            .to_encoded_point(true)
+            .to_sec1_point(true)
             .as_bytes(),
     );
     assert!(matches!(

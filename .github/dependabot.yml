@@ -35,23 +35,6 @@ updates:
       # than letting a grouped bump decide.
       - dependency-name: bincode
         versions: ["3.x"]
-      # sha2 0.11 cannot arrive alone. It moves to `digest` 0.11, which swaps
-      # `generic-array` for `hybrid-array` — and `hybrid-array::Array` drops the
-      # `LowerHex` impl the whole repo hashes through (~26 `format!("{:x}", ..)`
-      # sites over letter ids, content digests and WAL record hashes). Worse, it
-      # buys nothing on its own: `ed25519-dalek` 2.2.0 and `p256` 0.13.2 both
-      # require `sha2 = "0.10"`, so 0.10 stays in the graph either way and the
-      # workspace merely straddles both majors (measured: with m1nd-core on
-      # 0.11, `cargo tree -i sha2@0.10.9` still resolves via m1nd-control).
-      # The coherent move is the whole RustCrypto sweep — ed25519-dalek 3.0,
-      # p256 0.14, ecdsa 0.17, elliptic-curve 0.14, curve25519-dalek 5.0,
-      # signature 3.0, all of which DO want sha2 0.11 — as one deliberate,
-      # security-reviewed PR against the authority/enclave signing paths.
-      # Drop this entry as part of that sweep, never as a lone sha2 bump.
-      # (The hash OUTPUT is stable across the majors: sha2 0.11 reproduces the
-      # pinned NIST vectors for sha256("") and sha256("abc") byte for byte.)
-      - dependency-name: sha2
-        versions: ["0.11.x"]
 
   - package-ecosystem: npm
     directory: /

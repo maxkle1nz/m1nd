@@ -94,7 +94,7 @@ pub fn ui_tree_identity_from_entries(mut entries: Vec<(String, Vec<u8>)>) -> UiT
         hasher.update(bytes);
     }
     UiTreeIdentity {
-        sha256: format!("{:x}", hasher.finalize()),
+        sha256: hex_lower(&hasher.finalize()),
         placeholder,
     }
 }
@@ -130,4 +130,21 @@ pub fn stable_ui_tree_identity_with_hook(
         });
     }
     Ok(after)
+}
+
+/// Lowercase hex of a byte slice.
+///
+/// `digest` 0.11 returns `hybrid_array::Array`, which — unlike the old
+/// `generic_array::GenericArray` — does not implement `LowerHex`, so the
+/// former `format!("{:x}", ..)` spelling no longer compiles. This is the
+/// workspace's existing hex idiom, kept local so the digest call sites stay
+/// dependency-free.
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }

@@ -1554,7 +1554,7 @@ mod tests {
             let public_key_sec1 = key
                 .signing_key
                 .verifying_key()
-                .to_encoded_point(false)
+                .to_sec1_point(false)
                 .as_bytes()
                 .to_vec();
             EnclaveOpenedKeyV1 {
@@ -1969,7 +1969,7 @@ mod tests {
 
     fn seat_pubkey(seed: &str) -> String {
         let signing = SigningKey::from_slice(&scalar_for(seed)).unwrap();
-        hex_lower(signing.verifying_key().to_encoded_point(false).as_bytes())
+        hex_lower(signing.verifying_key().to_sec1_point(false).as_bytes())
     }
 
     fn ceremony_seat(id: &str, domain: &str) -> CeremonyVerifierSeatV1 {

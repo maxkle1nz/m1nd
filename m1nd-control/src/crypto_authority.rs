@@ -1210,7 +1210,7 @@ impl DecodedPublicKey {
     fn canonical_bytes(&self) -> Vec<u8> {
         match self {
             Self::Ed25519(key) => key.as_bytes().to_vec(),
-            Self::P256(key) => key.to_encoded_point(false).as_bytes().to_vec(),
+            Self::P256(key) => key.to_sec1_point(false).as_bytes().to_vec(),
         }
     }
 }
@@ -1234,7 +1234,7 @@ fn decode_public_key(
             }
             let key = P256VerifyingKey::from_sec1_bytes(&bytes)
                 .map_err(|_| AuthorityCryptoError::PublicKeyEncoding)?;
-            if key.to_encoded_point(false).as_bytes() != bytes {
+            if key.to_sec1_point(false).as_bytes() != bytes {
                 return Err(AuthorityCryptoError::PublicKeyEncoding);
             }
             Ok(DecodedPublicKey::P256(key))
@@ -1274,7 +1274,11 @@ fn canonicalize_and_verify_signature(
         DecodedPublicKey::P256(key) => {
             let parsed = P256Signature::from_der(signature)
                 .map_err(|_| AuthorityCryptoError::SignatureEncoding)?;
-            let normalized = parsed.normalize_s().unwrap_or(parsed);
+            // `ecdsa` 0.17 made `normalize_s` infallible: it used to return
+            // `None` when `s` was already low and `Some(flipped)` otherwise,
+            // so the old spelling was `.normalize_s().unwrap_or(parsed)`. The
+            // value produced is identical — always the low-S representative.
+            let normalized = parsed.normalize_s();
             key.verify(message, &normalized)
                 .map_err(|_| AuthorityCryptoError::SignatureInvalid)?;
             Ok(normalized.to_der().as_bytes().to_vec())

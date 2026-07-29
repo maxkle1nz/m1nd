@@ -3946,7 +3946,10 @@ impl SessionState {
     fn proof_target_digest(target_identity: &str) -> Result<String, String> {
         let path = Path::new(target_identity);
         match std::fs::read(path) {
-            Ok(bytes) => Ok(format!("sha256:{:x}", Sha256::digest(bytes))),
+            Ok(bytes) => Ok(format!(
+                "sha256:{}",
+                crate::util::hex_lower(&Sha256::digest(bytes))
+            )),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Missing is a first-class disk state, not an empty-file hash.
                 Ok("missing".to_string())
@@ -4023,7 +4026,10 @@ impl SessionState {
             agent_id,
             raw_target,
             evidence,
-            Some(format!("sha256:{:x}", Sha256::digest(inspected_content))),
+            Some(format!(
+                "sha256:{}",
+                crate::util::hex_lower(&Sha256::digest(inspected_content))
+            )),
         )
     }
 
@@ -4310,7 +4316,7 @@ fn checkpoint_candidate_digest(files: &[SessionCheckpointCandidateFile]) -> Stri
             CheckpointCandidatePresence::Absent => hasher.update([0]),
         }
     }
-    format!("{:x}", hasher.finalize())
+    crate::util::hex_lower(&hasher.finalize())
 }
 
 fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {

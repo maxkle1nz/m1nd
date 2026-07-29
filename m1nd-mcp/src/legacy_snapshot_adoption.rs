@@ -73,7 +73,7 @@ pub enum LegacyAdoptionOutcome {
 fn sha256(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    crate::util::hex_lower(&hasher.finalize())
 }
 
 fn now_ms() -> u64 {

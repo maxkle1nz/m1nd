@@ -564,7 +564,7 @@ fn co_change_state_digest(state: &CoChangeMatrixStateV1) -> M1ndResult<String> {
     let mut hasher = Sha256::new();
     hasher.update(b"m1nd/co-change-state/v1\0");
     hasher.update(bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_lower(&hasher.finalize()))
 }
 
 fn graph_external_ids(graph: &Graph) -> M1ndResult<Vec<String>> {
@@ -1333,3 +1333,20 @@ pub struct TemporalReport {
 
 // Ensure Send + Sync.
 static_assertions::assert_impl_all!(TemporalEngine: Send, Sync);
+
+/// Lowercase hex of a byte slice.
+///
+/// `digest` 0.11 returns `hybrid_array::Array`, which — unlike the old
+/// `generic_array::GenericArray` — does not implement `LowerHex`, so the
+/// former `format!("{:x}", ..)` spelling no longer compiles. This is the
+/// workspace's existing hex idiom, kept local so the digest call sites stay
+/// dependency-free.
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
