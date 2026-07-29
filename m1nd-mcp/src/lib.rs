@@ -61,6 +61,9 @@ pub mod boot_memory_handlers;
 pub mod boot_kv_migration;
 // Upgrade-path repair: one-time boot adoption of a pre-1.5 legacy graph snapshot.
 pub mod legacy_snapshot_adoption;
+// SPEC-2 — `brain.bootstrap.birth`, the birth ceremony's server verb
+// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified 2026-07-29).
+pub mod brain_birth;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
 pub mod engine_ops;
@@ -259,6 +262,12 @@ mod ui_bundle_attestation_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/spec1_refresh_declared_root.rs"]
 mod spec1_refresh_declared_root_internal_tests;
+// SPEC-2 — the birth path's acceptance battery
+// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5.7 + the birth half of §5.8),
+// written before its implementation.
+#[cfg(test)]
+#[path = "internal_tests/spec2_brain_bootstrap_birth.rs"]
+mod spec2_brain_bootstrap_birth_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]
