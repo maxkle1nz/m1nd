@@ -93,11 +93,10 @@ export function Hero() {
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="max-w-4xl"
         >
-          <div className="inline-flex items-center gap-2 sm:gap-3 rounded-full border border-primary/30 bg-primary/10 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-mono text-primary mb-8">
-            <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-primary animate-pulse" />
-            <span className="whitespace-nowrap">Built for agents first. Humans are welcome.</span>
-            <span className="hidden sm:block h-3 w-px flex-shrink-0 bg-primary/30" />
-            <span className="hidden sm:block text-primary/60 whitespace-nowrap">the human is the second reader</span>
+          <div className="font-mono text-[11px] sm:text-xs mb-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <span style={{ color: "#00f5ffb0" }}>north("harden the auth flow")</span>
+            <span style={{ color: "#00f5ff40" }}>→</span>
+            <span style={{ color: "#ffffff50" }}>trust: full_trust · memory: prior session · honest_gaps: 0</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
