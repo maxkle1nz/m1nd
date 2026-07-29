@@ -62,11 +62,15 @@ this loop by default:
    `focus`; reach for the pieces directly only when you need just one. Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. The public cross-root bootstrap consumer is not
-   installed: never add `project_root` or `allow_overlap` to `ingest`, and never
-   treat the internal owner bootstrap as an executable repair. The honest code is
-   `brain_bootstrap_consumer_not_installed`; connect to an owner that already
-   hosts the intended brain or continue only with explicit mismatch caveats.
+   `reception.options[]`. Generic cross-root `ingest` remains withdrawn: never
+   add `project_root` or `allow_overlap`, and never treat the internal owner
+   bootstrap as an executable repair. A brainless repo now has ONE real path —
+   the HUMAN's one-time ceremony `m1nd init --birth <repo>`: OFFER that exact
+   command and stop (over the wire the birth verb refuses every client with
+   `human_gesture_required`; writes into a brainless root still refuse
+   `brain_bootstrap_consumer_not_installed`). Until the human runs it, connect
+   to an owner that already hosts the intended brain or continue only with
+   explicit mismatch caveats.
    Reception governs WRITES, not just reads: a read under mismatch is a warning,
    but a WRITE under mismatch is PROHIBITED by doctrine — any write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_*`,

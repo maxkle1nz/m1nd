@@ -630,6 +630,12 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "daemon_tick" => "daemon.tick",
         "alerts_ack" => "daemon.alerts_ack",
         "promote" => "brain.promote",
+        // SPEC-2's birth verb (GENESIS-INGEST-CONSUMERS-SPEC.md §2). A FIXED
+        // action: it is selected by the tool name alone, so no field a client
+        // sends — least of all one claiming a human origin — can change what it
+        // classifies as, and the refusal every generic seam emits for it is
+        // therefore byte-identical however the call is dressed.
+        "brain_birth" => "brain.bootstrap.birth",
         "skeleton_candidate" => "system_blocks.skeleton_candidate",
         "system_blocks_seed_import" => "system_blocks.seed_import.force",
         "system_blocks_ratify" => "system_blocks.ratify",

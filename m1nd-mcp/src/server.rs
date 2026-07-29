@@ -42,20 +42,23 @@ what one agent proves and memorizes, the next agent reads. Operate in a loop.
 A response may carry a `reception` block. `reception.match == \"caller_root_mismatch\"` \
 means the bound graph does NOT cover your current repo (its root ≠ your resolved \
 `caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
-The public brain-bootstrap consumer is NOT installed. Do not call generic `ingest` \
-with `project_root`: cross-root bootstrap is POSITIVE_SOVEREIGN and intentionally fails \
-closed until an exact typed G2/G3 consumer exists. Continue only against the bound \
-graph (with the mismatch warning intact), or reconnect to an owner that already hosts \
-the intended repo. Absent `reception` = your root matches the brain serving you \
-(silent bind is legal only on a match, TT-INV-12).
+Generic cross-root `ingest` remains withdrawn (no `project_root` in the schema; \
+POSITIVE_SOVEREIGN, fails closed), and the birth verb refuses every wire client with \
+`human_gesture_required` — but a repo with NO brain now has a real path: the HUMAN \
+runs the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
+OFFER that exact command and stop; running it is not the agent's to do. Until the human runs it: continue only against the bound graph (with the mismatch \
+warning intact), or reconnect to an owner that already hosts the intended repo. Absent \
+`reception` = your root matches the brain serving you (silent bind is legal only on a \
+match, TT-INV-12).
 
 **Reception governs WRITES, not just reads.** A read under `caller_root_mismatch` is a \
 warning; a WRITE under it is PROHIBITED by doctrine — `memorize`, `skeleton_candidate`, \
 `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`, and `mission_post` would \
 each land in the WRONG brain (this is exactly how a foreign skeleton once overwrote a bound \
 brain). Do not attempt a write from this mismatched session. The honest recovery code is \
-`brain_bootstrap_consumer_not_installed`; no public one-call bootstrap or overlap escape hatch \
-is advertised while that sovereign consumer is absent.
+`brain_bootstrap_consumer_not_installed`; no AGENT-callable one-call bootstrap or overlap \
+escape hatch exists — the sovereign consumer is human-gated, and the human's ceremony \
+(`m1nd init --birth <repo>`) is the only door.
 
 **ADVERTISED ≠ CALLABLE — the authority floors.** Bootstrap is not the only closed door. Every \
 semantic action carries an M1ND-10 authority floor and generic MCP/REST dispatch admits only \
@@ -1151,6 +1154,18 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         }
                     },
                     "required": ["path", "agent_id"]
+                }
+            },
+            {
+                "name": "brain_birth",
+                "description": "Birth a NEW project brain for a repo that has none. This is the HUMAN's one-time gesture, not an agent's call: admission is an origin the OWNER stamps from a fact it observes about itself, and an origin string sent as a parameter grants nothing. Over generic MCP/REST this verb is refused for every client, however the call is dressed. The one path that exists today is the P2 ceremony a HUMAN runs in their terminal: `m1nd init --birth <repo>`. If you are an agent and a repo has no brain, OFFER that exact command and stop; running it is not yours to do. Birth refuses unless the destination is empty ON DISK (no manifest, snapshot or checkpoint), refuses any root that overlaps an existing brain, never touches the owner's bound graph, and is not the way to adopt an existing brain — that is migration, a boot-time fact with no verb.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Repo root to birth a brain for" },
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["root", "agent_id"]
                 }
             },
             {
@@ -6619,6 +6634,13 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             tools::handle_ingest(state, input)
         }
+        // SPEC-2's birth verb, at the DISPATCHER — which is exactly where it can
+        // never succeed. The dispatcher holds no `HumanOrigin` and cannot
+        // construct one (the type has no public constructor), so every route
+        // that reaches this arm is by definition a route with no owner stamp.
+        // The generic policy gate refuses first and harder; this is the second
+        // layer, for any in-process seam that reaches `dispatch_tool` directly.
+        "brain_birth" => Ok(crate::brain_birth::birth_refusal_without_stamp()),
         "document_resolve" => {
             let input: DocumentResolveInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -7970,6 +7992,13 @@ impl McpServer {
     pub fn spawn_instance_heartbeat(&self) -> M1ndResult<tokio::task::JoinHandle<()>> {
         let permit = self.actor_execute(false, |state| Ok(state.instance.heartbeat_permit()))?;
         Ok(crate::instance_registry::spawn_heartbeat(permit))
+    }
+
+    /// The configured global registry dir (the shared instance phonebook), for an
+    /// offline one-shot that has to build a `ProjectBrainRegistry` of its own and
+    /// must land its instances in the SAME phonebook the owner uses.
+    pub(crate) fn config_registry_dir(&self) -> Option<PathBuf> {
+        self.config.registry_dir.clone()
     }
 
     /// Return an opaque cooperative stop handle for a running stdio loop.
