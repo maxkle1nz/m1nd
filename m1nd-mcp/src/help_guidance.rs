@@ -83,8 +83,13 @@ pub fn catalog_entries() -> Vec<HelpCatalogEntry> {
             let (category, glyph) = manual
                 .map(|doc| (doc.category.to_string(), doc.glyph.to_string()))
                 .unwrap_or_else(|| infer_category_and_glyph(&schema.name));
+            // The manual's curated one-liner SHADOWS the schema description, so
+            // the floor annotation has to travel with it — otherwise `help`
+            // keeps advertising as callable the verbs `tools/list` now marks
+            // POLICY-DISABLED. The schema description already carries the long
+            // form, so it passes through untouched.
             let one_liner = manual
-                .map(|doc| doc.one_liner.to_string())
+                .map(|doc| crate::server::annotate_floor_gated_summary(&schema.name, doc.one_liner))
                 .unwrap_or_else(|| schema.description.clone());
             let returns = manual
                 .map(|doc| doc.returns.to_string())

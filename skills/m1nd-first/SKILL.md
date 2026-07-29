@@ -119,6 +119,27 @@ this loop by default:
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
 
+## Advertised ≠ callable — the authority floors
+
+`tools/list` advertises the full verb surface, but generic MCP/REST dispatch
+admits only actions whose M1ND-10 authority floor is `ORDINARY`. A verb above it
+(`SCOPED_GRANT_A2` / `POSITIVE_SOVEREIGN` / `SERVICE_IDENTITY`) refuses with
+`generic_action_authority_required`; no payload shape, capability claim, or retry
+lifts it — only an exact typed G2/G3 consumer (an authority lease), and none is
+installed for those actions yet. 40 of the 141 advertised verbs are affected
+today, including `learn`, `debrief`, `promote`, `calibrate_predict` /
+`calibrate_envelope`, `ghost_edges`, `runtime_overlay`, `apply` / `apply_batch` /
+`edit_commit`, `daemon_start` / `_stop` / `_tick`, `auto_ingest_start` / `_stop`
+/ `_tick` (their `_status` reads stay open), the `xray_*` commit branch,
+`boot_memory` set/delete, `mission_close write_light_memory:true`, and every
+system-blocks writer.
+
+The schema is the live source of truth: each affected description is prefixed
+`POLICY-DISABLED (authority floor …)`. Read it before planning a step around a
+verb, and never spend turns retrying a floor refusal. Reads, `memorize`,
+`delegate`, `trail_save`, the perspective family, and plain `mission_start` /
+`_event` / `_verify` / `_handoff` / `_close` stay `ORDINARY` and work.
+
 ## The Write Surface — closed routing, the map, and missions
 
 Retrieval is forgiving; writing is not. Four things to know before any write:
