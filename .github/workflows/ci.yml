@@ -31,13 +31,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-latest lives in the advisory `rust-gates-windows` job below —
-        # it still runs the full gate and reports its own honest red/green check,
-        # but is deliberately OUT of the `test-status` aggregator so a red Windows
-        # leg (the tracked phase-2 source-edit path-canon debt) does not block
-        # merge. Re-add windows-latest here and delete that job when Windows goes
-        # green. (2026-07-23 — CI throughput was hostage to admin overrides.)
-        os: [ubuntu-latest, macos-latest]
+        # windows-latest is REQUIRED again (2026-07-29). It left on 2026-07-23 as
+        # an advisory job while the phase-2 debt was diagnosed and paid down —
+        # source-edit path-canon (#435), the transplant harness (#436), runnerd
+        # fixtures (#437), cfg(windows)-only clippy (#438, #440), wall-clock
+        # budgets (#444). The flip was made against a fully green advisory run on
+        # main (run 30426528487), not a hopeful one. The scaffold is deleted; if
+        # Windows regresses now, it blocks merge — which is the point.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -67,41 +68,6 @@ jobs:
       # proved nothing tests+clippy don't, at ~half the round's wall-clock, and
       # the signed release pipeline rebuilds --release at tag time anyway. A
       # release-profile-only breakage is now caught on the main push instead.
-      - name: Build the complete release workspace
-        if: github.event_name == 'push'
-        run: cargo build --locked --release --workspace
-
-  # ADVISORY (phase-2, since 2026-07-23): Windows runs the full Rust gate and
-  # reports its own honest check, but is NOT in `test-status.needs`, so its red
-  # (the ~22 source-edit path-canon tests — declared phase-2 debt, diagnosed) no
-  # longer blocks merge. This restores auto-merge; the debt stays visible.
-  rust-gates-windows:
-    name: Rust gates (windows-latest · phase-2 advisory)
-    runs-on: windows-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          components: clippy,rustfmt
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          key: rust-gates-windows-latest
-      # Mirrors the required gate exactly: no standalone check (clippy subsumes
-      # it), release-profile build on main pushes only.
-      #
-      # `--no-fail-fast` ONLY here, and deliberately. Cargo stops after the first
-      # test binary that fails, so on a leg carrying known debt every fix reveals
-      # the next failure one CI round at a time — the source-edit family masked a
-      # transplant-harness bug, which was in turn masking runnerd's. An advisory
-      # leg exists to MEASURE the debt, so it has to report all of it in one run.
-      # The required gate keeps failing fast.
-      - name: Test every target
-        run: cargo test --locked --workspace --all-targets --no-fail-fast
-      - name: Deny clippy warnings
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Verify formatting
-        run: cargo fmt --all --check
       - name: Build the complete release workspace
         if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
