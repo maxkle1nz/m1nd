@@ -24,8 +24,8 @@ pub const ACTION_CONSUMER_CONTRACT_SCHEMA: &str = "m1nd-action-consumer-contract
 /// declarations and this digest together; silently regenerating the registry
 /// from a changed catalog is forbidden.
 pub const EXPECTED_M1ND10_ACTION_CATALOG_DIGEST: &str =
-    "9d738cfad09d8ac4de7fcc4b848cda703cb0b46c874a658cc4d2243b774ff493";
-pub const EXPECTED_M1ND10_ACTION_COUNT: usize = 172;
+    "5ec017b09067e4eb13c4078d3925f161c8123119ac679114aa17e1a3bb6009cd";
+pub const EXPECTED_M1ND10_ACTION_COUNT: usize = 173;
 
 pub const MISSION_SERVICE_CONTRACT_VERSION: &str = "m1nd-mission-service-transport-request-v1";
 pub const EXTERNAL_MUTATION_SERVICE_CONTRACT_VERSION: &str = "m1nd-external-mutation-consumer-v1";
@@ -106,6 +106,14 @@ pub enum ConsumerPolicyDisabledReasonV1 {
 #[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActionConsumerDispositionV1 {
     EnabledGenericOrdinary,
+    /// Admitted on the generic ingress ABOVE the ordinary floor, with no lease
+    /// plane, because the action is named one by one in
+    /// [`GENERIC_A2_LOCAL_ADMITTED_ACTIONS`]. This exists so the registry keeps
+    /// telling the truth: an action reachable through the generic door must not
+    /// be recorded here as `PolicyDisabled`, or the one artifact whose whole job
+    /// is "absence is recorded as policy, never inferred" would lie about
+    /// presence instead.
+    EnabledGenericScopedA2Local,
     EnabledTypedConsumer {
         consumer_id: TypedConsumerIdV1,
         contract_version: String,
@@ -115,6 +123,26 @@ pub enum ActionConsumerDispositionV1 {
         reason: ConsumerPolicyDisabledReasonV1,
     },
 }
+
+/// The action-keyed generic-dispatch allowlist — the ONE opening in the
+/// authority wall (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.1, owner-ratified
+/// 2026-07-29).
+///
+/// Keyed BY ACTION, never by floor. That is the whole point of the shape: the
+/// two `SCOPED_GRANT_A2` siblings that already exist — `source.edit.commit` and
+/// `graph.ingest.merge_existing` — sit at exactly this floor and must stay
+/// refused, so a floor-keyed exception would have opened all three at once
+/// (verdict RC-4). `internal_tests/spec1_refresh_declared_root.rs` §5.9 pins
+/// their refusal bytes verbatim against that mistake.
+///
+/// Admission here only admits the CATEGORY. Every authority-relevant fact —
+/// which root, whether the caller exactly inhabits it, whether the candidate
+/// would shrink the graph — is enforced inside the typed handler, after brain
+/// resolution, fail-closed.
+///
+/// ONE source of truth: `server::enforce_generic_action_policy` reads this list
+/// to admit, and `expected_disposition` reads it to describe. They cannot drift.
+pub const GENERIC_A2_LOCAL_ADMITTED_ACTIONS: &[&str] = &["graph.ingest.refresh_declared_root"];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -562,11 +590,13 @@ fn expected_disposition(
         };
     }
     if entry.authority_floor == AuthorityFloor::Ordinary {
-        ActionConsumerDispositionV1::EnabledGenericOrdinary
-    } else {
-        ActionConsumerDispositionV1::PolicyDisabled {
-            reason: ConsumerPolicyDisabledReasonV1::NoExactConsumer,
-        }
+        return ActionConsumerDispositionV1::EnabledGenericOrdinary;
+    }
+    if GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&entry.action.as_str()) {
+        return ActionConsumerDispositionV1::EnabledGenericScopedA2Local;
+    }
+    ActionConsumerDispositionV1::PolicyDisabled {
+        reason: ConsumerPolicyDisabledReasonV1::NoExactConsumer,
     }
 }
 
@@ -858,6 +888,15 @@ pub fn external_consumer_contract(
                 Some(&registry),
             ))
         }
+        ActionConsumerDispositionV1::EnabledGenericScopedA2Local => {
+            return Err(disabled(
+                action,
+                ingress,
+                ConsumerPolicyDisabledReasonV1::NoExactConsumer,
+                "cell is admitted A2-LOCAL through the action-keyed generic allowlist; it has no typed lease consumer and none may be inferred",
+                Some(&registry),
+            ))
+        }
     };
 
     Ok(ActionConsumerContractV1 {
@@ -910,6 +949,39 @@ mod tests {
         );
     }
 
+    /// The generic door opens for EXACTLY the ratified action and nothing else,
+    /// and it opens at exactly the ratified floor
+    /// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §6 items 1–2, owner 2026-07-29).
+    /// A second entry appearing here without a second ratification is the failure
+    /// this test exists to make loud.
+    #[test]
+    fn the_a2_local_allowlist_holds_exactly_the_ratified_action() {
+        assert_eq!(
+            GENERIC_A2_LOCAL_ADMITTED_ACTIONS,
+            ["graph.ingest.refresh_declared_root"]
+        );
+        let catalog = m1nd10_action_catalog().unwrap();
+        for action in GENERIC_A2_LOCAL_ADMITTED_ACTIONS {
+            let entry = catalog
+                .entries
+                .iter()
+                .find(|entry| entry.action.as_str() == *action)
+                .unwrap_or_else(|| panic!("{action} is allowlisted but absent from the catalog"));
+            assert_eq!(entry.authority_floor, AuthorityFloor::ScopedGrantA2);
+            assert!(entry.ingresses.contains(&Ingress::Mcp));
+            // Never sovereign: a door that could change roots or cross brains
+            // does not belong on a list that skips the lease plane.
+            assert!(!entry.complete_effects.contains(&Effect::SovereignMutation));
+        }
+        // The two siblings at the SAME floor must NOT be on it (verdict RC-4).
+        for sibling in ["source.edit.commit", "graph.ingest.merge_existing"] {
+            assert!(
+                !GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&sibling),
+                "{sibling} shares the floor but was never ratified through the generic door"
+            );
+        }
+    }
+
     #[test]
     fn declared_and_undeclared_ingresses_have_closed_exact_dispositions() {
         let catalog = m1nd10_action_catalog().unwrap();
@@ -931,6 +1003,22 @@ mod tests {
                     ActionConsumerDispositionV1::EnabledGenericOrdinary
                 ) {
                     assert_eq!(entry.authority_floor, AuthorityFloor::Ordinary);
+                    assert!(entry.ingresses.contains(&ingress));
+                }
+                // The A2-local opening is CLOSED and named. Any cell carrying it
+                // must be one of the explicitly listed actions, must be at the
+                // ratified `ScopedGrantA2` floor, and must be on a declared
+                // ingress — an unnamed action can never acquire it by drift.
+                if matches!(
+                    cell.disposition,
+                    ActionConsumerDispositionV1::EnabledGenericScopedA2Local
+                ) {
+                    assert!(
+                        GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&entry.action.as_str()),
+                        "{} is A2-local without being on the allowlist",
+                        entry.action.as_str()
+                    );
+                    assert_eq!(entry.authority_floor, AuthorityFloor::ScopedGrantA2);
                     assert!(entry.ingresses.contains(&ingress));
                 }
             }

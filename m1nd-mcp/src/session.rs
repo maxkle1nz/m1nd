@@ -528,6 +528,16 @@ pub struct SessionState {
     /// header does not inherit a stale value. Feeds First-Contact Reception's
     /// mismatch verdict (`reception_verdict`). See TWO-TIER-BRAIN-PRD §9.5.4.
     pub caller_root: Option<String>,
+    /// True while this dispatch was routed by an EXPLICIT brain selector
+    /// (REST `?brain=`, or the wire's own selected-brain route) rather than by
+    /// the caller's own root. Request-scoped exactly like `caller_root`: the
+    /// transport sets it before dispatch and restores it after.
+    ///
+    /// It exists for the authority-exclusive predicates that must never be
+    /// satisfied by a selector (`GENESIS-INGEST-CONSUMERS-SPEC.md` §1.2
+    /// SPEC-1g): a selector says WHICH brain to talk to, never that the caller
+    /// legitimately inhabits that brain's root. `false` on every other path.
+    pub explicit_brain_selector: bool,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
     /// F11-b: the owner-process naming facts (the runnerd announce registry + the
@@ -1296,6 +1306,76 @@ impl SessionState {
         known_roots
             .iter()
             .any(|known| Self::path_starts_with_loosely(candidate, known))
+    }
+
+    /// The exact-root predicate — `covers_root`'s AUTHORITY-EXCLUSIVE sibling
+    /// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.2, verdict RC-1).
+    ///
+    /// `covers_root` above is a PREFIX test by design, and it stays one: it
+    /// answers "may this brain legitimately serve that caller's questions?", and
+    /// a caller deep inside a repo is legitimately served by that repo's brain.
+    /// It is the wrong question for a WRITE. `<root>/m1nd-ui` is covered by the
+    /// brain at `<root>`, so reusing the prefix test here would let any
+    /// subdirectory rewrite the whole repo's graph — the verdict's kill-shot.
+    ///
+    /// So this one asks a different question, and answers it with EQUALITY of
+    /// `canonical_key`s, never a prefix and never a textual comparison:
+    ///
+    /// - `canonical_key` resolves symlinks and the `/tmp` → `/private/tmp` alias
+    ///   (spec R-J), so two spellings of one directory reach ONE decision;
+    /// - it FALLS BACK to the raw string when a path does not resolve
+    ///   (`project_brains.rs`), which alone would let two textually-equal
+    ///   NONEXISTENT paths "match" — so unresolvable paths are refused here
+    ///   explicitly, before any comparison (SPEC-1b);
+    /// - an explicit brain selector is refused outright: `?brain=` says WHICH
+    ///   brain to talk to, never that the caller inhabits that brain's root
+    ///   (SPEC-1g). It is folded into `refresh_root_not_exact` on purpose, so a
+    ///   selector cannot even be DISTINGUISHED from the plain miss — it must buy
+    ///   nothing at all, not even information.
+    ///
+    /// `Ok(canonical_root)` is the canonical key of the declared root the caller
+    /// exactly inhabits. `Err(code)` is a stable refusal code.
+    pub fn exact_declared_root(&self, caller_root: &str) -> Result<String, &'static str> {
+        use crate::project_brains::ProjectBrainRegistry;
+
+        if self.explicit_brain_selector {
+            return Err("refresh_root_not_exact");
+        }
+        let trimmed = caller_root.trim().trim_end_matches('/');
+        if trimmed.is_empty() || !std::path::Path::new(trimmed).exists() {
+            return Err("refresh_root_unresolvable");
+        }
+        let caller_key = ProjectBrainRegistry::canonical_key(trimmed);
+
+        let declared = self
+            .workspace_root
+            .iter()
+            .chain(self.ingest_roots.iter())
+            .filter(|root| std::path::Path::new(root.trim().trim_end_matches('/')).exists())
+            .map(|root| ProjectBrainRegistry::canonical_key(root))
+            .any(|declared| declared == caller_key);
+
+        if declared {
+            Ok(caller_key)
+        } else {
+            Err("refresh_root_not_exact")
+        }
+    }
+
+    /// Every declared root this brain holds, canonicalized — the list the
+    /// exact-root predicate compares against, surfaced so a refusal can name it.
+    pub fn declared_roots_canonical(&self) -> Vec<String> {
+        use crate::project_brains::ProjectBrainRegistry;
+
+        let mut roots: Vec<String> = self
+            .workspace_root
+            .iter()
+            .chain(self.ingest_roots.iter())
+            .map(|root| ProjectBrainRegistry::canonical_key(root))
+            .collect();
+        roots.sort();
+        roots.dedup();
+        roots
     }
 
     /// The brain's real PROJECT root — the repo it maps, NOT its runtime sidecar.
@@ -2122,6 +2202,7 @@ impl SessionState {
             workspace_root: Some(workspace_root.to_string_lossy().to_string()),
             workspace_root_source: Some(workspace_root_source),
             caller_root: None,
+            explicit_brain_selector: false,
             runtime_root: runtime_root.clone(),
             // Threaded in by the HTTP owner at boot; None on stdio (no announce).
             runnerd_naming: None,
@@ -4548,6 +4629,16 @@ mod tests {
         ),
         (
             "finalize_ingest_with_inventory",
+            "ingest",
+            DurabilityRoute::ClassifiedMutation,
+        ),
+        // SPEC-1's freshness door. It writes `ingest_roots` for exactly one
+        // reason: to RESTORE the value it captured before committing, so
+        // SPEC-1d's root-set invariance holds mechanically even if the finalize
+        // path below it ever grows a new root writer. That restore runs inside
+        // the same classified `ingest` turn, which is what makes it durable.
+        (
+            "handle_ingest_refresh",
             "ingest",
             DurabilityRoute::ClassifiedMutation,
         ),

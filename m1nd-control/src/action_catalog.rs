@@ -393,6 +393,18 @@ pub fn m1nd10_action_catalog() -> Result<ActionCatalogV1, ActionCatalogError> {
             High,
             ScopedGrantA2,
         ),
+        // The freshness door (GENESIS-INGEST-CONSUMERS-SPEC.md §1, owner-ratified
+        // 2026-07-29). It re-scans a root the bound brain has ALREADY declared:
+        // same effects as `merge_existing`, and deliberately NO `SovereignMutation`,
+        // because it structurally cannot change the root set or cross to another
+        // brain's territory. Its floor is the ratified `ScopedGrantA2`.
+        entry(
+            "graph.ingest.refresh_declared_root",
+            [Mcp],
+            [GraphMutation, RuntimeStoreWrite],
+            High,
+            ScopedGrantA2,
+        ),
         entry(
             "graph.ingest.change_roots",
             [Mcp],
@@ -2032,7 +2044,7 @@ mod tests {
         // `graph.ingest.preview` is now an explicit read-only governed action
         // rather than an untracked pre-mutation side channel.  Keep this pin in
         // lock-step with the exhaustive consumer registry.
-        assert_eq!(catalog.entries.len(), 172);
+        assert_eq!(catalog.entries.len(), 173);
         assert_eq!(ingresses.len(), 7);
     }
 }

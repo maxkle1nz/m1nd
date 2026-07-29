@@ -273,6 +273,23 @@ bound brain because the writer never checked which brain it was talking to.
    (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
    `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
    disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
+4. **The one ingest you CAN run is `ingest {mode:"refresh"}` — from exactly your own root.**
+   `replace` and `merge` stay policy-disabled for every client; `refresh` re-scans a root the
+   brain has ALREADY declared and is admitted at `SCOPED_GRANT_A2`, A2-locally, with no lease
+   (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1, owner-ratified 2026-07-29). It is admitted by
+   ACTION, never by floor: the two siblings at that same floor — `source.edit.commit` and
+   `graph.ingest.merge_existing` — stay refused, and a test pins their refusal bytes.
+   What it refuses, always with nothing mutated: a caller root that is not EXACTLY a declared
+   root (`refresh_root_not_exact` — a subdirectory is not the root, and neither is an explicit
+   REST `?brain=` selector); a path that does not resolve (`refresh_root_unresolvable`); a
+   second refresh of the same root (`refresh_in_flight`); a root set that would move
+   (`refresh_would_change_roots`); and — the armor that matters — a candidate holding under
+   **60%** of the live graph's nodes (`refresh_would_shrink_graph`, naming both counts). That
+   last one exists because the persist layer's own shrink guard is fail-open by written
+   design: it backs up and writes anyway. Do NOT reach for `refresh` to repair a reception
+   mismatch — it cannot create or rebind anything, and law 1 still governs. It closes the
+   reflex vector, an agent acting from habit or misconfiguration; it is not a defense against
+   a hostile same-UID process (that is the lease plane, still dormant).
 
 **When you withdraw a capability, sweep the prose in the same PR.** The cross-root bootstrap
 was withdrawn in the runtime (the published `ingest` schema lost `project_root` and

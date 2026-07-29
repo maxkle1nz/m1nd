@@ -44,9 +44,275 @@ pub const HOST_BINDING_REQUIRED_TOOLS: [&str; 8] = [
 fn normalized_ingest_mode(mode: &str) -> &str {
     if mode.eq_ignore_ascii_case("merge") {
         "merge"
+    } else if mode.eq_ignore_ascii_case("refresh") {
+        "refresh"
     } else {
         "replace"
     }
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-1 — `graph.ingest.refresh_declared_root`, the freshness door.
+// `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1, owner-ratified 2026-07-29.
+// ---------------------------------------------------------------------------
+
+/// The shrink floor, ratified by the owner at 60% (spec §6 item 3).
+///
+/// A candidate holding fewer than this share of the live graph's nodes REFUSES.
+/// This is armor the persist layer deliberately does not provide: its own guard
+/// is fail-open by written design (spec R-G — it backs up and writes anyway), so
+/// "root set unchanged" never implied "graph intact". The R-D damage signature —
+/// a narrow scan replacing a wide graph, measured twice in 24h on the deployed
+/// 1.4.x owner — dies here even for a caller who is entirely legitimate.
+pub const REFRESH_SHRINK_FLOOR_PERCENT: u64 = 60;
+
+/// The refusal envelope. ONE shape for every refusal reason so both transports
+/// emit the same bytes for the same decision (SPEC-1g), and so an agent can
+/// branch on `refused` without parsing prose.
+fn refresh_refusal(code: &str, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "schema": "m1nd-graph-ingest-refresh-v1",
+        "action": "graph.ingest.refresh_declared_root",
+        "refused": code,
+        "reason": reason,
+    })
+}
+
+/// Roots currently being refreshed, by canonical key — single-flight per root
+/// (SPEC-1c, a cp32 requirement, closing the TOCTOU between "candidate measured"
+/// and "candidate committed").
+fn refresh_in_flight_roots() -> &'static std::sync::Mutex<HashSet<String>> {
+    static ROOTS: std::sync::OnceLock<std::sync::Mutex<HashSet<String>>> =
+        std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| std::sync::Mutex::new(HashSet::new()))
+}
+
+/// Holds one root's single-flight claim and releases it on every exit path,
+/// including a panic inside the ingest.
+struct RefreshInFlightGuard(String);
+
+impl Drop for RefreshInFlightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut roots) = refresh_in_flight_roots().lock() {
+            roots.remove(&self.0);
+        }
+    }
+}
+
+/// Hold a root's single-flight claim from a test, so SPEC-1c's exclusivity is
+/// proved deterministically instead of by racing two threads and hoping.
+#[cfg(test)]
+pub(crate) fn claim_refresh_root_for_test(canonical_root: &str) -> Option<impl Drop> {
+    claim_refresh_root(canonical_root)
+}
+
+/// `None` when another refresh already holds this root.
+fn claim_refresh_root(canonical_root: &str) -> Option<RefreshInFlightGuard> {
+    let mut roots = refresh_in_flight_roots()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !roots.insert(canonical_root.to_string()) {
+        return None;
+    }
+    Some(RefreshInFlightGuard(canonical_root.to_string()))
+}
+
+/// Re-ingest a root this brain has ALREADY declared.
+///
+/// The door never creates a brain, never adds a root, and never crosses to
+/// another brain's territory. Admission at the dispatch seam admitted only the
+/// CATEGORY (`action_consumers::GENERIC_A2_LOCAL_ADMITTED_ACTIONS`); everything
+/// that actually carries authority is decided HERE, after brain resolution, and
+/// every branch is fail-closed.
+///
+/// WHAT THIS DOES NOT CLOSE, stated where the code is (spec §1.3, following
+/// `system_blocks_handlers.rs`'s own honest-phrasing precedent): `caller_root` is
+/// resolved by the CLIENT and travels as a header (spec R-H). Canonicalizing it
+/// kills the textual tricks, but a same-UID local process that sets
+/// `PROJECT_ROOT` to a root it does not legitimately inhabit can still present as
+/// that root. SPEC-1 closes the REFLEX vector — an agent acting from habit or
+/// misconfiguration. It is not a defense against a hostile local process; that
+/// is the lease plane, and it is not this door.
+fn handle_ingest_refresh(
+    state: &mut SessionState,
+    input: &IngestInput,
+) -> M1ndResult<serde_json::Value> {
+    // 1. The door authenticates a ROOT RELATIONSHIP. With no caller root there
+    //    is nothing to authenticate — fail closed, never open.
+    let Some(caller_root) = state.caller_root.clone() else {
+        return Ok(refresh_refusal(
+            "refresh_caller_root_unknown",
+            "a refresh is authorized by the caller's own root; this session carries none, and an unknown root is never treated as a match",
+        ));
+    };
+
+    // 2. The exact-root predicate (SPEC-1.2): EQUALITY of canonical keys against
+    //    the declared roots — never `covers_root`'s prefix, never a raw string.
+    let canonical_root = match state.exact_declared_root(&caller_root) {
+        Ok(root) => root,
+        Err(code) => {
+            let mut refusal = refresh_refusal(
+                code,
+                match code {
+                    "refresh_root_unresolvable" => {
+                        "the caller's root does not resolve on disk; an unresolvable path is refused rather than compared as text"
+                    }
+                    _ => {
+                        "a refresh re-scans a root this brain has ALREADY declared, and only from that exact root — a subdirectory, a neighbour, or an explicit brain selector is not it"
+                    }
+                },
+            );
+            if let Some(object) = refusal.as_object_mut() {
+                object.insert(
+                    "declared_roots".to_string(),
+                    serde_json::json!(state.declared_roots_canonical()),
+                );
+            }
+            return Ok(refusal);
+        }
+    };
+
+    // 3. The path argument must name that SAME root. `path` is what gets scanned;
+    //    letting it differ from the authenticated root would authorize one root
+    //    and then re-ingest another.
+    let target = input.path.trim().trim_end_matches('/');
+    if target.is_empty() || !std::path::Path::new(target).exists() {
+        return Ok(refresh_refusal(
+            "refresh_root_unresolvable",
+            "the path to refresh does not resolve on disk",
+        ));
+    }
+    if crate::project_brains::ProjectBrainRegistry::canonical_key(target) != canonical_root {
+        return Ok(refresh_refusal(
+            "refresh_root_not_exact",
+            "the path to refresh is not the root this caller is authorized for",
+        ));
+    }
+
+    // 4. Single-flight per canonical root (SPEC-1c).
+    let Some(_in_flight) = claim_refresh_root(&canonical_root) else {
+        return Ok(refresh_refusal(
+            "refresh_in_flight",
+            "another refresh of this root is already running; its candidate would be measured against a graph this one is about to replace",
+        ));
+    };
+
+    // 5. Root-set invariance (SPEC-1d), decided BEFORE anything is mutated. The
+    //    one way a refresh could move the root set without touching it: the
+    //    post-replace agent-memory restore mints the sidecar dir as a new root on
+    //    a brain that has never declared one.
+    let declared_before = state.declared_roots_canonical();
+    if let Some(sidecar) = pending_memory_sidecar_root(state) {
+        if !declared_before.contains(&sidecar) {
+            return Ok(serde_json::json!({
+                "ok": false,
+                "schema": "m1nd-graph-ingest-refresh-v1",
+                "action": "graph.ingest.refresh_declared_root",
+                "refused": "refresh_would_change_roots",
+                "reason": "restoring this brain's agent memory would declare a root it does not hold; a refresh never changes the root set",
+                "declared_roots": declared_before,
+                "would_add_root": sidecar,
+            }));
+        }
+    }
+
+    // 6. The CANDIDATE, computed first and committed only if it survives. The
+    //    ingest itself is the existing one — this door builds no second scanner.
+    let (candidate, stats) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+        root: std::path::PathBuf::from(target),
+        include_dotfiles: input.include_dotfiles,
+        dotfile_patterns: input.dotfile_patterns.clone(),
+        ..m1nd_ingest::IngestConfig::default()
+    })
+    .ingest()?;
+
+    let live_nodes = u64::from(state.graph.read().num_nodes());
+    let candidate_nodes = u64::from(candidate.num_nodes());
+
+    // 7. The shrink floor (SPEC-1e), HARD and fail-closed.
+    if live_nodes > 0 && candidate_nodes * 100 < live_nodes * REFRESH_SHRINK_FLOOR_PERCENT {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "schema": "m1nd-graph-ingest-refresh-v1",
+            "action": "graph.ingest.refresh_declared_root",
+            "refused": "refresh_would_shrink_graph",
+            "reason": "the candidate holds too little of the live graph to be a refresh of it; nothing was mutated",
+            "refreshed_root": canonical_root,
+            "live_node_count": live_nodes,
+            "candidate_node_count": candidate_nodes,
+            "floor_percent": REFRESH_SHRINK_FLOOR_PERCENT,
+        }));
+    }
+
+    // 8. Commit. `finalize_ingest` is the SAME durable path every ingest takes —
+    //    graph swap, engine rebuild, inventory, `state.persist()`. Refresh mode
+    //    differs from `replace` in exactly one way: it never writes the root set
+    //    or the workspace binding. Captured and restored around the call anyway,
+    //    so the invariant holds even if that path grows a new root writer.
+    let roots_before = state.ingest_roots.clone();
+    let workspace_before = state.workspace_root.clone();
+    let mut output = finalize_ingest(state, input, "code", candidate, stats)?;
+    state.ingest_roots = roots_before;
+    state.workspace_root = workspace_before;
+
+    let node_count = u64::from(state.graph.read().num_nodes());
+    if let Some(object) = output.as_object_mut() {
+        object.insert("ok".to_string(), serde_json::json!(true));
+        object.insert(
+            "schema".to_string(),
+            serde_json::json!("m1nd-graph-ingest-refresh-v1"),
+        );
+        object.insert(
+            "action".to_string(),
+            serde_json::json!("graph.ingest.refresh_declared_root"),
+        );
+        object.insert(
+            "refreshed_root".to_string(),
+            serde_json::json!(canonical_root),
+        );
+        object.insert(
+            "node_count_before".to_string(),
+            serde_json::json!(live_nodes),
+        );
+        object.insert("node_count".to_string(), serde_json::json!(node_count));
+        object.insert(
+            "root_set_unchanged".to_string(),
+            serde_json::json!(state.declared_roots_canonical() == declared_before),
+        );
+        object.insert(
+            "shrink_floor_percent".to_string(),
+            serde_json::json!(REFRESH_SHRINK_FLOOR_PERCENT),
+        );
+    }
+    Ok(output)
+}
+
+/// The agent-memory sidecar root a post-replace restore would ingest, canonical,
+/// or `None` when this refresh will not restore anything. Mirrors
+/// `reload_agent_memory`'s own preconditions rather than guessing at them.
+fn pending_memory_sidecar_root(state: &SessionState) -> Option<String> {
+    let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
+        .map(|value| value != "0" && value != "false")
+        .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
+    let dir = state.runtime_root.join("agent-memory");
+    if !dir.is_dir() {
+        return None;
+    }
+    let has_light = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| entry.path().to_string_lossy().ends_with(".light.md"));
+    if !has_light {
+        return None;
+    }
+    Some(crate::project_brains::ProjectBrainRegistry::canonical_key(
+        &dir.to_string_lossy(),
+    ))
 }
 
 fn playbook_step(
@@ -822,7 +1088,10 @@ fn finalize_ingest_with_inventory(
         serde_json::Value::Null
     };
 
-    if mode == "replace" {
+    // `refresh` shares `replace`'s whole-graph semantics (it IS a fresh scan of
+    // the root), so it resets the inventory too — a file deleted upstream must
+    // stop being claimed as known.
+    if mode != "merge" {
         state.reset_file_inventory();
     }
     state.record_file_inventory(inventory_entries);
@@ -834,7 +1103,14 @@ fn finalize_ingest_with_inventory(
 
     // Track ingest roots for L3 git discovery and scope normalization.
     // Replace mode resets the active roots to the new source of truth.
-    if mode == "replace" {
+    //
+    // `refresh` writes NEITHER branch: SPEC-1d says a refresh never changes the
+    // root set, and the cheapest way to guarantee that is to have no code that
+    // could. It re-scans a root the brain already declared, so there is nothing
+    // to declare and nothing to reset.
+    if mode == "refresh" {
+        // deliberately nothing
+    } else if mode == "replace" {
         state.ingest_roots.clear();
         state.ingest_roots.push(input.path.clone());
     } else {
@@ -916,7 +1192,12 @@ fn finalize_ingest_with_inventory(
     // bind (`runnerd_naming` None) is untouched, and a per-project
     // `ingest {project_root}` routes to a hosted brain before this seam runs.
     let served_owner_pinned = state.runnerd_naming.is_some() && holds_code_root;
-    if !(demotes_to_store && (holds_code_root || manifest_bound)) && !served_owner_pinned {
+    // `refresh` never rebinds: the root it scanned is already this brain's, so
+    // there is no binding to move (SPEC-1d).
+    if mode != "refresh"
+        && !(demotes_to_store && (holds_code_root || manifest_bound))
+        && !served_owner_pinned
+    {
         state.workspace_root = Some(candidate_workspace_root);
     }
 
@@ -929,7 +1210,10 @@ fn finalize_ingest_with_inventory(
     // which also re-anchors evidence to the freshly-ingested code. (Skip for the
     // light adapter: the caller is explicitly managing light content, and the
     // re-merge runs as adapter=light/mode=merge so it never recurses here.)
-    let agent_memory_restored = if mode == "replace" && adapter != "light" {
+    // (`refresh` wipes it the same way and restores it the same way; SPEC-1d's
+    // root-set invariance is preserved because the door refuses up front when
+    // that restore would have to declare a root the brain does not hold.)
+    let agent_memory_restored = if mode != "merge" && adapter != "light" {
         reload_agent_memory(state)
     } else {
         None
@@ -3075,6 +3359,14 @@ pub fn handle_ingest(
     input: IngestInput,
 ) -> M1ndResult<serde_json::Value> {
     use m1nd_ingest::IngestAdapter;
+
+    // SPEC-1: the freshness door is its own action and its own handler. It is
+    // intercepted BEFORE the adapter match because it is not an adapter choice —
+    // it re-scans one already-declared repo root, always through the code
+    // ingestor, and it answers with a refusal-or-receipt envelope of its own.
+    if normalized_ingest_mode(&input.mode) == "refresh" {
+        return handle_ingest_refresh(state, &input);
+    }
 
     let path = std::path::PathBuf::from(&input.path);
     if input.incremental && input.adapter != "code" {
