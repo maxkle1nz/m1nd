@@ -86,6 +86,8 @@ Bounded work runs as missions, and missions answer for themselves in a way most 
 
 And the guardrails do not cry wolf. `xray_gate` can say `blocked` only from a boundary manifest a human ratified. Everything else arrives as a warning with a reason, so the agent never learns to ignore its own safety rail.
 
+Every brain also has a mailbox. An agent that finds a real defect outside its own mission does not fix it on the spot and does not swallow it: it drops a letter in that repo's box, on disk, next to the code. The next agent working that brain sweeps the box and starts out already knowing the defects other agents found, context attached. Knowledge of what is broken stops dying in chat scrollback. The sweep is a deliberate gesture (CLI or REST, never inside the query loop), so the letters inform the work instead of interrupting it.
+
 ## Born agent-first
 
 No account, no telemetry, and no API in the way, which is also why the graph answers in microseconds.
@@ -178,7 +180,7 @@ A `seek` hit carries a sufficiency readout and a trust envelope. When no calibra
 
 Two tools, `savings` and `resonate`, were deleted outright in beta (handlers, types and state files, all gone) because they returned a win on every input I gave them, and a tool that never loses has stopped measuring. That is the bar every claim in this file is held to.
 
-I keep looking for another memory layer or code-graph server that ships a read-time trust verdict. I have checked the public docs of Mem0, Zep, Letta, Cognee and Supermemory, as of July 2026, and have not found one. If you know one, open an issue and I will link it here.
+The closest neighbor I know is GitHub Copilot Memory (public preview, 2026): it stores facts with code citations and re-checks them against the current branch before use. That is real staleness detection, and it deserves the credit. It is also cloud-side, binary, and lives inside Copilot. What I have still not found anywhere is the rest of the verdict: a graded `act` / `reverify` / `abstain` with per-repo calibration, typed refusals that carry a repair plan, on a local graph that any MCP agent can share. I checked the public docs of Mem0, Zep, Letta, Cognee, Supermemory and Copilot Memory, as of July 2026. Know a closer one? Open an issue and I will link it here.
 
 ## Memory that knows when it is stale
 
