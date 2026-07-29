@@ -254,6 +254,11 @@ mod two_tier_project_brains_internal_tests;
 #[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/ui_bundle_attestation.rs"]
 mod ui_bundle_attestation_internal_tests;
+// SPEC-1 — the freshness door's acceptance battery
+// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5), written before its implementation.
+#[cfg(test)]
+#[path = "internal_tests/spec1_refresh_declared_root.rs"]
+mod spec1_refresh_declared_root_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

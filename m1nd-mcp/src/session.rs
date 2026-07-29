@@ -528,6 +528,16 @@ pub struct SessionState {
     /// header does not inherit a stale value. Feeds First-Contact Reception's
     /// mismatch verdict (`reception_verdict`). See TWO-TIER-BRAIN-PRD §9.5.4.
     pub caller_root: Option<String>,
+    /// True while this dispatch was routed by an EXPLICIT brain selector
+    /// (REST `?brain=`, or the wire's own selected-brain route) rather than by
+    /// the caller's own root. Request-scoped exactly like `caller_root`: the
+    /// transport sets it before dispatch and restores it after.
+    ///
+    /// It exists for the authority-exclusive predicates that must never be
+    /// satisfied by a selector (`GENESIS-INGEST-CONSUMERS-SPEC.md` §1.2
+    /// SPEC-1g): a selector says WHICH brain to talk to, never that the caller
+    /// legitimately inhabits that brain's root. `false` on every other path.
+    pub explicit_brain_selector: bool,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
     /// F11-b: the owner-process naming facts (the runnerd announce registry + the
@@ -2122,6 +2132,7 @@ impl SessionState {
             workspace_root: Some(workspace_root.to_string_lossy().to_string()),
             workspace_root_source: Some(workspace_root_source),
             caller_root: None,
+            explicit_brain_selector: false,
             runtime_root: runtime_root.clone(),
             // Threaded in by the HTTP owner at boot; None on stdio (no announce).
             runnerd_naming: None,
