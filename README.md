@@ -68,6 +68,16 @@ A warm graph: confirmed results reinforce their edges, Hebbian style, so the pat
 
 Every one of those flags and suggests; your compiler and tests still do the proving.
 
+## m1nd does not just search. It writes.
+
+Here is the part people take a second to believe. The graph that reads your repo can also operate on it. Your agent names a symbol and a destination, about 48 tokens, and `transplant` computes the whole move from the graph: the widened region (doc comments and attributes travel along), dependencies classified by their call edges (private ones travel, shared ones stay and gain a back-import), every referencer re-qualified across every file that names it. Then it writes atomically, re-ingests, and hands back an honest receipt: what moved, what stayed, what it could not resolve. `refs_unresolved` is never silently empty when something went wrong.
+
+It is two-phase, `transplant_preview` before `transplant_commit`, and the commit re-validates the hash of every file it planned to touch, so nothing lands on a repo that changed underneath it. The money zone of your repo (backend, schema, payments, CI) is protected server-side and fails closed. A refusal never touches a byte and teaches the retry: a collision names the occupant, an invalid module path names itself, a cross-crate move names both crate roots.
+
+Measured on the real case: the whole-file edit cost 12,235 output tokens; the transplant cost 48 in and wrote 3 files in 1.3 seconds, with the crate compiling on the other side. rust-analyzer has had an issue open asking for cross-file moves since 2019.
+
+v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the destination file must already exist, and references born inside macros are invisible to it. Each boundary is deliberate and written down in [docs/TRANSPLANT-PRD.md](docs/TRANSPLANT-PRD.md), next to 13 test files that hold the verb to it.
+
 ## Born agent-first
 
 All of it local. Nothing leaves your machine, there is no account, and the graph answers in microseconds precisely because there is no API in the way.
