@@ -4068,6 +4068,7 @@ async fn handle_tool_call(
         .map(str::to_string);
     let dispatch_is_bound = Arc::ptr_eq(&target_session, &state.session);
     let explicit_brain_selector = brain.brain.is_some();
+    let caller_root_header = mission_header(&headers, CALLER_ROOT_HEADER);
     let dispatch_mutates = crate::server::read_only_denied(&tool, &body);
 
     // A running spawn_blocking task cannot be cancelled safely. Cross the
@@ -4085,6 +4086,27 @@ async fn handle_tool_call(
                 dispatch_mutates,
                 move |session| {
                     let caller_root = session.caller_root.clone();
+                    // SPEC-1g: an explicit `?brain=` selector says WHICH brain to
+                    // talk to; it never says the caller legitimately inhabits that
+                    // brain's root. Carried into the session so the exact-root
+                    // predicate can refuse it, request-scoped and restored below
+                    // exactly like `caller_root`.
+                    session.explicit_brain_selector = explicit_brain_selector;
+                    // SPEC-1b: the REST tools seam is one of the places a value
+                    // becomes `session.caller_root`, so it canonicalizes at
+                    // ingress. Scoped to the freshness door on purpose — this
+                    // route has never stamped a caller root, and widening that to
+                    // every verb would change reception/routing behaviour far
+                    // outside SPEC-1. Reuses the external-mutation seam's own
+                    // canonicalization precedent.
+                    let stamped_caller_root = crate::server::refresh_caller_root_from_header(
+                        &tool,
+                        &body,
+                        &caller_root_header,
+                    );
+                    if let Some(root) = stamped_caller_root {
+                        session.caller_root = Some(root);
+                    }
                     if explicit_brain_selector
                         && crate::server::skeleton_write_needs_root_gate(&tool, &body)
                     {
@@ -4115,6 +4137,7 @@ async fn handle_tool_call(
                         dispatch_generic_tool(session, &tool, &body)
                     }));
                     session.caller_root = caller_root;
+                    session.explicit_brain_selector = false;
                     session.apply_batch_progress_sink = None;
                     session.scan_progress_sink = None;
                     match result {

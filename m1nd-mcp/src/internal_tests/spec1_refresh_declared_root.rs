@@ -677,3 +677,135 @@ fn spec1_1a_refresh_is_admitted_by_action_at_the_ratified_floor() {
         "the action-keyed allowlist must admit the refresh at the dispatch seam"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Written AFTER the implementation, and labelled as such.
+//
+// The two tests below could not be born RED: both name machinery that did not
+// exist before the door did — the single-flight claim (SPEC-1c) and the REST
+// seam's caller-root stamping (SPEC-1b). Everything above this line was written
+// first and never edited to fit. Saying which is which is cheaper than letting a
+// reader assume the wrong one.
+// ---------------------------------------------------------------------------
+
+/// SPEC-1c — single-flight per canonical root. A second refresh of a root
+/// already in flight refuses; it never queues behind the first and measures its
+/// candidate against a graph the first is about to replace (the cp32 TOCTOU).
+///
+/// Driven by claiming the root directly rather than by racing two threads: the
+/// property is "the claim is exclusive", and a race would test the scheduler.
+#[test]
+fn spec1_1c_second_refresh_of_a_root_in_flight_refuses() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    seed_declared_root(&mut state, &repo);
+    let root = canonical(&repo);
+
+    let held = m1nd_mcp::tools::claim_refresh_root_for_test(&root)
+        .expect("an unclaimed root must be claimable");
+    state.caller_root = Some(root.clone());
+    let payload =
+        admit_then_dispatch(&mut state, "ingest", &refresh_params(&root)).expect("refusal payload");
+    assert_eq!(payload["refused"], json!("refresh_in_flight"));
+
+    // Released on drop, including down a panicking path — the next refresh runs.
+    drop(held);
+    let payload = admit_then_dispatch(&mut state, "ingest", &refresh_params(&root))
+        .expect("the released root must refresh");
+    assert_eq!(payload["ok"], json!(true), "payload was {payload}");
+}
+
+/// The REST seam really reaches the door: `POST /api/tools/ingest` with
+/// `mode:"refresh"` and an `M1nd-Caller-Root` header canonicalizes that header
+/// at ingress (SPEC-1b) and lands on the exact-root predicate — rather than
+/// arriving with no caller root at all, which every refresh would refuse for the
+/// wrong reason and which would make the §5.6 parity claim vacuous.
+#[cfg(feature = "serve")]
+#[tokio::test]
+async fn spec1_5_6c_rest_seam_stamps_a_canonical_caller_root_and_reaches_the_predicate() {
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let runtime = temp.path().join("runtime");
+    std::fs::create_dir_all(&runtime).expect("runtime dir");
+    let config = McpConfig {
+        graph_source: runtime.join("graph_snapshot.json"),
+        plasticity_state: runtime.join("plasticity_state.json"),
+        runtime_dir: Some(runtime.clone()),
+        registry_dir: Some(runtime.join("registry")),
+        ..McpConfig::default()
+    };
+    let server = m1nd_mcp::server::McpServer::new(config).expect("boot owner");
+    let session = Arc::new(m1nd_mcp::brain_runtime::BrainSessionCell::new(
+        server.into_session_state(),
+    ));
+    let (event_tx, _rx) = tokio::sync::broadcast::channel::<m1nd_mcp::http_server::SseEvent>(64);
+    let app = Arc::new(m1nd_mcp::http_server::AppState {
+        session,
+        tool_schemas_cache: m1nd_mcp::server::tool_schemas()
+            .get("tools")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![])),
+        event_tx,
+        event_log_path: None,
+        registry_dir: Some(runtime.join("registry")),
+        mcp_sessions: m1nd_mcp::mcp_http::new_mcp_session_registry(),
+        project_brains: Arc::new(
+            m1nd_mcp::project_brains::ProjectBrainRegistry::with_capacity(
+                runtime.join("project-brains"),
+                Some(runtime.join("registry")),
+                4,
+            ),
+        ),
+        runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
+        ui_authority: Arc::new(m1nd_mcp::ui_attestation::UiBundleAttestor::default()),
+        mission_service: None,
+        external_mutation_service: None,
+        authority_service: None,
+        autonomy_owner: None,
+    });
+
+    // A real directory that this fresh brain has NOT declared. The door must
+    // refuse it on the PREDICATE (`refresh_root_not_exact`), which is only
+    // reachable if the header was read and canonicalized first — with no caller
+    // root the answer would be `refresh_caller_root_unknown` instead.
+    let stranger = temp.path().join("stranger");
+    std::fs::create_dir_all(&stranger).expect("stranger dir");
+    let response = m1nd_mcp::http_server::build_router(app.clone(), false)
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/api/tools/ingest")
+                .header("content-type", "application/json")
+                .header("m1nd-caller-root", stranger.to_string_lossy().to_string())
+                .body(axum::body::Body::from(
+                    serde_json::to_vec(&refresh_params(&stranger.to_string_lossy())).unwrap(),
+                ))
+                .expect("build request"),
+        )
+        .await
+        .expect("router answered");
+
+    assert_eq!(
+        response.status(),
+        200,
+        "the refresh action must be ADMITTED"
+    );
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let payload: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    let refused = payload
+        .pointer("/refused")
+        .or_else(|| payload.pointer("/result/refused"))
+        .cloned()
+        .unwrap_or(payload.clone());
+    assert_eq!(
+        refused,
+        json!("refresh_root_not_exact"),
+        "the REST seam must reach the exact-root predicate, not stop short of it; body was {payload}"
+    );
+}

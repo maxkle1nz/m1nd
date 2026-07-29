@@ -66,10 +66,13 @@ age + author — absent, never faked, when unknown), a sufficiency signal, one \
 `next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
 await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
 line, absent when none do). If it returns `needs_ingest`, do not call generic \
-`ingest`: every generic graph mutation is policy-disabled. For an existing brain, \
+`ingest` to REPLACE or MERGE — those stay policy-disabled. For an existing brain, \
 use the exact authority flow plus `external_mutation_service`; under \
 `caller_root_mismatch`, creating or rebinding a brain remains unavailable until the \
-typed bootstrap consumer is installed. `north` \
+typed bootstrap consumer is installed. The ONE ingest you CAN run is \
+`ingest` with mode=refresh — it re-scans a root this brain already declared, and only \
+when your caller root is exactly that root; it refuses rather than shrink the graph. \
+`north` \
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
 
@@ -286,7 +289,7 @@ savings (G1).
 - `am_i_stale(claim)` — check BEFORE editing on the strength of remembered/cached knowledge.
 - `soul_check` / `soul_read` — verify (freshness receipt) / pull the project's PATHOS handoff soul.
 - `coverage_session` — surface the blind spots in what you have and haven't looked at this session.
-- `ingest` — compatibility name only; generic graph mutation is policy-disabled and must not be called.
+- `ingest` — `replace`/`merge` are policy-disabled and must not be called. `ingest` with mode=refresh is the one exception: re-scan a root this brain already declared, from exactly that root.
 - `external_mutation_service` — governed elevated graph ingest for an existing brain after the exact authority flow; it does not create project brains.
 ";
 
@@ -1096,7 +1099,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "ingest",
-                "description": "POLICY-DISABLED generic graph mutation compatibility surface. Do not call it: use the exact authority flow plus external_mutation_service for an existing brain. Cross-root project-brain bootstrap is unavailable until an exact typed G2/G3 consumer is installed.",
+                "description": "POLICY-DISABLED generic graph mutation compatibility surface, with ONE exception. mode='replace' and mode='merge' are refused for every client: use the exact authority flow plus external_mutation_service for an existing brain, and cross-root project-brain bootstrap is unavailable until an exact typed G2/G3 consumer is installed. mode='refresh' IS callable at the SCOPED_GRANT_A2 floor, admitted A2-locally with no lease: it re-scans a root this brain has already declared, and only when your caller root is EXACTLY that root. It never creates a brain, never adds a root, never crosses to another brain, and refuses (refresh_would_shrink_graph) rather than replace a wide graph with a narrow scan.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1112,8 +1115,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "mode": {
                             "type": "string",
                             "default": "replace",
-                            "enum": ["replace", "merge"],
-                            "description": "Replace the bound graph or merge the ingest into it"
+                            "enum": ["replace", "merge", "refresh"],
+                            "description": "Replace the bound graph, merge the ingest into it, or 'refresh' — re-scan a root this brain already declared (the only mode a plain client can execute; requires your caller root to be exactly that root)"
                         },
                         "namespace": {
                             "type": "string",
@@ -5849,6 +5852,22 @@ pub(crate) fn enforce_generic_action_policy(
         }
     };
 
+    // The ONE opening in the wall, keyed BY ACTION and never by floor
+    // (GENESIS-INGEST-CONSUMERS-SPEC.md §1.1, owner-ratified 2026-07-29).
+    //
+    // It is deliberately reachable ONLY from the exactly-classified branch. The
+    // `MissingTrustedFact` arm above resolves a UNION of floors with no exact
+    // action, so it can never land here — an unresolved classification stays
+    // fail-closed, as it must.
+    //
+    // Admission here admits the CATEGORY only. Every authority-relevant fact
+    // about the refresh is enforced inside the handler, after brain resolution.
+    if action.as_deref().is_some_and(|exact| {
+        crate::action_consumers::GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&exact)
+    }) {
+        return Ok(());
+    }
+
     let unavailable: Vec<&'static str> = floors
         .iter()
         .copied()
@@ -6165,6 +6184,39 @@ pub(crate) fn skeleton_write_needs_root_gate(tool_name: &str, params: &serde_jso
         "candidate_lease" => params.get("action").and_then(|v| v.as_str()) == Some("acquire"),
         _ => false,
     }
+}
+
+/// SPEC-1b's ingress canonicalization for the REST tools seam.
+///
+/// Returns the canonicalized `M1nd-Caller-Root` to stamp on the session for THIS
+/// dispatch, or `None` to leave the session's own value alone.
+///
+/// Deliberately narrow. `/api/tools/*` has never stamped a caller root, and
+/// making it do so for every verb would newly switch on reception verdicts and
+/// brainless-root routing for every REST caller that happens to send the header
+/// — a behaviour change far outside this door. So it stamps for exactly the
+/// action that needs a caller root to decide anything: the refresh. Both
+/// transports then reach ONE predicate with a canonical value, which is what
+/// makes their refusals byte-identical (SPEC-1g) rather than merely similar.
+pub(crate) fn refresh_caller_root_from_header(
+    tool_name: &str,
+    params: &serde_json::Value,
+    header: &Option<String>,
+) -> Option<String> {
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+    if bare != "ingest" || params.get("mode").and_then(|v| v.as_str()) != Some("refresh") {
+        return None;
+    }
+    let raw = header.as_deref()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(crate::project_brains::ProjectBrainRegistry::canonical_key(
+        raw,
+    ))
 }
 
 /// Dispatch core + superpowers tools (35 tools).

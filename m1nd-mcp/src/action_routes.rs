@@ -253,6 +253,7 @@ pub fn possible_mcp_actions(tool: &str) -> Option<Vec<&'static str>> {
             "brain.bootstrap",
             "graph.ingest.change_roots",
             "graph.ingest.merge_existing",
+            "graph.ingest.refresh_declared_root",
             "graph.ingest.replace",
         ],
         "auto_ingest_start" => vec![
@@ -473,6 +474,13 @@ fn classify_ingest(
     }
     match string_field(arguments, "mode").unwrap_or("replace") {
         "replace" => Ok("graph.ingest.replace"),
+        // The freshness door (GENESIS-INGEST-CONSUMERS-SPEC.md §1.1). It is its
+        // OWN action, selected from `(tool, params)` ALONE — no trusted route
+        // fact, so the gate's pure/pre-brain invariant (spec R-I) is untouched.
+        // The spec is explicit that no future need may reuse that plumbing until
+        // someone proves by test that `TrustedMcpRouteFacts::default()` is no
+        // longer what production passes.
+        "refresh" => Ok("graph.ingest.refresh_declared_root"),
         "merge" => match trusted.ingest_changes_roots {
             Some(true) => Ok("graph.ingest.change_roots"),
             Some(false) => Ok("graph.ingest.merge_existing"),
