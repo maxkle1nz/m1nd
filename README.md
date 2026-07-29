@@ -6,7 +6,7 @@
 
 Nothing leaves your machine. One Rust binary. MIT.
 
-Agents on real codebases fail in a specific way. Each session rebuilds context from scratch. Edits land without knowing the blast radius. An empty search result could mean "nothing exists" or "wrong repo", and the agent cannot tell which. Notes from last week describe code that changed on Tuesday, and nothing warns anyone. m1nd exists to close that loop.
+Think of it as an X-ray of your repo that your agent can read: one structure that combines everything and says where each thing lives, what that program is for, what is being worked on, what is done and what is still open. That panorama is the thing no other tool hands your agent.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
@@ -24,19 +24,57 @@ Agents on real codebases fail in a specific way. Each session rebuilds context f
 
 <p align="center"><em>A real session on this repo's 6,453-node graph (m1nd-mcp 1.4.0): <code>north</code> orients, <code>seek</code> answers wearing a <code>reverify</code> verdict, <code>memorize</code> anchors the finding to code.</em></p>
 
-## What is actually new here
+## The audit your agent stops paying for
 
-Five things here I have not seen shipped together anywhere else:
+You know the ritual. The agent opens a file, greps, opens another file, greps again, burns most of its context reconstructing what the repo even is, and only then starts the actual task. With m1nd that sweep becomes one question. In under a second the agent has the map: what calls what, what breaks what, where everything lives. Not a pile of matches to interpret. The connected structure, already assembled.
 
-**It works even when the model forgets the tool exists.** Most MCP servers only help when the agent remembers to call them. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation packet at spawn, so your agent and every subagent it spawns start oriented before anyone types a word.
+And it remembers. Between sessions, and between agents. What one agent learns tonight, another agent inherits tomorrow, with the evidence attached and a flag if the code moved on since. Every conclusion leaves a trail, so you, or any agent that comes after, can always see what happened to that code and why.
 
-**Verdicts at read time.** Every answer carries how much to trust it: `act`, `reverify` or `abstain`, calibrated per repo. Refusals are typed and come with a repair plan. Memory layers usually gate what goes *in*; m1nd also tells the agent what to believe on the way *out*. Details in [Why trust the answers](#why-trust-the-answers).
+Then l1ght takes it further: papers, articles, RFCs, drafts and notes connect to the parts of your code they explain, inside the same structure. The agent gets the RIGHT context instead of the nearest-sounding one, and inventing code that does not exist stops being the path of least resistance: the structure says what exists, and the verdict says how much to trust even that.
 
-**Memory that self-flags.** Agent-written memory is anchored to real code nodes. When the cited code changes, the claim marks itself stale instead of quietly lying. Details in [Memory that knows when it is stale](#memory-that-knows-when-it-is-stale).
+Before m1nd, a function was just a function, lost in some manual. Now it lives inside the agent's intelligence, combined with the code, its history, its documents and its risks. I have not found anything like that anywhere else.
 
-**A brain per repository.** One graph, its own memory, its own persistence, bound to one repo root. A served owner hosts many brains and routes each session to the right one; a session from a repo it does not host gets a typed refusal instead of wrong answers.
+## grep answers good questions. m1nd answers the deeper ones.
 
-**Documents in the same graph (l1ght).** Ask why a function looks the way it does and get back the function, the RFC it implements and the note that settled the argument, in one answer. The whole lane: [One graph for code and knowledge](#one-graph-for-code-and-knowledge-l1ght).
+Questions your agent can now ask and get a structural answer for:
+
+- What breaks if I touch this function?
+- Where does token refresh actually happen in this repo?
+- Why are these two files connected, and is that path solid or a guess?
+- What did the last session learn about this code, and is it still true?
+- What always changes together here, even with no import between them?
+- Does this edit cross an architecture boundary I should not cross?
+- Which claim in this paper does this function implement?
+- Is the bug I just fixed hiding anywhere else, as a shape?
+- What is missing here that this pattern usually has?
+- Am I even in the right repo?
+- Should I act on this answer, or verify it first?
+
+Each one is a verb on the MCP surface (`impact`, `seek`, `why`, `north`, `ghost_edges`, `xray_gate`, `antibody_scan`, `missing`, `trust_selftest`, `predict`), not a prompt trick.
+
+## And it does not stop at showing structure
+
+Antibodies: a fixed bug becomes a named structural pattern, and every later session scans for that shape across the repo. Fix it once, hunt it forever.
+
+Ghost edges: files that always change together with no import between them, mined from your git history. The invisible coupling that breaks refactors.
+
+Structural holes: `missing` looks for the code that is not there. The guard, the retry, the timeout this pattern usually carries and this instance lacks.
+
+Hypotheses against the graph: state a claim in plain language ("settings can reach boot without validation") and have it tested against the live structure.
+
+Tremor: files whose change velocity is accelerating get flagged before anyone files the bug report.
+
+A warm graph: confirmed results reinforce their edges, Hebbian style, so the paths that proved useful rank higher for the next agent.
+
+Every one of those flags and suggests; your compiler and tests still do the proving.
+
+## Born agent-first
+
+All of it local. Nothing leaves your machine, there is no account, and the graph answers in microseconds precisely because there is no API in the way.
+
+The development of m1nd is not very normal either. Building it meant building a whole workflow where agents direct, verify and prove the work, and the logic of the product is aimed at the agent's pain, not the human's dashboard. Very few programs start from that in their initial design. So m1nd is born different: the verbs, the refusals and the packets are shaped for the reader that actually uses them, and you do not even have to remind the model the tool exists. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation at spawn: your agent, and every subagent it spawns, starts oriented before anyone types a word.
+
+A brain per repository holds it together: one graph, its own memory, its own persistence, bound to one repo root. A served owner hosts many brains and routes each session to the right one; a session from a repo it does not host gets a typed refusal instead of wrong answers.
 
 ## What your agent gets
 
