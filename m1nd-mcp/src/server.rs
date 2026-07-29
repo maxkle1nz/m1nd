@@ -57,6 +57,22 @@ brain). Do not attempt a write from this mismatched session. The honest recovery
 `brain_bootstrap_consumer_not_installed`; no public one-call bootstrap or overlap escape hatch \
 is advertised while that sovereign consumer is absent.
 
+**ADVERTISED ≠ CALLABLE — the authority floors.** Bootstrap is not the only closed door. Every \
+semantic action carries an M1ND-10 authority floor and generic MCP/REST dispatch admits only \
+`ORDINARY`; a verb above it (`SCOPED_GRANT_A2` / `POSITIVE_SOVEREIGN` / `SERVICE_IDENTITY`) \
+refuses with `generic_action_authority_required`. No payload shape, capability claim or retry \
+lifts that — only an exact typed G2/G3 consumer (an authority lease), and none is installed for \
+those actions yet. 40 of the 141 advertised verbs are affected today, INCLUDING ones this \
+document teaches: `learn`, `debrief`, `promote`, `calibrate_predict` / `calibrate_envelope`, \
+`ghost_edges`, `runtime_overlay`, `apply` / `apply_batch` / `edit_commit`, `daemon_start` / \
+`_stop` / `_tick`, `auto_ingest_start` / `_stop` / `_tick` (their `_status` reads stay open), \
+the `xray_*` commit branch, `boot_memory` set/delete, \
+`mission_close write_light_memory:true`, and every system-blocks writer. `tools/list` marks each \
+one: its description is prefixed `POLICY-DISABLED (authority floor …)`. READ THAT before planning \
+around a verb, and do not spend turns retrying a refusal. Still ORDINARY and genuinely callable: \
+every read, `memorize`, `delegate`, `trail_save`, the perspective family, plain `mission_start` / \
+`mission_event` / `mission_verify` / `mission_handoff` / `mission_close`.
+
 ## 1. PRE-ORIENT — never start cold
 
 Call `north(task)` FIRST, before reading or editing anything. One round-trip returns: \
@@ -3197,7 +3213,203 @@ fn all_tool_schemas_inner() -> serde_json::Value {
     tools.push(authority_session_challenge_tool_schema());
     tools.push(authority_session_authenticate_tool_schema());
     tools.push(authority_authorize_tool_schema());
+    annotate_floor_gated_descriptions(tools);
     registry
+}
+
+/// Prefix every floor-gated verb's description with the house POLICY-DISABLED
+/// annotation, the sibling of the `ingest` compatibility sweep at scale.
+///
+/// `tools/list` may not advertise as executable a verb the generic MCP/REST gate
+/// refuses: under the M1ND-10 authority floors those calls come back
+/// `generic_action_authority_required`, so an un-annotated description is a lie
+/// the host repeats to every agent. The verdict is DERIVED from the same floor
+/// table [`enforce_generic_action_policy`] enforces, so a future verb cannot be
+/// advertised un-annotated by being forgotten.
+///
+/// Descriptions are the ONLY thing touched. No schema FIELD is added, removed or
+/// renamed: one bad `inputSchema` once emptied the whole tool list in strict
+/// clients, and honesty is not worth re-running that.
+///
+/// A description that already carries a hand-curated `POLICY-DISABLED` sweep
+/// (`ingest`) is left exactly as it is — the curated text says more than the
+/// derived line can.
+fn annotate_floor_gated_descriptions(tools: &mut [serde_json::Value]) {
+    for tool in tools.iter_mut() {
+        let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(annotation) = floor_gate_annotation(name) else {
+            continue;
+        };
+        let Some(description) = tool.get("description").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if description.contains(FLOOR_GATE_MARKER) {
+            continue;
+        }
+        let annotated = format!("{annotation}{description}");
+        tool["description"] = serde_json::Value::String(annotated);
+    }
+}
+
+/// The house marker for a surface that policy refuses. Introduced by the
+/// `ingest` compatibility sweep; reused verbatim so hosts, tests and agents keep
+/// grepping for exactly one token.
+pub(crate) const FLOOR_GATE_MARKER: &str = "POLICY-DISABLED";
+
+/// The typed G2/G3 consumers — the ones the generic floor gate never judges.
+///
+/// [`enforce_generic_action_policy`] says it in prose ("`mission_service` is not
+/// a generic call: the served transports intercept it before invoking this
+/// gate"); `mcp_http::run_mission_service_wire` implements it for all six, ahead
+/// of the gate call in `route_and_run`. These verbs ARE the exact authority flow
+/// the `ingest` sweep tells agents to use, so calling them policy-disabled would
+/// be the same lie pointed the other way. They are excluded from the derived
+/// annotation and refuse on their own typed terms (an owner-observed session,
+/// selected actor and lease), which their descriptions already state.
+///
+/// Four of the six route only to ORDINARY actions today and would never be
+/// annotated anyway; the exclusion is what keeps that true if a floor rises.
+pub(crate) const TYPED_CONSUMER_TOOLS: &[&str] = &[
+    "mission_service",
+    "external_mutation_service",
+    "graph_ingest_preview",
+    "authority_session_challenge",
+    "authority_session_authenticate",
+    "authority_authorize",
+];
+
+/// Action -> authority floor, read once per process from the canonical M1ND-10
+/// catalog.
+///
+/// `None` when the catalog itself fails to validate; every verb is then
+/// annotated UNRESOLVED, which is what the gate really does in that state
+/// (`generic_action_policy_unresolved`).
+fn catalog_floors_by_action(
+) -> Option<&'static std::collections::BTreeMap<String, m1nd_control::AuthorityFloor>> {
+    static FLOORS: std::sync::OnceLock<
+        Option<std::collections::BTreeMap<String, m1nd_control::AuthorityFloor>>,
+    > = std::sync::OnceLock::new();
+    FLOORS
+        .get_or_init(|| {
+            let catalog = m1nd_control::m1nd10_action_catalog().ok()?;
+            Some(
+                catalog
+                    .entries
+                    .into_iter()
+                    .map(|entry| (entry.action.as_str().to_string(), entry.authority_floor))
+                    .collect(),
+            )
+        })
+        .as_ref()
+}
+
+/// What the generic gate will do with one advertised verb, derived from the
+/// floor table rather than from a hand-kept list.
+enum FloorGate {
+    /// Every branch is ORDINARY: a plain client really can dispatch it.
+    Open,
+    /// The floor could not be resolved — the gate refuses with
+    /// `generic_action_policy_unresolved`.
+    Unresolved,
+    /// At least one branch sits above ORDINARY.
+    Gated {
+        floors: String,
+        gated_actions: Vec<&'static str>,
+        every_branch: bool,
+    },
+}
+
+fn floor_gate_verdict(tool: &str) -> FloorGate {
+    if TYPED_CONSUMER_TOOLS.contains(&tool) {
+        return FloorGate::Open;
+    }
+    let (Some(floors), Some(actions)) = (
+        catalog_floors_by_action(),
+        crate::action_routes::possible_mcp_actions(tool),
+    ) else {
+        return FloorGate::Unresolved;
+    };
+
+    let mut gated_floors = std::collections::BTreeSet::new();
+    let mut gated_actions = Vec::new();
+    let mut open_actions = 0usize;
+    for action in actions {
+        let Some(floor) = floors.get(action) else {
+            return FloorGate::Unresolved;
+        };
+        if generic_dispatch_floor_is_available(*floor) {
+            open_actions += 1;
+        } else {
+            gated_floors.insert(authority_floor_name(*floor));
+            gated_actions.push(action);
+        }
+    }
+    if gated_actions.is_empty() {
+        return FloorGate::Open;
+    }
+    FloorGate::Gated {
+        floors: gated_floors.into_iter().collect::<Vec<_>>().join("|"),
+        gated_actions,
+        every_branch: open_actions == 0,
+    }
+}
+
+/// The derived honesty annotation for one advertised verb, or `None` when every
+/// branch of that verb is ORDINARY and a plain client really can dispatch it.
+fn floor_gate_annotation(tool: &str) -> Option<String> {
+    match floor_gate_verdict(tool) {
+        FloorGate::Open => None,
+        FloorGate::Unresolved => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor UNRESOLVED). Do not call it over generic \
+             MCP/REST: dispatch refuses with generic_action_policy_unresolved until the action \
+             catalog resolves this verb's floor. "
+        )),
+        FloorGate::Gated {
+            floors,
+            every_branch: true,
+            ..
+        } => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor {floors}). Do not call it over generic \
+             MCP/REST: dispatch refuses with generic_action_authority_required until an exact \
+             typed G2/G3 consumer (authority lease) is installed for this action. "
+        )),
+        FloorGate::Gated {
+            floors,
+            gated_actions,
+            every_branch: false,
+        } => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor {floors}) on {}. Do not call those branches \
+             over generic MCP/REST: dispatch refuses with generic_action_authority_required until \
+             an exact typed G2/G3 consumer (authority lease) is installed; the ORDINARY branches \
+             stay callable. ",
+            gated_actions.join(", ")
+        )),
+    }
+}
+
+/// The SHORT form of the same annotation, for a surface that renders its own
+/// one-line summary instead of the schema description.
+///
+/// `help` prefers a curated one-liner from the tool manual over the schema
+/// text, so without this the `help` verb would keep telling agents the lie
+/// `tools/list` just stopped telling — for the 14 gated verbs that have a
+/// manual entry. Same marker, same derived floors, minus the sentence a
+/// one-liner cannot carry.
+pub(crate) fn annotate_floor_gated_summary(tool: &str, summary: &str) -> String {
+    if summary.contains(FLOOR_GATE_MARKER) {
+        return summary.to_string();
+    }
+    let floors = match floor_gate_verdict(tool) {
+        FloorGate::Open => return summary.to_string(),
+        FloorGate::Unresolved => "UNRESOLVED".to_string(),
+        FloorGate::Gated { floors, .. } => floors,
+    };
+    format!(
+        "{FLOOR_GATE_MARKER} (authority floor {floors} — generic dispatch refuses until an exact \
+         typed G2/G3 consumer is installed). {summary}"
+    )
 }
 
 fn authority_session_challenge_tool_schema() -> serde_json::Value {
@@ -10250,6 +10462,144 @@ mod tests {
         assert!(
             instructions.contains("brain_bootstrap_consumer_not_installed"),
             "instructions must name the fail-honest bootstrap state"
+        );
+    }
+
+    /// The `ingest` sweep above, at registry scale. `tools/list` advertises the
+    /// full verb surface, but under the M1ND-10 authority floors a plain MCP
+    /// client is refused (`generic_action_authority_required`) on every verb
+    /// whose action floor sits above ORDINARY. The gated set is DERIVED here
+    /// from the same floor table the gate reads, so a verb cannot be advertised
+    /// un-annotated by being forgotten, and the lie cannot come back silently.
+    ///
+    /// Both directions are asserted: a floor-gated verb must carry the marker
+    /// AND its floor names, and a plainly dispatchable verb must NOT claim to be
+    /// policy-disabled. The typed G2/G3 consumers are excluded (they bypass this
+    /// gate entirely) and are held to the second rule.
+    #[test]
+    fn public_surface_annotates_every_floor_gated_verb() {
+        use m1nd_control::AuthorityFloor;
+
+        let catalog = m1nd_control::m1nd10_action_catalog().expect("canonical action catalog");
+        let floors: std::collections::BTreeMap<&str, AuthorityFloor> = catalog
+            .entries
+            .iter()
+            .map(|entry| (entry.action.as_str(), entry.authority_floor))
+            .collect();
+
+        let registry = all_tool_schemas();
+        let tools = registry["tools"].as_array().expect("tools array");
+        let advertised: std::collections::BTreeSet<&str> = tools
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool name"))
+            .collect();
+
+        // The exclusion may not become a hiding place: every typed consumer it
+        // names must really be on the advertised surface.
+        for typed in super::TYPED_CONSUMER_TOOLS {
+            assert!(
+                advertised.contains(typed),
+                "TYPED_CONSUMER_TOOLS names {typed}, which tools/list does not advertise"
+            );
+        }
+
+        let mut gated = 0usize;
+        let mut unannotated: Vec<String> = Vec::new();
+        let mut over_claimed: Vec<String> = Vec::new();
+        for tool in tools {
+            let name = tool["name"].as_str().expect("tool name");
+            let description = tool["description"].as_str().unwrap_or_default();
+            let actions = crate::action_routes::possible_mcp_actions(name)
+                .unwrap_or_else(|| panic!("unrouted advertised tool {name}"));
+
+            let mut gated_floors: std::collections::BTreeSet<&'static str> = Default::default();
+            for action in &actions {
+                let floor = floors
+                    .get(action)
+                    .unwrap_or_else(|| panic!("{name} routes to absent action {action}"));
+                if !super::generic_dispatch_floor_is_available(*floor) {
+                    gated_floors.insert(super::authority_floor_name(*floor));
+                }
+            }
+
+            if gated_floors.is_empty() || super::TYPED_CONSUMER_TOOLS.contains(&name) {
+                if description.contains(super::FLOOR_GATE_MARKER) {
+                    over_claimed.push(name.to_string());
+                }
+                continue;
+            }
+            gated += 1;
+            let floor_list = gated_floors.into_iter().collect::<Vec<_>>().join("|");
+            // The curated `ingest` sweep names its floors in prose, so only the
+            // house marker is required of it; every derived line must also carry
+            // the floor names an agent needs to know what to ask for.
+            let names_its_floors = name == "ingest"
+                || floor_list
+                    .split('|')
+                    .all(|floor| description.contains(floor));
+            if !description.contains(super::FLOOR_GATE_MARKER) || !names_its_floors {
+                unannotated.push(format!("{name} (authority floor {floor_list})"));
+            }
+        }
+
+        assert!(
+            gated >= 30,
+            "derivation found only {gated} floor-gated verbs — the floor table moved or the \
+             derivation broke; a vacuous pass would hide the lie"
+        );
+        assert!(
+            unannotated.is_empty(),
+            "tools/list advertises {} floor-gated verbs a plain MCP client CANNOT dispatch, \
+             with no {} annotation:\n  {}",
+            unannotated.len(),
+            super::FLOOR_GATE_MARKER,
+            unannotated.join("\n  ")
+        );
+        assert!(
+            over_claimed.is_empty(),
+            "plainly dispatchable verbs must NOT claim to be policy-disabled: {}",
+            over_claimed.join(", ")
+        );
+
+        // The `help` verb is the OTHER advertisement surface: it prefers the
+        // tool manual's curated one-liner over the schema description, so the
+        // annotation has to reach it too or the lie just moves house.
+        let gated_names: std::collections::BTreeSet<&str> = tools
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool name"))
+            .filter(|name| {
+                !super::TYPED_CONSUMER_TOOLS.contains(name)
+                    && crate::action_routes::possible_mcp_actions(name)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|action| {
+                            floors.get(action).is_some_and(|floor| {
+                                !super::generic_dispatch_floor_is_available(*floor)
+                            })
+                        })
+            })
+            .collect();
+        let help_catalog = crate::help_guidance::catalog_entries();
+        let help_gated = help_catalog
+            .iter()
+            .filter(|entry| gated_names.contains(entry.name.as_str()))
+            .count();
+        assert!(
+            help_gated > 0,
+            "the help catalog carries no floor-gated verb — this assertion went vacuous"
+        );
+        let unannotated_help: Vec<String> = help_catalog
+            .into_iter()
+            .filter(|entry| {
+                gated_names.contains(entry.name.as_str())
+                    && !entry.one_liner.contains(super::FLOOR_GATE_MARKER)
+            })
+            .map(|entry| entry.name)
+            .collect();
+        assert!(
+            unannotated_help.is_empty(),
+            "the `help` catalog still summarizes floor-gated verbs as callable: {}",
+            unannotated_help.join(", ")
         );
     }
 
