@@ -728,6 +728,67 @@ fn enforce_strict_version() {
     }
 }
 
+/// Run ONE custody-ceremony step and exit. Never returns.
+///
+/// The ceremony's admission is this ingress itself (`--custody-ceremony`), which
+/// is why the stamp is constructed here and only here. Everything else the step
+/// needs is owner-held and passed explicitly: this binary derives no path and
+/// creates no directory, so the owner's own prerequisites stay visible to them.
+fn run_custody_ceremony_mode(cli: &Cli, verb: &str) -> ! {
+    use m1nd_mcp::custody_ceremony::{
+        CeremonyAttendanceV1, CeremonyRequestV1, CustodyCeremonyVerbV1, OwnerCeremonyIngressV1,
+        CUSTODY_CEREMONY_VERBS,
+    };
+
+    let parsed: CustodyCeremonyVerbV1 = match verb.parse() {
+        Ok(parsed) => parsed,
+        Err(refusal) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&refusal.to_json()).unwrap_or_default()
+            );
+            eprintln!(
+                "[m1nd-mcp][custody] expected one of: {}",
+                CUSTODY_CEREMONY_VERBS.join(", ")
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let protected_root = match cli.custody_protected_root.as_deref() {
+        Some(root) => std::path::PathBuf::from(root),
+        None => {
+            eprintln!(
+                "[m1nd-mcp][custody] --custody-protected-root is required: the ceremony's \
+                 protected root is owner-held and this binary never derives or creates it"
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let (payload, code) = m1nd_mcp::custody_ceremony::run_custody_ceremony(
+        OwnerCeremonyIngressV1::from_cli_ingress(),
+        CeremonyRequestV1 {
+            verb: parsed,
+            protected_root,
+            owner_security_config: cli
+                .custody_owner_security_config
+                .as_deref()
+                .map(std::path::PathBuf::from),
+            mission_config: cli
+                .custody_mission_config
+                .as_deref()
+                .map(std::path::PathBuf::from),
+        },
+        CeremonyAttendanceV1::detect(),
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&payload).unwrap_or_default()
+    );
+    std::process::exit(code);
+}
+
 #[tokio::main]
 async fn main() {
     // Parse before every side-effecting compatibility/runtime path. The offline
@@ -743,6 +804,21 @@ async fn main() {
         std::process::exit(
             m1nd_mcp::authorization_receipt_verifier::run_authorization_receipt_verifier_stdio(),
         );
+    }
+
+    // --custody-ceremony <verb>: THE CUSTODY CEREMONY (amendment G9-A1, Path B —
+    // docs/benchmarks/G9-CUSTODY-CEREMONY.md §2). One bounded step, offline, one
+    // closed JSON object, exit — the same early-mode shape as the receipt verifier
+    // above and --inbox-sweep/--medulla-migrate below. Dispatched HERE, before any
+    // config load or owner machinery, because the ceremony must never boot an
+    // owner, open a port or take a lease.
+    //
+    // THIS is the stamp's only construction site. Admission to the ceremony is a
+    // fact the owner observes about ITSELF — the human ran this command — so the
+    // ingress, not a payload, is what mints it. A test holds this line: a second
+    // `from_cli_ingress` anywhere in the crate fails the battery.
+    if let Some(verb) = cli.custody_ceremony.clone() {
+        run_custody_ceremony_mode(&cli, &verb);
     }
 
     #[cfg(unix)]

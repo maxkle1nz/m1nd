@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 
 use m1nd_mcp::custody_ceremony::{
     authorize_ceremony_step, classify_provisioning_failure, preflight, CeremonyAttendanceV1,
-    CeremonyRefusalV1, CustodyCeremonyVerbV1, CUSTODY_CEREMONY_VERBS,
-    G6_AUTHORITY_ASSEMBLY_MANIFEST_FIELDS, G6_AUTHORITY_ASSEMBLY_SCHEMA,
+    CustodyCeremonyVerbV1, CUSTODY_CEREMONY_VERBS, G6_AUTHORITY_ASSEMBLY_MANIFEST_FIELDS,
+    G6_AUTHORITY_ASSEMBLY_SCHEMA,
 };
 
 fn repo_root() -> PathBuf {
@@ -42,12 +42,18 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
 }
 
-/// Strip `#[cfg(test)]` modules so a "production caller" search cannot be
-/// satisfied by a test. Deliberately crude and CONSERVATIVE: it drops everything
-/// from a `#[cfg(test)]` attribute to the end of the file, which is where this
-/// repo puts its test modules. A miss makes the test stricter, never weaker.
+/// Strip the trailing `#[cfg(test)]` module so a "production caller" search cannot
+/// be satisfied by a test.
+///
+/// Anchored to a `#[cfg(test)]` at COLUMN ZERO, which is how 80 of this crate's 82
+/// files declare their test module. The looser `str::find` is wrong in a way that
+/// silently disarms the search: a doc comment merely MENTIONING `#[cfg(test)]`
+/// truncates the whole file, and the production code below it is never scanned.
+/// That is exactly how this helper first failed, on the one file whose module doc
+/// quotes the measurement it closes.
 fn without_test_modules(source: &str) -> String {
-    match source.find("#[cfg(test)]") {
+    let marker = "\n#[cfg(test)]\n";
+    match source.find(marker) {
         Some(index) => source[..index].to_owned(),
         None => source.to_owned(),
     }
