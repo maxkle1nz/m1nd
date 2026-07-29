@@ -20,7 +20,7 @@ Everything in this file ships in the current release and is backed by an artifac
   <img src="docs/assets/demo.gif" width="760" alt="A real m1nd session: north returns trust, focus and honest gaps; seek answers with a reverify verdict; memorize anchors the finding to code" />
 </p>
 
-<p align="center"><em>One real session against a 6,453-node graph over this repo. <code>north</code> briefs the agent with trust and honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
+<p align="center"><em>One real session, captured with m1nd-mcp 1.4.0 against a 6,453-node graph of this repo. <code>north</code> briefs the agent with trust and honest gaps, <code>seek</code> answers wearing a <code>reverify</code> verdict instead of a confident guess, <code>memorize</code> writes the finding back anchored to code.</em></p>
 
 ## What your agent gets
 
@@ -81,7 +81,7 @@ The updater verifies the release's signed candidate against the exact build iden
 
 ## Why trust the answers
 
-This is the part I have not found anywhere else, and it is the reason m1nd exists. Retrieval layers are good at answering. Almost none of them are good at refusing. m1nd treats the refusal as a first-class result:
+This is the part I have not found anywhere else, and it is why I built m1nd. Retrieval layers are good at answering. Almost none of them are good at refusing. m1nd treats the refusal as a first-class result:
 
 ```jsonc
 // trust_selftest on an unbound runtime. The verdict IS the repair instruction:
@@ -97,7 +97,7 @@ This is the part I have not found anywhere else, and it is the reason m1nd exist
 
 A `seek` hit carries a sufficiency readout and a trust envelope. When no calibration has been measured yet, the envelope caps its own verdict at `reverify` instead of overclaiming. `predict` is conformally calibrated per repo: verdicts read `act`, `reverify` or `abstain`, and `abstain` means the evidence is not there. It is a signal to stop, never a weak yes. `insufficient_evidence` means no evidence at all, which is a different thing from medium risk, and the API keeps the two apart.
 
-Two features were removed from the advertised surface in beta because they always claimed to win, and a tool that always claims to win is not credible. That trade is the whole doctrine in one sentence.
+Two features were removed from the advertised surface in beta because they always claimed to win, and a tool that always claims to win is not credible. That trade is the bar every claim in this file is held to.
 
 I keep looking for another memory layer or code-graph server that ships a read-time trust verdict of any kind. As of July 2026 I have not found one. If you know one, open an issue and I will link it here.
 
@@ -198,7 +198,7 @@ Read the commit log with a raised eyebrow, then read this. I'm Max. I build m1nd
 - The laws are test names, not prose: `letter_cannot_color_the_store`, `gate_zero_cannot_land`, `graph_only_evidence_is_not_enough`.
 - The tree holds well over a thousand tests, and the full gate runs green on Linux, macOS and Windows.
 
-The skeptic's question ("no human writes this much this fast") is correct. No human does. A human directing a proof-bound system of agents does, and this tree is the standing evidence. m1nd's trust layer came out of that daily practice: I needed my own agents to stop trusting stale answers before I could ship anything at this pace.
+The skeptic's question ("no human writes this much this fast") is correct. No human does. A human directing a proof-bound system of agents does. This tree is what came out. m1nd's trust layer came out of that daily practice: I needed my own agents to stop trusting stale answers before I could ship anything at this pace.
 
 ## If I disappear
 

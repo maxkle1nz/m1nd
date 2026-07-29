@@ -153,7 +153,7 @@ const BEAT_DEFS = [
     realMs: 0,
     step: 1,
     title: "Query Parsed",
-    desc: "The query string is tokenized and scored against pre-computed node embeddings already loaded in RAM. The entire codebase graph · 9,767 nodes and 26,557 edges · is resident in memory. Zero files opened. Zero disk I/O.",
+    desc: "The query string is tokenized and scored against pre-computed node embeddings already loaded in RAM. The entire codebase graph (9,767 nodes and 26,557 edges) is resident in memory. Zero files opened. Zero disk I/O.",
     tech: "PageRank scores + TF-IDF vectors · loaded in < 1μs",
     color: "#00f5ff",
   },

@@ -44,7 +44,7 @@ const FAQS: FAQ[] = [
   },
   {
     tag: "how it works",
-    q: "How does m1nd decide which 4 nodes to return from 9,767?",
+    q: "How does m1nd pick the 4 nodes it returns from a whole graph?",
     a: "seek scores every node three ways: exact keyword match, trigram similarity, and a PageRank-style centrality prior that is gated so a well-connected hub can never outrank an actually relevant hit. Compile the optional embed feature and a small local embedding model joins the mix (fetched once, then fully offline). Spreading activation then expands from the top candidates along typed edges, and the survivors come back with their callers, callees and test references attached.",
   },
   {

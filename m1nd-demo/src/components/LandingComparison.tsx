@@ -369,6 +369,9 @@ export function LandingComparison() {
             </Link>
           </div>
         </div>
+        <p className="mt-4 text-center font-mono text-[11px] text-muted-foreground/40">
+          Recorded scenario: a 9,767-node graph of a real production backend, replayed. Timings from that session.
+        </p>
       </div>
     </section>
   );
