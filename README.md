@@ -78,11 +78,19 @@ Measured on the real case: the whole-file edit cost 12,235 output tokens; the tr
 
 v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the destination file must already exist, and references born inside macros are invisible to it. Each boundary is deliberate and written down in [docs/TRANSPLANT-PRD.md](docs/TRANSPLANT-PRD.md), next to 13 test files that hold the verb to it.
 
+## And when it is not one agent but five?
+
+Run several agents on the same repo and the graph becomes the place they coordinate. Every session registers as a presence, and when two of them are about to touch overlapping work, both get warned in their next orientation packet, before either lands a change. The system warns; you decide.
+
+Bounded work runs as missions, and missions answer for themselves in a way most human teams skip: every mission tool reports `non_claims`, the list of what was NOT proven. A claim cannot close on graph evidence alone. It takes a file read, a test run or a runtime probe, and the test that enforces this is named `graph_only_evidence_is_not_enough`.
+
+And the guardrails do not cry wolf. `xray_gate` can say `blocked` only from a boundary manifest a human ratified. Everything else arrives as a warning with a reason, so the agent never learns to ignore its own safety rail.
+
 ## Born agent-first
 
 No account, no telemetry, and no API in the way, which is also why the graph answers in microseconds.
 
-The development of m1nd is not very normal either. Building it meant building a whole workflow where agents direct, verify and prove the work, and the logic of the product is aimed at the agent's pain, not the human's dashboard. Very few programs start from that in their initial design. So m1nd is born different: the verbs, the refusals and the packets are shaped for the reader that actually uses them, and you do not even have to remind the model the tool exists. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation at spawn: your agent, and every subagent it spawns, starts oriented before anyone types a word.
+The development of m1nd is not very normal either. Building it meant building a whole workflow where agents direct, verify and prove the work, and the logic of the product is aimed at the agent's pain, not the human's dashboard. When m1nd misbehaves in the field, the agents using it file the report, and a confirmed bug becomes a red test before the fix lands. Very few programs start from that in their initial design. So m1nd is born different: the verbs, the refusals and the packets are shaped for the reader that actually uses them, and you do not even have to remind the model the tool exists. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation at spawn: your agent, and every subagent it spawns, starts oriented before anyone types a word.
 
 A brain per repository holds it together: one graph, its own memory, its own persistence, bound to one repo root. A served owner hosts many brains and routes each session to the right one; a session from a repo it does not host gets a typed refusal instead of wrong answers.
 
@@ -237,7 +245,7 @@ m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
 m1nd-mcp --attach auto --stdio     # each agent: no graph load, no lease, shared memory
 ```
 
-What one agent memorizes, another recalls immediately. The served owner also hosts per-repo brains, renders the web UI, and registers each session as a presence, so two agents about to collide on the same code get warned before either lands. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists.
+What one agent memorizes, another recalls immediately, and the presence and collision warnings described above run through this same owner. It also hosts per-repo brains and renders the web UI. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists.
 
 One gate to know about: a served owner refuses generic `ingest` for repos it does not already host. Minting a new brain on a served owner is a governed gesture, and it fails closed by design. For a first session on a new repo, use the stdio path or `m1nd agent first-minute`. Attach to the owner once it hosts your repo. Full deployment guide: [docs/deployment.md](docs/deployment.md).
 
