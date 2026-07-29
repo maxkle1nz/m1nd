@@ -8,6 +8,22 @@ pub(crate) fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Lowercase hex of a byte slice.
+///
+/// `digest` 0.11 returns `hybrid_array::Array`, which — unlike the old
+/// `generic_array::GenericArray` — does not implement `LowerHex`, so the
+/// former `format!("{:x}", ..)` spelling no longer compiles. This is the
+/// workspace's existing hex idiom, the single shared copy for this crate.
+pub(crate) fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::now_ms;

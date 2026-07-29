@@ -8618,7 +8618,7 @@ mod tests {
     fn digest_bytes(bytes: &[u8]) -> String {
         use sha2::{Digest, Sha256};
 
-        format!("sha256:{:x}", Sha256::digest(bytes))
+        format!("sha256:{}", crate::util::hex_lower(&Sha256::digest(bytes)))
     }
 
     fn directory_digest(root: &std::path::Path) -> String {
@@ -8673,7 +8673,7 @@ mod tests {
             hasher.update((bytes.len() as u64).to_le_bytes());
             hasher.update(bytes);
         }
-        format!("sha256:{:x}", hasher.finalize())
+        format!("sha256:{}", crate::util::hex_lower(&hasher.finalize()))
     }
 
     fn graph_digest(state: &SessionState) -> String {

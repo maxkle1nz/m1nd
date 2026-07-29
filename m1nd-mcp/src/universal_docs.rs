@@ -1069,7 +1069,7 @@ fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::util::hex_lower(&Sha256::digest(bytes))
 }
 
 #[cfg(test)]

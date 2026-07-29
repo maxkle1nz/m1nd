@@ -135,7 +135,7 @@ impl SoftwareTestAuthorityWalRecordCrypto {
         hasher.update(&self.secret);
         hasher.update((message.len() as u64).to_be_bytes());
         hasher.update(message);
-        format!("{:x}", hasher.finalize())
+        crate::util::hex_lower(&hasher.finalize())
     }
 }
 

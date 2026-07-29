@@ -477,9 +477,12 @@ Each event that survives triage adds its case to the battery of the brain it bit
 > (`mailbox.rs`, mirroring `medulla_migration.rs`) — no live `SessionState`, so
 > distribution/sweep/read are scratch-testable and structurally incapable of
 > touching a running owner's graph. **Letter id = `sha256(raw line bytes)[0..12]`**
-> via a direct `sha2 0.10` dep (already in Cargo.lock transitively — SipHash's
+> via a direct `sha2` dep (already in Cargo.lock transitively — SipHash's
 > `DefaultHasher` is NOT cross-version/platform stable, which would break the
-> git-travel dedup contract, so the spec's sha256 is load-bearing). The
+> git-travel dedup contract, so the spec's sha256 is load-bearing). The id is
+> pinned to independently computed known answers by
+> `letter_id_matches_pinned_known_answers`, so the dedup contract is proven
+> across a hashing-crate major rather than assumed. The
 > **distribution rule** normalizes `repo`/`brain` (expand `~`, strip parenthetical
 > annotations, `<base>-*` worktree names collapse to `<base>` — kept NEUTRAL: the
 > rule is "a `<base>-<suffix>` sibling collapses to `<base>`", the project basename

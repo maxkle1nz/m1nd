@@ -356,7 +356,7 @@ pub fn resolve_box(
 pub fn letter_id(raw_line: &str) -> String {
     let bytes = raw_line.trim_end_matches(['\n', '\r']).as_bytes();
     let digest = Sha256::digest(bytes);
-    let hex = format!("{digest:x}");
+    let hex = crate::util::hex_lower(&digest);
     hex[..12].to_string()
 }
 
@@ -1050,7 +1050,7 @@ pub fn project_roots_for_runtime(
             let digest = Sha256::digest(root.as_bytes());
             let scoped = owner_runtime_root
                 .join("project-boxes")
-                .join(&format!("{digest:x}")[..12])
+                .join(&crate::util::hex_lower(&digest)[..12])
                 .join(project_basename(root));
             std::fs::create_dir_all(&scoped)?;
             Ok(scoped.to_string_lossy().to_string())
@@ -1162,6 +1162,42 @@ pub fn doctor_mailbox(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `letter_id` is a cross-machine dedup contract — `sha256(raw line
+    /// bytes)[0..12]` — so a git-traveled box must derive the same id for the
+    /// same letter on every machine and every build. Pinned to answers from an
+    /// independent oracle rather than re-derived here, so a change in the
+    /// hashing stack (or in the hex spelling) fails instead of silently
+    /// re-identifying every letter already on disk.
+    #[test]
+    fn letter_id_matches_pinned_known_answers() {
+        for (line, expected) in [(r#"{"a":1}"#, "015abd7f5cc5"), ("", "e3b0c44298fc")] {
+            assert_eq!(
+                letter_id(line),
+                expected,
+                "letter_id({line:?}) must stay the first 12 hex chars of sha256(line)"
+            );
+        }
+    }
+
+    /// The trailing-newline trim is part of that contract: the same letter with
+    /// or without its line terminator is the same letter.
+    #[test]
+    fn letter_id_ignores_only_the_trailing_line_terminator() {
+        let base = r#"{"a":1}"#;
+        for suffix in ["", "\n", "\r\n"] {
+            assert_eq!(
+                letter_id(&format!("{base}{suffix}")),
+                "015abd7f5cc5",
+                "a trailing {suffix:?} must not change the id"
+            );
+        }
+        assert_ne!(
+            letter_id(&format!(" {base}")),
+            "015abd7f5cc5",
+            "leading whitespace is part of the hashed bytes"
+        );
+    }
 
     /// A scratch dir cleaned on drop (mirrors medulla_migration's Scratch).
     struct Scratch {

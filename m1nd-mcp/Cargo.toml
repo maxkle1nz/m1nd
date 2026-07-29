@@ -42,9 +42,9 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Letter ids are `sha256(raw line bytes)[0..12]` (MEDULLA-PRD §9.2): stable and
 # machine-independent by construction, so git-traveled boxes dedup across
 # machines. DefaultHasher (SipHash) is NOT cross-version/platform stable, which
-# would break that contract. sha2 0.10 is already in Cargo.lock transitively —
+# would break that contract. sha2 is already in Cargo.lock transitively —
 # declaring it direct adds NO new crate to the build graph.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Tree-sitter, declared direct ONLY so the `transplant` verb can recover an item's
 # TRUE extent (closing-brace line) by PARSING instead of counting braces (which a
@@ -114,19 +114,19 @@ security-framework-sys = "=2.17.0"
 core-foundation = "=0.10.1"
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 
 [[bin]]
 name = "m1nd-mcp"
 path = "src/main.rs"
 
 [dev-dependencies]
-ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
+ed25519-dalek = { version = "3", default-features = false, features = ["alloc"] }
 # TEST-ONLY P-256 signing for custody-floor fixtures (offline receipt verifier,
 # enclave-crypto mock). Production m1nd-mcp gains NO p256 dependency: every P-256
 # signature is verified through m1nd-control's verifier. Already in Cargo.lock via
 # m1nd-control, so this adds NO new crate to the build graph.
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 # `socket2` lets tests bind an ephemeral loopback port WITHOUT listening on it, so
 # the owner-alive guard's port can be reserved-closed without a live listener that a
 # parallel test could collide with (see the `closed_port` helpers).
