@@ -66,8 +66,13 @@ measured high-signal pattern starts by never starting cold:
    wrong in EVERY era: on a legacy owner it wholesale-REPLACES the bound brain
    (2026-07-24 incident — a 29k-node brain swapped for a foreign graph,
    restored the same day).
-2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
-   then `north` again. `needs_ingest` is a REAL answer, not a failure.
+2. If `north` returns `needs_ingest` (empty/unbound graph), re-scan and call
+   `north` again. `needs_ingest` is a REAL answer, not a failure. On a brain that
+   already DECLARES your root, the repair is yours to run and needs no human:
+   `ingest {mode:"refresh", path: <your root>}` from exactly that root (Law 3
+   below). On a root no brain declares, it is not a refresh — bootstrap is still
+   the absent consumer, and the honest move is to reconnect to an owner that
+   hosts the repo. A plain `ingest {path}` (mode `replace`) remains refused.
 3. Act on verdicts, do not override them (see below).
 4. Prove final truth with direct source reads, tests, compiler/runtime output,
    and focused probes.
@@ -107,7 +112,7 @@ brain that covers the caller's repo (`M1nd-Caller-Root` ↔ `covers_root`).
 Retrieval under a wrong binding is a recoverable annoyance; a WRITE under a wrong
 binding is corruption of shared state. A real incident set this law: a foreign
 repo's skeleton was written into a bound brain because the writer never checked
-which brain answered it. Two laws:
+which brain answered it. Three laws:
 
 - **Law 1 — no write under a reception mismatch.** When a response carries
   `reception.match == "caller_root_mismatch"`, the brain serving you does NOT
@@ -144,6 +149,27 @@ which brain answered it. Two laws:
   REST caller gets the same refusal as an HTTP 400. A burst worktree does NOT earn
   its own brain — bind to the main repo's. (Separately, bootstrap never SHADOWS
   the bound dev graph: a `project_root` the bound graph already covers is refused.)
+
+- **Law 3 — the freshness door is the ONE ingest a plain client can run, and only
+  from its own root.** `ingest {mode:"refresh"}` re-scans a root the brain has
+  ALREADY declared. It is admitted at `SCOPED_GRANT_A2`, A2-locally, with no
+  lease, and admitted BY ACTION rather than by floor — the two siblings sitting at
+  that same floor (`source.edit.commit`, `graph.ingest.merge_existing`) stay
+  refused, and their refusal bytes are pinned by test. `replace` and `merge` are
+  unchanged: refused. Every refusal mutates nothing and names itself:
+  `refresh_root_not_exact` (your caller root is not EXACTLY a declared root — a
+  subdirectory is not the root, and an explicit REST `?brain=` selector never
+  satisfies the predicate), `refresh_root_unresolvable` (the path does not resolve
+  on disk — an unresolvable path is refused, never string-matched),
+  `refresh_in_flight`, `refresh_would_change_roots`, and
+  `refresh_would_shrink_graph` — which refuses when the fresh scan holds under
+  **60%** of the live graph's nodes, and names both counts. That floor is armor
+  the persist layer does not give you: its own shrink guard is fail-open by
+  written design (it backs up and writes anyway), so "root set unchanged" never
+  meant "graph intact". Reach for `refresh` when a declared root's graph is stale;
+  never as a repair for a reception mismatch, which Law 1 still governs. Honest
+  limit, from the spec itself: it closes the reflex vector, not a malicious
+  same-UID local process. (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.)
 
 Not yet built (do not rely on it): `skeleton_coherence`, a vital sign that makes
 a brain flag loudly when it is wearing a skeleton from a foreign repo. Until it

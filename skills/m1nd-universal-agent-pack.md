@@ -148,7 +148,7 @@ merit; facts, never estimated savings (G1).
 | fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
 | `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
 | the bell | a call to the human (missions await landing) — never an error |
-| `needs_ingest` | "I don't know this repo yet" + the honest repair — never a crash. Follow the packet's `recovery_playbook`: where generic `ingest` is policy-allowed it names it; under the sovereign mutation policy it returns `blocked` (`brain_bootstrap_consumer_not_installed`) with the real paths (legacy snapshot adoption at owner restart, or the served owner's authenticated ingress) — never retry a verb the playbook did not name |
+| `needs_ingest` | "I don't know this repo yet" + the honest repair — never a crash. Follow the packet's `recovery_playbook`: where generic `ingest` is policy-allowed it names it; under the sovereign mutation policy it returns `blocked` (`brain_bootstrap_consumer_not_installed`) with the real paths (legacy snapshot adoption at owner restart, or the served owner's authenticated ingress) — never retry a verb the playbook did not name. ONE repair is yours to run without asking: if the brain already DECLARES your root and its graph is stale or empty, `ingest {mode:"refresh", path: <your root>}` re-scans it — from exactly that root, and refusing rather than replacing the graph with a scan holding under 60% of its nodes. It never creates or rebinds a brain, so it is not a fix for `caller_root_mismatch` |
 | the tray | the human's door to land receipts — agents never land |
 
 **The verb families (translate by family, not tool-by-tool):**
