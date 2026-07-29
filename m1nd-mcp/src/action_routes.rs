@@ -133,6 +133,14 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "panoramic",
     "persist",
     "boot_memory",
+    // Advertised so an agent can SEE the birth verb and read its honest refusal
+    // (`human_gesture_required`) — never so it can call it. It routes to
+    // `brain.bootstrap.birth` at the `PositiveSovereign` floor and is refused for
+    // every wire client; the stamp is the binary's own `--birth` ingress. Absent
+    // from this list the verb would be advertised with no ratified floor at all,
+    // which `live_schema_registry_and_policy_route_inventory_are_exactly_equal`
+    // exists to catch — and did.
+    "brain_birth",
     "metrics",
     "type_trace",
     "diagram",
