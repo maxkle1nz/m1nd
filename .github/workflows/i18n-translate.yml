@@ -1,0 +1,87 @@
+# Re-translate the README into the i18n languages whenever the English text
+# changes on main. Uses GitHub Models (authenticated by the workflow's own
+# GITHUB_TOKEN, no external key) and opens a PR for human review; nothing
+# lands on main without the maintainer's merge.
+name: i18n translate
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  models: read
+
+concurrency:
+  group: i18n-translate
+  cancel-in-progress: true
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Translate README into 7 languages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p i18n
+          declare -A LANGS=(
+            [pt-BR]="Brazilian Portuguese"
+            [es]="Spanish"
+            [it]="Italian"
+            [fr]="French"
+            [de]="German"
+            [zh]="Simplified Chinese"
+            [ja]="Japanese"
+          )
+          SYSTEM_PROMPT='You translate a software README faithfully. Rules: keep ALL markdown structure, HTML blocks, badges, links, tables, mermaid and code blocks EXACTLY as they are (never translate anything inside code fences, inline code, URLs, file paths, tool names, or product names like m1nd, l1ght, north, seek, impact, memorize, transplant). Translate prose only. Never use em dashes; use commas, colons or periods instead. Keep the plain, first-person voice of the original. Output ONLY the translated markdown, no preamble.'
+          for code in "${!LANGS[@]}"; do
+            lang="${LANGS[$code]}"
+            echo "translating -> $code ($lang)"
+            jq -n --arg sys "$SYSTEM_PROMPT" \
+                  --arg usr "Translate the following README into $lang:
+
+$(cat README.md)" \
+                  '{model: "openai/gpt-4o", max_tokens: 14000, messages: [{role:"system",content:$sys},{role:"user",content:$usr}]}' \
+              > /tmp/req.json
+            for attempt in 1 2 3; do
+              if curl -sf https://models.github.ai/inference/chat/completions \
+                   -H "Authorization: Bearer $GH_TOKEN" \
+                   -H "Content-Type: application/json" \
+                   -d @/tmp/req.json > /tmp/resp.json; then
+                break
+              fi
+              echo "attempt $attempt failed for $code; backing off"; sleep $((attempt * 20))
+            done
+            jq -re '.choices[0].message.content' /tmp/resp.json > "i18n/README.$code.md" || {
+              echo "no content for $code; leaving the existing translation untouched"; continue; }
+            # refuse a truncated result: the translation must end near the license section
+            grep -q "LICENSE" "i18n/README.$code.md" || {
+              echo "translation for $code looks truncated; restoring previous version"
+              git checkout -- "i18n/README.$code.md" || true; }
+            sleep 10
+          done
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "Max Kle1nz"
+          git config user.email "kleinz@cosmophonix.com"
+          if git diff --quiet -- i18n; then
+            echo "translations unchanged; nothing to do"; exit 0
+          fi
+          branch="i18n/refresh-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
+          git add i18n
+          git commit -m "i18n: refresh translations from the current English README"
+          git push -u origin "$branch"
+          gh pr create --title "i18n: refresh translations from the current English README" \
+            --body "Automated re-translation via GitHub Models after README.md changed on main. Prose only; code blocks, links and tool names are preserved by the prompt contract, and a truncation guard restores any translation that does not reach the license section. Review before merge, English stays canonical."

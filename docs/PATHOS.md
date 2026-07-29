@@ -104,9 +104,10 @@ Update this list in the same PR that closes one; a front that dies silently is a
   to what is true, /use-cases marked illustrative and its fabricated certainties rewritten, and every
   em-dash removed from reader-visible site text. Declared debt this branch does NOT close: the 7 i18n
   READMEs now lag the English rewrite (English declared canonical in the new Translations section);
-  wiki lead pages still open with the stale `50.73%` token claim; the GitHub repo description still
-  says "neuro-symbolic code graph with calibrated trust" (fine) but the MCP Registry entry still
-  publishes 1.3.0.
+  the MCP Registry entry still publishes 1.3.0 (owner publish gesture). Closed since first written:
+  the wiki token-claim pages now carry the dated snapshot hedge, pt-BR was retranslated by hand from
+  the owner-ratified copy, and `.github/workflows/i18n-translate.yml` re-translates the other six
+  languages via GitHub Models on every README change to main, opening a review PR (English canonical).
 
 **Blocking the product**
 - **LIFECYCLE PROOF — BOTH CYCLES LANDED 2026-07-29 (clean shutdown AND crash).** m1nd is a
