@@ -64,7 +64,7 @@ The merged universal lane can ingest and operationalize:
 
 When a document enters through the universal lane, m1nd can preserve canonical local artifacts, bind that document to likely code, and surface document/code drift when the implementation moves faster than the docs.
 
-Current benchmark truth from the recorded warm-graph corpus:
+One recorded benchmark capture (2026-03-24, single corpus; read it as a snapshot, not a promise):
 
 - `10518 -> 5182` aggregate token proxy
 - `50.73%` aggregate reduction
