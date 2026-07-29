@@ -29,18 +29,29 @@ don't and cost ~half of every 70-minute CI round; the signed release pipeline re
 `--release` at tag time regardless). A release-profile-only breakage is caught on the main
 push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
-**Windows is ADVISORY (phase-2, since 2026-07-23):** the `rust-gates-windows` job runs the
-identical gate and reports its own honest check, but it is NOT in the required `Test` aggregator
-— a red Windows leg (the ~22 diagnosed source-edit path-canon tests, tracked phase-2 debt) does
-**not** block merge. This restored auto-merge (the whole queue was hostage to admin overrides).
-Still write cross-platform-correct code (the fs/path contract below is real); when Windows goes
-green, re-add `windows-latest` to the matrix and delete the advisory job.
+**Windows is REQUIRED again (since 2026-07-29):** `windows-latest` runs in the same
+`rust-gates` matrix as ubuntu/macos and its red blocks merge. It spent 2026-07-23→29 as an
+advisory job while the phase-2 debt was diagnosed and paid (#435–#440, #444); the flip back was
+made against a fully green advisory run on main, and the scaffold is deleted. The fs/path
+contract below is load-bearing — the whole debt family was path identity and cfg-gated code the
+Unix legs are structurally blind to, so a green local run on macOS proves nothing about your
+`#[cfg(windows)]` branches: mirror-probe them (flip `cfg(unix)`↔`cfg(windows)` locally) when
+you touch one.
 
 UI changes (`m1nd-ui/`) additionally:
 
 ```bash
 cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
 ```
+
+**`m1nd-ui/dist` is tracked on purpose** (`.gitignore:21` — rust-embed compiles it into every
+`m1nd-mcp` binary), so the build output above is *part of your change*: commit it. `ui-gates`
+rebuilds from a clean checkout and fails if `dist` comes out different. That gate exists because
+nothing else could see the drift: the build digest, the runtime digest and the `ui_bundle`
+authority all hash the same committed tree, so a bundle five commits behind its own source still
+reported COHERENT (2026-07-29, mailbox letter `84fde5e4da2e`). The build is byte-reproducible —
+three consecutive host builds and a `linux/amd64` `node:22` container emit an identical tree — so
+a red there is drift, not nondeterminism.
 
 **Cross-platform fs & path contract (Windows is a first-class CI OS):**
 - Never `set_len`/truncate on an append-mode handle — on Windows it lacks `FILE_WRITE_DATA`
@@ -135,6 +146,22 @@ owner on port `1338` — all tests use temp dirs.
   code-grounded UML, plus a ranked ledger of known open gaps.
 - **`docs/ORGANISM-PRD.md`** — the constitution (the spine, the four grammars, the build ladder).
 - **`CLAUDE.md`** — the repo's canonical build/gate/automation notes (also read by Claude Code).
+
+## The G6 blind benchmark is the owner's, not yours
+
+The G6 knowledge-quality ceremony is staged to one command
+(`scripts/benchmark/g6_formal_run.sh`, described in
+`docs/benchmarks/G6-FORMAL-CEREMONY.md`) and **only the owner runs it**. Agents may
+stage it, verify it, and run `--dry-run` or `g6_formal_preflight.sh`, which touch
+nothing but public artifacts. Three hard rules:
+
+- **Never open `docs/benchmarks/**/operator-only/` or `**/runner-results/`.** Those hold
+  the labels and the raw measurements. The blindness is structural — do not be the
+  hole in it. Hashing a sealed file against its pinned digest is fine; parsing it is not.
+- **Never simulate the ceremony.** A run that did not happen is `NOT_RUN`; a verdict
+  that was not measured is fraud. `NOT_PROVEN` is a legitimate, valuable outcome.
+- **Never re-run to chase green.** The metric spec allows one sealed run per revision
+  (`one_sealed_run_only_no_rerun_until_pass`); a `FAIL` stays in the record.
 
 ## Dogfood m1nd — for LOCAL agents only
 

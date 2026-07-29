@@ -567,10 +567,31 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
           rm -f "$RUNNER_TEMP/cert.p12"
 
-          # 2) sign with hardened runtime + secure timestamp (notarization requires both)
+          # 2) sign with hardened runtime + secure timestamp (notarization requires
+          #    both) AND the keychain-access-groups entitlement.
+          #
+          #    The entitlement is NOT cosmetic. The G9 custody floor persists the
+          #    owner's authority key in the data-protection keychain — the only
+          #    keychain a Secure Enclave key can be permanent in — and an unentitled
+          #    binary cannot persist or resolve it at all, so `open`/`sign` fail
+          #    closed. Signing without it shipped a binary structurally incapable of
+          #    running the owner's custody ceremony, invisible until the ceremony
+          #    failed at its first step (measured 2026-07-29 while staging G9).
+          #    See build/m1nd-mcp.entitlements.plist and the HARD PREREQUISITE block
+          #    in m1nd-mcp/src/enclave_authority.rs.
           codesign --force --timestamp --options runtime \
+            --entitlements build/m1nd-mcp.entitlements.plist \
             --sign "$APPLE_SIGNING_IDENTITY" "$BIN_PATH"
           codesign --verify --strict --verbose=2 "$BIN_PATH"
+          # Prove the entitlement actually landed on the shipped bytes. This check is
+          # NOT belt-and-braces: `codesign` parses entitlements with AMFIUnserializeXML,
+          # and when that parse fails (an XML comment anywhere in the plist is enough —
+          # `plutil -lint` accepts what AMFI rejects) it prints the error, signs the
+          # binary WITHOUT the entitlement, and still exits 0. Measured 2026-07-29.
+          # Without this grep the ceremony breaks and the release stays green.
+          codesign -d --entitlements - "$BIN_PATH" 2>/dev/null \
+            | grep -q "keychain-access-groups" \
+            || { echo "::error::signed binary carries no keychain-access-groups entitlement — the G9 custody ceremony would fail closed"; exit 1; }
 
           # 3) notarize (a bare executable is submitted zipped; stapling is not
           #    possible for a raw binary, so Gatekeeper resolves the ticket online)

@@ -161,11 +161,13 @@ Update this list in the same PR that closes one; a front that dies silently is a
   The lesson worth keeping: **"~22 tests" was a count taken behind fail-fast** — `cargo test` stops at the
   first failing binary, so each fix only revealed the next masked layer. The advisory leg now runs
   `--no-fail-fast`, because a job that exists to MEASURE debt and reports one layer at a time measures
-  nothing. **Remaining flip:** return `windows-latest` to the required matrix and DELETE the
-  `rust-gates-windows` advisory job (added 2026-07-23 as a scaffold) — do it against a green run, not a
-  hopeful one. One latent item still filed, not fixed: `config::workspace_allowed` carries the same
-  verbatim-prefix split `d8668591` fixed in source-edit (fail-closed, so the same input is refused on
-  Windows and allowed on Unix).
+  nothing. **The flip is DONE (2026-07-29):** `windows-latest` is back in the required matrix and the
+  `rust-gates-windows` advisory scaffold is deleted — made against a fully green advisory run on main
+  (run 30426528487, carrying SPEC-1 + the RustCrypto sweep + Cycle B), not a hopeful one. Windows red
+  now blocks merge again, six days after it was demoted for holding the queue hostage — this time with
+  the debt paid instead of overridden. One latent item still filed, not fixed: `config::workspace_allowed`
+  carries the same verbatim-prefix split `d8668591` fixed in source-edit (fail-closed, so the same input
+  is refused on Windows and allowed on Unix).
 - **Genesis P2 and P3** — P1 (medulla-only read fallback so a brainless repo is served doctrine instead of
   blindness) is implemented in PR #403, in the merge queue and NOT yet on main — checkpoint 32's "0 code
   hits" above described the tree before that PR existed, and holds for main until it lands; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
