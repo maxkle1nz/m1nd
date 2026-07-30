@@ -443,11 +443,24 @@ class CiSecurityContractTests(unittest.TestCase):
             index += 1
         self.assertGreaterEqual(compiled, 1)
 
-    def test_pages_is_split_and_fails_closed_without_unverified_pins(self):
+    def test_pages_is_split_and_its_pins_are_proven(self):
+        # The old debt marker ("Pages supply chain NOT_PROVEN") was paid on
+        # 2026-07-30: the three Pages actions are pinned to the commit SHAs of
+        # their latest releases, resolved through the GitHub API. The ratchet
+        # only tightens: the declaration must bind to the exact pinned bytes,
+        # so silently moving a privileged pin while keeping the PROVEN claim
+        # turns this red. Upgrading an action is a deliberate two-file gesture.
         workflow = self.text(".github/workflows/deploy-wiki.yml")
         self.assert_immutable_uses(".github/workflows/deploy-wiki.yml")
         self.assertIn("contents: read", workflow)
-        self.assertIn("Pages supply chain NOT_PROVEN", workflow)
+        self.assertIn("Supply chain PROVEN", workflow)
+        self.assertNotIn("NOT_PROVEN", workflow)
+        for pinned in (
+            "actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d",
+            "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
+            "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+        ):
+            self.assertIn(pinned, workflow)
         deploy = workflow.split("\n  deploy:\n", 1)[1]
         self.assertNotIn("actions/checkout", deploy)
         self.assertNotIn("npm ", deploy)

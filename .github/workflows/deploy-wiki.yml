@@ -37,14 +37,28 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Refuse an unpinned wiki or Pages supply chain
-        shell: bash
+      # Supply chain PROVEN 2026-07-30: the three Pages actions below are pinned to
+      # the immutable commit SHAs of their latest releases, resolved through the
+      # GitHub API (releases/latest -> git tag object -> commit):
+      #   actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  (v6.0.0)
+      #   actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  (v5.0.0)
+      #   actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  (v5.0.0)
+      # The mdbook/mdbook-mermaid item in the old TODO is not applicable: the wiki
+      # is pre-built and version-controlled under wiki-build/, so no cargo install
+      # runs in CI at all. The artifact is assembled here, in the unprivileged job,
+      # so the privileged deploy below still checks nothing out and runs no scripts.
+      - name: Assemble the Pages artifact (site + pre-built wiki)
         run: |
-          echo "::error title=Pages supply chain NOT_PROVEN::TODO: record verified immutable SHAs for actions/configure-pages, actions/upload-pages-artifact, and actions/deploy-pages, plus exact mdbook and mdbook-mermaid versions/digests. Mutable tags and latest cargo installs are forbidden."
-          exit 1
+          mkdir -p _site
+          cp -R m1nd-demo/dist/. _site/
+          cp -R wiki-build _site/wiki
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
 
   deploy:
-    name: Privileged Pages deploy (fail-closed placeholder)
+    name: Privileged Pages deploy (pinned, no checkout)
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -53,11 +67,6 @@ jobs:
     environment:
       name: github-pages
     steps:
-      # No checkout, package install, or repository script may run in this job.
-      # TODO: replace this literal refusal only after the three Pages action SHAs
-      # are independently verified and recorded in the repository.
-      - name: Refuse deployment while action pins are NOT_PROVEN
-        shell: bash
-        run: |
-          echo "::error title=Pages deploy NOT_PROVEN::Immutable Pages action SHAs are not recorded locally; deployment remains fail-closed."
-          exit 1
+      # No checkout, package install, or repository script runs in this job: the
+      # only step is the pinned deploy action consuming the artifact from build.
+      - uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
