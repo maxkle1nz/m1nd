@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 624" width="920" height="624" role="img">
+<title>the per-brain mailbox</title>
+<desc>A flow between agents. Agent A, on mission X, finds a defect outside its own scope and writes a letter into .m1nd/inbox.jsonl, an append-only file on disk beside the code. Agent B, days later, sweeps that mailbox over CLI or REST, never inside the query loop, and its mission starts already knowing about the defect.</desc>
+<rect x="0" y="0" width="920" height="624" fill="#161B22"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">mailbox</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">an agent leaves a letter on disk; another agent, days later, starts its mission</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">already knowing</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="40" y="178" width="200" height="88" fill="#161B22"/>
+<rect x="40" y="178" width="200" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="140" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent A</text>
+<text x="140" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">mission X</text>
+<rect x="344" y="178" width="232" height="88" fill="#161B22"/>
+<rect x="344" y="178" width="232" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="344" y1="202" x2="344" y2="242" stroke="#161B22" stroke-width="10"/>
+<text x="460" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">.m1nd/inbox.jsonl</text>
+<text x="460" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">append-only</text>
+<rect x="680" y="178" width="200" height="88" fill="#161B22"/>
+<rect x="680" y="178" width="200" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="780" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent B</text>
+<text x="780" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">days later</text>
+<text x="292" y="200" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">writes</text>
+<line x1="240" y1="222" x2="332" y2="222" stroke="#687585" stroke-width="4"/>
+<polygon points="344,222 330,215 330,229" fill="#687585"/>
+<text x="628" y="200" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">sweeps</text>
+<line x1="680" y1="222" x2="588" y2="222" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="576,222 590,215 590,229" fill="#687585"/>
+<text x="140" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">finds a defect</text>
+<text x="140" y="334" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">outside its scope</text>
+<text x="460" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">on disk, beside the code</text>
+<text x="780" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">CLI or REST,</text>
+<text x="780" y="334" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">never in the query loop</text>
+<rect x="344" y="390" width="240" height="88" fill="#161B22"/>
+<rect x="344" y="390" width="240" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="444" y1="390" x2="484" y2="390" stroke="#161B22" stroke-width="10"/>
+<text x="464" y="425" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">the mission starts</text>
+<text x="464" y="451" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">already knowing</text>
+<line x1="780" y1="362" x2="780" y2="434" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<line x1="780" y1="434" x2="596" y2="434" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="584,434 598,427 598,441" fill="#687585"/>
+<text x="460" y="542" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">a letter on disk outlives the session, the context window and its author</text>
+<text x="460" y="568" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">recorded where the code lives, for the owner of that system to fix in due time</text>
+</svg>

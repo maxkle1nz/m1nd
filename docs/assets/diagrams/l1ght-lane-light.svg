@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 680" width="920" height="680" role="img">
+<title>the l1ght document lane</title>
+<desc>One graph with two lanes. The upper lane holds document nodes drawn as circles, a paper with a DOI, an RFC and a design note, joined by a dashed cites edge. The lower lane holds code nodes drawn as squares. Vertical connectors labelled with the real ingest routes, DOI slash Crossref, RFC and JATS, tie each document to its code. A seek query on the left crosses the horizontal wire through both lanes and returns a single ranked answer on the right.</desc>
+<rect x="0" y="0" width="920" height="680" fill="#ECEDE8"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#14181C" text-anchor="start">l1ght_lane</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">one graph, two lanes: documents as circles, code as squares, and a single ranked</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">answer across both</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#84867F" stroke-width="2"/>
+<text x="40" y="178" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">documents</text>
+<text x="40" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">code</text>
+<text x="280" y="178" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">paper · DOI</text>
+<line x1="280" y1="262" x2="280" y2="370" stroke="#84867F" stroke-width="2"/>
+<line x1="280" y1="370" x2="280" y2="438" stroke="#84867F" stroke-width="2"/>
+<circle cx="280" cy="234" r="28" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<rect x="252" y="438" width="56" height="56" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<text x="296" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">DOI/Crossref</text>
+<text x="280" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">mod A</text>
+<text x="460" y="178" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">RFC 9110</text>
+<line x1="460" y1="262" x2="460" y2="370" stroke="#84867F" stroke-width="2"/>
+<line x1="460" y1="370" x2="460" y2="438" stroke="#84867F" stroke-width="2"/>
+<circle cx="460" cy="234" r="28" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<rect x="432" y="438" width="56" height="56" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<text x="476" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">RFC</text>
+<text x="460" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">mod B</text>
+<text x="640" y="178" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">design note</text>
+<line x1="640" y1="262" x2="640" y2="370" stroke="#84867F" stroke-width="2"/>
+<line x1="640" y1="370" x2="640" y2="438" stroke="#84867F" stroke-width="2"/>
+<circle cx="640" cy="234" r="28" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<rect x="612" y="438" width="56" height="56" fill="#ECEDE8" stroke="#84867F" stroke-width="4"/>
+<text x="656" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">JATS</text>
+<text x="640" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">mod C</text>
+<line x1="308" y1="234" x2="432" y2="234" stroke="#84867F" stroke-width="2" stroke-dasharray="10 8"/>
+<text x="370" y="216" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">cites</text>
+<rect x="40" y="326" width="160" height="88" fill="#ECEDE8"/>
+<rect x="40" y="326" width="160" height="88" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="120" y="361" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">seek()</text>
+<text x="120" y="387" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">one query</text>
+<rect x="720" y="326" width="160" height="88" fill="#ECEDE8"/>
+<rect x="720" y="326" width="160" height="88" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="720" y1="350" x2="720" y2="390" stroke="#ECEDE8" stroke-width="10"/>
+<text x="800" y="361" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">1 answer</text>
+<text x="800" y="387" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">ranked</text>
+<line x1="200" y1="370" x2="708" y2="370" stroke="#84867F" stroke-width="4"/>
+<polygon points="720,370 706,363 706,377" fill="#84867F"/>
+<text x="460" y="602" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">typed edges join the lanes: a paper cites an RFC, a module implements a spec</text>
+<text x="460" y="628" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">seek crosses both and returns one ranked answer, not two piles to reconcile</text>
+</svg>

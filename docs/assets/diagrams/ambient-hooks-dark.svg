@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 784" width="920" height="784" role="img">
+<title>ambient hooks at spawn</title>
+<desc>A session opening. The host fires three events on the timeline at the bottom, SessionStart, agentSpawn and TaskStart, each feeding the ambient hook above. The hook injects the north package, carrying the map, the memory, the trust and the gaps, into the agent and its subagents, which are therefore born oriented. The first user prompt arrives only later, marked further right on the same timeline.</desc>
+<rect x="0" y="0" width="920" height="784" fill="#161B22"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">ambient_hooks</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">the host fires at spawn and the north package is injected, so the agent is</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">oriented before the first prompt</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="80" y="178" width="248" height="88" fill="#161B22"/>
+<rect x="80" y="178" width="248" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="204" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">ambient hook</text>
+<text x="204" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">injects north</text>
+<rect x="616" y="178" width="264" height="112" fill="#161B22"/>
+<rect x="616" y="178" width="264" height="112" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="616" y1="214" x2="616" y2="254" stroke="#161B22" stroke-width="10"/>
+<text x="748" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">north package</text>
+<text x="748" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">map · memory</text>
+<text x="748" y="265" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">trust · gaps</text>
+<text x="472" y="200" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">injects</text>
+<line x1="328" y1="222" x2="604" y2="222" stroke="#687585" stroke-width="4"/>
+<polygon points="616,222 602,215 602,229" fill="#687585"/>
+<rect x="616" y="386" width="264" height="88" fill="#161B22"/>
+<rect x="616" y="386" width="264" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="728" y1="386" x2="768" y2="386" stroke="#161B22" stroke-width="10"/>
+<text x="748" y="421" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent + subagent</text>
+<text x="748" y="447" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">born oriented</text>
+<line x1="748" y1="290" x2="748" y2="374" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="748,386 741,372 755,372" fill="#687585"/>
+<line x1="40" y1="586" x2="880" y2="586" stroke="#687585" stroke-width="4"/>
+<line x1="168" y1="572" x2="168" y2="600" stroke="#687585" stroke-width="4"/>
+<text x="168" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">SessionStart</text>
+<line x1="168" y1="530" x2="168" y2="568" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="360" y1="572" x2="360" y2="600" stroke="#687585" stroke-width="4"/>
+<text x="360" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">agentSpawn</text>
+<line x1="360" y1="530" x2="360" y2="568" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="552" y1="572" x2="552" y2="600" stroke="#687585" stroke-width="4"/>
+<text x="552" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">TaskStart</text>
+<line x1="552" y1="530" x2="552" y2="568" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="168" y1="530" x2="552" y2="530" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="204" y1="530" x2="204" y2="278" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<polygon points="204,266 197,280 211,280" fill="#687585"/>
+<line x1="792" y1="572" x2="792" y2="600" stroke="#98A2AE" stroke-width="4"/>
+<text x="792" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">first prompt</text>
+<text x="792" y="654" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">(only now)</text>
+<text x="460" y="702" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">context arrives at spawn, not after the first prompt</text>
+<text x="460" y="728" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">map, memory, trust and gaps are already there when the session opens</text>
+</svg>

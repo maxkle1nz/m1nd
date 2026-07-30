@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 904" width="920" height="904" role="img">
+<title>one brain per repository</title>
+<desc>A topology. A single served owner on port 1337 serves three brains, one per repository root, each with its own graph and memory. Agents attach on the right as thin bridges that hold no graph and take no lease. Below, an agent whose repository is not hosted receives a typed refusal from reception, drawn in red: the system blocks instead of answering wrongly.</desc>
+<rect x="0" y="0" width="920" height="904" fill="#161B22"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">brain_per_repo</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">one served owner, one brain per repository root, and thin bridges that carry no</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">graph of their own</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="392" y="178" width="184" height="112" fill="#161B22"/>
+<rect x="392" y="178" width="184" height="112" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="392" y1="214" x2="392" y2="254" stroke="#161B22" stroke-width="10"/>
+<text x="484" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">brain A</text>
+<text x="484" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">~/projA</text>
+<text x="484" y="265" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">graph · memory</text>
+<rect x="392" y="322" width="184" height="112" fill="#161B22"/>
+<rect x="392" y="322" width="184" height="112" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="392" y1="358" x2="392" y2="398" stroke="#161B22" stroke-width="10"/>
+<text x="484" y="357" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">brain B</text>
+<text x="484" y="383" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">~/projB</text>
+<text x="484" y="409" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">graph · memory</text>
+<rect x="392" y="466" width="184" height="112" fill="#161B22"/>
+<rect x="392" y="466" width="184" height="112" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="392" y1="502" x2="392" y2="542" stroke="#161B22" stroke-width="10"/>
+<text x="484" y="501" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">brain C</text>
+<text x="484" y="527" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">~/projC</text>
+<text x="484" y="553" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">graph · memory</text>
+<rect x="40" y="334" width="216" height="88" fill="#161B22"/>
+<rect x="40" y="334" width="216" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="148" y="369" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">owner</text>
+<text x="148" y="395" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">served :1337</text>
+<text x="312" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="end">serves</text>
+<line x1="256" y1="378" x2="320" y2="378" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="378" x2="320" y2="234" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="234" x2="380" y2="234" stroke="#687585" stroke-width="4"/>
+<polygon points="392,234 378,227 378,241" fill="#687585"/>
+<line x1="256" y1="378" x2="320" y2="378" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="378" x2="320" y2="378" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="378" x2="380" y2="378" stroke="#687585" stroke-width="4"/>
+<polygon points="392,378 378,371 378,385" fill="#687585"/>
+<line x1="256" y1="378" x2="320" y2="378" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="378" x2="320" y2="522" stroke="#687585" stroke-width="4"/>
+<line x1="320" y1="522" x2="380" y2="522" stroke="#687585" stroke-width="4"/>
+<polygon points="392,522 378,515 378,529" fill="#687585"/>
+<rect x="728" y="194" width="152" height="88" fill="#161B22"/>
+<rect x="728" y="194" width="152" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="804" y="229" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">agent</text>
+<text x="804" y="255" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">bridge</text>
+<line x1="728" y1="238" x2="588" y2="238" stroke="#687585" stroke-width="4"/>
+<polygon points="576,238 590,231 590,245" fill="#687585"/>
+<rect x="728" y="338" width="152" height="88" fill="#161B22"/>
+<rect x="728" y="338" width="152" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="804" y="373" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">agent</text>
+<text x="804" y="399" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">bridge</text>
+<line x1="728" y1="382" x2="588" y2="382" stroke="#687585" stroke-width="4"/>
+<polygon points="576,382 590,375 590,389" fill="#687585"/>
+<rect x="728" y="482" width="152" height="88" fill="#161B22"/>
+<rect x="728" y="482" width="152" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="804" y="517" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">agent</text>
+<text x="804" y="543" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">bridge</text>
+<line x1="728" y1="526" x2="588" y2="526" stroke="#687585" stroke-width="4"/>
+<polygon points="576,526 590,519 590,533" fill="#687585"/>
+<rect x="392" y="682" width="192" height="88" fill="#161B22"/>
+<rect x="392" y="682" width="192" height="88" fill="none" stroke="#FF7B72" stroke-width="4"/>
+<line x1="468" y1="682" x2="508" y2="682" stroke="#161B22" stroke-width="10"/>
+<text x="488" y="717" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#FF7B72" text-anchor="middle">agent</text>
+<text x="488" y="743" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="middle">repo not hosted</text>
+<text x="180" y="648" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="start">reception → typed refusal</text>
+<line x1="148" y1="422" x2="148" y2="666" stroke="#FF7B72" stroke-width="4" stroke-dasharray="10 8"/>
+<line x1="148" y1="666" x2="488" y2="666" stroke="#FF7B72" stroke-width="4" stroke-dasharray="10 8"/>
+<line x1="488" y1="666" x2="488" y2="670" stroke="#FF7B72" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="488,682 481,668 495,668" fill="#FF7B72"/>
+<text x="488" y="802" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="middle">no wrong answer · state: blocked</text>
+<text x="460" y="850" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">a bridge holds no graph and no lease: it consumes the brain that covers its root</text>
+</svg>
