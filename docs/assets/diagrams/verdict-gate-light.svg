@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 696" width="920" height="696" role="img">
+<title>the conformal verdict gate</title>
+<desc>A funnel. About 9.2 thousand predictions enter on the left and meet a single vertical cut, the conformal gate at alpha 0.10. Three bars on the right carry the outcome, their lengths proportional to the measured shares: act at 13.5 percent which the agent may act on, reverify at 26 percent where a human re-confirms first, and abstain at 60 percent, the largest slice and the honest exit of a weak signal.</desc>
+<rect x="0" y="0" width="920" height="696" fill="#ECEDE8"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#14181C" text-anchor="start">verdict_gate</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">the conformal gate as an honest funnel: one cut at alpha 0.10 separates act from</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">everything else</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#84867F" stroke-width="2"/>
+<rect x="40" y="330" width="224" height="88" fill="#ECEDE8"/>
+<rect x="40" y="330" width="224" height="88" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="152" y="365" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#14181C" text-anchor="middle">n ≈ 9.2k</text>
+<text x="152" y="391" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">predictions in</text>
+<line x1="264" y1="374" x2="380" y2="374" stroke="#84867F" stroke-width="4"/>
+<polygon points="392,374 378,367 378,381" fill="#84867F"/>
+<text x="400" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">one cut · α = 0.10</text>
+<text x="440" y="222" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="start">act · 13.5% · ≈ 1.24k</text>
+<rect x="440" y="236" width="48" height="32" fill="#14181C"/>
+<text x="440" y="306" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">the agent may act on it</text>
+<text x="440" y="350" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#7E4E00" text-anchor="start">reverify · 26% · ≈ 2.4k</text>
+<rect x="440" y="364" width="96" height="32" fill="#7E4E00"/>
+<text x="440" y="434" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">a human re-confirms before acting</text>
+<text x="440" y="478" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">abstain · 60% · ≈ 5.5k</text>
+<rect x="440" y="492" width="232" height="32" fill="#5A6169"/>
+<text x="440" y="562" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">the honest exit of a weak signal</text>
+<line x1="392" y1="210" x2="392" y2="532" stroke="#84867F" stroke-width="4"/>
+<text x="460" y="614" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">bar length is the measured share, not decoration</text>
+<text x="460" y="640" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">abstain is the largest slice: the system says it does not know instead of guessing</text>
+</svg>

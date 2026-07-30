@@ -74,6 +74,14 @@ Here is the part people take a second to believe. The graph that reads your repo
 
 It is two-phase, `transplant_preview` before `transplant_commit`, and the commit re-validates the hash of every file it planned to touch, so nothing lands on a repo that changed underneath it. The money zone of your repo (backend, schema, payments, CI) is protected server-side and fails closed. A refusal never touches a byte and teaches the retry: a collision names the occupant, an invalid module path names itself, a cross-crate move names both crate roots.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/transplant-two-phase-dark.svg">
+    <img src="docs/assets/diagrams/transplant-two-phase-light.svg" alt="transplant in two phases: preview plans the enlarged region with its dependencies and referrers; commit re-validates every planned file hash, writes atomically and returns a receipt naming refs_unresolved and state_left_behind. A commit onto a taken name is refused, the occupant is named and nothing is written." width="820">
+  </picture>
+</p>
+
+
 Measured on the real case: the whole-file edit cost 12,235 output tokens; the transplant cost 48 in and wrote 3 files in 1.3 seconds, with the crate compiling on the other side. rust-analyzer has had an issue open asking for cross-file moves since 2019.
 
 v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the destination file must already exist, and references born inside macros are invisible to it. Each boundary is deliberate and written down in [docs/TRANSPLANT-PRD.md](docs/TRANSPLANT-PRD.md), next to 13 test files that hold the verb to it.
@@ -82,11 +90,27 @@ v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the d
 
 Run several agents on the same repo and the graph becomes the place they coordinate. Every session registers as a presence, and when two of them are about to touch overlapping work, both get warned in their next orientation packet, before either lands a change. The system warns; you decide.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/presence-collision-dark.svg">
+    <img src="docs/assets/diagrams/presence-collision-light.svg" alt="two agents on the same brain: each session registers a presence with a TTL, and when their work overlaps the collision notice reaches the orientation package of both, before either one writes." width="820">
+  </picture>
+</p>
+
+
 Bounded work runs as missions, and missions answer for themselves in a way most human teams skip: every mission tool reports `non_claims`, the list of what was NOT proven. A claim cannot close on graph evidence alone. It takes a file read, a test run or a runtime probe, and the test that enforces this is named `graph_only_evidence_is_not_enough`.
 
 And the guardrails do not cry wolf. `xray_gate` can say `blocked` only from a boundary manifest a human ratified. Everything else arrives as a warning with a reason, so the agent never learns to ignore its own safety rail.
 
 Every brain also has a mailbox. An agent that finds a real defect outside its own mission does not fix it on the spot and does not swallow it: it drops a letter in that repo's box, on disk, next to the code. The next agent working that brain sweeps the box and starts out already knowing the defects other agents found, context attached. Knowledge of what is broken stops dying in chat scrollback. The sweep is a deliberate gesture (CLI or REST, never inside the query loop), so the letters inform the work instead of interrupting it.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/mailbox-dark.svg">
+    <img src="docs/assets/diagrams/mailbox-light.svg" alt="one agent finds a defect outside its own scope and writes a letter into .m1nd/inbox.jsonl on disk, beside the code; another agent sweeps that mailbox days later over CLI or REST, never inside the query loop, and starts its mission already knowing." width="820">
+  </picture>
+</p>
+
 
 ## Born agent-first
 
@@ -94,7 +118,23 @@ No account, no telemetry, and no API in the way, which is also why the graph ans
 
 The development of m1nd is not very normal either. Building it meant building a whole workflow where agents direct, verify and prove the work, and the logic of the product is aimed at the agent's pain, not the human's dashboard. When m1nd misbehaves in the field, the agents using it file the report, and a confirmed bug becomes a red test before the fix lands. Very few programs start from that in their initial design. So m1nd is born different: the verbs, the refusals and the packets are shaped for the reader that actually uses them, and you do not even have to remind the model the tool exists. `m1nd hosts apply` installs session hooks (`SessionStart`, `agentSpawn`, `TaskStart`, per host) that inject the orientation at spawn: your agent, and every subagent it spawns, starts oriented before anyone types a word.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/ambient-hooks-dark.svg">
+    <img src="docs/assets/diagrams/ambient-hooks-light.svg" alt="SessionStart, agentSpawn and TaskStart feed the ambient hook, which injects the north package (map, memory, trust and gaps) into the agent and its subagents. The first user prompt only arrives later." width="820">
+  </picture>
+</p>
+
+
 A brain per repository holds it together: one graph, its own memory, its own persistence, bound to one repo root. A served owner hosts many brains and routes each session to the right one; a session from a repo it does not host gets a typed refusal instead of wrong answers.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/brain-per-repo-dark.svg">
+    <img src="docs/assets/diagrams/brain-per-repo-light.svg" alt="one served owner on port 1337 serves one brain per repository root, each with its own graph and memory; agents attach as thin bridges that hold no graph and take no lease. A session from an unhosted repo receives a typed refusal instead of a wrong answer." width="820">
+  </picture>
+</p>
+
 
 ## What your agent gets
 
@@ -182,6 +222,14 @@ Two tools, `savings` and `resonate`, were deleted outright in beta (handlers, ty
 
 The closest neighbor I know is GitHub Copilot Memory (public preview, 2026): it stores facts with code citations and re-checks them against the current branch before use. That is real staleness detection, and it deserves the credit. It is also cloud-side, binary, and lives inside Copilot. What I have still not found anywhere is the rest of the verdict: a graded `act` / `reverify` / `abstain` with per-repo calibration, typed refusals that carry a repair plan, on a local graph that any MCP agent can share. I checked the public docs of Mem0, Zep, Letta, Cognee, Supermemory and Copilot Memory, as of July 2026. Know a closer one? Open an issue and I will link it here.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/verdict-gate-dark.svg">
+    <img src="docs/assets/diagrams/verdict-gate-light.svg" alt="the conformal gate as a funnel: about 9.2k predictions meet a single cut at alpha 0.10 and leave as act (13.5%), reverify (26%) or abstain (60%, the largest slice). Bar length is the measured share." width="820">
+  </picture>
+</p>
+
+
 ## Memory that knows when it is stale
 
 Most memory layers store text and hope. m1nd anchors memory to the graph. When an agent calls `memorize`, each claim's `evidence` path is resolved to the real code node, so the note surfaces whenever the agent touches that code, without anyone remembering it exists:
@@ -200,6 +248,14 @@ memorize({
 
 Because the memory is anchored, it can be audited against reality. `cross_verify` re-hashes every cited file and names which claims went stale because their code changed. Claims carry age and author, supersede older claims, and age out. This loop is proven live end to end in this repo: memorize, anchor, edit the cited file, watch the claim flag itself, survive a full re-ingest, auto-load on the next boot. Kill the process, start a fresh one, and the first `north` already carries the earlier session's claims with provenance attached.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/grounded-memory-dark.svg">
+    <img src="docs/assets/diagrams/grounded-memory-light.svg" alt="memorize stores claims with evidence and grounded_in anchors them to the cited code node at hash H1; when that code changes to H2, cross_verify compares the hashes and the claim marks itself stale, warning instead of asserting." width="820">
+  </picture>
+</p>
+
+
 ## One graph for code and knowledge (l1ght)
 
 l1ght is the second lane of the same engine: documents become graph nodes in the same activation space as code, so one query traverses both. It is not a bolted-on RAG folder. There are 7,400 lines of dedicated adapters in this tree: Markdown, HTML, PDF, plain text, RST and JSON, plus scholarly routes for BibTeX, DOI/Crossref, JATS papers, RFCs and patents.
@@ -213,6 +269,14 @@ Different people get different products out of the same lane:
 - A vibecoder's pile of chat exports and scattered notes stops being a folder and becomes memory the agent actually consults mid-edit.
 
 Same binary, same MCP verbs, same trust layer. `seek` on a mixed graph returns code and documents in one ranked answer.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/l1ght-lane-dark.svg">
+    <img src="docs/assets/diagrams/l1ght-lane-light.svg" alt="one graph with two lanes: document nodes as circles (paper with DOI, RFC, design note) joined by typed edges to code nodes as squares, with the real ingest routes labelled. A single seek crosses both lanes and returns one ranked answer." width="820">
+  </picture>
+</p>
+
 
 ## When not to use m1nd
 

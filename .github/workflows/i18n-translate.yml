@@ -65,7 +65,7 @@ jobs:
             sed -i '${/^```$/d;}' /tmp/out.md
             # the translations live under i18n/, so root-relative links and assets need ../
             sed -i -E 's#\]\((CHANGELOG\.md|CONTRIBUTING\.md|EXAMPLES\.md|LICENSE|README\.md|docs/|llms-install\.md|\.github/)#](../\1#g' /tmp/out.md
-            sed -i -E 's#src="(\.github/|docs/)#src="../\1#g' /tmp/out.md
+            sed -i -E 's#(src|srcset)="(\.github/|docs/)#\1="../\2#g' /tmp/out.md
             # the language bar is injected mechanically, never trusted to the model
             { echo "$LANGBAR"; echo; cat /tmp/out.md; } > "i18n/README.$code.md"
             # refuse a truncated result: the translation must end near the license section

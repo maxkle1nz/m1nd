@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 976" width="920" height="976" role="img">
+<title>grounded memory going stale</title>
+<desc>A vertical state machine. A memorize call stores claims with their evidence, and an edge named grounded_in ties them to the code node they cite at hash H1. When that code changes to hash H2, cross_verify compares the hashes and the wire breaks with a 45 degree step labelled stale. The final state, framed in amber, is a claim marked stale that warns instead of asserting.</desc>
+<rect x="0" y="0" width="920" height="976" fill="#161B22"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">grounded_memory</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">a claim is anchored to the code it cites; when that code changes, the claim marks</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">itself stale</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="192" y="178" width="208" height="88" fill="#161B22"/>
+<rect x="192" y="178" width="208" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="276" y1="178" x2="316" y2="178" stroke="#161B22" stroke-width="10"/>
+<text x="296" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">memorize()</text>
+<text x="296" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">claims + evidence</text>
+<line x1="296" y1="266" x2="296" y2="342" stroke="#687585" stroke-width="4"/>
+<polygon points="296,354 289,340 303,340" fill="#687585"/>
+<text x="408" y="316" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">grounded_in → the cited code node</text>
+<rect x="224" y="354" width="144" height="88" fill="#161B22"/>
+<rect x="224" y="354" width="144" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="296" y="389" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">code node</text>
+<text x="296" y="415" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">hash H1</text>
+<line x1="296" y1="442" x2="296" y2="518" stroke="#687585" stroke-width="4"/>
+<polygon points="296,530 289,516 303,516" fill="#687585"/>
+<text x="408" y="492" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">the code changes: H1 ≠ H2</text>
+<rect x="184" y="530" width="232" height="88" fill="#161B22"/>
+<rect x="184" y="530" width="232" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="300" y="565" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">cross_verify()</text>
+<text x="300" y="591" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">compares the hashes</text>
+<line x1="296" y1="618" x2="296" y2="658" stroke="#E8A33D" stroke-width="4"/>
+<line x1="296" y1="658" x2="328" y2="690" stroke="#E8A33D" stroke-width="4"/>
+<line x1="328" y1="690" x2="328" y2="734" stroke="#E8A33D" stroke-width="4"/>
+<polygon points="328,746 321,732 335,732" fill="#E8A33D"/>
+<text x="352" y="672" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="start">stale</text>
+<text x="408" y="688" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="start">the anchor no longer holds</text>
+<rect x="184" y="746" width="296" height="88" fill="#161B22"/>
+<rect x="184" y="746" width="296" height="88" fill="none" stroke="#E8A33D" stroke-width="4"/>
+<text x="332" y="781" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#E8A33D" text-anchor="middle">claim: stale</text>
+<text x="332" y="807" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="middle">warns instead of asserting</text>
+<text x="460" y="898" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">45 degrees is the house sign for drift: the wire holds, its ground does not</text>
+<text x="460" y="924" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">it warns instead of answering from a claim it can no longer stand on</text>
+</svg>

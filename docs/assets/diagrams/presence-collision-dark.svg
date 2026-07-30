@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 608" width="920" height="608" role="img">
+<title>presence and collision</title>
+<desc>Two agents work on the same brain. Each session registers a presence with a time to live, drawn as arrows into the central brain box. When the work overlaps, a dashed amber path carries the collision notice down into the orientation package of both agents, before either one lands a change. The system warns; the human decides.</desc>
+<rect x="0" y="0" width="920" height="608" fill="#161B22"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">presence_collision</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">two sessions on the same brain register presence; the warning reaches both before</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">either one writes</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="336" y="178" width="256" height="88" fill="#161B22"/>
+<rect x="336" y="178" width="256" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="464" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">brain</text>
+<text x="464" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">presences[ ] · TTL</text>
+<rect x="40" y="178" width="200" height="88" fill="#161B22"/>
+<rect x="40" y="178" width="200" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="140" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent A</text>
+<text x="140" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">same brain</text>
+<rect x="680" y="178" width="200" height="88" fill="#161B22"/>
+<rect x="680" y="178" width="200" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="780" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent B</text>
+<text x="780" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">same brain</text>
+<text x="288" y="200" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">presence</text>
+<line x1="240" y1="222" x2="324" y2="222" stroke="#687585" stroke-width="4"/>
+<polygon points="336,222 322,215 322,229" fill="#687585"/>
+<text x="636" y="200" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">presence</text>
+<line x1="680" y1="222" x2="604" y2="222" stroke="#687585" stroke-width="4"/>
+<polygon points="592,222 606,215 606,229" fill="#687585"/>
+<text x="488" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="start">warns both, before either writes</text>
+<rect x="40" y="378" width="200" height="88" fill="#161B22"/>
+<rect x="40" y="378" width="200" height="88" fill="none" stroke="#E8A33D" stroke-width="4"/>
+<line x1="120" y1="378" x2="160" y2="378" stroke="#161B22" stroke-width="10"/>
+<text x="140" y="413" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="middle">orientation pkg</text>
+<text x="140" y="439" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="middle">collision</text>
+<rect x="680" y="378" width="200" height="88" fill="#161B22"/>
+<rect x="680" y="378" width="200" height="88" fill="none" stroke="#E8A33D" stroke-width="4"/>
+<line x1="760" y1="378" x2="800" y2="378" stroke="#161B22" stroke-width="10"/>
+<text x="780" y="413" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="middle">orientation pkg</text>
+<text x="780" y="439" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#E8A33D" text-anchor="middle">collision</text>
+<line x1="464" y1="266" x2="464" y2="338" stroke="#E8A33D" stroke-width="4" stroke-dasharray="10 8"/>
+<line x1="140" y1="338" x2="780" y2="338" stroke="#E8A33D" stroke-width="4" stroke-dasharray="10 8"/>
+<line x1="140" y1="338" x2="140" y2="366" stroke="#E8A33D" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="140,378 133,364 147,364" fill="#E8A33D"/>
+<line x1="780" y1="338" x2="780" y2="366" stroke="#E8A33D" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="780,378 773,364 787,364" fill="#E8A33D"/>
+<text x="460" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">the system warns; the human decides</text>
+<text x="460" y="556" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">each session is a presence with a TTL; the notice rides in the orientation package</text>
+</svg>

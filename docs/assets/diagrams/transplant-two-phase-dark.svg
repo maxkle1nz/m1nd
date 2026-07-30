@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 1248" width="920" height="1248" role="img">
+<title>transplant, the two-phase move</title>
+<desc>A sequence across three lanes: agent, m1nd server and filesystem. The agent calls transplant_preview and the server plans the enlarged region with its dependencies and referrers, returning a plan. The agent then calls transplant_commit; the server re-validates every planned file hash, writes atomically, and returns a receipt naming refs_unresolved and state_left_behind. A final branch in red shows a commit onto a taken name being refused, with the occupant named, the state blocked and nothing written.</desc>
+<rect x="0" y="0" width="920" height="1248" fill="#161B22"/>
+<line x1="150" y1="242" x2="150" y2="1022" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="460" y1="242" x2="460" y2="1022" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<line x1="780" y1="242" x2="780" y2="1022" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#F2F4EF" text-anchor="start">transplant_two_phase</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">preview plans the move, commit re-checks every file hash before writing and</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="start">returns an honest receipt</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#687585" stroke-width="2"/>
+<rect x="48" y="178" width="208" height="64" fill="#161B22"/>
+<rect x="48" y="178" width="208" height="64" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="152" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">agent</text>
+<rect x="360" y="178" width="208" height="64" fill="#161B22"/>
+<rect x="360" y="178" width="208" height="64" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="464" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">m1nd server</text>
+<rect x="680" y="178" width="208" height="64" fill="#161B22"/>
+<rect x="680" y="178" width="208" height="64" fill="none" stroke="#687585" stroke-width="4"/>
+<text x="784" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#F2F4EF" text-anchor="middle">filesystem</text>
+<text x="305" y="286" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">1  transplant_preview()</text>
+<line x1="150" y1="302" x2="448" y2="302" stroke="#687585" stroke-width="4"/>
+<polygon points="460,302 446,295 446,309" fill="#687585"/>
+<rect x="312" y="342" width="296" height="88" fill="#161B22"/>
+<rect x="312" y="342" width="296" height="88" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="312" y1="366" x2="312" y2="406" stroke="#161B22" stroke-width="10"/>
+<text x="460" y="377" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">plans the enlarged region,</text>
+<text x="460" y="403" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">its deps and its referrers</text>
+<text x="305" y="470" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">2  plan</text>
+<line x1="460" y1="486" x2="162" y2="486" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="150,486 164,479 164,493" fill="#687585"/>
+<text x="305" y="534" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">3  transplant_commit()</text>
+<line x1="150" y1="550" x2="448" y2="550" stroke="#687585" stroke-width="4"/>
+<polygon points="460,550 446,543 446,557" fill="#687585"/>
+<rect x="304" y="590" width="320" height="64" fill="#161B22"/>
+<rect x="304" y="590" width="320" height="64" fill="none" stroke="#687585" stroke-width="4"/>
+<line x1="304" y1="602" x2="304" y2="642" stroke="#161B22" stroke-width="10"/>
+<text x="464" y="625" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">re-validates every file hash</text>
+<text x="620" y="694" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">4  atomic write</text>
+<line x1="460" y1="710" x2="768" y2="710" stroke="#687585" stroke-width="4"/>
+<polygon points="780,710 766,703 766,717" fill="#687585"/>
+<text x="620" y="758" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">ok</text>
+<line x1="780" y1="774" x2="472" y2="774" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="460,774 474,767 474,781" fill="#687585"/>
+<text x="305" y="822" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#F2F4EF" text-anchor="middle">5  receipt</text>
+<line x1="460" y1="838" x2="162" y2="838" stroke="#687585" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="150,838 164,831 164,845" fill="#687585"/>
+<line x1="40" y1="870" x2="880" y2="870" stroke="#687585" stroke-width="2" stroke-dasharray="10 8"/>
+<text x="305" y="918" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="middle">6  commit on a taken name</text>
+<line x1="150" y1="934" x2="448" y2="934" stroke="#FF7B72" stroke-width="4"/>
+<polygon points="460,934 446,927 446,941" fill="#FF7B72"/>
+<text x="305" y="982" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="middle">REFUSE</text>
+<line x1="460" y1="998" x2="162" y2="998" stroke="#FF7B72" stroke-width="4" stroke-dasharray="10 8"/>
+<polygon points="150,998 164,991 164,1005" fill="#FF7B72"/>
+<rect x="152" y="1054" width="624" height="64" fill="#161B22"/>
+<rect x="152" y="1054" width="624" height="64" fill="none" stroke="#FF7B72" stroke-width="4"/>
+<line x1="152" y1="1066" x2="152" y2="1106" stroke="#161B22" stroke-width="10"/>
+<text x="464" y="1089" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#FF7B72" text-anchor="middle">the occupant is named · state: blocked · nothing was written</text>
+<text x="460" y="1166" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">solid = call · dashed = return · red = typed refusal</text>
+<text x="460" y="1192" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#98A2AE" text-anchor="middle">the receipt names what did not travel: refs_unresolved and state_left_behind</text>
+</svg>
