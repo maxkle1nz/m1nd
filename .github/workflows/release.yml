@@ -568,30 +568,53 @@ jobs:
           rm -f "$RUNNER_TEMP/cert.p12"
 
           # 2) sign with hardened runtime + secure timestamp (notarization requires
-          #    both) AND the keychain-access-groups entitlement.
+          #    both) and NO entitlements — deliberately.
           #
-          #    The entitlement is NOT cosmetic. The G9 custody floor persists the
-          #    owner's authority key in the data-protection keychain — the only
-          #    keychain a Secure Enclave key can be permanent in — and an unentitled
-          #    binary cannot persist or resolve it at all, so `open`/`sign` fail
-          #    closed. Signing without it shipped a binary structurally incapable of
-          #    running the owner's custody ceremony, invisible until the ceremony
-          #    failed at its first step (measured 2026-07-29 while staging G9).
-          #    See build/m1nd-mcp.entitlements.plist and the HARD PREREQUISITE block
-          #    in m1nd-mcp/src/enclave_authority.rs.
+          #    `keychain-access-groups` is a RESTRICTED entitlement. AMFI honours it
+          #    only when an embedded provisioning profile authorizes it, and a raw
+          #    Mach-O executable has nowhere to embed one: a profile lives at
+          #    `Contents/embedded.provisionprofile` INSIDE a bundle. Apple states the
+          #    rule in TN3137 (On Mac keychain APIs and implementations,
+          #    § Implementation differences): the data-protection keychain access
+          #    groups are built from code signing entitlements, and "These
+          #    entitlements must be authorized by a provisioning profile. Your
+          #    program needs an app-like bundle structure in which to embed that
+          #    profile. This is standard for app and app extensions but not for
+          #    command-line tools."
+          #
+          #    v1.6.0 shipped the entitlement and the kernel SIGKILLed the product at
+          #    launch while every signature check still passed — `codesign --verify
+          #    --strict` ok, notarization Accepted, spctl "Notarized Developer ID",
+          #    the entitlement provably on the bytes. The artifact smoke caught it:
+          #    `--version` died with SIGKILL on both macOS legs. AMFI's reason, from
+          #    the kernel log: "Code has restricted entitlements, but the validation
+          #    of its code signature failed", with amfid reporting
+          #    AppleMobileFileIntegrityError -413 "No matching profile found".
+          #    Measured 2026-07-30 on the exact v1.6.0 artifact; the same bytes
+          #    re-signed without the entitlement launch and print their version.
+          #
+          #    So the custody entitlement CANNOT ride on the shipped raw binary. G9
+          #    prerequisite P4 is owner-side — see build/README.md and
+          #    docs/benchmarks/G9-CUSTODY-CEREMONY.md §1 P4.
           codesign --force --timestamp --options runtime \
-            --entitlements build/m1nd-mcp.entitlements.plist \
             --sign "$APPLE_SIGNING_IDENTITY" "$BIN_PATH"
           codesign --verify --strict --verbose=2 "$BIN_PATH"
-          # Prove the entitlement actually landed on the shipped bytes. This check is
-          # NOT belt-and-braces: `codesign` parses entitlements with AMFIUnserializeXML,
-          # and when that parse fails (an XML comment anywhere in the plist is enough —
-          # `plutil -lint` accepts what AMFI rejects) it prints the error, signs the
-          # binary WITHOUT the entitlement, and still exits 0. Measured 2026-07-29.
-          # Without this grep the ceremony breaks and the release stays green.
-          codesign -d --entitlements - "$BIN_PATH" 2>/dev/null \
-            | grep -q "keychain-access-groups" \
-            || { echo "::error::signed binary carries no keychain-access-groups entitlement — the G9 custody ceremony would fail closed"; exit 1; }
+          # Refuse the regression in the direction that actually kills the product.
+          # A provisioning-profile-restricted entitlement on a raw executable leaves
+          # every downstream signature check green and the binary unlaunchable, so
+          # the ban has to be mechanical, not remembered.
+          if codesign -d --entitlements - "$BIN_PATH" 2>/dev/null \
+            | grep -qE 'keychain-access-groups|application-identifier|com\.apple\.developer\.'; then
+            echo "::error::signed binary claims a provisioning-profile-restricted entitlement — AMFI SIGKILLs a raw executable that does (build/README.md)"
+            exit 1
+          fi
+          # And prove the signed bytes LAUNCH, at the point of the decision. The
+          # runner is native for this target, so this costs one process — and it is
+          # the check that would have failed v1.6.0 in the signing step instead of
+          # two jobs downstream. It does not replace the artifact smoke, which
+          # exercises the archived bytes after a full round trip.
+          "$BIN_PATH" --version >/dev/null \
+            || { echo "::error::the signed binary does not launch — see the restricted-entitlement note above"; exit 1; }
 
           # 3) notarize (a bare executable is submitted zipped; stapling is not
           #    possible for a raw binary, so Gatekeeper resolves the ticket online)

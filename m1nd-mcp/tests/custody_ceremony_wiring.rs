@@ -275,9 +275,11 @@ fn the_owner_seat_step_refuses_when_unattended() {
 /// **An unentitled or unsigned binary fails closed with the honest error.**
 /// Secure Enclave keys are only permanent in the data-protection keychain, which
 /// an unentitled binary can neither write nor resolve — so provision, open and
-/// sign all fail. The release now signs with the entitlement
-/// (`build/m1nd-mcp.entitlements.plist`), but a locally-built binary will not have
-/// it, and the failure must NAME that cause instead of surfacing a raw OSStatus.
+/// sign all fail. This is the state of EVERY build the project ships: the released
+/// binary is signed without the entitlement, because a raw executable that claims
+/// this restricted entitlement is SIGKILLed by AMFI at launch (measured 2026-07-30,
+/// `build/README.md`), and a locally-built binary carries no signature at all. So
+/// the failure must NAME that cause instead of surfacing a raw OSStatus.
 ///
 /// Tested at the classifier, not by provisioning: producing the real failure means
 /// touching the enclave, which §0 prohibits.

@@ -6,6 +6,18 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- **The macOS binaries run again.** The 1.6.0 release signed them with the
+  `keychain-access-groups` entitlement; macOS killed them at launch. That entitlement is
+  *restricted* — the kernel honours it only when an embedded provisioning profile authorizes it,
+  and a plain command-line binary has nowhere to carry one. Every signature check still passed,
+  which is why nothing upstream noticed until the installed-artifact smoke ran `--version` and got
+  a `SIGKILL`. macOS runtimes now ship signed, notarized and unentitled; the release refuses to
+  sign a binary that claims a restricted entitlement, and proves the signed bytes launch before
+  they are packaged. The G9 custody ceremony's keychain prerequisite is correspondingly an
+  owner-side step now, recorded where the runbook states it.
+
 ## [1.6.0] — 2026-07-30
 
 ### Added — the brain finds you, and the owner's ceremonies have their doors

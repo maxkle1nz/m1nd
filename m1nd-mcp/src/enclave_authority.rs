@@ -1204,6 +1204,22 @@ impl Error for EnclaveError {}
 // would fail closed. This is a precondition of the owner's ceremony, not a
 // runtime nicety.
 //
+// The PUBLISHED binary does not and cannot satisfy it — corrected here after
+// measurement, 2026-07-30. `keychain-access-groups` is a restricted entitlement
+// that AMFI honours only when an embedded provisioning profile authorizes it, and
+// a raw executable has nowhere to embed one (Apple, TN3137 § Implementation
+// differences: those entitlements "must be authorized by a provisioning profile.
+// Your program needs an app-like bundle structure in which to embed that
+// profile"). v1.6.0 shipped the entitlement on the raw binary and the kernel
+// SIGKILLed it at launch — "Code has restricted entitlements, but the validation
+// of its code signature failed", amfid -413 "No matching profile found" — so the
+// release now signs WITHOUT it and refuses one on the output. Prerequisite P4 is
+// therefore owner-side (a locally signed, profile-authorized or bundled build);
+// see `build/README.md` and `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §1 P4.
+// TN3137 also bounds where the ceremony can run at all: the data-protection
+// keychain is "only available to programs running in a user context", never a
+// `launchd` daemon.
+//
 // Custody is keyed by `kSecAttrLabel` (the high-level `GenerateKeyOptions` exposes
 // no `kSecAttrApplicationTag`): `provision` sets a distinct label per key and
 // refuses a label already present (never-open-or-create); `open` resolves by that
