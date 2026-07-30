@@ -871,6 +871,11 @@ fn run_custody_ceremony_mode(cli: &Cli, verb: &str) -> ! {
                 .custody_mission_config
                 .as_deref()
                 .map(std::path::PathBuf::from),
+            independence_spec: cli
+                .custody_independence_spec
+                .as_deref()
+                .map(std::path::PathBuf::from),
+            constitution_digest: cli.custody_constitution_digest.clone(),
         },
         CeremonyAttendanceV1::detect(),
     );
