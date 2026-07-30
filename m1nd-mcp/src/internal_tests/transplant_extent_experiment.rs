@@ -9,20 +9,20 @@
 //
 //   cargo test -p m1nd-mcp --test transplant_extent_experiment -- --ignored --nocapture
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
 use m1nd_core::types::NodeType;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 use std::time::Instant;
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 #[test]
 #[ignore = "Phase C measurement instrument — run manually, reports numbers only"]
 fn measure_ingest_extents_on_m1nd_core() {
-    common::disable_proof_gate_for_logic_tests();
+    let _proof_gate = common::proof_gate_off_lease();
     let wt = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root")
@@ -41,9 +41,9 @@ fn measure_ingest_extents_on_m1nd_core() {
     state.ingest_roots = vec![core.to_string_lossy().to_string()];
 
     let t0 = Instant::now();
-    m1nd_mcp::tools::handle_ingest(
+    crate::tools::handle_ingest(
         &mut state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: core.to_string_lossy().to_string(),
             agent_id: "extent-experiment".to_string(),
             mode: "merge".to_string(),

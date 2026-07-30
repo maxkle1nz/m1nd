@@ -7,13 +7,15 @@
 // with source+dest proven but the referencer NOT, the transplant is refused naming
 // the referencer; once every touched file is proven, it proceeds.
 //
-// SINGLE test in this binary ON PURPOSE: M1ND_PROOF_GATE is a process-global env
-// var, so nothing else may run alongside it.
+// SINGLE test in this suite ON PURPOSE: M1ND_PROOF_GATE is a process-global env
+// var, so nothing else may run alongside it — the exclusive lease this test takes
+// is what enforces that now the suite shares the crate's test process.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
+use crate::transplant_common_internal_tests as common;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 
 fn make_state(root: &Path) -> SessionState {
@@ -36,9 +38,9 @@ fn write(path: &Path, content: &str) {
 }
 
 fn ingest(state: &mut SessionState, root: &Path) {
-    m1nd_mcp::tools::handle_ingest(
+    crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "surgeon".to_string(),
             mode: "merge".to_string(),
@@ -87,6 +89,7 @@ pub fn call_it() -> u32 {
 
 #[test]
 fn b1_proof_gate_covers_derived_referencers() {
+    let _armed = common::arm_proof_gate_exclusively();
     std::env::set_var("M1ND_PROOF_GATE", "1");
 
     let dir = tempfile::tempdir().unwrap();

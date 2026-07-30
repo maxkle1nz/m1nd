@@ -2052,7 +2052,7 @@ impl SessionState {
     /// let config = McpConfig::default();
     /// let _state = SessionState::initialize(Graph::new(), &config, DomainConfig::code());
     /// ```
-    pub fn initialize(
+    pub(crate) fn initialize(
         graph: Graph,
         config: &crate::server::McpConfig,
         domain: DomainConfig,

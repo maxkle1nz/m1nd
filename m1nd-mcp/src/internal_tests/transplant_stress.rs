@@ -1,27 +1,26 @@
 // === Stress battery + compiler oracle for the `transplant` verb ===
 //
-// The canonical contract lives in tests/transplant_battery.rs. This file adds the
+// The canonical contract lives in transplant_battery.rs. This file adds the
 // adversarial cases the PRD needs evidence for (precise refusals, self-use,
 // qualified-path rewrites, multiple referencers, idempotence, travelling
 // attributes) plus a COMPILER ORACLE: after the canonical transplant, the mutated
 // fixture crate must `cargo check` clean — the strongest possible proof that a
 // graph-addressed move produced VALID Rust, not just text that matches asserts.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 use std::process::Command;
 
 // ---------------------------------------------------------------------------
-// Shared infra (mirrors tests/transplant_battery.rs)
+// Shared infra (mirrors transplant_battery.rs)
 // ---------------------------------------------------------------------------
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -41,9 +40,9 @@ fn write(path: &Path, content: &str) {
 }
 
 fn ingest(state: &mut SessionState, root: &Path) {
-    let out = m1nd_mcp::tools::handle_ingest(
+    let out = crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "stress".to_string(),
             mode: "merge".to_string(),
@@ -154,6 +153,7 @@ fn seed_canonical(state: &mut SessionState, root: &Path) {
 
 #[test]
 fn oracle_canonical_transplant_produces_a_compiling_crate() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -191,6 +191,7 @@ fn oracle_canonical_transplant_produces_a_compiling_crate() {
 
 #[test]
 fn stress_symbol_not_found_is_precise_and_writes_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -233,6 +234,7 @@ fn stress_symbol_not_found_is_precise_and_writes_nothing() {
 
 #[test]
 fn stress_symbol_in_different_file_names_where_it_lives() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -267,6 +269,7 @@ fn stress_symbol_in_different_file_names_where_it_lives() {
 
 #[test]
 fn stress_same_source_and_dest_is_refused() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -295,6 +298,7 @@ fn stress_same_source_and_dest_is_refused() {
 
 #[test]
 fn stress_missing_dest_file_is_refused_honestly() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -336,6 +340,7 @@ pub fn source_caller(x: u32) -> u32 {
 
 #[test]
 fn stress_self_use_back_imports_and_source_compiles() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -387,6 +392,7 @@ pub fn call_it() -> u32 {
 
 #[test]
 fn stress_qualified_path_referencer_is_rewritten() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -436,6 +442,7 @@ fn stress_qualified_path_referencer_is_rewritten() {
 
 #[test]
 fn stress_multiple_referencers_all_rewritten() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -495,6 +502,7 @@ fn stress_multiple_referencers_all_rewritten() {
 
 #[test]
 fn stress_idempotence_second_transplant_is_a_precise_error() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -552,6 +560,7 @@ pub fn stay_here() -> u32 {
 
 #[test]
 fn stress_attributes_and_multiline_doc_travel() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -600,6 +609,7 @@ fn stress_attributes_and_multiline_doc_travel() {
 
 #[test]
 fn stress_a7_poisonous_module_stem_is_refused_and_teaches() {
+    let _proof_gate = common::proof_gate_off_lease();
     for stem in ["lib", "main", "mod"] {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -651,6 +661,7 @@ fn stress_a7_poisonous_module_stem_is_refused_and_teaches() {
 
 #[test]
 fn stress_a7_poisonous_dest_stem_is_refused() {
+    let _proof_gate = common::proof_gate_off_lease();
     // The boundary is symmetric: a poisonous DEST stem is refused too (you cannot
     // land a symbol into `crate::mod::…`).
     let dir = tempfile::tempdir().unwrap();
@@ -698,6 +709,7 @@ fn stress_a7_poisonous_dest_stem_is_refused() {
 
 #[test]
 fn stress_a7_cross_crate_move_is_refused_and_teaches() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -767,6 +779,7 @@ fn stress_a7_cross_crate_move_is_refused_and_teaches() {
 
 #[test]
 fn stress_a8_dest_struct_homonym_is_refused_naming_the_kind() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -841,6 +854,7 @@ fn rustfmt_check(path: &Path) -> Result<(), String> {
 
 #[test]
 fn stress_fmt_touched_files_end_rustfmt_clean() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

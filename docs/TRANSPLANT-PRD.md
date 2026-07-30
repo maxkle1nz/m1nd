@@ -289,7 +289,11 @@ autoridade e classificação: `m1nd-mcp/src/server.rs`, `m1nd-mcp/src/action_rou
 envelhecimento de boundary (D5b): `m1nd-mcp/src/system_blocks.rs` · plano em duas fases:
 `m1nd-mcp/src/session.rs`.
 
-Provas, uma suite por classe, em `m1nd-mcp/tests/`:
+Provas, uma suite por classe, em `m1nd-mcp/src/internal_tests/` — registradas como
+módulos `#[cfg(test)]` no `lib.rs`. Elas dirigem `dispatch_tool` e
+`SessionState::initialize` em processo, e esses são seams internos do dono que o
+crate NÃO exporta (os doctests `compile_fail` do `McpServer` e do `initialize` são a
+fronteira ratificada), então as suites moram DENTRO do muro em vez de alargá-lo:
 
 | suite | o que prova |
 |---|---|

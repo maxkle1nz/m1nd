@@ -1,7 +1,7 @@
 // === Hardening harness for the `transplant` verb ===
 //
-// The canonical contract lives in tests/transplant_battery.rs and the adversarial
-// smoke cases in tests/transplant_stress.rs. THIS file is the hardening harness
+// The canonical contract lives in transplant_battery.rs and the adversarial
+// smoke cases in transplant_stress.rs. THIS file is the hardening harness
 // the PRD asked for: every KNOWN GAP from the proof-of-possibility wave is born
 // here as a test that is RED against the pre-hardening verb and turns GREEN as the
 // gap is closed. It also adds two reusable structural guarantees — the
@@ -13,10 +13,10 @@
 // the spec demands. Compiler oracle (cargo check) is used where the ultimate proof
 // is "valid Rust", skipped honestly when cargo cannot spawn in the sandbox.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -26,10 +26,9 @@ use std::process::Command;
 // Shared infra (house style: mirrors transplant_battery.rs / transplant_stress.rs)
 // ---------------------------------------------------------------------------
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -49,9 +48,9 @@ fn write(path: &Path, content: &str) {
 }
 
 fn ingest(state: &mut SessionState, root: &Path) {
-    let out = m1nd_mcp::tools::handle_ingest(
+    let out = crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "harness".to_string(),
             mode: "merge".to_string(),
@@ -424,6 +423,7 @@ fn seed_canonical(state: &mut SessionState, root: &Path) {
 
 #[test]
 fn harness_certificate_canonical_move_changes_only_expected_regions() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -458,6 +458,7 @@ fn harness_certificate_canonical_move_changes_only_expected_regions() {
 
 #[test]
 fn harness_round_trip_restores_every_file_item_set() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -526,6 +527,7 @@ pub fn stay_here() -> u32 {
 
 #[test]
 fn gap1_brace_in_string_does_not_truncate_moved_region() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -566,6 +568,7 @@ fn gap1_brace_in_string_does_not_truncate_moved_region() {
 
 #[test]
 fn gap2_grouped_use_referencer_is_split_and_repointed() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -614,6 +617,7 @@ fn gap2_grouped_use_referencer_is_split_and_repointed() {
 
 #[test]
 fn gap3_glob_use_referencer_is_detected_and_reported() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -673,6 +677,7 @@ fn gap3_glob_use_referencer_is_detected_and_reported() {
 // be silently missed: either detected/reported, or resolved (crate compiles).
 #[test]
 fn gap3_glob_value_reference_is_not_silently_missed() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -747,6 +752,7 @@ pub fn stay_here() -> usize {
 
 #[test]
 fn gap4_moved_fn_carries_its_own_file_level_imports() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -779,6 +785,7 @@ fn gap4_moved_fn_carries_its_own_file_level_imports() {
 
 #[test]
 fn gap5_aliased_grouped_use_preserves_the_alias() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -820,6 +827,7 @@ fn gap5_aliased_grouped_use_preserves_the_alias() {
 
 #[test]
 fn adversarial_crlf_line_endings_do_not_corrupt() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -853,6 +861,7 @@ fn adversarial_crlf_line_endings_do_not_corrupt() {
 
 #[test]
 fn adversarial_unicode_identifiers_and_comments() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -884,6 +893,7 @@ fn adversarial_unicode_identifiers_and_comments() {
 
 #[test]
 fn adversarial_generics_and_where_clause_span_lines() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -916,6 +926,7 @@ fn adversarial_generics_and_where_clause_span_lines() {
 
 #[test]
 fn adversarial_nested_modules_do_not_confuse_extent() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -961,6 +972,7 @@ fn adversarial_nested_modules_do_not_confuse_extent() {
 #[cfg(unix)]
 #[test]
 fn atomicity_write_failure_after_preflight_touches_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
@@ -1002,6 +1014,7 @@ fn atomicity_write_failure_after_preflight_touches_nothing() {
 // Cross-platform atomicity: every refusal class leaves all files byte-identical.
 #[test]
 fn atomicity_all_refusal_paths_write_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let scenarios: &[(&str, &str, &str)] = &[
         // (symbol, src, dest) each of which must be a clean refusal.
         ("ghost_symbol", "src/alpha.rs", "src/beta.rs"), // not found
@@ -1041,6 +1054,7 @@ fn atomicity_all_refusal_paths_write_nothing() {
 
 #[test]
 fn regression_dest_is_also_a_referencer_preserves_the_item() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

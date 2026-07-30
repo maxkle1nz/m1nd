@@ -14,10 +14,10 @@
 // exact original bytes even on panic; the test also restores explicitly and then
 // VERIFIES restoration before asserting the compile result.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -43,9 +43,9 @@ fn worktree_root() -> PathBuf {
 }
 
 fn ingest_core(state: &mut SessionState, core: &Path) {
-    m1nd_mcp::tools::handle_ingest(
+    crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: core.to_string_lossy().to_string(),
             agent_id: "selfhost".to_string(),
             mode: "merge".to_string(),
@@ -79,11 +79,11 @@ fn cargo_check_core(wt: &Path) -> Result<(), String> {
     }
 }
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 #[test]
 fn selfhost_transplant_real_private_fn_keeps_m1nd_core_compiling() {
-    common::disable_proof_gate_for_logic_tests();
+    let _proof_gate = common::proof_gate_off_lease();
     let wt = worktree_root();
     let core = wt.join("m1nd-core");
     let tremor = core.join("src/tremor.rs");

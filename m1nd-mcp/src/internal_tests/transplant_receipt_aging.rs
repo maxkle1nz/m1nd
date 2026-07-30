@@ -16,25 +16,24 @@
 // These COMPILE now and FAIL until the aging exists (the RED half): the verb
 // runs, but the boundaries do NOT move and `blocks_touched` is absent.
 
-use m1nd_core::domain::DomainConfig;
-use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
-use m1nd_mcp::system_blocks::{
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
+use crate::system_blocks::{
     import_receipt_in_dir, import_seed_into_dir, ratify_in_dir, recompute_in_dir, Receipt,
     ReceiptEmitter, ReceiptEmitterKind, ReceiptEvidence, ReceiptScope, ReceiptType,
     ReceiptValidity, SystemBlockStore,
 };
+use m1nd_core::domain::DomainConfig;
+use m1nd_core::graph::Graph;
 use std::path::Path;
 
 // ===========================================================================
-// Shared fixture (mirrors tests/transplant_battery.rs — the canonical scenario)
+// Shared fixture (mirrors transplant_battery.rs — the canonical scenario)
 // ===========================================================================
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -103,9 +102,9 @@ fn seed_fixture(state: &mut SessionState, root: &Path) {
     write(&root.join("src/beta.rs"), BETA);
     write(&root.join("src/gamma.rs"), GAMMA);
 
-    let ingest = m1nd_mcp::tools::handle_ingest(
+    let ingest = crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "aging".to_string(),
             mode: "merge".to_string(),
@@ -274,6 +273,7 @@ fn two_block_seed_claiming_unrelated_files() -> &'static str {
 
 #[test]
 fn d5b_transplant_between_ratified_blocks_ages_both_boundaries_and_stales_receipt() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -371,6 +371,7 @@ fn d5b_transplant_between_ratified_blocks_ages_both_boundaries_and_stales_receip
 
 #[test]
 fn d5b_transplant_touching_no_block_files_ages_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

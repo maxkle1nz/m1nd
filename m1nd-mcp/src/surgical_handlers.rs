@@ -5919,10 +5919,13 @@ mod tests {
     /// Process-global lock: M1ND_PROOF_GATE is read live from the environment, so
     /// these tests must not run concurrently with each other. Recovers from
     /// poison so one failing probe does not cascade-fail the others.
-    fn proof_gate_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-        let m = LOCK.get_or_init(|| Mutex::new(()));
-        m.lock().unwrap_or_else(|p| p.into_inner())
+    ///
+    /// The transplant proof suites read the same env var from the same test
+    /// process, so this delegates to the one crate-wide arbiter rather than
+    /// holding a second, blind lock: the exclusive lease also restores the shared
+    /// gate-OFF baseline those suites run under when the probe drops it.
+    fn proof_gate_env_lock() -> crate::transplant_common_internal_tests::ArmedProofGate {
+        crate::transplant_common_internal_tests::arm_proof_gate_exclusively()
     }
 
     /// Build a state whose graph contains ONE unrelated node, while the probe
