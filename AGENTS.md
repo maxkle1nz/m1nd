@@ -72,6 +72,12 @@ fixture suite it stops being a separate proof and closes nothing
 - Never hold long-lived lock files opened with `share_mode(0)` — read-only tree snapshots then
   die with sharing violations (os error 32). Share reads (`FILE_SHARE_READ`); write access stays
   unshared so single-owner collision detection is unchanged.
+- Never rename or remove a directory tree while something inside it is still open. Unix moves a
+  tree out from under live handles; Windows refuses with the same os error 32. A live brain holds
+  a checkpoint-store directory handle, writer lock and leases under its own store dir, so quiesce
+  it first (`ProjectBrainRegistry::shutdown` — pause, checkpoint+ACK, stop the actor, release the
+  instance, drop the cell) and move the bytes only once nobody holds them. A live `ReadDir` counts
+  too: scope it so its handle is closed before the removal.
 - Never screen operator-supplied paths with `Path::is_absolute` alone — `"/x"`, `"\x"` and
   `"C:\x"` are not absolute under the other OS's semantics. Use the shared helpers
   (`is_safe_relative_discovery_pattern`, `m1nd_ingest::exact_path_identity`) so security screens
@@ -308,11 +314,14 @@ bound brain because the writer never checked which brain it was talking to.
    repo). A **write** under mismatch is prohibited by doctrine — every write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
    `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
-   gesture lifts this.** The brain-bootstrap consumer is NOT installed: `ingest` does not
-   accept `project_root` (the parameter is absent from the published schema) and cross-root
-   bootstrap is POSITIVE_SOVEREIGN, failing closed with
-   `brain_bootstrap_consumer_not_installed`. Reconnect to an owner that already hosts the
-   intended repo, or stay read-only with the mismatch warning intact — do not write.
+   gesture lifts this for AGENTS.** Generic cross-root `ingest` remains withdrawn
+   (`project_root` is absent from the published schema; POSITIVE_SOVEREIGN), and over the
+   wire `brain.bootstrap.birth` refuses every client with `human_gesture_required` — the
+   stamp is the binary's own CLI flag, which no MCP or REST payload can forge. The way
+   forward for a brainless repo is the HUMAN's one-time ceremony: OFFER the exact command
+   `m1nd init --birth <repo>` and stop — running it is not the agent's to do. Until then,
+   reconnect to an owner that already hosts the intended repo, or stay read-only with the
+   mismatch warning intact — do not write.
    (The mechanical write-refusal has LANDED — every skeleton write verb
    (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
    `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching

@@ -64,6 +64,7 @@ function usage() {
 
 Usage:
   m1nd init [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>]
+  m1nd init --birth <repo>   The P2 birth ceremony (human's gesture; agents offer, never run)
   m1nd install-skills <host> [--project <dir>]
   m1nd mcp-config <host> [--binary <path>] [--project <dir>]
   m1nd hosts status [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
@@ -4710,6 +4711,19 @@ async function main(rawArgs) {
   }
 
   if (["init", "install-skills"].includes(command)) {
+    // `init --birth <repo>` is the P2 ceremony, not skill installation. The
+    // origin stamp lives in the BINARY's own CLI flag (no MCP/REST payload can
+    // forge it), so the npm side only relays the human's gesture to the binary
+    // it resolves — inherit stdio so the ceremony speaks to the human directly.
+    if (command === "init" && args.birth) {
+      const targetBinary = path.resolve(args.binary || defaultRuntimePath());
+      const repoArg = typeof args.birth === "string" ? args.birth : args._[1] || process.cwd();
+      const result = spawnSync(targetBinary, ["--birth", path.resolve(repoArg)], {
+        stdio: "inherit",
+      });
+      process.exitCode = result.status === null ? 1 : result.status;
+      return;
+    }
     const host = args._[1] || args.host || "generic";
     const projectDir = path.resolve(args.project || process.cwd());
     print(installSkills(host, projectDir), args.json);

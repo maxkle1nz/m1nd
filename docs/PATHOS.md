@@ -159,12 +159,17 @@ Update this list in the same PR that closes one; a front that dies silently is a
   the debt paid instead of overridden. One latent item still filed, not fixed: `config::workspace_allowed`
   carries the same verbatim-prefix split `d8668591` fixed in source-edit (fail-closed, so the same input
   is refused on Windows and allowed on Unix).
-- **Genesis P2 and P3** — P1 (medulla-only read fallback so a brainless repo is served doctrine instead of
-  blindness) is implemented in PR #403, in the merge queue and NOT yet on main — checkpoint 32's "0 code
-  hits" above described the tree before that PR existed, and holds for main until it lands; **P2** (the birth ceremony: `m1nd init` is today only `installSkills`, and the PRD
-  claiming it "built" is STALE — doc-gate when P2 lands) and **P3** (the typed consumer at `brain.bootstrap`'s
-  `PositiveSovereign` floor — "last, NOT never"; burying it needs an explicit owner amendment) are open.
-  P3's 12 requirements are recorded in checkpoint 32.
+- **Genesis — CODE-COMPLETE with this PR.** P1 (medulla-only read fallback) landed in #403. SPEC-1
+  (the freshness door, `graph.ingest.refresh_declared_root` at `ScopedGrantA2`, shrink-floor 60%)
+  landed in #463. **P2 + SPEC-2 land HERE**: `brain.bootstrap.birth` at `PositiveSovereign`, admission
+  by owner-stamped human origin — THE STAMP IS THE BINARY'S OWN CLI FLAG (`m1nd-mcp --birth <repo>`,
+  human-facing form `m1nd init --birth <repo>` relayed by the npm CLI); no MCP or REST payload can
+  forge it, and every wire client is refused `human_gesture_required`. Battery-first (18 tests born
+  RED, §5.7–§5.8), single-flight per canonical root, empty-destination defined on disk, whole-or-
+  nothing birth, migration-vs-birth separation pinned. The prose swept in the same PR: five surfaces
+  that taught "no way forward" now teach the OFFER (agents offer the exact ceremony command and stop
+  — running it is the human's). What remains of genesis is USE, not code: the owner running the
+  ceremony where he wants brains born.
 
 **Honesty defects found and not yet all closed**
 - `sha256` field carrying a non-cryptographic 64-bit `DefaultHasher` value (`m1nd-mcp/src/tools.rs`

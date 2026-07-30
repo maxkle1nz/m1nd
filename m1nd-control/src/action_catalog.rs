@@ -373,6 +373,28 @@ pub fn m1nd10_action_catalog() -> Result<ActionCatalogV1, ActionCatalogError> {
             Critical,
             PositiveSovereign,
         ),
+        // The BIRTH path (GENESIS-INGEST-CONSUMERS-SPEC.md §2, owner-ratified
+        // 2026-07-29). Its own action rather than a mode of `brain.bootstrap`,
+        // because its guards are different in kind: empty destination defined ON
+        // DISK, no `allow_overlap` at all, whole-or-nothing, and admission by an
+        // owner-stamped human origin. Same effects and the same
+        // `PositiveSovereign` floor — birth is not a lowering of anything, it is
+        // the sovereign frontier reached through a HUMAN gesture (`Cli`) instead
+        // of a lease. `Mcp`/`Rest` are declared because the verb is advertised
+        // there and REFUSES there; declaring only `Cli` would make the registry
+        // silent about the seams that must say no.
+        entry(
+            "brain.bootstrap.birth",
+            [Mcp, Rest, Cli],
+            [
+                GraphMutation,
+                RuntimeStoreWrite,
+                HostFilesystemWrite,
+                SovereignMutation,
+            ],
+            Critical,
+            PositiveSovereign,
+        ),
         entry(
             "brain.promote",
             [Mcp],
@@ -1973,6 +1995,7 @@ mod tests {
         let required = [
             "authority.authorize",
             "brain.bootstrap",
+            "brain.bootstrap.birth",
             "brain.promote",
             "graph.ingest.change_roots",
             "graph.ingest.replace",
@@ -2044,7 +2067,7 @@ mod tests {
         // `graph.ingest.preview` is now an explicit read-only governed action
         // rather than an untracked pre-mutation side channel.  Keep this pin in
         // lock-step with the exhaustive consumer registry.
-        assert_eq!(catalog.entries.len(), 173);
+        assert_eq!(catalog.entries.len(), 174);
         assert_eq!(ingresses.len(), 7);
     }
 }

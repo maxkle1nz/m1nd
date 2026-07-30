@@ -193,6 +193,29 @@ pub struct Cli {
     #[arg(long)]
     pub no_distribute: bool,
 
+    /// THE BIRTH CEREMONY (GENESIS-INGEST-CONSUMERS-SPEC.md §2, owner-ratified
+    /// 2026-07-29). Birth a project brain for the named repo root, print the
+    /// certificate as JSON, and exit. Offline and one-shot, exactly like
+    /// `--inbox-sweep` and `--medulla-migrate`.
+    ///
+    /// THIS FLAG IS THE STAMP. Admission to `brain.bootstrap.birth` is an origin
+    /// the OWNER applies from a fact it observes about ITSELF, and this ingress
+    /// is that fact: the human ran this command. It is the only place in the
+    /// binary that constructs a `brain_birth::HumanOrigin`, so no MCP or REST
+    /// payload — no header, no `birth_via` field, no claim of any kind — can ever
+    /// produce one. Over the wire the verb is refused for every client.
+    ///
+    /// The human-facing form is `m1nd init --birth <repo>`; the npm CLI runs this
+    /// binary with this flag. An AGENT that finds a repo with no brain OFFERS
+    /// that command and stops — running it is not the agent's to do.
+    ///
+    /// Refuses unless the destination is EMPTY on disk, unless the root resolves,
+    /// on any overlap with an existing brain, and on the owner's own bound root.
+    /// It is not the way to adopt an existing brain: that is migration, a
+    /// boot-time fact with no verb.
+    #[arg(long, value_name = "REPO")]
+    pub birth: Option<String>,
+
     /// One-shot MEDULLA storage-split migration (MEDULLA-PRD §4.2, slice M5a).
     /// Takes one required verb (no default):
     ///   `plan`     — print the dry-run plan JSON (enumerate + classify + the
