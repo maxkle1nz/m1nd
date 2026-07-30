@@ -17,20 +17,19 @@
 //                             does NOT consume the handle
 //   7. commit_bogus_id      — unknown preview_id; the error teaches recovery
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
-// Shared infra (mirrors tests/transplant_battery.rs)
+// Shared infra (mirrors transplant_battery.rs)
 // ---------------------------------------------------------------------------
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -50,9 +49,9 @@ fn write(path: &Path, content: &str) {
 }
 
 fn ingest(state: &mut SessionState, root: &Path) {
-    m1nd_mcp::tools::handle_ingest(
+    crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "two-phase".to_string(),
             mode: "merge".to_string(),
@@ -145,6 +144,7 @@ fn snapshot(root: &Path) -> Vec<(String, String)> {
 
 #[test]
 fn two_phase_preview_happy_path() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -225,6 +225,7 @@ fn two_phase_preview_happy_path() {
 
 #[test]
 fn two_phase_preview_missing_dest_is_refused_and_stages_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -259,6 +260,7 @@ fn two_phase_preview_missing_dest_is_refused_and_stages_nothing() {
 
 #[test]
 fn two_phase_commit_happy_path() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -309,6 +311,7 @@ fn two_phase_commit_happy_path() {
 
 #[test]
 fn two_phase_commit_ttl_expired() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -344,6 +347,7 @@ fn two_phase_commit_ttl_expired() {
 
 #[test]
 fn two_phase_commit_refuses_when_a_derived_referencer_drifted() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -385,6 +389,7 @@ fn two_phase_commit_refuses_when_a_derived_referencer_drifted() {
 
 #[test]
 fn two_phase_commit_confirm_false_is_refused_and_keeps_the_handle() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -418,6 +423,7 @@ fn two_phase_commit_confirm_false_is_refused_and_keeps_the_handle() {
 
 #[test]
 fn two_phase_commit_bogus_id_is_refused() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

@@ -21,22 +21,21 @@
 //       the verb records `state_left_behind[]` instead of silently orphaning, and
 //       the IDEAL full-follow is a declared #[ignore]d RED.
 
+use crate::protocol::IngestInput;
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::protocol::IngestInput;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use serde_json::json;
 use std::path::Path;
 
 // ===========================================================================
-// Shared fixture (mirrors tests/transplant_battery.rs)
+// Shared fixture (mirrors transplant_battery.rs)
 // ===========================================================================
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -120,7 +119,7 @@ fn seed_fixture(state: &mut SessionState, root: &Path) {
     write(&root.join("src/beta.rs"), BETA);
     write(&root.join("src/gamma.rs"), GAMMA);
 
-    let out = m1nd_mcp::tools::handle_ingest(
+    let out = crate::tools::handle_ingest(
         state,
         ingest_input(root.to_string_lossy().to_string(), "code", "replace"),
     )
@@ -195,6 +194,7 @@ fn label_in_file_has_tag(state: &SessionState, label: &str, file_suffix: &str, t
 
 #[test]
 fn a1_light_evidence_survives_transplant_because_it_is_file_addressed() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -205,7 +205,7 @@ fn a1_light_evidence_survives_transplant_because_it_is_file_addressed() {
         &root.join("notes.md"),
         "---\nProtocol: L1GHT/1.0\nNode: AlphaNotes\n---\n\n## Alpha\n\nThe [⍂ entity: Mover] moves things.\n[𝔻 confidence: 0.8]\n[𝔻 evidence: src/alpha.rs]\n",
     );
-    let light = m1nd_mcp::tools::handle_ingest(
+    let light = crate::tools::handle_ingest(
         &mut state,
         ingest_input(
             root.join("notes.md").to_string_lossy().to_string(),
@@ -256,6 +256,7 @@ fn a1_light_evidence_survives_transplant_because_it_is_file_addressed() {
 
 #[test]
 fn a1_antibody_pattern_follows_moved_symbol_structurally() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -306,6 +307,7 @@ fn a1_antibody_pattern_follows_moved_symbol_structurally() {
 
 #[test]
 fn a1_xray_tags_orphan_and_are_reported_in_state_left_behind() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -386,6 +388,7 @@ fn a1_xray_tags_orphan_and_are_reported_in_state_left_behind() {
 #[test]
 #[ignore = "A1 class-b IDEAL: full tag-follow needs owner-side wiring (stable node id across re-ingest or a paint-tag registry); the lab records state_left_behind[] instead"]
 fn a1_xray_tags_full_follow_ideal_needs_owner_wiring() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

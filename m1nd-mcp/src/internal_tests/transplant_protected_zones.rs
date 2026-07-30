@@ -11,21 +11,20 @@
 // These COMPILE now and FAIL until the gate exists: without it the guarded move
 // SUCCEEDS (no refusal) and the receipt carries no `protected_zone`.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use serde_json::json;
 use std::path::Path;
 
 // ===========================================================================
-// Shared fixture (mirrors tests/transplant_battery.rs)
+// Shared fixture (mirrors transplant_battery.rs)
 // ===========================================================================
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -94,9 +93,9 @@ fn seed_fixture(state: &mut SessionState, root: &Path) {
     write(&root.join("src/beta.rs"), BETA);
     write(&root.join("src/gamma.rs"), GAMMA);
 
-    let out = m1nd_mcp::tools::handle_ingest(
+    let out = crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "zones".to_string(),
             mode: "merge".to_string(),
@@ -146,6 +145,7 @@ fn read_all(root: &Path) -> (String, String, String) {
 
 #[test]
 fn a3_guarded_zone_refuses_without_gesture_and_touches_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -184,6 +184,7 @@ fn a3_guarded_zone_refuses_without_gesture_and_touches_nothing() {
 
 #[test]
 fn a3_guarded_zone_proceeds_with_gesture_and_records_it() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -230,6 +231,7 @@ fn a3_guarded_zone_proceeds_with_gesture_and_records_it() {
 
 #[test]
 fn a3_no_zone_file_does_not_interfere() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

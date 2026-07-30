@@ -279,6 +279,55 @@ mod spec2_brain_bootstrap_birth_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/attach_auto_ingest_coverage.rs"]
 mod attach_auto_ingest_coverage_internal_tests;
+// The transplant proof suites and the boot-drift battery drive `dispatch_tool`
+// and `SessionState::initialize` in-process. Those are owner-internal seams the
+// crate deliberately does NOT export — the `McpServer` / `initialize`
+// compile_fail sentinels are the ratified candidate boundary — so the batteries
+// live inside the wall instead of the wall being widened to reach them.
+#[cfg(test)]
+#[path = "internal_tests/transplant_battery.rs"]
+mod transplant_battery_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_common.rs"]
+mod transplant_common_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_concurrency.rs"]
+mod transplant_concurrency_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_extent_experiment.rs"]
+mod transplant_extent_experiment_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_harness.rs"]
+mod transplant_harness_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_node_identity.rs"]
+mod transplant_node_identity_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_proofgate.rs"]
+mod transplant_proofgate_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_proptest.rs"]
+mod transplant_proptest_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_protected_zones.rs"]
+mod transplant_protected_zones_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_receipt_aging.rs"]
+mod transplant_receipt_aging_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_selfhost.rs"]
+mod transplant_selfhost_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_stress.rs"]
+mod transplant_stress_internal_tests;
+#[cfg(test)]
+#[path = "internal_tests/transplant_two_phase.rs"]
+mod transplant_two_phase_internal_tests;
+// The boot battery reconstructs a SessionState from drifted sidecars, so it needs
+// the same owner-internal constructor.
+#[cfg(test)]
+#[path = "internal_tests/boot_temporal_state_drift.rs"]
+mod boot_temporal_state_drift_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

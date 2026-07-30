@@ -20,20 +20,19 @@
 // contract, so a later addressing form changes the params here, never the
 // asserts.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 
 // ===========================================================================
 // Shared test infrastructure (mirrors tests/counterfactual_behavior.rs)
 // ===========================================================================
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -105,9 +104,9 @@ fn seed_fixture(state: &mut SessionState, root: &Path) {
     write(&root.join("src/beta.rs"), BETA);
     write(&root.join("src/gamma.rs"), GAMMA);
 
-    let ingest = m1nd_mcp::tools::handle_ingest(
+    let ingest = crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "battery".to_string(),
             mode: "merge".to_string(),
@@ -145,6 +144,7 @@ fn transplant_params(root: &Path) -> serde_json::Value {
 
 #[test]
 fn battery_transplant_moves_symbol_with_dependency_trichotomy() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -213,6 +213,7 @@ fn battery_transplant_moves_symbol_with_dependency_trichotomy() {
 
 #[test]
 fn battery_transplant_refuses_dest_collision_and_touches_nothing() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);

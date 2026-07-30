@@ -6129,12 +6129,14 @@ pub(crate) fn dispatch_generic_tool(
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
-/// Public so the transplant proof-harness integration suites (tests/) can drive
-/// the SAME gated dispatch path a live agent takes — the M1ND_PROOF_GATE / catalog
-/// gating lives inside this function, so an in-process caller gets it unchanged.
+/// Crate-internal: raw dispatch is an actor implementation detail, not a Rust
+/// embedding API — the [`McpServer`] sentinel doctest pins that boundary. The
+/// transplant proof suites drive this SAME gated path a live agent takes (the
+/// M1ND_PROOF_GATE / catalog gating lives inside this function) from INSIDE the
+/// crate, as the `#[cfg(test)]` batteries registered in `lib.rs`.
 ///
 /// v0.4.0: wraps all responses with _m1nd metadata.
-pub fn dispatch_tool(
+pub(crate) fn dispatch_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,

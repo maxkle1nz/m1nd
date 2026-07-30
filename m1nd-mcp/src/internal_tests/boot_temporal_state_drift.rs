@@ -10,13 +10,13 @@
 //! indexed by another graph's nodes would predict nonsense. What changes is the
 //! consequence — the stale matrix is dropped and relearned, loudly.
 
+use crate::server::McpConfig;
+use crate::session::SessionState;
+use crate::temporal_state::{save_temporal_state, TEMPORAL_STATE_FILE};
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
 use m1nd_core::temporal::CoChangeMatrix;
 use m1nd_core::types::{NodeId, NodeType};
-use m1nd_mcp::server::McpConfig;
-use m1nd_mcp::session::SessionState;
-use m1nd_mcp::temporal_state::{save_temporal_state, TEMPORAL_STATE_FILE};
 use std::path::Path;
 
 fn graph_of(node_count: usize, prefix: &str) -> Graph {

@@ -15,19 +15,18 @@
 // which re-creates every node under a new id — is HARMLESS.
 //
 // The complementary direction (a real DISK change between the phases is REFUSED) is
-// already proven by tests/transplant_two_phase.rs::
+// already proven by transplant_two_phase.rs::
 // two_phase_commit_refuses_when_a_derived_referencer_drifted.
 
+use crate::server::{dispatch_tool, McpConfig};
+use crate::session::SessionState;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
-use m1nd_mcp::server::{dispatch_tool, McpConfig};
-use m1nd_mcp::session::SessionState;
 use std::path::Path;
 
-mod common;
+use crate::transplant_common_internal_tests as common;
 
 fn make_state(root: &Path) -> SessionState {
-    common::disable_proof_gate_for_logic_tests();
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
@@ -47,9 +46,9 @@ fn write(path: &Path, content: &str) {
 }
 
 fn ingest(state: &mut SessionState, root: &Path) {
-    m1nd_mcp::tools::handle_ingest(
+    crate::tools::handle_ingest(
         state,
-        m1nd_mcp::protocol::IngestInput {
+        crate::protocol::IngestInput {
             path: root.to_string_lossy().to_string(),
             agent_id: "race".to_string(),
             mode: "merge".to_string(),
@@ -118,6 +117,7 @@ fn preview_params(root: &Path) -> serde_json::Value {
 
 #[test]
 fn a5_graph_reingest_between_preview_and_commit_is_harmless() {
+    let _proof_gate = common::proof_gate_off_lease();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut state = make_state(root);
@@ -169,6 +169,7 @@ fn a5_graph_reingest_between_preview_and_commit_is_harmless() {
 
 #[test]
 fn a5_reingest_after_preview_does_not_drop_the_staged_handle() {
+    let _proof_gate = common::proof_gate_off_lease();
     // A re-ingest touches the graph and its own runtime artifacts, never the staged
     // transplant handle. The handle must remain redeemable after arbitrary graph work.
     let dir = tempfile::tempdir().unwrap();
