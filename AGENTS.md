@@ -111,6 +111,17 @@ when a single tool violates it — the 2026-07-22 incident (a bare top-level `on
 sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
 (`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
 
+**REST route seating contract:** `POST /api/tools/{tool}` runs the F-01 generic floor gate
+(`enforce_generic_action_policy`) on its way to generic dispatch. A verb that carries its OWN
+interception in `handle_tool_call` — the owner→daemon proxies (`mission_spawn`,
+`candidate_naming`, `curation_spawn`) and the typed G3 facades — is refused by that gate, so
+seating one BEHIND it turns its REST path into dead code behind a 403 while every test stays
+green (it happened twice in the field: #471, #475). Declare every specially routed verb in
+`REST_ROUTE_SEATING` and give every owner proxy a probe in `OWNER_PROXY_PROBES`
+(`m1nd-mcp/src/http_server.rs`): the guard
+`rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate` reads the live route
+source and holds both tables exactly equal to it, in both directions.
+
 ## Git identity — ABSOLUTE
 
 - Author every commit as **`Max Kle1nz <kleinz@cosmophonix.com>`**. Never as a bot, never as
