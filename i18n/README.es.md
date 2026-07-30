@@ -1,437 +1,320 @@
-🇬🇧 [English](../README.md) | 🇧🇷 [Português](README.pt-BR.md) | 🇪🇸 [Español](README.es.md) | 🇮🇹 [Italiano](README.it.md) | 🇫🇷 [Français](README.fr.md) | 🇩🇪 [Deutsch](README.de.md) | 🇨🇳 [中文](README.zh.md) | 🇯🇵 [日本語](README.ja.md)
-
+```markdown
 <p align="center">
-  <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
+  <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
 </p>
 
-<h1 align="center">Inteligencia Operacional para Agentes de Código</h1>
+**m1nd** brinda a tu agente de codificación un cerebro por repositorio: un gráfico de código local servido a través de MCP, memoria anclada al código que cita, y un veredicto de confianza en cada respuesta. "Pruebas insuficientes" es una respuesta válida aquí. También lo es "todavía no confíes en esto, y aquí está cómo repararlo".
 
-<p align="center">
-  <strong>Tu agente de código deja de empezar a ciegas.</strong><br/>
-  <em>Local-first. MCP-nativo. Memoria en grafo, confianza y razonamiento sobre cambios para hosts de agentes.</em>
-</p>
+Nada sale de tu máquina. Un binario de Rust. MIT.
+
+Piensa en ello como una radiografía de tu repositorio que tu agente puede leer: una estructura que combina todo y dice dónde vive cada cosa, para qué sirve ese programa, qué se está trabajando, qué está terminado y qué sigue abierto. Ese panorama es lo que ninguna otra herramienta ofrece a tu agente.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
   <a href="https://crates.io/crates/m1nd-mcp"><img src="https://img.shields.io/crates/v/m1nd-mcp.svg?label=crates.io" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
-  <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
-  <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
-  <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-official-6d28d9" alt="MCP Registry" /></a>
 </p>
+
+<p align="center">Cuatro comandos para instalar: <a href="#sixty-seconds">Sesenta segundos</a>. Razones para cerrar esta página primero: <a href="#when-not-to-use-m1nd">Cuándo no usar m1nd</a>.</p>
 
 <p align="center">
-  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=fff" alt="OpenAI Codex" /></a>
-  <a href="https://claude.ai/download"><img src="https://img.shields.io/badge/Claude_Code-f0ebe3?logo=claude&logoColor=d97706" alt="Claude Code" /></a>
-  <a href="https://cursor.sh"><img src="https://img.shields.io/badge/Cursor-000?logo=cursor&logoColor=fff" alt="Cursor" /></a>
-  <a href="https://codeium.com/windsurf"><img src="https://img.shields.io/badge/Windsurf-0d1117?logo=windsurf&logoColor=3ec9a7" alt="Windsurf" /></a>
-  <a href="https://github.com/features/copilot"><img src="https://img.shields.io/badge/GitHub_Copilot-000?logo=githubcopilot&logoColor=fff" alt="GitHub Copilot" /></a>
-  <a href="https://zed.dev"><img src="https://img.shields.io/badge/Zed-084ccf?logo=zedindustries&logoColor=fff" alt="Zed" /></a>
-  <a href="https://github.com/cline/cline"><img src="https://img.shields.io/badge/Cline-000?logo=cline&logoColor=fff" alt="Cline" /></a>
-  <a href="https://roocode.com"><img src="https://img.shields.io/badge/Roo_Code-6d28d9?logoColor=fff" alt="Roo Code" /></a>
-  <a href="https://github.com/continuedev/continue"><img src="https://img.shields.io/badge/Continue-000?logoColor=fff" alt="Continue" /></a>
-  <a href="https://opencode.ai"><img src="https://img.shields.io/badge/OpenCode-18181b?logoColor=fff" alt="OpenCode" /></a>
-  <a href="https://aistudio.google.com"><img src="https://img.shields.io/badge/Gemini-4285F4?logo=google&logoColor=fff" alt="Gemini" /></a>
-  <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
+  <img src="docs/assets/demo.gif" width="760" alt="Una sesión real de m1nd: north devuelve confianza, enfoque y lagunas honestas; seek responde con un veredicto de reverify; memorize ancla el hallazgo al código" />
 </p>
 
----
+<p align="center"><em>Una sesión real en el gráfico de 6,453 nodos de este repositorio (m1nd-mcp 1.4.0): <code>north</code> orienta, <code>seek</code> responde con un veredicto de <code>reverify</code>, <code>memorize</code> ancla el hallazgo al código.</em></p>
 
-**m1nd es la carcasa alrededor de tu agente de código — el loop operacional dentro del cual vive: orientado antes de actuar, veredictos honestos mientras trabaja, memoria con evidencia después de terminar, acumulándose entre sesiones.**
+## La auditoría que tu agente deja de pagar
 
-<p align="center">
-  <img src="../docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
-</p>
+Conoces el ritual. El agente abre un archivo, busca con grep, abre otro archivo, busca nuevamente, consume la mayor parte de su contexto reconstruyendo lo que es el repositorio, y solo entonces comienza la tarea real. Con m1nd ese barrido se convierte en una sola pregunta. En menos de un segundo el agente tiene el mapa: qué llama a qué, qué rompe qué, dónde vive todo. No es un montón de coincidencias para interpretar. Es la estructura conectada, ya ensamblada.
 
-<p align="center"><em>Una sesión real — capturada de un dueño en vivo (<code>m1nd-mcp 1.3.0</code>, un grafo de 6,453 nodos sobre este repositorio): <code>north</code> orienta al agente con confianza + huecos honestos, <code>seek</code> responde vistiendo un veredicto <code>reverify</code> en lugar de una conjetura confiada, <code>memorize</code> escribe el hallazgo de vuelta anclado al código.</em></p>
+Y recuerda. Entre sesiones y entre agentes. Lo que un agente aprende hoy, otro agente lo hereda mañana, con las pruebas adjuntas y una bandera si el código cambió desde entonces. Cada conclusión deja un rastro, para que tú, o cualquier agente que venga después, siempre puedas ver qué pasó con ese código y por qué.
 
-<p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="Una pila de archivos sueltos se convierte en un grafo conectado de qué enlaza con qué" /></p>
+Luego l1ght lo lleva más allá: artículos, documentos, RFCs, borradores y notas se conectan a las partes del código que explican, dentro de la misma estructura. El agente obtiene el contexto CORRECTO en lugar del que más se parece y el inventar código que no existe deja de ser el camino de menor resistencia: la estructura dice lo que existe y el veredicto dice cuánto confiar incluso en eso.
 
-> `grep` encuentra texto. La búsqueda vectorial encuentra chunks similares. `m1nd` da a los agentes un grafo local de qué se conecta, qué cambió, qué se rompe, qué ha derivado y dónde retomar.
+Antes de m1nd, una función era solo una función, perdida en algún manual. Ahora vive dentro de la inteligencia del agente, combinada con el código, su historia, sus documentos y sus riesgos. No he encontrado nada similar en ningún otro lugar.
 
-## Empieza en 60 segundos
+## grep responde buenas preguntas. m1nd responde las más profundas.
 
-Tres comandos. El primero prueba que el runtime está visible, el segundo imprime el cableado exacto de tu host, y el tercero es de tu agente — nunca más lo llamas a mano.
+Preguntas que tu agente ahora puede hacer y obtener una respuesta estructural:
 
-```bash
-# 1 · comprueba que el runtime está instalado y visible (sin build, sin config)
-npx -y @maxkle1nz/m1nd doctor
-#    → imprime un veredicto JSON: runtime encontrado + versión, o el arreglo exacto si no
-```
+- ¿Qué se rompe si toco esta función?
+- ¿Dónde ocurre realmente la actualización del token en este repositorio?
+- ¿Por qué están conectados estos dos archivos, y ese camino es sólido o una suposición?
+- ¿Qué aprendió la última sesión sobre este código, y todavía es cierto?
+- ¿Qué siempre cambia junto aquí, incluso sin una importación entre ellos?
+- ¿Este cambio cruza un límite de arquitectura que no debo cruzar?
+- ¿Qué afirmación de este documento implementa esta función?
+- ¿El error que acabo de corregir está escondido en otro lugar, como una forma?
+- ¿Qué falta aquí que este patrón normalmente tiene?
+- ¿Estoy siquiera en el repositorio correcto?
+- ¿Debo actuar según esta respuesta o verificarla primero?
 
-```bash
-# 2 · imprime el cableado de tu host (claude · codex · gemini · cursor · cline · …)
-npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
-#    → dry-run: el JSON de config MCP + el hook de session-start para pegar — no escribe nada
-```
+Cada una es un verbo en la superficie de MCP (`impact`, `seek`, `why`, `north`, `ghost_edges`, `xray_gate`, `antibody_scan`, `missing`, `trust_selftest`, `predict`), no un truco de indicaciones.
 
-```jsonc
-// 3 · de ahora en adelante conduce tu AGENTE — su primer movimiento en cada sesión es una llamada:
-north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
-//    → un paquete: confianza del binding · nodos de foco + anclas · memoria previa · honest_gaps
-```
+## Y no se detiene en mostrar estructuras
 
-¿Listo para cablearlo de verdad (skills + config MCP, todos los hosts)? → [Inicio Rápido](#inicio-rápido). ¿Autoinstalando desde un agente? → [`llms-install.md`](../llms-install.md).
+Anticuerpos: un error corregido se convierte en un patrón estructural nombrado y cada sesión posterior busca esa forma en todo el repositorio. Corrígelo una vez, cázalo para siempre.
 
-## Qué es m1nd: la carcasa alrededor de tu agente
+Ghost edges: archivos que siempre cambian juntos sin importar entre ellos, extraídos de tu historial git. El acoplamiento invisible que rompe refactorizaciones.
 
-*m1nd envuelve a tu agente de código en un loop que lo orienta antes de actuar, lo mantiene honesto mientras trabaja y recuerda lo que aprendió cuando termina.*
+Huecos estructurales: `missing` busca el código que no está ahí. La protección, el reintento, el tiempo de espera que normalmente lleva este patrón y que falta en esta instancia.
 
-- **Si construyes con agentes** — nada nuevo que aprender: instala una vez y sigue hablando con tu agente. Deja de adivinar, empieza a recordar y dice "no sé" cuando esa es la verdad.
-- **Si eres ingeniero** — un motor de grafo en Rust, local-first, detrás de un servidor MCP: un grafo causal de código (aristas estructurales, semánticas, temporales y causales), veredictos con calibración conformal y memoria anclada a nodos de código con procedencia. Nada sale de tu máquina.
+Hipótesis contra el gráfico: enuncia una afirmación en lenguaje sencillo ("los ajustes pueden llegar al inicio sin validación") y haz que se pruebe contra la estructura activa.
 
-Los agentes en codebases reales no fallan porque no puedan buscar — fallan porque no tienen un modelo operacional. Cada sesión reconstruye contexto desde cero, edita sin conocer el blast radius y no puede distinguir un resultado vacío que significa "no existe nada" de uno que significa "repositorio equivocado". m1nd le da al agente un modelo duradero del codebase — un grafo causal con spreading activation y plasticidad Hebbiana — y envuelve el loop entero del agente a su alrededor. Las funcionalidades aquí no son un catálogo; son las estaciones de esa carcasa:
+Temblores: archivos cuyo cambio está acelerándose son marcados antes de que alguien registre el informe de error.
+
+Un gráfico cálido: los resultados confirmados refuerzan sus bordes, al estilo hebbiano, para que los caminos que demostraron ser útiles tengan mayor peso para el próximo agente.
+
+Cada uno de estos marca y sugiere; tu compilador y las pruebas aún hacen la demostración.
+
+## m1nd no solo busca. Escribe.
+
+Aquí está la parte que la gente tarda un momento en creer. El gráfico que lee tu repositorio también puede operar sobre él. Tu agente nombra un símbolo y un destino, alrededor de 48 tokens, y `transplant` calcula todo el movimiento desde el gráfico: la región ampliada (los comentarios de documentación y atributos viajan junto), las dependencias clasificadas por sus bordes de llamada (las privadas viajan, las compartidas se quedan y ganan una importación hacia atrás), cada referencia re-clasificada en cada archivo que las nombra. Luego escribe de forma atómica, re-ingiere y devuelve un recibo honesto: qué se movió, qué quedó, qué no pudo resolver. `refs_unresolved` nunca está vacío silenciosamente si algo salió mal.
+
+Es de dos fases, `transplant_preview` antes de `transplant_commit`, y el commit re-valida el hash de cada archivo que planeó tocar, para que nada se asiente en un repositorio que cambió por debajo de él. La zona económica de tu repositorio (backend, esquema, pagos, CI) está protegida del lado del servidor y falla cerrada. Una negativa nunca toca ni un byte y enseña el reintento: una colisión nombra al ocupante, una ruta de módulo inválida se nombra a sí misma, un movimiento entre crates nombra ambas raíces del crate.
+
+Medido en el caso real: la edición de archivo completo costó 12,235 tokens de salida; el transplante costó 48 tokens de entrada y escribió 3 archivos en 1.3 segundos, con el crate compilando del otro lado. Desde 2019, rust-analyzer tiene un problema abierto solicitando movimientos entre archivos.
+
+Límites de v1, declarados claramente: solo Rust, solo `fn` de nivel superior, mismo crate, el archivo de destino debe existir, y las referencias nacidas dentro de macros son invisibles para él. Cada límite es deliberado y está documentado en [docs/TRANSPLANT-PRD.md](docs/TRANSPLANT-PRD.md), junto a 13 archivos de prueba que mantienen el verbo en su lugar.
+
+## ¿Qué pasa cuando no es un agente sino cinco?
+
+Corre varios agentes en el mismo repositorio y el gráfico se convierte en el lugar donde coordinan. Cada sesión se registra como una presencia y, cuando dos de ellos están a punto de trabajar en áreas superpuestas, ambos reciben una advertencia en su próximo paquete de orientación, antes de que cualquiera realice un cambio. El sistema advierte; tú decides.
+
+El trabajo delimitado se ejecuta como misiones, y las misiones responden por sí mismas de una manera que la mayoría de los equipos humanos omiten: cada herramienta de misión informa `non_claims`, la lista de lo que NO fue probado. Una afirmación no puede cerrarse solo con evidencia del gráfico. Requiere una lectura de archivo, una prueba realizada o una sonda en tiempo de ejecución, y la prueba que refuerza esto se llama `graph_only_evidence_is_not_enough`.
+
+Y las defensas no lanzan falsas alarmas. `xray_gate` solo puede decir `blocked` desde un manifiesto de límites ratificado por un humano. Todo lo demás llega como una advertencia con una razón, para que el agente nunca aprenda a ignorar su propia barra de seguridad.
+
+Cada cerebro también tiene un buzón. Un agente que encuentra un defecto real fuera de su propia misión no lo arregla de inmediato y tampoco lo ignora: deja una carta en el buzón de ese repositorio, en disco, junto al código. El próximo agente que trabaje en ese cerebro revisa el buzón y comienza ya sabiendo los defectos que otros agentes encontraron, con contexto adjunto. El conocimiento sobre lo que está roto deja de morir en el desplazamiento de chat. La revisión es un gesto deliberado (CLI o REST, nunca dentro del bucle de consulta), para que las cartas informen el trabajo en lugar de interrumpirlo.
+
+## Nacido primero para el agente
+
+Sin cuentas, sin telemetría y sin API en el camino, lo que también explica por qué el gráfico responde en microsegundos.
+
+El desarrollo de m1nd tampoco es muy normal. Construirlo significó construir todo un flujo de trabajo donde los agentes dirigen, verifican y prueban el trabajo, y la lógica del producto está dirigida al dolor del agente, no al panel del humano. Cuando m1nd se comporta mal en el campo, los agentes que lo usan presentan el informe, y un error confirmado se convierte en una prueba roja antes de que se implemente la corrección. Muy pocos programas comienzan con eso en su diseño inicial. Así que m1nd nace diferente: los verbos, las negativas y los paquetes están diseñados para el lector que realmente los utiliza, y ni siquiera tienes que recordarle al modelo que la herramienta existe. `m1nd hosts apply` instala ganchos de sesión (`SessionStart`, `agentSpawn`, `TaskStart`, por host) que inyectan la orientación al generarse: tu agente, y cada subagente que genera, comienza orientado antes de que alguien escriba una palabra.
+
+Un cerebro por repositorio lo mantiene unido: un gráfico, su propia memoria, su propia persistencia, vinculado a una raíz de repositorio. Un propietario servido aloja muchos cerebros y dirige cada sesión al adecuado; una sesión de un repositorio que no aloja recibe una negativa tipada en lugar de respuestas incorrectas.
+
+## Lo que tu agente obtiene
+
+m1nd envuelve todo el ciclo de tu agente alrededor de un gráfico de tu repositorio que sobrevive a la sesión:
 
 ```mermaid
 flowchart LR
-    B["<b>BEFORE</b><br/>born oriented<br/>map + memory + trust + honest gaps"]
-    D["<b>DURING</b><br/>verdicts worn while working<br/>impact before touching · act / reverify / abstain"]
-    A["<b>AFTER</b><br/>memorized with evidence<br/>the graph gets warmer"]
-    C["<b>COMPOUND</b><br/>the next session starts ahead<br/>any host, any agent"]
+    B["<b>ANTES</b><br/>nace orientado<br/>mapa + memoria + confianza + lagunas honestas"]
+    D["<b>DURANTE</b><br/>veredictos usados mientras trabaja<br/>impacto antes de tocar · actuar / reverificar / abstenerse"]
+    A["<b>DESPUÉS</b><br/>memorizado con evidencia<br/>anclado al código real"]
+    C["<b>COMPUESTO</b><br/>la siguiente sesión comienza adelantada<br/>cualquier host, cualquier agente"]
     B --> D --> A --> C --> B
 ```
 
-**m1nd es operado por tu agente, no por ti.** Cada herramienta de abajo la llama el propio agente — automáticamente, antes y después de trabajar. Un humano nunca las ejecuta en uso normal; instalas una vez ([Inicio Rápido](#inicio-rápido)) y sigues hablando con tu agente como siempre.
-
-**Una carcasa, tres lectores.** El mismo paquete orientado se renderiza para quien está a punto de actuar: el **agente principal** lo lee como `north` (entregado — la puerta de entrada de abajo); un **subagente** lo recibirá como el Delegation Packet, la mitad de recuperación de su spec de spawn (diseñado — [docs/NEXTGEN-AGENT-PRD.md](../docs/NEXTGEN-AGENT-PRD.md), §O.12); el **humano** lo verá como la Pre-Flight Card sobre el Living Tree — tu proyecto como un árbol navegable con post-its de memoria, mostrando qué verificó el agente vs. qué adivinó antes de que una edición aterrice (diseñado, en desarrollo — [docs/HUMAN-LAYER-PRD.md](../docs/HUMAN-LAYER-PRD.md)). Una verdad, computada una sola vez.
-
-<p align="center"><img src="../docs/assets/plates/p6.png" width="560" alt="Una verdad, dos lectores — el mismo paquete renderizado para el agente y para el humano" /></p>
-
-<p align="center">
-  <img src="../.github/m1nd-agent-first-map-v2.jpeg" alt="Loop tradicional de agente vs loop anclado en m1nd" width="960" />
-</p>
-
-### Qué pasa cuando envías un mensaje
-
-Le pides a tu agente que arregle algo. Esto es lo que la carcasa hace alrededor de ese mensaje:
-
-1. **Antes de que tu agente actúe**, m1nd le entrega el mapa vivo de tu proyecto, lo que sesiones pasadas aprendieron, cuánto confiar en cada pieza — y lo que *no* sabe (`north`).
-2. **Mientras trabaja**, lleva puestos veredictos: comprueba qué rompería una edición *antes* de tocar el código (`impact`), y donde la evidencia es delgada recibe un honesto "no sé" en lugar de una conjetura confiada (`abstain`).
-3. Puede preguntar por qué dos piezas de código están conectadas y ser avisado cuando la respuesta descansa sobre una suposición (`why`), y es alertado antes de cruzar una frontera de arquitectura (`xray_gate`).
-4. **Cuando termina**, la decisión queda anotada junto con la evidencia que la respalda (`memorize`).
-5. Esa memoria está anclada al código real — si el código cambia después, la memoria se marca sola como obsoleta en lugar de mentir en silencio (`cross_verify`).
-6. **Tu próxima sesión empieza ya sabiendo** — cualquier agente, cualquier herramienta: Claude Code, Codex, Cursor, Gemini. Lo que un agente aprende, el siguiente lo hereda.
-
-## BEFORE — nace orientado
-
-*Tu agente empieza cada sesión conociendo ya tu proyecto — y sabiendo lo que no sabe.*
-
-<p align="center"><img src="../docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task): una sola llamada de entrada devuelve el paquete orientado completo" /></p>
-
-Dentro de una sesión MCP, la puerta de entrada es una sola llamada — `north(task)` compone confianza, contexto de tarea (nodos de focus + anclas de PageRank), memoria previa entre sesiones, una señal de suficiencia, un `next_move` y `honest_gaps` (lo que m1nd *todavía* no sabe) en un único paquete, antes de cualquier consulta:
+La puerta principal es una sola llamada. `north(task)` devuelve toda la orientación en un único paquete antes de cualquier recuperación:
 
 ```jsonc
 {"method":"tools/call","params":{"name":"north",
-  "arguments":{"agent_id":"dev","task":"harden the JWT auth token validation flow"}}}
+  "arguments":{"agent_id":"dev","task":"fortalecer el flujo de validación de tokens JWT"}}}
 ```
-
-La respuesta es un paquete orientado — veredicto de confianza, la memoria que dejó la última sesión y una lista honesta de brechas. Una captura real del binario de `main`, ligeramente recortada:
 
 ```jsonc
 {
-  "binding": { "trust_mode": "full_trust", "ok": true },      // verdict before retrieval
-  "memory": [                                                 // recalled from a PRIOR session
+  "binding": { "trust_mode": "full_trust", "ok": true },      // veredicto antes de la recuperación
+  "memory": [                                                 // recordado de una sesión ANTERIOR
     { "claim": "AuthTokenFlow", "source_agent": "authbot", "age_ms": 221, "stale": false }
-    // …other claims from the same authored note, trimmed…
   ],
-  "sufficiency": { "state": "gathering", "top_score": 0.64,
-    "why": "the strongest match left out still scores 0.30 — relevant context did not fit …" },
-  "next_move": "Call `surgical_context` on the top focus node to ground the task before editing.",
-  "honest_gaps": []                                           // nothing withheld on this graph
+  "sufficiency": { "state": "gathering", "top_score": 0.64 },
+  "next_move": "Llama a `surgical_context` en el nodo de enfoque principal antes de editar.",
+  "honest_gaps": []                                           // nada retenido en este gráfico
 }
 ```
 
-`north` compone `trust_selftest` + `orient` + `boot_memory` + `focus` — el agente solo recurre a una pieza aislada cuando necesita exactamente una. `focus` es el runtime de atención de esta estación: el conjunto de trabajo mínimo y acotado por presupuesto para un objetivo, con una cola honesta de lo que dejó fuera y una señal de si eso ya es contexto *suficiente*. `needs_ingest` es una respuesta real para un grafo vacío.
+Mientras el agente trabaja, `impact` muestra el radio de acción antes de que se asiente un cambio, `why` explica una conexión y admite cuando el camino está basado en una suposición, y `xray_gate` advierte antes de que un cambio cruce un límite de arquitectura. Cuando el trabajo termina, `memorize` escribe la conclusión junto con la evidencia que la respalda. La siguiente sesión comienza con las conclusiones de la sesión anterior ya en mano, en cualquier host MCP: Claude Code, Codex, Cursor, Gemini, Zed, 22 hosts en total.
 
-Si `north` reporta `needs: "needs_ingest"`, o estás en un binario anterior a 1.2.1 sin la composición de L1GHT-recall, el agente recurre al loop explícito de confianza — establecer confianza *antes* de creer cualquier recuperación:
+Nunca ejecutas ninguno de estos verbos tú mismo. Lo hace el agente. Tu superficie es un pequeño CLI de configuración y luego sigues comunicándote con tu agente como siempre.
 
-```jsonc
-// 0. Trust the binding in one call (verdict before retrieval)
-{"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
+## Sesenta segundos
 
-// 1. If the verdict is not full_trust, ask for the deterministic recovery path
-{"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
+El paquete npm es el instalador. El runtime nativo es un binario separado de Rust que el paso 1 obtiene como un lanzamiento firmado.
 
-// 2. Build graph truth
-{"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
+```bash
+# 1 · instala el runtime nativo (firmado, verificado, con retrocesos)
+npx -y @maxkle1nz/m1nd update apply --yes
 
-// 3. Ask a structural question — empty results say *why*, never just "no results"
-{"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
+# 2 · confirma que está visible (imprime un veredicto JSON; bueno luce como "status": "ok")
+npx -y @maxkle1nz/m1nd doctor
+
+# 3 · conecta tu host: configuración MCP + los ganchos de sesión que hacen a m1nd ambiental
+npx -y @maxkle1nz/m1nd hosts apply --host claude --project . --yes
+
+# 4 · primer valor: el paquete de orientación para TU repositorio, solo lectura, sin configuración del host tocada
+npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "mapea este repositorio" --json
 ```
 
-**Loop de primera sesión, en cuatro movimientos:** `north` (o `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` el hallazgo duradero para que la próxima sesión empiece adelantada.
+El paso 1 verifica la firma con [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), así que instala eso primero si no está en tu PATH. Si prefieres el registro de fuentes y aceptas saltarte la verificación, `cargo install m1nd-mcp` también funciona. ¿Prefieres ver antes de escribir? `hosts plan` imprime todo lo que `hosts apply` tocaría, y no escribe nada. Aún no hay comando de desinstalación; `hosts plan` funciona también como lista de qué remover manualmente.
 
-## DURING — veredictos puestos mientras trabaja
+Los ganchos del paso 3 son lo que hacen a m1nd ambiental: el paquete de orientación se inyecta en cada inicio de sesión y generación de subagente, y el agente se conduce a sí mismo desde allí. ¿Instalas desde un agente en lugar de una terminal? Hay una sección paralela legible por máquina en [`llms-install.md`](llms-install.md).
 
-*Mientras trabaja, cada respuesta llega con cuánto se puede confiar en ella — y "no sé" es una respuesta real.*
+Un lanzamiento truncado o manipulado no puede instalarse en tu máquina, y una mala actualización está a un paso de retroceder: el actualizador verifica la firma contra la identidad exacta del build, luego el SHA-256 y el tamaño, antes de tocar cualquier cosa. Si falla la verificación, se rechaza en lugar de caer en una ruta no verificada. Detalles en [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md).
 
-<p align="center"><img src="../docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Cada resultado es un veredicto — act, reverify o abstain — como puertas que el agente elige" /></p>
+## Si desaparezco
 
-El agente no consulta a m1nd; lo lleva puesto. Cada respuesta a mitad del trabajo es un veredicto calibrado, no una intuición:
+m1nd es MIT y no hay ningún servidor para perder. El runtime es un binario de Rust que ya está en tu disco. La memoria que escribe es markdown simple bajo `agent-memory/`, legible y buscable sin m1nd instalado. El gráfico se deriva de tu código y se reconstruye desde cero en cualquier máquina. Si este proyecto se detiene mañana, conservas los archivos y pierdes una herramienta. Eso es deliberado. Es por eso que la memoria es markdown y por qué no hay nube entre tu agente y su propio conocimiento.
 
-- **`impact` antes de tocar** muestra el blast radius que no leíste; `ghost_edges` revela archivos que siempre cambian juntos pero no comparten ningún import.
-- **`why` lleva un veredicto `closure`** — `blocked` significa que la ruta descansa sobre una arista no resuelta o adivinada: verifica esa arista antes de confiar en la ruta.
-- **`predict` tiene calibración conformal** — `calibrate_predict` arma una compuerta por repositorio; los veredictos pasan a leer `act` / `reverify` / `abstain`, donde `abstain` significa *no calibrado o insuficiente* — una señal para detenerse, no un sí débil. Se entrega en modo oscuro: hasta que calibres, los veredictos se topan en `reverify`. El acoplamiento de co-cambio se normaliza con Jaccard suavizado, no conteos crudos de commits (calibración probada: +3 puntos). *Advertencia:* `predict` tiene fallback solo estructural hasta que `ghost_edges` cargue la matriz de co-cambio de git — ejecútalo primero para probabilidad real de co-cambio.
-- **`xray_gate` guarda las fronteras de la arquitectura** — llamado antes de una edición, responde "¿este cambio cruza una frontera de módulo prohibida?" con `clear` / `caution` / `blocked`; solo un manifiesto ratificado puede bloquear (anti-fatiga de guardrail).
-- **Mission Control es disciplina de prueba** — `mission_next` devuelve exactamente un movimiento más guardrails `do_not`; en modo `bug_hunt` se exige un barrido directo final antes del cierre, para que los agentes revisen el espacio negativo.
+## Por qué confiar en las respuestas
 
-La misma honestidad acompaña la recuperación. Un hit de `seek` lleva una lectura de `sufficiency` y un `trust_envelope` — y cuando el sobre aún no tiene ninguna fila de calibración medida, limita su propio veredicto en lugar de exagerar. Una captura real, recortada (el primer hit es una memoria que escribió la última sesión):
+Por esto construí m1nd. Las capas de recuperación de información son buenas para responder. Casi ninguna es buena para negarse. m1nd trata la negativa como un resultado de primera clase:
 
 ```jsonc
+// trust_selftest en un runtime no vinculado. El veredicto ES la instrucción de reparación:
 {
-  "results": [
-    { "label": "AuthTokenFlow", "source_agent": "authbot", "authored_ms_ago": 101161, "score": 0.48 }
-    // …code-node hits, trimmed…
-  ],
-  "sufficiency": { "state": "gathering", "top_score": 0.48,
-    "why": "the strongest match left out still scores 0.25 — relevant context did not fit …" },
-  "trust_envelope": {
-    "calibrated": false,               // no calibration row measured
-    "verdict": "reverify",             // …so the verdict is capped below `act`
-    "next_repair_call": "trust_selftest"
+  "ok": false,
+  "verdict": "needs_ingest",          // nunca un simple "sin resultados"
+  "next_action": "call_ingest",
+  "recovery_playbook": {
+    "steps": [ { "action": "Haz una llamada a ingest para el repositorio pretendido en este mismo binding." } ]
   }
 }
 ```
 
-<p align="center"><img src="../docs/assets/visuals/04-impact-web.png" width="520" alt="impact traza el radio de impacto por la red de código conectado antes de que edites" /></p>
+Un acierto de `seek` lleva una lectura de suficiencia y un sobre de confianza. Cuando aún no se ha medido ningún calibrado, el sobre limita su propio veredicto a `reverify` en lugar de exagerar. La puerta de `predict` está ajustada para cobertura (α=0.10); en el historial de este repositorio eso cae aproximadamente a un tercio de precisión en la banda de `act`, y la mayor parte del tiempo se abstiene, que es la salida honesta de una señal débil. `abstain` dice al agente que se detenga. `insufficient_evidence` significa no hay evidencia alguna, que es distinto de riesgo medio, y la API mantiene los dos separados.
 
-## AFTER — el grafo se calienta
+Dos herramientas, `savings` y `resonate`, fueron eliminadas completamente en beta (manejadores, tipos y archivos de estado, todo desaparecido) porque devolvían un éxito con cada entrada que les daba, y una herramienta que nunca pierde ha dejado de medir. Esa es la barra que cada afirmación en este archivo debe superar.
 
-*Cuando el trabajo aterriza, lo aprendido queda anotado con la evidencia que lo respalda — y se mantiene honesto cuando el código sigue adelante.*
+El vecino más cercano que conozco es GitHub Copilot Memory (vista previa pública, 2026): almacena hechos con citas de código y los vuelve a verificar contra la rama actual antes de usar. Esa es detección de desactualización real y merece crédito. También está en la nube, es binario y vive dentro de Copilot. Lo que aún no he encontrado en ningún lugar es el resto del veredicto: un graduado `act` / `reverify` / `abstain` con calibrado por repositorio, negativas tipadas que transportan un plan de reparación, en un gráfico local que cualquier agente de MCP puede compartir. He revisado los documentos públicos de Mem0, Zep, Letta, Cognee, Supermemory y Copilot Memory, hasta julio de 2026. ¿Conoces uno más cercano? Abre un problema y lo enlazaré aquí.
 
-<p align="center"><img src="../docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="La memoria se ancla al código real; cuando el código cambia, la memoria se marca sola" /></p>
+## Memoria que sabe cuándo está desactualizada
 
-La mayoría de las herramientas dan al agente mejor *recuperación*. En esta estación el agente **produce conocimiento duradero y legible por máquina** que se acumula entre sesiones y se mantiene honesto respecto al código. L1GHT convierte el conocimiento producido en estructura nativa de grafo que se auto-señaliza cuando el código que cita cambia — las afirmaciones confiadas propagan más activación que las inciertas.
-
-1. **Concluir** — el agente llega a algo duradero (una decisión, un hallazgo verificado, por qué el código es como es) y llama a `memorize` con afirmaciones estructuradas y rutas de `evidence`.
+La mayoría de las capas de memoria almacenan texto y tienen esperanza. m1nd ancla la memoria al gráfico. Cuando un agente llama a `memorize`, cada camino de `evidence` de la afirmación se resuelve al nodo real del código, para que la nota salga cada vez que el agente toca ese código, sin que nadie recuerde que existe:
 
 ```jsonc
 memorize({
   "agent_id": "authbot",
   "node_label": "AuthTokenFlow",
-  "claims": [
-    { "label": "TokenValidator",
-      "text": "TokenValidator validates JWTs via HMAC — rotate keys via KMS only",
-      "confidence": "high", "evidence": ["src/auth/token.rs"] }
-  ]
+  "claims": [{
+    "label": "TokenValidator",
+    "text": "TokenValidator valida JWTs mediante HMAC. Rota claves solo a través de KMS.",
+    "confidence": "high", "evidence": ["src/auth/token.rs"]
+  }]
 })
 ```
 
-La llamada devuelve la prueba de que aterrizó — esta es una respuesta real capturada, recortada:
+Como la memoria está anclada, puede ser auditada contra la realidad. `cross_verify` re-hashea cada archivo citado y nombra qué afirmaciones quedaron desactualizadas porque su código cambió. Las afirmaciones cargan antigüedad y autor, reemplazan afirmaciones más antiguas y caducan. Este ciclo es probado end-to-end en vivo en este repositorio: memorizar, anclar, editar el archivo citado, ver que la afirmación se auto-marca, sobrevivir a una reinserción completa, auto-cargar en el próximo inicio. Mata el proceso, empieza uno nuevo fresco, y el primer `north` ya lleva las afirmaciones de la sesión anterior con procedencia adjunta.
 
-```jsonc
-{
-  "ok": true,
-  "claims_written": 1,
-  "light_evidence_resolved": 1, "light_evidence_unresolved": 0,   // the evidence path bound to a real code node
-  "path": ".../agent-memory/authtokenflow.light.md",
-  "next_action": "Memory anchored to code and will auto-load next session; cross_verify(check:[\"evidence_freshness\"]) flags it if the cited code changes."
-}
-```
+## Un solo gráfico para código y conocimiento (l1ght)
 
-2. **Anclar** — m1nd escribe un `.light.md` nativo de grafo bajo `<runtime>/agent-memory/`, lo ingiere (`adapter=light mode=merge`) y resuelve cada ruta de `evidence` al nodo de código real vía arista `grounded_in` — haciendo que el conocimiento viva en el mismo espacio de activación que el código y emerja en `seek` / `activate` / `impact`.
-3. **Carga automática** — en cada inicio de sesión futuro, `m1nd` ingiere `agent-memory/` automáticamente y lo reporta en `session_handshake.agent_memory`. Los hallazgos pasados sobreviven a una ingestión `mode=replace` y simplemente *están ahí*.
-4. **Auto-señalización de obsolescencia** — `cross_verify(check: ["evidence_freshness"])` re-hashea cada archivo citado y nombra qué afirmaciones se volvieron obsoletas porque su código cambió — así la memoria avisa cuando miente, en lugar de inducir a error. La memoria lleva una columna vertebral de procedencia: las afirmaciones declaran edad + autor reales, reemplazan afirmaciones más antiguas, expiran con el tiempo y respetan un tope de recencia — el conocimiento recordado declara su propia frescura en lugar de volverse obsoleto en silencio.
+l1ght es la segunda vía del mismo motor: los documentos se convierten en nodos del gráfico en el mismo espacio de activación que el código, así que una consulta atraviesa ambos. No es una carpeta RAG pegada. Hay 7,400 líneas de adaptadores dedicados en este árbol: Markdown, HTML, PDF, texto plano, RST y JSON, más rutas académicas para BibTeX, DOI/Crossref, JATS papers, RFCs y patentes.
 
-Este loop ha sido probado en vivo de extremo a extremo: `memorize` → arista `grounded_in` → flag de frescura en archivo editado → sobrevive a `mode=replace` → carga automática en el boot. ¿Cerrando una misión acotada? Pasa `write_light_memory: true` a `mission_close` para persistir sus afirmaciones verificadas de la misma manera.
+Diferentes personas obtienen diferentes productos de la misma vía:
 
-**COMPOUND — la próxima sesión nace dentro de la carcasa caldeada.** Mata ese proceso, arranca uno **nuevo** contra el mismo runtime, y su primer `north(task)` ya lleva la afirmación de la sesión anterior — este es un intercambio real capturado (las dos llamadas de arriba corrieron en procesos separados), recortado:
+- Un investigador coloca una carpeta de PDFs y DOIs junto al código de análisis y pregunta qué documento contradice la afirmación que implementa esta función.
+- Un estudiante recorre un capítulo de texto y el código de ejercicio como un solo gráfico, y el agente explica cada uno en términos del otro.
+- Un profesor ingiere las notas del curso una vez; el agente de cada estudiante responde desde el mismo corpus fundamentado en lugar de improvisar.
+- Un ingeniero vincula RFCs y documentos de diseño con las funciones que los implementan; la sección de especificaciones está a un salto del código.
+- Un codificador amateur toma su pila de archivos de chat y notas dispersas que deja de ser una carpeta y se convierte en memoria que el agente realmente consulta en medio de la edición.
 
-```jsonc
-// north.memory, from a process that never called memorize itself:
-"memory": [
-  { "claim": "AuthTokenFlow",                   "source_agent": "authbot", "age_ms": 221, "stale": false },
-  { "claim": "𝔻 evidence: src/auth/token.rs",   "source_agent": "authbot", "age_ms": 221, "stale": false },
-  { "claim": "⍂ entity: TokenValidator",        "source_agent": "authbot", "age_ms": 221, "stale": false },
-  { "claim": "𝔻 confidence: high",              "source_agent": "authbot", "age_ms": 221, "stale": false }
-  // …the authored-note file node, trimmed…
-]
-```
+Mismo binario, mismos verbos MCP, misma capa de confianza. `seek` en un gráfico mixto devuelve código y documentos en una sola respuesta clasificada.
 
-`source_agent` nombra quién la escribió y `stale` re-verifica el código citado — la próxima sesión hereda el conocimiento *y* su procedencia, no una string suelta.
+## Cuándo no usar m1nd
 
-### Un grafo, muchos agentes
+Algunas razones honestas para cerrar esta página:
 
-<p align="center"><img src="../docs/assets/visuals/10-attach-core.png" width="520" alt="Un proceso propietario mantiene el grafo vivo; muchos agentes se conectan al mismo núcleo" /></p>
+- Repositorios pequeños. Con menos de unos cientos de archivos, grep ya es económico y los bordes del gráfico se reducen hacia nada. Una medición independiente de herramientas gráficas comparables en un repositorio de ~110 archivos puso la ventaja en aproximadamente 20 por ciento. Real, pero no vale la pena correr un runtime por tan poco.
+- Preguntas difusas. Un gráfico de símbolos responde "qué conecta con qué". No responde "por qué esto parece lento". La búsqueda agéntica es mejor para preguntas abiertas.
+- Verdad del compilador y runtime. Tu LSP, tus pruebas y tu generador de perfiles son correctos y m1nd está adivinando. m1nd señala; ellos prueban.
+- Tareas pequeñas. Un archivo y veinte líneas no necesitan una ingesta. Saltarlo.
+- `predict` actualmente se abstiene la mayor parte del tiempo. Calibrado en el historial de este repositorio alcanza aproximadamente un tercio de precisión en la banda de `act` con baja cobertura. La abstención es la salida honesta de una señal débil, y ahora mismo también es la mayor parte de la salida.
 
-El Inicio Rápido de abajo conecta un servidor stdio por host — está bien para un agente, pero cada proceso carga su propio grafo y retiene su propia lease. El despliegue para el que m1nd fue construido es un dueño, muchos agentes adjuntos. Un proceso dueño retiene el grafo vivo:
+m1nd complementa al compilador, las pruebas y tus herramientas de seguridad. No las reemplaza.
 
-```bash
-m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
-```
+## Evidencia
 
-Cada agente luego se adjunta como un puente delgado stdio↔HTTP — **no** carga grafo, no construye motores y **no** toma lease:
+Todo lo anterior está incluido en la versión actual; los documentos bajo `docs/` marcados como PRD son la intención del diseño, mantenidos etiquetados separados. Cada fila está limitada a exactamente lo que se midió. m1nd no lidera con ahorro de tokens o ROI, y eso es deliberado: esos son los números menos refutables en esta categoría.
 
-```bash
-m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
-```
-
-Cualquier número de puentes apunta al único dueño y comparte su único grafo vivo, así que lo que un agente hace `memorize` otro lo recupera de inmediato — sin reingestión, sin copia por agente. Las consultas van por localhost, así que se mantiene local-first (el bind se queda en `127.0.0.1` a menos que optes por `--bind 0.0.0.0`). Un `seek` en caliente sobre el puente midió ≈0.7ms en un grafo pequeño en una sola máquina — orden de magnitud, no una garantía: adjuntar añade un round-trip por localhost, y la latencia escala con el tamaño del grafo y la carga.
-
-## El material: honestidad
-
-*La carcasa entera está hecha de un solo material — m1nd prefiere decirle a tu agente "no confíes en esto" antes que dejarlo adivinar.*
-
-Esta es la cosa más defendible que hace m1nd, y ningún competidor la entrega. La doctrina: **la credibilidad viene de la honestidad, no de siempre ganar.** Un *no* honesto vence a una conjetura confiada — cada estación de arriba está hecha de ese material.
-
-- **`trust_selftest`** devuelve un veredicto *antes* de cualquier recuperación: `full_trust`, `needs_ingest`, `wrong_workspace_binding`, `stale_binding_suspected` o `degraded_host_tool_surface`. El agente sabe si debe proceder, ingerir, rebindear o retroceder.
-- **`agent_runtime_contract`** acompaña cada respuesta de recuperación, llevando un `trust_mode`. Un resultado vacío está desambiguado — vinculado al repositorio equivocado versus genuinamente nada ahí — nunca reportado silenciosamente como "sin resultados."
-- **`trust_band: insufficient_evidence` significa SIN evidencia — no riesgo medio.** La respuesta honesta de arranque en frío, distinta de bajo/medio/alto.
-- **Arrays `non_claims`** se envían en cada herramienta de misión. m1nd le dice al agente lo que *no* probó.
-- **`mission_verify` puede decir no — y lo hace, en código testado.** Rechaza evidencia solo de grafo: una afirmación no puede cerrarse sin una lectura de archivo, una ejecución de test o una sonda de runtime. El test se llama literalmente `graph_only_evidence_is_not_enough`.
-- **`recovery_playbook`** devuelve una lista de pasos determinística y ordenada para reparar el binding.
-
-Mostrado, no contado. Llama a `trust_selftest` en un runtime sin binding y el veredicto *es* la instrucción de reparación — una captura real, recortada:
-
-```jsonc
-{
-  "ok": false,
-  "status": "blocked",
-  "verdict": "needs_ingest",          // not "no results" — it says why
-  "next_action": "call_ingest",
-  "checks": { "graph_populated": false, "needs_ingest": true, "recovery_playbook_attached": true },
-  "recovery_playbook": {
-    "recovery_goal": "Populate this binding's active graph for the intended repository.",
-    "steps": [ { "action": "Call ingest for the intended repository on this same binding." } /* …trimmed… */ ]
-  }
-}
-```
-
-La prueba del compromiso está en lo que se sacrificó por él: `savings` y `resonate` fueron retirados de la superficie anunciada en beta.7 porque una herramienta que siempre afirma ganar no es creíble. Ningún competidor — ni mem0, Zep, Letta, Sourcegraph ni ningún MCP de grafo de código — entrega una capa que le dice al agente en qué *no* confiar y cómo recuperarse.
-
-<p align="center"><img src="../docs/assets/visuals/11-triage-loop.png" width="520" alt="Los reportes de campo alimentan un loop de triaje que convierte el fallo en prueba antes del arreglo" /></p>
-
-**El loop de triaje de campo se cierra sobre sí mismo.** La telemetría de sesión que los agentes dejan en `~/.m1nd/field-reports.jsonl` (solo local — m1nd nunca llama a casa) no es un log pasivo: los reportes se triajean, y un bug de campo *confirmado* se convierte en un caso rojo de batería **antes** del arreglo, de modo que la regresión queda probada, no solo descrita. Ese loop ya corrió de extremo a extremo en un barrido completo de triaje de campo: cuatro bugs reportados en campo se convirtieron en casos de batería fallidos y luego en arreglos mergeados, todos entregados en **1.2.1** — `north` ahora compone el recall de L1GHT dentro de su paquete de memoria, el centinela de grafo `temp` resuelve a un tempdir real en lugar de ensuciar el directorio de trabajo, `memorize` acepta una `confidence` numérica, y la etiqueta de ambigüedad de closure ahora solo se dispara en empates genuinos (el falso-alarmista: ambiguous-blocked cayó de 9/11 → 0/11).
-
-## Inicio Rápido
-
-*Instala una vez, conecta el host de tu agente y apártate — desde aquí, tu agente lleva el volante.*
-
-```bash
-git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
-npm install -g .
-m1nd doctor
-```
-
-Luego conecta tu host — los mismos dos comandos, uno por host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
-
-| Host | Instalar el paquete de agente | Conectar la config MCP |
+| Afirmación | Resultado | Reproducir / límite |
 |---|---|---|
-| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
-| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
-| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
-| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
-| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
+| Latencia del gráfico | ~1.4µs `activate`, ~0.5µs `impact` en un gráfico sintético de 1K nodos | `cargo bench -p m1nd-core` en Apple silicon. Orden de magnitud solamente, dependiente del hardware. |
+| Batería de capacidades vs grep | 37/37 pasa; 16 victorias, 12 empates frente a grep | `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`. Un repositorio (este), casos auto-autorizados. |
+| `predict` ajustado por cobertura | aproximadamente un tercio de precisión en la banda de `act` con baja cobertura (α=0.10) | Medido en el historial git de este repositorio, n≈9.2k predicciones retenidas. La puerta generalmente se abstiene, por diseño. |
+| Auto-verificación de memoria | ciclo de 6 pasos probado en vivo | memorizar → anclar → marca de frescura en archivo editado → sobrevive reemplazo → auto-carga en inicio. |
+| Persistencia entre reinicios y fallos | la puerta dirige el binario real vía stdio en cuatro inicios limpios y un `kill -9` | `m1nd-mcp/tests/persist_runtime_root.rs`. Revertir cualquiera de las correcciones de inicio lo hace rojo con un mensaje nombrando la regresión. |
 
-O desde npm: `npm install -g @maxkle1nz/m1nd`. `install-skills` entrega el paquete de agente — el propio loop operacional en cinco protocolos nombrados, no documentación decorativa.
+## Un gráfico, muchos agentes
 
-**La superficie del operador es este CLI; la superficie del agente es MCP.** Un humano ocasionalmente ejecuta `m1nd doctor`, `install-skills`, `mcp-config` — el agente ejecuta todo lo demás. Existe una vía de escape neutra de host para cuando no hay una sesión MCP activa en la que llamar a `north` (obsoleta, vinculada al repositorio equivocado, o aún no cargada): lanza un runtime aislado, lo vincula al repositorio y devuelve un único sobre legible por máquina que delimita el alcance, establece confianza, ingiere si es necesario, devuelve anclas y hace el handoff a la prueba directa:
+Para un agente, el servidor stdio de [Sesenta segundos](#sixty-seconds) es todo lo que necesitas, y el agente puede llamar `ingest` directamente sobre un gráfico vacío. Para trabajo real, ejecuta un propietario servido que mantenga el gráfico en vivo, y adjunta cada agente a él como un puente ligero:
 
 ```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
+m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /tu/proyecto/.m1nd
+m1nd-mcp --attach auto --stdio     # cada agente: sin carga de gráficos, sin arrendamiento, memoria compartida
 ```
 
-Fija el binario si lo necesitas: `--version` imprime `1.2.x (<sha>)`, y `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) permiten que un host detecte y rechace un binario que ha derivado.
+Lo que un agente memoriza, otro lo recuerda inmediatamente, y las advertencias de presencia y colisión descritas antes funcionan a través de este mismo propietario. También aloja cerebros por repositorio y renderiza la interfaz web. Las consultas permanecen en localhost; cada vinculación fuera del loopback se rechaza hasta que exista transporte autenticado.
 
-Mapa completo de instalación, paquetes de host, build nativo del runtime y flags de actualización: [docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) · configuración por cliente: [matriz de integración](../docs/IDE-INTEGRATIONS.md).
+Una puerta que debes conocer: un propietario servido rechaza `ingest` genérico para repositorios que no alberga ya. Crear un nuevo cerebro en un propietario servido es un gesto governado y falla cerrado por diseño. Para una primera sesión en un nuevo repositorio, usa la ruta stdio o `m1nd agent first-minute`. Conéctate al propietario una vez que aloje tu repositorio. Guía completa de despliegue: [docs/deployment.md](docs/deployment.md).
 
-## Evidencias
+## Cobertura del lenguaje
 
-<p align="center"><img src="../docs/assets/visuals/12-battery-arches.png" width="520" alt="Cada afirmación se sostiene sobre su propio arco probado — la batería de capacidades, reproducible" /></p>
+Extractores dedicados cubren más de veinte lenguajes, así que un repositorio poliglota no llega medio mapeado: Python y TypeScript hasta Elixir, Haskell y Zig, encaminados por extensión de archivo en `m1nd-ingest`. La tabla abajo representa la afirmación más estricta, probada end-to-end en una sola ingesta poliglota: bordes del gráfico de llamadas más resolución de importaciones entre archivos.
 
-Cada fila está calibrada exactamente a lo que se midió. m1nd no lidera con números de ahorro o ROI — ese es el punto.
-
-| Afirmación | Resultado | Fuente / advertencia |
-|---|---|---|
-| Latencia de `activate` / `impact` | ~1µs `activate`, sub-µs `impact` en un grafo sintético de 1K nodos | Benchmarks Criterion — **reprodúcelo tú mismo: `cargo bench -p m1nd-core`** (medido `activate_1k_nodes` ≈1.4µs, `impact_depth3` ≈0.5µs en un Mac con Apple silicon); [metodología](https://m1nd.world/wiki/benchmarks.html); orden de magnitud, dependiente del hardware. |
-| Matriz de lenguajes | calls + imports entre archivos para 10 lenguajes (+ Ruby entre archivos) | Verificado de extremo a extremo en una única ingestión políglota; tests por lenguaje en `m1nd-ingest`. Ver [Cobertura de Lenguajes](#cobertura-de-lenguajes). |
-| Muestra de validación post-escritura | 12/12 clasificados correctamente | Verificación de runtime interna. |
-| Caza de bugs con seeds | 16/20 en la primera ronda aceptada de defectos con seed `humanize` (entrenado con m1nd); `m1nd-basic` y directo cada uno 8/15 | Evidencia interna de producto, `public_claim_worthy=false` — no es un benchmark universal. |
-| Auto-verificación de memoria | probado en vivo de extremo a extremo | `memorize` → `grounded_in` → flag de frescura en archivo editado → sobrevive a replace → carga automática en el boot. |
-| Batería de capacidades vs grep | 37/37 pasan; mano a mano 16 victorias-m1nd / 12 empates / **0 victorias-grep** | Harness en el repo `scratchpad/m1nd_battery.py` (37 casos, ingestión fresca + PASS/FAIL contra ground-truth + mano a mano con `rg`). **Reprodúcelo: `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Advertencia: un solo repo (el propio m1nd), casos escritos por nosotros; ~5 de los empates son herramientas estructurales puntuadas contra un proxy de grep literal que no puede expresar lo que ellas responden. |
-| Calibración conformal (`predict`) | banda act ≈32% de precisión @ ≈13.5% de cobertura (α=0.10) | Sobre el propio historial git de m1nd (n≈9.2k predicciones held-out), +3pts sobre los conteos crudos tras el cambio a Jaccard suavizado. Advertencia: un solo repo, una señal gruesa basada en conteos — la compuerta hoy mayormente se abstiene, **por diseño**: la abstención es la salida honesta de una señal débil, no un fallo. |
-
-<details>
-<summary><strong>Más visuales — la serie completa de mecanismos</strong></summary>
-<br/>
-<p align="center">
-  <img src="../docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="Un grafo compartido alimenta a cada agente conectado, como una fuente común" />
-  <img src="../docs/assets/visuals/07-supersede-shelf.png" width="380" alt="El conocimiento reemplazado se archiva, no se borra — la afirmación más nueva tiene prioridad" />
-</p>
-<p align="center">
-  <img src="../docs/assets/visuals/08-calibration-earned.png" width="380" alt="La calibración se gana por repo antes de que los veredictos puedan leer act" />
-  <img src="../docs/assets/visuals/09-closure-bridge.png" width="380" alt="Una afirmación solo se cierra cuando la evidencia tiende el puente — una lectura de archivo, prueba o sonda" />
-</p>
-</details>
-
-## Límites
-
-`m1nd` complementa en lugar de reemplazar tu LSP, compilador, test runner, escáneres de seguridad y stack de observabilidad. Es más útil antes de búsqueda, revisión o cambio, y siempre que docs, impacto o continuidad importen.
-
-Es **menos útil** cuando:
-
-- la búsqueda exacta de texto ya responde la pregunta
-- la verdad del compilador o runtime es lo único que necesitas
-- la tarea es una acción local trivial en archivo sin incertidumbre estructural
-
-**Necesita alimentarse:** `trust` y `tremor` comienzan con priors neutros hasta que el feedback de `learn` / los datos de `ghost_edges` se acumulen, y `predict` necesita que `ghost_edges` esté cargado primero para que su señal de co-cambio sea significativa. Mejoran con el uso; son honestos sobre estar sin información al arrancar.
-
-## Lo Que m1nd No Es
-
-`m1nd` no es solo:
-
-- una herramienta de búsqueda de código con un índice más grande
-- una capa de RAG de repositorio que solo recupera archivos o chunks
-- una base de datos de grafo que deja las decisiones de workflow al cliente
-- un reemplazo de análisis estático para el compilador, tests o herramientas de seguridad
-- un bundle MCP de utilidades sin relación entre sí
-- una superficie de herramientas que el humano deba aprender — los verbos son del agente; el tuyo es el pequeño [CLI de setup](#inicio-rápido)
-
-Es la capa que convierte esas superficies en un sistema operacional sobre el que un agente puede razonar y actuar. No sirve para lookups de un solo archivo, grep simple o verdad del compilador — usa herramientas simples en esos casos.
-
-## Cobertura de Lenguajes
-
-El razonamiento de grafo (`impact`, `why`, `predict`, `trace`, `taint_trace`) es tan bueno como el extractor. m1nd resuelve tanto **aristas `calls`** (grafo de llamadas) como **`imports` entre archivos** (resolución de dependencia archivo→archivo) por lenguaje. La matriz a continuación fue probada en vivo en una única ingestión políglota:
-
-| Lenguaje | `calls` | imports entre archivos |
+| Lenguaje | `calls` | importaciones entre archivos |
 |---|:---:|:---:|
-| Rust | ✅ | ✅ (`mod`/`use crate::`) |
+| Rust | ✅ | ✅ |
 | Python | ✅ | ✅ |
 | JavaScript / TypeScript | ✅ | ✅ |
-| Go | ✅ | ✅ (package) |
-| Java | ✅ | ✅ (FQCN + wildcard) |
-| C / C++ | ✅ | ✅ (`#include "..."`) |
-| Kotlin | ✅ | ✅ (package) |
-| PHP | ✅ | ✅ (PSR-4) |
-| Scala | ✅ | ✅ (package) |
-| Ruby | ⏳ | ✅ (`require_relative`) |
-| C# | ✅ | — (los namespaces no mapean 1:1 a archivos) |
-| Swift | ✅ | — |
+| Go | ✅ | ✅ |
+| Java | ✅ | ✅ |
+| C / C++ | ✅ | ✅ |
+| Kotlin | ✅ | ✅ |
+| PHP | ✅ | ✅ |
+| Scala | ✅ | ✅ |
+| Ruby | ⏳ | ✅ |
+| C# | ✅ | los espacios de nombres no mapean 1:1 con archivos |
+| Swift | ✅ | todavía no |
 
-Todas las filas ✅ están verificadas de extremo a extremo (un import `caller`→`callee` resuelve y el caller emite aristas de llamada). Otros lenguajes caen de vuelta al extractor genérico (solo `contains`). Los imports no resolvibles (paquetes externos, gems, stdlib, cabeceras de sistema) se dejan honestamente sin resolver en lugar de adivinarlos.
+Las importaciones irresolubles (paquetes externos, stdlib, headers del sistema) se dejan sin resolver en lugar de adivinarlas. Todo lo demás recae en un extractor genérico con sólo bordes `contains`.
 
-## Arquitectura de un Vistazo
+## El humano es el segundo lector
 
-Tres crates core en Rust más un bridge auxiliar:
+La mayoría de las herramientas de desarrollo están creadas para una persona y luego crecen una API. m1nd opera al revés: el agente es el usuario, y los verbos son sus verbos.
 
-- **`m1nd-mcp`** — el servidor MCP y la superficie de runtime operacional.
-- **`m1nd-core`** — el motor de grafo: un `WavefrontEngine` que hace spreading activation, plasticidad Hebbiana, adyacencia CSR y aristas ghost derivadas de git.
-- **`m1nd-ingest`** — extracción, enrutamiento y adapters de construcción de grafo (código, docs universales, L1GHT).
-- **`m1nd-openclaw`** — bridge auxiliar OpenClaw (canal Unix socket, versionado independientemente).
+Esa elección da forma al diseño de formas que puedes comprobar. Las negativas están tipadas y transportan un plan de recuperación, porque el lector que actúa sobre ellas es una máquina. Un mensaje de error que necesita interpretación humana es un fallo de diseño aquí. El mismo paquete de orientación que el agente lee como `north` se representa para ti como una tarjeta corta en la conversación y como el Árbol Viviente en la interfaz web servida (tu repositorio dibujado como un árbol navegable, notas memorizadas ancladas a él): calculado una vez, proyectado por lector, para que la vista humana nunca se desvíe hacia una segunda verdad.
 
-Versiones actuales de los crates: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` todos en `1.2.0` (`m1nd-openclaw` está versionado de forma independiente en `0.1.0`).
+Los humanos son bienvenidos. Simplemente eres el segundo lector, y el sistema es más honesto con ambos lectores por ello.
+
+## Cómo se construye este repositorio
+
+Lee el registro de commits con un poco de escepticismo, luego lee esto. Soy Max. Construyo m1nd dirigiendo un sistema de agentes de codificación, bajo reglas más estrictas que la mayoría de los equipos humanos con los que he trabajado:
+
+- Cada cambio importante comienza como un especificación confrontada por un modelo oracle independiente antes de escribir el código. Las objeciones se registran dentro de los archivos de especificación.
+- Cada corrección aterriza con una prueba que fue demostrada como fallida primero. Una prueba que nunca ha sido roja no demuestra nada.
+- El revisor nunca es el autor. Cada mano de agente trabaja en un worktree aislado.
+- Una puerta verde es un candidato. El gesto de aterrizaje es mío, y respondo por cada línea.
+- Las leyes son nombres de prueba: `letter_cannot_color_the_store`, `gate_zero_cannot_land`, `graph_only_evidence_is_not_enough`.
+- El árbol tiene 2,462 funciones de prueba y la puerta completa corre verde en Linux, macOS y Windows.
+
+La pregunta del escéptico ("ningún humano escribe tanto y tan rápido") es correcta. Ningún humano lo hace. Un humano dirigiendo un sistema de pruebas de agentes lo hace. Este árbol es lo que salió. La capa de confianza de m1nd nació de esa práctica diaria: necesité que mis propios agentes dejaran de confiar en respuestas desactualizadas antes de poder enviar cualquier cosa a este ritmo.
+
+## Arquitectura de un vistazo
+
+Tres crates principales de Rust más auxiliares: `m1nd-mcp` (el servidor MCP y superficie del runtime), `m1nd-core` (el motor del gráfico: activación propagada, plasticidad hebbiana, CSR adjacency, ghost edges derivados de git), `m1nd-ingest` (extractores y adaptadores para código, documentos y memoria). Tu agente ve 48 herramientas por defecto en lugar de 130+, así que elige la correcta más seguido y paga por una lista de herramientas más corta en cada solicitud; toda la superficie está a un env var de distancia (`M1ND_TOOL_TIER=full`), y la clasificación solo recorta el menú anunciado, nunca la disponibilidad.
 
 <p align="center">
-  <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="Resumen de la arquitectura de m1nd" width="960" />
+  <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="880" />
 </p>
 
-La superficie MCP activa evoluciona con los releases — usa `tools/list` para la cuenta exacta de herramientas y nombres en tu build. **Niveles:** 27 herramientas esenciales se anuncian por defecto para reducir el costo de selección de herramientas; establece `M1ND_TOOL_TIER=full` para anunciar la superficie completa (100+ herramientas: RETROBUILDER, perspectives, federación, daemon). Las herramientas ocultas siempre son llamables vía `tools/call` — el tiering solo controla lo que `tools/list` anuncia. El catálogo herramienta a herramienta no vive en este README: ver la [wiki canónica](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) y [EXAMPLES.md](../EXAMPLES.md) para profundidad, y [CHANGELOG.md](../CHANGELOG.md) para el historial de releases.
+La profundidad vive en el [wiki](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md), [EXAMPLES.md](EXAMPLES.md) y [CHANGELOG.md](CHANGELOG.md).
 
-## Contribuir
+## Traducciones
 
-Las contribuciones son bienvenidas en extractores y adapters, tooling MCP/runtime, benchmarks, documentación y algoritmos de grafo. Ver [CONTRIBUTING.md](../CONTRIBUTING.md).
+🇧🇷 [Português](i18n/README.pt-BR.md) · 🇪🇸 [Español](i18n/README.es.md) · 🇮🇹 [Italiano](i18n/README.it.md) · 🇫🇷 [Français](i18n/README.fr.md) · 🇩🇪 [Deutsch](i18n/README.de.md) · 🇨🇳 [中文](i18n/README.zh.md) · 🇯🇵 [日本語](i18n/README.ja.md)
+
+Las traducciones siguen al texto en inglés con algún retraso. Cuando existan discrepancias, el inglés es canónico.
+
+## Contribuciones
+
+Las contribuciones son bienvenidas en extractores, adaptadores, herramientas MCP, benchmarks, documentación y algoritmos de gráficos. Véase [CONTRIBUTING.md](CONTRIBUTING.md). Hay una sala activa en [CodeRooms](https://coderooms.com/github/maxkle1nz/m1nd) si quieres hablar primero. Y si leíste hasta aquí y quieres intentarlo: [cuatro comandos](#sixty-seconds).
 
 ## Licencia
 
-MIT. Ver [LICENSE](../LICENSE).
+MIT. Véase [LICENSE](LICENSE).
+```
