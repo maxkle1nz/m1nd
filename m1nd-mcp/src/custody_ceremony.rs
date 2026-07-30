@@ -291,19 +291,32 @@ impl fmt::Display for CeremonyRefusalV1 {
 impl std::error::Error for CeremonyRefusalV1 {}
 
 /// Admit or refuse a step on policy alone, before any platform call. Two
-/// independent gates: the floor must exist on this target, and the biometric step
-/// must have a human attached.
+/// independent gates: the biometric step must have a human attached, and the floor
+/// must exist on this target. A step passes only when BOTH admit it, so the order
+/// below decides which CAUSE is reported, never whether the step runs.
+///
+/// **Presence is asked first, and it is asked on every target.** Who invoked the
+/// ceremony is a fact about the CALLER; whether the enclave floor is compiled in is
+/// a fact about the HOST. An unattended process is refused the owner's biometric
+/// seat everywhere, because the claim it makes — that the owner is present — is
+/// false on Linux and Windows exactly as it is false on macOS. Asking the host
+/// question first made the presence refusal unreachable off macOS and reported
+/// "not installed here", which reads as *this would have proceeded on a Mac* — the
+/// weaker of the two true answers, and the one that contradicts the surfaces that
+/// promise the refusal without qualification (`AGENTS.md` § the custody ceremony,
+/// the `--custody-ceremony` help in `cli.rs`, and the battery's own §2: an
+/// unattended process must refuse BEFORE reaching the enclave).
 pub fn authorize_ceremony_step(
     verb: CustodyCeremonyVerbV1,
     attendance: CeremonyAttendanceV1,
 ) -> Result<(), CeremonyRefusalV1> {
+    if verb.requires_owner_presence() && attendance == CeremonyAttendanceV1::Unattended {
+        return Err(CeremonyRefusalV1::UnattendedOwnerPresenceRefused);
+    }
     // Preflight is how an operator LEARNS the floor is unavailable here, so it
     // stays runnable on every target.
     if !cfg!(target_os = "macos") && verb != CustodyCeremonyVerbV1::Preflight {
         return Err(CeremonyRefusalV1::NotInstalledOnThisPlatform);
-    }
-    if verb.requires_owner_presence() && attendance == CeremonyAttendanceV1::Unattended {
-        return Err(CeremonyRefusalV1::UnattendedOwnerPresenceRefused);
     }
     Ok(())
 }

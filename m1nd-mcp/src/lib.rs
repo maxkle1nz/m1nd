@@ -30,9 +30,10 @@ pub mod owner_authorization_broker;
 pub mod auto_ingest;
 pub mod cli;
 /// The DOOR to the G9 Secure Enclave custody floor (`enclave_authority`). Present
-/// on every target on purpose: off macOS its steps REFUSE `not_installed`, which is
-/// how an operator learns the floor is unavailable there instead of silently
-/// receiving a software fallback.
+/// on every target on purpose: off macOS its steps REFUSE — `not_installed`, unless
+/// the platform-independent owner-presence gate already refused them — which is how
+/// an operator learns the floor is unavailable there instead of silently receiving
+/// a software fallback.
 pub mod custody_ceremony;
 pub mod daemon_handlers;
 /// macOS Secure Enclave custody floor (amendment G9-A1). On non-macOS targets it
