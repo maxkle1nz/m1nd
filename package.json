@@ -1,6 +1,6 @@
 {
   "name": "@maxkle1nz/m1nd",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "mcpName": "io.github.maxkle1nz/m1nd",
   "description": "Universal installer and agent pack for the m1nd MCP runtime.",
   "license": "MIT",
