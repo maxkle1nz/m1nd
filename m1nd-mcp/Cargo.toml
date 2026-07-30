@@ -67,7 +67,7 @@ reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
 # callers — http_security, http_server, mcp_http — ARE behind `serve`, which is
 # why this read as a serve-only dep for so long. `--workspace` unifies features,
 # so CI never built m1nd-mcp without `serve` and never saw the break.
-getrandom = { version = "0.3" }
+getrandom = { version = "0.4" }
 
 # Already present transitively (via sysinfo/tokio); declared directly ONLY to call
 # `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).
