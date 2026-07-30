@@ -30,13 +30,21 @@ This is pure owner authorship — nothing blocks it, and nothing else can produc
 
 ## Step 1 — cut the release tag (G8's material half)
 
-The release pipeline is ready: Developer ID signing + notarization (#433) and the
-custody entitlement on the shipped bytes (#469 — before it, the notarized binary was
-structurally incapable of the enclave ceremony; the release step now proves the
-entitlement landed by reading the signed output). Tagging produces the **entitled
-binary** the G9 steps below must run on. Run `/release-parity` first (crates.io ↔
-npm), then tag. G8 the *gate* also wants the manifest to bind this release — that
-binding is the same manifest work G7 waits on; the tag itself is not blocked.
+The release pipeline is ready: Developer ID signing + notarization (#433). Run
+`/release-parity` first (crates.io ↔ npm), then tag. G8 the *gate* also wants the
+manifest to bind this release — that binding is the same manifest work G7 waits on;
+the tag itself is not blocked.
+
+**Correction, measured 2026-07-30 — tagging does NOT produce an entitled binary,
+and cannot.** #469 signed the release with the `keychain-access-groups` entitlement;
+the v1.6.0 run then failed, because that entitlement is *restricted* and AMFI
+SIGKILLs a raw executable that claims one without an embedded provisioning profile —
+which a non-bundled binary has nowhere to hold (Apple, TN3137). The release now
+signs without it. Prerequisite **P4 is owner-side**: the G9 verbs below will refuse
+on the tagged binary, by name, until you run them on a build whose entitlement is
+authorized by a profile you hold, or the ceremony surface ships as a bundle. That
+choice is yours and undecided — `G9-CUSTODY-CEREMONY.md` §1 P4 and §5 R1 carry the
+evidence, and `build/README.md` carries the kernel log.
 
 ## Step 2 — the G9 custody ceremony (`G9-CUSTODY-CEREMONY.md` is the full runbook)
 
@@ -46,7 +54,7 @@ state today, from `custody_ceremony.rs::run_custody_ceremony`:
 
 | Verb | State today | What it does |
 |---|---|---|
-| `preflight` | **RUNS** — reports every prerequisite, exit 0 only when ready | run it first, on the entitled binary, at the protected root |
+| `preflight` | **RUNS** — reports every prerequisite, exit 0 only when ready | run it first, at the protected root; on the tagged binary it will report P4 unsatisfied (see Step 1) |
 | `provision-seats` | **RUNS** — mints the four verifier seats + the sealing seat in the enclave-backed store, stages each record; re-provisioning refuses (`custody_ceremony_seats_already_staged`) | mint the seats; on an unentitled binary the keychain's own refusal surfaces, named |
 | `owner-seat` | **RUNS, owner-only** — mints the biometric seat with the biometry-gated access control (Touch ID fires at key USE, by the ACL); an unattended invocation is still refused *as unattended* on every platform, before the platform floor | the biometric seat — irreducibly the owner's finger |
 | `seal` | **RUNS** — only over a complete staged ceremony (4 seats + sealing seat + owner seat), binds the owner's independence spec and constitution digest, writes the sealed receipt, consumes the staging | seal seats + lineage + spec digests into the ceremony receipt |
@@ -55,9 +63,10 @@ state today, from `custody_ceremony.rs::run_custody_ceremony`:
 **The door↔floor wiring landed (#498).** Every verb now reaches the real enclave
 floor; two owner-held inputs joined the CLI (`--custody-independence-spec`,
 `--custody-constitution-digest` — the ceremony READS the owner's spec, it never
-builds one). What remains true: real execution needs the owner, the entitled
-binary, and the Mac — every missing precondition refuses closed with its own
-name, and no agent path can perform any of it.
+builds one). What remains true: real execution needs the owner, the Mac, and an
+entitled binary that **the release cannot produce** (Step 1's correction) — every
+missing precondition refuses closed with its own name, and no agent path can perform
+any of it.
 
 **Before the first verb, seal the spec (P9).** The independence spec is written by
 hand, and every custody verb refuses one whose declared digest is not the digest of
@@ -95,7 +104,8 @@ consumer channel is its **identity**: three preflight fields
 request, the sandbox denies every owner-held path, and the assembly's
 `self_digest` covers the provider's own digest — so the provider cannot embed
 what is computed from it. A binary config-trailer is ruled out by measurement (it
-voids the macOS signature and with it the keychain entitlement). The working
+voids the macOS signature; the shipped binary carries no entitlement to void, per
+Step 1's correction, but an invalid signature is disqualifying on its own). The working
 direction, pending the owner's veto: **keychain-resident provider identity**,
 filed by the custody ceremony itself — the only channel that survives both the
 sandbox (mach-lookup is allowed) and codesigning, and it keeps the signed binary
