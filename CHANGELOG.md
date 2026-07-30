@@ -6,6 +6,12 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-07-30
+
+1.6.0 was tagged but never published: its macOS binaries could not launch, and the
+installed-artifact gate refused to let them through. This release is that fix, and it
+carries everything 1.6.0 contained.
+
 ### Fixed
 
 - **The macOS binaries run again.** The 1.6.0 release signed them with the
