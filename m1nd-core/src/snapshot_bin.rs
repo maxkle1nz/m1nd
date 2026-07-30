@@ -8,6 +8,24 @@ use crate::types::*;
 use std::io::{BufWriter, Cursor, Write};
 use std::path::Path;
 
+/// Ceiling on how many bytes one decode may claim.
+///
+/// bincode's allocation guard (`claim_container_read`) is a NO-OP unless a limit
+/// is configured, so without this a corrupt file's length prefix is trusted
+/// verbatim: 22 bytes of garbage once asked for a 7018141077720822895-byte `Vec`
+/// and aborted the process on the spot — SIGABRT, not an error a caller can
+/// handle. bincode 1 never had that hole; its slice reader refused any length
+/// past the end of the input, so the limit is what restores the old behaviour.
+///
+/// The number is measured, not guessed. Each decoded element is un-claimed as it
+/// is read, so the budget tracks the FILE size rather than the in-memory size: a
+/// 30000-node / 120000-edge graph writes a 27637456-byte snapshot, decodes at a
+/// 32 MiB limit and is refused at 8 MiB. One GiB is therefore roughly 40x the
+/// largest graph this project has measured in production (21885 nodes / 84347
+/// edges), while capping a hostile allocation at a size the allocator can refuse
+/// instead of dying on.
+pub(crate) const DECODE_LIMIT_BYTES: usize = 1024 * 1024 * 1024;
+
 /// The ONLY encoding this format has ever been written with: fixed-width
 /// little-endian integers and `u64` length prefixes — bincode 1's behaviour,
 /// which bincode 2 preserves under `legacy()` and NOT under `standard()`.
@@ -20,10 +38,14 @@ use std::path::Path;
 /// `standard()`; a format change needs a `SNAPSHOT_VERSION` bump and a reader
 /// for the old bytes. `tests/snapshot_bin_continuity.rs` holds frozen fixtures
 /// that fail if it ever moves.
+///
+/// The byte limit rides along without touching the wire format — it is a decode
+/// budget, never an encoding parameter, and those same fixtures prove it.
 const SNAPSHOT_BIN_CONFIG: bincode::config::Configuration<
     bincode::config::LittleEndian,
     bincode::config::Fixint,
-> = bincode::config::legacy();
+    bincode::config::Limit<DECODE_LIMIT_BYTES>,
+> = bincode::config::legacy().with_limit::<DECODE_LIMIT_BYTES>();
 
 /// Decode one whole-file payload, refusing a partial read.
 ///

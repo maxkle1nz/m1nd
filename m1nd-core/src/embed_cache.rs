@@ -21,14 +21,20 @@ use serde::{Deserialize, Serialize};
 use crate::error::{M1ndError, M1ndResult};
 
 /// Same encoding as the graph snapshot: bincode's LEGACY configuration, the only
-/// one that reads the cache files already on disk. See `snapshot_bin`'s
-/// `SNAPSHOT_BIN_CONFIG` for why `standard()` would corrupt rather than fail.
-/// Corruption here is fail-safe (a bad load is a full recompute), so the cost of
-/// getting it wrong is silent, permanent cache misses instead of wrong vectors.
+/// one that reads the cache files already on disk, carrying the same decode
+/// budget (`snapshot_bin::DECODE_LIMIT_BYTES`). See `snapshot_bin`'s
+/// `SNAPSHOT_BIN_CONFIG` for why `standard()` would corrupt rather than fail, and
+/// why an unlimited decode aborts the process on a corrupt length prefix.
+///
+/// The limit matters MORE here than there. This module's whole contract is that a
+/// damaged cache is survivable — "any version / model / dim mismatch or
+/// corruption is ignored and embeddings are recomputed" — and a decoder that
+/// aborts on garbage breaks that promise in the loudest possible way.
 const EMBED_CACHE_CONFIG: bincode::config::Configuration<
     bincode::config::LittleEndian,
     bincode::config::Fixint,
-> = bincode::config::legacy();
+    bincode::config::Limit<{ crate::snapshot_bin::DECODE_LIMIT_BYTES }>,
+> = bincode::config::legacy().with_limit::<{ crate::snapshot_bin::DECODE_LIMIT_BYTES }>();
 
 /// Bump when the on-disk layout changes incompatibly. A version mismatch makes
 /// [`EmbeddingCache::load_compatible`] return `None` (full recompute).

@@ -308,6 +308,32 @@ fn binary_load_refuses_a_payload_that_does_not_fill_the_file() {
     );
 }
 
+/// A corrupt file must come back as an `Err`, never as a dead process.
+///
+/// bincode's allocation guard only runs when the decoder carries a byte limit;
+/// with no limit, a garbage length prefix is trusted verbatim. These exact 22
+/// bytes yield a length of 7018141077720822895 read out of the ASCII, and
+/// aborted the process with SIGABRT — a failure no caller can catch, on a path
+/// whose whole promise is that a damaged file degrades gracefully.
+#[test]
+fn binary_load_refuses_garbage_instead_of_trusting_its_length_prefix() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let ascii = b"\x00\x01\x02not a real cache\xff\xfe".to_vec();
+    // A well-formed version field followed by a node count of u64::MAX.
+    let mut huge_len = 4u32.to_le_bytes().to_vec();
+    huge_len.extend_from_slice(&u64::MAX.to_le_bytes());
+
+    for (name, bytes) in [("ascii.bin", ascii), ("huge-len.bin", huge_len)] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            snapshot_bin::load_graph(&path).is_err(),
+            "{name} must be refused with an error the caller can handle"
+        );
+    }
+}
+
 #[test]
 fn binary_load_missing_file_is_error_not_panic() {
     let missing = std::env::temp_dir().join("m1nd_snapshot_bin_missing_xyz.bin");
