@@ -31,7 +31,7 @@ function GraphScene({ nodes, edges }: { nodes: SN[]; edges: SE[] }) {
       />
       <svg viewBox="0 0 480 360" className="absolute inset-0 w-full h-full">
 
-        {/* Edges — always visible, draw-in on mount */}
+        {/* Edges: always visible, draw-in on mount */}
         {edges.map((e, i) => {
           const fn = nodes.find((n) => n.id === e.f);
           const tn = nodes.find((n) => n.id === e.t);
@@ -51,7 +51,7 @@ function GraphScene({ nodes, edges }: { nodes: SN[]; edges: SE[] }) {
           );
         })}
 
-        {/* Particles — travel along edges continuously */}
+        {/* Particles: travel along edges continuously */}
         {edges.map((e, i) => {
           const fn = nodes.find((n) => n.id === e.f);
           const tn = nodes.find((n) => n.id === e.t);
@@ -79,7 +79,7 @@ function GraphScene({ nodes, edges }: { nodes: SN[]; edges: SE[] }) {
           );
         })}
 
-        {/* Nodes — always visible */}
+        {/* Nodes: always visible */}
         {nodes.map((n) => {
           const labelAnchor = n.anchor ?? "middle";
           const labelX = n.anchor === "start" ? n.x + 11 : n.anchor === "end" ? n.x - 11 : n.x;
@@ -197,11 +197,11 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
   "04": {
     nodes: [
       { id: 0, x: 240, y: 200, label: "Edit Plan", sub: "5 files · 9 changes", color: "#00f5ff", at: 0, pulse: true },
-      { id: 1, x: 100, y: 118, label: "UserController", sub: "3 changes — ok", color: "#00ff88", at: 0.5 },
-      { id: 2, x: 240, y: 72, label: "authMiddleware", sub: "1 change — ok", color: "#00ff88", at: 1.2 },
-      { id: 3, x: 378, y: 118, label: "sessionStore", sub: "2 changes — conflict!", color: "#ff00aa", at: 1.9 },
-      { id: 4, x: 318, y: 298, label: "tokenRefresh", sub: "1 change — ok", color: "#00ff88", at: 2.6 },
-      { id: 5, x: 152, y: 298, label: "loginRoute", sub: "2 changes — ok", color: "#00ff88", at: 3.3 },
+      { id: 1, x: 100, y: 118, label: "UserController", sub: "3 changes · ok", color: "#00ff88", at: 0.5 },
+      { id: 2, x: 240, y: 72, label: "authMiddleware", sub: "1 change · ok", color: "#00ff88", at: 1.2 },
+      { id: 3, x: 378, y: 118, label: "sessionStore", sub: "2 changes · conflict!", color: "#ff00aa", at: 1.9 },
+      { id: 4, x: 318, y: 298, label: "tokenRefresh", sub: "1 change · ok", color: "#00ff88", at: 2.6 },
+      { id: 5, x: 152, y: 298, label: "loginRoute", sub: "2 changes · ok", color: "#00ff88", at: 3.3 },
     ],
     edges: [
       { f: 0, t: 1, color: "#00ff88", at: 0.5 }, { f: 0, t: 2, color: "#00ff88", at: 1.2 },
@@ -244,10 +244,10 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
   "07": {
     nodes: [
       { id: 0, x: 240, y: 182, label: "m1nd graph", sub: "live knowledge", color: "#00f5ff", at: 0, pulse: true },
-      { id: 1, x: 378, y: 108, label: "auth.query", sub: "confirmed ×23", color: "#00ff88", at: 0.8 },
-      { id: 2, x: 382, y: 258, label: "blast_radius", sub: "confirmed ×18", color: "#00ff88", at: 1.4 },
-      { id: 3, x: 98, y: 108, label: "trace_error", sub: "confirmed ×11", color: "#00f5ff", at: 2.0 },
-      { id: 4, x: 98, y: 258, label: "validate_plan", sub: "confirmed ×7", color: "#7b61ff", at: 2.6 },
+      { id: 1, x: 378, y: 108, label: "auth.query", sub: "reinforced ×23", color: "#00ff88", at: 0.8 },
+      { id: 2, x: 382, y: 258, label: "blast_radius", sub: "reinforced ×18", color: "#00ff88", at: 1.4 },
+      { id: 3, x: 98, y: 108, label: "trace_error", sub: "reinforced ×11", color: "#00f5ff", at: 2.0 },
+      { id: 4, x: 98, y: 258, label: "validate_plan", sub: "reinforced ×7", color: "#7b61ff", at: 2.6 },
       { id: 5, x: 240, y: 328, label: "Hebbian LTP", sub: "edges reinforce on use", color: "#00ff88", at: 3.2, pulse: true },
     ],
     edges: [
@@ -260,8 +260,8 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
     nodes: [
       { id: 0, x: 240, y: 72, label: "antibody: null-deref", sub: "severity: HIGH", color: "#ff00aa", at: 0, pulse: true },
       { id: 1, x: 240, y: 178, label: "m1nd.antibody_scan", sub: "checking 43 files", color: "#00f5ff", at: 0.8 },
-      { id: 2, x: 108, y: 278, label: "session_pool.py", sub: "MATCH — same shape", color: "#ff00aa", at: 2.0 },
-      { id: 3, x: 372, y: 278, label: "worker_pool.py", sub: "MATCH — same shape", color: "#ff00aa", at: 2.8 },
+      { id: 2, x: 108, y: 278, label: "session_pool.py", sub: "MATCH · same shape", color: "#ff00aa", at: 2.0 },
+      { id: 3, x: 372, y: 278, label: "worker_pool.py", sub: "MATCH · same shape", color: "#ff00aa", at: 2.8 },
       { id: 4, x: 240, y: 338, label: "2 bugs contained", sub: "before production", color: "#00ff88", at: 3.8, pulse: true },
     ],
     edges: [
@@ -306,8 +306,8 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
       { id: 1, x: 110, y: 175, label: "settings_routes", sub: "entry point", color: "#7b61ff", at: 0.8 },
       { id: 2, x: 240, y: 212, label: "config_provider", sub: "no validation gate", color: "#ff4444", at: 1.6 },
       { id: 3, x: 375, y: 175, label: "boot_init.py", sub: "consumes unvalidated", color: "#ff4444", at: 2.4 },
-      { id: 4, x: 110, y: 315, label: "crash path #1", sub: "confirmed", color: "#ff4444", at: 3.0, pulse: true },
-      { id: 5, x: 375, y: 315, label: "crash path #2", sub: "confirmed", color: "#ff4444", at: 3.4, pulse: true },
+      { id: 4, x: 110, y: 315, label: "crash path #1", sub: "traced", color: "#ff4444", at: 3.0, pulse: true },
+      { id: 5, x: 375, y: 315, label: "crash path #2", sub: "traced", color: "#ff4444", at: 3.4, pulse: true },
     ],
     edges: [
       { f: 0, t: 1, color: "#7b61ff", at: 0.8 }, { f: 1, t: 2, color: "#ff4444", at: 1.6 },
@@ -317,10 +317,10 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
   },
   "12": {
     nodes: [
-      { id: 0, x: 240, y: 182, label: "auth.py", sub: "INFECTED — origin", color: "#ff4444", at: 0, pulse: true },
-      { id: 1, x: 370, y: 132, label: "session_pool.py", sub: "INFECTED — direct", color: "#ff4444", at: 1.8 },
-      { id: 2, x: 112, y: 132, label: "middleware.py", sub: "INFECTED — chain", color: "#ff4444", at: 2.5 },
-      { id: 3, x: 240, y: 312, label: "api_handler.py", sub: "INFECTED — call", color: "#ff4444", at: 3.2 },
+      { id: 0, x: 240, y: 182, label: "auth.py", sub: "INFECTED · origin", color: "#ff4444", at: 0, pulse: true },
+      { id: 1, x: 370, y: 132, label: "session_pool.py", sub: "INFECTED · direct", color: "#ff4444", at: 1.8 },
+      { id: 2, x: 112, y: 132, label: "middleware.py", sub: "INFECTED · chain", color: "#ff4444", at: 2.5 },
+      { id: 3, x: 240, y: 312, label: "api_handler.py", sub: "INFECTED · call", color: "#ff4444", at: 3.2 },
       { id: 4, x: 432, y: 235, label: "worker_pool.py", sub: "susceptible", color: "#ffb700", at: 4.2, anchor: "end", dy: -20 },
       { id: 5, x: 48, y: 235, label: "cache.py", sub: "susceptible", color: "#ffb700", at: 4.8, anchor: "start", dy: -20 },
       { id: 6, x: 372, y: 312, label: "config.py", sub: "immune", color: "#00ff88", at: 0.4 },
@@ -334,11 +334,11 @@ const SCENES: Record<string, { nodes: SN[]; edges: SE[] }> = {
   },
   "13": {
     nodes: [
-      { id: 0, x: 240, y: 108, label: "session_pool.py", sub: "CRITICAL — 4.7× accel", color: "#ff4444", at: 0.2, pulse: true },
-      { id: 1, x: 108, y: 218, label: "worker_pool.py", sub: "WARNING — 2.3× accel", color: "#ffb700", at: 0.5, pulse: true, anchor: "end", dy: -20 },
-      { id: 2, x: 378, y: 205, label: "auth.py", sub: "WATCH — vel rising", color: "#ffb700", at: 0.8, anchor: "start", dy: -20 },
-      { id: 3, x: 112, y: 308, label: "api_handler.py", sub: "stable — 0.4× rate", color: "#00ff88", at: 1.0 },
-      { id: 4, x: 382, y: 308, label: "utils.py", sub: "stable — 18d no change", color: "#00f5ff", at: 1.2 },
+      { id: 0, x: 240, y: 108, label: "session_pool.py", sub: "CRITICAL · 4.7× accel", color: "#ff4444", at: 0.2, pulse: true },
+      { id: 1, x: 108, y: 218, label: "worker_pool.py", sub: "WARNING · 2.3× accel", color: "#ffb700", at: 0.5, pulse: true, anchor: "end", dy: -20 },
+      { id: 2, x: 378, y: 205, label: "auth.py", sub: "WATCH · vel rising", color: "#ffb700", at: 0.8, anchor: "start", dy: -20 },
+      { id: 3, x: 112, y: 308, label: "api_handler.py", sub: "stable · 0.4× rate", color: "#00ff88", at: 1.0 },
+      { id: 4, x: 382, y: 308, label: "utils.py", sub: "stable · 18d no change", color: "#00f5ff", at: 1.2 },
     ],
     edges: [],
   },
@@ -353,8 +353,8 @@ const useCases = [
     steps: [
       "m1nd activates from AuthService and propagates through the import graph in 1.36µs",
       "TokenRefresher, JWTValidator, and SessionStore returned with function signatures attached",
-      "5 nodes, 4 edges, 0 files opened — the complete auth flow in one tool call",
-      "Callers and dependencies already included — no follow-up queries needed",
+      "5 nodes, 4 edges, 0 files opened: the complete auth flow in one tool call",
+      "Callers and dependencies already included: no follow-up queries needed",
       "From question to complete map: 0.18s and 3 tool calls total",
     ],
     color: "#00f5ff",
@@ -364,12 +364,12 @@ const useCases = [
     number: "02",
     title: "Blast Radius Before Refactoring",
     subtitle: "Impact Analysis",
-    description: "Before touching worker_pool.py, the agent needs to know exactly what will break. m1nd computes the full impact cone before a single line changes — sorted by coupling risk.",
+    description: "Before touching worker_pool.py, the agent needs to know exactly what will break. m1nd computes the full impact cone before a single line changes, sorted by coupling risk.",
     steps: [
-      "WorkerPool identified as the epicenter — full impact analysis begins immediately",
+      "WorkerPool identified as the epicenter: full impact analysis begins immediately",
       "4 direct callers returned in the first ring with call frequency attached",
       "4 indirect consumers expanded into the second ring, sorted by blast distance",
-      "Each dependency flagged: stable, fragile, or critical — actionable, not just informational",
+      "Each dependency flagged: stable, fragile, or critical. Actionable, not just informational",
       "The agent has a safe refactor plan before writing a single line of code",
     ],
     color: "#ff6b00",
@@ -379,12 +379,12 @@ const useCases = [
     number: "03",
     title: "Trace a Runtime Error to Root Cause",
     subtitle: "Error Tracing",
-    description: "A production crash surfaces at UnhandledError. The agent traces the call graph backwards in one pass — no log scanning, no trial and error, no hallucinated fixes.",
+    description: "A production crash surfaces at UnhandledError. The agent traces the call graph backwards in one pass: no log scanning, no trial and error, no hallucinated fixes.",
     steps: [
-      "UnhandledError is the entry point — m1nd begins a backwards traversal immediately",
+      "UnhandledError is the entry point, so m1nd begins a backwards traversal immediately",
       "PromiseChain → NetworkLayer → ConfigLoader traced in one graph walk",
-      "Missing environment variable identified at EnvValidator — the actual root cause",
-      "Full ancestry returned: 4 nodes, 3 edges, 1 confirmed root cause",
+      "Missing environment variable identified at EnvValidator: the actual root cause",
+      "Full ancestry returned: 4 nodes, 3 edges, 1 root-cause candidate",
       "From crash report to fix location: one backward traversal, zero file reads",
     ],
     color: "#ff00aa",
@@ -394,12 +394,12 @@ const useCases = [
     number: "04",
     title: "Validate a Multi-File Edit Plan",
     subtitle: "Pre-flight Check",
-    description: "Before applying 9 changes across 5 files, the agent validates the plan against the live graph — catching structural conflicts before any code runs.",
+    description: "Before applying 9 changes across 5 files, the agent validates the plan against the live graph, catching structural conflicts before any code runs.",
     steps: [
       "All 5 target files evaluated simultaneously against the current graph state",
-      "4 files confirmed structurally valid — their changes will not cascade unexpectedly",
+      "4 files check out clean against the graph: their changes will not cascade unexpectedly",
       "Circular import conflict detected in sessionStore.ts before the first edit runs",
-      "Confidence score returned: 94% safe, 1 conflict to resolve first",
+      "Verdict returned: one conflict to resolve before the plan is safe to apply",
       "Your agent ships a clean PR instead of discovering the problem in production",
     ],
     color: "#00ff88",
@@ -409,12 +409,12 @@ const useCases = [
     number: "05",
     title: "Resume a Saved Investigation",
     subtitle: "Persistent Memory",
-    description: "Three sessions later, the agent returns to an unfinished auth investigation. m1nd restores the full context in milliseconds — the agent resumes the work, not the orientation.",
+    description: "Three sessions later, the agent returns to an unfinished auth investigation. m1nd restores the full context in milliseconds. The agent resumes the work, not the orientation.",
     steps: [
       "7 previously-visited nodes restored with their original traversal sequence",
-      "Nodes from older sessions separated from today's findings — temporal context preserved",
-      "Open trails marked — the agent knows exactly where it stopped and why",
-      "No re-exploration from scratch — the graph remembers what mattered",
+      "Nodes from older sessions separated from today's findings, so temporal context is preserved",
+      "Open trails marked: the agent knows exactly where it stopped and why",
+      "No re-exploration from scratch. The graph remembers what mattered",
       "The agent continues the investigation exactly where it left off",
     ],
     color: "#ffb700",
@@ -424,9 +424,9 @@ const useCases = [
     number: "06",
     title: "Connect Research to Code",
     subtitle: "Knowledge Graph",
-    description: "m1nd ingests more than code. RFCs, specs, and documentation live in the same graph. One query returns the implementation and the standard that defined it — simultaneously.",
+    description: "m1nd ingests more than code. RFCs, specs, and documentation live in the same graph. One query returns the implementation and the standard that defined it, in the same response.",
     steps: [
-      "Code nodes and document nodes share the same graph — no separate search required",
+      "Code nodes and document nodes share the same graph: no separate search required",
       "Querying jwt_handler.py also returns RFC 7519 as a directly connected node",
       "Implementation and specification linked by typed edges, not keyword matches",
       "Your agent understands the why behind the code, not just the what",
@@ -439,13 +439,13 @@ const useCases = [
     number: "07",
     title: "The Graph That Gets Smarter",
     subtitle: "Hebbian Learning",
-    description: "m1nd was designed by LLMs, tested by LLMs, and it learns from them too. Every confirmed result strengthens its edges via Hebbian LTP — each session makes the next one more accurate.",
+    description: "m1nd learns from the agents that use it. Every confirmed result strengthens its edges via Hebbian plasticity, so the paths that proved useful rank higher the next time an agent asks.",
     steps: [
       "Each result the agent confirms automatically strengthens its graph edges",
       "Paths that proved useful become higher-ranked in future queries on the same codebase",
-      "After 10 sessions, query accuracy measurably improves — no manual tuning",
-      "The graph was built for agents — and it gets better the more agents use it",
-      "Your agent isn't just using a codebase map. It's improving it.",
+      "Confirmations accumulate across sessions, with no manual tuning",
+      "The graph was built for agents, and it warms up the more agents use it",
+      "Your agent is improving the codebase map while it works",
     ],
     color: "#00f5ff",
     align: "left",
@@ -454,13 +454,13 @@ const useCases = [
     number: "08",
     title: "Never Let the Same Bug Bite Twice",
     subtitle: "Antibody Immunity",
-    description: "When a bug is fixed, m1nd lets the agent encode it as a structural pattern — an antibody. Every future scan checks for the same shape across the entire codebase automatically.",
+    description: "When a bug is fixed, m1nd lets the agent encode it as a structural pattern, an antibody. Every future scan checks for the same shape across the entire codebase automatically.",
     steps: [
       "Agent encodes a fixed bug as a named structural pattern via m1nd.antibody_create",
-      "Pattern stored with severity level and description — not just the file, the topology",
+      "Pattern stored with severity level and description: the topology, not just the file",
       "m1nd.antibody_scan checks the pattern against all changed files on every future session",
-      "Two high-severity matches found: session_pool.py and worker_pool.py — before they ship",
-      "Bug patterns the team fixed once never reach production again — the graph remembers",
+      "Two high-severity matches found: session_pool.py and worker_pool.py, before they ship",
+      "A bug the team fixed once gets checked for on every later session. The graph remembers the shape.",
     ],
     color: "#ff00aa",
     align: "right",
@@ -469,13 +469,13 @@ const useCases = [
     number: "09",
     title: "Find the Code That Doesn't Exist Yet",
     subtitle: "Structural Gap Detection",
-    description: "The hardest bugs to find are the ones that aren't there. m1nd.missing detects structural holes — missing guards, missing retries, missing timeouts — by comparing your graph to expected patterns.",
+    description: "The hardest bugs to find are the ones that aren't there. m1nd.missing detects structural holes (missing guards, missing retries, missing timeouts) by comparing your graph to expected patterns.",
     steps: [
       "Agent asks: 'Where is timeout cleanup guard retry missing from the error path?'",
       "m1nd walks the graph looking for nodes that exist without their expected neighbors",
-      "5 files identified with absent structural guards — no grep, no file reading required",
+      "5 files identified with absent structural guards: no grep, no file reading required",
       "Ghost filaments show exactly where the missing nodes should connect",
-      "Your agent fixes absences, not just presence — defensive code, not reactive",
+      "Your agent fixes absences, not just presence. Defensive code, not reactive",
     ],
     color: "#7b61ff",
     align: "left",
@@ -484,12 +484,12 @@ const useCases = [
     number: "10",
     title: "Hunt Race Conditions Before Production",
     subtitle: "Concurrent Hazard Mapping",
-    description: "m1nd.flow_simulate runs concurrent particle streams through the dependency graph. Where multiple flows converge on shared mutable state, turbulence scores spike — before a single thread runs.",
+    description: "m1nd.flow_simulate runs concurrent particle streams through the dependency graph. Where multiple flows converge on shared mutable state, turbulence scores spike before a single thread runs.",
     steps: [
       "4 concurrent workers tracked through their dependency paths simultaneously",
-      "shared_state.py identified as a turbulence node — 4 concurrent writers, no guard",
-      "Race condition confirmed: counter.py and cache_state.py get dirty writes",
-      "Structural hazard surfaced in 0.3s — before any test was written or thread started",
+      "shared_state.py identified as a turbulence node: 4 concurrent writers, no guard",
+      "Structural hazard flagged: counter.py and cache_state.py share writers with no guard",
+      "Structural hazard surfaced in 0.3s, before any test was written or thread started",
       "Your agent finds the race in the architecture, not in the production logs",
     ],
     color: "#ff6b00",
@@ -499,12 +499,12 @@ const useCases = [
     number: "11",
     title: "Test a Structural Claim Before It Crashes",
     subtitle: "Hypothesis Testing",
-    description: "m1nd.hypothesize takes a natural-language structural claim and tests it against the graph. The agent doesn't guess — it triangulates. Evidence paths either harden into confirmed risk or break cleanly.",
+    description: "m1nd.hypothesize takes a natural-language structural claim and tests it against the graph. The agent doesn't guess. It triangulates. Evidence paths either hold up or break cleanly.",
     steps: [
       "Agent writes a plain claim: 'settings_routes can save invalid config that crashes on boot'",
       "m1nd maps the claim to graph topology: settings_routes → config_provider → boot_init",
-      "boot_init.py confirmed: no validation gate before it consumes provider output",
-      "3 confirmed crash paths returned with node-level evidence — zero guesswork",
+      "boot_init.py checked: no validation gate found before it consumes provider output",
+      "3 supported crash paths returned with node-level evidence attached",
       "The agent fixes the structural gap before any user hits the boot-time crash",
     ],
     color: "#7b61ff",
@@ -514,12 +514,12 @@ const useCases = [
     number: "12",
     title: "Map How Far a Bug Spreads",
     subtitle: "Epidemic Modeling",
-    description: "m1nd.epidemic runs an SIR-style simulation from any infected node. Infected, susceptible, and immune modules are color-coded across the graph — so the agent knows exactly how wide to cast the fix.",
+    description: "m1nd.epidemic runs an SIR-style simulation from any infected node. Infected, susceptible, and immune modules are color-coded across the graph, so the agent knows exactly how wide to cast the fix.",
     steps: [
-      "auth.py confirmed infected — SIR propagation begins from that node immediately",
-      "First wave: session_pool.py and middleware.py — direct import path, now infected",
+      "auth.py flagged infected: SIR propagation begins from that node immediately",
+      "First wave: session_pool.py and middleware.py, on the direct import path, now infected",
       "Second wave: worker_pool.py, cache.py, scheduler.py enter the susceptible zone",
-      "logger.py and config.py confirmed immune — no dependency path to auth.py",
+      "logger.py and config.py shown immune: no dependency path to auth.py",
       "The agent contains the infection before shipping a fix that only patches half the blast",
     ],
     color: "#ff4444",
@@ -529,13 +529,13 @@ const useCases = [
     number: "13",
     title: "Catch the Next Bug Before It's Written",
     subtitle: "Predictive Breakage",
-    description: "m1nd.tremor detects accelerating change frequency across the graph. When a file's edit velocity spikes past a threshold, it raises a seismic alert — the codebase is about to fracture at that node.",
+    description: "m1nd.tremor detects accelerating change frequency across the graph. When a file's edit velocity spikes past a threshold, it raises an alert: the change pattern says that node is about to fracture at that node.",
     steps: [
       "m1nd.tremor scans the last 30 days: change rate per file, sorted by acceleration",
-      "session_pool.py: 14 changes in 30 days, up from 3 in the prior period — 4.7× acceleration",
-      "worker_pool.py: velocity still rising — 2 open investigations, no antibody coverage",
-      "Trust scores confirm: both files are historically fragile, defect correlation matches",
-      "Agent flags the tremor zone before anyone files a bug report — structural prediction, not reaction",
+      "session_pool.py: 14 changes in 30 days, up from 3 in the prior period: 4.7× acceleration",
+      "worker_pool.py: velocity still rising, 2 open investigations, no antibody coverage",
+      "Trust scores agree: both files are historically fragile, defect correlation matches",
+      "Agent flags the tremor zone before anyone files a bug report. Structural prediction, not reaction",
     ],
     color: "#ffb700",
     align: "left",
@@ -638,7 +638,7 @@ export default function UseCases() {
   return (
     <main className="w-full min-h-screen bg-background">
       <SEO
-        title="Use Cases — m1nd Graph Intelligence"
+        title="Use Cases · m1nd"
         description="13 real scenarios where m1nd gives coding agents surgical precision: impact analysis, race conditions, antibody immunity, hypothesis testing, epidemic modeling, predictive breakage, and more. All in under 0.30s."
         canonicalPath="/use-cases"
       />
@@ -655,13 +655,13 @@ export default function UseCases() {
           transition={{ duration: 0.8 }}
         >
           <div className="inline-block font-mono text-xs text-primary/60 tracking-widest uppercase border border-primary/20 rounded px-3 py-1 mb-6">
-            real scenarios
+            scenarios
           </div>
           <h1 className="text-4xl md:text-6xl font-bold font-sans tracking-tight mb-6">
             What Your Agent Can Do
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Thirteen real scenarios. Each one is something your agent struggles with today — and solves in under 0.30s with m1nd.
+            Thirteen scenarios, one per tool family. The tools are real and shipping; the walkthroughs below use illustrative mock data, so read them for the shape of the work, not the numbers.
           </p>
         </motion.div>
       </div>

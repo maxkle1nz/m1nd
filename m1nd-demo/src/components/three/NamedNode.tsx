@@ -101,7 +101,7 @@ export function NamedNode({
   );
   const dim = useMemo(() => new THREE.Color("#05050e"), []);
 
-  // Unique drift phase per node — so all nodes breathe differently
+  // Unique drift phase per node: so all nodes breathe differently
   const driftPhase = useMemo(() => hashPos(position), []);
   const wasActive = useRef(false);
   const flash = useRef(0);
@@ -129,27 +129,27 @@ export function NamedNode({
     const fi = flash.current;
     const breathe = 0.85 + Math.sin(t * 1.4 + driftPhase) * 0.15;
 
-    // Layer 1 — bright core (white-ish, small)
+    // Layer 1: bright core (white-ish, small)
     if (coreRef.current) {
       coreRef.current.color.lerpColors(dim, coreColor, isActive ? 1 : 0.04);
       const tgt = isActive ? Math.min(fi, 1.0) : 0.04;
       coreRef.current.opacity += (tgt - coreRef.current.opacity) * 0.14;
     }
 
-    // Layer 2 — inner corona (full color, 3× size)
+    // Layer 2: inner corona (full color, 3× size)
     if (corona1Ref.current) {
       corona1Ref.current.color.lerpColors(dim, colorObj, isActive ? 1 : 0);
       const tgt = isActive ? Math.min(fi * 0.48, 0.72) * breathe : 0.0;
       corona1Ref.current.opacity += (tgt - corona1Ref.current.opacity) * 0.1;
     }
 
-    // Layer 3 — mid glow (5× size, pulsing)
+    // Layer 3: mid glow (5× size, pulsing)
     if (corona2Ref.current) {
       const tgt = isActive ? (0.18 + Math.sin(t * 1.7 + driftPhase) * 0.06) * breathe : 0.0;
       corona2Ref.current.opacity += (tgt - corona2Ref.current.opacity) * 0.07;
     }
 
-    // Layer 4 — outer ambient (10× size, ultra-faint)
+    // Layer 4: outer ambient (10× size, ultra-faint)
     if (ambientRef.current) {
       const tgt = isActive ? (0.055 + Math.sin(t * 0.9 + driftPhase) * 0.018) : 0.0;
       ambientRef.current.opacity += (tgt - ambientRef.current.opacity) * 0.05;
@@ -165,7 +165,7 @@ export function NamedNode({
   return (
     <group position={position}>
       <group ref={driftGroupRef}>
-        {/* Core — tiny white-ish center */}
+        {/* Core: tiny white-ish center */}
         <mesh>
           <sphereGeometry args={[size, 24, 24]} />
           <meshBasicMaterial

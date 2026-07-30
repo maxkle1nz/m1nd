@@ -39,7 +39,7 @@ function CSSFallback() {
   );
 }
 
-/** Subtle ambient point that pulses gently — gives depth to the dark scene */
+/** Subtle ambient point that pulses gently: gives depth to the dark scene */
 function SceneLighting() {
   return (
     <>
@@ -76,7 +76,7 @@ export function GraphCanvas({
           }}
         >
           <color attach="background" args={["#050510"]} />
-          {/* Depth fog — far clips at 60 instead of 40 for more breathing room */}
+          {/* Depth fog: far clips at 60 instead of 40 for more breathing room */}
           <fog attach="fog" args={["#050510", 15, 60]} />
           <SceneLighting />
           <Suspense fallback={null}>

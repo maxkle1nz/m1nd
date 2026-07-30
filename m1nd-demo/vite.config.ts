@@ -2,12 +2,22 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { readFileSync } from "fs";
 
 const port = Number(process.env.PORT ?? "5175");
 const basePath = process.env.BASE_PATH ?? "/";
 
+// Single source of truth for the product version shown on the site:
+// the repo root package.json (kept in lockstep with the m1nd-mcp crate).
+const rootPkg = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf-8")
+);
+
 export default defineConfig({
   base: basePath,
+  define: {
+    __M1ND_VERSION__: JSON.stringify(rootPkg.version as string)
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
