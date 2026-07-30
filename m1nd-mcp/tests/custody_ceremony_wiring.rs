@@ -413,6 +413,27 @@ fn every_custody_step_is_not_installed_off_macos() {
     .is_ok());
 }
 
+/// **Presence is asked before platform, on every target.** Who invoked the
+/// ceremony is a fact about the CALLER; whether the floor is compiled in is a
+/// fact about the HOST. An unattended process claiming the owner's biometric seat
+/// makes a false claim on Linux and Windows exactly as it does on macOS, so the
+/// weaker "not installed here" answer — which reads as *this would have proceeded
+/// on a Mac* — must never be the one reported.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_presence_refusal_outranks_the_platform_refusal_off_macos() {
+    let refusal = authorize_ceremony_step(
+        CustodyCeremonyVerbV1::OwnerSeat,
+        CeremonyAttendanceV1::Unattended,
+    )
+    .expect_err("an unattended owner-seat attempt refuses everywhere");
+    assert_eq!(
+        refusal.code(),
+        "custody_ceremony_unattended_presence_refused",
+        "the presence gate is platform-independent and is asked FIRST"
+    );
+}
+
 /// On macOS the steps are admitted by policy (the hardware, entitlement and the
 /// owner's hand are still required, and are checked at their own layers).
 #[cfg(target_os = "macos")]
@@ -624,4 +645,110 @@ fn the_owner_only_steps_are_declared_not_run_rather_than_faked() {
             "the ceremony must have no simulation path ({forbidden}); G9-CUSTODY-CEREMONY.md §0"
         );
     }
+}
+
+// ===========================================================================
+// 8. The wiring gap itself — the measured zeros must become non-zeros
+// ===========================================================================
+
+/// Count the non-test references to `symbol` outside its own definition file.
+/// This is the same measurement `G9-CUSTODY-CEREMONY.md` §4 published as a table
+/// of zeros, run as a test so the table can never quietly go stale again.
+fn production_references_outside_the_floor(symbol: &str) -> Vec<String> {
+    let root = repo_root();
+    let src = root.join("m1nd-mcp").join("src");
+    let mut referencing = Vec::new();
+    let mut stack = vec![src];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).expect("read src dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+            if path.file_name().and_then(|name| name.to_str()) == Some("enclave_authority.rs") {
+                continue;
+            }
+            if without_test_modules(&read(&path)).contains(symbol) {
+                referencing.push(
+                    path.strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    referencing.sort();
+    referencing
+}
+
+/// **The island is connected.** `G9-CUSTODY-CEREMONY.md` §4 measured every one of
+/// the floor's provisioning and sealing entry points at ZERO references outside
+/// its own file: the custody floor was "a fully-implemented, fully-tested,
+/// entirely unwired island". Wiring the three owner verbs is what makes these
+/// non-zero, and the door is the only thing allowed to reference them.
+#[test]
+fn the_ceremony_verbs_reference_the_floor_s_provisioning_and_sealing_primitives() {
+    for symbol in [
+        "provision_agent_enclave_seat",
+        "provision_owner_biometric_seat",
+        "seal_custody_ceremony",
+        "bind_independence_spec",
+    ] {
+        let referencing = production_references_outside_the_floor(symbol);
+        assert!(
+            !referencing.is_empty(),
+            "'{symbol}' still has zero non-test references outside the floor — the custody \
+             floor is an unwired island (G9-CUSTODY-CEREMONY.md §4)"
+        );
+        assert_eq!(
+            referencing,
+            vec!["m1nd-mcp/src/custody_ceremony.rs".to_owned()],
+            "only the ceremony door may drive the floor's provisioning and sealing \
+             primitives; found {referencing:?}"
+        );
+    }
+}
+
+/// **No verb answers with a placeholder.** While the enclave wiring was absent,
+/// `provision-seats`, `owner-seat` and `seal` returned a hand-written `NOT_RUN`
+/// object from a single helper. Once they are wired, that helper must be GONE —
+/// a step that reports `NOT_RUN` without asking the platform is indistinguishable
+/// from a step that asked and was refused, and only one of those is honest.
+///
+/// The steps that genuinely cannot run here now say so through the real refusal
+/// path: an unentitled binary cannot persist or resolve an enclave key, and the
+/// classifier names that prerequisite (P4) rather than an opaque OSStatus.
+#[test]
+fn no_ceremony_verb_answers_with_a_hand_written_placeholder() {
+    let module = read(&repo_root().join("m1nd-mcp/src/custody_ceremony.rs"));
+    assert!(
+        !module.contains("fn owner_step_pending"),
+        "the placeholder answer must be deleted once the verbs reach the floor, not kept \
+         beside it (G9-CUSTODY-CEREMONY.md §4, §5 R2)"
+    );
+}
+
+/// The owner's biometric seat and the agent's verifier seats are minted by two
+/// different functions that refuse each other's access-control class. Neither can
+/// stand in for the other, so no agent path can mint the human seat even if the
+/// door were reached — which is the floor's own `HumanSeatProvisioningRefused`
+/// rule extended to its mirror (`G9-CUSTODY-CEREMONY.md` §2 step 4: the owner
+/// seat "needs a *separate, owner-only* entry point").
+#[test]
+fn the_owner_seat_has_its_own_entry_point_and_the_two_refuse_each_other() {
+    let floor = read(&repo_root().join("m1nd-mcp/src/enclave_authority.rs"));
+    let production = without_test_modules(&floor);
+    assert!(
+        production.contains("pub fn provision_owner_biometric_seat("),
+        "the owner-only provisioning entry point must exist beside the agent one"
+    );
+    assert!(
+        production.contains("HumanSeatProvisioningRefused"),
+        "the agent entry point keeps refusing the human seat fail-closed"
+    );
 }

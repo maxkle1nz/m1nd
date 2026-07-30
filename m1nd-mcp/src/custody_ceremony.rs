@@ -805,3 +805,641 @@ const CUSTODY_KEYCHAIN_LABEL_PREFIX: &str = "world.m1nd.custody.g9";
 const CUSTODY_SUBJECT_ID: &str = "m1nd-owner-authority";
 #[cfg(target_os = "macos")]
 const CUSTODY_SEALING_SEAT_KEY_ID: &str = "custody-sealing-seat-v1";
+/// The owner's biometric seat (`owner_signature`). A distinct key id from every
+/// voting seat, so the receipt's "the owner seat is never a voting seat" rule is
+/// true by construction and not only by validation.
+#[cfg(target_os = "macos")]
+const CUSTODY_OWNER_BIOMETRIC_SEAT_KEY_ID: &str = "custody-owner-biometric-seat-v1";
+
+// ===========================================================================
+// The wiring battery, driven by the floor's OWN fake key store.
+//
+// `enclave_authority::test_support::MockEnclaveKeyStore` is the software P-256
+// stand-in the floor's own tests already drive; it is REUSED here rather than
+// re-created, so the door is proven against exactly the boundary the floor is.
+//
+// What these tests do NOT prove, and cannot: a real Secure Enclave key, the
+// `KeychainAccessGroups` entitlement, the `kSecAccessControl` conformance check,
+// and Touch ID. Those are the owner's hand and hardware and stay NOT_RUN
+// (`docs/benchmarks/G9-CUSTODY-CEREMONY.md` §0); every test below runs against a
+// temp directory and a software key, and none of them writes a ceremony an owner
+// could mistake for theirs.
+// ===========================================================================
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use m1nd_control::autonomy::{
+        IndependenceSpecCoreV1, IndependenceSpecV1, VerifierSeatV1, IMMUTABLE_FAILURE_DOMAINS,
+        IMMUTABLE_QUORUM_THRESHOLD, INDEPENDENCE_SPEC_SCHEMA,
+    };
+    use tempfile::TempDir;
+
+    use crate::enclave_authority::{
+        test_support::MockEnclaveKeyStore, EnclaveAccessControlV1, SecureEnclaveKeyStoreV1,
+        SECURE_ENCLAVE_CUSTODY_FLOOR_V1,
+    };
+
+    use super::*;
+
+    const CONSTITUTION_DIGEST: &str =
+        "1111111111111111111111111111111111111111111111111111111111111111";
+    const SEAL_CLOCK_MS: u64 = 1_800_000_000_000;
+
+    fn unattended_store() -> Arc<dyn SecureEnclaveKeyStoreV1> {
+        Arc::new(MockEnclaveKeyStore::new(
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
+        ))
+    }
+
+    fn biometric_store() -> Arc<dyn SecureEnclaveKeyStoreV1> {
+        Arc::new(MockEnclaveKeyStore::new(
+            EnclaveAccessControlV1::UserPresenceBiometricNonExportable,
+        ))
+    }
+
+    /// A 0700 protected root, the owner's own prerequisite (P5). Created here
+    /// because the ceremony refuses to create it — that is the point of P5.
+    fn protected_root(temp: &TempDir) -> PathBuf {
+        let root = temp.path().join("custody-root");
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
+
+    /// The owner's independence spec: four voting seats over four distinct
+    /// failure domains, sealed so its digest matches its own core.
+    fn independence_spec() -> IndependenceSpecV1 {
+        let voting_verifiers = [
+            (
+                "principal-alpha",
+                "verifier-seat-alpha",
+                "provider-a/model-a/runtime-a",
+                "a",
+            ),
+            (
+                "principal-bravo",
+                "verifier-seat-bravo",
+                "provider-b/model-b/runtime-b",
+                "b",
+            ),
+            (
+                "principal-charlie",
+                "verifier-seat-charlie",
+                "provider-c/model-c/runtime-c",
+                "c",
+            ),
+            (
+                "principal-delta",
+                "verifier-seat-delta",
+                "provider-d/model-d/runtime-d",
+                "d",
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(principal_id, key_id, failure_domain, context)| VerifierSeatV1 {
+                principal_id: principal_id.to_owned(),
+                key_id: key_id.to_owned(),
+                failure_domain: failure_domain.to_owned(),
+                parent_session_context_digest: context.repeat(64),
+            },
+        )
+        .collect();
+        let mut spec = IndependenceSpecV1 {
+            schema: INDEPENDENCE_SPEC_SCHEMA.to_owned(),
+            core: IndependenceSpecCoreV1 {
+                constitution_epoch: 1,
+                voting_verifiers,
+                quorum_threshold: IMMUTABLE_QUORUM_THRESHOLD,
+                minimum_failure_domains: IMMUTABLE_FAILURE_DOMAINS,
+                blind_isolation_policy_digest: "e".repeat(64),
+                nonvoting_sentinel_id: "sentinel-0".to_owned(),
+                proposer_executor_nonvoting: true,
+                sentinel_nonvoting: true,
+            },
+            independence_spec_digest: String::new(),
+        };
+        spec.seal().unwrap();
+        spec
+    }
+
+    fn staged_on_disk(root: &Path) -> StagedCeremonyV1 {
+        let bytes = fs::read(root.join(CEREMONY_STAGING_FILE)).expect("the staging file exists");
+        serde_json::from_slice(&bytes).expect("the staging file round-trips its own schema")
+    }
+
+    fn sealed_slot(root: &Path) -> PathBuf {
+        root.join("custody-ceremony.sealed.json")
+    }
+
+    /// Drive Phase A and Phase B against the fake so Phase C has a complete
+    /// ceremony to seal.
+    fn stage_a_complete_ceremony(
+        root: &Path,
+        spec: &IndependenceSpecV1,
+        unattended: &Arc<dyn SecureEnclaveKeyStoreV1>,
+        biometric: &Arc<dyn SecureEnclaveKeyStoreV1>,
+    ) {
+        provision_seats_into_store(unattended.as_ref(), spec, root).expect("phase A stages");
+        provision_owner_seat_into_store(biometric.as_ref(), root).expect("phase B stages");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase A — provisioning stages what the constitution named, and nothing else
+    // -----------------------------------------------------------------------
+
+    /// Phase A mints one enclave key per seat the owner's independence spec
+    /// names, and records the PUBLIC half plus the lineage digest. It invents no
+    /// principal, no key id and no failure domain: every identity comes from the
+    /// spec, which is what makes the later `bind_independence_spec` a real check
+    /// instead of a tautology.
+    #[test]
+    fn provisioning_stages_every_seat_the_independence_spec_names() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+
+        let staged = provision_seats_into_store(store.as_ref(), &spec, &root).unwrap();
+        assert_eq!(staged.schema, CEREMONY_STAGING_SCHEMA);
+        assert_eq!(staged.verifier_seats.len(), 4);
+        assert!(
+            staged.owner_biometric_seat_public_key.is_none(),
+            "phase A must not claim the owner's seat"
+        );
+
+        for (seat, expected) in staged
+            .verifier_seats
+            .iter()
+            .zip(&spec.core.voting_verifiers)
+        {
+            assert_eq!(seat.principal_id, expected.principal_id);
+            assert_eq!(seat.key_id, expected.key_id);
+            assert_eq!(seat.failure_domain, expected.failure_domain);
+            assert_eq!(
+                seat.bound_context_digest, spec.independence_spec_digest,
+                "each permit is bound to the ceremony's own authority context, so a seat \
+                 cannot be lifted from another ceremony's provisioning"
+            );
+            assert_eq!(seat.public_key.len(), 130, "65-byte uncompressed SEC1");
+            assert!(seat.public_key.starts_with("04"));
+            assert!(
+                seat.public_key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                "seat public keys are lowercase hex (G9-CUSTODY-CEREMONY.md §3)"
+            );
+        }
+
+        let distinct: std::collections::BTreeSet<&str> = staged
+            .verifier_seats
+            .iter()
+            .map(|seat| seat.public_key.as_str())
+            .collect();
+        assert_eq!(distinct.len(), 4, "each seat needs a DISTINCT enclave key");
+
+        let sealing = staged.sealing_seat.as_ref().expect("the sealing seat");
+        assert_eq!(sealing.key_id, CUSTODY_SEALING_SEAT_KEY_ID);
+        assert!(
+            !distinct.contains(sealing.public_key.as_str()),
+            "the sealing seat is not one of the four voting seats"
+        );
+
+        assert_eq!(staged_on_disk(&root), staged);
+        assert!(
+            !sealed_slot(&root).exists(),
+            "phase A seals nothing; only phase C may write the ceremony receipt"
+        );
+    }
+
+    /// Re-running Phase A REFUSES. The floor's own law is never-open-or-create
+    /// (`provision` fails closed on an existing label), so the door must not
+    /// quietly re-stage over a ceremony that already minted keys.
+    #[test]
+    fn provisioning_refuses_a_second_run_rather_than_reprovisioning() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+
+        let first = provision_seats_into_store(store.as_ref(), &spec, &root).unwrap();
+        let refusal = provision_seats_into_store(store.as_ref(), &spec, &root)
+            .expect_err("a second provisioning run must refuse");
+        assert_eq!(refusal.code(), "custody_ceremony_seats_already_staged");
+        assert_eq!(
+            staged_on_disk(&root),
+            first,
+            "a refused re-run leaves the staged ceremony exactly as it was"
+        );
+    }
+
+    /// A spec whose digest does not match its own core is refused BEFORE any key
+    /// is minted. The digest is the lineage every seat is bound to, so a lying
+    /// spec would bind four enclave keys to a context that does not exist.
+    #[test]
+    fn provisioning_refuses_a_spec_that_does_not_match_its_own_digest() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let mut spec = independence_spec();
+        spec.independence_spec_digest = "f".repeat(64);
+        let store = unattended_store();
+
+        let refusal = provision_seats_into_store(store.as_ref(), &spec, &root)
+            .expect_err("a spec that misstates its own digest must refuse");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(
+            store.open("verifier-seat-alpha").is_err(),
+            "nothing may be minted before the spec is accepted"
+        );
+        assert!(!root.join(CEREMONY_STAGING_FILE).exists());
+    }
+
+    /// The counts are law (`IMMUTABLE_VERIFIER_SEATS = 4`,
+    /// `IMMUTABLE_FAILURE_DOMAINS = 3`), and they are checked before the first
+    /// key is minted rather than after four are already in the keychain.
+    #[test]
+    fn provisioning_refuses_a_spec_that_breaks_the_immutable_counts() {
+        let temp = TempDir::new().unwrap();
+        let spec = independence_spec();
+
+        let mut three_seats = spec.clone();
+        three_seats.core.voting_verifiers.pop();
+        three_seats.seal().unwrap();
+        let root = protected_root(&temp);
+        let store = unattended_store();
+        assert_eq!(
+            provision_seats_into_store(store.as_ref(), &three_seats, &root)
+                .expect_err("three seats is not the frozen four")
+                .code(),
+            "custody_ceremony_incomplete"
+        );
+        assert!(store.open("verifier-seat-alpha").is_err());
+
+        let mut two_domains = spec.clone();
+        let shared = two_domains.core.voting_verifiers[0].failure_domain.clone();
+        two_domains.core.voting_verifiers[2].failure_domain = shared.clone();
+        two_domains.core.voting_verifiers[3].failure_domain = shared;
+        two_domains.seal().unwrap();
+        let other_temp = TempDir::new().unwrap();
+        let other_root = protected_root(&other_temp);
+        let other_store = unattended_store();
+        assert_eq!(
+            provision_seats_into_store(other_store.as_ref(), &two_domains, &other_root)
+                .expect_err("two failure domains is below the frozen three")
+                .code(),
+            "custody_ceremony_incomplete"
+        );
+        assert!(other_store.open("verifier-seat-alpha").is_err());
+    }
+
+    /// The protected root is the owner's prerequisite, and the ceremony never
+    /// creates or relaxes it: a group-readable root refuses before the keychain
+    /// is touched.
+    #[test]
+    fn provisioning_refuses_a_protected_root_that_is_not_owner_only() {
+        let temp = TempDir::new().unwrap();
+        let loose = temp.path().join("loose-root");
+        fs::create_dir(&loose).unwrap();
+        fs::set_permissions(&loose, fs::Permissions::from_mode(0o755)).unwrap();
+        let store = unattended_store();
+
+        let refusal = provision_seats_into_store(store.as_ref(), &independence_spec(), &loose)
+            .expect_err("a 0755 protected root must refuse");
+        assert_eq!(refusal.code(), "custody_ceremony_protected_root_unusable");
+        assert!(store.open("verifier-seat-alpha").is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase B — the owner's biometric seat
+    // -----------------------------------------------------------------------
+
+    /// Phase B has nothing to attach to until Phase A ran. It refuses, naming the
+    /// verb that comes first.
+    #[test]
+    fn the_owner_seat_refuses_before_the_verifier_seats_exist() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let store = biometric_store();
+
+        let refusal = provision_owner_seat_into_store(store.as_ref(), &root)
+            .expect_err("phase B needs a staged phase A");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(
+            refusal.to_string().contains("provision-seats"),
+            "the refusal names the step the owner must run first: {refusal}"
+        );
+        assert!(store.open(CUSTODY_OWNER_BIOMETRIC_SEAT_KEY_ID).is_err());
+    }
+
+    /// The owner's seat is minted under the biometric class, carries the same
+    /// ceremony lineage as the voting seats, and is never one of them.
+    #[test]
+    fn the_owner_seat_is_staged_under_its_own_key_and_never_votes() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let unattended = unattended_store();
+        let biometric = biometric_store();
+
+        provision_seats_into_store(unattended.as_ref(), &spec, &root).unwrap();
+        let staged = provision_owner_seat_into_store(biometric.as_ref(), &root).unwrap();
+
+        let owner_key = staged
+            .owner_biometric_seat_public_key
+            .as_deref()
+            .expect("the owner seat is staged");
+        assert_eq!(owner_key.len(), 130);
+        assert!(owner_key.starts_with("04"));
+        assert!(
+            staged
+                .verifier_seats
+                .iter()
+                .all(|seat| seat.public_key != owner_key),
+            "owner_signature is never a voting quorum seat (G9-CUSTODY-CEREMONY.md §2 step 4)"
+        );
+        assert_eq!(
+            staged.verifier_seats.len(),
+            4,
+            "phase B must not disturb the seats phase A staged"
+        );
+        assert_eq!(staged_on_disk(&root), staged);
+        assert!(!sealed_slot(&root).exists());
+    }
+
+    /// Re-running Phase B refuses too: the owner's seat is minted once per
+    /// ceremony, and a second mint would silently orphan the first key.
+    #[test]
+    fn the_owner_seat_refuses_a_second_run() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let unattended = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &unattended, &biometric);
+
+        let refusal = provision_owner_seat_into_store(biometric.as_ref(), &root)
+            .expect_err("the owner's seat is minted once");
+        assert_eq!(refusal.code(), "custody_ceremony_seats_already_staged");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase C — seal only over a COMPLETE ceremony
+    // -----------------------------------------------------------------------
+
+    /// Every incomplete shape refuses, each naming the exact missing piece, and
+    /// none of them leaves a ceremony slot behind — a half-sealed custody root is
+    /// worse than an unsealed one, because it looks finished.
+    #[test]
+    fn sealing_an_incomplete_ceremony_refuses_and_names_what_is_missing() {
+        let spec = independence_spec();
+
+        // 1. Nothing staged at all.
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let refusal = seal_with_store(
+            unattended_store(),
+            &spec,
+            CONSTITUTION_DIGEST,
+            &root,
+            SEAL_CLOCK_MS,
+        )
+        .expect_err("an unstaged ceremony cannot seal");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(refusal.to_string().contains("provision-seats"));
+        assert!(!sealed_slot(&root).exists());
+
+        // 2. Phase A ran, phase B did not.
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let store = unattended_store();
+        provision_seats_into_store(store.as_ref(), &spec, &root).unwrap();
+        let refusal = seal_with_store(
+            Arc::clone(&store),
+            &spec,
+            CONSTITUTION_DIGEST,
+            &root,
+            SEAL_CLOCK_MS,
+        )
+        .expect_err("a ceremony without the owner's seat cannot seal");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(
+            refusal.to_string().contains("owner-seat"),
+            "the refusal names the missing step: {refusal}"
+        );
+        assert!(!sealed_slot(&root).exists());
+
+        // 3. A staged file that lost a seat.
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+        let mut staged = staged_on_disk(&root);
+        staged.verifier_seats.pop();
+        fs::write(
+            root.join(CEREMONY_STAGING_FILE),
+            serde_json::to_vec(&staged).unwrap(),
+        )
+        .unwrap();
+        let refusal = seal_with_store(
+            Arc::clone(&store),
+            &spec,
+            CONSTITUTION_DIGEST,
+            &root,
+            SEAL_CLOCK_MS,
+        )
+        .expect_err("three seats cannot seal");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(
+            refusal.to_string().contains("found 3"),
+            "the refusal counts what it found: {refusal}"
+        );
+        assert!(!sealed_slot(&root).exists());
+
+        // 4. A staged file that lost its sealing seat.
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+        let mut staged = staged_on_disk(&root);
+        staged.sealing_seat = None;
+        fs::write(
+            root.join(CEREMONY_STAGING_FILE),
+            serde_json::to_vec(&staged).unwrap(),
+        )
+        .unwrap();
+        let refusal = seal_with_store(store, &spec, CONSTITUTION_DIGEST, &root, SEAL_CLOCK_MS)
+            .expect_err("no sealing seat, no seal");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+        assert!(!sealed_slot(&root).exists());
+    }
+
+    /// The constitution digest is sealed into the receipt as a fact about the
+    /// owner's constitution. A value that is not a lowercase sha-256 digest is
+    /// refused rather than sealed — the receipt is the record, and a malformed
+    /// record is a false one.
+    #[test]
+    fn sealing_refuses_a_constitution_digest_that_is_not_a_digest() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+
+        for candidate in ["", "not-a-digest", &"A".repeat(64), &"a".repeat(63)] {
+            let refusal =
+                seal_with_store(Arc::clone(&store), &spec, candidate, &root, SEAL_CLOCK_MS)
+                    .expect_err("a malformed constitution digest must refuse");
+            assert_eq!(refusal.code(), "custody_ceremony_receipt_invalid");
+            assert!(!sealed_slot(&root).exists());
+        }
+    }
+
+    /// The sealing key resolved from the keychain must be the one the ceremony
+    /// provisioned. A key swapped under the label after Phase A would otherwise
+    /// seal the ceremony in the name of a seat nobody minted.
+    #[test]
+    fn sealing_refuses_when_the_sealing_key_is_not_the_one_provisioned() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+
+        let mut staged = staged_on_disk(&root);
+        let sealing = staged.sealing_seat.as_mut().unwrap();
+        sealing.public_key = format!("04{}", "b".repeat(128));
+        fs::write(
+            root.join(CEREMONY_STAGING_FILE),
+            serde_json::to_vec(&staged).unwrap(),
+        )
+        .unwrap();
+
+        let refusal = seal_with_store(store, &spec, CONSTITUTION_DIGEST, &root, SEAL_CLOCK_MS)
+            .expect_err("a swapped sealing key must refuse");
+        assert_eq!(refusal.code(), "custody_ceremony_receipt_invalid");
+        assert!(!sealed_slot(&root).exists());
+    }
+
+    /// A seat set that does not match the spec presented at seal time refuses.
+    /// This is `bind_independence_spec` doing its job: the seats are sealed
+    /// BEFORE any quorum vote is counted, so they must be the constitution's own.
+    #[test]
+    fn sealing_refuses_a_spec_whose_seats_are_not_the_provisioned_ones() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+
+        let mut other = spec.clone();
+        other.core.voting_verifiers[0].key_id = "a-seat-nobody-minted".to_owned();
+        other.seal().unwrap();
+        let refusal = seal_with_store(store, &other, CONSTITUTION_DIGEST, &root, SEAL_CLOCK_MS)
+            .expect_err("the sealed seats must be the spec's voting seats");
+        assert_eq!(refusal.code(), "custody_ceremony_receipt_invalid");
+        assert!(!sealed_slot(&root).exists());
+    }
+
+    /// The whole path: a complete ceremony seals, the receipt carries exactly
+    /// what `G9-CUSTODY-CEREMONY.md` §3 names, the staging file is gone, and the
+    /// receipt is read back through the SAME root-opening function `assemble`
+    /// uses — so "assemble consumes what seal wrote" holds by construction.
+    #[test]
+    fn a_complete_ceremony_seals_and_the_assemble_seam_reads_it_back() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+        let staged = staged_on_disk(&root);
+
+        let receipt = seal_with_store(
+            Arc::clone(&store),
+            &spec,
+            CONSTITUTION_DIGEST,
+            &root,
+            SEAL_CLOCK_MS,
+        )
+        .expect("a complete ceremony seals");
+
+        receipt.validate().expect("the sealed receipt validates");
+        assert_eq!(receipt.custody_floor, SECURE_ENCLAVE_CUSTODY_FLOOR_V1);
+        assert_eq!(
+            receipt.independence_spec_digest,
+            spec.independence_spec_digest
+        );
+        assert_eq!(receipt.constitution_digest, CONSTITUTION_DIGEST);
+        assert_eq!(receipt.sealed_at, SEAL_CLOCK_MS);
+        assert_eq!(
+            receipt.attestation,
+            crate::enclave_authority::CustodyAttestationDistinctionV1::secure_enclave_single_host(),
+            "the receipt states what the enclave really provides and what it does not"
+        );
+        for (sealed, staged_seat) in receipt.verifier_seats.iter().zip(&staged.verifier_seats) {
+            assert_eq!(sealed.principal_id, staged_seat.principal_id);
+            assert_eq!(sealed.key_id, staged_seat.key_id);
+            assert_eq!(sealed.failure_domain, staged_seat.failure_domain);
+            assert_eq!(sealed.public_key, staged_seat.public_key);
+            assert_eq!(
+                sealed.bound_context_digest,
+                staged_seat.bound_context_digest
+            );
+        }
+        assert_eq!(
+            Some(receipt.owner_biometric_seat_public_key.clone()),
+            staged.owner_biometric_seat_public_key
+        );
+        receipt
+            .bind_independence_spec(&spec)
+            .expect("the sealed seats bind to the constitution's voting seats");
+
+        assert!(sealed_slot(&root).exists(), "the sealed receipt landed");
+        assert!(
+            !root.join(CEREMONY_STAGING_FILE).exists(),
+            "a completed ceremony leaves only the sealed receipt behind"
+        );
+
+        // THE SEAM: re-open the ceremony root exactly as `assemble` does and read
+        // the receipt back.
+        let (ceremony_root, _verification_key, _signer) =
+            open_ceremony_root(store, &root).expect("assemble opens the same root");
+        assert_eq!(
+            ceremony_root.read_custody_ceremony().unwrap(),
+            Some(receipt),
+            "assemble reads back exactly the ceremony seal wrote"
+        );
+    }
+
+    /// Sealing twice refuses: the ceremony's staging file is consumed by the
+    /// first seal, so a second run has nothing complete to seal and says so.
+    #[test]
+    fn sealing_twice_refuses_rather_than_resealing() {
+        let temp = TempDir::new().unwrap();
+        let root = protected_root(&temp);
+        let spec = independence_spec();
+        let store = unattended_store();
+        let biometric = biometric_store();
+        stage_a_complete_ceremony(&root, &spec, &store, &biometric);
+        seal_with_store(
+            Arc::clone(&store),
+            &spec,
+            CONSTITUTION_DIGEST,
+            &root,
+            SEAL_CLOCK_MS,
+        )
+        .unwrap();
+
+        let refusal = seal_with_store(store, &spec, CONSTITUTION_DIGEST, &root, SEAL_CLOCK_MS)
+            .expect_err("a consumed ceremony cannot be re-sealed");
+        assert_eq!(refusal.code(), "custody_ceremony_incomplete");
+    }
+}
