@@ -56,13 +56,11 @@ exec /usr/bin/bwrap "${args[@]}"
     }
 }
 
-/// Resolve `--attach auto` to a concrete owner base URL by discovering the live
-/// serve ReadWrite owner for this client's runtime_root.
+/// Resolve the runtime_root `--attach auto`'s FIRST discovery question asks about.
 ///
-/// The runtime_root is computed with the SAME rule the owner uses
-/// (`session.rs` runtime-root default): explicit `--runtime-dir` if given, else
-/// the parent directory of `--graph` if given, else the current working dir. The
-/// discovery itself is read-only and takes NO lease.
+/// Computed with the SAME rule the owner uses (`session.rs` runtime-root
+/// default): explicit `--runtime-dir` if given, else the parent directory of
+/// `--graph` if given, else the current working dir.
 #[cfg(feature = "serve")]
 fn resolve_attach_runtime_root(cli: &Cli) -> Result<PathBuf, String> {
     if let Some(dir) = &cli.runtime_dir {
@@ -99,30 +97,68 @@ fn resolve_attach_runtime_root(cli: &Cli) -> Result<PathBuf, String> {
     std::env::current_dir().map_err(|error| format!("cannot read current dir: {error}"))
 }
 
+/// Resolve `--attach auto` to a concrete owner: first the live serve ReadWrite
+/// owner for this client's runtime_root, and failing that the live serve owner
+/// whose declared ingest roots COVER this caller's repo. Both passes are pure
+/// read-only registry inspection and take NO lease.
+///
+/// The caller root comes from `attach_client::resolve_caller_root` — the same
+/// resolution the bridge will stamp as the hop-2 `M1nd-Caller-Root` header, so
+/// the client cannot pick an owner by one root and introduce itself with another.
 #[cfg(feature = "serve")]
-fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
-    let runtime_root = resolve_attach_runtime_root(cli)?;
+fn resolve_attach_auto(cli: &Cli) -> Result<m1nd_mcp::instance_registry::DiscoveredOwner, String> {
+    use m1nd_mcp::instance_registry::OwnerDiscovery;
 
+    let runtime_root = resolve_attach_runtime_root(cli)?;
     let registry_dir = cli.registry_dir.as_ref().map(PathBuf::from);
+    let caller_root = m1nd_mcp::attach_client::resolve_caller_root().map(PathBuf::from);
 
     eprintln!(
-        "[m1nd-mcp][attach] auto-discovery: runtime_root={}",
-        runtime_root.display()
+        "[m1nd-mcp][attach] auto-discovery: runtime_root={} caller_root={}",
+        runtime_root.display(),
+        caller_root
+            .as_deref()
+            .map(|root| root.display().to_string())
+            .unwrap_or_else(|| "<unresolved>".to_string())
     );
 
-    let url = m1nd_mcp::instance_registry::discover_serve_owner_base_url(
+    let owner = m1nd_mcp::instance_registry::discover_serve_owner(
         &runtime_root,
+        caller_root.as_deref(),
         registry_dir.as_deref(),
     )?;
-    eprintln!("[m1nd-mcp][attach] auto-discovery resolved owner: {url}");
-    Ok(url)
+    match &owner.discovery {
+        OwnerDiscovery::RuntimeRoot => eprintln!(
+            "[m1nd-mcp][attach] auto-discovery resolved owner: {} (owns this runtime_root)",
+            owner.base_url
+        ),
+        OwnerDiscovery::IngestCoverage { declared_root, .. } => eprintln!(
+            "[m1nd-mcp][attach] auto-discovery resolved owner: {} (declares ingest root {declared_root}, runtime_root {})",
+            owner.base_url,
+            owner.runtime_root.display()
+        ),
+    }
+    Ok(owner)
 }
 
 /// Resolve the owner-local HTTP transport credential without creating or
 /// rotating it. Explicit raw/file overrides support managed launchers; otherwise
-/// attach reads the token beside the exact runtime root used for owner discovery.
+/// attach reads the token beside the runtime root of the owner it is about to
+/// speak to.
+///
+/// `owner_runtime_root` is THE OWNER's, handed back by discovery — not the
+/// client's. The second discovery question resolves owners whose runtime root
+/// differs from the client's, and each owner's token lives in its OWN runtime
+/// root (`LocalHttpSecurity::load_or_create`), so falling back to the client's
+/// would read the wrong credential or none at all. It is derived at runtime from
+/// the registry entry; no personal path is ever compiled in. Falls back to the
+/// client's runtime root only when no owner was discovered (an explicit
+/// `--attach <url>` or `M1ND_ATTACH_URL`), which is the historical behavior.
 #[cfg(feature = "serve")]
-fn resolve_attach_bearer_token(cli: &Cli) -> Result<String, String> {
+fn resolve_attach_bearer_token(
+    cli: &Cli,
+    owner_runtime_root: Option<&std::path::Path>,
+) -> Result<String, String> {
     if let Ok(token) = std::env::var("M1ND_HTTP_BEARER_TOKEN") {
         let token = token.trim();
         if token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -136,7 +172,11 @@ fn resolve_attach_bearer_token(cli: &Cli) -> Result<String, String> {
         }
         PathBuf::from(path)
     } else {
-        resolve_attach_runtime_root(cli)?.join(m1nd_mcp::http_security::HTTP_AUTH_TOKEN_FILE_NAME)
+        let root = match owner_runtime_root {
+            Some(root) => root.to_path_buf(),
+            None => resolve_attach_runtime_root(cli)?,
+        };
+        root.join(m1nd_mcp::http_security::HTTP_AUTH_TOKEN_FILE_NAME)
     };
     m1nd_mcp::http_security::read_existing_bearer_token(&token_path).map_err(|error| {
         format!(
@@ -885,36 +925,42 @@ async fn main() {
         {
             // Resolve the owner base URL. Precedence:
             //   1. env M1ND_ATTACH_URL  — explicit override, always wins.
-            //   2. `--attach auto`      — discover the live serve ReadWrite owner
-            //                             for this runtime_root via the registry
-            //                             (read-only, NO lease).
+            //   2. `--attach auto`      — discover the live serve owner via the
+            //                             registry (read-only, NO lease): first by
+            //                             this runtime_root, then by which owner
+            //                             has ingested this caller's repo.
             //   3. `--attach <url>`     — use the literal URL verbatim.
-            let base_url = match std::env::var("M1ND_ATTACH_URL") {
+            //
+            // Only the auto path knows the owner's OWN runtime root, which is
+            // where that owner's bearer token lives; the two explicit paths name a
+            // URL and nothing more, so they keep the historical token fallback.
+            let (base_url, owner_runtime_root) = match std::env::var("M1ND_ATTACH_URL") {
                 Ok(url) if !url.trim().is_empty() => {
                     eprintln!(
                         "[m1nd-mcp][attach] using M1ND_ATTACH_URL override: {}",
                         url.trim()
                     );
-                    url.trim().to_string()
+                    (url.trim().to_string(), None)
                 }
                 _ if attach_arg.trim().eq_ignore_ascii_case("auto") => {
                     match resolve_attach_auto(&cli) {
-                        Ok(url) => url,
+                        Ok(owner) => (owner.base_url, Some(owner.runtime_root)),
                         Err(msg) => {
                             eprintln!("[m1nd-mcp][attach] auto-discovery failed: {msg}");
                             std::process::exit(1);
                         }
                     }
                 }
-                _ => attach_arg,
+                _ => (attach_arg, None),
             };
-            let bearer_token = match resolve_attach_bearer_token(&cli) {
-                Ok(token) => token,
-                Err(message) => {
-                    eprintln!("[m1nd-mcp][attach] authentication setup failed: {message}");
-                    std::process::exit(1);
-                }
-            };
+            let bearer_token =
+                match resolve_attach_bearer_token(&cli, owner_runtime_root.as_deref()) {
+                    Ok(token) => token,
+                    Err(message) => {
+                        eprintln!("[m1nd-mcp][attach] authentication setup failed: {message}");
+                        std::process::exit(1);
+                    }
+                };
             m1nd_mcp::attach_client::run_attach_client(base_url, bearer_token).await;
             return;
         }

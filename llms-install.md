@@ -155,8 +155,10 @@ m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
 { "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "auto", "--stdio"] } } }
 ```
 
-`--attach auto` auto-discovers the live owner for this runtime by its lease — no hardcoded
-port (the default is 1337, but an existing owner may serve elsewhere, e.g. 1338). Pass an
+`--attach auto` auto-discovers the live owner — no hardcoded port (the default is 1337, but
+an existing owner may serve elsewhere, e.g. 1338). It looks for an owner of this runtime
+first and, failing that, for a live owner that has already **ingested the repo you are
+working in**, so a central always-on owner is found from inside its own projects. Pass an
 explicit `http://127.0.0.1:<port>` to pin it, or `M1ND_ATTACH_URL` to override both. See
 README → *One graph, many agents*, and [`docs/deployment.md`](docs/deployment.md) for the
 always-on launchd/systemd owner.
