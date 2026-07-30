@@ -156,6 +156,8 @@ When m1nd restarts, `import_state` restores learned weights. Edge identity match
 
 Weights are clamped to `[weight_floor, weight_cap]` on import. Invalid JSON triggers a schema validation error (FM-PL-007) rather than corrupting the graph.
 
+The restore lands in **both** plasticity engines — the server's own and the orchestrator engine that `activate`/`query` strengthen through. They share the graph's weights but each stamps recency from its own query counter, so restoring only one would leave the counter that live queries use at zero and mis-date the first strengthening after a restart. Both boot paths (strict and friendly) import into both engines.
+
 ### Persistence frequency
 
 The graph auto-persists every 50 queries and on server shutdown. This is a balance between durability (don't lose too much learning) and disk I/O (don't write on every query).
