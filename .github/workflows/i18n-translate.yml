@@ -44,10 +44,8 @@ jobs:
           for code in "${!LANGS[@]}"; do
             lang="${LANGS[$code]}"
             echo "translating -> $code ($lang)"
-            jq -n --arg sys "$SYSTEM_PROMPT" \
-                  --arg usr "Translate the following README into $lang:
-
-$(cat README.md)" \
+            { echo "Translate the following README into $lang:"; echo; cat README.md; } > /tmp/user.txt
+            jq -n --arg sys "$SYSTEM_PROMPT" --rawfile usr /tmp/user.txt \
                   '{model: "openai/gpt-4o", max_tokens: 14000, messages: [{role:"system",content:$sys},{role:"user",content:$usr}]}' \
               > /tmp/req.json
             for attempt in 1 2 3; do
