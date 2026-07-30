@@ -110,10 +110,12 @@ fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
         runtime_root.display()
     );
 
-    let url = m1nd_mcp::instance_registry::discover_serve_owner_base_url(
+    let owner = m1nd_mcp::instance_registry::discover_serve_owner(
         &runtime_root,
+        None,
         registry_dir.as_deref(),
     )?;
+    let url = owner.base_url;
     eprintln!("[m1nd-mcp][attach] auto-discovery resolved owner: {url}");
     Ok(url)
 }

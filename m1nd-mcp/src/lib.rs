@@ -259,6 +259,11 @@ mod ui_bundle_attestation_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/spec1_refresh_declared_root.rs"]
 mod spec1_refresh_declared_root_internal_tests;
+// `--attach auto`'s SECOND discovery question ("is there a live owner that has
+// INGESTED my repo?"), written before the second pass existed.
+#[cfg(test)]
+#[path = "internal_tests/attach_auto_ingest_coverage.rs"]
+mod attach_auto_ingest_coverage_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

@@ -1385,31 +1385,66 @@ pub fn entry_base_url(entry: &InstanceRegistryEntry) -> Option<String> {
     Some(format!("http://{}:{}", host, port))
 }
 
+/// Which discovery question found the owner an `--attach auto` client resolved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OwnerDiscovery {
+    /// Question 1 — a live serve owner whose `runtime_root` IS the client's.
+    RuntimeRoot,
+    /// Question 2 — a live serve owner whose declared roots COVER the caller's
+    /// repo. `declared_root` is the owner root that covered it; `caller_root` is
+    /// the root actually compared (canonical, worktree-resolved).
+    IngestCoverage {
+        declared_root: String,
+        caller_root: String,
+    },
+}
+
+/// The owner `--attach auto` resolved, and how it was found.
+#[derive(Clone, Debug)]
+pub struct DiscoveredOwner {
+    /// Reachable base URL, e.g. `http://127.0.0.1:1338`.
+    pub base_url: String,
+    /// The OWNER's own runtime root — NOT necessarily the client's. This is the
+    /// directory that holds its `http-auth-token-v1`, so the attach bridge can
+    /// authenticate against an owner it does not share a runtime root with.
+    pub runtime_root: PathBuf,
+    /// Which question answered.
+    pub discovery: OwnerDiscovery,
+}
+
+/// True when this entry is an attachable live serve ReadWrite owner: the four
+/// gates `--attach auto` has always applied, in one place so both discovery
+/// questions can never drift apart.
+fn is_attachable_serve_owner(entry: &InstanceRegistryEntry) -> bool {
+    InstanceMode::from_str(&entry.mode) == InstanceMode::ReadWrite
+        && entry.owner_live == Some(true)
+        && !entry.stale
+        // Serve gate: stdio-only owners publish no bind/port and are unreachable.
+        && entry_base_url(entry).is_some()
+}
+
 /// Read-only discovery for the `--attach auto` thin client.
-///
-/// Given the caller's `runtime_root` (e.g. the cwd or an explicit `--runtime-dir`),
-/// find the freshest live ReadWrite owner that is actually serving HTTP for that
-/// runtime_root and return its base URL (e.g. `http://127.0.0.1:1337`).
 ///
 /// This is PURE read-only registry inspection: it calls `list_instances` (which
 /// only reads `instances/*.json`) and NEVER `acquire`/`acquire_with_mode`, so it
 /// takes no lease and never contends the owner's exclusive PID+heartbeat lock.
 ///
-/// Matching mirrors `acquire_with_mode`'s persistence exactly:
+/// Question 1 — "is there a live serve owner for MY runtime_root?" Matching
+/// mirrors `acquire_with_mode`'s persistence exactly:
 ///   * the target `runtime_root` is canonicalized with the same `canonicalish`
 ///     semantics the owner used before writing `entry.runtime_root`, so the
 ///     string comparison lines up on macOS (`/tmp` → `/private/tmp`, symlinks…);
 ///   * only `mode == read_write`, `owner_live == Some(true)`, `stale == false`
-///     entries that ALSO publish `bind`+`port` (the serve gate) survive;
+///     entries that ALSO publish `bind`+`port` survive;
 ///   * with multiple survivors the freshest by `last_heartbeat_ms` wins
 ///     (`list_instances` already sorts descending, so the first survivor is it).
-///
-/// On no match returns `Err(message)` distinguishing "no instances at all" from
-/// "instances exist but none is a live serve ReadWrite owner for this runtime_root".
-pub fn discover_serve_owner_base_url(
+pub fn discover_serve_owner(
     runtime_root: &Path,
+    caller_root: Option<&Path>,
     registry_dir: Option<&Path>,
-) -> Result<String, String> {
+) -> Result<DiscoveredOwner, String> {
+    let _ = caller_root;
+
     // Canonicalize the target identically to how the owner stored it.
     let target = canonicalish(runtime_root)
         .map(|p| p.to_string_lossy().into_owned())
@@ -1424,21 +1459,16 @@ pub fn discover_serve_owner_base_url(
         ));
     }
 
-    // `list_instances` is already sorted freshest-first by last_heartbeat_ms, so
-    // the FIRST entry that passes every gate is the freshest serve owner.
     for entry in &entries {
-        if entry.runtime_root != target {
+        if entry.runtime_root != target || !is_attachable_serve_owner(entry) {
             continue;
         }
-        if InstanceMode::from_str(&entry.mode) != InstanceMode::ReadWrite {
-            continue;
-        }
-        if entry.owner_live != Some(true) || entry.stale {
-            continue;
-        }
-        // Serve gate: stdio-only owners publish no bind/port and are unreachable.
-        if let Some(url) = entry_base_url(entry) {
-            return Ok(url);
+        if let Some(base_url) = entry_base_url(entry) {
+            return Ok(DiscoveredOwner {
+                base_url,
+                runtime_root: PathBuf::from(&entry.runtime_root),
+                discovery: OwnerDiscovery::RuntimeRoot,
+            });
         }
     }
 
