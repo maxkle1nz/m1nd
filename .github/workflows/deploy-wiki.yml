@@ -43,11 +43,26 @@ jobs:
       #   actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  (v6.0.0)
       #   actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  (v5.0.0)
       #   actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  (v5.0.0)
-      # The mdbook/mdbook-mermaid item in the old TODO is not applicable: the wiki
-      # is pre-built and version-controlled under wiki-build/, so no cargo install
-      # runs in CI at all. The artifact is assembled here, in the unprivileged job,
-      # so the privileged deploy below still checks nothing out and runs no scripts.
-      - name: Assemble the Pages artifact (site + pre-built wiki)
+      # The wiki is NOT version-controlled pre-built (book.toml emits ../../wiki-build,
+      # which is ignored), so CI builds it with the same mdbook toolchain the book was
+      # authored against: release binaries pinned by version AND sha256, verified before
+      # extraction. Everything runs in this unprivileged job; the privileged deploy
+      # below still checks nothing out and runs no scripts.
+      - name: Install the pinned mdbook toolchain (checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o mdbook.tar.gz https://github.com/rust-lang/mdBook/releases/download/v0.5.0/mdbook-v0.5.0-x86_64-unknown-linux-gnu.tar.gz
+          echo "4a00aa3fc44cee2721efb7b9b7b599877f28360967f8dfaa61ee2990f2736f77  mdbook.tar.gz" | sha256sum -c -
+          curl -sSL -o mdbook-mermaid.tar.gz https://github.com/badboy/mdbook-mermaid/releases/download/v0.17.0/mdbook-mermaid-v0.17.0-x86_64-unknown-linux-gnu.tar.gz
+          echo "8aced70d781830fb0e81988f081c4abdd49e056a001ae2f1e4d484e1f6385c57  mdbook-mermaid.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf mdbook.tar.gz -C "$HOME/.local/bin" mdbook
+          tar -xzf mdbook-mermaid.tar.gz -C "$HOME/.local/bin" mdbook-mermaid
+          rm mdbook.tar.gz mdbook-mermaid.tar.gz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build the wiki
+        run: mdbook build docs/wiki
+      - name: Assemble the Pages artifact (site + wiki)
         run: |
           mkdir -p _site
           cp -R m1nd-demo/dist/. _site/
