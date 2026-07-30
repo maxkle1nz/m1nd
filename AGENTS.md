@@ -50,6 +50,12 @@ cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
 - Never hold long-lived lock files opened with `share_mode(0)` — read-only tree snapshots then
   die with sharing violations (os error 32). Share reads (`FILE_SHARE_READ`); write access stays
   unshared so single-owner collision detection is unchanged.
+- Never rename or remove a directory tree while something inside it is still open. Unix moves a
+  tree out from under live handles; Windows refuses with the same os error 32. A live brain holds
+  a checkpoint-store directory handle, writer lock and leases under its own store dir, so quiesce
+  it first (`ProjectBrainRegistry::shutdown` — pause, checkpoint+ACK, stop the actor, release the
+  instance, drop the cell) and move the bytes only once nobody holds them. A live `ReadDir` counts
+  too: scope it so its handle is closed before the removal.
 - Never screen operator-supplied paths with `Path::is_absolute` alone — `"/x"`, `"\x"` and
   `"C:\x"` are not absolute under the other OS's semantics. Use the shared helpers
   (`is_safe_relative_discovery_pattern`, `m1nd_ingest::exact_path_identity`) so security screens

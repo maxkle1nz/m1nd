@@ -223,6 +223,19 @@ const BIRTH_DESTINATION_ARTIFACTS: &[&str] = &[
 /// and swept on every birth.
 const BIRTH_STAGING_PREFIX: &str = ".birth-staging-";
 
+/// How long the commit waits for the staged brain to quiesce before it gives up
+/// and refuses the birth.
+///
+/// The number is this caller's tolerance for a slow machine, never the
+/// guarantee: a healthy quiesce returns the instant the last checkpoint ACK
+/// lands and pays nothing for the headroom, while a genuinely stuck checkpoint
+/// still fails closed. It is generous on purpose — the registry's own lifecycle
+/// fixtures measured a five-second grace turning into rotating red on a loaded
+/// two-core runner doing real embedding-cache and checkpoint I/O
+/// (`TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE`, `project_brains.rs`), and a birth is
+/// a one-time human gesture that should wait rather than fail on a busy box.
+const BIRTH_STAGING_QUIESCE_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Rebuild one artifact path component by component, so the `/` in the table
 /// above is a path separator on every platform rather than a literal in a
 /// filename on Windows.
@@ -331,12 +344,14 @@ impl Drop for StagingDir {
 ///
 /// THE SHAPE, and why it is this shape. Every guard runs before anything durable
 /// exists, and the brain itself is built in a STAGING directory the routing seam
-/// cannot see. The destination then appears in exactly ONE step — a directory
-/// `rename` within the registry's own base dir, hence the same filesystem, hence
-/// atomic. So a `kill -9` at any instant leaves the destination ABSENT or WHOLE:
-/// there is no window in which a half-built store sits where a later boot would
-/// warm-boot it. That is §5.8's birth half, and it is a property of the shape
-/// rather than of a recovery routine that has to run and could fail to.
+/// cannot see. The staged brain is then brought to a stop, so the bytes about to
+/// move belong to nobody. The destination then appears in exactly ONE step — a
+/// directory `rename` within the registry's own base dir, hence the same
+/// filesystem, hence atomic. So a `kill -9` at any instant leaves the
+/// destination ABSENT or WHOLE: there is no window in which a half-built store
+/// sits where a later boot would warm-boot it. That is §5.8's birth half, and it
+/// is a property of the shape rather than of a recovery routine that has to run
+/// and could fail to.
 ///
 /// The mint itself is NOT rebuilt. `ProjectBrainRegistry::bootstrap` already
 /// mints, ingests, writes the birth record and checkpoints; pointing a second
@@ -473,11 +488,27 @@ pub fn run_birth(
         "agent_id": request.agent_id,
         "include_dotfiles": request.include_dotfiles,
     });
-    let (_brain, ingest_result, reused) = staging_registry.bootstrap(&key, &ingest_args)?;
-    debug_assert!(!reused, "a staging registry can never reuse a brain");
     let staged_store = staging_registry.store_dir_for(&key);
+    let (brain, ingest_result, reused) = staging_registry.bootstrap(&key, &ingest_args)?;
+    debug_assert!(!reused, "a staging registry can never reuse a brain");
 
-    // 8. COMMIT: one rename, within one base dir, therefore one filesystem,
+    // 8. QUIESCE. A newly bootstrapped brain is LIVE: its actor holds a
+    //    checkpoint store rooted inside the staged directory, and that store
+    //    keeps a directory handle plus its writer lock and leases open for as
+    //    long as the brain exists. Renaming a tree with open handles is legal on
+    //    Unix and refused on Windows (`ERROR_SHARING_VIOLATION`, os error 32),
+    //    so a birth that skips this step is a birth that only ever worked on
+    //    two of the three CI legs. The registry's own graceful stop is what
+    //    releases them — pause, checkpoint with an ACK, stop the actor, release
+    //    the hosted instance entry, drop the cell — so the staged store is inert
+    //    bytes before anything moves it. Our own reference goes first, so the
+    //    stop below is the last holder; a failure to quiesce refuses the birth
+    //    rather than committing a store something is still writing to.
+    drop(brain);
+    staging_registry.shutdown(BIRTH_STAGING_QUIESCE_GRACE)?;
+    drop(staging_registry);
+
+    // 9. COMMIT: one rename, within one base dir, therefore one filesystem,
     //    therefore atomic. Before this instant the destination does not exist;
     //    after it, it is whole. There is no third state to crash into.
     if let Some(parent) = store.parent() {
