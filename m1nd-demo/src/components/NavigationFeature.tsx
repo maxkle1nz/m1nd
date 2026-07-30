@@ -6,7 +6,7 @@ const CYAN  = "#00f5ff";
 const GREEN = "#00ff88";
 const AMBER = "#ffb700";
 
-/* ── Graph data — percentage positions (0-100) in the visual area ── */
+/* ── Graph data: percentage positions (0-100) in the visual area ── */
 const NODES = [
   { id: 0, px: 12, py: 50, label: "db/queries.ts",     sub: "query(sql)",    color: AMBER, side: "above" as const },
   { id: 1, px: 36, py: 50, label: "api/handler.ts",     sub: "handle(req)",   color: CYAN,  side: "below" as const },
@@ -141,7 +141,7 @@ function TraceScene({ step }: { step: number }) {
   return (
     <div className="relative w-full h-full overflow-hidden" style={{ background: "#050510" }}>
 
-      {/* SVG layer — only draws edges */}
+      {/* SVG layer: only draws edges */}
       <svg
         className="absolute inset-0"
         width="100%" height="100%"
@@ -192,7 +192,7 @@ function TraceScene({ step }: { step: number }) {
         <NodeDot key={n.id} n={n} active={nodeActive(n.id, step)} />
       ))}
 
-      {/* Traveling particle (HTML div — perfectly circular, CSS glow) */}
+      {/* Traveling particle (HTML div: perfectly circular, CSS glow) */}
       <motion.div
         style={{
           position: "absolute",
@@ -249,7 +249,7 @@ export function NavigationFeature() {
     <FeatureSection
       title="Trace Any Path Through the Codebase"
       subtitle="Deep Navigation"
-      description="Ask m1nd to trace the full call path from database layer to client hook — crossing 4 architectural boundaries in a single call. Every hop is a typed graph edge. No import parsing, no file reading — just the graph."
+      description="Ask m1nd to trace the full call path from database layer to client hook, crossing 4 architectural boundaries in a single call. Every hop is a typed graph edge. No import parsing, no file reading. Just the graph."
       align="right"
     >
       <div

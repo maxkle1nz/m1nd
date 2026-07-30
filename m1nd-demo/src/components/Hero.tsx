@@ -93,23 +93,22 @@ export function Hero() {
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="max-w-4xl"
         >
-          <div className="inline-flex items-center gap-2 sm:gap-3 rounded-full border border-primary/30 bg-primary/10 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-mono text-primary mb-8">
-            <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-primary animate-pulse" />
-            <span className="whitespace-nowrap">Built for agents first. Humans are welcome.</span>
-            <span className="hidden sm:block h-3 w-px flex-shrink-0 bg-primary/30" />
-            <span className="hidden sm:block text-primary/60 whitespace-nowrap">before · during · after</span>
+          <div className="font-mono text-[11px] sm:text-xs mb-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <span style={{ color: "#00f5ffb0" }}>north("harden the auth flow")</span>
+            <span style={{ color: "#00f5ff40" }}>→</span>
+            <span style={{ color: "#ffffff50" }}>trust: full_trust · memory: prior session · honest_gaps: 0</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            The shell around
+            Memory that knows
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              your coding agent.
+              when it's wrong.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            m1nd is the operating loop your agent lives inside. It is oriented <strong className="text-foreground/90 font-semibold">before</strong> it acts — the map, past memory, and what it does <em className="text-foreground/80 not-italic">not</em> know. It wears honest verdicts <strong className="text-foreground/90 font-semibold">during</strong> — act, reverify, or abstain, because <span className="text-primary/90">"insufficient evidence" is a real answer</span>. It memorizes with evidence <strong className="text-foreground/90 font-semibold">after</strong>, so the next session — on any host — starts ahead.
+            m1nd gives your coding agent a live graph of your codebase, on your machine. Every answer carries a verdict: <strong className="text-foreground/90 font-semibold">act</strong>, <strong className="text-foreground/90 font-semibold">reverify</strong>, or <strong className="text-foreground/90 font-semibold">abstain</strong>, because <span className="text-primary/90">"insufficient evidence" is a real answer</span>. Memory is anchored to the code it cites, so when the code moves on, the memory flags itself instead of quietly lying.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -118,9 +117,14 @@ export function Hero() {
                 Install the MCP server
               </button>
             </a>
-            <Link href="/use-cases" className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
-              See where it fits →
-            </Link>
+            <a
+              href="https://github.com/maxkle1nz/m1nd#when-not-to-use-m1nd"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium"
+            >
+              Read the limits first →
+            </a>
           </div>
 
           {/* ── Trust strip ── */}
@@ -138,7 +142,7 @@ export function Hero() {
               MIT License
             </span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>v1.3.1</span>
+            <span style={{ color: "#ffffff45" }}>{`v${__M1ND_VERSION__}`}</span>
             <span style={{ color: "#ffffff18" }}>·</span>
             <span style={{ color: "#ffffff45" }}>Local-first</span>
             <span style={{ color: "#ffffff18" }}>·</span>

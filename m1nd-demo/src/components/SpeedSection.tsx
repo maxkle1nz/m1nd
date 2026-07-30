@@ -5,9 +5,9 @@ const speedStats = [
   {
     value: "1.36µs",
     label: "activate 1K nodes",
-    sublabel: "in-memory Rust — no GC, no pauses",
+    sublabel: "in-memory Rust · no GC, no pauses",
     color: "#00f5ff",
-    detail: "pure Rust binary. runs on your machine.",
+    detail: "cargo bench -p m1nd-core reproduces it.",
   },
   {
     value: "543ns",
@@ -18,15 +18,15 @@ const speedStats = [
   },
   {
     value: "0",
-    label: "files opened",
-    sublabel: "pre-indexed graph — no file reads, ever",
+    label: "files opened per query",
+    sublabel: "navigation answers from the warm graph",
     color: "#ffb700",
-    detail: "the agent queries memory, not the filesystem.",
+    detail: "ingest reads the repo once. queries read memory.",
   },
   {
     value: "Calibrated",
     label: "verdicts, not vibes",
-    sublabel: "act · reverify · abstain — conformal",
+    sublabel: "act · reverify · abstain · conformal",
     color: "#ff00aa",
     detail: "\"insufficient evidence\" is a real answer.",
   },
@@ -170,7 +170,7 @@ export function SpeedSection() {
           <p className="text-sm text-muted-foreground/70 max-w-sm">
             No file wandering. Instant connection to anywhere in the code.
             <br />
-            <span className="text-primary/80 font-medium">Structure over scanning — the graph, not the filesystem.</span>
+            <span className="text-primary/80 font-medium">Structure over scanning: the graph, not the filesystem.</span>
           </p>
         </motion.div>
       </div>

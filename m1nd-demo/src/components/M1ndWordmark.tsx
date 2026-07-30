@@ -2,11 +2,11 @@
  * M1ndWordmark
  *
  * Visual identity based on the m1nd wiki color system:
- *   ⍌ Signal    →  #00f5ff  (cyan  — activation, flow)
- *   ⍐ Path      →  #7b61ff  (violet — tracing, search)
- *   ⍂ Structure →  #00ff88  (green  — gaps, shape)
- *   𝔻 Dimension →  #ffb700  (amber  — blast radius, prediction)
- *   ⟁ Connection →  #ff00aa (pink   — federation, resonance)
+ *   ⍌ Signal    →  #00f5ff  (cyan : activation, flow)
+ *   ⍐ Path      →  #7b61ff  (violet: tracing, search)
+ *   ⍂ Structure →  #00ff88  (green : gaps, shape)
+ *   𝔻 Dimension →  #ffb700  (amber : blast radius, prediction)
+ *   ⟁ Connection →  #ff00aa (pink  : federation, resonance)
  *
  * The "1" in m1nd is the brand pivot: it is highlighted with the
  * gradient from ⍌ (cyan) → ⍂ (green) because m1nd's core promise

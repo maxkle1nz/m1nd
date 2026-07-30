@@ -94,6 +94,21 @@
 Everything promised or planned and not yet done, named here rather than left in a chat.
 Update this list in the same PR that closes one; a front that dies silently is a lie.
 
+**Copy / positioning**
+- **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**
+  Full README rewrite in the owner's voice (definition at line 5, anti-pitch section, "If I disappear",
+  "The human is the second reader", zero em-dashes, zero bold-first bullets, ~9 min read) plus site copy
+  surgery: new hero thesis ("Memory that knows when it's wrong"), site version now read from the root
+  package.json at build time (was hardcoded 1.3.1), FAQ fixed (no `m1nd warmup`, no phantom cloud beta,
+  honest seek pipeline, honest language count), "formal verification" and "no file reads, ever" softened
+  to what is true, /use-cases marked illustrative and its fabricated certainties rewritten, and every
+  em-dash removed from reader-visible site text. Declared debt this branch does NOT close: the 7 i18n
+  READMEs now lag the English rewrite (English declared canonical in the new Translations section);
+  the MCP Registry entry still publishes 1.3.0 (owner publish gesture). Closed since first written:
+  the wiki token-claim pages now carry the dated snapshot hedge, pt-BR was retranslated by hand from
+  the owner-ratified copy, and `.github/workflows/i18n-translate.yml` re-translates the other six
+  languages via GitHub Models on every README change to main, opening a review PR (English canonical).
+
 **Blocking the product**
 - **LIFECYCLE PROOF — BOTH CYCLES LANDED 2026-07-29 (clean shutdown AND crash).** m1nd is a
   CONTINUITY system, and until this slice the property *boot → serve → mutate → clean shutdown → boot

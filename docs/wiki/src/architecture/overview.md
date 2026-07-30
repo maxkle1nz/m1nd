@@ -208,7 +208,7 @@ Representative measured engine timings:
 | Trail resume | ~0.2ms | Restore continuity and next-step hints |
 | Apply batch | ~165ms | Atomic multi-file write before deeper verification |
 
-Workflow benchmark truth lives on the [Benchmarks](../benchmarks.md) page. The current recorded warm-graph corpus shows:
+Workflow benchmark truth lives on the [Benchmarks](../benchmarks.md) page. One recorded capture (2026-03-24, single corpus; a snapshot, not a promise) shows:
 
 - `10518 -> 5182` aggregate token proxy
 - `50.73%` aggregate reduction

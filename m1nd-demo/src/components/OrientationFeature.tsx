@@ -68,7 +68,7 @@ export function OrientationFeature() {
       id="features"
       title="Your Agent Starts in the Right Place"
       subtitle="Orientation"
-      description="Ask m1nd where token refresh happens. In 1.36µs it returns the exact subgraph — callers, callees, function signatures — already assembled. Your agent begins with a complete map, not a stack of grep matches it has to make sense of."
+      description="Ask m1nd where token refresh happens. In 1.36µs it returns the exact subgraph (callers, callees, function signatures) already assembled. Your agent begins with a complete map, not a stack of grep matches it has to make sense of."
       align="left"
     >
       <OrientationScene />
