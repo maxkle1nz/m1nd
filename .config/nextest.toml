@@ -1,0 +1,32 @@
+# cargo-nextest configuration for the `rust-gates` test phase.
+#
+# Nextest is an ACCELERATOR, not a new contract. It runs exactly the tests
+# `cargo test --workspace --all-targets` ran; the only difference is the
+# schedule — one global pool over every test binary at once, instead of one
+# binary after another with three cores idle behind the slowest one. Doctests
+# are the single thing it cannot run (stable-Rust limitation, upstream
+# documented), so `cargo test --workspace --doc` stayed as its own CI step.
+#
+# Two knobs are pinned by hand here because both could otherwise change what a
+# red MEANS without anyone editing the workflow.
+
+[profile.default]
+# NEVER retry. A test that passes on the second attempt is a flake, and a flake
+# is a defect this repo diagnoses — the serialization flake in the tray was
+# found by reading a red, and a runner that quietly re-ran it would have
+# reported green and destroyed the evidence. `retries = 0` is nextest's default
+# today; it is written down so a future default cannot introduce hidden reruns.
+retries = 0
+
+# Terminate a single test only after 30 minutes (15 x 120s), and print a SLOW
+# line every 120s before that. The old runner had no per-test limit at all —
+# only the job's `timeout-minutes: 90` — so this threshold exists to stay ABOVE
+# anything legitimately slow rather than to police it. The measured basis: the
+# slowest test in the m1nd-mcp lib suite runs in seconds, the largest wall-clock
+# budget any test asserts about itself is 60s (`m1nd-core/tests/
+# retrobuilder_stress.rs`), and the heaviest integration tests ingest this whole
+# repository (minutes, not tens of minutes). 30 minutes is far above every one
+# of those and still leaves the 90-minute job cap as the outer bound. Without
+# this line a test that wedges forever burns the full 90 minutes and reports a
+# job timeout instead of naming the test.
+slow-timeout = { period = "120s", terminate-after = 15 }

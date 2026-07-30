@@ -47,10 +47,24 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-gates-${{ matrix.os }}
+      # The test phase runs under cargo-nextest. Same tests, same required
+      # result — what changes is the SCHEDULE. `cargo test` starts this
+      # workspace's test binaries ONE AFTER ANOTHER, so every binary's tail
+      # latency lands end to end while the other cores sit idle; nextest puts
+      # every test from every binary into one pool. Pinned to an exact version
+      # like the rest of this file's tooling (gitleaks 8.30.1, cargo-audit
+      # 0.22.2) — the runner that decides what a red means does not get to
+      # change under the gate without a commit. Its two behavioural knobs live
+      # in `.config/nextest.toml`: retries stay at 0 (a rerun that turns green
+      # is a flake hidden, not a flake fixed) and no legitimately slow test is
+      # killed short of 30 minutes.
+      - uses: taiki-e/install-action@065d6a08a14e61e89fb0a4c10eecdbdef39c7d8e # v2.85.4
+        with:
+          tool: cargo-nextest@0.9.140
       # No standalone `cargo check`: clippy type-checks every target on its way
       # to linting, so a separate check pass was a full redundant compile.
       - name: Test every target
-        run: cargo test --locked --workspace --all-targets
+        run: cargo nextest run --locked --workspace --all-targets
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting

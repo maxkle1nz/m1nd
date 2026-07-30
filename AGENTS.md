@@ -29,6 +29,25 @@ don't and cost ~half of every 70-minute CI round; the signed release pipeline re
 `--release` at tag time regardless). A release-profile-only breakage is caught on the main
 push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
+**CI runs that first line through `cargo nextest run --workspace --all-targets`.** Same test
+set, same required result, same job — only the schedule differs: `cargo test` runs this
+workspace's test binaries one after another, so each binary's tail latency lands end to end
+while the other cores idle. Measured on the ubuntu leg of run 30529035605: 2m19s compiling,
+then 62.7 minutes running 69 binaries in series, three of which are 54 of those minutes and
+each of which ends in a long single-test tail nothing may overlap. Note the flip side, also
+measured: inside ONE binary nextest is slightly slower (495s → 536s on the m1nd-mcp lib suite,
+1530 tests, quiet machine), because libtest already threads a single binary and nextest pays a
+process per test. The win is entirely cross-binary, which is why it belongs to CI and not to
+your inner loop. Nothing about the local command changes; `cargo test --workspace
+--all-targets` above is still the gate you run, and it is still the honest reproduction of a
+CI red. If you do install nextest (`cargo install --locked cargo-nextest`), it reads
+`.config/nextest.toml`, where the two knobs that could change what a red MEANS are pinned by
+hand: `retries = 0` (a rerun that turns green hides a flake instead of fixing it) and a
+per-test terminate threshold far above anything this repo measures. Nextest cannot run
+doctests — neither could `--all-targets`, which excludes them by construction, so the gate's
+coverage is unchanged; the workspace's doctests are still run by nobody in CI, and that
+pre-existing hole is filed, not closed, by this change.
+
 **Windows is REQUIRED again (since 2026-07-29):** `windows-latest` runs in the same
 `rust-gates` matrix as ubuntu/macos and its red blocks merge. It spent 2026-07-23→29 as an
 advisory job while the phase-2 debt was diagnosed and paid (#435–#440, #444); the flip back was
