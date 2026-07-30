@@ -51,6 +51,19 @@ jobs:
       # to linting, so a separate check pass was a full redundant compile.
       - name: Test every target
         run: cargo test --locked --workspace --all-targets
+      # `--all-targets` EXCLUDES doctests by construction, so the step above has
+      # never executed one. That is not a documentation detail here: all 13 of
+      # this workspace's doctests are `compile_fail` sentinels, and they are the
+      # only thing asserting that the candidate boundary stays shut — each one
+      # pins a symbol that must NOT be reachable from outside its crate. Being
+      # asserted and never run is how two of them rotted through the whole
+      # transplant era and were caught by a release audit instead of a PR
+      # (#505: `server::McpServer` and `session::SessionState::initialize` both
+      # reported "compiled successfully, but it's marked compile_fail"). This
+      # leg reuses the artifacts the step above already built — a rustdoc pass,
+      # not a compile — measured at ~10s wall, 0.12s of which is the tests.
+      - name: Run the doctests --all-targets cannot reach
+        run: cargo test --locked --workspace --doc
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
