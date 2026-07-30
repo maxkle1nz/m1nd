@@ -18,9 +18,18 @@ Run these before you consider any change done. The blocking gate is **ubuntu + m
 
 ```bash
 cargo test --workspace --all-targets
+cargo test --workspace --doc                            # the sentinels --all-targets skips
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
 ```
+
+The second line is not a duplicate of the first: `--all-targets` **excludes** doctests by
+construction, and every doctest in this workspace is a `compile_fail` sentinel guarding the
+candidate boundary — 13 of them, all in `m1nd-mcp`, each pinning a symbol that must not be
+reachable from outside its crate. Until 2026-07-30 nothing in CI executed them, which is how
+two rotted silently through the transplant era and surfaced in a release audit rather than a
+PR (#505). If you widen a visibility, this is the line that tells you. It costs ~10s on top of
+the run above (0.12s of it is the tests; the rest is rustdoc over artifacts already built).
 
 There is deliberately no standalone `cargo check` (clippy type-checks every target on its way
 to linting — a separate pass was a redundant full compile), and the `--release` workspace
