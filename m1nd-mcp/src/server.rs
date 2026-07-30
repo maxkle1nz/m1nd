@@ -7900,7 +7900,22 @@ impl McpServer {
             match m1nd_core::snapshot::load_plasticity_state(&config.plasticity_state) {
                 Ok(states) => {
                     let mut g = state.graph.write();
-                    match state.plasticity.import_state(&mut g, &states) {
+                    // BOTH engines restore from the sidecar, exactly as strict
+                    // recovery does (`SessionState::recover_from_checkpoint`).
+                    // `state.orchestrator.plasticity` is the engine `activate`/
+                    // `query` actually update (query.rs `query()` step 8), and it
+                    // stamps its own `query_count` into `last_used_query`. Left at
+                    // zero while the shared graph carries the restored counts, the
+                    // first strengthen marks a just-used edge 1 — i.e. OLDER than
+                    // every edge untouched since the previous boot, skewing every
+                    // recency consumer. Re-applying the same validated plan to the
+                    // same topology is idempotent and cannot fail where the first
+                    // import succeeded, so the two share one report below.
+                    let imported = state
+                        .plasticity
+                        .import_state(&mut g, &states)
+                        .and_then(|_| state.orchestrator.plasticity.import_state(&mut g, &states));
+                    match imported {
                         Ok(_) => {
                             eprintln!(
                                 "[m1nd] Loaded plasticity state: {} synaptic records",
@@ -10698,6 +10713,141 @@ mod tests {
             state.graph.read().num_nodes() >= 1,
             "graph should contain the loaded memory nodes"
         );
+    }
+
+    /// Regression: friendly boot must restore the plasticity query counter into
+    /// the ORCHESTRATOR's engine too, not only `state.plasticity`.
+    ///
+    /// `activate`/`query` strengthen through `state.orchestrator.plasticity`
+    /// (query.rs `query()` -> `plasticity.update`), which stamps its own
+    /// `query_count` into `graph.edge_plasticity.last_used_query`. Importing the
+    /// sidecar into `state.plasticity` alone left that counter at zero while the
+    /// shared graph carried the restored counts, so the first strengthen after a
+    /// warm boot stamped a just-used edge with 1 — making it look OLDER than
+    /// every edge untouched since the previous boot. Strict recovery
+    /// (`SessionState::recover_from_checkpoint`) already imports into both.
+    #[test]
+    fn friendly_boot_restores_plasticity_counter_into_orchestrator_engine() {
+        use m1nd_core::plasticity::{PlasticityConfig, PlasticityEngine};
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+        /// Warm queries the previous boot is pretended to have run. Well above
+        /// the 0/1/2 a fresh orchestrator engine would stamp.
+        const WARM_QUERIES: u32 = 41;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let graph_path = runtime_dir.join("graph.json");
+        let plasticity_path = runtime_dir.join("plasticity.json");
+
+        // A previous boot's snapshot + sidecar.
+        let mut graph = Graph::new();
+        let lib = graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add lib node");
+        let core = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        graph
+            .add_edge(
+                lib,
+                core,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        graph.finalize().expect("finalize graph");
+        m1nd_core::snapshot::save_graph(&graph, &graph_path).expect("save graph snapshot");
+
+        // Age the sidecar through a real engine: WARM_QUERIES strengthen cycles
+        // leave `last_used_query = WARM_QUERIES` on the co-activated edge.
+        let mut warm = PlasticityEngine::new(&graph, PlasticityConfig::default());
+        let activated = vec![(lib, FiniteF32::new(0.9)), (core, FiniteF32::new(0.8))];
+        for _ in 0..WARM_QUERIES {
+            warm.update(&mut graph, &activated, &activated, "warm")
+                .expect("warm plasticity cycle");
+        }
+        let warm_states = warm.export_state(&graph).expect("export warm state");
+        let restored_max = warm_states
+            .iter()
+            .map(|state| state.last_used_query)
+            .max()
+            .expect("sidecar carries at least one synapse");
+        assert_eq!(
+            restored_max, WARM_QUERIES,
+            "fixture must carry a non-zero restored query counter"
+        );
+        m1nd_core::snapshot::save_plasticity_state(&warm_states, &plasticity_path)
+            .expect("save plasticity sidecar");
+
+        // Friendly boot over that pair.
+        let config = McpConfig {
+            graph_source: graph_path,
+            plasticity_state: plasticity_path,
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = McpServer::new(config).expect("server").into_session_state();
+        state.ingest_roots = vec![temp.path().to_string_lossy().to_string()];
+        state.workspace_root = Some(temp.path().to_string_lossy().to_string());
+
+        let before: Vec<u32> = state.graph.read().edge_plasticity.last_used_query.clone();
+        assert!(
+            before.contains(&restored_max),
+            "boot must import the sidecar into the shared graph, got {before:?}"
+        );
+
+        // One orchestrator-driven query (the production `activate` path).
+        let output = crate::tools::handle_activate(
+            &mut state,
+            crate::protocol::core::ActivateInput {
+                query: "lib core".into(),
+                agent_id: "plasticity-parity-test".into(),
+                top_k: 5,
+                dimensions: vec!["structural".into(), "semantic".into()],
+                xlr: false,
+                include_ghost_edges: false,
+                include_structural_holes: false,
+                token_budget: None,
+            },
+        )
+        .expect("activate");
+        assert!(
+            output.plasticity.edges_strengthened >= 1,
+            "the query must strengthen at least one edge for this test to mean anything"
+        );
+
+        let after: Vec<u32> = state.graph.read().edge_plasticity.last_used_query.clone();
+        let touched: Vec<(usize, u32)> = after
+            .iter()
+            .enumerate()
+            .filter(|(slot, value)| before.get(*slot) != Some(*value))
+            .map(|(slot, value)| (slot, *value))
+            .collect();
+        assert!(
+            !touched.is_empty(),
+            "a strengthened edge must restamp last_used_query"
+        );
+        for (slot, value) in touched {
+            assert!(
+                value >= restored_max,
+                "just-used edge at CSR slot {slot} was stamped {value}, older than the restored \
+                 maximum {restored_max}: the orchestrator's plasticity engine booted with a zeroed \
+                 query counter"
+            );
+        }
     }
 
     #[test]
