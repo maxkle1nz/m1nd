@@ -80,6 +80,20 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     pub custody_mission_config: Option<String>,
 
+    /// Owner-held path to the JSON `IndependenceSpecV1` whose four voting seats
+    /// the ceremony provisions (`provision-seats`) and seals (`seal`). Required
+    /// by both: the seats belong to the owner's constitution, so this binary
+    /// reads their principals, key ids and failure domains rather than inventing
+    /// them — a ceremony that made up its own seats would be binding to itself.
+    #[arg(long, value_name = "PATH")]
+    pub custody_independence_spec: Option<String>,
+
+    /// The owner's constitution digest (lowercase sha-256 hex), sealed into the
+    /// ceremony receipt by `seal`. Recorded, never computed: the ceremony states
+    /// which constitution its seats were minted under, it does not decide it.
+    #[arg(long, value_name = "SHA256")]
+    pub custody_constitution_digest: Option<String>,
+
     /// Start HTTP server with embedded web UI
     #[arg(long)]
     pub serve: bool,

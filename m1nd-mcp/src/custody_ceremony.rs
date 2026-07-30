@@ -31,21 +31,38 @@
 //! # What is NOT_RUN here, and is not fakeable
 //!
 //! `G9-CUSTODY-CEREMONY.md` §0 prohibits an agent from performing, simulating,
-//! stubbing or dry-running any ceremony step. Accordingly this module PREPARES the
-//! ceremony and never performs it. These remain NOT_RUN until the owner runs them
-//! on an Apple Silicon / T2 Mac, present, with Touch ID enrolled, on a codesigned
+//! stubbing or dry-running any ceremony step. Every verb below now REACHES the
+//! floor rather than answering from a placeholder — and that is the point at
+//! which each step's real prerequisite starts refusing. What the code can do is
+//! ask the platform honestly and report what it said; what it cannot do is stand
+//! in for the platform. These remain NOT_RUN until the owner runs them on an
+//! Apple Silicon / T2 Mac, present, with Touch ID enrolled, on a codesigned
 //! binary carrying the `KeychainAccessGroups` entitlement:
 //!
-//! * Phase A steps 1-2 — provisioning the four unattended verifier seats.
+//! * Phase A steps 1-2 — the four verifier seats as REAL Secure Enclave keys,
+//!   persisted in the data-protection keychain. An unentitled binary cannot
+//!   persist or resolve one, so on any other build this refuses naming P4.
 //! * Phase A step 3 — the `kSecAccessControl` conformance check. The flag values
 //!   are hand-rolled and `SecKeyCopyAttributes` does not read access control back,
-//!   so the owner's live run is the only thing that proves them (§5 R5).
-//! * Phase B step 4 — the owner's biometric seat. Touch ID has no stand-in.
+//!   so the owner's live run is the only thing that proves them (§5 R5). Nothing
+//!   in this module claims otherwise, and nothing here can.
+//! * Phase B step 4 — the owner's biometric seat. Minting it is not using it: the
+//!   Touch ID prompt is raised by the key's own access control when it SIGNS, and
+//!   that hardware gate has no stand-in.
 //! * Phase C steps 5-7 — open, re-attest and seal against real enclave keys.
-//! * Phase C step 8 — retiring the live proof key.
+//! * Phase C step 8 — retiring the live proof key, an owner operational step.
 //!
 //! There is deliberately no simulation path, and the battery asserts one is never
 //! added (`m1nd-mcp/tests/custody_ceremony_wiring.rs`).
+//!
+//! # The ceremony invents nothing it could be asked for
+//!
+//! Every identity the ceremony seals comes from an artifact the OWNER presents:
+//! the four seats' principals, key ids and failure domains are read out of the
+//! owner's `IndependenceSpecV1`, and the constitution digest is passed in. A
+//! ceremony that fabricated its own seats would make `bind_independence_spec` a
+//! tautology — it would be binding to what it had just made up — so the paths are
+//! owner-held here for the same reason the protected root is.
 
 use std::fmt;
 use std::fs;
@@ -225,6 +242,13 @@ pub enum CeremonyRefusalV1 {
     ProtectedRootUnusable(String),
     /// An earlier phase has not completed, so this one has nothing to consume.
     CeremonyIncomplete(String),
+    /// This phase already ran. Provisioning is never open-or-create, so a second
+    /// run refuses instead of minting a second set of keys over the first.
+    SeatsAlreadyStaged(String),
+    /// The ceremony is complete but what it would seal is not a valid receipt —
+    /// a malformed digest, seats that are not the presented spec's, or a sealing
+    /// key that is not the one this ceremony provisioned. Nothing is written.
+    CeremonyReceiptInvalid(String),
     /// The platform refused for some other reason, reported verbatim.
     PlatformRefused(String),
 }
@@ -238,6 +262,8 @@ impl CeremonyRefusalV1 {
             Self::KeychainEntitlementMissing => "custody_ceremony_keychain_entitlement_missing",
             Self::ProtectedRootUnusable(_) => "custody_ceremony_protected_root_unusable",
             Self::CeremonyIncomplete(_) => "custody_ceremony_incomplete",
+            Self::SeatsAlreadyStaged(_) => "custody_ceremony_seats_already_staged",
+            Self::CeremonyReceiptInvalid(_) => "custody_ceremony_receipt_invalid",
             Self::PlatformRefused(_) => "custody_ceremony_platform_refused",
         }
     }
@@ -282,6 +308,12 @@ impl fmt::Display for CeremonyRefusalV1 {
             }
             Self::CeremonyIncomplete(detail) => {
                 write!(formatter, "ceremony incomplete: {detail}")
+            }
+            Self::SeatsAlreadyStaged(detail) => {
+                write!(formatter, "ceremony already staged: {detail}")
+            }
+            Self::CeremonyReceiptInvalid(detail) => {
+                write!(formatter, "ceremony receipt invalid: {detail}")
             }
             Self::PlatformRefused(detail) => write!(formatter, "platform refused: {detail}"),
         }
@@ -489,17 +521,65 @@ pub fn preflight(protected_root: &Path) -> PreflightReportV1 {
 // Phase C's precondition — a partial ceremony commits nothing
 // ===========================================================================
 
+/// Schema of the staging file. Its own, not the sealed receipt's: what Phase A
+/// and Phase B write is a work-in-progress record, and nothing downstream may
+/// mistake it for a ceremony.
+pub const CEREMONY_STAGING_SCHEMA: &str = "m1nd-custody-ceremony-staged-v1";
+
+/// One staged verifier seat: the seat's identity as the owner's independence spec
+/// declares it, plus the PUBLIC half of the enclave key minted for it and the
+/// lineage digest its provisioning permit was bound to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagedSeatV1 {
+    pub principal_id: String,
+    pub key_id: String,
+    pub failure_domain: String,
+    /// 65-byte uncompressed SEC1 P-256 point, lowercase hex (§3).
+    pub public_key: String,
+    /// The provisioning permit's `bound_context_digest` — the ceremony lineage a
+    /// seat cannot be lifted out of.
+    pub bound_context_digest: String,
+}
+
+/// The ceremony's own sealing seat. Deliberately NOT a [`StagedSeatV1`]: it casts
+/// no vote, holds no failure domain, and must never be mistaken for one of the
+/// four. Its enclave key is what signs the sealed slots in the protected root.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagedSealingSeatV1 {
+    pub key_id: String,
+    pub public_key: String,
+}
+
 /// What Phase A and Phase B stage for Phase C to seal. Public key material and
 /// lineage digests only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StagedCeremonyV1 {
     pub schema: String,
-    /// The four unattended verifier seats, as `(principal, key_id, failure_domain,
-    /// public_key, bound_context_digest)` rows.
-    pub verifier_seats: Vec<serde_json::Value>,
+    /// The four unattended verifier seats, in the order the independence spec
+    /// declares them.
+    pub verifier_seats: Vec<StagedSeatV1>,
+    /// The seat whose enclave key seals the protected root, staged by Phase A.
+    #[serde(default)]
+    pub sealing_seat: Option<StagedSealingSeatV1>,
     /// The owner's biometric seat public key, once Phase B has run.
     pub owner_biometric_seat_public_key: Option<String>,
+}
+
+/// Read the staged ceremony, or say which step has not run yet.
+fn read_staged_ceremony(protected_root: &Path) -> Result<StagedCeremonyV1, CeremonyRefusalV1> {
+    let path = protected_root.join(CEREMONY_STAGING_FILE);
+    let bytes = fs::read(&path).map_err(|error| {
+        CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "no staged ceremony at {}: run --custody-ceremony provision-seats first ({error})",
+            path.display()
+        ))
+    })?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        CeremonyRefusalV1::CeremonyIncomplete(format!("staged ceremony is unreadable: {error}"))
+    })
 }
 
 /// Refuse to seal unless BOTH earlier phases completed. Reads only; a refusal here
@@ -508,21 +588,19 @@ pub struct StagedCeremonyV1 {
 pub fn seal_requires_a_complete_ceremony(
     protected_root: &Path,
 ) -> Result<StagedCeremonyV1, CeremonyRefusalV1> {
-    let path = protected_root.join(CEREMONY_STAGING_FILE);
-    let bytes = fs::read(&path).map_err(|error| {
-        CeremonyRefusalV1::CeremonyIncomplete(format!(
-            "no staged ceremony at {}: run --custody-ceremony provision-seats first ({error})",
-            path.display()
-        ))
-    })?;
-    let staged: StagedCeremonyV1 = serde_json::from_slice(&bytes).map_err(|error| {
-        CeremonyRefusalV1::CeremonyIncomplete(format!("staged ceremony is unreadable: {error}"))
-    })?;
+    let staged = read_staged_ceremony(protected_root)?;
     if staged.verifier_seats.len() != 4 {
         return Err(CeremonyRefusalV1::CeremonyIncomplete(format!(
             "expected 4 staged verifier seats, found {}",
             staged.verifier_seats.len()
         )));
+    }
+    if staged.sealing_seat.is_none() {
+        return Err(CeremonyRefusalV1::CeremonyIncomplete(
+            "the ceremony's sealing seat has not been provisioned: \
+             run --custody-ceremony provision-seats"
+                .to_owned(),
+        ));
     }
     if staged.owner_biometric_seat_public_key.is_none() {
         return Err(CeremonyRefusalV1::CeremonyIncomplete(
@@ -538,7 +616,7 @@ pub fn seal_requires_a_complete_ceremony(
 // The seam — assembling the production owner authority
 // ===========================================================================
 
-/// Inputs the `assemble` verb needs. Every path is owner-held: this binary holds
+/// Inputs the ceremony's steps need. Every path is owner-held: this binary holds
 /// none of them and derives none of them, exactly as the G6 ceremony's script does.
 #[derive(Clone, Debug)]
 pub struct CeremonyRequestV1 {
@@ -546,6 +624,12 @@ pub struct CeremonyRequestV1 {
     pub protected_root: std::path::PathBuf,
     pub owner_security_config: Option<std::path::PathBuf>,
     pub mission_config: Option<std::path::PathBuf>,
+    /// The owner's `IndependenceSpecV1`, whose four voting seats Phase A
+    /// provisions and Phase C seals. Owner-held because the seats belong to the
+    /// constitution, not to this process.
+    pub independence_spec: Option<std::path::PathBuf>,
+    /// The owner's constitution digest, sealed into the ceremony receipt.
+    pub constitution_digest: Option<String>,
 }
 
 /// Run one ceremony step and return its closed JSON object plus a process exit
@@ -564,48 +648,580 @@ pub fn run_custody_ceremony(
             let code = i32::from(!report.ready);
             (report.to_json(), code)
         }
-        CustodyCeremonyVerbV1::Seal => {
-            match seal_requires_a_complete_ceremony(&request.protected_root) {
-                Err(refusal) => (refusal.to_json(), 1),
-                Ok(_staged) => (
-                    owner_step_pending("seal", "Phase C steps 5-7 need real enclave keys"),
-                    1,
-                ),
-            }
-        }
-        CustodyCeremonyVerbV1::ProvisionSeats => (
-            owner_step_pending(
-                "provision-seats",
-                "Phase A steps 1-3 provision real Secure Enclave keys",
-            ),
-            1,
-        ),
-        CustodyCeremonyVerbV1::OwnerSeat => (
-            owner_step_pending("owner-seat", "Phase B step 4 requires the owner's Touch ID"),
-            1,
-        ),
+        CustodyCeremonyVerbV1::ProvisionSeats => provision_seats_verb(&request),
+        CustodyCeremonyVerbV1::OwnerSeat => owner_seat_verb(&request),
+        CustodyCeremonyVerbV1::Seal => seal_verb(&request),
         CustodyCeremonyVerbV1::Assemble => assemble_verb(&request),
     }
 }
 
-/// The honest answer for a step whose provisioning half is the owner's hand. It
-/// states what remains and does NOT claim the step ran.
-fn owner_step_pending(verb: &str, why: &str) -> serde_json::Value {
-    serde_json::json!({
-        "schema": "m1nd-custody-ceremony-step-v1",
-        "status": "NOT_RUN",
-        "verb": verb,
-        "detail": format!(
-            "{why}. This step is the owner's, on an entitled binary at the owner's machine; \
-             no agent may perform, simulate or dry-run it \
-             (docs/benchmarks/G9-CUSTODY-CEREMONY.md §0)."
-        ),
-    })
+// ===========================================================================
+// Off macOS the floor is absent by construction. `authorize_ceremony_step`
+// already refuses every custody verb here — these arms exist so the binary
+// still COMPILES on the other two CI legs, and they refuse identically rather
+// than selecting a software fallback.
+// ===========================================================================
+
+#[cfg(not(target_os = "macos"))]
+fn provision_seats_verb(_request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    (CeremonyRefusalV1::NotInstalledOnThisPlatform.to_json(), 1)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn owner_seat_verb(_request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    (CeremonyRefusalV1::NotInstalledOnThisPlatform.to_json(), 1)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn seal_verb(_request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    (CeremonyRefusalV1::NotInstalledOnThisPlatform.to_json(), 1)
 }
 
 #[cfg(not(target_os = "macos"))]
 fn assemble_verb(_request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
     (CeremonyRefusalV1::NotInstalledOnThisPlatform.to_json(), 1)
+}
+
+// ===========================================================================
+// Phase A, B and C against the real floor (macOS).
+//
+// Each verb constructs the production key store, does ONE bounded thing, and
+// prints one closed JSON object. The store is injected into the functions that
+// do the work, which is the same narrow boundary `SecureEnclaveKeyStoreV1`
+// already exists to be — it is what lets the battery prove the custody path
+// without hardware, and it is not a bypass: the verbs below pass the real store
+// and nothing else can call them.
+// ===========================================================================
+
+/// The wall-clock the ceremony stamps its receipt with.
+#[cfg(target_os = "macos")]
+fn ceremony_clock_ms() -> Result<u64, CeremonyRefusalV1> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))
+}
+
+/// The protected root is the OWNER's prerequisite (P5). Refuse before touching
+/// the keychain so a misconfigured root never reaches it.
+fn require_owner_only_protected_root(protected_root: &Path) -> Result<(), CeremonyRefusalV1> {
+    let check = protected_root_check(protected_root);
+    if check.state == "FAIL" {
+        return Err(CeremonyRefusalV1::ProtectedRootUnusable(check.detail));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn custody_store(
+    access_control: crate::enclave_authority::EnclaveAccessControlV1,
+) -> std::sync::Arc<dyn crate::enclave_authority::SecureEnclaveKeyStoreV1> {
+    std::sync::Arc::new(
+        crate::enclave_authority::SecurityFrameworkEnclaveKeyStore::new(
+            CUSTODY_KEYCHAIN_LABEL_PREFIX,
+            CUSTODY_SUBJECT_ID,
+            access_control,
+        ),
+    )
+}
+
+/// The permit one seat is provisioned under. `bound_context_digest` is the
+/// ceremony's lineage — the digest of the independence spec whose seats these
+/// are — so a key minted for one ceremony cannot be sealed into another.
+#[cfg(target_os = "macos")]
+fn seat_permit(
+    key_id: &str,
+    access_control: crate::enclave_authority::EnclaveAccessControlV1,
+    bound_context_digest: &str,
+) -> crate::enclave_authority::EnclaveProvisioningPermitV1 {
+    crate::enclave_authority::EnclaveProvisioningPermitV1 {
+        key_id: key_id.to_owned(),
+        subject_id: CUSTODY_SUBJECT_ID.to_owned(),
+        application_label: format!("{CUSTODY_KEYCHAIN_LABEL_PREFIX}.{key_id}"),
+        access_control,
+        bound_context_digest: bound_context_digest.to_owned(),
+    }
+}
+
+/// Publish the staging file into the protected root through the floor's own
+/// atomic, no-follow, `0600` write — the staged record holds only public
+/// material, but it lives in the owner's custody root and is written like it.
+#[cfg(target_os = "macos")]
+fn write_staged_ceremony(
+    protected_root: &Path,
+    staged: &StagedCeremonyV1,
+) -> Result<(), CeremonyRefusalV1> {
+    let bytes = serde_json::to_vec_pretty(staged)
+        .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))?;
+    crate::enclave_authority::atomic_write_no_follow(protected_root, CEREMONY_STAGING_FILE, &bytes)
+        .map_err(|error| CeremonyRefusalV1::ProtectedRootUnusable(error.to_string()))
+}
+
+/// The one lineage every staged seat shares.
+fn ceremony_lineage(staged: &StagedCeremonyV1) -> Result<String, CeremonyRefusalV1> {
+    let first = staged.verifier_seats.first().ok_or_else(|| {
+        CeremonyRefusalV1::CeremonyIncomplete(
+            "no verifier seat is staged: run --custody-ceremony provision-seats first".to_owned(),
+        )
+    })?;
+    if staged
+        .verifier_seats
+        .iter()
+        .any(|seat| seat.bound_context_digest != first.bound_context_digest)
+    {
+        return Err(CeremonyRefusalV1::CeremonyReceiptInvalid(
+            "the staged verifier seats carry more than one ceremony lineage".to_owned(),
+        ));
+    }
+    Ok(first.bound_context_digest.clone())
+}
+
+/// Read the owner's independence spec. It is required: the seats are the
+/// constitution's, and this binary never invents one.
+#[cfg(target_os = "macos")]
+fn load_independence_spec(
+    path: Option<&std::path::PathBuf>,
+) -> Result<m1nd_control::autonomy::IndependenceSpecV1, CeremonyRefusalV1> {
+    let path = path.ok_or_else(|| {
+        CeremonyRefusalV1::CeremonyIncomplete(
+            "--custody-independence-spec is required: the four verifier seats are the \
+             constitution's own voting seats, and this binary never invents one"
+                .to_owned(),
+        )
+    })?;
+    let bytes = fs::read(path).map_err(|error| {
+        CeremonyRefusalV1::CeremonyIncomplete(format!("{}: {error}", path.display()))
+    })?;
+    let spec: m1nd_control::autonomy::IndependenceSpecV1 =
+        serde_json::from_slice(&bytes).map_err(|error| {
+            CeremonyRefusalV1::CeremonyIncomplete(format!(
+                "independence spec is unreadable: {error}"
+            ))
+        })?;
+    require_a_usable_independence_spec(&spec)?;
+    Ok(spec)
+}
+
+/// The spec must be internally honest before four enclave keys are bound to it:
+/// its declared digest must be the digest of its own core, and it must carry the
+/// frozen counts (`IMMUTABLE_VERIFIER_SEATS`, `IMMUTABLE_FAILURE_DOMAINS`).
+/// Checked BEFORE the first key is minted — discovering it afterwards would leave
+/// orphaned keys in the keychain that only a re-provisioning ceremony can clear.
+#[cfg(target_os = "macos")]
+fn require_a_usable_independence_spec(
+    spec: &m1nd_control::autonomy::IndependenceSpecV1,
+) -> Result<(), CeremonyRefusalV1> {
+    use m1nd_control::autonomy::{
+        IMMUTABLE_FAILURE_DOMAINS, IMMUTABLE_VERIFIER_SEATS, INDEPENDENCE_SPEC_SCHEMA,
+    };
+
+    if spec.schema != INDEPENDENCE_SPEC_SCHEMA {
+        return Err(CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "independence spec schema is '{}', expected '{INDEPENDENCE_SPEC_SCHEMA}'",
+            spec.schema
+        )));
+    }
+    let recomputed = spec.compute_digest().map_err(|error| {
+        CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "independence spec is not canonical: {error}"
+        ))
+    })?;
+    if recomputed != spec.independence_spec_digest {
+        return Err(CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "the independence spec declares digest {} but its core digests to {recomputed}",
+            spec.independence_spec_digest
+        )));
+    }
+    if spec.core.voting_verifiers.len() != usize::from(IMMUTABLE_VERIFIER_SEATS) {
+        return Err(CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "the independence spec names {} voting seats; the ceremony provisions exactly \
+             {IMMUTABLE_VERIFIER_SEATS}",
+            spec.core.voting_verifiers.len()
+        )));
+    }
+    let domains: std::collections::BTreeSet<&str> = spec
+        .core
+        .voting_verifiers
+        .iter()
+        .map(|seat| seat.failure_domain.as_str())
+        .collect();
+    if domains.len() < usize::from(IMMUTABLE_FAILURE_DOMAINS) {
+        return Err(CeremonyRefusalV1::CeremonyIncomplete(format!(
+            "the independence spec spans {} failure domains; the ceremony requires at least \
+             {IMMUTABLE_FAILURE_DOMAINS}",
+            domains.len()
+        )));
+    }
+    Ok(())
+}
+
+/// **Phase A, steps 1-2.** Mint one non-exportable enclave key per voting seat the
+/// spec names, plus the ceremony's own sealing seat, and stage their public halves.
+///
+/// Idempotence is a REFUSAL, not a no-op: the floor's provisioning is never
+/// open-or-create (an existing `kSecAttrLabel` fails closed), so a second run that
+/// quietly re-staged would either contradict the keychain or orphan the first set
+/// of keys. Retiring seats is an owner operational step (§2 step 8).
+#[cfg(target_os = "macos")]
+pub(crate) fn provision_seats_into_store(
+    unattended_store: &dyn crate::enclave_authority::SecureEnclaveKeyStoreV1,
+    spec: &m1nd_control::autonomy::IndependenceSpecV1,
+    protected_root: &Path,
+) -> Result<StagedCeremonyV1, CeremonyRefusalV1> {
+    use crate::enclave_authority::{
+        hex_lower, provision_agent_enclave_seat, EnclaveAccessControlV1,
+    };
+
+    require_a_usable_independence_spec(spec)?;
+    require_owner_only_protected_root(protected_root)?;
+    let staging = protected_root.join(CEREMONY_STAGING_FILE);
+    if staging.exists() {
+        return Err(CeremonyRefusalV1::SeatsAlreadyStaged(format!(
+            "a ceremony is already staged at {}; provisioning is never open-or-create, so the \
+             owner retires the existing seats before staging new ones",
+            staging.display()
+        )));
+    }
+
+    let lineage = &spec.independence_spec_digest;
+    let mut verifier_seats = Vec::with_capacity(spec.core.voting_verifiers.len());
+    for seat in &spec.core.voting_verifiers {
+        let permit = seat_permit(
+            &seat.key_id,
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
+            lineage,
+        );
+        let opened = provision_agent_enclave_seat(unattended_store, &permit)
+            .map_err(|error| classify_provisioning_failure(&error.to_string()))?;
+        verifier_seats.push(StagedSeatV1 {
+            principal_id: seat.principal_id.clone(),
+            key_id: seat.key_id.clone(),
+            failure_domain: seat.failure_domain.clone(),
+            public_key: hex_lower(&opened.public_key_sec1),
+            bound_context_digest: lineage.clone(),
+        });
+    }
+
+    let sealing = provision_agent_enclave_seat(
+        unattended_store,
+        &seat_permit(
+            CUSTODY_SEALING_SEAT_KEY_ID,
+            EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
+            lineage,
+        ),
+    )
+    .map_err(|error| classify_provisioning_failure(&error.to_string()))?;
+
+    let staged = StagedCeremonyV1 {
+        schema: CEREMONY_STAGING_SCHEMA.to_owned(),
+        verifier_seats,
+        sealing_seat: Some(StagedSealingSeatV1 {
+            key_id: CUSTODY_SEALING_SEAT_KEY_ID.to_owned(),
+            public_key: hex_lower(&sealing.public_key_sec1),
+        }),
+        owner_biometric_seat_public_key: None,
+    };
+    write_staged_ceremony(protected_root, &staged)?;
+    Ok(staged)
+}
+
+/// **Phase B, step 4.** The owner's biometric seat — the `owner_signature`
+/// authority that stays present even under `AgentQuorum`, and never a voting seat.
+///
+/// It goes through `provision_owner_biometric_seat`, the floor's owner-only entry
+/// point, which refuses any non-biometric class exactly as its agent-side mirror
+/// refuses the biometric one. Minting does not raise a Touch ID prompt: the
+/// key's `kSecAccessControl` gates its USE, and that gate is the enclave's, not
+/// this code's.
+#[cfg(target_os = "macos")]
+pub(crate) fn provision_owner_seat_into_store(
+    biometric_store: &dyn crate::enclave_authority::SecureEnclaveKeyStoreV1,
+    protected_root: &Path,
+) -> Result<StagedCeremonyV1, CeremonyRefusalV1> {
+    use crate::enclave_authority::{
+        hex_lower, provision_owner_biometric_seat, EnclaveAccessControlV1,
+    };
+
+    require_owner_only_protected_root(protected_root)?;
+    let mut staged = read_staged_ceremony(protected_root)?;
+    if staged.owner_biometric_seat_public_key.is_some() {
+        return Err(CeremonyRefusalV1::SeatsAlreadyStaged(
+            "the owner's biometric seat is already staged; it is minted once per ceremony"
+                .to_owned(),
+        ));
+    }
+    let lineage = ceremony_lineage(&staged)?;
+    let opened = provision_owner_biometric_seat(
+        biometric_store,
+        &seat_permit(
+            CUSTODY_OWNER_BIOMETRIC_SEAT_KEY_ID,
+            EnclaveAccessControlV1::UserPresenceBiometricNonExportable,
+            &lineage,
+        ),
+    )
+    .map_err(|error| classify_provisioning_failure(&error.to_string()))?;
+
+    let public_key = hex_lower(&opened.public_key_sec1);
+    if staged
+        .verifier_seats
+        .iter()
+        .any(|seat| seat.public_key == public_key)
+    {
+        return Err(CeremonyRefusalV1::CeremonyReceiptInvalid(
+            "the owner's biometric seat resolved to a key that is already a voting seat; \
+             owner_signature is never a quorum seat"
+                .to_owned(),
+        ));
+    }
+    staged.owner_biometric_seat_public_key = Some(public_key);
+    write_staged_ceremony(protected_root, &staged)?;
+    Ok(staged)
+}
+
+/// The ceremony root, its sealing key and the signer behind it — opened ONCE, by
+/// the one function both `seal` and `assemble` call. That is what makes "assemble
+/// reads back what seal wrote" true by construction rather than by coincidence:
+/// the sealed slot's identity, root binding and context digest are all derived
+/// here, so the two steps cannot drift apart.
+#[cfg(target_os = "macos")]
+type CeremonyRootHandleV1 = (
+    crate::enclave_authority::SealedProtectedRootV1,
+    m1nd_control::VerificationKeyV1,
+    std::sync::Arc<dyn m1nd_control::AuthoritySigner + Send + Sync>,
+);
+
+#[cfg(target_os = "macos")]
+pub(crate) fn open_ceremony_root(
+    key_store: std::sync::Arc<dyn crate::enclave_authority::SecureEnclaveKeyStoreV1>,
+    protected_root: &Path,
+    now_ms: u64,
+) -> Result<CeremonyRootHandleV1, CeremonyRefusalV1> {
+    use std::sync::Arc;
+
+    use crate::enclave_authority::{
+        EnclaveAccessControlV1, EnclaveKeyAttestationV1, SealedProtectedRootV1, SecureEnclaveSigner,
+    };
+
+    // An unentitled binary cannot resolve the key at all, which is where P4
+    // becomes visible; the classifier names that prerequisite rather than an
+    // opaque OSStatus.
+    let signer = SecureEnclaveSigner::open_attested(
+        key_store,
+        CUSTODY_SEALING_SEAT_KEY_ID,
+        &EnclaveKeyAttestationV1::canonical(EnclaveAccessControlV1::PrivateKeyUsageNonExportable),
+    )
+    .map_err(|error| classify_provisioning_failure(&error.to_string()))?;
+    let verification_key = signer.verification_key(now_ms, now_ms);
+    let signer: Arc<dyn m1nd_control::AuthoritySigner + Send + Sync> = Arc::new(signer);
+    let root = SealedProtectedRootV1::open(
+        protected_root,
+        &verification_key.public_key,
+        Arc::clone(&signer),
+        verification_key.clone(),
+    )
+    .map_err(|error| CeremonyRefusalV1::ProtectedRootUnusable(error.to_string()))?;
+    Ok((root, verification_key, signer))
+}
+
+/// **Phase C, steps 5-7.** Build the ceremony receipt from the complete staged
+/// ceremony, validate and bind it, enclave-seal it into the protected root, and
+/// read it back through the same root before declaring anything.
+///
+/// Nothing is written until every check has passed, because a half-sealed custody
+/// root is worse than an unsealed one — it looks finished. On success the staging
+/// file is consumed, so a completed ceremony leaves only the sealed receipt.
+#[cfg(target_os = "macos")]
+pub(crate) fn seal_with_store(
+    unattended_store: std::sync::Arc<dyn crate::enclave_authority::SecureEnclaveKeyStoreV1>,
+    spec: &m1nd_control::autonomy::IndependenceSpecV1,
+    constitution_digest: &str,
+    protected_root: &Path,
+    now_ms: u64,
+) -> Result<crate::enclave_authority::EnclaveCustodyCeremonyReceiptV1, CeremonyRefusalV1> {
+    use crate::enclave_authority::{
+        CeremonyVerifierSeatV1, CustodyAttestationDistinctionV1, EnclaveCustodyCeremonyReceiptV1,
+        ENCLAVE_CUSTODY_CEREMONY_SCHEMA, SECURE_ENCLAVE_CUSTODY_FLOOR_V1,
+    };
+
+    require_a_usable_independence_spec(spec)?;
+    require_owner_only_protected_root(protected_root)?;
+    let staged = seal_requires_a_complete_ceremony(protected_root)?;
+    let sealing_seat = staged
+        .sealing_seat
+        .as_ref()
+        .expect("a complete ceremony carries its sealing seat");
+
+    // Lineage: the seats in the keychain were bound to ONE spec at provisioning
+    // time. Presenting a different one at seal is refused even when its seat set
+    // happens to match.
+    let lineage = ceremony_lineage(&staged)?;
+    if lineage != spec.independence_spec_digest {
+        return Err(CeremonyRefusalV1::CeremonyReceiptInvalid(format!(
+            "the staged seats were provisioned under independence spec {lineage}, not the one \
+             presented at seal ({})",
+            spec.independence_spec_digest
+        )));
+    }
+
+    let receipt = EnclaveCustodyCeremonyReceiptV1 {
+        schema: ENCLAVE_CUSTODY_CEREMONY_SCHEMA.to_owned(),
+        custody_floor: SECURE_ENCLAVE_CUSTODY_FLOOR_V1.to_owned(),
+        attestation: CustodyAttestationDistinctionV1::secure_enclave_single_host(),
+        verifier_seats: staged
+            .verifier_seats
+            .iter()
+            .map(|seat| CeremonyVerifierSeatV1 {
+                principal_id: seat.principal_id.clone(),
+                key_id: seat.key_id.clone(),
+                failure_domain: seat.failure_domain.clone(),
+                public_key: seat.public_key.clone(),
+                bound_context_digest: seat.bound_context_digest.clone(),
+            })
+            .collect(),
+        owner_biometric_seat_public_key: staged
+            .owner_biometric_seat_public_key
+            .clone()
+            .unwrap_or_default(),
+        independence_spec_digest: spec.independence_spec_digest.clone(),
+        constitution_digest: constitution_digest.to_owned(),
+        sealed_at: now_ms,
+    };
+    receipt
+        .validate()
+        .map_err(|error| CeremonyRefusalV1::CeremonyReceiptInvalid(error.to_string()))?;
+    receipt
+        .bind_independence_spec(spec)
+        .map_err(|error| CeremonyRefusalV1::CeremonyReceiptInvalid(error.to_string()))?;
+
+    let (ceremony_root, verification_key, _signer) =
+        open_ceremony_root(unattended_store, protected_root, now_ms)?;
+    if verification_key.public_key != sealing_seat.public_key {
+        return Err(CeremonyRefusalV1::CeremonyReceiptInvalid(format!(
+            "the enclave key filed under the ceremony's sealing label is not the one this \
+             ceremony provisioned (staged {}, resolved {})",
+            sealing_seat.public_key, verification_key.public_key
+        )));
+    }
+
+    ceremony_root
+        .seal_custody_ceremony(&receipt)
+        .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))?;
+    // Re-open and read back before claiming anything (§2 step 7).
+    let read_back = ceremony_root
+        .read_custody_ceremony()
+        .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))?
+        .ok_or_else(|| {
+            CeremonyRefusalV1::PlatformRefused(
+                "the sealed ceremony did not read back from the protected root".to_owned(),
+            )
+        })?;
+    if read_back != receipt {
+        return Err(CeremonyRefusalV1::PlatformRefused(
+            "the ceremony read back from the protected root is not the one sealed".to_owned(),
+        ));
+    }
+
+    // The staging file has done its job; a completed ceremony leaves only the
+    // sealed receipt behind.
+    fs::remove_file(protected_root.join(CEREMONY_STAGING_FILE))
+        .map_err(|error| CeremonyRefusalV1::ProtectedRootUnusable(error.to_string()))?;
+    Ok(receipt)
+}
+
+#[cfg(target_os = "macos")]
+fn staged_step_json(
+    verb: &str,
+    protected_root: &Path,
+    staged: &StagedCeremonyV1,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "m1nd-custody-ceremony-step-v1",
+        "status": "STAGED",
+        "verb": verb,
+        "staging_file": protected_root.join(CEREMONY_STAGING_FILE).display().to_string(),
+        "verifier_seats": staged.verifier_seats,
+        "sealing_seat": staged.sealing_seat,
+        "owner_biometric_seat_public_key": staged.owner_biometric_seat_public_key,
+        "next": if staged.owner_biometric_seat_public_key.is_none() {
+            "m1nd-mcp --custody-ceremony owner-seat"
+        } else {
+            "m1nd-mcp --custody-ceremony seal"
+        },
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn provision_seats_verb(request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    use crate::enclave_authority::EnclaveAccessControlV1;
+
+    let outcome = load_independence_spec(request.independence_spec.as_ref()).and_then(|spec| {
+        let store = custody_store(EnclaveAccessControlV1::PrivateKeyUsageNonExportable);
+        provision_seats_into_store(store.as_ref(), &spec, &request.protected_root)
+    });
+    match outcome {
+        Ok(staged) => (
+            staged_step_json("provision-seats", &request.protected_root, &staged),
+            0,
+        ),
+        Err(refusal) => (refusal.to_json(), 1),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn owner_seat_verb(request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    use crate::enclave_authority::EnclaveAccessControlV1;
+
+    let store = custody_store(EnclaveAccessControlV1::UserPresenceBiometricNonExportable);
+    match provision_owner_seat_into_store(store.as_ref(), &request.protected_root) {
+        Ok(staged) => (
+            staged_step_json("owner-seat", &request.protected_root, &staged),
+            0,
+        ),
+        Err(refusal) => (refusal.to_json(), 1),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn seal_verb(request: &CeremonyRequestV1) -> (serde_json::Value, i32) {
+    use crate::enclave_authority::EnclaveAccessControlV1;
+
+    let outcome = (|| {
+        let spec = load_independence_spec(request.independence_spec.as_ref())?;
+        let constitution_digest = request.constitution_digest.as_deref().ok_or_else(|| {
+            CeremonyRefusalV1::CeremonyIncomplete(
+                "--custody-constitution-digest is required: the ceremony records the owner's \
+                 constitution digest, it does not compute one"
+                    .to_owned(),
+            )
+        })?;
+        let now_ms = ceremony_clock_ms()?;
+        let store = custody_store(EnclaveAccessControlV1::PrivateKeyUsageNonExportable);
+        seal_with_store(
+            store,
+            &spec,
+            constitution_digest,
+            &request.protected_root,
+            now_ms,
+        )
+    })();
+    match outcome {
+        Ok(receipt) => (
+            serde_json::json!({
+                "schema": "m1nd-custody-ceremony-step-v1",
+                "status": "SEALED",
+                "verb": "seal",
+                "sealed_receipt": request
+                    .protected_root
+                    .join(crate::enclave_authority::ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE)
+                    .display()
+                    .to_string(),
+                "receipt": receipt,
+                "next": "m1nd-mcp --custody-ceremony assemble",
+            }),
+            0,
+        ),
+        Err(refusal) => (refusal.to_json(), 1),
+    }
 }
 
 /// Assemble the production owner authority from the SEALED ceremony and emit the
@@ -631,13 +1247,10 @@ fn assemble_production_floor(
 ) -> Result<serde_json::Value, CeremonyRefusalV1> {
     use std::sync::Arc;
 
-    use m1nd_control::AuthoritySigner;
-
     use crate::enclave_authority::{
-        EnclaveAccessControlV1, EnclaveBackedWalRecordCrypto, EnclaveKeyAttestationV1,
-        SealedProtectedRootV1, SecureEnclaveJournalHeadBackend,
-        SecureEnclaveOwnerSecurityConfigRootBackend, SecureEnclaveProtectedEpochBackend,
-        SecureEnclaveSigner, SecurityFrameworkEnclaveKeyStore,
+        EnclaveAccessControlV1, EnclaveBackedWalRecordCrypto, SealedProtectedRootV1,
+        SecureEnclaveJournalHeadBackend, SecureEnclaveOwnerSecurityConfigRootBackend,
+        SecureEnclaveProtectedEpochBackend,
     };
     use crate::owner_security_config::{
         assemble_production_owner_authority_v1, OwnerAuthorityStartupV1,
@@ -658,34 +1271,21 @@ fn assemble_production_floor(
 
     // The protected root must already be the owner's 0700 directory. Refuse before
     // touching the enclave so a misconfigured root never reaches the keychain.
-    let root_check = protected_root_check(&request.protected_root);
-    if root_check.state == "FAIL" {
-        return Err(CeremonyRefusalV1::ProtectedRootUnusable(root_check.detail));
-    }
+    require_owner_only_protected_root(&request.protected_root)?;
+    let now_ms = ceremony_clock_ms()?;
 
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-        .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))?;
+    // 1-3. Open the sealing seat, re-attest it, and open the ceremony root — the
+    //      SAME function `seal` used to write the receipt, so what assemble reads
+    //      back cannot drift from what the ceremony sealed. An unentitled binary
+    //      cannot resolve the key at all, which is where P4 becomes visible.
+    let (ceremony_root, verification_key, signer) = open_ceremony_root(
+        custody_store(EnclaveAccessControlV1::PrivateKeyUsageNonExportable),
+        &request.protected_root,
+        now_ms,
+    )?;
 
-    // 1. Open the sealing seat and re-attest it. An unentitled binary cannot
-    //    resolve the key at all, which is where P4 becomes visible.
-    let key_store = Arc::new(SecurityFrameworkEnclaveKeyStore::new(
-        CUSTODY_KEYCHAIN_LABEL_PREFIX,
-        CUSTODY_SUBJECT_ID,
-        EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
-    ));
-    let signer = SecureEnclaveSigner::open_attested(
-        key_store,
-        CUSTODY_SEALING_SEAT_KEY_ID,
-        &EnclaveKeyAttestationV1::canonical(EnclaveAccessControlV1::PrivateKeyUsageNonExportable),
-    )
-    .map_err(|error| classify_provisioning_failure(&error.to_string()))?;
-    let verification_key = signer.verification_key(now_ms, now_ms);
-    let signer: Arc<dyn AuthoritySigner + Send + Sync> = Arc::new(signer);
-
-    // 2. Open the protected roots. Two independent roots, as the assembly's own
-    //    contract requires; the ceremony root is where the sealed receipt lives.
+    // The other protected roots. Two independent roots, as the assembly's own
+    // contract requires; the ceremony root above is where the sealed receipt lives.
     let open_root = |sub: &str| -> Result<SealedProtectedRootV1, CeremonyRefusalV1> {
         let path = request.protected_root.join(sub);
         SealedProtectedRootV1::open(
@@ -699,14 +1299,7 @@ fn assemble_production_floor(
         })
     };
 
-    // 3. The ceremony must already be sealed. No sealed receipt, no floor.
-    let ceremony_root = SealedProtectedRootV1::open(
-        &request.protected_root,
-        &verification_key.public_key,
-        Arc::clone(&signer),
-        verification_key.clone(),
-    )
-    .map_err(|error| CeremonyRefusalV1::ProtectedRootUnusable(error.to_string()))?;
+    // The ceremony must already be sealed. No sealed receipt, no floor.
     let receipt = ceremony_root
         .read_custody_ceremony()
         .map_err(|error| CeremonyRefusalV1::PlatformRefused(error.to_string()))?
@@ -1411,7 +2004,7 @@ mod tests {
         // THE SEAM: re-open the ceremony root exactly as `assemble` does and read
         // the receipt back.
         let (ceremony_root, _verification_key, _signer) =
-            open_ceremony_root(store, &root).expect("assemble opens the same root");
+            open_ceremony_root(store, &root, SEAL_CLOCK_MS).expect("assemble opens the same root");
         assert_eq!(
             ceremony_root.read_custody_ceremony().unwrap(),
             Some(receipt),

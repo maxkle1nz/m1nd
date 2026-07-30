@@ -197,9 +197,17 @@ imitated. An agent that finds the ceremony un-run OFFERS the command and stops.
 
 The code holds part of this line mechanically: the ceremony is reachable only from its own CLI
 ingress (the `--birth` precedent — the ingress IS the human-origin fact), it appears in no MCP
-tool and no REST route, the biometric step refuses when no human is attached, and
-`provision_agent_enclave_seat` refuses the human seat fail-closed. `m1nd-mcp/tests/custody_ceremony_wiring.rs`
-holds the rest, including a guard that fails if a simulation path is ever added.
+tool and no REST route, the biometric step refuses when no human is attached (asked BEFORE the
+platform question, so an unattended process is refused on every OS), and the two provisioning
+entry points refuse each other's seat class fail-closed — `provision_agent_enclave_seat` refuses
+the human seat, `provision_owner_biometric_seat` refuses every other one, and only the ceremony
+door reaches either. `m1nd-mcp/tests/custody_ceremony_wiring.rs` holds the rest, including a guard
+that fails if a simulation path is ever added and one that fails if any verb goes back to
+answering from a placeholder instead of asking the platform.
+
+The four verbs now reach the real floor, which means a run on any unentitled binary — every local
+build — refuses at the keychain naming prerequisite P4. That refusal is the correct answer and
+must never be worked around: `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §5 R1.
 
 ## Dogfood m1nd — for LOCAL agents only
 
