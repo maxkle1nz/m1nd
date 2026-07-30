@@ -199,6 +199,10 @@ fn binary_v4_preserves_asymmetric_bidirectional_slots() {
     );
 }
 
+/// NOTE: this fixture is encoded with the SAME bincode configuration the loader
+/// decodes with, so it proves the V3 BRANCH is taken — never that the bytes on
+/// disk are the right bytes. The frozen-byte proof is
+/// `tests/snapshot_bin_continuity.rs`.
 #[test]
 fn binary_loader_uses_explicit_v3_layout_fallback() {
     #[derive(serde::Serialize)]
@@ -260,13 +264,48 @@ fn binary_loader_uses_explicit_v3_layout_fallback() {
     };
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("legacy-v3.bin");
-    std::fs::write(&path, bincode::serialize(&legacy).unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        bincode::serde::encode_to_vec(&legacy, bincode::config::legacy()).unwrap(),
+    )
+    .unwrap();
     let restored = snapshot_bin::load_graph(&path).expect("load explicit v3 layout");
     let alpha = restored.resolve_id("alpha").unwrap();
     let beta = restored.resolve_id("beta").unwrap();
     let slot = edge_slot(&restored, alpha, beta);
     assert_eq!(restored.edge_plasticity.original_weight[slot].get(), 0.66);
     assert_eq!(restored.edge_plasticity.current_weight[slot].get(), 0.66);
+}
+
+/// A snapshot file is exactly one payload. bincode stops at the end of the value
+/// and ignores whatever follows, so a decode that consumes only part of the file
+/// used to look like a clean load — that is the exact shape of the empty-graph
+/// misread (3 of 88528 bytes consumed, `version=4, nodes=0, edges=0`, no error).
+/// The loader now demands full consumption, so a partial read is a refusal.
+#[test]
+fn binary_load_refuses_a_payload_that_does_not_fill_the_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("padded.bin");
+    let graph = sample_graph();
+    snapshot_bin::save_graph(&graph, &path).unwrap();
+
+    let mut bytes = std::fs::read(&path).unwrap();
+    let payload_len = bytes.len();
+    bytes.extend_from_slice(&[0xAA; 32]);
+    std::fs::write(&path, &bytes).unwrap();
+
+    let message = match snapshot_bin::load_graph(&path) {
+        Err(error) => error.to_string(),
+        Ok(graph) => panic!(
+            "a snapshot that leaves bytes unread must be refused, not accepted as a \
+             {}-node graph",
+            graph.num_nodes()
+        ),
+    };
+    assert!(
+        message.contains(&payload_len.to_string()) && message.contains(&bytes.len().to_string()),
+        "the refusal must name both counts, got: {message}"
+    );
 }
 
 #[test]

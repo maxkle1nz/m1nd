@@ -20,6 +20,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{M1ndError, M1ndResult};
 
+/// Same encoding as the graph snapshot: bincode's LEGACY configuration, the only
+/// one that reads the cache files already on disk. See `snapshot_bin`'s
+/// `SNAPSHOT_BIN_CONFIG` for why `standard()` would corrupt rather than fail.
+/// Corruption here is fail-safe (a bad load is a full recompute), so the cost of
+/// getting it wrong is silent, permanent cache misses instead of wrong vectors.
+const EMBED_CACHE_CONFIG: bincode::config::Configuration<
+    bincode::config::LittleEndian,
+    bincode::config::Fixint,
+> = bincode::config::legacy();
+
 /// Bump when the on-disk layout changes incompatibly. A version mismatch makes
 /// [`EmbeddingCache::load_compatible`] return `None` (full recompute).
 pub const EMBED_CACHE_VERSION: u32 = 1;
@@ -56,7 +66,14 @@ impl EmbeddingCache {
     /// the caller treats as "recompute everything" (advisory cache).
     pub fn load_compatible(path: &Path, model_id: &str, dim: u32) -> Option<Self> {
         let bytes = std::fs::read(path).ok()?;
-        let cache: EmbeddingCache = bincode::deserialize(&bytes).ok()?;
+        // A cache file is exactly one payload: a decode that stops early is a
+        // truncated or misencoded file, not a usable cache.
+        let (cache, consumed) =
+            bincode::serde::decode_from_slice::<EmbeddingCache, _>(&bytes, EMBED_CACHE_CONFIG)
+                .ok()?;
+        if consumed != bytes.len() {
+            return None;
+        }
         if cache.version != EMBED_CACHE_VERSION || cache.model_id != model_id || cache.dim != dim {
             return None;
         }
@@ -66,8 +83,8 @@ impl EmbeddingCache {
     /// Atomically persist the cache (temp + rename), mirroring the plasticity
     /// sidecar's FM-PL-008 discipline. Callers treat failure as non-fatal.
     pub fn save(&self, path: &Path) -> M1ndResult<()> {
-        let bytes =
-            bincode::serialize(self).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
+        let bytes = bincode::serde::encode_to_vec(self, EMBED_CACHE_CONFIG)
+            .map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 
         let temp_path = path.with_extension("tmp");
         {

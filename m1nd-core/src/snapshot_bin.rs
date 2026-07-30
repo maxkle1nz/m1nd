@@ -8,6 +8,44 @@ use crate::types::*;
 use std::io::{BufWriter, Cursor, Write};
 use std::path::Path;
 
+/// The ONLY encoding this format has ever been written with: fixed-width
+/// little-endian integers and `u64` length prefixes — bincode 1's behaviour,
+/// which bincode 2 preserves under `legacy()` and NOT under `standard()`.
+///
+/// This is not a style choice. Every snapshot already on disk was written this
+/// way, and bincode is not self-describing, so a decode under the wrong
+/// configuration does not fail — it returns different values. Measured on a real
+/// 88528-byte snapshot: `standard()` reads `version=4, nodes=0, edges=0` from 3
+/// bytes and hands back an EMPTY graph with no error. Never change this to
+/// `standard()`; a format change needs a `SNAPSHOT_VERSION` bump and a reader
+/// for the old bytes. `tests/snapshot_bin_continuity.rs` holds frozen fixtures
+/// that fail if it ever moves.
+const SNAPSHOT_BIN_CONFIG: bincode::config::Configuration<
+    bincode::config::LittleEndian,
+    bincode::config::Fixint,
+> = bincode::config::legacy();
+
+/// Decode one whole-file payload, refusing a partial read.
+///
+/// bincode stops at the end of the value and reports how far it got; trailing
+/// bytes are silently ignored. For a file that is supposed to BE exactly one
+/// snapshot, a short read is the signature of a misencoded or truncated file —
+/// the empty-graph misread above consumed 3 of 88528 bytes and looked like
+/// success. Demanding full consumption turns that class into a refusal.
+fn decode_whole_file<T: serde::de::DeserializeOwned>(data: &[u8], what: &str) -> M1ndResult<T> {
+    let (value, consumed) = bincode::serde::decode_from_slice::<T, _>(data, SNAPSHOT_BIN_CONFIG)
+        .map_err(|error| M1ndError::PersistenceFailed(error.to_string()))?;
+    if consumed != data.len() {
+        return Err(M1ndError::CorruptState {
+            reason: format!(
+                "binary graph snapshot {what} decoded only {consumed} of {} bytes",
+                data.len()
+            ),
+        });
+    }
+    Ok(value)
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct GraphSnapshotBinV4 {
     version: u32,
@@ -555,8 +593,8 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
         edges,
     };
 
-    let bytes =
-        bincode::serialize(&snapshot).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
+    let bytes = bincode::serde::encode_to_vec(&snapshot, SNAPSHOT_BIN_CONFIG)
+        .map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 
     // Atomic write
     let temp_path = path.with_extension("tmp");
@@ -578,14 +616,12 @@ pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
     // then select the exact historical struct instead of hoping a v4 decode
     // failure can be distinguished from corruption in a v3 payload.
     let mut cursor = Cursor::new(&data);
-    let version: u32 = bincode::deserialize_from(&mut cursor)
+    let version: u32 = bincode::serde::decode_from_std_read(&mut cursor, SNAPSHOT_BIN_CONFIG)
         .map_err(|error| M1ndError::PersistenceFailed(error.to_string()))?;
     let snapshot = match version {
-        SNAPSHOT_VERSION => bincode::deserialize::<GraphSnapshotBinV4>(&data)
-            .map_err(|error| M1ndError::PersistenceFailed(error.to_string()))?,
+        SNAPSHOT_VERSION => decode_whole_file::<GraphSnapshotBinV4>(&data, "v4")?,
         3 => {
-            let legacy = bincode::deserialize::<GraphSnapshotBinV3>(&data)
-                .map_err(|error| M1ndError::PersistenceFailed(error.to_string()))?;
+            let legacy = decode_whole_file::<GraphSnapshotBinV3>(&data, "v3")?;
             if legacy.version != 3 {
                 return Err(M1ndError::CorruptState {
                     reason: format!(

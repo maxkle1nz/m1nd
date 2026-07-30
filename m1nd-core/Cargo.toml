@@ -16,7 +16,13 @@ smallvec = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
 static_assertions = { workspace = true }
-bincode = "1.3"
+# `serde` is REQUIRED, not optional: bincode 2 ships its serde bridge behind a
+# feature flag, and every payload here (graph snapshot, embedding cache) is a
+# `serde` type. The on-disk encoding is pinned to `config::legacy()` at each call
+# site — see `snapshot_bin::save_graph`.
+# `derive` is off because nothing here implements bincode's own traits — that
+# drops the `bincode_derive`/`virtue` proc-macro pair from the build graph.
+bincode = { version = "2.0", default-features = false, features = ["std", "serde"] }
 sha2 = "0.11"
 
 # OPTIONAL: pure-Rust static embeddings (model2vec). OFF by default.
