@@ -23,7 +23,7 @@ flowchart TB
         end
 
         AC["attach_client.rs<br/>forward_with_reinit (-32001 replay)"]
-        IR["instance_registry.rs<br/>discover_serve_owner_base_url :700"]
+        IR["instance_registry.rs<br/>discover_serve_owner :1575<br/>Q1 runtime_root · Q2 ingest coverage"]
     end
 
     subgraph Npm["npm — @maxkle1nz/m1nd (cli.js) — NOT the runtime"]
@@ -135,7 +135,7 @@ stateDiagram-v2
 - `--medulla-migrate` apply/rollback REFUSE (exit 2) without explicit `--migrate-project-root`; destination brain is never derived from ambient binding (test `apply_without_explicit_project_root_is_refused`).
 - `--medulla-migrate` is idempotent: a second apply moves zero claims and reports `already_migrated`.
 - Relative persist targets anchor under `runtime_dir`; explicit absolute paths pass through untouched; the `temp` sentinel resolves to an OS-temp per-pid file (6 unit tests).
-- `--attach auto` resolves only a ReadWrite AND `owner_live==Some(true)` AND `!stale` AND runtime_root-matched owner with a reachable URL; stdio-only owners publish no port and are skipped.
+- `--attach auto` resolves only a ReadWrite AND `owner_live==Some(true)` AND `!stale` owner with a reachable URL; stdio-only owners publish no port and are skipped. Those four gates are shared by BOTH discovery questions (`is_attachable_serve_owner`): (1) runtime_root match, then (2) an owner whose declared roots (`workspace_root` + `ingest_roots.json`) COVER the caller root — canonical path identity, worktree resolved to its main repo, `>1` covering owner refuses naming all candidates, and the bearer token is read from the RESOLVED owner's runtime root, not the client's.
 - npm restart/update mutate ONLY with `--yes`; check/plan/status are read-only dry-runs.
 - launchd labels discovered GENERICALLY from `launchctl list` filtered `/m1nd/i` — never a hardcoded personal label (confirmed `managedLaunchdLabels` :2662-2671).
 - A missing `codesign` tool is a loud warning appended to next_actions, never fatal (confirmed `codesignAdHoc` :2643 returns `{missing:true}` on ENOENT).

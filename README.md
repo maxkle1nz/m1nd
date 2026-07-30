@@ -247,7 +247,7 @@ m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
 m1nd-mcp --attach auto --stdio     # each agent: no graph load, no lease, shared memory
 ```
 
-What one agent memorizes, another recalls immediately, and the presence and collision warnings described above run through this same owner. It also hosts per-repo brains and renders the web UI. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists.
+What one agent memorizes, another recalls immediately, and the presence and collision warnings described above run through this same owner. It also hosts per-repo brains and renders the web UI. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists. `auto` finds the owner of your own runtime first, and otherwise any live owner that has already ingested the repo you are standing in — including from a git worktree — so one central owner is found from inside its own projects instead of each repo starting an empty brain.
 
 One gate to know about: a served owner refuses generic `ingest` for repos it does not already host. Minting a new brain on a served owner is a governed gesture, and it fails closed by design. For a first session on a new repo, use the stdio path or `m1nd agent first-minute`. Attach to the owner once it hosts your repo. Full deployment guide: [docs/deployment.md](docs/deployment.md).
 

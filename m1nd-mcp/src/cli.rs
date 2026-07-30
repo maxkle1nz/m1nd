@@ -80,6 +80,20 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     pub custody_mission_config: Option<String>,
 
+    /// Owner-held path to the JSON `IndependenceSpecV1` whose four voting seats
+    /// the ceremony provisions (`provision-seats`) and seals (`seal`). Required
+    /// by both: the seats belong to the owner's constitution, so this binary
+    /// reads their principals, key ids and failure domains rather than inventing
+    /// them — a ceremony that made up its own seats would be binding to itself.
+    #[arg(long, value_name = "PATH")]
+    pub custody_independence_spec: Option<String>,
+
+    /// The owner's constitution digest (lowercase sha-256 hex), sealed into the
+    /// ceremony receipt by `seal`. Recorded, never computed: the ceremony states
+    /// which constitution its seats were minted under, it does not decide it.
+    #[arg(long, value_name = "SHA256")]
+    pub custody_constitution_digest: Option<String>,
+
     /// Start HTTP server with embedded web UI
     #[arg(long)]
     pub serve: bool,
@@ -167,9 +181,17 @@ pub struct Cli {
 
     /// Attach to a running `--serve` owner as a thin stdio↔HTTP MCP bridge.
     /// Takes the owner's base URL (e.g. `http://127.0.0.1:1337`), or the literal
-    /// `auto` to auto-discover the live serve ReadWrite owner for this client's
-    /// runtime_root via the instance registry (read-only, NO lease). The env var
-    /// `M1ND_ATTACH_URL`, when set, overrides both and wins. The bridge loads NO
+    /// `auto` to auto-discover a live serve owner via the instance registry
+    /// (read-only, NO lease). `auto` asks TWO questions, in order: first "is
+    /// there a live serve ReadWrite owner for this client's runtime_root?", and
+    /// only failing that "is there a live serve owner whose declared ingest roots
+    /// COVER this caller's repo?" — so an agent working inside a repo a served
+    /// owner has already ingested reaches that owner instead of an empty local
+    /// runtime. The second question resolves a git worktree to its main
+    /// repository, REFUSES (naming every candidate) when two owners cover the
+    /// same repo, and reads the bearer token from THAT owner's runtime root. The
+    /// env var `M1ND_ATTACH_URL`, when set, overrides both and wins. The bridge
+    /// loads NO
     /// graph, builds NO engines, and takes NO lease: it speaks stdio MCP to the
     /// host (Claude Code), forwards every JSON-RPC frame to the owner's
     /// `POST /mcp`, and relays the owner's server→client SSE push notifications

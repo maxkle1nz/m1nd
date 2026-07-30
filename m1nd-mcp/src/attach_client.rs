@@ -466,7 +466,11 @@ pub async fn forward_with_reinit(
 /// editor-hint list is intentionally NOT copied here; cwd already covers the
 /// bridge's spawn dir. An env candidate wins only if it is a non-empty, existing
 /// directory (so a stale/empty pin never masks the real cwd).
-fn resolve_caller_root() -> Option<String> {
+///
+/// `pub` because `--attach auto`'s ingest-coverage discovery must ask about the
+/// SAME root the bridge will then present. Two definitions would let a client
+/// pick an owner by one root and then introduce itself with another.
+pub fn resolve_caller_root() -> Option<String> {
     const CALLER_ROOT_ENV_CANDIDATES: [&str; 6] = [
         "M1ND_WORKSPACE_ROOT",
         "M1ND_PROJECT_ROOT",

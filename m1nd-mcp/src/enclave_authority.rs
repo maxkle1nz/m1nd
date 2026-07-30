@@ -199,6 +199,41 @@ pub fn provision_agent_enclave_seat(
     Ok(opened)
 }
 
+/// Provision the OWNER's biometric seat — the mirror of
+/// [`provision_agent_enclave_seat`], and the *separate, owner-only entry point*
+/// `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §2 step 4 measured as missing.
+///
+/// The two functions are exact opposites and together exhaust
+/// [`EnclaveAccessControlV1`]: the agent one refuses the biometric class
+/// fail-closed, this one refuses every non-biometric class. Neither can mint the
+/// other's seat, so the human seat cannot be minted through an agent path — and
+/// this one is reachable only from the ceremony's own CLI ingress, behind the
+/// owner-presence gate (`custody_ceremony`).
+///
+/// What this function does NOT do is enforce the biometry. That is the key's
+/// `kSecAccessControl` user-presence flag, enforced by the Secure Enclave when
+/// the key SIGNS; minting is not a use. The honest consequence: creating the
+/// owner's seat does not raise a Touch ID prompt, and the flags themselves are
+/// readable back by no API — the owner's live conformance run is the only thing
+/// that proves them (§5 R5).
+pub fn provision_owner_biometric_seat(
+    key_store: &dyn SecureEnclaveKeyStoreV1,
+    permit: &EnclaveProvisioningPermitV1,
+) -> Result<EnclaveOpenedKeyV1, EnclaveError> {
+    if permit.access_control != EnclaveAccessControlV1::UserPresenceBiometricNonExportable {
+        return Err(EnclaveError::Provisioning(
+            "the owner ceremony seat must carry the biometric user-presence access control"
+                .to_owned(),
+        ));
+    }
+    let opened = key_store.provision(permit)?;
+    opened
+        .attestation
+        .reattest(&EnclaveKeyAttestationV1::canonical(permit.access_control))?;
+    require_uncompressed_sec1(&opened.public_key_sec1)?;
+    Ok(opened)
+}
+
 /// A P-256 Secure Enclave signer. Construction opens an existing key and
 /// re-attests it, so a signer that exists is a signer whose token/type/size were
 /// verified. Signing goes through the key store's `SecKeyCreateSignature`.
@@ -362,7 +397,9 @@ fn require_uncompressed_sec1(bytes: &[u8]) -> Result<(), EnclaveError> {
     Ok(())
 }
 
-fn hex_lower(bytes: &[u8]) -> String {
+/// Lowercase hex, the one encoding every public seat key in this floor is
+/// written in (`G9-CUSTODY-CEREMONY.md` §3, validator `require_uncompressed_sec1_hex`).
+pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(
         String::with_capacity(bytes.len() * 2),
@@ -614,7 +651,15 @@ fn read_file_no_follow(path: &Path) -> Result<Option<Vec<u8>>, EnclaveError> {
     Ok(Some(bytes))
 }
 
-fn atomic_write_no_follow(root: &Path, slot_file: &str, bytes: &[u8]) -> Result<(), EnclaveError> {
+/// Publish `bytes` into the protected root atomically and without following a
+/// symlink: a fresh `0600` temp, fsync, rename, fsync the directory. Shared with
+/// the ceremony door, whose Phase A/B staging file lands in the same owner-only
+/// root and must not be written any more loosely than a sealed slot is.
+pub(crate) fn atomic_write_no_follow(
+    root: &Path,
+    slot_file: &str,
+    bytes: &[u8],
+) -> Result<(), EnclaveError> {
     let temp = root.join(format!("{slot_file}.tmp"));
     let final_path = root.join(slot_file);
     // A stale temp symlink must not redirect the write; start from a clean temp.
@@ -859,7 +904,10 @@ impl ProtectedJournalHeadBackendV1 for SecureEnclaveJournalHeadBackend {
 
 pub const ENCLAVE_CUSTODY_CEREMONY_SCHEMA: &str = "m1nd-enclave-custody-ceremony-receipt-v1";
 const ENCLAVE_CUSTODY_CEREMONY_SEAL_DOMAIN: &str = "m1nd-enclave-custody-ceremony-v1";
-const ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE: &str = "custody-ceremony.sealed.json";
+/// Where the sealed ceremony lands inside the protected root
+/// (`G9-CUSTODY-CEREMONY.md` §3). `pub(crate)` so the ceremony door reports the
+/// path it wrote instead of restating the literal.
+pub(crate) const ENCLAVE_CUSTODY_CEREMONY_SLOT_FILE: &str = "custody-ceremony.sealed.json";
 
 /// The honest attestation distinction the amendment requires on the record: what
 /// the enclave really provides (key custody) versus what remains filesystem
@@ -1488,28 +1536,37 @@ impl SecureEnclaveKeyStoreV1 for SecurityFrameworkEnclaveKeyStore {
     }
 }
 
+/// The ONE software stand-in for the Secure Enclave in this crate.
+///
+/// It lives at module level rather than inside `mod tests` so the ceremony door's
+/// battery drives the SAME fake the floor's own tests drive. Two fakes would be
+/// two contracts: the door could then be proven against a boundary the floor does
+/// not actually have. It is `#[cfg(test)]` and `pub(crate)`, so it cannot leak
+/// into a release binary or out of this crate.
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     use std::collections::BTreeMap;
 
     use p256::ecdsa::{signature::Signer as _, Signature, SigningKey};
     use parking_lot::Mutex;
     use sha2::{Digest, Sha256};
-    use tempfile::TempDir;
 
-    use super::*;
+    use super::{
+        EnclaveAccessControlV1, EnclaveError, EnclaveKeyAttestationV1, EnclaveOpenedKeyV1,
+        EnclaveProvisioningPermitV1, SecureEnclaveKeyStoreV1,
+    };
 
     /// Software P-256 stand-in for the Secure Enclave: it holds a signing key,
     /// produces the canonical attestation, and signs raw (possibly high-S) DER —
     /// exactly the non-deterministic reality m1nd-control must normalize.
-    struct MockEnclaveKeyStore {
+    pub(crate) struct MockEnclaveKeyStore {
         keys: Mutex<BTreeMap<String, MockKey>>,
         access_control: EnclaveAccessControlV1,
         drift: Option<AttestationDrift>,
     }
 
     #[derive(Clone, Copy)]
-    enum AttestationDrift {
+    pub(crate) enum AttestationDrift {
         Token,
         KeyType,
         Size,
@@ -1521,7 +1578,7 @@ mod tests {
     }
 
     impl MockEnclaveKeyStore {
-        fn new(access_control: EnclaveAccessControlV1) -> Self {
+        pub(crate) fn new(access_control: EnclaveAccessControlV1) -> Self {
             Self {
                 keys: Mutex::new(BTreeMap::new()),
                 access_control,
@@ -1529,7 +1586,10 @@ mod tests {
             }
         }
 
-        fn with_drift(access_control: EnclaveAccessControlV1, drift: AttestationDrift) -> Self {
+        pub(crate) fn with_drift(
+            access_control: EnclaveAccessControlV1,
+            drift: AttestationDrift,
+        ) -> Self {
             Self {
                 keys: Mutex::new(BTreeMap::new()),
                 access_control,
@@ -1567,7 +1627,7 @@ mod tests {
         }
     }
 
-    fn scalar_for(key_id: &str) -> [u8; 32] {
+    pub(crate) fn scalar_for(key_id: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"mock-enclave-scalar-v1\0");
         hasher.update(key_id.as_bytes());
@@ -1619,6 +1679,15 @@ mod tests {
             Ok(signature.to_der().as_bytes().to_vec())
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use p256::ecdsa::SigningKey;
+    use tempfile::TempDir;
+
+    use super::test_support::{scalar_for, AttestationDrift, MockEnclaveKeyStore};
+    use super::*;
 
     fn agent_permit(key_id: &str) -> EnclaveProvisioningPermitV1 {
         EnclaveProvisioningPermitV1 {
@@ -1740,6 +1809,30 @@ mod tests {
             outcome,
             Err(EnclaveError::HumanSeatProvisioningRefused)
         ));
+    }
+
+    /// The mirror of the rule above: the owner-only entry point refuses every
+    /// non-biometric class. The two functions are exhaustive over the seat
+    /// classes and each refuses the other's, so neither can mint the other's seat
+    /// — the human seat is unreachable from an agent path, and an agent seat
+    /// cannot be smuggled in through the owner's door either.
+    #[test]
+    fn the_owner_entry_point_refuses_a_seat_that_is_not_the_biometric_one() {
+        let store = MockEnclaveKeyStore::new(EnclaveAccessControlV1::PrivateKeyUsageNonExportable);
+        let outcome = provision_owner_biometric_seat(&store, &agent_permit("smuggled-seat"));
+        assert!(matches!(outcome, Err(EnclaveError::Provisioning(_))));
+
+        // And it does mint the seat it is for.
+        let biometric_store =
+            MockEnclaveKeyStore::new(EnclaveAccessControlV1::UserPresenceBiometricNonExportable);
+        let mut permit = agent_permit("owner-biometric-seat");
+        permit.access_control = EnclaveAccessControlV1::UserPresenceBiometricNonExportable;
+        let opened = provision_owner_biometric_seat(&biometric_store, &permit).unwrap();
+        assert_eq!(
+            opened.attestation.access_control,
+            EnclaveAccessControlV1::UserPresenceBiometricNonExportable
+        );
+        assert_eq!(opened.public_key_sec1.len(), 65);
     }
 
     #[test]
