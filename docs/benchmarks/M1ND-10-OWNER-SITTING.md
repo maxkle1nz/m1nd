@@ -67,6 +67,23 @@ candidate + baseline binaries (owner pins them), and the ratified baseline run.
 staged measure: 22 PASS / 0 FAIL / 15 OWNER_INPUT_MISSING, exit 3
 `READY_PUBLIC_ONLY`.
 
+**Provider status (measured 2026-07-30):** the wire contract is fully derived from
+the runner — the provider is copied alone into a deny-default sandbox
+(`sandbox-exec` / `bwrap --unshare-all`), invoked with **no arguments and a
+scrubbed env**, speaks one canonical-JSON request per process over stdin/stdout,
+and is digest-pinned before and after every call. What is NOT derivable from any
+consumer channel is its **identity**: three preflight fields
+(`provider_kind`, `production_authority_assembly`, `assembly_id`) appear in no
+request, the sandbox denies every owner-held path, and the assembly's
+`self_digest` covers the provider's own digest — so the provider cannot embed
+what is computed from it. A binary config-trailer is ruled out by measurement (it
+voids the macOS signature and with it the keychain entitlement). The working
+direction, pending the owner's veto: **keychain-resident provider identity**,
+filed by the custody ceremony itself — the only channel that survives both the
+sandbox (mach-lookup is allowed) and codesigning, and it keeps the signed binary
+singular. The provider then ships as a mode of `m1nd-mcp`, built after the
+ceremony-verb wiring lands.
+
 ## Step 4 — G7 LIVE, again (`G7-LIVE-CEREMONY.md`)
 
 The same four commands the owner already ran once. The first run's receipt honestly
