@@ -59,6 +59,23 @@ builds one). What remains true: real execution needs the owner, the entitled
 binary, and the Mac — every missing precondition refuses closed with its own
 name, and no agent path can perform any of it.
 
+**Before the first verb, seal the spec (P9).** The independence spec is written by
+hand, and every custody verb refuses one whose declared digest is not the digest of
+its own core — so the draft is sealed once, first:
+
+```bash
+m1nd-mcp --seal-independence-spec independence-spec.draft.json > independence-spec.json
+```
+
+Offline, one file in, the sealed document out, exit 0 — it touches no enclave, no
+keychain and no ceremony state, so it is not one of the four owner-only verbs and
+runs anywhere. Whatever placeholder the draft's `independence_spec_digest` carried
+is overwritten; a draft that breaks a structural floor (not four voting seats, a
+quorum outside the three-of-four floor, fewer than three distinct failure domains,
+a voting proposer/executor or sentinel) refuses by name with exit 1 instead. Then
+pass the sealed file as `--custody-independence-spec` to `provision-seats` and
+`seal`.
+
 ## Step 3 — G6 formal blind run (`G6-FORMAL-CEREMONY.md`)
 
 One command, every path owner-held. After steps 0–2, the remaining refusals are:

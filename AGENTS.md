@@ -226,6 +226,14 @@ The four verbs now reach the real floor, which means a run on any unentitled bin
 build — refuses at the keychain naming prerequisite P4. That refusal is the correct answer and
 must never be worked around: `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §5 R1.
 
+**`--seal-independence-spec <PATH>` is NOT one of these verbs.** It sits next to them in the CLI
+and serves the same ceremony, but it seals a DOCUMENT: it reads the owner's hand-authored
+`IndependenceSpecV1`, fills `independence_spec_digest` from the digest of that spec's own core,
+prints the sealed document, and exits. It opens no enclave, no keychain, no protected root and no
+ceremony state, so it runs on every platform and there is nothing in it an agent is forbidden to
+perform. It produces no seat, no key and no claim that a ceremony happened — the prohibition above
+is untouched by it.
+
 ## Dogfood m1nd — for LOCAL agents only
 
 If you can reach the served m1nd owner (a local process on `127.0.0.1:1338`), orient with
