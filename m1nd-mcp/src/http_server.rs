@@ -6126,16 +6126,137 @@ mod tests {
         );
     }
 
-    /// Field defect (project mailbox letters from `opus5-annotate`, high/bug, and
-    /// `opus5-restorder`, medium): the generic floor gate ran BEFORE the owner-proxy
-    /// interceptions, so the three REST paths built FOR the Human View v2 spawn, the
-    /// in-screen "Name with runner" flow and the F12 propose-apply curation were dead
-    /// code behind a 403 — all three verbs sit at `SCOPED_GRANT_A2`, so the floor
-    /// refused before the proxy that exists to serve them ever saw the request. The
-    /// proxies are NOT generic dispatch (they need owner-process state the generic
-    /// dispatcher does not have), exactly like `mission_service` above, so they are
-    /// intercepted AHEAD of the gate — the same shape
-    /// `mcp_http::run_mission_service_wire` uses on the wire.
+    /// Where a REST verb that `handle_tool_call` routes SPECIALLY must sit
+    /// relative to the F-01 generic floor gate (`enforce_generic_action_policy`).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum RestSeat {
+        /// An owner→daemon proxy: HTTP-only, because it needs owner-process state
+        /// the generic dispatcher never sees (the announce registry, the shared
+        /// secret the browser never holds). The generic policy REFUSES these
+        /// verbs, so the gate kills them wherever it runs first: they must precede
+        /// it, and each one must carry a probe in `OWNER_PROXY_PROBES`.
+        OwnerProxyAheadOfGate,
+        /// A typed G3 facade: owns its own selector and exact lease binding and
+        /// bypasses the generic gate by design (pinned by its own test above).
+        TypedFacadeAheadOfGate,
+        /// Routed AFTER the gate on purpose — the gate must judge the call first.
+        /// `ingest` is only re-routed to the guarded bootstrap once the policy has
+        /// admitted it, so moving it up would hand the bootstrap an unjudged call.
+        BehindTheGateByDesign,
+    }
+
+    /// Every verb `handle_tool_call` routes specially, and the seat it must hold.
+    /// One half of a two-way equality with the LIVE SOURCE (see
+    /// `rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate`):
+    /// a verb the route handles that nobody declares here turns the guard red, and
+    /// so does a declaration for a verb the route no longer handles.
+    const REST_ROUTE_SEATING: &[(&str, RestSeat)] = &[
+        ("candidate_naming", RestSeat::OwnerProxyAheadOfGate),
+        ("curation_spawn", RestSeat::OwnerProxyAheadOfGate),
+        (
+            "external_mutation_service",
+            RestSeat::TypedFacadeAheadOfGate,
+        ),
+        ("ingest", RestSeat::BehindTheGateByDesign),
+        ("mission_service", RestSeat::TypedFacadeAheadOfGate),
+        ("mission_spawn", RestSeat::OwnerProxyAheadOfGate),
+    ];
+
+    /// One row per owner proxy: the body a browser-shaped call carries, and the
+    /// fragment of the PROXY'S OWN refusal that proves the proxy — not the floor
+    /// gate — answered on this fixture (no runner announced, no system-block
+    /// store). A verb with no proxy behind it cannot produce these bytes.
+    struct OwnerProxyProbe {
+        verb: &'static str,
+        body: &'static str,
+        own_refusal: &'static str,
+    }
+
+    const OWNER_PROXY_PROBES: &[OwnerProxyProbe] = &[
+        OwnerProxyProbe {
+            verb: "mission_spawn",
+            body: r##"{"runner_id":"runner-that-never-announced","packet_markdown":"# packet","block_id":"blk-1","brain_ref":"bound"}"##,
+            own_refusal: "no live runner 'runner-that-never-announced'",
+        },
+        OwnerProxyProbe {
+            verb: "candidate_naming",
+            body: r#"{"expected_store_version":1}"#,
+            own_refusal: "no system-block store here yet",
+        },
+        OwnerProxyProbe {
+            verb: "curation_spawn",
+            body: r#"{"expected_store_version":1}"#,
+            own_refusal: "no system-block store here yet",
+        },
+    ];
+
+    /// Every verb `handle_tool_call` compares `bare_tool` against, mapped to the
+    /// byte offset of its FIRST comparison in the function body — read from the
+    /// live source, so the guard measures the route itself, never a copy of it.
+    fn rest_routed_verbs(function_body: &str) -> std::collections::BTreeMap<String, usize> {
+        let mut sightings: Vec<(String, usize)> = Vec::new();
+
+        const EQUALITY: &str = "bare_tool == \"";
+        let mut cursor = 0usize;
+        while let Some(hit) = function_body[cursor..].find(EQUALITY) {
+            let at = cursor + hit;
+            let start = at + EQUALITY.len();
+            let end = start
+                + function_body[start..]
+                    .find('"')
+                    .expect("unterminated verb literal on the REST tool route");
+            sightings.push((function_body[start..end].to_string(), at));
+            cursor = end;
+        }
+
+        const MATCHES: &str = "matches!(";
+        let mut cursor = 0usize;
+        while let Some(hit) = function_body[cursor..].find(MATCHES) {
+            let at = cursor + hit;
+            let open = at + MATCHES.len();
+            let mut depth = 1usize;
+            let mut close = function_body.len();
+            for (offset, character) in function_body[open..].char_indices() {
+                match character {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = open + offset;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if function_body[open..close].contains("bare_tool") {
+                for literal in function_body[open..close].split('"').skip(1).step_by(2) {
+                    sightings.push((literal.to_string(), at));
+                }
+            }
+            cursor = close.max(open);
+        }
+
+        let mut earliest = std::collections::BTreeMap::new();
+        for (verb, at) in sightings {
+            earliest
+                .entry(verb)
+                .and_modify(|seen: &mut usize| *seen = (*seen).min(at))
+                .or_insert(at);
+        }
+        earliest
+    }
+
+    /// Field defect, twice (project mailbox letters from `opus5-annotate`,
+    /// high/bug, and `opus5-restorder`, medium): the generic floor gate ran BEFORE
+    /// the owner-proxy interceptions, so the three REST paths built FOR the Human
+    /// View v2 spawn, the in-screen "Name with runner" flow and the F12
+    /// propose-apply curation were dead code behind a 403 — all three verbs sit at
+    /// `SCOPED_GRANT_A2`, so the floor refused before the proxy that exists to
+    /// serve them ever saw the request. The proxies are NOT generic dispatch (they
+    /// need owner-process state the generic dispatcher does not have), exactly like
+    /// `mission_service` above, so they are intercepted AHEAD of the gate — the
+    /// same shape `mcp_http::run_mission_service_wire` uses on the wire.
     ///
     /// `curation_spawn` failed one step earlier still: the catalog ratifies
     /// `mission.curation_spawn` at `[Rest]`-only ingress, so it has no MCP tool route
@@ -6146,85 +6267,140 @@ mod tests {
     ///
     /// The proof is the HANDLER's own honest refusal: with no runner daemon
     /// announced and no system-block store in the fixture runtime, each proxy
-    /// answers with its own domain refusal instead of the authority floor.
+    /// answers with its own domain refusal instead of the authority floor. Table-
+    /// driven over `OWNER_PROXY_PROBES`, whose membership the exhaustiveness guard
+    /// below holds equal to the seating declared for the live route.
     #[tokio::test]
     async fn rest_owner_proxies_are_intercepted_ahead_of_the_generic_floor_gate() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app = rest_owner(temp.path());
 
-        for name in ["mission_spawn", "m1nd.mission_spawn", "m1nd_mission_spawn"] {
-            let (status, payload) = call_tool(
-                &app,
-                name,
-                None,
-                serde_json::json!({
-                    "runner_id": "runner-that-never-announced",
-                    "packet_markdown": "# packet",
-                    "block_id": "blk-1",
-                    "brain_ref": "bound"
-                }),
-            )
-            .await;
-            let rendered = payload.to_string();
-            assert!(
-                !rendered.contains("generic_action_authority_required"),
-                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
+        for probe in OWNER_PROXY_PROBES {
+            let body: serde_json::Value =
+                serde_json::from_str(probe.body).expect("owner-proxy probe body");
+
+            // The seat is load-bearing, never decorative: the generic policy still
+            // refuses this verb, so the same proxy seated BEHIND the gate dies there.
+            crate::server::enforce_generic_action_policy(probe.verb, &body).expect_err(
+                "a verb the generic policy ADMITS needs no seat ahead of the gate; \
+                 remove it from the owner-proxy table instead of widening the route",
             );
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
-            assert!(
-                rendered.contains("no live runner 'runner-that-never-announced'"),
-                "{name} must answer with the proxy's own honest refusal: {rendered}"
-            );
+
+            // All three name spellings reach the same proxy (`bare_tool_name`).
+            for name in [
+                probe.verb.to_string(),
+                format!("m1nd.{}", probe.verb),
+                format!("m1nd_{}", probe.verb),
+            ] {
+                let (status, payload) = call_tool(&app, &name, None, body.clone()).await;
+                let rendered = payload.to_string();
+                assert!(
+                    !rendered.contains("generic_action_authority_required")
+                        && !rendered.contains("generic_action_policy_unresolved"),
+                    "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
+                );
+                // Every owner proxy refuses an absent runtime as a bad request; the
+                // floor gate answers 403, so the status is part of the proof.
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
+                assert!(
+                    rendered.contains(probe.own_refusal),
+                    "{name} must answer with the proxy's own honest refusal: {rendered}"
+                );
+            }
+        }
+    }
+
+    /// The guard that makes a THIRD occurrence impossible. The two incidents above
+    /// were invisible because nothing tied the route's verb list to its seating: a
+    /// verb could be added to `handle_tool_call` on the wrong side of the gate and
+    /// every existing test stayed green.
+    ///
+    /// So the seating is measured against the LIVE SOURCE of the route, both ways:
+    /// the set of verbs `handle_tool_call` compares `bare_tool` against must equal
+    /// `REST_ROUTE_SEATING` exactly (a new verb with no declared seat is red, a
+    /// declared seat for a verb the route dropped is red), each verb must sit on the
+    /// side of the gate its seat declares (moving a proxy below the gate is red), and
+    /// the owner-proxy seats must equal `OWNER_PROXY_PROBES` exactly — so a new proxy
+    /// cannot be seated without a probe that proves the proxy, not the gate, answers.
+    ///
+    /// Its one blind spot, stated honestly: a verb with a handler but NO special
+    /// route at all (pure generic dispatch) is invisible here, because there is
+    /// nothing on this seam to see. Both field incidents had the interception —
+    /// only its position was wrong.
+    #[test]
+    fn rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate() {
+        let source = include_str!("http_server.rs");
+        let start = source
+            .find("async fn handle_tool_call(")
+            .expect("the REST tool route");
+        let route = &source[start..];
+        let end = route[1..]
+            .find("\nasync fn ")
+            .map(|offset| offset + 1)
+            .expect("the function that follows the REST tool route");
+        let route = &route[..end];
+
+        assert_eq!(
+            route.matches("enforce_generic_action_policy(").count(),
+            1,
+            "the REST tool route must consult the generic floor gate exactly once; \
+             a second call site means this guard is measuring the wrong seat"
+        );
+        let gate = route
+            .find("enforce_generic_action_policy(")
+            .expect("the F-01 generic floor gate on the REST tool route");
+
+        let routed = rest_routed_verbs(route);
+        let observed: std::collections::BTreeSet<&str> =
+            routed.keys().map(String::as_str).collect();
+        let declared: std::collections::BTreeSet<&str> =
+            REST_ROUTE_SEATING.iter().map(|(verb, _)| *verb).collect();
+        assert_eq!(
+            declared.len(),
+            REST_ROUTE_SEATING.len(),
+            "duplicate row in REST_ROUTE_SEATING"
+        );
+        assert_eq!(
+            observed, declared,
+            "REST route seating drift. Declare every verb `handle_tool_call` routes \
+             specially: an owner proxy belongs AHEAD of enforce_generic_action_policy \
+             with a probe in OWNER_PROXY_PROBES, or the floor gate answers it with \
+             generic_action_authority_required and its REST path is dead code"
+        );
+
+        for (verb, seat) in REST_ROUTE_SEATING {
+            let at = routed[*verb];
+            match seat {
+                RestSeat::OwnerProxyAheadOfGate | RestSeat::TypedFacadeAheadOfGate => assert!(
+                    at < gate,
+                    "{verb} is routed BEHIND the generic floor gate ({at} > {gate}); \
+                     the gate refuses it, so its REST path is dead code"
+                ),
+                RestSeat::BehindTheGateByDesign => assert!(
+                    at > gate,
+                    "{verb} is routed AHEAD of the generic floor gate ({at} < {gate}); \
+                     it is declared gate-first, so this would hand it an unjudged call"
+                ),
+            }
         }
 
-        for name in [
-            "candidate_naming",
-            "m1nd.candidate_naming",
-            "m1nd_candidate_naming",
-        ] {
-            let (status, payload) = call_tool(
-                &app,
-                name,
-                None,
-                serde_json::json!({ "expected_store_version": 1 }),
-            )
-            .await;
-            let rendered = payload.to_string();
-            assert!(
-                !rendered.contains("generic_action_authority_required"),
-                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
-            );
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
-            assert!(
-                rendered.contains("no system-block store here yet"),
-                "{name} must answer with the proxy's own honest refusal: {rendered}"
-            );
-        }
-
-        for name in [
-            "curation_spawn",
-            "m1nd.curation_spawn",
-            "m1nd_curation_spawn",
-        ] {
-            let (status, payload) = call_tool(
-                &app,
-                name,
-                None,
-                serde_json::json!({ "expected_store_version": 1 }),
-            )
-            .await;
-            let rendered = payload.to_string();
-            assert!(
-                !rendered.contains("generic_action_authority_required")
-                    && !rendered.contains("generic_action_policy_unresolved"),
-                "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
-            );
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
-            assert!(
-                rendered.contains("no system-block store here yet"),
-                "{name} must answer with the proxy's own honest refusal: {rendered}"
-            );
-        }
+        let seated_proxies: std::collections::BTreeSet<&str> = REST_ROUTE_SEATING
+            .iter()
+            .filter(|(_, seat)| *seat == RestSeat::OwnerProxyAheadOfGate)
+            .map(|(verb, _)| *verb)
+            .collect();
+        let probed: std::collections::BTreeSet<&str> =
+            OWNER_PROXY_PROBES.iter().map(|probe| probe.verb).collect();
+        assert_eq!(
+            probed.len(),
+            OWNER_PROXY_PROBES.len(),
+            "duplicate row in OWNER_PROXY_PROBES"
+        );
+        assert_eq!(
+            seated_proxies, probed,
+            "every owner proxy needs a probe that proves the PROXY answered it, and a \
+             probe without a seat names a verb with no proxy behind it"
+        );
     }
 
     /// No widening: the interception is keyed to the verbs that HAVE an owner
