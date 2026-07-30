@@ -36,7 +36,7 @@ classDiagram
 
     class InstanceRegistry {
         <<instance_registry.rs>>
-        +discover_serve_owner_base_url() : --attach lookup (no lease)
+        +discover_serve_owner() : --attach lookup, no lease (runtime_root, then ingest coverage)
         +gc_dead_leases() : boot sweep, conservative
         +mark_heartbeat() : 5s
         +fingerprint_path(root)

@@ -14,12 +14,18 @@
 //!
 //!   2. "is there a live serve owner that has INGESTED my repo?"
 //!
-//! This file is that second question's acceptance battery. It was written
-//! before the second pass existed and is not edited afterwards to make the
-//! implementation pass. Against the pre-fix binary every case below that
-//! exercises question 2 FAILS; `runtime_root_match_still_wins…` is a pin, not a
-//! demand — it is green before and after, and its job is to prove the fallback
-//! never became a replacement.
+//! This file is that second question's acceptance battery, written before the
+//! second pass existed. Against the pre-fix binary every case that exercises
+//! question 2 FAILS with the letter's own message verbatim ("no live serve
+//! ReadWrite owner for runtime_root <…>"); `runtime_root_match_still_wins…` is a
+//! pin, not a demand — it is green before and after, and its job is to prove the
+//! fallback never became a replacement.
+//!
+//! No assertion here was weakened after the implementation landed. One fixture
+//! bug was fixed during the green run and is recorded rather than hidden: the
+//! token fixture wrote a `0644` credential, which `read_existing_bearer_token`
+//! correctly refuses (`InsecurePermissions`), so `write_token_file` now writes
+//! `0600` exactly as the owner does. The assertions it feeds are unchanged.
 //!
 //! Fixtures are in-process: a tempdir registry with hand-written
 //! `instances/*.json` entries (the exact records `list_instances` reads) and a
@@ -112,6 +118,20 @@ fn read_entry(registry: &Path, id: &str) -> InstanceRegistryEntry {
 fn mkdir(path: &Path) -> PathBuf {
     std::fs::create_dir_all(path).expect("mkdir");
     canonical(path)
+}
+
+/// An owner bearer-token file exactly as the owner writes one: owner-only `0600`
+/// on unix, since `read_existing_bearer_token` refuses a group/world-readable
+/// credential (`HttpSecurityError::InsecurePermissions`).
+#[cfg(feature = "serve")]
+fn write_token_file(path: &Path, token: &str) {
+    std::fs::write(path, token).expect("write token file");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .expect("chmod 0600 token file");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,13 +362,11 @@ fn the_discovered_owners_own_runtime_root_carries_the_bearer_token() {
     // Only the owner's authenticates against the owner.
     let client_token = "c".repeat(64);
     let owner_token = "a1b2c3d4".repeat(8);
-    std::fs::write(
-        client_runtime.join(HTTP_AUTH_TOKEN_FILE_NAME),
+    write_token_file(
+        &client_runtime.join(HTTP_AUTH_TOKEN_FILE_NAME),
         &client_token,
-    )
-    .expect("client token");
-    std::fs::write(owner_runtime.join(HTTP_AUTH_TOKEN_FILE_NAME), &owner_token)
-        .expect("owner token");
+    );
+    write_token_file(&owner_runtime.join(HTTP_AUTH_TOKEN_FILE_NAME), &owner_token);
 
     let found =
         discover_serve_owner(&client_runtime, Some(&repo), Some(&registry)).expect("discovery");

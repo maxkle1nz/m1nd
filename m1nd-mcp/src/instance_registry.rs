@@ -1423,11 +1423,133 @@ fn is_attachable_serve_owner(entry: &InstanceRegistryEntry) -> bool {
         && entry_base_url(entry).is_some()
 }
 
+/// The roots this owner's bound brain has DECLARED, read from the same file the
+/// owner persists them to: `ingest_roots.json` beside its graph snapshot
+/// (`SessionState::persist_ingest_roots` / `load_ingest_roots`).
+///
+/// Reading the owner's own file rather than adding a registry field is what makes
+/// an owner of ANY version discoverable, and keeps the list current between
+/// heartbeats — the root set changes on every ingest, the registry entry does not.
+///
+/// The set mirrors `SessionState::covers_root`'s own inputs (`workspace_root` +
+/// the ingest roots), so "this brain's territory" keeps ONE definition.
+fn entry_declared_roots(entry: &InstanceRegistryEntry) -> Vec<String> {
+    let mut roots = vec![entry.workspace_root.clone()];
+    let persist_root = Path::new(&entry.graph_source)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(&entry.runtime_root));
+    if let Ok(raw) = fs::read_to_string(persist_root.join("ingest_roots.json")) {
+        if let Ok(declared) = serde_json::from_str::<Vec<String>>(&raw) {
+            roots.extend(declared);
+        }
+    }
+    roots
+}
+
+/// The declared root of `entry` that COVERS `caller_key`, if any — canonicalized.
+///
+/// "Covers" is `SessionState::covers_root`'s question, asked with the house's own
+/// rule: canonical path identity, whole components, NEVER a raw string prefix.
+/// It is deliberately the loose predicate rather than SPEC-1's
+/// `exact_declared_root`, because those two answer different questions.
+/// `exact_declared_root` is the AUTHORITY-EXCLUSIVE one — it authorizes a WRITE
+/// (a re-ingest that replaces a graph), where a subdirectory match would let any
+/// subtree rewrite the whole repo. This is a ROUTING question: which owner do I
+/// speak to. Discovery choosing an owner never widens what that owner authorizes;
+/// every verb the bridge forwards still meets the owner's own floors, and the
+/// hop-2 `M1nd-Caller-Root` header still carries the caller's TRUE root.
+fn declared_root_covering(entry: &InstanceRegistryEntry, caller_key: &str) -> Option<String> {
+    let caller = Path::new(caller_key);
+    entry_declared_roots(entry).into_iter().find_map(|root| {
+        let key = crate::project_brains::ProjectBrainRegistry::canonical_key(&root);
+        crate::project_brains::path_starts_with_loosely(caller, Path::new(&key)).then_some(key)
+    })
+}
+
+/// The caller root as DISCOVERY compares it: canonical identity (symlinks and the
+/// `/tmp` → `/private/tmp` alias resolved), and a git WORKTREE resolved to its
+/// MAIN repository — the house's own ruling that a worktree belongs to the repo it
+/// checks out (`detect_root_overlap` refuses to mint it a second brain).
+///
+/// This normalization is discovery-local ON PURPOSE. The hop-2 `M1nd-Caller-Root`
+/// header keeps the caller's true root: normalizing it there would forge an
+/// exact-root claim for a worktree, which SPEC-1's `exact_declared_root` exists to
+/// refuse. Being generous about which owner to TALK TO must never be generous
+/// about what that owner authorizes.
+fn discovery_caller_key(caller_root: &Path) -> String {
+    let key =
+        crate::project_brains::ProjectBrainRegistry::canonical_key(&caller_root.to_string_lossy());
+    crate::project_brains::worktree_main_repo(&key).unwrap_or(key)
+}
+
+/// One candidate of the ingest-coverage question.
+struct CoveringOwner {
+    base_url: String,
+    runtime_root: PathBuf,
+    declared_root: String,
+}
+
+/// Ambiguity is the owner's to resolve, never auto-discovery's. Two live owners
+/// covering one caller root is a real configuration question (which brain should
+/// this repo speak to?), and a silent pick would send an agent's whole session to
+/// the wrong brain. Refuse, and name every candidate so the choice is one command
+/// away. This mirrors the routing seam's abstain law (`covering_brain`: exactly
+/// one related brain answers, `> 1` abstains).
+fn ambiguous_coverage_error(caller_key: &str, candidates: &[CoveringOwner]) -> String {
+    let mut message = format!(
+        "{} live serve owners declare a root covering caller root {caller_key}; \
+ambiguity is the owner's to resolve, never auto-discovery's:",
+        candidates.len()
+    );
+    for candidate in candidates {
+        message.push_str(&format!(
+            "\n  - {} (declares {}; runtime_root {})",
+            candidate.base_url,
+            candidate.declared_root,
+            candidate.runtime_root.display()
+        ));
+    }
+    message.push_str("\nName one explicitly: --attach <url>, or set M1ND_ATTACH_URL.");
+    message
+}
+
+/// The honest refusal when NEITHER question can be answered. It teaches both
+/// facts, because naming only the first is what sent three sessions looking for
+/// the wrong repair: an agent told "no owner for your runtime_root" reaches for a
+/// second owner, when the real answer was that a live owner already held the
+/// graph and simply had not been asked the other question.
+fn no_owner_error(
+    runtime_root_target: &str,
+    caller_key: Option<&str>,
+    registered: usize,
+    live_serve_owners: usize,
+) -> String {
+    let second_fact = match caller_key {
+        Some(caller) => format!(
+            "caller root {caller} — no live serve owner declares an ingest root covering it"
+        ),
+        None => "caller root — could not be resolved, so the ingest-root question could not be \
+             asked (pass --runtime-dir, or set M1ND_WORKSPACE_ROOT)"
+            .to_string(),
+    };
+    format!(
+        "no live serve owner for this client, on either discovery question:\n  \
+1. runtime_root {runtime_root_target} — no live serve ReadWrite owner holds it;\n  \
+2. {second_fact}.\n\
+({registered} instance(s) registered, {live_serve_owners} live serve owner(s) inspected.)\n\
+Next: start an owner here (m1nd-mcp --serve --no-gui), ingest this repo into a \
+running owner, or name one with --attach <url>."
+    )
+}
+
 /// Read-only discovery for the `--attach auto` thin client.
 ///
 /// This is PURE read-only registry inspection: it calls `list_instances` (which
 /// only reads `instances/*.json`) and NEVER `acquire`/`acquire_with_mode`, so it
 /// takes no lease and never contends the owner's exclusive PID+heartbeat lock.
+///
+/// Two questions are asked, in order — the second only if the first finds nothing.
 ///
 /// Question 1 — "is there a live serve owner for MY runtime_root?" Matching
 /// mirrors `acquire_with_mode`'s persistence exactly:
@@ -1438,13 +1560,23 @@ fn is_attachable_serve_owner(entry: &InstanceRegistryEntry) -> bool {
 ///     entries that ALSO publish `bind`+`port` survive;
 ///   * with multiple survivors the freshest by `last_heartbeat_ms` wins
 ///     (`list_instances` already sorts descending, so the first survivor is it).
+///
+/// Question 2 — "is there a live serve owner that has INGESTED my repo?" Asking
+/// only question 1 is a measured defect (project mailbox letter `opus5-guardian`,
+/// 2026-07-30, three independent sessions): an agent working inside a repo gets a
+/// stdio owner over that repo's EMPTY `.m1nd` runtime, while the machine's served
+/// owner holds the full graph and already declares the repo among its ingest
+/// roots — and auto-discovery, asking only about runtime roots, could not see it.
+/// So the fallback walks the same live serve owners and attaches to the one whose
+/// declared roots COVER the caller root. Still read-only, still no lease.
+///
+/// It is strictly a FALLBACK: an owner for the client's own runtime root always
+/// wins, and `> 1` covering owner refuses rather than guesses.
 pub fn discover_serve_owner(
     runtime_root: &Path,
     caller_root: Option<&Path>,
     registry_dir: Option<&Path>,
 ) -> Result<DiscoveredOwner, String> {
-    let _ = caller_root;
-
     // Canonicalize the target identically to how the owner stored it.
     let target = canonicalish(runtime_root)
         .map(|p| p.to_string_lossy().into_owned())
@@ -1453,12 +1585,7 @@ pub fn discover_serve_owner(
     let entries = list_instances(registry_dir)
         .map_err(|e| format!("failed to read instance registry: {e}"))?;
 
-    if entries.is_empty() {
-        return Err(format!(
-            "no m1nd instances registered (looked for a live serve ReadWrite owner for runtime_root {target})"
-        ));
-    }
-
+    // --- Question 1: an owner for this client's own runtime root. ---
     for entry in &entries {
         if entry.runtime_root != target || !is_attachable_serve_owner(entry) {
             continue;
@@ -1472,9 +1599,55 @@ pub fn discover_serve_owner(
         }
     }
 
-    Err(format!(
-        "no live serve ReadWrite owner for runtime_root {target}. \
-Start one with: m1nd-mcp --serve --no-gui"
+    // --- Question 2: an owner that has ingested this caller's repo. ---
+    let live: Vec<&InstanceRegistryEntry> = entries
+        .iter()
+        .filter(|entry| is_attachable_serve_owner(entry))
+        .collect();
+    let caller_key = caller_root.map(discovery_caller_key);
+
+    if let Some(caller_key) = caller_key.as_deref() {
+        let mut candidates: Vec<CoveringOwner> = Vec::new();
+        for entry in &live {
+            let Some(base_url) = entry_base_url(entry) else {
+                continue;
+            };
+            // Two entries on one listener are one owner, never an ambiguity.
+            if candidates
+                .iter()
+                .any(|candidate| candidate.base_url == base_url)
+            {
+                continue;
+            }
+            if let Some(declared_root) = declared_root_covering(entry, caller_key) {
+                candidates.push(CoveringOwner {
+                    base_url,
+                    runtime_root: PathBuf::from(&entry.runtime_root),
+                    declared_root,
+                });
+            }
+        }
+
+        if candidates.len() > 1 {
+            return Err(ambiguous_coverage_error(caller_key, &candidates));
+        }
+        if let Some(candidate) = candidates.pop() {
+            return Ok(DiscoveredOwner {
+                base_url: candidate.base_url,
+                runtime_root: candidate.runtime_root,
+                discovery: OwnerDiscovery::IngestCoverage {
+                    declared_root: candidate.declared_root,
+                    caller_root: caller_key.to_string(),
+                },
+            });
+        }
+    }
+
+    Err(no_owner_error(
+        &target,
+        caller_key.as_deref(),
+        entries.len(),
+        live.len(),
     ))
 }
 

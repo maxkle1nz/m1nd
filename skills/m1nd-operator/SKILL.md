@@ -639,6 +639,15 @@ one graph:
 - Host bridge: `m1nd-mcp --attach http://127.0.0.1:1338` speaks stdio MCP to the
   host and forwards every frame to the owner's `POST /mcp`, relaying the owner's
   server→client push notifications back. It loads NO graph and takes NO lease.
+- `--attach auto` instead of a pinned URL: it asks the registry TWO questions —
+  an owner for this runtime root, then (failing that) a live owner whose declared
+  ingest roots COVER this repo. The second question is what lets an agent working
+  inside a repo the served owner already ingested reach the real graph instead of
+  an empty repo-local `.m1nd`. It resolves a worktree to its main repo, REFUSES
+  naming both when two owners cover one repo, and reads the token from the
+  RESOLVED owner's runtime root. Corollary for honesty: an empty brain in a repo a
+  served owner covers is a WIRING fault, not calibrated absence — check what
+  `--attach auto` resolved before reporting the emptiness as truth.
 - Direct probe: `POST /mcp` with header `M1nd-Caller-Root: /abs/repo/root` — the
   header is the caller identity reception verifies (`M1nd-Caller-Root` ↔
   `covers_root`); a mismatch returns the degraded reception, not a fabricated

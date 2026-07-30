@@ -297,9 +297,11 @@ Drop `--no-gui` and add `--open` to open the served web UI (the Living Tree, Hal
 Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
 
 ```bash
-m1nd-mcp --attach auto --stdio                     # auto-discovers the live owner by its lease
+m1nd-mcp --attach auto --stdio                     # auto-discovers the live owner
 m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or pin the URL; M1ND_ATTACH_URL overrides both
 ```
+
+`auto` looks for an owner of this runtime first and, failing that, for a live owner that has already **ingested the repo you are working in** — so a central always-on owner is found from inside its own projects instead of each repo starting an empty brain of its own.
 
 Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. The write/execution lane — missions, runners, receipts — is an optional second daemon, `m1nd-runnerd` (port 1339); attached agents get the read/graph surface with or without it. To run the owner as an always-on service that starts on boot (launchd on macOS, systemd on Linux), see [docs/deployment.md](docs/deployment.md). Queries go over localhost, so it stays local-first: every non-loopback bind is refused until authenticated TLS transport and scoped authorization exist, and the legacy `--allow-remote` flag cannot override that gate. Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 

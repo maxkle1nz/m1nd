@@ -1762,7 +1762,12 @@ impl ProjectBrainRegistry {
 /// mirroring `SessionState::path_starts_with_loosely` so the reconnect roster
 /// consult uses the SAME "is this path under that root" rule the reception mismatch
 /// guard and the Two-Tier routing layer already share (one definition of "covers").
-fn path_starts_with_loosely(path: &Path, root: &Path) -> bool {
+///
+/// `pub(crate)` so `--attach auto`'s ingest-coverage question asks it with this
+/// same rule instead of growing a fourth copy. Note what it is NOT: a raw text
+/// prefix. `<repo>-scratch` never matches `<repo>` — the fast paths compare whole
+/// path COMPONENTS, and the textual fallback compares against `{root}/`.
+pub(crate) fn path_starts_with_loosely(path: &Path, root: &Path) -> bool {
     if root.as_os_str().is_empty() {
         return false;
     }
@@ -1966,7 +1971,12 @@ fn is_strict_descendant(path: &str, root: &str) -> bool {
 /// before `/.git/worktrees/`. A relative gitdir is resolved against `key`, and
 /// the returned root is canonicalized so it compares equal to a stored brain key
 /// (macOS `/tmp` → `/private/tmp`, symlinks resolved). Inert read only.
-fn worktree_main_repo(key: &str) -> Option<String> {
+///
+/// `pub(crate)` so `--attach auto` resolves a worktree caller the SAME way the
+/// mint guard does: a worktree belongs to the repository it checks out
+/// ([`RootOverlap::Worktree`] refuses to mint it a second brain), so it is served
+/// by that repository's owner.
+pub(crate) fn worktree_main_repo(key: &str) -> Option<String> {
     let dot_git = Path::new(key).join(".git");
     // A real repo has `.git` as a DIRECTORY; only a worktree (or submodule) points
     // via a FILE. `symlink_metadata` so a symlinked `.git` is judged by the link.
