@@ -161,6 +161,11 @@ pub mod project_brains;
 pub mod report_handlers;
 pub mod result_shaping;
 pub mod scope;
+/// Seal the owner's `IndependenceSpecV1` — the one-shot document step that fills a
+/// hand-authored spec's `independence_spec_digest`. Present on every target: it
+/// reads a file and computes a digest, so unlike `custody_ceremony` there is no
+/// platform floor under it that could be absent.
+pub mod seal_independence_spec;
 pub mod search_handlers;
 pub mod trust_envelope;
 pub mod ui_attestation;
