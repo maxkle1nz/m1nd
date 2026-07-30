@@ -44,19 +44,20 @@ The CLI door exists on `main` (#473): `--custody-ceremony <verb>` dispatches bef
 any config loads, on a private-field ingress no agent path can construct. Verb
 state today, from `custody_ceremony.rs::run_custody_ceremony`:
 
-| Verb | State today | What it will do |
+| Verb | State today | What it does |
 |---|---|---|
 | `preflight` | **RUNS** — reports every prerequisite, exit 0 only when ready | run it first, on the entitled binary, at the protected root |
-| `provision-seats` | **REFUSES HONESTLY** (`NOT_RUN`: "Phase A steps 1-3 provision real Secure Enclave keys") | mint the four unattended verifier seats in the enclave |
-| `owner-seat` | **REFUSES HONESTLY** (`NOT_RUN`: Touch ID, owner only; an unattended invocation is refused *as unattended* on every platform — presence is checked before the platform floor) | the biometric seat — irreducibly the owner's finger |
-| `seal` | validates ceremony completeness, then **REFUSES HONESTLY** ("needs real enclave keys") | seal seats + lineage + spec digests into the ceremony receipt |
-| `assemble` | **RUNS on macOS** — the first non-test caller of `assemble_production_owner_authority_v1`; fails closed without a sealed ceremony | emit the pinned production authority assembly the G6 runner demands |
+| `provision-seats` | **RUNS** — mints the four verifier seats + the sealing seat in the enclave-backed store, stages each record; re-provisioning refuses (`custody_ceremony_seats_already_staged`) | mint the seats; on an unentitled binary the keychain's own refusal surfaces, named |
+| `owner-seat` | **RUNS, owner-only** — mints the biometric seat with the biometry-gated access control (Touch ID fires at key USE, by the ACL); an unattended invocation is still refused *as unattended* on every platform, before the platform floor | the biometric seat — irreducibly the owner's finger |
+| `seal` | **RUNS** — only over a complete staged ceremony (4 seats + sealing seat + owner seat), binds the owner's independence spec and constitution digest, writes the sealed receipt, consumes the staging | seal seats + lineage + spec digests into the ceremony receipt |
+| `assemble` | **RUNS on macOS** — consumes the sealed ceremony through the same `open_ceremony_root` that `seal` writes (coherence by construction); fails closed without one | emit the pinned production authority assembly the G6 runner demands |
 
-**The one machine-side gap that stands between the owner and this ceremony:** the
-three middle verbs' enclave wiring (door↔floor). The floor primitives exist
-(`enclave_authority.rs`: Secure Enclave key store, data-protection keychain,
-attestation types); the verbs must drive them. Until that lands, a sitting stops
-after `preflight`.
+**The door↔floor wiring landed (#498).** Every verb now reaches the real enclave
+floor; two owner-held inputs joined the CLI (`--custody-independence-spec`,
+`--custody-constitution-digest` — the ceremony READS the owner's spec, it never
+builds one). What remains true: real execution needs the owner, the entitled
+binary, and the Mac — every missing precondition refuses closed with its own
+name, and no agent path can perform any of it.
 
 ## Step 3 — G6 formal blind run (`G6-FORMAL-CEREMONY.md`)
 
@@ -100,7 +101,10 @@ design; it is the last mint, after everything above is receipts.
 
 ## The honest scoreboard for this sitting
 
-- Owner can do TODAY: step 0 (metric spec v2) · step 1 (tag) · step 2's `preflight`.
-- Blocked on named machine-side work: step 2's three middle verbs (enclave wiring) ·
-  step 3's authority provider executable.
+- Owner can do TODAY: step 0 (metric spec v2) · step 1 (tag) · **step 2 whole**
+  (all five verbs wired since #498 — the ceremony itself now runs to the sealed
+  receipt and the assembly, on the entitled binary, by the owner's hand).
+- Blocked on one named machine-side item: step 3's authority provider executable —
+  itself waiting on the owner's identity-channel decision (keychain-resident,
+  recorded above).
 - Blocked on the chain itself: step 4 (needs 2+1's manifest binding) · step 5.
