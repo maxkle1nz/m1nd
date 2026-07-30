@@ -176,6 +176,25 @@ nothing but public artifacts. Three hard rules:
 - **Never re-run to chase green.** The metric spec allows one sealed run per revision
   (`one_sealed_run_only_no_rerun_until_pass`); a `FAIL` stays in the record.
 
+## The custody ceremony — the one surface no agent may run
+
+`m1nd-mcp --custody-ceremony <verb>` drives the G9 Secure Enclave custody ceremony
+(`docs/benchmarks/G9-CUSTODY-CEREMONY.md`, amendment G9-A1 Path B). Of its five verbs, agents
+may run exactly ONE: `preflight`, which reports prerequisites and provisions nothing.
+
+**`provision-seats`, `owner-seat`, `seal` and `assemble` are the owner's.** No agent may perform,
+simulate, stub, mock or dry-run them, provision any enclave key, touch biometrics, or produce a
+`custody-ceremony.sealed.json`, a seat public key, or any claim that a ceremony happened. The
+ceremony's entire evidentiary value is that a human proved possession of hardware no software
+path can stand in for — an agent that synthesises the artifact has destroyed the thing it
+imitated. An agent that finds the ceremony un-run OFFERS the command and stops.
+
+The code holds part of this line mechanically: the ceremony is reachable only from its own CLI
+ingress (the `--birth` precedent — the ingress IS the human-origin fact), it appears in no MCP
+tool and no REST route, the biometric step refuses when no human is attached, and
+`provision_agent_enclave_seat` refuses the human seat fail-closed. `m1nd-mcp/tests/custody_ceremony_wiring.rs`
+holds the rest, including a guard that fails if a simulation path is ever added.
+
 ## Dogfood m1nd — for LOCAL agents only
 
 If you can reach the served m1nd owner (a local process on `127.0.0.1:1338`), orient with
