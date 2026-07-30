@@ -6,6 +6,40 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-07-30
+
+### Added — the brain finds you, and the owner's ceremonies have their doors
+
+- **`--attach auto` asks a second question.** Discovery used to match only your own runtime root;
+  now, failing that, it finds any live serve owner whose declared ingest root *covers the repo you
+  are standing in* — including from a git worktree, which resolves to its main repository for
+  discovery while the true caller root still travels on the wire. The bearer token follows the
+  *discovered* owner's runtime root. Ambiguity fails closed naming every candidate, and a
+  runtime-root match still wins. One central always-on owner is now found from inside its own
+  projects instead of each repo starting an empty brain.
+- **A repo with no brain has a real, human-gated path: `m1nd init --birth <repo>`.** The birth
+  ceremony creates a per-project brain on a served owner. Every wire client is refused with
+  `human_gesture_required` — an agent's honest move is to offer the command and stop. The staged
+  brain is quiesced before the committing rename, so the gesture is atomic on every platform.
+- **The G9 custody ceremony CLI**: `--custody-ceremony <verb>` (preflight · provision-seats ·
+  owner-seat · seal · assemble), one-shot and offline, on an ingress no MCP or REST payload can
+  construct. All five verbs reach the real Secure Enclave floor; every missing precondition —
+  entitlement, presence, platform, staged state — refuses closed with its own name, and an
+  unattended invocation is refused *as unattended* before any platform question.
+
+### Fixed
+
+- **Restored plasticity now lands in both engines.** The friendly boot imported learned weights
+  into one engine while queries strengthened through the other, so the first strengthening after a
+  restart mis-dated its recency. Both boot paths now restore both engines.
+- **Owner-proxy REST verbs answer on their designed path.** `mission_spawn`, `candidate_naming`
+  and `curation_spawn` are intercepted ahead of the generic authority floor gate — previously a
+  seating error left a verb dead behind a 403 on the route built for it. A table-driven guard now
+  makes the seating exhaustive in both directions, so a new proxy verb cannot ship unseated.
+- **The embedded web UI bundle is provably the one its source builds.** CI refuses a commit whose
+  `dist/` does not byte-match a fresh build, and the accessibility smoke became its own required
+  lane.
+
 ### Changed — the binary snapshot's encoding is now pinned, and a partial read is refused
 
 - **`bincode` moved from 1.3 to 2.0, with the on-disk encoding held fixed.** Every call site

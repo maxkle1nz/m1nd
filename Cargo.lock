@@ -1767,7 +1767,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "m1nd-control"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "p256",
@@ -1780,7 +1780,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-core"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "bincode",
  "cargo_metadata",
@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-ingest"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "cargo_metadata",
  "ignore",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-mcp"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "axum",
  "clap",
@@ -1897,7 +1897,7 @@ dependencies = [
 
 [[package]]
 name = "m1nd-runnerd"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "axum",
  "clap",
