@@ -378,21 +378,34 @@ PageRank scores are stored in `NodeStorage.pagerank` and used as a static import
 
 ### Graph Snapshot
 
-`snapshot.rs` serializes the graph to JSON format (version 3):
+`snapshot.rs` serializes the graph to JSON:
 
 ```rust
 struct GraphSnapshot {
-    version: u32,           // SNAPSHOT_VERSION = 3
+    version: u32,           // SNAPSHOT_VERSION = 4
     nodes: Vec<NodeSnapshot>,
     edges: Vec<EdgeSnapshot>,
 }
 ```
 
-Each `NodeSnapshot` includes external_id, label, node_type, tags, timestamps, and optional provenance. Each `EdgeSnapshot` includes source/target IDs, relation, weight, direction, inhibitory flag, and causal strength.
+Each `NodeSnapshot` includes external_id, label, node_type, tags, timestamps, and optional provenance. Each `EdgeSnapshot` includes source/target IDs, relation, weight, direction, inhibitory flag, and causal strength. Version 3 is the legacy layout and is still read.
 
 **Atomic write** (FM-PL-008): Write to a temporary file, then `rename()` over the target. The rename is atomic on POSIX filesystems, so a crash mid-write leaves the previous snapshot intact.
 
 **NaN firewall**: All values are checked for finiteness at the export boundary. Non-finite values are rejected before writing.
+
+### Binary Snapshot
+
+`persist` with `format: "bin"` writes the same graph through `snapshot_bin.rs` — a compact binary file beside the JSON one, under the same atomic temp-then-rename discipline.
+
+Its encoding is **bincode's `legacy()` configuration**: fixed-width little-endian integers and `u64` length prefixes. That is a compatibility contract, not a preference. bincode is not self-describing, so reading an existing file under a different configuration does not fail — it returns different values. Measured on a real 88528-byte snapshot, bincode's `standard()` configuration decodes it as `version=4, nodes=0, edges=0` after consuming 3 bytes: the leading version field passes by accident and the graph comes back empty, with no error anywhere.
+
+Two guards hold that line:
+
+- **Frozen fixtures.** `m1nd-core/tests/snapshot_bin_continuity.rs` pins byte-for-byte payloads written by an earlier stack — a V4 snapshot, a legacy V3 snapshot, and the warm embedding cache — and asserts both what the reader recovers from them and, where the format promises it, the exact bytes the writer still produces. They are frozen, never re-derived from the code under test, so an encoding change fails there instead of on a user's disk.
+- **Full consumption.** A snapshot file is exactly one payload, so the loader refuses a decode that leaves bytes unread rather than returning whatever it managed to parse.
+
+Changing the encoding needs a `SNAPSHOT_VERSION` bump and a reader for the old bytes — the same path version 3 took.
 
 ### Plasticity State
 
