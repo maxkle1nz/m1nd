@@ -34,7 +34,7 @@ function CometParticle({
   cycleLength,
   baseSize,
 }: CometParticleProps) {
-  // Explicit refs — never put useRef() inside an array
+  // Explicit refs: never put useRef() inside an array
   const ref0 = useRef<THREE.Mesh>(null);
   const ref1 = useRef<THREE.Mesh>(null);
   const ref2 = useRef<THREE.Mesh>(null);
@@ -57,7 +57,7 @@ function CometParticle({
       if (isActive) {
         const flowT = ((baseT - lag) % 1 + 1) % 1;
         ref.current.position.lerpVectors(start, end, flowT);
-        // Sinusoidal size envelope — largest at midpoint of path
+        // Sinusoidal size envelope: largest at midpoint of path
         const sizeEnv = 0.5 + 0.5 * Math.sin(Math.PI * flowT);
         ref.current.scale.setScalar(sizeEnv * (scaleMult as number));
         mat.opacity = ramp * (opMult as number);

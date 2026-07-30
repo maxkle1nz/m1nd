@@ -121,6 +121,33 @@ jobs:
         run: npm run lint:soft
       - name: Production build
         run: npm run build
+      # `m1nd-ui/dist` is TRACKED on purpose (.gitignore:21 — rust-embed compiles
+      # it into every m1nd-mcp binary), so it can silently fall behind its own
+      # source, and NOTHING in the organism manifest can see that: the build
+      # digest, the runtime digest and the ui_bundle authority all hash the SAME
+      # committed tree, so a stale shell reports COHERENT. Measured 2026-07-29
+      # (mailbox letter 84fde5e4da2e): dist last built at 70598733 while src had
+      # moved twice and the lockfile three times — five commits of drift that
+      # every existing gate called healthy. The build above ran from a clean
+      # checkout; if it dirtied the tree, the committed bundle is no longer what
+      # this source produces. Byte-reproducibility was verified before shipping
+      # this gate: three consecutive host builds and a linux/amd64 node:22
+      # container all emit the identical tree (digest c2dd7d47…), so a red here
+      # is drift, not nondeterminism.
+      - name: Committed bundle matches the source that built it
+        run: |
+          # `--ignored=matching` because the repo ignores `*.json` wholesale
+          # (.gitignore:23): a JSON asset emitted into dist — a webmanifest, a
+          # locale, a shiki theme chunk — would otherwise be invisible to BOTH
+          # the commit and this gate, which is the same blind spot one level down.
+          DRIFT="$(git status --porcelain --ignored=matching -- dist)"
+          if [ -n "${DRIFT}" ]; then
+            echo "m1nd-ui/dist no longer matches what m1nd-ui/src builds:"
+            echo "${DRIFT}"
+            echo "Fix: (cd m1nd-ui && npm ci && npm run build) then commit m1nd-ui/dist."
+            exit 1
+          fi
+          echo "m1nd-ui/dist is byte-identical to a fresh build of this commit."
       - name: Install fixture-browser runtime
         run: npx playwright install --with-deps chromium
       - name: Fixture browser tests (not a live-owner proof)

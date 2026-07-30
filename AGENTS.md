@@ -44,6 +44,15 @@ UI changes (`m1nd-ui/`) additionally:
 cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
 ```
 
+**`m1nd-ui/dist` is tracked on purpose** (`.gitignore:21` — rust-embed compiles it into every
+`m1nd-mcp` binary), so the build output above is *part of your change*: commit it. `ui-gates`
+rebuilds from a clean checkout and fails if `dist` comes out different. That gate exists because
+nothing else could see the drift: the build digest, the runtime digest and the `ui_bundle`
+authority all hash the same committed tree, so a bundle five commits behind its own source still
+reported COHERENT (2026-07-29, mailbox letter `84fde5e4da2e`). The build is byte-reproducible —
+three consecutive host builds and a `linux/amd64` `node:22` container emit an identical tree — so
+a red there is drift, not nondeterminism.
+
 Touching the shell chrome (`src/App.tsx`, navigation, landmarks, any control's label) also runs
 the two browser lanes, which CI keeps **separate on purpose** — G7 counts them one by one:
 

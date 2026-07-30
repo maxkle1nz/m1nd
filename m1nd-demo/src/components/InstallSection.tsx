@@ -1,16 +1,16 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# one command — agent pack, diagnostics, host setup
-npx -y @maxkle1nz/m1nd
-m1nd doctor
+const STEP_INSTALL = `# install the signed native runtime (needs cosign; rollback included)
+npx -y @maxkle1nz/m1nd update apply --yes
+npx -y @maxkle1nz/m1nd doctor
 
 # on the official MCP Registry:
 #   io.github.maxkle1nz/m1nd  ·  registry.modelcontextprotocol.io
 
-# works with 22 hosts — print your host's recipe:
+# works with 22 hosts. print your host's recipe:
 m1nd hosts plan
 
-# native MCP runtime (semantic recall on by default)
+# source-registry alternative (unverified build):
 cargo install m1nd-mcp`;
 
 const STEP_CONFIG = `{
@@ -25,7 +25,7 @@ const STEP_CONFIG = `{
   }
 }`;
 
-const STEP_INGEST = `// first session — ingest your codebase
+const STEP_INGEST = `// first session: ingest your codebase
 {
   "tool": "ingest",
   "arguments": {
@@ -36,13 +36,13 @@ const STEP_INGEST = `// first session — ingest your codebase
   }
 }
 
-// graph is now live — every later query runs against it, not the filesystem`;
+// graph is now live. every later query runs against it, not the filesystem`;
 
 const PLAYBOOK = [
   {
     rule: "Always activate before searching",
     tool: "activate",
-    detail: "Spreading activation finds structurally relevant nodes in µs — before any grep or file read.",
+    detail: "Spreading activation finds structurally relevant nodes in µs, before any grep or file read.",
     color: "#00f5ff",
   },
   {
@@ -60,7 +60,7 @@ const PLAYBOOK = [
   {
     rule: "Ask by intent, not by filename",
     tool: "seek",
-    detail: "Finds code by structural meaning. 'Where is shutdown guarded against cancel?' — no filenames needed.",
+    detail: "Finds code by structural meaning. 'Where is shutdown guarded against cancel?' No filenames needed.",
     color: "#ffb700",
   },
 ];
@@ -110,7 +110,7 @@ export function InstallSection() {
       num: "01",
       label: "Install",
       title: "One command, on the official registry",
-      desc: "One npx line gives agents their operating doctrine and diagnostics; the Rust crate gives them the native MCP runtime. m1nd is published on the official MCP Registry, and m1nd hosts plan prints the right recipe for any of 22 hosts.",
+      desc: "One npx line installs the signed native runtime, verified with cosign before a byte lands, with rollback kept. The same package carries the agent doctrine and diagnostics, and m1nd hosts plan prints the right recipe for any of 22 hosts.",
       code: STEP_INSTALL,
       lang: "bash",
     },
@@ -120,7 +120,7 @@ export function InstallSection() {
       title: "Add to your MCP config",
       desc: "Drop it into your host's MCP server list. Claude Code, Cursor, Windsurf, GitHub Copilot coding agent, Zed, Continue, and Antigravity all have an entrypoint.",
       code: STEP_CONFIG,
-      lang: "json — mcp config",
+      lang: "json · mcp config",
     },
     {
       num: "03",
@@ -128,7 +128,7 @@ export function InstallSection() {
       title: "Ingest your codebase",
       desc: "Your agent calls m1nd.ingest once. The graph is live. Every subsequent query runs against memory, not the filesystem.",
       code: STEP_INGEST,
-      lang: "json — first tool call",
+      lang: "json · first tool call",
     },
   ];
 
@@ -150,7 +150,7 @@ export function InstallSection() {
             installation
           </div>
           <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-4">
-            Up and running in under a minute.
+            Up and running in a few minutes.
           </h2>
           <p className="text-muted-foreground font-mono max-w-xl mx-auto text-sm">
             One binary. One config entry. One ingest call.{" "}
@@ -166,11 +166,11 @@ export function InstallSection() {
           className="mb-10 rounded-xl border border-primary/15 px-5 py-4 font-mono text-xs text-muted-foreground/70"
           style={{ background: "rgba(0,245,255,0.03)" }}
         >
-          Works with <span style={{ color: "#00f5ff" }}>22 hosts</span> — <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
+          Works with <span style={{ color: "#00f5ff" }}>22 hosts</span>: <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Codex</span>, <span style={{ color: "#00f5ff" }}>Cursor</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Windsurf</span>, <span style={{ color: "#00f5ff" }}>GitHub Copilot</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Zed</span>, <span style={{ color: "#00f5ff" }}>Continue</span>,{" "}
-          <span style={{ color: "#00ff88" }}>Antigravity</span> and more. <code style={{ color: "#00f5ff" }}>m1nd hosts plan</code> emits the strongest channel each host actually ships —{" "}
+          <span style={{ color: "#00ff88" }}>Antigravity</span> and more. <code style={{ color: "#00f5ff" }}>m1nd hosts plan</code> emits the strongest channel each host actually ships.{" "}
           <a
             href="https://github.com/maxkle1nz/m1nd/blob/main/docs/HOST-INTEGRATION-MATRIX.md"
             target="_blank"
@@ -229,7 +229,7 @@ export function InstallSection() {
                 style={{ background: "#00f5ff", boxShadow: "0 0 6px #00f5ff" }}
               />
               <span className="font-mono text-xs tracking-widest uppercase text-primary/60">
-                agent playbook — how m1nd expects to be used
+                agent playbook · how m1nd expects to be used
               </span>
             </div>
           </div>
@@ -289,7 +289,7 @@ export function InstallSection() {
               </div>
               <p className="text-sm text-muted-foreground">
                 m1nd ships a full in-context help system. If your agent is ever uncertain which tool to call,{" "}
-                <code className="text-amber-400/80 font-mono text-xs">m1nd.help</code> returns the right next step with examples — including use-case-specific guidance for whatever the agent is trying to do.
+                <code className="text-amber-400/80 font-mono text-xs">m1nd.help</code> returns the right next step with examples, including use-case-specific guidance for whatever the agent is trying to do.
               </p>
             </div>
             <div className="flex-shrink-0">

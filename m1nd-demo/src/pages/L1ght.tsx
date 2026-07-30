@@ -156,7 +156,7 @@ const HOW_STEPS = [
   {
     n: "01", glyph: "◧", title: "Read",
     color: AMBER,
-    body: "Drop a folder, a URL, a DOI, or a patent number. l1ght ingests it immediately — extracting named entities, concepts, citations, claims, and arguments. No manual tagging. No schema setup.",
+    body: "Drop a folder, a URL, a DOI, or a patent number. l1ght ingests it immediately, extracting named entities, concepts, citations, claims, and arguments. No manual tagging. No schema setup.",
     stat: "20+ formats", statSub: "PDFs · Patents · ArXiv · Web · Notebooks",
   },
   {
@@ -168,7 +168,7 @@ const HOW_STEPS = [
   {
     n: "03", glyph: "𝔻", title: "Query",
     color: VIOLET,
-    body: "Ask: \"What papers contradict the claim in section 3?\" or \"Which prior patents share the mechanism in claim 12?\" Spreading activation returns a surgical subgraph — not a keyword list.",
+    body: "Ask: \"What papers contradict the claim in section 3?\" or \"Which prior patents share the mechanism in claim 12?\" Spreading activation returns a surgical subgraph instead of a keyword list.",
     stat: "milliseconds", statSub: "local · in-RAM · no API round-trip",
   },
 ];
@@ -215,9 +215,9 @@ const DEMO_QUERIES = [
     label: "Prior art search",
     query: "Which patents share the mechanism in claim 12 of US11847992?",
     result: [
-      { id: "US10,923,441", title: "Attention-gated transformer inference system", match: "claim 3, 7 — shared diffusion head mechanism" },
-      { id: "EP3912057A1", title: "Sparse activation routing for language models", match: "claim 1 — identical routing topology" },
-      { id: "US11,244,220", title: "Neural weight sharing across modalities", match: "claim 9 — overlapping activation protocol" },
+      { id: "US10,923,441", title: "Attention-gated transformer inference system", match: "claim 3, 7 · shared diffusion head mechanism" },
+      { id: "EP3912057A1", title: "Sparse activation routing for language models", match: "claim 1 · identical routing topology" },
+      { id: "US11,244,220", title: "Neural weight sharing across modalities", match: "claim 9 · overlapping activation protocol" },
     ],
     latency: "1.8ms",
     color: VIOLET,
@@ -226,8 +226,8 @@ const DEMO_QUERIES = [
     label: "Literature challenge map",
     query: "Papers published after 2022 that challenge the attention head pruning findings in Voita et al.?",
     result: [
-      { id: "arXiv:2309.04841", title: "Rethinking Head Importance in Transformers", match: "section 4 — direct rebuttal of pruning stability claims" },
-      { id: "arXiv:2401.12065", title: "Non-uniform Pruning Dynamics at Scale", match: "section 3.2 — contradicts low-rank head hypothesis" },
+      { id: "arXiv:2309.04841", title: "Rethinking Head Importance in Transformers", match: "section 4 · direct rebuttal of pruning stability claims" },
+      { id: "arXiv:2401.12065", title: "Non-uniform Pruning Dynamics at Scale", match: "section 3.2 · contradicts low-rank head hypothesis" },
     ],
     latency: "0.9ms",
     color: AMBER,
@@ -315,19 +315,19 @@ function QueryDemo() {
 const L1GHT_FAQ = [
   {
     q: "How does l1ght ingest a document?",
-    a: "Give it a URL, a DOI, a patent number, a file path, or a folder. l1ght fetches and parses it immediately — extracting named entities, concepts, citations, claims, and the relationships between them. No manual tagging, no schema setup, no pipeline to configure.",
+    a: "Give it a URL, a DOI, a patent number, a file path, or a folder. l1ght fetches and parses it immediately, extracting named entities, concepts, citations, claims, and the relationships between them. No manual tagging, no schema setup, no pipeline to configure.",
   },
   {
     q: "Does it require an internet connection?",
-    a: "Only to fetch remote sources (URLs, DOIs, ArXiv papers) on first ingest. Once a document is in the graph, everything — all queries, all traversals — runs fully local and offline. l1ght never phones home and never sends your data anywhere.",
+    a: "Only to fetch remote sources (URLs, DOIs, ArXiv papers) on first ingest. Once a document is in the graph, everything (all queries, all traversals) runs fully local and offline. l1ght never phones home and never sends your data anywhere.",
   },
   {
     q: "How is it different from semantic / vector search?",
-    a: "Vector search ranks documents by embedding cosine similarity. l1ght traverses a typed graph of relationships — citations, shared claims, counter-arguments, conceptual overlaps — using spreading activation. It doesn't find the most \"similar\" document. It finds the document that is structurally most relevant to your query given the connections in your corpus.",
+    a: "Vector search ranks documents by embedding cosine similarity. l1ght traverses a typed graph of relationships (citations, shared claims, counter-arguments, conceptual overlaps) using spreading activation. It doesn't find the most \"similar\" document. It finds the document that is structurally most relevant to your query given the connections in your corpus.",
   },
   {
     q: "Does l1ght replace Zotero, Obsidian, or Notion?",
-    a: "No — those are note-taking and reference management tools. l1ght is a query layer. It doesn't replace how you read or organize; it adds a graph-queryable intelligence layer on top of everything you've already ingested. You can keep using Zotero to manage citations and use l1ght to query across all of them at once.",
+    a: "No. Those are note-taking and reference management tools. l1ght is a query layer. It doesn't replace how you read or organize; it adds a graph-queryable intelligence layer on top of everything you've already ingested. You can keep using Zotero to manage citations and use l1ght to query across all of them at once.",
   },
   {
     q: "Can I keep my documents private?",
@@ -335,15 +335,15 @@ const L1GHT_FAQ = [
   },
   {
     q: "How does l1ght connect to m1nd's code graph?",
-    a: "They run on the same graph substrate. When both are active, a single query can traverse code nodes and document nodes in one hop — e.g. \"which papers informed the design of this function?\" or \"which RFC section does this implementation reference?\" No extra configuration needed.",
+    a: "They run on the same graph substrate. When both are active, a single query can traverse code nodes and document nodes in one hop, e.g. \"which papers informed the design of this function?\" or \"which RFC section does this implementation reference?\" No extra configuration needed.",
   },
   {
     q: "Which coding agents and clients work with l1ght?",
-    a: "Any MCP-compatible client — Claude Code, Claude Desktop, Cursor, Windsurf, VS Code with MCP, ChatGPT, Cline, Continue, Zed. l1ght exposes the same MCP tool surface as m1nd, so if your agent speaks MCP, it speaks l1ght.",
+    a: "Any MCP-compatible client: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code with MCP, ChatGPT, Cline, Continue, Zed. l1ght exposes the same MCP tool surface as m1nd, so if your agent speaks MCP, it speaks l1ght.",
   },
   {
     q: "Is l1ght production-ready?",
-    a: "Yes. It ships in the same binary as m1nd under the same MIT license. There is no separate install, no separate config, and no stability difference. l1ght is not an experimental feature — it's one of the two core modes of the m1nd engine.",
+    a: "Yes. It ships in the same binary as m1nd under the same MIT license. There is no separate install, no separate config, and no stability difference. l1ght is not an experimental feature; it's one of the two core modes of the m1nd engine.",
   },
 ];
 
@@ -414,7 +414,7 @@ const AUDIENCES = [
     icon: "⊕",
     color: "#10B981",
     headline: "Build a live knowledge graph of your lab's entire research history.",
-    body: "Every paper the lab has read, every internal report, every Jupyter notebook — one graph. New team members get full institutional memory from day one, not a folder of PDFs.",
+    body: "Every paper the lab has read, every internal report, every Jupyter notebook. One graph. New team members get full institutional memory from day one, not a folder of PDFs.",
     tags: ["Papers", "Notebooks", "Reports", "Wikis"],
   },
 ];
@@ -509,7 +509,7 @@ function OneGraphSection() {
           initial={{ opacity: 0 }} animate={inView ? { opacity: 1 } : {}}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          m1nd indexes your code. l1ght indexes your knowledge. Both run on the same graph substrate — so a single query can traverse a function written last week, the paper that inspired it, and the Slack thread where you decided to build it.
+          m1nd indexes your code. l1ght indexes your knowledge. Both run on the same graph substrate, so a single query can traverse a function written last week, the paper that inspired it, and the Slack thread where you decided to build it.
         </motion.p>
 
         <div className="flex flex-col md:flex-row items-center justify-center gap-6 max-w-2xl mx-auto">
@@ -563,8 +563,8 @@ export default function L1ght() {
   return (
     <main className="w-full min-h-screen bg-background">
       <SEO
-        title="l1ght — Knowledge Graph for Research, Patents & Memory"
-        description="l1ght ingests scientific papers, patents, PDFs, articles, and conversations into a queryable knowledge graph. Find connections across everything you've ever read — in milliseconds."
+        title="l1ght · Knowledge Graph for Research, Patents & Memory"
+        description="l1ght ingests scientific papers, patents, PDFs, articles, and conversations into a queryable knowledge graph. Find connections across everything you've ever read, in milliseconds."
         canonicalPath="/l1ght"
       />
       <NavBar />

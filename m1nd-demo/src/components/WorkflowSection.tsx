@@ -4,7 +4,7 @@ const steps = [
   {
     id: "ingest",
     title: "Index",
-    desc: "The codebase is parsed into a live graph. Every node, edge, and import path indexed — once.",
+    desc: "The codebase is parsed into a live graph. Every node, edge, and import path indexed once.",
   },
   {
     id: "seek",

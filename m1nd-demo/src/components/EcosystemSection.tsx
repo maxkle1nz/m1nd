@@ -78,14 +78,14 @@ export function EcosystemSection() {
             One graph. Code, research, and memory.
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto text-base">
-            m1nd indexes code. l1ght reads papers, articles, memories, and conversations — and merges them into the same queryable graph. One query traverses all of it.
+            m1nd indexes code. l1ght reads papers, articles, memories, and conversations, and merges them into the same queryable graph. One query traverses all of it.
           </p>
         </motion.div>
 
         <div className="space-y-6">
           <div>
             <p className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest mb-3 text-center">
-              code — 14 languages
+              code · 20+ languages
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {languages.map((l, i) => (
@@ -98,7 +98,7 @@ export function EcosystemSection() {
 
           <div>
             <p className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest mb-3 text-center">
-              documents &amp; research — l1ght
+              documents &amp; research · l1ght
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {formats.map((f, i) => (
@@ -111,7 +111,7 @@ export function EcosystemSection() {
 
           <div>
             <p className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest mb-3 text-center">
-              memory &amp; context — l1ght
+              memory &amp; context · l1ght
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {memory.map((m, i) => (
@@ -128,7 +128,7 @@ export function EcosystemSection() {
           viewport={{ once: true }}
           transition={{ delay: 0.8 }}
         >
-          Code, papers, articles, memories, and conversations — one graph, one query.
+          Code, papers, articles, memories, and conversations. One graph, one query.
         </motion.p>
       </div>
     </section>
