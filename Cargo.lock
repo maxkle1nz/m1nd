@@ -1263,7 +1263,7 @@ dependencies = [
  "indicatif",
  "libc",
  "log",
- "rand 0.9.3",
+ "rand 0.9.5",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -1902,7 +1902,7 @@ dependencies = [
  "axum",
  "clap",
  "m1nd-mcp",
- "rand 0.9.3",
+ "rand 0.10.2",
  "reqwest",
  "serde",
  "serde_json",
@@ -2364,7 +2364,7 @@ dependencies = [
  "bit-vec",
  "bitflags 2.11.0",
  "num-traits",
- "rand 0.9.3",
+ "rand 0.9.5",
  "rand_chacha",
  "rand_xorshift",
  "regex-syntax",
@@ -2468,9 +2468,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.9.3"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec095654a25171c2124e9e3393a930bddbffdc939556c914957a4c3e0a87166"
+checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
  "rand_chacha",
  "rand_core 0.9.5",
@@ -3330,7 +3330,7 @@ dependencies = [
  "macro_rules_attribute",
  "monostate",
  "paste",
- "rand 0.9.3",
+ "rand 0.9.5",
  "rayon",
  "rayon-cond",
  "regex",
