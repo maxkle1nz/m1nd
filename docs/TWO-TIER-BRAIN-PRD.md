@@ -262,7 +262,7 @@ Precedence (first hit wins):
 1. **`M1ND_ATTACH_URL`** — absolute override (exists, `cli.rs:88-99`).
 2. **`M1ND_RUNTIME_DIR` / `--runtime-dir`** — explicit pin: that path is the `runtime_root`, no walk.
 3. **Walk-up (net-new):** starting dir = `M1ND_WORKSPACE_ROOT` → host env candidates (`WORKSPACE_ROOT_ENV_CANDIDATES`, `session.rs:475-490`) → `cwd`. Ascend to the nearest ancestor containing `.m1nd/brain.json`; stop below `$HOME` and fs root — **`$HOME` itself is excluded** `[C-FIX 9]`. Nested brains: **nearest wins** (LSP-root precedent; the `nested_workspace_binding` guard stays as backstop). Found → `runtime_root = <that>/.m1nd`.
-4. **Registry discovery:** `discover_serve_owner_base_url(runtime_root, registry)` (`instance_registry.rs:673-713`) — unchanged; exact canonicalized match, read-only, no lease. Hit → attach.
+4. **Registry discovery:** `discover_serve_owner(runtime_root, caller_root, registry)` — read-only, no lease. Exact canonicalized `runtime_root` match first; on a miss, the live serve owner whose declared ingest roots COVER the caller root (worktree resolves to its main repo; two covering owners refuse, naming both). Hit → attach.
 5. **Miss + brain exists → spawn** (§5.3), bounded retry, attach — spawn-and-return, never block.
 6. **No brain anywhere → medulla:** registry entry with `brain_kind=="medulla"` → fallback literal `http://127.0.0.1:1338` → attach; the session runs medulla-only and north carries `project_brain_absent` + `fix: m1nd init`. **Never auto-create a brain.**
 7. **Spawn fails / all down →** degrade to medulla if reachable (`project_brain_unavailable` gap); else ONE typed error routed through `recovery_playbook`. Hooks stay fail-open regardless.

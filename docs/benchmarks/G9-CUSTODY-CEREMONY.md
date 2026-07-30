@@ -1,9 +1,11 @@
 # M1ND-10 — G9 Secure Enclave custody ceremony — the owner's runbook
 
 > **Status: STAGED, NOT_RUN.** Every provider this ceremony needs is implemented, tested and
-> merged on `main`. What does not exist is the *wiring* — no production code path constructs any
-> of it, and there is no CLI surface to drive it. This document measures that gap exactly and
-> writes down the ceremony as it WILL be, so the owner can run it once the wiring lands.
+> merged on `main`, and since the door (#473) and the verb wiring the five verbs now REACH those
+> providers rather than reporting a placeholder. What has still never happened is the ceremony:
+> no Secure Enclave key has been minted, no Touch ID prompt has been answered, and no
+> `custody-ceremony.sealed.json` exists. This document writes down the ceremony as it WILL be,
+> and §4/§5 record which parts of the gap it measured are closed and which are not.
 >
 > Amendment: `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5 (G9-A1, Path B, ratified
 > 2026-07-21). Implementation proof: `docs/proofs/m1nd10-g9-pathb-enclave-floor-implementation-20260721.md`.
@@ -25,7 +27,15 @@ a ceiling — the prohibition above covers the whole ceremony, including the fou
 seats, which an agent must also not provision.
 
 Permitted agent work: writing the wiring code in §4, and running the software-mock unit tests that
-already prove the logical contract in-process (13 tests, `enclave_authority::tests`).
+prove the logical contract in-process — 14 in `enclave_authority::tests` and 14 in
+`custody_ceremony::tests`, all against temp directories and a software P-256 key store. The two
+suites drive the SAME fake (`enclave_authority::test_support::MockEnclaveKeyStore`): a second fake
+for the door would be a second contract, and the door could then be proven against a boundary the
+floor does not have.
+
+Wiring the verbs does not soften this section. It moves the refusals from a hand-written answer to
+the platform's own: an unentitled binary now fails at the keychain and the failure is reported as
+prerequisite P4, which is the honest form of "this did not run".
 
 ## 1. Prerequisites
 
@@ -34,23 +44,32 @@ already prove the logical contract in-process (13 tests, `enclave_authority::tes
 | P1 | Apple Silicon / T2 Mac with a Secure Enclave, owner physically present | owner's machine | — |
 | P2 | Touch ID enrolled for the owner | owner's machine | — |
 | P3 | macOS build target — the module is `#[cfg(target_os = "macos")]` and absent by construction elsewhere, so the assembly stays NOT_INSTALLED and fails closed rather than falling back to software | **satisfied** | `m1nd-mcp/src/lib.rs:36-37` |
-| P4 | Binary codesigned with a **`KeychainAccessGroups` entitlement**. Secure Enclave keys can only be made permanent in the data-protection keychain; an unsigned or unentitled binary cannot persist *or* resolve the key, so `provision`/`open`/`sign` all fail closed | **MISSING — blocking** (see §5 R1) | `m1nd-mcp/src/enclave_authority.rs:1149-1157`, `:1425` |
+| P4 | Binary codesigned with a **`KeychainAccessGroups` entitlement**. Secure Enclave keys can only be made permanent in the data-protection keychain; an unsigned or unentitled binary cannot persist *or* resolve the key, so `provision`/`open`/`sign` all fail closed | **release: satisfied** (#469 — plist present, `--entitlements` threaded and verified on the signed output, `.github/workflows/release.yml:583`/`:592`); **any local build: absent by construction**, and every custody verb refuses naming this prerequisite. UNPROVEN until the owner's run — see §5 R1 | `m1nd-mcp/src/enclave_authority.rs:1149-1157`, `:1425`, `build/README.md` |
 | P5 | A `0700`, non-symlink, device/inode-pinned protected root directory for the sealed slots | code ready, root not provisioned | `SealedProtectedRootV1::open` — `m1nd-mcp/src/enclave_authority.rs:441` |
 | P6 | Custody dependency pins intact — `security-framework =3.7.0` (feature `OSX_10_15`), `security-framework-sys =2.17.0`, `core-foundation =0.10.1`. **These are custody surface; never bump them opportunistically** | **satisfied** | `m1nd-mcp/Cargo.toml:112-114` |
 | P7 | Crypto stack coherent after the RustCrypto sweep (#464) | **satisfied, measured** (see §6) | — |
-| P8 | A CLI or callable ceremony surface to drive the steps below | **MISSING — blocking** (see §5 R2) | — |
+| P8 | A CLI or callable ceremony surface to drive the steps below | **satisfied** — `m1nd-mcp --custody-ceremony <verb>`, all five verbs reaching the floor | `m1nd-mcp/src/custody_ceremony.rs`, dispatched `m1nd-mcp/src/main.rs:789` |
+| P9 | The owner's `IndependenceSpecV1` (JSON) — the ceremony provisions and seals the seats IT names and invents none. Required by `provision-seats` and `seal` | owner-held | `--custody-independence-spec` |
+| P10 | The owner's constitution digest (lowercase sha-256 hex), recorded in the receipt and never computed here | owner-held | `--custody-constitution-digest` |
 
 ## 2. The step list as it WILL be
 
 Each step names what already exists (with `file:line`) and what is missing. All paths are relative
-to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.rs`.
+to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.rs`, and
+`custody_ceremony.rs` means `m1nd-mcp/src/custody_ceremony.rs` — the door, which is where every
+WIRED line below points.
+
+The ceremony reads the seats it provisions out of the owner's `IndependenceSpecV1` (P9) and never
+invents one. That is not convenience: a ceremony that fabricated its own seats would make step 6's
+`bind_independence_spec` a tautology, binding to what it had just made up.
 
 ### Phase A — provision the four unattended verifier seats (owner, on the entitled binary)
 
 1. **Construct the production key store, one per seat class.**
    `SecurityFrameworkEnclaveKeyStore::new(label_prefix, subject_id, EnclaveAccessControlV1::PrivateKeyUsageNonExportable)`.
    - EXISTS: `enclave_authority.rs:1183` (struct), `:1190` (ctor), `:1389` (`SecureEnclaveKeyStoreV1` impl).
-   - MISSING: any caller. Zero references outside `enclave_authority.rs` itself.
+   - WIRED: `custody_store` `custody_ceremony.rs:718`, one store per seat class, built by the
+     `provision-seats`, `owner-seat` and `seal` verbs.
 
 2. **Provision each of the four seats** with a distinct `key_id` and `failure_domain`, spanning at
    least three distinct domains, each permit carrying its `bound_context_digest` (sealed later as
@@ -62,7 +81,14 @@ to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.r
      duplicate guard via `resolve_persisted_key` `:1247`.
    - Counts are law: `IMMUTABLE_VERIFIER_SEATS = 4` (`m1nd-control/src/autonomy.rs:54`),
      `IMMUTABLE_FAILURE_DOMAINS = 3` (`:56`).
-   - MISSING: the driver that loops the four permits and captures the public keys.
+   - WIRED: `provision_seats_into_store` `custody_ceremony.rs:866` loops the spec's four permits,
+     captures each public key, and stages them. The counts are checked against the spec BEFORE the
+     first key is minted (`require_a_usable_independence_spec` `:811`), because discovering a bad
+     spec afterwards would leave orphaned keys only a re-provisioning ceremony can clear. A fifth
+     unattended key — the ceremony's own sealing seat, `custody-sealing-seat-v1` — is minted in the
+     same step; it casts no vote and is staged separately from the four.
+   - Idempotence is a REFUSAL, matching the floor's never-open-or-create law: a second run answers
+     `custody_ceremony_seats_already_staged` rather than re-staging over live keys.
 
 3. **`kSecAccessControl` conformance check.** Confirm each provisioned key really carries the
    intended access-control semantics. The flag values are hand-rolled (`1 << 30` private-key usage,
@@ -81,8 +107,15 @@ to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.r
    also appears among the voting seats (`:980`).
    - EXISTS: the store supports the class; `provision_agent_enclave_seat` **refuses** it by design
      (`:191-193`) — so this step needs a *separate, owner-only* entry point.
-   - MISSING: that owner-only entry point. This is the one surface that must never be reachable by
-     an agent path.
+   - LANDED: `provision_owner_biometric_seat` `enclave_authority.rs:219`, the exact mirror — it
+     refuses every NON-biometric class as its sibling refuses the biometric one, so the two are
+     exhaustive over the seat classes and neither can mint the other's seat. Driven only by
+     `provision_owner_seat_into_store` `custody_ceremony.rs:937`, behind the CLI ingress and the
+     owner-presence gate, which refuses an unattended process on every target before the platform
+     question is even asked.
+   - Still the owner's, irreducibly: minting the key is not USING it. The Touch ID prompt is raised
+     by the key's own `kSecAccessControl` when it signs, which is hardware the code cannot stand in
+     for.
 
 ### Phase C — open, attest, seal
 
@@ -91,7 +124,10 @@ to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.r
    token/type/size drift refuses fail-closed.
    - EXISTS: `enclave_authority.rs:214`; drift refusal proven by
      `reattestation_refuses_token_type_or_size_drift`.
-   - MISSING: caller.
+   - WIRED: `open_ceremony_root` `custody_ceremony.rs:994` opens and re-attests the sealing seat.
+     The four verifier seats are re-attested at provisioning time by `provision_agent_enclave_seat`
+     and are not opened again by the ceremony: it seals their public halves, it never signs with
+     them. The quorum wiring that will use them is R4, still open.
 
 6. **Build the `IndependenceSpecV1`** (four seats, three failure domains) and the
    **`EnclaveCustodyCeremonyReceiptV1`**: `custody_floor`, the attestation distinction, the four
@@ -101,25 +137,37 @@ to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.r
    - EXISTS: receipt `enclave_authority.rs:907`, `validate` `:925`, `bind_independence_spec` `:993`,
      `CustodyAttestationDistinctionV1::secure_enclave_single_host` `:876`;
      `IndependenceSpecV1` `m1nd-control/src/autonomy.rs:356`.
-   - MISSING: caller.
+   - WIRED: `seal_with_store` `custody_ceremony.rs:1034` builds the receipt from the staged seats
+     and runs BOTH `validate()` and `bind_independence_spec(&spec)` before anything is written. The
+     spec is the owner's (P9), not one this step composes. One check the receipt schema cannot make
+     is made here: the staged seats carry the lineage digest of the spec they were provisioned
+     under, and presenting a DIFFERENT spec at seal is refused even when its seat set matches.
 
 7. **Enclave-seal into the protected root**, then re-open and read back to confirm.
    `SealedProtectedRootV1::open(root, context_digest, signer, verification_key)?.seal_custody_ceremony(&receipt)`,
    then `read_custody_ceremony()`.
    - EXISTS: `open` `enclave_authority.rs:441`, `seal_custody_ceremony` `:1035`,
      `read_custody_ceremony` `:1051`.
-   - MISSING: caller.
+   - WIRED: `seal_with_store` seals and immediately reads back, refusing if what returns is not
+     what was sealed. The root is opened by `open_ceremony_root`, the SAME function `assemble`
+     calls, so the sealing key, root binding and context digest cannot drift between the step that
+     writes the ceremony and the step that consumes it. On success the staging file is removed: a
+     completed ceremony leaves only the sealed receipt behind.
 
 8. **Retire the live proof key** from the Keychain and record the seat public keys, the digests and
    the sealed receipt path.
-   - MISSING entirely: this is an owner operational step with no code behind it.
+   - PARTLY WIRED: every verb prints its result as one closed JSON object — the staged seat rows
+     with their public keys, and on seal the full receipt plus the sealed slot path — so the record
+     the owner keeps is the command's own output, not a transcription.
+   - MISSING: retiring the key. That remains an owner operational step with no code behind it, and
+     deliberately so: deleting custody material is not something this binary should be able to do.
 
 ## 3. The receipts this ceremony emits
 
 | Receipt | Schema / constant | Where it lands | State |
 |---|---|---|---|
-| `EnclaveCustodyCeremonyReceiptV1` | `m1nd-enclave-custody-ceremony-receipt-v1` (`enclave_authority.rs:860`) | enclave-sealed slot `<protected-root>/custody-ceremony.sealed.json` (`:862`), seal domain `m1nd-enclave-custody-ceremony-v1` (`:861`) | never minted |
-| Seat public keys ×4 + owner seat key | 65-byte uncompressed SEC1 P-256, lowercase hex (`:896`, validator `:1069`) | recorded by the owner; sealed inside the ceremony receipt | never minted |
+| `EnclaveCustodyCeremonyReceiptV1` | `m1nd-enclave-custody-ceremony-receipt-v1` (`enclave_authority.rs:860`) | enclave-sealed slot `<protected-root>/custody-ceremony.sealed.json` (`:862`), seal domain `m1nd-enclave-custody-ceremony-v1` (`:861`) | **never minted.** The path that mints it is wired (`seal`, §2 steps 6-7) and printed verbatim by the verb |
+| Seat public keys ×4 + owner seat key | 65-byte uncompressed SEC1 P-256, lowercase hex (`:896`, validator `:1069`) | staged by `provision-seats`/`owner-seat` into `<protected-root>/custody-seats.staged.json`, sealed into the receipt, printed by each verb | **never minted.** The staging file is a work-in-progress record under its own schema (`m1nd-custody-ceremony-staged-v1`) and is consumed on a successful seal |
 | `GateReceiptCoreV1.custody_floor` | value `secure-enclave-single-host-v1` (`m1nd-control/src/release.rs:25`), closed set `RATIFIED_CUSTODY_FLOORS` (`:33`) | every G0–G10 gate receipt | field **wired and validated**; no real receipt minted under a real ceremony |
 | `AutonomyActivationReceiptCoreV1.custody_floor` | same closed set, validated in `validate_transition` | every autonomy activation receipt | field **wired and validated**; never minted live |
 
@@ -127,65 +175,100 @@ The `custody_floor` closed set is enforced in all three canonical mirrors the CI
 `require_ratified_custody_floor` `m1nd-control/src/release.rs:719`, plus the Python and Node
 canon verifiers); a smuggled `"software"` value is refused by a negative test in each.
 
-## 4. The wiring gap, measured
+## 4. The wiring gap, measured — and closed
 
-The honest headline: **the G9 custody floor is a fully-implemented, fully-tested, entirely unwired
-island.** Both ends of the wiring are absent.
+The headline this section carried, *"the G9 custody floor is a fully-implemented, fully-tested,
+entirely unwired island"*, is no longer true. Every symbol below was measured at **0** references
+outside `enclave_authority.rs` when this runbook was written; the same measurement today:
 
-| Symbol | References outside `enclave_authority.rs` |
-|---|---|
-| `SecurityFrameworkEnclaveKeyStore` | **0** |
-| `provision_agent_enclave_seat` | **0** |
-| `SecureEnclaveSigner` | **0** |
-| `SealedProtectedRootV1` | **0** |
-| `seal_custody_ceremony` / `read_custody_ceremony` | **0** |
-| `bind_independence_spec` | **0** |
-| `EnclaveBackedWalRecordCrypto` | **0** |
-| `SecureEnclaveProtectedEpochBackend` | **0** |
-| `SecureEnclaveOwnerSecurityConfigRootBackend` | **0** |
-| `SecureEnclaveJournalHeadBackend` | **0** |
+| Symbol | References outside `enclave_authority.rs` | Then | Now |
+|---|---|---|---|
+| `SecurityFrameworkEnclaveKeyStore` | `custody_ceremony.rs` (`custody_store`) | 0 | wired |
+| `provision_agent_enclave_seat` | `custody_ceremony.rs` (Phase A, four seats + the sealing seat) | 0 | wired |
+| `provision_owner_biometric_seat` | `custody_ceremony.rs` (Phase B) | did not exist | wired |
+| `SecureEnclaveSigner` | `custody_ceremony.rs` (`open_ceremony_root`) | 0 | wired |
+| `SealedProtectedRootV1` | `custody_ceremony.rs` (ceremony root + the three sub-roots) | 0 | wired |
+| `seal_custody_ceremony` / `read_custody_ceremony` | `custody_ceremony.rs` (`seal` writes, `assemble` reads) | 0 | wired |
+| `bind_independence_spec` | `custody_ceremony.rs` (`seal`, before anything is written) | 0 | wired |
+| `EnclaveBackedWalRecordCrypto` | `custody_ceremony.rs` (`assemble`) | 0 | wired |
+| `SecureEnclaveProtectedEpochBackend` | `custody_ceremony.rs` (`assemble`) | 0 | wired |
+| `SecureEnclaveOwnerSecurityConfigRootBackend` | `custody_ceremony.rs` (`assemble`) | 0 | wired |
+| `SecureEnclaveJournalHeadBackend` | `custody_ceremony.rs` (`assemble`) | 0 | wired |
 
-And the consumer end, `assemble_production_owner_authority_v1`
-(`m1nd-mcp/src/owner_security_config.rs:676`), has **three callers, all inside `#[cfg(test)]`**
-(that block starts at `:1147`; the calls are at `:1418`, `:1500`, `:1523`). Nothing in production
-assembles the production owner authority.
+The measurement is now a test, not a table anyone has to remember to re-run:
+`the_ceremony_verbs_reference_the_floor_s_provisioning_and_sealing_primitives`
+(`m1nd-mcp/tests/custody_ceremony_wiring.rs`) fails if any of them goes back to zero, and it also
+fails if anything OTHER than the ceremony door references them.
+
+The consumer end, `assemble_production_owner_authority_v1`
+(`m1nd-mcp/src/owner_security_config.rs:676`), had **three callers, all inside `#[cfg(test)]`**.
+The `assemble` verb is now its production caller, pinned by
+`the_production_authority_assembly_has_a_non_test_caller` in the same battery. What that verb does
+NOT do is install the assembly into a running owner — see §5 R3.
 
 The decision document said this in advance —
 `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §7: *"implement the concrete providers (enclave
 signer wiring … into `assemble_production_owner_authority_v1`, protected-root provisioning
-ceremony, quorum seat minting)"*. The providers were built. The wiring named in the same sentence
-was not.
+ceremony, quorum seat minting)"*. The providers were built first; the wiring named in the same
+sentence followed. **Quorum seat minting is the third clause of that sentence and remains open** —
+the seats are minted and sealed, but nothing yet cross-checks a sealed seat key against the
+verification-key registry the quorum verifier resolves (R4).
 
-### The surface that must exist
+### The surface, as built
 
-Follow the repo's own established one-shot CLI pattern — `--verify-authorization-receipt`
-(`m1nd-mcp/src/cli.rs:36`, dispatched `m1nd-mcp/src/main.rs:742`), `--inbox-sweep`
-(`cli.rs`, dispatched `main.rs:809`), `--medulla-migrate <mode>` (dispatched `main.rs:819`). Each is
-an early mode: parse, do one bounded thing offline, print JSON, exit — never booting an owner,
-opening a port, or taking a lease. The ceremony belongs in exactly that family, with one hard
-addition: the biometric-seat step must be reachable only by the owner, never by an agent path.
+It follows the repo's own one-shot CLI pattern — `--verify-authorization-receipt`
+(`m1nd-mcp/src/cli.rs:36`, dispatched `m1nd-mcp/src/main.rs:742`), `--inbox-sweep`, and
+`--medulla-migrate <mode>`. `--custody-ceremony <verb>` is an early mode: parse, do one bounded
+thing offline, print one closed JSON object, exit — never booting an owner, opening a port, or
+taking a lease. The hard addition the gap named is in place: the biometric-seat step refuses an
+unattended process BEFORE the platform question is asked, on every target, and it is minted by an
+entry point no agent-side function can reach.
+
+Two properties are worth stating because they are load-bearing rather than incidental:
+
+- **The store is injected, not global.** Each verb builds the production
+  `SecurityFrameworkEnclaveKeyStore` and hands it to the function that does the work — the same
+  narrow `SecureEnclaveKeyStoreV1` boundary the floor declares for exactly this reason. That is
+  what lets the battery prove the custody path with a software key; it is not a bypass, because the
+  verbs pass the real store and nothing outside the crate can call the inner functions.
+- **`seal` and `assemble` open the ceremony root through ONE function.** `open_ceremony_root`
+  derives the sealing key, the root binding and the context digest once, so "assemble consumes what
+  seal wrote" holds by construction instead of by two code paths agreeing.
 
 ## 5. Residual engineering, ranked by blocking-ness
 
-- **R1 (blocking, and invisible until the ceremony fails).** No `KeychainAccessGroups` entitlement
-  anywhere. The repo has no `.entitlements` file, and `release.yml` codesigns with
-  `--force --timestamp --options runtime --sign` and **no `--entitlements` flag**
-  (`.github/workflows/release.yml:571-572`). The entitlement exists only in prose. As shipped, the
-  signed release binary **cannot** run this ceremony: provisioning cannot persist and `open` cannot
-  resolve. Fix: add an entitlements plist and thread `--entitlements` through the signing step, or
-  document a separate locally-signed ceremony binary.
-- **R2 (blocking).** No ceremony surface at all — §4. Neither a CLI mode nor a callable driver.
-- **R3 (blocking for the ladder, not for the ceremony).** `assemble_production_owner_authority_v1`
-  is never called from production, so even a completed ceremony would not install the custody floor
-  into a running owner.
+- **R1 (CLOSED for the release binary; still UNPROVEN until the ceremony runs).** When this was
+  written the repo had no `.entitlements` file and `release.yml` codesigned with no
+  `--entitlements` flag, so the signed release binary was structurally incapable of running this
+  ceremony. #469 added `build/m1nd-mcp.entitlements.plist`, threaded `--entitlements` through the
+  signing step (`.github/workflows/release.yml:583`) and **verifies the entitlement landed on the
+  shipped bytes** (`:592`) — because `codesign` exits 0 while silently dropping an entitlement it
+  failed to parse. What remains: no build has yet PROVEN it by persisting and resolving a real key,
+  which only the owner's run does. A locally-built binary carries no entitlement at all, so every
+  custody verb on one refuses naming P4 — the correct answer, surfaced as
+  `custody_ceremony_keychain_entitlement_missing` rather than an opaque OSStatus.
+- **R2 (CLOSED).** The ceremony surface exists and all five verbs reach the floor — §4. The one
+  thing no surface can supply is the owner's hand.
+- **R3 (open — blocking for the ladder, not for the ceremony).** `assemble` is now a production
+  caller of `assemble_production_owner_authority_v1`, but it is a ONE-SHOT: it assembles the
+  authority from the sealed ceremony, prints the pinned manifest, drops the assembly and exits.
+  Nothing installs that assembly into a running owner, so a completed ceremony still does not put
+  the custody floor under the served process. That handoff is the next mechanical step.
 - **R4 (correctness, named by the original proof and still open).** Quorum wiring:
   `VerifierSeatV1` carries no public key, so `bind_independence_spec` binds by
   (principal, key_id, failure_domain) only — it does **not** force the sealed seat public key to
   equal the verification-key registry entry the quorum verifier resolves. The future quorum wiring
-  must cross-check sealed-pubkey == registered-pubkey.
-- **R5 (owner-observed, cannot be closed by code).** `kSecAccessControl` semantics are never read
-  back. The hand-rolled flags (`1 << 30`, `1 << 0`) are proven only by the owner's live
-  conformance run — step 3.
+  must cross-check sealed-pubkey == registered-pubkey. What the wiring added is adjacent and does
+  not close it: the seats' public keys are sealed into the receipt, the staged seats carry the
+  lineage digest of the spec they were provisioned under (a spec swapped between provisioning and
+  sealing is refused), and the sealing key resolved from the keychain must equal the one the
+  ceremony staged. None of that reaches the registry.
+- **R5 (owner-observed, cannot be closed by code — and the wiring did not try).** `kSecAccessControl`
+  semantics are never read back. The hand-rolled flags (`1 << 30`, `1 << 0`) are proven only by the
+  owner's live conformance run — step 3. The ceremony sets the flags for the class it is minting and
+  claims nothing about whether the persisted key really carries them, because there is no API to
+  ask. Minting the owner's biometric seat therefore raises no Touch ID prompt: the prompt belongs to
+  USING the key, and nothing in the ceremony signs with it.
 - **R6 (latent, future era).** `RATIFIED_CUSTODY_FLOORS` is a singleton today. A successor Path-A
   era that ADDS rather than replaces a floor would let the builder accept any set member via
   core-input, because the receipt→era bind is by string, not by ceremony-receipt digest. Inocuous
@@ -210,6 +293,10 @@ cargo test -p m1nd-control
 cargo test -p m1nd-mcp --lib enclave_authority
                                13 passed; 0 failed; 1487 filtered out
 ```
+
+That block is a dated snapshot and is left as measured. The counts moved with the wiring: the
+floor's suite is 14 (the owner-only entry point's mirror refusal), and the door's own suite is 14
+more (`cargo test -p m1nd-mcp --lib custody_ceremony`).
 
 #464 handled the two API seams itself rather than leaving them for the custody code:
 `to_sec1_point` is in use at `m1nd-control/src/crypto_authority.rs:1213` and `:1237` and at

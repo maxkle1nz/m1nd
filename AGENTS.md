@@ -41,8 +41,14 @@ you touch one.
 UI changes (`m1nd-ui/`) additionally:
 
 ```bash
-cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
+cd m1nd-ui && npm ci && npm test && npm run lint && npm run lint:soft && npm run build
 ```
+
+`npm run lint` is eslint; `lint:soft` is the semantic/icon pair. Both are CI steps as of the
+ESLint 10 migration — eslint was absent from `ui-gates` until then, which is exactly how it sat
+broken under green PRs (an override pinned `brace-expansion@5` beneath the CJS `minimatch@3` that
+eslint 9 pulled, and every run died with `TypeError: expand is not a function`). Warnings do not
+fail the gate; errors do.
 
 **`m1nd-ui/dist` is tracked on purpose** (`.gitignore:21` — rust-embed compiles it into every
 `m1nd-mcp` binary), so the build output above is *part of your change*: commit it. `ui-gates`
@@ -110,6 +116,17 @@ when a single tool violates it — the 2026-07-22 incident (a bare top-level `on
 `mission_service`/`external_mutation_service`) silently unregistered all 48 tools from live
 sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
 (`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
+
+**REST route seating contract:** `POST /api/tools/{tool}` runs the F-01 generic floor gate
+(`enforce_generic_action_policy`) on its way to generic dispatch. A verb that carries its OWN
+interception in `handle_tool_call` — the owner→daemon proxies (`mission_spawn`,
+`candidate_naming`, `curation_spawn`) and the typed G3 facades — is refused by that gate, so
+seating one BEHIND it turns its REST path into dead code behind a 403 while every test stays
+green (it happened twice in the field: #471, #475). Declare every specially routed verb in
+`REST_ROUTE_SEATING` and give every owner proxy a probe in `OWNER_PROXY_PROBES`
+(`m1nd-mcp/src/http_server.rs`): the guard
+`rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate` reads the live route
+source and holds both tables exactly equal to it, in both directions.
 
 ## Git identity — ABSOLUTE
 
@@ -197,9 +214,17 @@ imitated. An agent that finds the ceremony un-run OFFERS the command and stops.
 
 The code holds part of this line mechanically: the ceremony is reachable only from its own CLI
 ingress (the `--birth` precedent — the ingress IS the human-origin fact), it appears in no MCP
-tool and no REST route, the biometric step refuses when no human is attached, and
-`provision_agent_enclave_seat` refuses the human seat fail-closed. `m1nd-mcp/tests/custody_ceremony_wiring.rs`
-holds the rest, including a guard that fails if a simulation path is ever added.
+tool and no REST route, the biometric step refuses when no human is attached (asked BEFORE the
+platform question, so an unattended process is refused on every OS), and the two provisioning
+entry points refuse each other's seat class fail-closed — `provision_agent_enclave_seat` refuses
+the human seat, `provision_owner_biometric_seat` refuses every other one, and only the ceremony
+door reaches either. `m1nd-mcp/tests/custody_ceremony_wiring.rs` holds the rest, including a guard
+that fails if a simulation path is ever added and one that fails if any verb goes back to
+answering from a placeholder instead of asking the platform.
+
+The four verbs now reach the real floor, which means a run on any unentitled binary — every local
+build — refuses at the keychain naming prerequisite P4. That refusal is the correct answer and
+must never be worked around: `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §5 R1.
 
 ## Dogfood m1nd — for LOCAL agents only
 

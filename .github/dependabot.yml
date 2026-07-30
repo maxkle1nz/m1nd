@@ -31,8 +31,11 @@ updates:
       # `compile_error!("https://xkcd.com/2347/")`, so any tree that resolves it
       # fails to build. Dependabot proposed it inside the grouped rust bump
       # (PR #392) and took the whole 33-crate group down with it. We are on the
-      # 1.3 line; when a real 3.x ships, drop this entry deliberately rather
-      # than letting a grouped bump decide.
+      # 2.x line; when a real 3.x ships, drop this entry deliberately rather
+      # than letting a grouped bump decide — and treat it as a format migration,
+      # not a version number: the on-disk snapshot encoding is pinned to
+      # `config::legacy()` and guarded by frozen fixtures
+      # (m1nd-core/tests/snapshot_bin_continuity.rs).
       - dependency-name: bincode
         versions: ["3.x"]
 

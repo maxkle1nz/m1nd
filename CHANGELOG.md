@@ -6,6 +6,27 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Changed — the binary snapshot's encoding is now pinned, and a partial read is refused
+
+- **`bincode` moved from 1.3 to 2.0, with the on-disk encoding held fixed.** Every call site
+  passes `config::legacy()`, the configuration that matches what every existing file was written
+  with. This is a compatibility contract, not a preference: bincode is not self-describing, so a
+  file read under a different configuration does not fail — it yields different values. Measured on
+  a real 88528-byte snapshot, bincode's `standard()` configuration returns
+  `version=4, nodes=0, edges=0` after consuming 3 bytes, because the leading version field passes
+  by accident. A graph would come back empty with no error, and the next persist would write the
+  emptiness back.
+- **New guard: the frozen continuity fixtures** (`m1nd-core/tests/snapshot_bin_continuity.rs`).
+  Byte-for-byte payloads written by the earlier stack — a V4 snapshot, a legacy V3 snapshot and the
+  warm embedding cache — pinning what the reader must recover and, where the format promises it, the
+  exact bytes the writer must still produce. They are never re-derived from the code under test, so
+  an encoding change fails in CI instead of on a user's disk. Round-trip tests cannot see this class:
+  a stack that encodes and decodes with the same wrong rules always agrees with itself.
+- **New guard: full consumption.** A snapshot file is exactly one payload, so the loader now refuses
+  a decode that leaves bytes unread — naming both counts — instead of accepting a partial parse.
+  Before, trailing bytes were silently ignored, which is exactly what the empty-graph misread looks
+  like from the outside.
+
 ### Fixed — the owner boot now serves the graph it loaded
 
 - **A pre-1.5 runtime could load a full graph and serve zero nodes, on every boot.** The brain

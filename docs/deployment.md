@@ -20,8 +20,8 @@ stdio↔HTTP client that loads no graph, builds no engines, and takes no lease.
    the owner on boot and restarts it if it crashes.
 3. **Native attach bridge (`m1nd-mcp --attach`)** — each IDE/agent runs this instead of a
    graph-loading server; it forwards every JSON-RPC frame to the owner's `POST /mcp` and
-   relays the owner's push notifications back. `--attach auto` discovers the owner by its
-   lease.
+   relays the owner's push notifications back. `--attach auto` discovers the owner from the
+   instance registry — by its lease, and failing that by what it has ingested (§2).
 4. **Incremental ingest** — the owner updates the graph as files change, skipping noise
    (`node_modules`, `Pods`, Rust `target/`).
 
@@ -107,9 +107,27 @@ stdio to the host and forwards to the owner over localhost:
 }
 ```
 
-`--attach auto` discovers the live owner for this runtime by its lease; pass
-`--attach http://127.0.0.1:1337` to pin a URL, or set `M1ND_ATTACH_URL` to override both.
-Any number of attach bridges share the owner's one live graph, so what one agent
+`--attach auto` asks the instance registry two questions, in order, and takes no lease
+either way:
+
+1. **Is there a live serve owner for this client's runtime root?** (its lease) — the
+   classic shape: one owner, one runtime, the bridges beside it.
+2. **Is there a live serve owner whose declared ingest roots cover this repo?** — the
+   fallback, for the far more common shape: the owner lives somewhere central (a launchd
+   or systemd runtime dir) and has already ingested the repo you are working in. Without
+   this question, an agent in such a repo gets its own empty local runtime while the graph
+   it needs is alive one port away.
+
+How question 2 decides: a caller **inside** a declared root is covered (a monorepo
+subpackage reaches the repo's owner); a **git worktree** resolves to its main repository,
+matching the rule that a worktree never gets a brain of its own; comparison is canonical
+path identity, never a text prefix, so `<repo>-scratch` never matches `<repo>`; and if
+**two** live owners cover the same repo, attach refuses and names both — that ambiguity is
+yours to resolve, not auto-discovery's. The bearer token is read from the runtime root of
+the owner actually resolved, which under question 2 is not this client's.
+
+Pass `--attach http://127.0.0.1:1337` to pin a URL, or set `M1ND_ATTACH_URL` to override
+both. Any number of attach bridges share the owner's one live graph, so what one agent
 `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over
 `127.0.0.1`, so it stays local-first.
 
