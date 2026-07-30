@@ -41,8 +41,14 @@ you touch one.
 UI changes (`m1nd-ui/`) additionally:
 
 ```bash
-cd m1nd-ui && npm ci && npm test && npm run build && npm run lint:soft
+cd m1nd-ui && npm ci && npm test && npm run lint && npm run lint:soft && npm run build
 ```
+
+`npm run lint` is eslint; `lint:soft` is the semantic/icon pair. Both are CI steps as of the
+ESLint 10 migration — eslint was absent from `ui-gates` until then, which is exactly how it sat
+broken under green PRs (an override pinned `brace-expansion@5` beneath the CJS `minimatch@3` that
+eslint 9 pulled, and every run died with `TypeError: expand is not a function`). Warnings do not
+fail the gate; errors do.
 
 **`m1nd-ui/dist` is tracked on purpose** (`.gitignore:21` — rust-embed compiles it into every
 `m1nd-mcp` binary), so the build output above is *part of your change*: commit it. `ui-gates`

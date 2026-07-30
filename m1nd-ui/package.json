@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx",
+    "lint": "eslint .",
     "violet-lint": "node scripts/violet-lint.mjs",
     "icon-lint": "node scripts/icon-lint.mjs",
     "lint:soft": "node scripts/violet-lint.mjs && node scripts/icon-lint.mjs",
@@ -28,7 +28,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.0",
     "@types/dagre": "^0.7.52",
     "@types/node": "^22.20.0",
@@ -36,8 +36,8 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
-    "eslint": "^9.21.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.8.0",
     "postcss": "^8.5.24",
