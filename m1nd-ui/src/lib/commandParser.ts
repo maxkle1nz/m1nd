@@ -64,7 +64,7 @@ export function parseCommand(input: string): ParsedCommand {
 
   const tool: ToolId = TOOL_ALIASES[keyword] ?? 'activate';
 
-  let params: Record<string, unknown> = {};
+  let params: Record<string, unknown>;
 
   switch (tool) {
     case 'activate':

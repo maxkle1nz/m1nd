@@ -119,6 +119,17 @@ jobs:
         run: npm test
       - name: Semantic and icon lint
         run: npm run lint:soft
+      # `npm run lint` (eslint) was NEVER a step here, and that is the whole
+      # reason the linter could sit broken across many green PRs: #418 added a
+      # `brace-expansion@5` override to clear an audit, eslint 9 pulled the CJS
+      # `minimatch@3` that does `require('brace-expansion')` expecting a
+      # function, and every invocation died with `TypeError: expand is not a
+      # function` while CI reported the UI healthy. Same blind-spot shape as the
+      # dist gate below: a proof nothing was running is a proof that cannot go
+      # red. Warnings do not fail (no `--max-warnings`) — the config keeps
+      # `react-refresh/only-export-components` as a signal on purpose.
+      - name: ESLint
+        run: npm run lint
       - name: Production build
         run: npm run build
       # `m1nd-ui/dist` is TRACKED on purpose (.gitignore:21 — rust-embed compiles
