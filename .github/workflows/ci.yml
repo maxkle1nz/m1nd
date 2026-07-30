@@ -101,7 +101,7 @@ jobs:
           PY
 
   ui-gates:
-    name: UI unit, static, build, and fixture-browser gates
+    name: UI unit, static, build, fixture-browser, and accessibility gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -152,6 +152,16 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Fixture browser tests (not a live-owner proof)
         run: npm run test:e2e
+      # G7 requirement #6 — the PRD asks for "UI unit · accessibility · browser
+      # fixture · browser LIVE" as FOUR SEPARATE proofs, and the ceremony
+      # (docs/benchmarks/G7-LIVE-CEREMONY.md §5, §7) measured the accessibility one
+      # at a literal zero on the m1nd side. Its own step, its own config, its own
+      # result line: merged into `test:e2e` it would prove nothing separately.
+      # Scoped as a smoke — landmarks, names, current-door, keyboard reach — never
+      # claimed as WCAG conformance. Hand-rolled on Playwright's own role/name
+      # engine rather than axe: see the spec header and the PR body.
+      - name: Accessibility smoke (separate proof, not a WCAG audit)
+        run: npm run test:e2e:a11y
 
   host-pack-gates:
     name: npm host, pack, update, and rollback gates (${{ matrix.os }})

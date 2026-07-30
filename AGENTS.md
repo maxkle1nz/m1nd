@@ -53,6 +53,19 @@ reported COHERENT (2026-07-29, mailbox letter `84fde5e4da2e`). The build is byte
 three consecutive host builds and a `linux/amd64` `node:22` container emit an identical tree — so
 a red there is drift, not nondeterminism.
 
+Touching the shell chrome (`src/App.tsx`, navigation, landmarks, any control's label) also runs
+the two browser lanes, which CI keeps **separate on purpose** — G7 counts them one by one:
+
+```bash
+cd m1nd-ui && npm run test:e2e && npm run test:e2e:a11y
+```
+
+`test:e2e` is the fixture suite (`e2e/`); `test:e2e:a11y` is the accessibility smoke
+(`e2e-a11y/`, own config, own CI step) — landmarks, accessible names, the `aria-current="page"`
+door, keyboard reach. Never fold a new accessibility assertion into `e2e/`: merged into the
+fixture suite it stops being a separate proof and closes nothing
+(`docs/benchmarks/G7-LIVE-CEREMONY.md` §5).
+
 **Cross-platform fs & path contract (Windows is a first-class CI OS):**
 - Never `set_len`/truncate on an append-mode handle — on Windows it lacks `FILE_WRITE_DATA`
   (os error 5). Route tail-truncation through `windows_durable_fs::truncate_no_follow`.
