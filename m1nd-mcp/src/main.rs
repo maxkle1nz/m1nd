@@ -918,6 +918,27 @@ async fn main() {
         run_custody_ceremony_mode(&cli, &verb);
     }
 
+    // --seal-independence-spec <path>: fill a hand-authored IndependenceSpecV1's
+    // digest from the digest of its own core and print the sealed document. One
+    // bounded offline step, one closed JSON object, exit — the same early-mode
+    // shape as the custody family above, and dispatched here for the same reason:
+    // it must never boot an owner, open a port or take a lease.
+    //
+    // It is NOT a ceremony step and carries no ingress stamp, because it needs
+    // none: it reads a file and computes a digest. It never touches the enclave,
+    // the keychain, the protected root or any ceremony state, so nothing an agent
+    // is forbidden to perform is reachable through it.
+    if let Some(path) = cli.seal_independence_spec.clone() {
+        let (payload, code) = m1nd_mcp::seal_independence_spec::run_seal_independence_spec(
+            std::path::Path::new(&path),
+        );
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).unwrap_or_default()
+        );
+        std::process::exit(code);
+    }
+
     #[cfg(unix)]
     ensure_bwrap_compat_wrapper();
 

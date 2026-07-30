@@ -38,6 +38,11 @@
 //! no gain. Refusals DO carry an envelope ([`SEAL_INDEPENDENCE_SPEC_REFUSAL_SCHEMA`]),
 //! because a refusal is a statement about the attempt rather than a document.
 //!
+//! The printed key order is `serde_json`'s and is deterministic run to run, but it
+//! is NOT the order the owner wrote — and it does not need to be. The digest is
+//! computed over the canonical form of the core, so re-sealing a sealed spec
+//! returns the same digest, and the ceremony parses the document by name.
+//!
 //! # Tolerant input, by construction
 //!
 //! The incoming `independence_spec_digest` is READ AND IGNORED: sealing is the act
@@ -74,20 +79,227 @@
 //!
 //! [`SafetyKernelV1`]: m1nd_control::autonomy::SafetyKernelV1
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
+
+use m1nd_control::autonomy::{
+    IndependenceSpecV1, IMMUTABLE_FAILURE_DOMAINS, IMMUTABLE_QUORUM_THRESHOLD,
+    IMMUTABLE_VERIFIER_SEATS, INDEPENDENCE_SPEC_SCHEMA,
+};
 
 /// Schema of the refusal envelope this mode prints. Its own, distinct from the
 /// custody ceremony's: sealing a document is not a ceremony step, and nothing
 /// downstream may read one refusal as the other.
 pub const SEAL_INDEPENDENCE_SPEC_REFUSAL_SCHEMA: &str = "m1nd-seal-independence-spec-refusal-v1";
 
+/// Why a seal refused. Every variant names one cause with the remedy implied; none
+/// of them is an opaque code, and none of them is a warning the owner could seal
+/// past — a spec that reaches [`IndependenceSpecV1::seal`] here has cleared all of
+/// them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SealRefusalV1 {
+    /// The path does not exist, is a directory, or cannot be read.
+    Unreadable(String),
+    /// The bytes are not JSON, or not this contract — including an unknown field,
+    /// which `IndependenceSpecV1`'s `deny_unknown_fields` refuses rather than drop.
+    Malformed(String),
+    /// The document declares some other contract's schema.
+    WrongSchema(String),
+    /// The four voting seats are frozen (`IMMUTABLE_VERIFIER_SEATS`).
+    SeatCount(usize),
+    /// The quorum is below the frozen three-of-four (`IMMUTABLE_QUORUM_THRESHOLD`).
+    QuorumBelowFloor(u16),
+    /// The quorum exceeds the seats that could ever vote — unreachable, not
+    /// stricter.
+    QuorumAboveSeatCount { quorum: u16, seats: usize },
+    /// The spec declares a domain minimum below the frozen one
+    /// (`IMMUTABLE_FAILURE_DOMAINS`).
+    DomainMinimumLowered(u16),
+    /// The seats do not actually span the minimum the spec declares. Declaring the
+    /// floor is not meeting it.
+    InsufficientFailureDomains { spanned: usize, required: u16 },
+    /// A role that must remain non-voting is marked voting.
+    VotingNonvotingRole(&'static str),
+    /// The core could not be canonicalized, so no digest exists to seal it with.
+    NotCanonical(String),
+}
+
+impl SealRefusalV1 {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Unreadable(_) => "seal_independence_spec_unreadable",
+            Self::Malformed(_) => "seal_independence_spec_malformed",
+            Self::WrongSchema(_) => "seal_independence_spec_wrong_schema",
+            Self::SeatCount(_) => "seal_independence_spec_seat_count",
+            Self::QuorumBelowFloor(_) => "seal_independence_spec_quorum_below_floor",
+            Self::QuorumAboveSeatCount { .. } => "seal_independence_spec_quorum_above_seat_count",
+            Self::DomainMinimumLowered(_) => "seal_independence_spec_domain_minimum_lowered",
+            Self::InsufficientFailureDomains { .. } => {
+                "seal_independence_spec_insufficient_failure_domains"
+            }
+            Self::VotingNonvotingRole(_) => "seal_independence_spec_voting_nonvoting_role",
+            Self::NotCanonical(_) => "seal_independence_spec_not_canonical",
+        }
+    }
+
+    /// The refusal as the one closed JSON object this mode prints. It carries no
+    /// `core` and no digest: a refusal is a statement about the attempt, never a
+    /// document anyone could mistake for a sealed spec.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema": SEAL_INDEPENDENCE_SPEC_REFUSAL_SCHEMA,
+            "status": "REFUSED",
+            "code": self.code(),
+            "detail": self.to_string(),
+        })
+    }
+}
+
+impl fmt::Display for SealRefusalV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreadable(detail) => write!(formatter, "independence spec unreadable: {detail}"),
+            Self::Malformed(detail) => write!(
+                formatter,
+                "the file is not an IndependenceSpecV1: {detail} — every field of the contract is \
+                 required and no extra field is accepted, so a misspelled key refuses here rather \
+                 than being silently dropped"
+            ),
+            Self::WrongSchema(actual) => write!(
+                formatter,
+                "the document declares schema '{actual}', expected '{INDEPENDENCE_SPEC_SCHEMA}'"
+            ),
+            Self::SeatCount(seats) => write!(
+                formatter,
+                "the spec names {seats} voting seats; the constitution's voting seats are frozen \
+                 at {IMMUTABLE_VERIFIER_SEATS}"
+            ),
+            Self::QuorumBelowFloor(quorum) => write!(
+                formatter,
+                "quorum_threshold is {quorum}; the kernel floor is \
+                 {IMMUTABLE_QUORUM_THRESHOLD}-of-{IMMUTABLE_VERIFIER_SEATS} and a constitution \
+                 cannot reduce it"
+            ),
+            Self::QuorumAboveSeatCount { quorum, seats } => write!(
+                formatter,
+                "quorum_threshold is {quorum} over {seats} voting seats; a quorum no seat count \
+                 can reach is unreachable, not stricter"
+            ),
+            Self::DomainMinimumLowered(minimum) => write!(
+                formatter,
+                "minimum_failure_domains is {minimum}; the kernel floor is \
+                 {IMMUTABLE_FAILURE_DOMAINS} and a constitution cannot reduce failure-domain \
+                 diversity"
+            ),
+            Self::InsufficientFailureDomains { spanned, required } => write!(
+                formatter,
+                "the voting seats span {spanned} distinct failure domains but the spec requires \
+                 {required}; declaring the minimum is not meeting it"
+            ),
+            Self::VotingNonvotingRole(field) => write!(
+                formatter,
+                "core.{field} is false; proposer, executor and sentinel remain non-voting"
+            ),
+            Self::NotCanonical(detail) => write!(
+                formatter,
+                "the spec core could not be canonicalized, so there is no digest to seal it with: \
+                 {detail}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SealRefusalV1 {}
+
+/// The structural floors that need no owner-held `SafetyKernelV1`.
+///
+/// Each one mirrors a rule of `IndependenceSpecV1::validate_against_kernel`, with
+/// the kernel field that rule reads replaced by the immutable constant
+/// `SafetyKernelV1::validate` pins that field to. Two consequences worth stating:
+/// this surface cannot drift from the kernel the ceremony will check the spec
+/// against, and no floor is written down as a number here.
+///
+/// Order is deliberate — the coarsest fact first — so the refusal an owner sees
+/// names the outermost thing that is wrong rather than a consequence of it.
+fn require_structural_floors(spec: &IndependenceSpecV1) -> Result<(), SealRefusalV1> {
+    if spec.schema != INDEPENDENCE_SPEC_SCHEMA {
+        return Err(SealRefusalV1::WrongSchema(spec.schema.clone()));
+    }
+
+    let seats = spec.core.voting_verifiers.len();
+    if seats != usize::from(IMMUTABLE_VERIFIER_SEATS) {
+        return Err(SealRefusalV1::SeatCount(seats));
+    }
+
+    if spec.core.quorum_threshold < IMMUTABLE_QUORUM_THRESHOLD {
+        return Err(SealRefusalV1::QuorumBelowFloor(spec.core.quorum_threshold));
+    }
+    if usize::from(spec.core.quorum_threshold) > seats {
+        return Err(SealRefusalV1::QuorumAboveSeatCount {
+            quorum: spec.core.quorum_threshold,
+            seats,
+        });
+    }
+
+    if spec.core.minimum_failure_domains < IMMUTABLE_FAILURE_DOMAINS {
+        return Err(SealRefusalV1::DomainMinimumLowered(
+            spec.core.minimum_failure_domains,
+        ));
+    }
+    let spanned: BTreeSet<&str> = spec
+        .core
+        .voting_verifiers
+        .iter()
+        .map(|seat| seat.failure_domain.as_str())
+        .collect();
+    if spanned.len() < usize::from(spec.core.minimum_failure_domains) {
+        return Err(SealRefusalV1::InsufficientFailureDomains {
+            spanned: spanned.len(),
+            required: spec.core.minimum_failure_domains,
+        });
+    }
+
+    if !spec.core.proposer_executor_nonvoting {
+        return Err(SealRefusalV1::VotingNonvotingRole(
+            "proposer_executor_nonvoting",
+        ));
+    }
+    if !spec.core.sentinel_nonvoting {
+        return Err(SealRefusalV1::VotingNonvotingRole("sentinel_nonvoting"));
+    }
+
+    Ok(())
+}
+
+/// Read the spec at `path`, clear the structural floors, and seal it.
+///
+/// The incoming `independence_spec_digest` is never inspected: sealing is the act
+/// that decides it. Nothing else in the document is touched — the sealed spec's
+/// `core` is the core that was read.
+pub fn seal_independence_spec_at(path: &Path) -> Result<IndependenceSpecV1, SealRefusalV1> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| SealRefusalV1::Unreadable(format!("{}: {error}", path.display())))?;
+    let mut spec: IndependenceSpecV1 = serde_json::from_slice(&bytes)
+        .map_err(|error| SealRefusalV1::Malformed(format!("{}: {error}", path.display())))?;
+    require_structural_floors(&spec)?;
+    spec.seal()
+        .map_err(|error| SealRefusalV1::NotCanonical(error.to_string()))?;
+    Ok(spec)
+}
+
 /// Read the spec at `path`, run the structural floors, seal it, and return the
 /// JSON to print with the process exit code.
 ///
 /// `(sealed spec, 0)` on success; `(refusal envelope, 1)` on every refusal.
-pub fn run_seal_independence_spec(_path: &Path) -> (serde_json::Value, i32) {
-    unimplemented!("the sealer is RED until the implementation lands")
+pub fn run_seal_independence_spec(path: &Path) -> (serde_json::Value, i32) {
+    match seal_independence_spec_at(path) {
+        Ok(sealed) => match serde_json::to_value(&sealed) {
+            Ok(document) => (document, 0),
+            Err(error) => (SealRefusalV1::NotCanonical(error.to_string()).to_json(), 1),
+        },
+        Err(refusal) => (refusal.to_json(), 1),
+    }
 }
 
 // ===========================================================================

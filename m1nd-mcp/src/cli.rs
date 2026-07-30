@@ -94,6 +94,42 @@ pub struct Cli {
     #[arg(long, value_name = "SHA256")]
     pub custody_constitution_digest: Option<String>,
 
+    /// Seal a hand-authored `IndependenceSpecV1` (JSON): fill its
+    /// `independence_spec_digest` from the digest of its own core, print the sealed
+    /// document to stdout, and exit. Offline and one-shot, exactly like
+    /// `--verify-authorization-receipt`, `--inbox-sweep` and `--custody-ceremony`:
+    /// it never boots an owner, opens a port, or takes a lease.
+    ///
+    /// This is a DOCUMENT step, not a ceremony step. It reads one file and computes
+    /// one digest — it never opens the Secure Enclave, the keychain, the protected
+    /// root, or any ceremony state, and it runs on every platform. It is what makes
+    /// the ceremony's prerequisite P9 reachable by hand: the owner writes the four
+    /// voting seats himself, and every custody verb refuses a spec whose declared
+    /// digest is not the digest of its core.
+    ///
+    /// The incoming digest is READ AND IGNORED — empty, placeholder or stale from
+    /// an earlier draft, all three are overwritten — because sealing is the act
+    /// that decides it. Everything else is carried through untouched.
+    ///
+    /// It refuses, by name and with exit 1, on an unreadable file, on JSON that is
+    /// not this contract (an unknown field included), on the wrong schema, on a seat
+    /// count other than the frozen four, on a quorum outside the kernel floor, on a
+    /// lowered or unmet failure-domain minimum, and on either non-voting role marked
+    /// voting. Every one of those floors is read from the constants in
+    /// `m1nd-control`'s `autonomy` module, so this surface cannot drift from the
+    /// kernel the ceremony checks the spec against.
+    ///
+    /// What it does NOT check is what needs the kernel, the constitution or
+    /// cryptography — seat identity uniqueness, the sentinel's exclusion from the
+    /// voting seats, the blind-isolation policy digest. `validate_against_kernel`
+    /// owns those and still runs at the ceremony. A sealed spec is well-formed
+    /// enough to present; it is not thereby ratified.
+    ///
+    /// The output is the document, so it pipes straight into the ceremony:
+    ///   m1nd-mcp --seal-independence-spec draft.json > independence-spec.json
+    #[arg(long, value_name = "PATH", exclusive = true)]
+    pub seal_independence_spec: Option<String>,
+
     /// Start HTTP server with embedded web UI
     #[arg(long)]
     pub serve: bool,
