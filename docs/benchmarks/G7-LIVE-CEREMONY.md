@@ -170,7 +170,7 @@ refuses with `browser_gate/token_output_leak` if the bearer ever appears in it.
 | Human View consumes manifest/authority state | **Yes** | the shell must render `[data-role="manifest-status"]` at `data-manifest-state="ready"`, and the same surface must show `COHERENT` and `SRC/BIN/BND x/y/z · ALIGNED` |
 | h4nd consumes manifest/authority state | **No** — different product, different repo | see §7 |
 | production build + runtime attestation of the promoted bundle digest; mismatch → refuse/DRIFT | **Yes, for the m1nd shell** | `ui.bundle_sha256` must equal the digest you named; `authorities.ui_bundle.digest` must equal it too; anything else is `DRIFT` by `m1nd-mcp/src/ui_attestation.rs` |
-| UI unit · accessibility · browser fixture · browser LIVE as **separate** proofs | **3 of 4** | unit + fixture are green in CI (§6); LIVE is this gate; **accessibility does not exist** on the m1nd side |
+| UI unit · accessibility · browser fixture · browser LIVE as **separate** proofs | **4 of 4**, the accessibility one scoped as a smoke | unit + fixture are green in CI (§6); LIVE is this gate; accessibility is `m1nd-ui/e2e-a11y/accessibility.spec.ts` — its own directory, its own `playwright.a11y.config.ts`, its own `npm run test:e2e:a11y`, its own `ui-gates` step. It asserts unique landmarks, an accessible name on every exposed control, `aria-current="page"` on the door of the surface in view, and the primary flow walked by keyboard alone. **Not** a WCAG audit — see §7 |
 | poold policy explicit; each ratified lane passes a non-synthetic E2E | **Not touched** | measured separately — see §7 |
 | landing, stale, degraded, drift, recovery visible | **Partially** | the LIVE spec asserts the coherent/aligned path only; the degraded paths are proven in the fixture lane, not against a real owner |
 
@@ -210,10 +210,20 @@ ceremony against whatever `main` says at the moment you want the claim.
   mode — the "Express/Vite serves dirty source" line in `docs/M1ND-10-UML.md` is stale. What
   it does **not** have is a LIVE lane: every one of its browser specs installs a fixture
   interceptor, and its "real server" spec drives a disposable fixture server, not a real
-  owner. Its `e2e/accessibility.spec.ts`, by contrast, is real and reported separately — the
-  m1nd side has no equivalent.
-- **Accessibility, m1nd side.** Zero role/name assertions in the fixture browser suite and
-  no axe dependency. The PRD asks for a separate proof; there is none to run.
+  owner. Its `e2e/accessibility.spec.ts` was, at the time of staging, the only real
+  accessibility proof across the two products; the m1nd lane below is now its counterpart.
+- **Accessibility beyond the smoke, m1nd side.** The separate proof now exists
+  (`m1nd-ui/e2e-a11y/`, §5) and the shell grew the landmarks and the `aria-current` door it
+  asserts. What is still NOT_RUN is everything the smoke deliberately refuses to claim:
+  colour contrast, focus-ring visibility, reading order, motion preferences, zoom/reflow,
+  screen-reader announcement quality, and every surface it does not walk (the Threshold, the
+  Hall, tree drawers, modals). There is still **no axe dependency** — the lane is hand-rolled
+  on Playwright's own role/name engine, so it proves structure, not rule coverage. Adding
+  `@axe-core/playwright` was measured and declined: it is absent from the lock, pulls
+  `axe-core` (~3.0 MB unpacked) behind a 47 kB wrapper, and every new lock entry becomes a
+  precondition of this ceremony's own **offline** `npm ci --offline` replay (§3 step 1,
+  `dependency_preparation/npm_ci_failed`). A rule sweep is a deliberate later call, not an
+  accident of a smoke.
 - **poold execution.** The policy *is* explicit and fail-closed:
   `h4nd-pool/pool-policy-v1.json`, `policy_id: m1nd10-g7-observe-only-v1`, all five lanes
   (`warm_fast`, `warm_smart`, `cold_prepare`, `cold_spawn`, `advisory_judge`)

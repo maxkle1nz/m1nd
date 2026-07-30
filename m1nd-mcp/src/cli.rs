@@ -36,6 +36,50 @@ pub struct Cli {
     #[arg(long, exclusive = true)]
     pub verify_authorization_receipt: bool,
 
+    /// THE CUSTODY CEREMONY (amendment G9-A1, Path B —
+    /// `docs/benchmarks/G9-CUSTODY-CEREMONY.md`). Run ONE step of the Secure
+    /// Enclave custody ceremony, print the result as JSON, and exit. Offline and
+    /// one-shot, exactly like `--verify-authorization-receipt`, `--inbox-sweep`
+    /// and `--medulla-migrate`: it never boots an owner, opens a port, or takes a
+    /// lease.
+    ///
+    /// THIS FLAG IS THE STAMP. Admission to a custody ceremony is a fact the OWNER
+    /// observes about ITSELF, and this ingress is that fact: the human ran this
+    /// command. It is the only place in the binary that constructs a
+    /// `custody_ceremony::OwnerCeremonyIngressV1`, so no MCP or REST payload — no
+    /// header, no field, no claim of any kind — can ever produce one.
+    ///
+    /// Verbs, in the order the owner runs them:
+    ///   `preflight`       — report every prerequisite; provisions NOTHING. The
+    ///                       only verb an agent may run.
+    ///   `provision-seats` — Phase A, the four unattended verifier seats.
+    ///   `owner-seat`      — Phase B, the owner's biometric seat. Refuses when no
+    ///                       human is attached; Touch ID has no stand-in.
+    ///   `seal`            — Phase C, seal the ceremony receipt.
+    ///   `assemble`        — assemble the production owner authority from the
+    ///                       sealed ceremony and print the pinned authority
+    ///                       manifest the G6 formal run requires.
+    ///
+    /// No agent may perform, simulate or dry-run any step but `preflight`
+    /// (`G9-CUSTODY-CEREMONY.md` §0).
+    #[arg(long, value_name = "VERB")]
+    pub custody_ceremony: Option<String>,
+
+    /// The owner's `0700`, non-symlink protected root holding the enclave-sealed
+    /// slots (prerequisite P5). Owner-held: this binary never derives or creates it.
+    #[arg(long, value_name = "PATH")]
+    pub custody_protected_root: Option<String>,
+
+    /// Owner-held path to the immutable owner security config the production
+    /// authority assembly loads through the enclave-sealed root.
+    #[arg(long, value_name = "PATH")]
+    pub custody_owner_security_config: Option<String>,
+
+    /// Owner-held path to the MissionService config the production authority
+    /// assembly binds.
+    #[arg(long, value_name = "PATH")]
+    pub custody_mission_config: Option<String>,
+
     /// Start HTTP server with embedded web UI
     #[arg(long)]
     pub serve: bool,
@@ -156,6 +200,29 @@ pub struct Cli {
     /// spool + boxes (a pure, read-only view).
     #[arg(long)]
     pub no_distribute: bool,
+
+    /// THE BIRTH CEREMONY (GENESIS-INGEST-CONSUMERS-SPEC.md §2, owner-ratified
+    /// 2026-07-29). Birth a project brain for the named repo root, print the
+    /// certificate as JSON, and exit. Offline and one-shot, exactly like
+    /// `--inbox-sweep` and `--medulla-migrate`.
+    ///
+    /// THIS FLAG IS THE STAMP. Admission to `brain.bootstrap.birth` is an origin
+    /// the OWNER applies from a fact it observes about ITSELF, and this ingress
+    /// is that fact: the human ran this command. It is the only place in the
+    /// binary that constructs a `brain_birth::HumanOrigin`, so no MCP or REST
+    /// payload — no header, no `birth_via` field, no claim of any kind — can ever
+    /// produce one. Over the wire the verb is refused for every client.
+    ///
+    /// The human-facing form is `m1nd init --birth <repo>`; the npm CLI runs this
+    /// binary with this flag. An AGENT that finds a repo with no brain OFFERS
+    /// that command and stops — running it is not the agent's to do.
+    ///
+    /// Refuses unless the destination is EMPTY on disk, unless the root resolves,
+    /// on any overlap with an existing brain, and on the owner's own bound root.
+    /// It is not the way to adopt an existing brain: that is migration, a
+    /// boot-time fact with no verb.
+    #[arg(long, value_name = "REPO")]
+    pub birth: Option<String>,
 
     /// One-shot MEDULLA storage-split migration (MEDULLA-PRD §4.2, slice M5a).
     /// Takes one required verb (no default):

@@ -103,6 +103,7 @@ function useBackendStatus() {
 function TopBar({
   status,
   self,
+  surface,
   viewedBrain,
   onOpenHall,
   onOpenMap,
@@ -110,6 +111,10 @@ function TopBar({
 }: {
   status: BackendStatus;
   self: InstanceSelfResponse | null;
+  /** The surface in view — the door bar marks its own door `aria-current="page"`
+   *  so "where am I?" is answerable programmatically, not only by which button
+   *  happens to be missing (G7 accessibility lane). */
+  surface: Surface | null;
   /** The brain the tree is viewing (§4A.9). Bound (root=null) → the chip reads the
    *  self envelope; a hosted brain → the chip flips to the ECHO's name/counts
    *  (render truth, never the request), so no graph pixel ever wears the wrong
@@ -135,15 +140,21 @@ function TopBar({
   const chipName = hosted ? viewedBrain.displayName : self?.display_name ?? null;
   const chipPath = hosted ? viewedBrain.root : self?.project_root ?? null;
   const chipCount = hosted ? viewedBrain.nodeCount : self ? self.graph_state.node_count : null;
+  const atUniverse = surface === 'universe';
+  const atMap = surface === 'map';
   return (
-    <div className="h-12 flex items-center justify-between px-4 border-b border-ink/10 bg-porcelain shrink-0">
-      <div className="flex items-center gap-2">
+    <header
+      data-role="app-banner"
+      className="h-12 flex items-center justify-between px-4 border-b border-ink/10 bg-porcelain shrink-0"
+    >
+      <nav aria-label="m1nd surfaces" data-role="surface-nav" className="flex items-center gap-2">
         {onOpenUniverse ? (
           <button
             type="button"
             data-role="open-universe"
-            onClick={onOpenUniverse}
-            title="Back to the Universe"
+            aria-current={atUniverse ? 'page' : undefined}
+            onClick={atUniverse ? undefined : onOpenUniverse}
+            title={atUniverse ? 'The Universe — you are here' : 'Back to the Universe'}
             className="text-ink font-semibold text-base tracking-tight hover:text-ink-soft transition-colors"
           >
             m1nd
@@ -161,14 +172,17 @@ function TopBar({
           <button
             type="button"
             data-role="open-map"
-            onClick={onOpenMap}
-            title="Open the Build Map for the viewed brain"
+            aria-current={atMap ? 'page' : undefined}
+            onClick={atMap ? undefined : onOpenMap}
+            title={
+              atMap ? 'The Build Map — you are here' : 'Open the Build Map for the viewed brain'
+            }
             className="ml-2 px-2 py-0.5 text-xs text-ink-soft border border-ink/10 rounded hover:shadow-contact transition-shadow"
           >
             Build Map
           </button>
         )}
-      </div>
+      </nav>
       <BrainChip
         displayName={chipName}
         projectPath={chipPath}
@@ -176,7 +190,7 @@ function TopBar({
         healthy={status === 'ok'}
         onClick={onOpenHall}
       />
-    </div>
+    </header>
   );
 }
 
@@ -585,18 +599,18 @@ export default function App() {
         <TopBar
           status={status}
           self={self}
+          surface={surface}
           viewedBrain={viewedBrain}
           onOpenHall={onOpenHall}
-          onOpenMap={
-            surface !== 'threshold' && surface !== 'map' ? () => navigate({ surface: 'map' }) : undefined
-          }
+          // The doors render wherever the surface EXISTS (only the Threshold has
+          // none) — the door of the surface you are on stays put and wears
+          // `aria-current="page"` instead of vanishing.
+          onOpenMap={surface !== 'threshold' ? () => navigate({ surface: 'map' }) : undefined}
           onOpenUniverse={
-            worldCount >= 1 && surface !== 'universe' && surface !== 'threshold'
-              ? onOpenUniverse
-              : undefined
+            worldCount >= 1 && surface !== 'threshold' ? onOpenUniverse : undefined
           }
         />
-        <div className="flex flex-1 overflow-hidden">
+        <main aria-label="m1nd workspace" className="flex flex-1 overflow-hidden">
           {surface === 'universe' ? (
             // The Universe L0 (HUMAN-VIEW-V2 F30) — the home panorama + the Landing.
             // Its own right column (the Landing) replaces the tray at L0.
@@ -645,7 +659,7 @@ export default function App() {
               onOpenBlock={onOpenBlock}
             />
           )}
-        </div>
+        </main>
 
         <IngestModal
           isOpen={ingestOpen}

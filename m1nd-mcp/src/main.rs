@@ -588,6 +588,58 @@ fn run_medulla_migrate(
     println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
 }
 
+/// THE BIRTH CEREMONY (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified
+/// 2026-07-29) — the P2 human gesture, and the ONLY place in this binary that
+/// stamps a `HumanOrigin`.
+///
+/// This function IS the admission §2 requires. It is not that the CLI presents a
+/// token the owner then trusts: the owner is this process, and the fact it
+/// observes is its own ingress — the human ran `m1nd init --birth <repo>`, which
+/// runs this binary with this flag. Nothing that arrives over a transport can
+/// reach here, because this runs before any transport is opened, so no header,
+/// field, or claimed origin can ever produce the stamp. That is the whole
+/// mechanism, and its honest limit is stated in `brain_birth`: it closes the
+/// reflex vector, not a hostile same-UID process.
+///
+/// Offline and one-shot, exactly like `--inbox-sweep` and `--medulla-migrate`:
+/// boot a session to recover the runtime root and the owner's own binding, run
+/// the verb, print JSON, exit. Exit code follows the answer — `0` for a
+/// certificate, `1` for a refusal — so a script or a human sees the difference
+/// without parsing.
+fn run_birth_ceremony(config: McpConfig, root: &str) {
+    let server = match McpServer::new(config) {
+        Ok(server) => server,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][birth] failed to boot the owner session: {e}");
+            std::process::exit(1);
+        }
+    };
+    // The ORCHESTRATION lives in the library, not here. The ceremony needs the
+    // owner's own binding in order to REFUSE a root the bound dev graph already
+    // covers, and that binding is a crate-internal capability by design
+    // (`McpServer::into_session_state` is `pub(crate)`, guarded by a
+    // `compile_fail` doctest). The binary contributes the INGRESS — the fact
+    // that a human ran this command — and nothing else.
+    let payload = match m1nd_mcp::brain_birth::run_ceremony(server, root, "m1nd-init-birth") {
+        Ok(payload) => payload,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][birth] the ceremony failed: {e}");
+            std::process::exit(1);
+        }
+    };
+    let ok = payload
+        .get("ok")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&payload).unwrap_or_default()
+    );
+    if !ok {
+        std::process::exit(1);
+    }
+}
+
 /// The most recent `.m5a-backup-<ms>` dir under a medulla store, if any. The
 /// suffix is `now_ms()` at `apply` time, so lexical max over the numeric suffix
 /// is the newest backup (the rollback anchor).
@@ -768,6 +820,67 @@ fn enforce_strict_version() {
     }
 }
 
+/// Run ONE custody-ceremony step and exit. Never returns.
+///
+/// The ceremony's admission is this ingress itself (`--custody-ceremony`), which
+/// is why the stamp is constructed here and only here. Everything else the step
+/// needs is owner-held and passed explicitly: this binary derives no path and
+/// creates no directory, so the owner's own prerequisites stay visible to them.
+fn run_custody_ceremony_mode(cli: &Cli, verb: &str) -> ! {
+    use m1nd_mcp::custody_ceremony::{
+        CeremonyAttendanceV1, CeremonyRequestV1, CustodyCeremonyVerbV1, OwnerCeremonyIngressV1,
+        CUSTODY_CEREMONY_VERBS,
+    };
+
+    let parsed: CustodyCeremonyVerbV1 = match verb.parse() {
+        Ok(parsed) => parsed,
+        Err(refusal) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&refusal.to_json()).unwrap_or_default()
+            );
+            eprintln!(
+                "[m1nd-mcp][custody] expected one of: {}",
+                CUSTODY_CEREMONY_VERBS.join(", ")
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let protected_root = match cli.custody_protected_root.as_deref() {
+        Some(root) => std::path::PathBuf::from(root),
+        None => {
+            eprintln!(
+                "[m1nd-mcp][custody] --custody-protected-root is required: the ceremony's \
+                 protected root is owner-held and this binary never derives or creates it"
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let (payload, code) = m1nd_mcp::custody_ceremony::run_custody_ceremony(
+        OwnerCeremonyIngressV1::from_cli_ingress(),
+        CeremonyRequestV1 {
+            verb: parsed,
+            protected_root,
+            owner_security_config: cli
+                .custody_owner_security_config
+                .as_deref()
+                .map(std::path::PathBuf::from),
+            mission_config: cli
+                .custody_mission_config
+                .as_deref()
+                .map(std::path::PathBuf::from),
+        },
+        CeremonyAttendanceV1::detect(),
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&payload).unwrap_or_default()
+    );
+    std::process::exit(code);
+}
+
 #[tokio::main]
 async fn main() {
     // Parse before every side-effecting compatibility/runtime path. The offline
@@ -783,6 +896,21 @@ async fn main() {
         std::process::exit(
             m1nd_mcp::authorization_receipt_verifier::run_authorization_receipt_verifier_stdio(),
         );
+    }
+
+    // --custody-ceremony <verb>: THE CUSTODY CEREMONY (amendment G9-A1, Path B —
+    // docs/benchmarks/G9-CUSTODY-CEREMONY.md §2). One bounded step, offline, one
+    // closed JSON object, exit — the same early-mode shape as the receipt verifier
+    // above and --inbox-sweep/--medulla-migrate below. Dispatched HERE, before any
+    // config load or owner machinery, because the ceremony must never boot an
+    // owner, open a port or take a lease.
+    //
+    // THIS is the stamp's only construction site. Admission to the ceremony is a
+    // fact the owner observes about ITSELF — the human ran this command — so the
+    // ingress, not a payload, is what mints it. A test holds this line: a second
+    // `from_cli_ingress` anywhere in the crate fails the battery.
+    if let Some(verb) = cli.custody_ceremony.clone() {
+        run_custody_ceremony_mode(&cli, &verb);
     }
 
     #[cfg(unix)]
@@ -864,6 +992,15 @@ async fn main() {
     // for the maintainer, never an agent). Runs BEFORE --serve/stdio.
     if let Some(mode) = cli.medulla_migrate {
         run_medulla_migrate(config, mode, cli.migrate_project_root);
+        return;
+    }
+
+    // --birth <repo>: THE BIRTH CEREMONY (GENESIS-INGEST-CONSUMERS-SPEC.md §2,
+    // owner-ratified 2026-07-29). Runs BEFORE --serve/stdio, so it never opens a
+    // transport — which is also why the stamp it applies can never be reached
+    // through one.
+    if let Some(root) = cli.birth {
+        run_birth_ceremony(config, &root);
         return;
     }
 

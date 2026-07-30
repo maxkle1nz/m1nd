@@ -133,6 +133,14 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "panoramic",
     "persist",
     "boot_memory",
+    // Advertised so an agent can SEE the birth verb and read its honest refusal
+    // (`human_gesture_required`) — never so it can call it. It routes to
+    // `brain.bootstrap.birth` at the `PositiveSovereign` floor and is refused for
+    // every wire client; the stamp is the binary's own `--birth` ingress. Absent
+    // from this list the verb would be advertised with no ratified floor at all,
+    // which `live_schema_registry_and_policy_route_inventory_are_exactly_equal`
+    // exists to catch — and did.
+    "brain_birth",
     "metrics",
     "type_trace",
     "diagram",
@@ -630,6 +638,12 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "daemon_tick" => "daemon.tick",
         "alerts_ack" => "daemon.alerts_ack",
         "promote" => "brain.promote",
+        // SPEC-2's birth verb (GENESIS-INGEST-CONSUMERS-SPEC.md §2). A FIXED
+        // action: it is selected by the tool name alone, so no field a client
+        // sends — least of all one claiming a human origin — can change what it
+        // classifies as, and the refusal every generic seam emits for it is
+        // therefore byte-identical however the call is dressed.
+        "brain_birth" => "brain.bootstrap.birth",
         "skeleton_candidate" => "system_blocks.skeleton_candidate",
         "system_blocks_seed_import" => "system_blocks.seed_import.force",
         "system_blocks_ratify" => "system_blocks.ratify",

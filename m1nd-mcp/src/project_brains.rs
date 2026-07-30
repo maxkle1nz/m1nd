@@ -1631,6 +1631,14 @@ impl ProjectBrainRegistry {
         &self.base_dir
     }
 
+    /// The owner's registry dir (the shared instance phonebook), so a caller that
+    /// builds a second registry over a different base — SPEC-2's birth stages one
+    /// under `base_dir()` and commits by rename — lands its instances in the SAME
+    /// phonebook this one uses instead of an orphan registry.
+    pub(crate) fn registry_dir(&self) -> Option<&PathBuf> {
+        self.registry_dir.as_ref()
+    }
+
     /// Live `(node_count, edge_count)` for a project brain that is warm in the
     /// map RIGHT NOW — the freshest truth for the Hall. `None` when the brain is
     /// dormant on disk (the caller then falls back to the manifest's recorded
@@ -1707,7 +1715,11 @@ impl ProjectBrainRegistry {
     /// always has a manifest on disk (it is written before the map insert), so the
     /// disk roster is a superset in practice; the union is defensive, not load-
     /// bearing. Inert read only (map keys + roster manifests, never a warm-boot).
-    fn existing_brain_roots(&self) -> Vec<String> {
+    ///
+    /// Crate-visible because SPEC-2's birth must run the SAME overlap
+    /// classification before it stages: its staging registry knows no brains, so
+    /// asking that one would be asking a registry that always answers "none".
+    pub(crate) fn existing_brain_roots(&self) -> Vec<String> {
         let mut set: std::collections::HashSet<String> =
             self.brains.lock().keys().cloned().collect();
         for (root, _facts, _dir) in self.disk_roster() {

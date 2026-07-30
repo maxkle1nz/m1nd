@@ -29,6 +29,12 @@ pub mod owner_authorization_broker;
 // No private key or implicit software signer is representable in this schema.
 pub mod auto_ingest;
 pub mod cli;
+/// The DOOR to the G9 Secure Enclave custody floor (`enclave_authority`). Present
+/// on every target on purpose: off macOS its steps REFUSE — `not_installed`, unless
+/// the platform-independent owner-presence gate already refused them — which is how
+/// an operator learns the floor is unavailable there instead of silently receiving
+/// a software fallback.
+pub mod custody_ceremony;
 pub mod daemon_handlers;
 /// macOS Secure Enclave custody floor (amendment G9-A1). On non-macOS targets it
 /// is absent by construction, so the production authority assembly stays
@@ -61,6 +67,9 @@ pub mod boot_memory_handlers;
 pub mod boot_kv_migration;
 // Upgrade-path repair: one-time boot adoption of a pre-1.5 legacy graph snapshot.
 pub mod legacy_snapshot_adoption;
+// SPEC-2 — `brain.bootstrap.birth`, the birth ceremony's server verb
+// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified 2026-07-29).
+pub mod brain_birth;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
 pub mod engine_ops;
@@ -259,6 +268,12 @@ mod ui_bundle_attestation_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/spec1_refresh_declared_root.rs"]
 mod spec1_refresh_declared_root_internal_tests;
+// SPEC-2 — the birth path's acceptance battery
+// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5.7 + the birth half of §5.8),
+// written before its implementation.
+#[cfg(test)]
+#[path = "internal_tests/spec2_brain_bootstrap_birth.rs"]
+mod spec2_brain_bootstrap_birth_internal_tests;
 // `--attach auto`'s SECOND discovery question ("is there a live owner that has
 // INGESTED my repo?"), written before the second pass existed.
 #[cfg(test)]

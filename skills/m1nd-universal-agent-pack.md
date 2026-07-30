@@ -30,11 +30,13 @@ graph), `ingest` the repo, then `north` again — that is a real answer, not a
 failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
 Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
-`reception.options[]`. The public brain-bootstrap consumer is NOT installed:
-`ingest` does not accept `project_root` (absent from the published schema) and
-cross-root bootstrap fails closed with `brain_bootstrap_consumer_not_installed`.
-Continue only against the bound graph with the mismatch warning intact, or
-reconnect to an owner that already hosts the intended repo.
+`reception.options[]`. Generic cross-root `ingest` remains withdrawn (`project_root`
+absent from the published schema), and over the wire `brain.bootstrap.birth` refuses
+every client with `human_gesture_required` — the stamp is the binary's own CLI flag.
+A brainless repo now has one real path: the HUMAN's one-time ceremony
+`m1nd init --birth <repo>`. OFFER that exact command and stop — running it is not
+the agent's to do. Until then, continue only against the bound graph with the
+mismatch warning intact, or reconnect to an owner that already hosts the intended repo.
 Absent/null `reception` = your root matches the brain serving you. Reception
 governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
 under mismatch is PROHIBITED — see Write-Mode Laws below, and no public

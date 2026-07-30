@@ -53,12 +53,31 @@ reported COHERENT (2026-07-29, mailbox letter `84fde5e4da2e`). The build is byte
 three consecutive host builds and a `linux/amd64` `node:22` container emit an identical tree — so
 a red there is drift, not nondeterminism.
 
+Touching the shell chrome (`src/App.tsx`, navigation, landmarks, any control's label) also runs
+the two browser lanes, which CI keeps **separate on purpose** — G7 counts them one by one:
+
+```bash
+cd m1nd-ui && npm run test:e2e && npm run test:e2e:a11y
+```
+
+`test:e2e` is the fixture suite (`e2e/`); `test:e2e:a11y` is the accessibility smoke
+(`e2e-a11y/`, own config, own CI step) — landmarks, accessible names, the `aria-current="page"`
+door, keyboard reach. Never fold a new accessibility assertion into `e2e/`: merged into the
+fixture suite it stops being a separate proof and closes nothing
+(`docs/benchmarks/G7-LIVE-CEREMONY.md` §5).
+
 **Cross-platform fs & path contract (Windows is a first-class CI OS):**
 - Never `set_len`/truncate on an append-mode handle — on Windows it lacks `FILE_WRITE_DATA`
   (os error 5). Route tail-truncation through `windows_durable_fs::truncate_no_follow`.
 - Never hold long-lived lock files opened with `share_mode(0)` — read-only tree snapshots then
   die with sharing violations (os error 32). Share reads (`FILE_SHARE_READ`); write access stays
   unshared so single-owner collision detection is unchanged.
+- Never rename or remove a directory tree while something inside it is still open. Unix moves a
+  tree out from under live handles; Windows refuses with the same os error 32. A live brain holds
+  a checkpoint-store directory handle, writer lock and leases under its own store dir, so quiesce
+  it first (`ProjectBrainRegistry::shutdown` — pause, checkpoint+ACK, stop the actor, release the
+  instance, drop the cell) and move the bytes only once nobody holds them. A live `ReadDir` counts
+  too: scope it so its handle is closed before the removal.
 - Never screen operator-supplied paths with `Path::is_absolute` alone — `"/x"`, `"\x"` and
   `"C:\x"` are not absolute under the other OS's semantics. Use the shared helpers
   (`is_safe_relative_discovery_pattern`, `m1nd_ingest::exact_path_identity`) so security screens
@@ -162,6 +181,25 @@ nothing but public artifacts. Three hard rules:
   that was not measured is fraud. `NOT_PROVEN` is a legitimate, valuable outcome.
 - **Never re-run to chase green.** The metric spec allows one sealed run per revision
   (`one_sealed_run_only_no_rerun_until_pass`); a `FAIL` stays in the record.
+
+## The custody ceremony — the one surface no agent may run
+
+`m1nd-mcp --custody-ceremony <verb>` drives the G9 Secure Enclave custody ceremony
+(`docs/benchmarks/G9-CUSTODY-CEREMONY.md`, amendment G9-A1 Path B). Of its five verbs, agents
+may run exactly ONE: `preflight`, which reports prerequisites and provisions nothing.
+
+**`provision-seats`, `owner-seat`, `seal` and `assemble` are the owner's.** No agent may perform,
+simulate, stub, mock or dry-run them, provision any enclave key, touch biometrics, or produce a
+`custody-ceremony.sealed.json`, a seat public key, or any claim that a ceremony happened. The
+ceremony's entire evidentiary value is that a human proved possession of hardware no software
+path can stand in for — an agent that synthesises the artifact has destroyed the thing it
+imitated. An agent that finds the ceremony un-run OFFERS the command and stops.
+
+The code holds part of this line mechanically: the ceremony is reachable only from its own CLI
+ingress (the `--birth` precedent — the ingress IS the human-origin fact), it appears in no MCP
+tool and no REST route, the biometric step refuses when no human is attached, and
+`provision_agent_enclave_seat` refuses the human seat fail-closed. `m1nd-mcp/tests/custody_ceremony_wiring.rs`
+holds the rest, including a guard that fails if a simulation path is ever added.
 
 ## Dogfood m1nd — for LOCAL agents only
 
@@ -276,11 +314,14 @@ bound brain because the writer never checked which brain it was talking to.
    repo). A **write** under mismatch is prohibited by doctrine — every write verb
    (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
    `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
-   gesture lifts this.** The brain-bootstrap consumer is NOT installed: `ingest` does not
-   accept `project_root` (the parameter is absent from the published schema) and cross-root
-   bootstrap is POSITIVE_SOVEREIGN, failing closed with
-   `brain_bootstrap_consumer_not_installed`. Reconnect to an owner that already hosts the
-   intended repo, or stay read-only with the mismatch warning intact — do not write.
+   gesture lifts this for AGENTS.** Generic cross-root `ingest` remains withdrawn
+   (`project_root` is absent from the published schema; POSITIVE_SOVEREIGN), and over the
+   wire `brain.bootstrap.birth` refuses every client with `human_gesture_required` — the
+   stamp is the binary's own CLI flag, which no MCP or REST payload can forge. The way
+   forward for a brainless repo is the HUMAN's one-time ceremony: OFFER the exact command
+   `m1nd init --birth <repo>` and stop — running it is not the agent's to do. Until then,
+   reconnect to an owner that already hosts the intended repo, or stay read-only with the
+   mismatch warning intact — do not write.
    (The mechanical write-refusal has LANDED — every skeleton write verb
    (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
    `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching
