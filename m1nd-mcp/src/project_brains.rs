@@ -80,6 +80,18 @@ use crate::runtime_jobs::{
 /// specifies ("before the owner hosts brain #5"). Override via the constructor.
 pub const DEFAULT_WARM_BRAIN_CAP: usize = 4;
 
+/// How long the bound bind waits for a PREVIOUS owner of the same brain session
+/// to finish releasing its single-writer fence.
+///
+/// `BrainActorHandle::drop` hands shutdown to a detached guardian thread, so the
+/// outgoing owner's fence is still up when `drop` returns. The incoming bind
+/// waits on the cell's release signal (`wait_for_actor_release`) rather than
+/// deciding that scheduling race on first read — a refusal here is CACHED in
+/// `bound_runtime` for the life of the registry, so asking again could never
+/// change the answer and the loss would be permanent. This is a ceiling on a
+/// fence that never clears, not a delay: a healthy hand-off costs the wakeup.
+const BOUND_ACTOR_HANDOFF_GRACE: Duration = Duration::from_secs(30);
+
 /// Store-dir manifest: records which project root a store belongs to, so a
 /// warm-boot can verify the fingerprint really is this root's brain (hash
 /// collisions and moved directories resolve to an honest miss, never a silent
@@ -1006,6 +1018,12 @@ impl ProjectBrainRegistry {
     ) -> M1ndResult<Arc<BrainActorHandle>> {
         if bound {
             let opened = self.bound_runtime.get_or_init(|| {
+                // A previous owner of this same cell may still be releasing its
+                // single-writer fence on a detached guardian thread. Wait for
+                // the release signal before claiming; the guard below is the
+                // authority either way, so a fence that never clears still
+                // refuses with exactly the same typed error.
+                target.wait_for_actor_release(BOUND_ACTOR_HANDOFF_GRACE);
                 // This is the one explicit pre-actor compatibility guard.
                 // `lock_mut_before_actor()` double-checks the ownership fence,
                 // so a foreign/duplicate actor cannot be adopted silently by
@@ -2141,6 +2159,46 @@ mod external_mutation_actor_binding_tests {
         state.workspace_root = Some(workspace_root.to_string_lossy().into_owned());
         state.ingest_roots = vec![workspace_root.to_string_lossy().into_owned()];
         Arc::new(BrainSessionCell::new(state))
+    }
+
+    /// The hand-off between two owners of one brain session, with no timing
+    /// tolerance anywhere in the test.
+    ///
+    /// `BrainActorHandle::drop` transfers shutdown to a DETACHED guardian
+    /// thread, so when `drop` returns the previous owner still holds the
+    /// single-writer fence and clears it at an instant no caller can predict.
+    /// A binder that reads `actor_active` once and refuses therefore loses a
+    /// pure scheduling race — and loses it permanently, because the refusal is
+    /// cached in the registry's `bound_runtime` cell, so re-asking can never
+    /// change the answer. The bind waits on the release SIGNAL instead.
+    #[test]
+    fn bound_bind_waits_out_the_previous_owners_detached_release() {
+        let temp = tempfile::tempdir().expect("actor handoff tempdir");
+        let bound_root = temp.path().join("bound-owner");
+        std::fs::create_dir_all(&bound_root).expect("bound root");
+        let bound = session_cell(&temp.path().join("bound-runtime"), &bound_root);
+
+        let first = ProjectBrainRegistry::new(temp.path().join("first-brains"), None);
+        let first_id = first
+            .bound_brain_id_for_target(Arc::clone(&bound))
+            .expect("first bound actor identity");
+
+        // Drop WITHOUT `shutdown`: this is the only path that leaves the fence
+        // to a guardian thread, and it is exactly what a fixture teardown does.
+        drop(first);
+
+        // Re-bind on the very next statement — no sleep, no retry budget.
+        let second = ProjectBrainRegistry::new(temp.path().join("second-brains"), None);
+        let second_id = second
+            .bound_brain_id_for_target(Arc::clone(&bound))
+            .expect("re-bind must wait for the previous owner's release");
+        assert_eq!(
+            first_id, second_id,
+            "actor identity must survive the hand-off"
+        );
+        second
+            .shutdown(TEST_PERSISTING_ACTOR_SHUTDOWN_GRACE)
+            .expect("shutdown the re-bound owner");
     }
 
     #[test]

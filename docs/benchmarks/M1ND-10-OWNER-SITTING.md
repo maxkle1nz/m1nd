@@ -164,20 +164,22 @@ design; it is the last mint, after everything above is receipts.
 **Chain gates proven: 0 of 4** (G9 · G8-as-gate · G7 · G10). No ceremony has run;
 nothing below moves that number.
 
-- **Done and provable:** v1.6.1 is published, signed, notarized, and its macOS
-  binary launches — G8's *material* half. Step 0's metric spec v2 can be authored at
-  any time, though its `authority_receipt_digest` stays empty until G9's `assemble`
-  mints one.
-- **Step 2 is no longer platform-blocked; it is waiting on one owner file.** The
-  wall was real — a restricted entitlement on a command-line binary is SIGKILLed by
-  the kernel — and Road A went through it: the release builds and proves the entitled
-  ceremony bundle, and the ordinary binary stays unentitled. What the machine cannot
-  do is mint the profile that authorizes it. Generate the macOS Developer ID profile,
-  set `APPLE_CUSTODY_PROFILE_BASE64`, tag: the run either publishes a launch-proven
-  ceremony bundle or fails saying exactly why. Then step 2 is five verbs and your
-  hand.
+- **Done and provable:** the independence spec is authored and **sealed** — its
+  digest is the owner's own, computed by `--seal-independence-spec`, and the ceremony
+  refuses a spec whose digest does not match. v1.6.1 is published, signed, notarized,
+  and its macOS binary launches — G8's *material* half. Step 0's metric spec v2 can be
+  authored at any time, though its `authority_receipt_digest` stays empty until G9's
+  `assemble` mints one.
+- **Step 2 is no longer platform-blocked, and its owner file is in place.** The wall
+  was real — a restricted entitlement on a command-line binary is SIGKILLed by the
+  kernel — and Road A went through it: the release builds and proves the entitled
+  ceremony bundle, and the ordinary binary stays unentitled. The macOS Developer ID
+  profile was generated for the App ID the entitlement's access group names, its
+  certificate matched against the one the published release actually signs with, and
+  `APPLE_CUSTODY_PROFILE_BASE64` is set. What remains is a tag.
 - **Unproven until that tag:** that a Developer-ID-signed bundle with a real profile
   satisfies AMFI for this entitlement. Only the negative is measured today. The
-  release's own launch check decides it, before anything is published.
+  release's own launch check decides it, before anything is published — a failure
+  there is the answer arriving, not the plan collapsing.
 - **Blocked behind step 2:** step 3's authority provider (also waiting on its own
   identity-channel decision) · step 4 (needs the manifest to bind G9+G8) · step 5.
