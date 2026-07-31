@@ -632,6 +632,310 @@ jobs:
             || { echo "signed binary does not carry a Developer ID authority" >&2; exit 1; }
           security delete-keychain "$KEYCHAIN" || true
           echo "macOS runtime signed + notarized"
+      # The SECOND macOS artifact, and the only one allowed to carry the custody
+      # entitlement. The ordinary runtime above stays unentitled forever: AMFI
+      # SIGKILLs a raw executable that claims a restricted entitlement, which is
+      # what killed v1.6.0. Apple's own answer for exactly this case (Signing a
+      # daemon with a restricted entitlement) is an app-like bundle with the
+      # authorizing profile at Contents/embedded.provisionprofile — the road the
+      # owner ratified, docs/benchmarks/G9-PLATFORM-DECISION.md.
+      #
+      # The two artifacts are checked against OPPOSITE contracts and neither
+      # refusal is relaxed for the other: the runtime for the ABSENCE of a
+      # restricted entitlement plus a launch, this bundle for its PRESENCE plus a
+      # launch. The bundle is built from the bytes the build step already
+      # produced — copied, never rebuilt — and it is deliberately outside the
+      # signed candidate/release file set, the same posture the verified-updater
+      # receipts hold: the ordinary download is untouched by it.
+      #
+      # The profile is an owner input, not a repo file. It is generated once in
+      # the Apple Developer portal and held in APPLE_CUSTODY_PROFILE_BASE64; with
+      # that secret absent this step SKIPS LOUDLY and publishes nothing, because
+      # a bundle without a profile is killed exactly like the raw binary was and
+      # a silently-unentitled "ceremony" artifact is worse than no artifact.
+      - name: Package, sign, and prove the entitled custody-ceremony bundle
+        id: custody-bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_CUSTODY_PROFILE_BASE64: ${{ secrets.APPLE_CUSTODY_PROFILE_BASE64 }}
+          BIN_PATH: target/${{ matrix.target }}/release/m1nd-mcp
+          ENTITLEMENTS: build/m1nd-mcp.entitlements.plist
+          APP_BUNDLE: ${{ runner.temp }}/m1nd-custody-ceremony.app
+          PROFILE: ${{ runner.temp }}/custody.provisionprofile
+          PROFILE_PLIST: ${{ runner.temp }}/custody-profile.plist
+          MATRIX_ARTIFACT: ${{ matrix.artifact }}
+          RELEASE_VERSION: ${{ needs.tag-guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CUSTODY_PROFILE_BASE64:-}" ] \
+            || [ -z "${APPLE_CERT_P12_BASE64:-}" ] \
+            || [ -z "${APPLE_API_KEY_P8_BASE64:-}" ]; then
+            echo "::warning title=No custody-ceremony bundle::APPLE_CUSTODY_PROFILE_BASE64 or the Apple signing secrets are absent — this release publishes NO entitled ceremony artifact. The ordinary m1nd-mcp runtime is unaffected and stays unentitled; G9 prerequisite P4 stays unsatisfied (docs/benchmarks/G9-CUSTODY-CEREMONY.md §1 P4)."
+            exit 0
+          fi
+
+          # 1) the owner's profile, decoded to its plist so it can be READ before
+          #    anything is built, signed or published
+          printf '%s' "$APPLE_CUSTODY_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+
+          # 2) refuse every profile that would produce a bundle the kernel kills,
+          #    and derive the bundle identity FROM the entitlement instead of
+          #    guessing it. Each refusal names what it read.
+          rm -rf "$APP_BUNDLE"
+          python3 - <<'PY'
+          import os
+          import plistlib
+          import re
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          # The margin is a refusal to ship an artifact that is already
+          # effectively dead — not a promise about its shelf life. An embedded
+          # profile expires (Apple issues them for about a year) and the bundle
+          # stops launching the moment it does, so the artifact is only good
+          # until the date this step prints. Thirty days is the window in which
+          # the owner can notice, regenerate and re-tag without the ceremony
+          # surface ever being unavailable.
+          MARGIN_DAYS = 30
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          entitlements = plistlib.loads(Path(os.environ["ENTITLEMENTS"]).read_bytes())
+          groups = entitlements.get("keychain-access-groups") or []
+          if len(groups) != 1:
+              raise SystemExit(
+                  "the custody entitlement must declare exactly one keychain access "
+                  f"group; it declares {len(groups)}"
+              )
+          group = groups[0]
+          team, _, bundle_id = group.partition(".")
+          if not re.fullmatch(r"[A-Z0-9]{10}", team) or not re.fullmatch(
+              r"[A-Za-z0-9][A-Za-z0-9.-]*", bundle_id
+          ):
+              raise SystemExit(
+                  f"the keychain access group {group!r} is not <TEAM>.<bundle-id>, so no "
+                  "bundle identifier can be derived from it"
+              )
+
+          # The bundle identifier IS the access group's own suffix. That is not a
+          # convention: a program's default data-protection keychain access group
+          # is its application-identifier, so a bundle identified this way asks
+          # for exactly the group the entitlement grants, and the App ID the
+          # owner's profile must cover is <TEAM>.<bundle-id> by construction.
+          # Regenerate the profile for a different App ID and this step refuses
+          # rather than shipping a bundle the kernel will kill.
+          profile = plistlib.loads(Path(os.environ["PROFILE_PLIST"]).read_bytes())
+
+          expires = profile.get("ExpirationDate")
+          if not isinstance(expires, datetime):
+              raise SystemExit("the custody provisioning profile carries no ExpirationDate")
+          if expires.tzinfo is None:
+              expires = expires.replace(tzinfo=timezone.utc)
+          remaining = expires - datetime.now(timezone.utc)
+          if remaining < timedelta(days=MARGIN_DAYS):
+              raise SystemExit(
+                  f"the custody provisioning profile expires {expires.isoformat()} "
+                  f"({remaining.days} days from now) and the release refuses under "
+                  f"{MARGIN_DAYS} days: the bundle stops launching when the profile "
+                  "does. Generate a fresh profile, update the secret, re-tag."
+              )
+
+          if profile.get("ProvisionedDevices"):
+              raise SystemExit(
+                  "the custody provisioning profile is device-scoped (ProvisionedDevices) "
+                  "— a development profile authorizes only enrolled Macs, and this bundle "
+                  "is signed and launch-proven on a CI runner that is not one of them. "
+                  "Generate the macOS Developer ID profile instead."
+              )
+
+          platforms = profile.get("Platform") or []
+          if platforms and not {"OSX", "macOS"}.intersection(platforms):
+              raise SystemExit(
+                  f"the custody provisioning profile declares platforms {platforms!r}; "
+                  "the ceremony bundle is macOS"
+              )
+
+          def covers(granted: str, wanted: str) -> bool:
+              if granted.endswith("*"):
+                  return wanted.startswith(granted[:-1])
+              return granted == wanted
+
+          granted = profile.get("Entitlements") or {}
+          profile_team = granted.get("com.apple.developer.team-identifier")
+          if profile_team is None:
+              profile_team = (profile.get("TeamIdentifier") or [None])[0]
+          if profile_team != team:
+              raise SystemExit(
+                  "the custody provisioning profile belongs to a different team than the "
+                  "entitlement's access group; the profile and build/m1nd-mcp.entitlements.plist "
+                  "must name the same team"
+              )
+
+          granted_groups = granted.get("keychain-access-groups") or []
+          if not any(covers(value, group) for value in granted_groups):
+              raise SystemExit(
+                  f"the custody provisioning profile does not authorize the access group "
+                  f"{group!r}; without that authorization AMFI kills the bundle exactly as "
+                  "it killed the raw v1.6.0 binary"
+              )
+
+          app_id = granted.get("application-identifier") or granted.get(
+              "com.apple.application-identifier"
+          )
+          if app_id is None:
+              raise SystemExit(
+                  "the custody provisioning profile grants no application-identifier"
+              )
+          if not covers(app_id, f"{team}.{bundle_id}"):
+              raise SystemExit(
+                  f"the custody provisioning profile is issued for App ID {app_id!r}, which "
+                  f"does not cover the bundle identifier {bundle_id!r} derived from the "
+                  "entitlement's access group. Regenerate the profile for that App ID, or "
+                  "move the access group in build/m1nd-mcp.entitlements.plist — they travel "
+                  "together."
+              )
+
+          app = Path(os.environ["APP_BUNDLE"])
+          (app / "Contents" / "MacOS").mkdir(parents=True)
+          release_version = os.environ["RELEASE_VERSION"]
+          numeric = re.match(r"\d+(?:\.\d+){0,2}", release_version)
+          if numeric is None:
+              raise SystemExit(f"release version {release_version!r} has no numeric prefix")
+          plistlib.dump(
+              {
+                  "CFBundleExecutable": os.environ["BINARY_NAME"],
+                  "CFBundleIdentifier": bundle_id,
+                  "CFBundleInfoDictionaryVersion": "6.0",
+                  "CFBundleName": app.stem,
+                  "CFBundlePackageType": "APPL",
+                  "CFBundleShortVersionString": numeric.group(0),
+                  "CFBundleVersion": numeric.group(0),
+              },
+              (app / "Contents" / "Info.plist").open("wb"),
+          )
+          (temp / "custody-bundle-id").write_text(bundle_id, encoding="utf-8")
+          (temp / "custody-access-group").write_text(group, encoding="utf-8")
+          (temp / "custody-profile-expiry").write_text(
+              expires.isoformat(), encoding="utf-8"
+          )
+          PY
+
+          BUNDLE_ID="$(cat "$RUNNER_TEMP/custody-bundle-id")"
+          CUSTODY_GROUP="$(cat "$RUNNER_TEMP/custody-access-group")"
+          PROFILE_EXPIRES="$(cat "$RUNNER_TEMP/custody-profile-expiry")"
+
+          # 3) the bundle: the SAME bytes the build produced, plus the profile in
+          #    the one place AMFI reads it
+          cp "$BIN_PATH" "$APP_BUNDLE/Contents/MacOS/$BINARY_NAME"
+          cp "$PROFILE" "$APP_BUNDLE/Contents/embedded.provisionprofile"
+          rm -f "$PROFILE" "$PROFILE_PLIST"
+
+          # 4) ephemeral keychain holding only the Developer ID certificate
+          KEYCHAIN="$RUNNER_TEMP/m1nd-custody-signing.keychain-db"
+          KEYCHAIN_PASS="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          printf '%s' "$APPLE_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/custody-cert.p12"
+          security import "$RUNNER_TEMP/custody-cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/custody-cert.p12"
+
+          # 5) sign the bundle WITH the entitlement — the inverse of the runtime
+          #    above, and legal only because the profile inside authorizes it
+          codesign --force --timestamp --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$APPLE_SIGNING_IDENTITY" "$APP_BUNDLE"
+          codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+          if ! codesign -d --entitlements - "$APP_BUNDLE" 2>/dev/null | grep -qF "$CUSTODY_GROUP"; then
+            echo "::error::the ceremony bundle does not carry the custody access group — an unentitled bundle cannot run the G9 ceremony and must never be published as one"
+            exit 1
+          fi
+          SIGNATURE="$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)"
+          case "$SIGNATURE" in
+            *"Authority=Developer ID Application"*) ;;
+            *) echo "::error::the ceremony bundle does not carry a Developer ID authority"; exit 1 ;;
+          esac
+          case "$SIGNATURE" in
+            *"Identifier=$BUNDLE_ID"*) ;;
+            *) echo "::error::codesign recorded an identifier other than $BUNDLE_ID — the signed identity must equal the identifier the profile covers"; exit 1 ;;
+          esac
+
+          # 6) prove it LAUNCHES, on the native runner, after signing. This is the
+          #    whole lesson of v1.6.0: a signature that verifies is not a binary
+          #    that runs, and AMFI's verdict on a restricted entitlement is only
+          #    observable at launch.
+          BUNDLED_EXE="$APP_BUNDLE/Contents/MacOS/$BINARY_NAME"
+          VERSION_OUTPUT="$("$BUNDLED_EXE" --version)" || {
+            echo "::error::the signed ceremony bundle does not launch — AMFI refused the restricted entitlement. Read the kernel log: the usual causes are a profile that does not authorize the access group and a profile issued for another App ID."
+            exit 1
+          }
+          case "$VERSION_OUTPUT" in
+            *"$RELEASE_VERSION"*) ;;
+            *) echo "::error::the bundled executable reports '$VERSION_OUTPUT', not release $RELEASE_VERSION"; exit 1 ;;
+          esac
+
+          # 7) notarize and STAPLE — a bundle can hold the ticket a raw binary
+          #    cannot, so the owner's Mac needs no online check to launch it
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/CustodyAuthKey.p8"
+          ditto -c -k --keepParent "$APP_BUNDLE" "$RUNNER_TEMP/custody-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/custody-notarize.zip" \
+            --key "$RUNNER_TEMP/CustodyAuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait --timeout 30m
+          rm -f "$RUNNER_TEMP/CustodyAuthKey.p8" "$RUNNER_TEMP/custody-notarize.zip"
+          xcrun stapler staple "$APP_BUNDLE"
+          xcrun stapler validate "$APP_BUNDLE"
+          codesign --verify --strict --verbose=2 "$APP_BUNDLE"
+
+          # 8) package with ditto (the only container that preserves a bundle's
+          #    permissions, symlinks and signature) and prove the round trip:
+          #    what the owner unzips is what was signed, and it still launches
+          BUNDLE_ZIP="m1nd-custody-ceremony-${MATRIX_ARTIFACT#m1nd-mcp-}.zip"
+          ditto -c -k --keepParent --sequesterRsrc "$APP_BUNDLE" "$BUNDLE_ZIP"
+          ROUND_TRIP="$RUNNER_TEMP/custody-round-trip"
+          rm -rf "$ROUND_TRIP"
+          mkdir -p "$ROUND_TRIP"
+          ditto -x -k "$BUNDLE_ZIP" "$ROUND_TRIP"
+          UNPACKED="$ROUND_TRIP/$(basename "$APP_BUNDLE")"
+          codesign --verify --strict --verbose=2 "$UNPACKED"
+          "$UNPACKED/Contents/MacOS/$BINARY_NAME" --version >/dev/null \
+            || { echo "::error::the packaged ceremony bundle does not launch after a round trip"; exit 1; }
+          rm -rf "$ROUND_TRIP"
+          security delete-keychain "$KEYCHAIN" || true
+
+          # 9) the ordinary runtime must be exactly as the step above left it —
+          #    the two artifacts share bytes on disk and nothing else
+          if codesign -d --entitlements - "$BIN_PATH" 2>/dev/null \
+            | grep -qE 'keychain-access-groups|application-identifier|com\.apple\.developer\.'; then
+            echo "::error::the shipped runtime acquired a restricted entitlement while the bundle was built — it would be SIGKILLed at launch"
+            exit 1
+          fi
+          "$BIN_PATH" --version >/dev/null \
+            || { echo "::error::the shipped runtime stopped launching while the bundle was built"; exit 1; }
+
+          echo "built=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Custody-ceremony bundle::$BUNDLE_ZIP signed, notarized and stapled. Its embedded profile expires $PROFILE_EXPIRES — the bundle stops launching then, so re-tag before that date."
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: steps.custody-bundle.outputs.built == 'true'
+        with:
+          name: m1nd-custody-ceremony-${{ matrix.target }}
+          path: m1nd-custody-ceremony-*.zip
+          if-no-files-found: error
+          # Longer than the runtime artifacts' 14 days on purpose: this one is
+          # deliberately not promoted into the Release, so the run IS where the
+          # owner fetches it, and the ceremony is scheduled by a human.
+          retention-days: 90
       - name: Stage updater-facing Unix runtime
         if: runner.os != 'Windows'
         shell: bash
