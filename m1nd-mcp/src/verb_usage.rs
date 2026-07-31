@@ -166,10 +166,24 @@ impl VerbUsageLedger {
     /// counts over. This function returns no `Result` on purpose — boot must
     /// not be able to die on a counter file.
     pub fn load(runtime_root: &Path) -> Self {
-        // RED: the shape exists, the behaviour does not yet.
+        let path = Self::state_path(runtime_root);
+        let verbs = match std::fs::read_to_string(&path) {
+            Err(_) => BTreeMap::new(),
+            Ok(raw) => match serde_json::from_str::<VerbUsageState>(&raw) {
+                Ok(state) => state.verbs,
+                Err(error) => {
+                    eprintln!(
+                        "[m1nd] verb usage counters at {} are unreadable ({error}); \
+                         continuing without them — the counts start over",
+                        path.display()
+                    );
+                    BTreeMap::new()
+                }
+            },
+        };
         Self {
-            path: Self::state_path(runtime_root),
-            verbs: BTreeMap::new(),
+            path,
+            verbs,
             dirty: false,
             last_flush_ms: 0,
         }
@@ -177,23 +191,49 @@ impl VerbUsageLedger {
 
     /// Record ONE dispatched verb. `verb` must come from [`canonical_verb`].
     pub fn record(&mut self, verb: &'static str, outcome: VerbCallOutcome, now_ms: u64) {
-        // RED: nothing is counted yet.
-        let _ = (verb, outcome, now_ms);
+        let counters = self.verbs.entry(verb.to_string()).or_default();
+        if counters.first_seen_ms == 0 {
+            counters.first_seen_ms = now_ms;
+        }
+        counters.last_seen_ms = now_ms;
+        match outcome {
+            VerbCallOutcome::Answered => {
+                counters.answered = counters.answered.saturating_add(1);
+            }
+            VerbCallOutcome::RefusedAtAuthorityFloor => {
+                counters.refused_at_authority_floor =
+                    counters.refused_at_authority_floor.saturating_add(1);
+            }
+            VerbCallOutcome::RefusedAtDispatch => {
+                counters.refused_at_dispatch = counters.refused_at_dispatch.saturating_add(1);
+            }
+        }
+        self.dirty = true;
     }
 
     /// Publish when something changed and the throttle has elapsed. The first
     /// write after a load is never throttled, so a boot that takes one call and
     /// dies still leaves a record.
     pub fn flush_if_due(&mut self, now_ms: u64) -> M1ndResult<()> {
-        // RED: nothing is published yet.
-        let _ = now_ms;
-        Ok(())
+        if !self.dirty {
+            return Ok(());
+        }
+        if self.last_flush_ms != 0 && now_ms.saturating_sub(self.last_flush_ms) < FLUSH_THROTTLE_MS
+        {
+            return Ok(());
+        }
+        self.flush(now_ms)
     }
 
     /// Publish now (atomic temp-file + rename, the sibling sidecar idiom).
     pub fn flush(&mut self, now_ms: u64) -> M1ndResult<()> {
-        // RED: nothing is published yet.
-        let _ = now_ms;
+        let state = VerbUsageState {
+            schema: VERB_USAGE_SCHEMA.to_string(),
+            verbs: self.verbs.clone(),
+        };
+        crate::session::save_json_atomic(&self.path, &state)?;
+        self.dirty = false;
+        self.last_flush_ms = now_ms;
         Ok(())
     }
 
@@ -362,7 +402,7 @@ mod tests {
         // The privacy mechanism at the door: a caller-invented tool name — here
         // one shaped like a secret and one like a path — can never become a key.
         assert_eq!(canonical_verb("sk-live-0000-not-a-verb"), UNROUTED_VERB);
-        assert_eq!(canonical_verb("/Users/someone/private/repo"), UNROUTED_VERB);
+        assert_eq!(canonical_verb("/repo-alpha/src/private.rs"), UNROUTED_VERB);
         assert_eq!(canonical_verb("north"), "north");
         assert_eq!(canonical_verb("m1nd.north"), "north", "dotted alias");
         assert_eq!(canonical_verb("m1nd_north"), "north", "underscore alias");

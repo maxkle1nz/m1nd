@@ -2590,7 +2590,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "report",
-                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph.",
+                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph. Also carries verb_usage — the DURABLE per-verb call counters this brain has kept across restarts, one row per verb ever called, most-called first: answered (the call produced a payload; not a claim the payload was useful), refused_at_authority_floor (the F-01 gate refused it before any handler ran), refused_at_dispatch (a tombstone, the read-only attach gate, the proof gate, or a handler error), plus first/last seen. That block is NOT session-scoped and NOT filtered by agent_id: the ledger records verb names and counts only — never an agent id, arguments, queries, paths, or anything derived from them. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {

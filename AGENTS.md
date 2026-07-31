@@ -266,6 +266,17 @@ unless m1nd is served at a reachable address.
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
 
+**What m1nd records about YOUR use of it, in full:** one row per verb in
+`<runtime>/verb_usage_state.json` — the verb name and three counters (`answered`,
+`refused_at_authority_floor`, `refused_at_dispatch`) plus first/last seen. It is written at ONE
+seam (`server::dispatch_generic_tool`, the door every transport crosses) and read back through
+`report`. What it deliberately does NOT record, and must never grow: your `agent_id`, your
+arguments, your queries, paths, node labels, or anything derived from them — a verb name that
+is not in the compiled route table collapses into a single `<unrouted>` bucket, so caller text
+cannot reach the file even by accident (`m1nd-mcp/src/verb_usage.rs`, pinned by
+`verb_usage_persisted_shape_holds_no_free_text`). Losing the file means the counts start over;
+it is not brain knowledge and is not in the checkpoint.
+
 ## The box — carve out-of-scope findings in stone (mandatory, every repo)
 
 **The spool above IS the box.** `~/.m1nd/field-reports.jsonl` is the ONE append-only write slot
