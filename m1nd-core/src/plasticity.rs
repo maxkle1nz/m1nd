@@ -164,6 +164,63 @@ pub fn decode_plasticity_state_json(bytes: &[u8]) -> M1ndResult<Vec<SynapticStat
     Ok(states)
 }
 
+/// Fold a persisted sidecar UNDER a live in-memory export, so a graph
+/// replacement can restore learned synapses without losing what the running
+/// session learned since its last persist.
+///
+/// **Which side is fresher.** The live export wins every identity it carries.
+/// A running session's graph was itself hydrated from this same sidecar — at
+/// boot, or at the previous replacement — so it holds the file's counts *plus*
+/// everything strengthened since; restoring the file over it would trade one
+/// silent erasure for another. The file is consulted only for identities the
+/// live export does not carry at all: a boot that found no graph snapshot
+/// (where the friendly import never ran and the session knows nothing), and an
+/// edge the file remembers that this session's graph does not.
+///
+/// **Grouping.** Rows are grouped by `(source_label, target_label, relation)`,
+/// the documented edge identity, and a group is taken from one side WHOLE and
+/// in order. Parallel edges share that triple and
+/// [`PlasticityEngine::import_state`] binds them positionally in file order, so
+/// splitting a group across two sources — or interleaving them — would bind a
+/// record to an edge it did not come from. Nothing here re-implements the
+/// matching rule; the result is one ordinary sidecar, resolved by the one
+/// importer.
+pub fn carry_forward_synaptic_state(
+    live: Vec<SynapticState>,
+    persisted: Vec<SynapticState>,
+) -> Vec<SynapticState> {
+    if persisted.is_empty() {
+        return live;
+    }
+    if live.is_empty() {
+        return persisted;
+    }
+    let live_identities: std::collections::HashSet<(&str, &str, &str)> = live
+        .iter()
+        .map(|row| {
+            (
+                row.source_label.as_str(),
+                row.target_label.as_str(),
+                row.relation.as_str(),
+            )
+        })
+        .collect();
+    let only_persisted: Vec<SynapticState> = persisted
+        .iter()
+        .filter(|row| {
+            !live_identities.contains(&(
+                row.source_label.as_str(),
+                row.target_label.as_str(),
+                row.relation.as_str(),
+            ))
+        })
+        .cloned()
+        .collect();
+    let mut carried = live;
+    carried.extend(only_persisted);
+    carried
+}
+
 // ---------------------------------------------------------------------------
 // QueryRecord — per-query metadata for memory
 // Replaces: plasticity.py QueryRecord
@@ -1258,6 +1315,81 @@ mod carry_forward_tests {
 
         assert_eq!(learned_on(&cold, "alpha", "beta"), (9, 42, 2.5));
         assert_eq!(learned_on(&cold, "beta", "gamma").0, 0);
+    }
+
+    fn row(source: &str, target: &str, strengthen_count: u16) -> SynapticState {
+        SynapticState {
+            source_label: source.to_string(),
+            target_label: target.to_string(),
+            relation: "calls".to_string(),
+            direction: Some(EdgeDirection::Forward as u8),
+            inhibitory: Some(false),
+            original_weight: 1.0,
+            current_weight: 1.0,
+            strengthen_count,
+            weaken_count: 0,
+            ltp_applied: false,
+            ltd_applied: false,
+            last_used_query: u32::from(strengthen_count),
+        }
+    }
+
+    /// The freshness rule: the running session outranks the file for every
+    /// identity it carries, and the file fills only the identities the session
+    /// knows nothing about.
+    #[test]
+    fn plasticity_carry_forward_prefers_live_rows_and_fills_the_gaps_from_disk() {
+        let live = vec![row("a", "b", 7), row("b", "c", 0)];
+        let persisted = vec![row("a", "b", 2), row("b", "c", 2), row("x", "y", 5)];
+
+        let carried = carry_forward_synaptic_state(live, persisted);
+
+        assert_eq!(carried.len(), 3);
+        assert_eq!(carried[0].strengthen_count, 7, "the live row wins");
+        assert_eq!(
+            carried[1].strengthen_count, 0,
+            "the live row wins even when the file looks warmer — the session is \
+             the one that has been running"
+        );
+        assert_eq!(carried[2].source_label, "x", "the gap comes from the file");
+        assert_eq!(carried[2].strengthen_count, 5);
+    }
+
+    /// Each side alone is returned untouched — a cold session takes the file
+    /// whole, and a brain with no file keeps everything it learned.
+    #[test]
+    fn plasticity_carry_forward_degrades_to_whichever_side_exists() {
+        let persisted = vec![row("a", "b", 3)];
+        let from_disk = carry_forward_synaptic_state(Vec::new(), persisted.clone());
+        assert_eq!(from_disk.len(), 1);
+        assert_eq!(from_disk[0].strengthen_count, 3);
+
+        let live_only = carry_forward_synaptic_state(vec![row("a", "b", 9)], Vec::new());
+        assert_eq!(live_only.len(), 1);
+        assert_eq!(live_only[0].strengthen_count, 9);
+    }
+
+    /// Parallel edges share one identity triple and `import_state` binds them
+    /// positionally, in file order. So a triple is taken from ONE side, whole
+    /// and in order — mixing two sources inside a group would bind a record to
+    /// an edge it did not come from, and emitting both would resolve two rows
+    /// onto one CSR slot, which the importer refuses outright.
+    #[test]
+    fn plasticity_carry_forward_never_splits_a_parallel_group_across_sources() {
+        let live = vec![row("a", "b", 4), row("a", "b", 6)];
+        let persisted = vec![row("a", "b", 1), row("a", "b", 2), row("a", "b", 3)];
+
+        let carried = carry_forward_synaptic_state(live, persisted);
+
+        assert_eq!(
+            carried
+                .iter()
+                .map(|state| state.strengthen_count)
+                .collect::<Vec<_>>(),
+            vec![4, 6],
+            "the live group is taken whole and in order, with nothing from the \
+             file interleaved into it"
+        );
     }
 }
 
