@@ -1173,4 +1173,92 @@ mod codec_tests {
     }
 }
 
+#[cfg(test)]
+mod carry_forward_tests {
+    use super::*;
+    use crate::types::NodeType;
+
+    /// A two-edge graph whose nodes are inserted in the given order, so a caller
+    /// can hand the same topology two different NodeId assignments.
+    fn graph_with_node_order(order: &[&str]) -> Graph {
+        let mut graph = Graph::new();
+        for id in order {
+            graph
+                .add_node(id, id, NodeType::Function, &[], 0.0, 0.0)
+                .expect("add node");
+        }
+        for (source, target) in [("alpha", "beta"), ("beta", "gamma")] {
+            let source = graph.resolve_id(source).expect("source resolves");
+            let target = graph.resolve_id(target).expect("target resolves");
+            graph
+                .add_edge(
+                    source,
+                    target,
+                    "calls",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.5),
+                )
+                .expect("add edge");
+        }
+        graph.finalize().expect("finalize");
+        graph
+    }
+
+    fn learned_on(graph: &Graph, source: &str, target: &str) -> (u16, u32, f32) {
+        let engine = PlasticityEngine::new(graph, PlasticityConfig::default());
+        let row = engine
+            .export_state(graph)
+            .expect("export")
+            .into_iter()
+            .find(|row| row.source_label == source && row.target_label == target)
+            .expect("the edge is in the export");
+        (
+            row.strengthen_count,
+            row.last_used_query,
+            row.current_weight,
+        )
+    }
+
+    /// THE LOAD-BEARING RULE, pinned. `import_state` resolves an edge by its
+    /// `(source_label, target_label, relation)` labels — never by CSR slot
+    /// index — which is the entire reason learned weights can outlive a
+    /// re-ingest that renumbers every node. Here the same two edges are rebuilt
+    /// with the node insertion order reversed, so every NodeId and every CSR
+    /// slot moves; the learning must still land on the edge that owns the same
+    /// triple. An "optimization" to positional matching turns this red.
+    #[test]
+    fn plasticity_import_binds_by_label_triple_not_by_slot_index() {
+        let warm = graph_with_node_order(&["alpha", "beta", "gamma"]);
+        let engine = PlasticityEngine::new(&warm, PlasticityConfig::default());
+        let mut states = engine.export_state(&warm).expect("export");
+        // Learn on ONE edge only, so a slot-indexed import would put it on the
+        // wrong one once the numbering moves.
+        for row in &mut states {
+            if row.source_label == "alpha" {
+                row.strengthen_count = 9;
+                row.last_used_query = 42;
+                row.current_weight = 2.5;
+            }
+        }
+        // Sanity: the two graphs really do disagree about slot order.
+        let mut cold = graph_with_node_order(&["gamma", "beta", "alpha"]);
+        assert_ne!(
+            warm.resolve_id("alpha").expect("alpha in warm"),
+            cold.resolve_id("alpha").expect("alpha in cold"),
+            "precondition: the fixture must actually renumber the nodes"
+        );
+
+        let mut into_cold = PlasticityEngine::new(&cold, PlasticityConfig::default());
+        assert_eq!(
+            into_cold.import_state(&mut cold, &states).expect("import"),
+            states.len() as u32
+        );
+
+        assert_eq!(learned_on(&cold, "alpha", "beta"), (9, 42, 2.5));
+        assert_eq!(learned_on(&cold, "beta", "gamma").0, 0);
+    }
+}
+
 static_assertions::assert_impl_all!(PlasticityEngine: Send, Sync);

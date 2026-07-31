@@ -284,6 +284,12 @@ mod spec2_brain_bootstrap_birth_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/attach_auto_ingest_coverage.rs"]
 mod attach_auto_ingest_coverage_internal_tests;
+// The Hebbian layer across a graph replacement: an ingest erased every learned
+// counter and then persisted the zeros over the sidecar. Written RED against
+// that binary, before the carry-forward existed.
+#[cfg(test)]
+#[path = "internal_tests/plasticity_survives_ingest.rs"]
+mod plasticity_survives_ingest_internal_tests;
 // The transplant proof suites and the boot-drift battery drive `dispatch_tool`
 // and `SessionState::initialize` in-process. Those are owner-internal seams the
 // crate deliberately does NOT export — the `McpServer` / `initialize`
