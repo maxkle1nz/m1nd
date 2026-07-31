@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANUAL — m1nd — MANUAL</title>
+<style>
+:root{
+  --bg:#faf9f6; --surface:#ffffff; --surface-2:#f3f1ec; --text:#2e2b27; --muted:#6b6560;
+  --border:#e6e1d8; --accent:#4f7d6a; --accent-soft:#eaf1ed; --code-bg:#f5f2ec; --code-text:#3a352f;
+  --shadow:0 1px 2px rgba(40,36,30,.05),0 6px 20px rgba(40,36,30,.05);
+  --g-bg:#e8f1ea; --g-tx:#2f5f47; --g-bd:#bcd8c8;
+  --a-bg:#f7efdd; --a-tx:#7a5a1e; --a-bd:#e6d4a8;
+  --n-bg:#eeece8; --n-tx:#5f5a54; --n-bd:#dcd7cf;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#1b1a18; --surface:#24221f; --surface-2:#201f1c; --text:#e8e4dd; --muted:#a49e95;
+    --border:#35322d; --accent:#7fb79e; --accent-soft:#26302b; --code-bg:#201f1c; --code-text:#d7d2c9;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.28);
+    --g-bg:#1f3128; --g-tx:#9fd3b7; --g-bd:#2f4b3c;
+    --a-bg:#33291a; --a-tx:#e0c48a; --a-bd:#4c3d24;
+    --n-bg:#2a2824; --n-tx:#b0aaa1; --n-bd:#3a372f;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#faf9f6; --surface:#ffffff; --surface-2:#f3f1ec; --text:#2e2b27; --muted:#6b6560;
+  --border:#e6e1d8; --accent:#4f7d6a; --accent-soft:#eaf1ed; --code-bg:#f5f2ec; --code-text:#3a352f;
+  --shadow:0 1px 2px rgba(40,36,30,.05),0 6px 20px rgba(40,36,30,.05);
+  --g-bg:#e8f1ea; --g-tx:#2f5f47; --g-bd:#bcd8c8;
+  --a-bg:#f7efdd; --a-tx:#7a5a1e; --a-bd:#e6d4a8;
+  --n-bg:#eeece8; --n-tx:#5f5a54; --n-bd:#dcd7cf;
+}
+:root[data-theme="dark"]{
+  --bg:#1b1a18; --surface:#24221f; --surface-2:#201f1c; --text:#e8e4dd; --muted:#a49e95;
+  --border:#35322d; --accent:#7fb79e; --accent-soft:#26302b; --code-bg:#201f1c; --code-text:#d7d2c9;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.28);
+  --g-bg:#1f3128; --g-tx:#9fd3b7; --g-bd:#2f4b3c;
+  --a-bg:#33291a; --a-tx:#e0c48a; --a-bd:#4c3d24;
+  --n-bg:#2a2824; --n-tx:#b0aaa1; --n-bd:#3a372f;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.9em;background:var(--code-bg);color:var(--code-text);
+  padding:.12em .38em;border-radius:5px}
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:saturate(1.1) blur(8px);border-bottom:1px solid var(--border)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:14px 22px;display:flex;gap:18px;
+  align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.title-wrap{display:flex;flex-direction:column;gap:8px;min-width:0}
+.doc-title{margin:0;font-size:1.32rem;font-weight:650;letter-spacing:-.01em}
+.tools{display:flex;gap:10px;align-items:center}
+.search{font:inherit;font-size:.92rem;padding:8px 12px;border:1px solid var(--border);
+  border-radius:9px;background:var(--surface);color:var(--text);min-width:min(46vw,240px)}
+.search:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.theme-toggle{font-size:1.05rem;width:38px;height:38px;border:1px solid var(--border);
+  border-radius:9px;background:var(--surface);color:var(--text);cursor:pointer}
+.theme-toggle:hover{border-color:var(--accent)}
+.stamp{display:inline-flex;align-items:center;gap:9px;font-size:.82rem;padding:5px 12px;
+  border-radius:999px;border:1px solid var(--n-bd);background:var(--n-bg);color:var(--n-tx);width:fit-content}
+.stamp-dot{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.8}
+.stamp-label{font-weight:600}
+.stamp-meta{font-family:var(--mono);opacity:.82;font-size:.78rem}
+.stamp-green{background:var(--g-bg);color:var(--g-tx);border-color:var(--g-bd)}
+.stamp-amber{background:var(--a-bg);color:var(--a-tx);border-color:var(--a-bd)}
+.stamp-gray{background:var(--n-bg);color:var(--n-tx);border-color:var(--n-bd)}
+.layout{max-width:1180px;margin:0 auto;padding:26px 22px 64px;display:grid;
+  grid-template-columns:250px minmax(0,1fr);gap:36px;align-items:start}
+.sidebar{position:sticky;top:86px;align-self:start}
+.toc-details{border:1px solid var(--border);border-radius:12px;background:var(--surface);
+  box-shadow:var(--shadow);overflow:hidden}
+.toc-title{cursor:pointer;padding:12px 16px;font-weight:640;font-size:.82rem;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--muted);list-style:none}
+.toc-title::-webkit-details-marker{display:none}
+.toc{padding:4px 8px 12px}
+.toc ul{list-style:none;margin:0;padding:0}
+.toc li{margin:1px 0}
+.toc-link{display:block;padding:6px 10px;border-radius:7px;color:var(--text);
+  font-size:.9rem;border-left:2px solid transparent}
+.toc-link:hover{background:var(--surface-2);text-decoration:none;border-left-color:var(--accent)}
+.toc-sub{margin-left:8px !important}
+.toc-sub-link{font-size:.84rem;color:var(--muted)}
+.content{min-width:0}
+.content h2,.content h3,.content h4{letter-spacing:-.01em;line-height:1.3;scroll-margin-top:92px}
+.content p{margin:.7em 0}
+.content ul,.content ol{margin:.6em 0;padding-left:1.4em}
+.content li{margin:.24em 0}
+.section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+  box-shadow:var(--shadow);margin:0 0 20px;overflow:hidden}
+.sec-head{cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;
+  padding:16px 20px;font-size:1.14rem;font-weight:640}
+.sec-head::-webkit-details-marker{display:none}
+.sec-title{flex:1;min-width:0}
+.sec-chevron{color:var(--muted);transition:transform .16s ease;font-size:1.2rem}
+.section[open] .sec-chevron{transform:rotate(90deg)}
+.sec-body{padding:2px 20px 18px;border-top:1px solid var(--border)}
+.sec-body>*:first-child{margin-top:.6em}
+blockquote{margin:.9em 0;padding:.5em 1em;border-left:3px solid var(--accent);
+  background:var(--accent-soft);border-radius:0 8px 8px 0;color:var(--text)}
+blockquote.callout-warn{border-left-color:var(--a-tx);background:var(--a-bg);color:var(--a-tx)}
+blockquote.callout-ok{border-left-color:var(--g-tx);background:var(--g-bg);color:var(--g-tx)}
+hr{border:none;border-top:1px solid var(--border);margin:1.8em 0}
+.table-wrap{overflow-x:auto;margin:1em 0;border:1px solid var(--border);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{padding:9px 14px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+thead th{background:var(--surface-2);font-weight:620;color:var(--text)}
+tbody tr:last-child td{border-bottom:none}
+.codeblock{margin:1em 0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--code-bg)}
+.cb-bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;
+  background:var(--surface-2);border-bottom:1px solid var(--border)}
+.cb-lang{font-family:var(--mono);font-size:.74rem;color:var(--muted);text-transform:lowercase;letter-spacing:.03em}
+.copy-btn{font:inherit;font-size:.76rem;padding:3px 10px;border:1px solid var(--border);
+  border-radius:6px;background:var(--surface);color:var(--muted);cursor:pointer}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+pre{margin:0;padding:14px 16px;overflow-x:auto}
+pre code{background:none;padding:0;font-size:.86rem;line-height:1.55;color:var(--code-text)}
+pre.mermaid{white-space:pre;font-family:var(--mono);font-size:.84rem;color:var(--code-text)}
+.mermaid-fig{margin:1.2em 0}
+.mermaid-fig figcaption{font-size:.78rem;color:var(--muted);margin-bottom:6px;font-style:italic}
+.no-results{color:var(--muted);font-style:italic;padding:20px 4px}
+.foot{max-width:1180px;margin:0 auto;padding:20px 22px 40px;color:var(--muted);font-size:.82rem;
+  border-top:1px solid var(--border)}
+.foot code{font-size:.86em}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr;gap:18px}
+  .sidebar{position:static}
+  .toc-details:not([open]) .toc{display:none}
+}
+</style>
+</head>
+<body>
+<!-- GERADO de MANUAL.md — não editar (compilado por m4nual/render.mjs) -->
+<!-- m4nual:content:start -->
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="title-wrap"><h1 class="doc-title">MANUAL — m1nd</h1><div class="stamp stamp-green"><span class="stamp-dot" aria-hidden="true"></span><span class="stamp-label">Mirror verified</span><span class="stamp-state">fresh</span><span class="stamp-meta">2026-07-23 · 82df89ee</span></div></div>
+    <div class="tools">
+      <input id="m4-search" class="search" type="search" placeholder="Search the manual…" aria-label="Search the manual…">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">◐</button>
+    </div>
+  </div>
+</header>
+<div class="layout">
+  <aside class="sidebar">
+    <details class="toc-details" open>
+      <summary class="toc-title">Contents</summary>
+      <nav class="toc"><ul><li><a class="toc-link" href="#one-page">0 · The system in one page</a></li><li><a class="toc-link" href="#architecture">1 · Architecture map</a></li><li><a class="toc-link" href="#infrastructure">2 · Infrastructure — what · where · access · control</a></li><li><a class="toc-link" href="#attached-systems">3 · Attached systems &amp; sentinels</a></li><li><a class="toc-link" href="#state-machines">4 · State machines (curated; the full 13+ live in `doc:docs/HUMAN-VIEW-V2-UML.md`)</a></li><li><a class="toc-link" href="#dev-rules">5 · Dev rules (indexed — canonical elsewhere)</a></li><li><a class="toc-link" href="#runbooks">6 · Runbooks (copy-paste, resilient)</a></li><li><a class="toc-link" href="#invariants">7 · Invariants (what never breaks — with proof)</a></li><li><a class="toc-link" href="#registry">8 · Manual registry</a></li></ul></nav>
+    </details>
+  </aside>
+  <main class="content">
+<blockquote>Mirror of the code as of 2026-07-23 @ <code>82df89ee</code> (v1.5.0). The code is the truth; when this book and the code disagree, the code wins and this book gets fixed. PATHOS is the logbook; this is the ship&#39;s technical manual. Raw markdown is the resilient path — every runbook here works in a bare terminal with everything down.</blockquote>
+<details class="section" id="one-page" open><summary class="sec-head"><span class="sec-title">0 · The system in one page</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><p>m1nd is a <strong>neuro-symbolic code-graph MCP runtime</strong> — a local-first Rust server that ingests repositories into a living graph (nodes with spans, call/contains edges, embeddings, calibrated trust) and serves ~170 verbs to AI agents over MCP and REST, plus a human UI. One workspace (<code>path:Cargo.toml</code>, resolver 2), release profile <code>panic=&quot;abort&quot;</code>/<code>lto=&quot;thin&quot;</code>.</p><div class="table-wrap"><table><thead><tr><th>Crate</th><th>v</th><th>Role</th></tr></thead><tbody><tr><td><code>m1nd-core</code></td><td>1.5.0</td><td>graph engine + reasoning primitives</td></tr><tr><td><code>m1nd-ingest</code></td><td>1.5.0</td><td>language ingest / graph extraction (tree-sitter)</td></tr><tr><td><code>m1nd-mcp</code></td><td>1.5.0</td><td><strong>the product binary</strong> — MCP runtime + HTTP + embedded UI (<code>sym:m1nd-mcp/Cargo.toml::[[bin]]</code>)</td></tr><tr><td><code>m1nd-runnerd</code></td><td>1.5.0</td><td>the ONLY spawner (isolated worktrees, mission letters, never writes <code>landed</code>)</td></tr><tr><td><code>m1nd-control</code></td><td>0.1.0</td><td>control-plane contracts (authority/effects)</td></tr><tr><td><code>m1nd-openclaw</code></td><td>0.1.0</td><td>native OpenClaw bridge</td></tr><tr><td>npm <code>@maxkle1nz/m1nd</code></td><td>1.5.0</td><td>wrapper + host adapters (~25 hosts) — <code>path:package.json</code></td></tr></tbody></table></div><p><strong>This machine, live:</strong> served owner on <strong>:1338</strong> (launchd <code>com.kle1nz.m1nd-serve</code>), runnerd on <strong>:1339</strong>, daily traffic snapshot 10:17. Binaries in <code>path:~/.m1nd/bin/</code> (<code>m1nd-mcp</code>, <code>m1nd-runnerd</code>, ~22 <code>.bak-*</code> rollbacks). <code>m1nd-mcp --version</code> → <code>1.5.0 (&lt;gitsha&gt;)</code> (<code>sym:m1nd-mcp/src/cli.rs::LONG_VERSION</code>).</p></div></details><details class="section" id="architecture" open><summary class="sec-head"><span class="sec-title">1 · Architecture map</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><figure class="mermaid-fig"><figcaption>map (mermaid)</figcaption><div class="codeblock"><div class="cb-bar"><span class="cb-lang">mermaid</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre class="mermaid">flowchart TB
+    subgraph hosts[&quot;AI hosts (Claude Code, Codex, Cursor, …)&quot;]
+        H1[host session] -- &quot;SessionStart hook&lt;br/&gt;m1nd-north-shim → north(task)&quot; --&gt; BR
+        BR[&quot;attach bridge&lt;br/&gt;&lt;code&gt;m1nd-mcp --attach auto --stdio&lt;/code&gt;&lt;br/&gt;no graph · no lease · no engines&quot;]
+    end
+    BR -- &quot;JSON-RPC → POST /mcp&lt;br/&gt;← graph_changed SSE&quot; --&gt; OWNER
+    subgraph owner[&quot;served owner · launchd com.kle1nz.m1nd-serve · :1338&quot;]
+        OWNER[&quot;m1nd-mcp --serve&lt;br/&gt;~170 MCP verbs · REST /api/tools/* · embedded UI&quot;]
+        UI[&quot;UI screens&lt;br/&gt;Universe · Build Map · Hall · Mission Tray&quot;]
+        OWNER --- UI
+    end
+    OWNER --&gt; RT[(&quot;runtime root&lt;br/&gt;~/.m1nd/runtimes/claude&lt;br/&gt;graph_snapshot 36MB · plasticity ·&lt;br/&gt;embeddings · project-brains/ · agent-memory/&quot;)]
+    OWNER --&gt; REG[(&quot;registry&lt;br/&gt;~/.m1nd/registry-claude&lt;br/&gt;instances · leases · presences&quot;)]
+    RD[&quot;m1nd-runnerd · :1339&lt;br/&gt;worktree-per-mission · gate → receipt_candidate&quot;] --&gt; RT
+    TRAFFIC[&quot;traffic snapshot&lt;br/&gt;daily 10:17&quot;] --&gt; RT</pre></div></figure><p>The attach model is the recommended path: hosts run a thin stdio bridge that discovers the live owner via the instance registry (<code>sym:m1nd-mcp/src/instance_registry.rs::discover_serve_owner_base_url</code>, <code>sym:m1nd-mcp/src/main.rs::resolve_attach_auto</code>; <code>M1ND_ATTACH_URL</code> overrides) and forwards frames — so every session shares ONE brain. Note: the repo&#39;s own <code>path:.mcp.json</code> runs a <em>local stdio owner</em> (<code>M1ND_RUNTIME_DIR=.m1nd</code>), NOT the served owner — different brain, by design.</p></div></details><details class="section" id="infrastructure" open><summary class="sec-head"><span class="sec-title">2 · Infrastructure — what · where · access · control</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><div class="table-wrap"><table><thead><tr><th>What</th><th>Where</th><th>Control</th></tr></thead><tbody><tr><td>Served owner (:1338)</td><td><code>path:~/Library/LaunchAgents/com.kle1nz.m1nd-serve.plist</code> — args <code>--serve --no-gui --port 1338 --runtime-dir ~/.m1nd/runtimes/claude --registry-dir ~/.m1nd/registry-claude</code>, env <code>M1ND_TOOL_TIER=full</code>, KeepAlive</td><td><code>launchctl kickstart -k gui/502/com.kle1nz.m1nd-serve</code> · inspect `launchctl list \</td></tr><tr><td><strong>WD quirk (load-bearing)</strong></td><td>plist <code>WorkingDirectory=~/.m1nd/runtimes/claude</code> (<code>.bak-pre-wd</code> beside it) — launchd default <code>cwd=/</code> broke relative persists (os error 30, boot re-ingest)</td><td>never remove; code belt-and-suspenders: <code>sym:m1nd-mcp/src/main.rs::anchor_persist_target</code></td></tr><tr><td>runnerd (:1339)</td><td><code>path:~/Library/LaunchAgents/com.kle1nz.m1nd-runnerd.plist</code>; sidecars <code>runnerd.{log,pid,secret}</code>, <code>runners.toml</code> in runtime root</td><td>same kickstart pattern, label <code>com.kle1nz.m1nd-runnerd</code></td></tr><tr><td>The brain (runtime root)</td><td><code>path:~/.m1nd/runtimes/claude/</code> — <code>graph_snapshot.json</code>, <code>plasticity_state.json</code>, <code>embeddings_cache.bin</code>, <code>daemon_*.json</code>, <code>agent-memory/</code>, <code>project-brains/</code>, <code>mission-control/</code>, <code>trails/</code></td><td><strong>read-only for humans and agents</strong> — see §6.9; rebuilt by ingest/daemon only</td></tr><tr><td>Registries</td><td>active: <code>path:~/.m1nd/registry-claude/</code> · historical: <code>path:~/.m1nd/registry/</code> + 20+ legacy per-host roots under <code>~/.m1nd/runtimes/</code></td><td>attach discovery reads the active one</td></tr><tr><td>Logs</td><td><code>path:~/.m1nd/serve-claude.err.log</code> (+ <code>.out.log</code>)</td><td>first stop on any incident</td></tr><tr><td>Owner CLI</td><td><code>sym:m1nd-mcp/src/cli.rs</code> — `--serve --port --bind(127.0.0.1, non-loopback REFUSED) --runtime-dir --registry-dir --graph --attach auto\</td><td>url --stdio --read-only --inbox-sweep --medulla-migrate --verify-authorization-receipt`</td></tr><tr><td>npm wrapper</td><td><code>path:npm/bin/m1nd.js</code> — <code>init · install-skills · hosts plan/apply · doctor · restart · update check/apply/rollback · kickstart --repo · smoke · pack-check</code></td><td><code>npx -y @maxkle1nz/m1nd &lt;cmd&gt;</code></td></tr><tr><td>REST surface</td><td>same port as UI: <code>POST /mcp</code>, <code>POST /api/tools/{verb}</code> (every verb over REST), <code>/api/{health,manifest,universe,presences,instances,events(SSE)}</code> (<code>sym:m1nd-mcp/src/http_server.rs::handle_tool_call</code>)</td><td>curl-able; bearer token file beside runtime root (<code>sym:m1nd-mcp/src/http_security.rs::HTTP_AUTH_TOKEN_FILE_NAME</code>)</td></tr><tr><td>Health verbs</td><td><code>north</code> (orientation+landing bell) · <code>doctor</code> · <code>health</code> · <code>trust_selftest</code> (binding+<code>binary_drift</code>) · <code>recovery_playbook</code> · <code>am_i_stale</code> · <code>soul_check</code></td><td>binding floor: <code>sym:m1nd-mcp/src/tools.rs::HOST_BINDING_REQUIRED_TOOLS</code></td></tr><tr><td>Secrets (locations only)</td><td><code>CARGO_REGISTRY_TOKEN</code>/<code>NPM_TOKEN</code> = GitHub env <code>release</code> (NPM also <code>~/.npmrc</code>) · <code>runnerd.secret</code> + HTTP bearer in runtime root</td><td>never in repo, never printed</td></tr><tr><td>CI</td><td><code>path:.github/workflows/ci.yml</code> — rust-gates ×3 OS (<code>check/test/clippy -D warnings/fmt/build --release</code>, <code>--locked</code>), ui-gates (vitest+Playwright), host-pack ×3 OS, python-gates, security-gates (gitleaks pinned, cargo-audit, candidate-source guard), contract-gates (frozen PRD/UML sha256 + doc coupling)</td><td>all blocking via <code>test-status</code></td></tr><tr><td>Release</td><td><code>path:.github/workflows/release.yml</code> — 17-job chain on tag <code>v*</code>: candidate → smokes → cosign sign-blob (trusted fixed path <code>/usr/local/bin/cosign</code>, #394) → dual publish crates.io + npm (provenance)</td><td>pre-announce: skill <code>/release-parity</code> (<code>path:.claude/skills/release-parity/SKILL.md</code>)</td></tr><tr><td>Pages/wiki</td><td><code>path:.github/workflows/deploy-wiki.yml</code> builds <code>m1nd-demo</code> only — <strong>both jobs currently FAIL-CLOSED</strong> (unpinned action SHAs, &quot;NOT_PROVEN&quot;) → nothing served; <code>docs/</code> is never published</td><td>this MANUAL is publish-safe; editing it triggers a harmless failing run</td></tr></tbody></table></div></div></details><details class="section" id="attached-systems" open><summary class="sec-head"><span class="sec-title">3 · Attached systems &amp; sentinels</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><ul><li><strong>Daemon</strong> — <code>daemon_start/stop/tick/status</code>; tick writes <code>daemon_state.json</code> + <code>daemon_alerts.json</code></li></ul><p>  in the runtime root; <code>alerts_list</code>/<code>alerts_ack</code> (<code>sym:m1nd-mcp/src/daemon_handlers.rs::daemon_tick</code>).</p><ul><li><strong>Auto-ingest</strong> — filesystem watcher (<code>notify</code>), <code>auto_ingest_state.json</code></li></ul><p>  (<code>sym:m1nd-mcp/src/auto_ingest.rs::auto_ingest_start</code>).</p><ul><li><strong>Host hooks</strong> — SessionStart-family routed through <code>path:npm/bin/m1nd-north-shim.js</code> → runs</li></ul><p>  <code>north(task)</code> at session open; emitted per host by <code>m1nd hosts plan/apply</code>   (<code>sym:npm/lib/cli.js::doctrineHook</code>), merge-without-clobber.</p><ul><li><strong>M1ND-10 authority plane</strong> — ships <strong>DORMANT/NOT_INSTALLED</strong> in 1.5.0 (<code>doc:CHANGELOG.md#1.5.0</code>).</li></ul><p>  Operator index: <code>doc:docs/M1ND-GUARDIAN-METHOD.md</code> (the guardian loop + authority matrix), skill   <code>m1nd-guardian</code>, frozen <code>doc:docs/M1ND-10-PRD.md</code>/<code>doc:docs/M1ND-10-UML.md</code>, candidate ceremony   <code>cmd:scripts/m1nd10_release_candidate.py</code> + <code>cmd:scripts/m1nd10_candidate_source_guard.py</code>.</p><ul><li><strong>Field reports</strong> — agents append 1-line JSON to <code>path:~/.m1nd/field-reports.jsonl</code></li></ul><p>  (<code>ts,agent,repo,tool,class,what,expected,snippet</code>); swept by <code>m1nd-mcp --inbox-sweep</code> into   per-repo <code>.m1nd/inbox.jsonl</code> + the medulla box (idempotent; telemetry, not memory).</p></div></details><details class="section" id="state-machines" open><summary class="sec-head"><span class="sec-title">4 · State machines (curated; the full 13+ live in <code>doc:docs/HUMAN-VIEW-V2-UML.md</code>)</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><p><strong>Boot &amp; binding</strong> (<code>sym:m1nd-mcp/src/main.rs::load_config_from_cli</code>):</p><figure class="mermaid-fig"><figcaption>map (mermaid)</figcaption><div class="codeblock"><div class="cb-bar"><span class="cb-lang">mermaid</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; config: parse CLI (config &gt; flags &gt; env &gt; defaults)
+    config --&gt; anchored: anchor relative persists to runtime_dir
+    anchored --&gt; adoption: legacy_snapshot_adoption (one-time, journaled, never overwrites populated)
+    adoption --&gt; loaded: graph load
+    adoption --&gt; born_empty: no snapshot → honest empty (needs_ingest)
+    loaded --&gt; serving: --serve (HTTP+UI+MCP) / --stdio
+    born_empty --&gt; serving
+    serving --&gt; heartbeat: spawn_instance_heartbeat → registry</pre></div></figure><p><strong>Attach bridge</strong> (<code>sym:m1nd-mcp/src/attach_client.rs</code>):</p><figure class="mermaid-fig"><figcaption>map (mermaid)</figcaption><div class="codeblock"><div class="cb-bar"><span class="cb-lang">mermaid</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; discover: --attach auto → registry discover_serve_owner_base_url
+    discover --&gt; bearer: read token beside runtime root
+    bearer --&gt; bridging: forward stdio JSON-RPC → POST /mcp
+    bridging --&gt; bridging: relay graph_changed SSE → host
+    note right of bridging: no graph · no lease · no engines — dies and respawns freely</pre></div></figure><p><strong>Mission → human landing</strong> (the one write law every operator must know):</p><figure class="mermaid-fig"><figcaption>map (mermaid)</figcaption><div class="codeblock"><div class="cb-bar"><span class="cb-lang">mermaid</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; spawned: runnerd spawns in isolated worktree
+    spawned --&gt; gated: runs the packet&#39;s gate_command
+    gated --&gt; merge_wait: green gate → receipt_candidate + mission letter (hash chain)
+    gated --&gt; failed: red gate → failed letter (never folds)
+    merge_wait --&gt; landed: HUMAN imports the receipt in the Mission Tray — runnerd NEVER writes landed</pre></div></figure></div></details><details class="section" id="dev-rules" open><summary class="sec-head"><span class="sec-title">5 · Dev rules (indexed — canonical elsewhere)</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><ul><li>Gates = CI locally: <code>doc:CLAUDE.md#Comandos canônicos</code> (<code>cargo check/test/clippy -D warnings/fmt --check/build --release --workspace</code>; CI adds <code>--locked --all-targets</code>).</li><li>Agent work-rules, cross-platform fs/path contract, schema laws: <code>doc:AGENTS.md</code>.</li><li>Repo automations (PostToolUse rustfmt, Stop-hook clippy, PreToolUse runtime-artifact block): <code>doc:CLAUDE.md#Automações</code>.</li><li>Never edit runtime artifacts (§6.9 list); never commit as anyone but the repo identity.</li><li>Release parity before announcing: skill <code>/release-parity</code>.</li></ul></div></details><details class="section" id="runbooks" open><summary class="sec-head"><span class="sec-title">6 · Runbooks (copy-paste, resilient)</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><p><strong>6.1 MCP tools vanished mid-session</strong> (the 2026-07-22 P0 class — one bad <code>inputSchema</code> drops the whole list; guarded by §7.1):</p><div class="codeblock"><div class="cb-bar"><span class="cb-lang">bash</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre><code class="language-bash">launchctl kickstart -k gui/502/com.kle1nz.m1nd-serve</code></pre></div><p>Attach bridges recover alone. Persistent &quot;Failed to connect&quot; → check <code>path:~/.m1nd/serve-claude.err.log</code>, then <code>doc:docs/MCP-HOST-REFRESH.md</code> (rebind runbook).</p><p><strong>6.2 Owner won&#39;t boot / graph empty</strong> — legacy adoption is automatic and journaled (<code>sym:m1nd-mcp/src/legacy_snapshot_adoption.rs::ADOPTION_JOURNAL_FILE</code>; never overwrites a populated graph). Check the err log; catastrophic-shrink persists leave <code>.bak-&lt;ts&gt;</code> beside the snapshot. Re-ingest: MCP <code>ingest {project_root}</code> or</p><div class="codeblock"><div class="cb-bar"><span class="cb-lang">bash</span><button class="copy-btn" type="button" data-copied="copied ✓">copy</button></div><pre><code class="language-bash">curl -s -X POST http://127.0.0.1:1338/api/tools/ingest -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{&quot;path&quot;:&quot;&lt;repo&gt;&quot;,&quot;agent_id&quot;:&quot;operator&quot;}&#39;</code></pre></div><p><strong>6.3 Re-ingest a repo from scratch</strong> — <code>npx -y @maxkle1nz/m1nd kickstart --repo &lt;dir&gt;</code> or the curl above.</p><p><strong>6.4 Binary vs source drift</strong> — MCP <code>trust_selftest</code> (carries <code>binary_drift</code> + next_action) · <code>~/.m1nd/bin/m1nd-mcp --version</code> → <code>1.5.0 (&lt;sha&gt;)</code> vs <code>git -C &lt;repo&gt; rev-parse --short HEAD</code>.</p><p><strong>6.5 Run the CI gates locally</strong> — see §5 first line; the five commands, in order, before any push.</p><p><strong>6.6 Publish a release</strong> — <code>/release-parity</code> first; tag <code>v*</code> push triggers the 17-job chain; <code>cmd:scripts/publish_crate_if_missing.sh</code> makes crate publish idempotent; verify npm dist-tags match crates.io before announcing (the npm-behind-crates scar).</p><p><strong>6.7 Windows known gap (1.5.0)</strong> — ~22 source-edit transaction tests red on Windows (pre-existing <code>\\?\</code> canonicalization mismatch; declared in <code>doc:CHANGELOG.md#1.5.0</code> &quot;Known gap&quot;); does NOT affect read/graph paths; machinery ships DORMANT. Do not &quot;quick-fix&quot; — it is security-boundary code awaiting a proper GOD-loop window.</p><p><strong>6.8 Disk hygiene</strong> — <code>export CARGO_TARGET_DIR=&quot;$HOME/.m1nd-build-cache/target&quot;</code> for every build; <code>cargo clean</code> when target &gt;15 GB; <code>git worktree prune</code> after landing; <strong>differential main×branch testing needs an ISOLATED target on the control side</strong> (a build.rs-generated catalog cross- contaminates shared caches).</p><p><strong>6.9 Never hand-edit (runtime artifacts)</strong> — <code>graph_snapshot.json</code>, <code>plasticity_state.json</code>, <code>*_state.json</code>, <code>daemon_alerts.json</code>, <code>document_cache_index.json</code>, <code>ingest_roots.json</code>, <code>embeddings_cache.bin</code>, <code>antibodies.json</code> (<code>doc:CLAUDE.md#NÃO editar</code>; <code>.gitignore:69-79</code>; a PreToolUse hook blocks). <strong>Known leak:</strong> <code>path:checkpoint-store/</code> at the repo root is an untracked, NOT-gitignored runtime artifact (content-addressed brain store) owned by another profile — flagged for owner cleanup + a <code>.gitignore</code> entry.</p></div></details><details class="section" id="invariants" open><summary class="sec-head"><span class="sec-title">7 · Invariants (what never breaks — with proof)</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><ol><li>Every tool <code>inputSchema</code> is a top-level <code>&quot;type&quot;:&quot;object&quot;</code> — one violation hides ALL tools from</li></ol><p>   strict clients (<code>sym:m1nd-mcp/src/server.rs::every_tool_input_schema_is_top_level_object</code>).</p><ol><li><code>GRAPH_MUTATION_TOOLS ⊆ READ_ONLY_DENIED_TOOLS</code> (<code>sym:m1nd-mcp/src/mcp_http.rs::GRAPH_MUTATION_TOOLS</code>).</li><li>Catalog ≡ route inventory ≡ MCP-reachable (<code>sym:m1nd-mcp/src/server.rs::live_schema_registry_and_policy_route_inventory_are_exactly_equal</code>).</li><li>Frozen M1ND-10 contract bytes — PRD <code>bf7b03c7…b81f5</code>, UML <code>8a8a5fe9…dd32b</code> (<code>sym:.github/workflows/ci.yml::contract-gates</code>).</li><li>Non-loopback bind refused, fail-closed; <code>--allow-remote</code> cannot override (<code>sym:m1nd-mcp/src/cli.rs::allow_remote</code>).</li><li>Receipts are anti-tamper/anti-fabrication (<code>sym:m1nd-mcp/src/system_blocks.rs::fabricated_receipt_timestamp_shapes_are_refused</code>).</li><li>OCC before network, before ratify (<code>sym:m1nd-mcp/src/system_blocks_handlers.rs::occ_conflict_rejects_ratify_and_leaves_store_intact</code>).</li><li>Reconcile bumps ONLY the changed block and stales its earned receipts (<code>sym:m1nd-mcp/src/system_blocks.rs::reconcile_boundary_bump_touches_only_the_changed_block</code>).</li><li>runnerd never writes <code>landed</code> — landing is a human gesture (§4 third machine).</li><li>Brain minting is overlap-guarded — parent/child/worktree of an existing brain refused; a burst</li></ol><p>    worktree gets no brain (MCP reception doctrine, <code>doc:skills/m1nd-operator/SKILL.md</code>).</p><p>Tool count is deliberately NOT frozen here: <code>tools/list</code> is the counting truth, tier-dependent — see <code>doc:docs/wiki/src/tool-matrix.md</code>.</p></div></details><details class="section" id="registry" open><summary class="sec-head"><span class="sec-title">8 · Manual registry</span><span class="sec-chevron" aria-hidden="true">›</span></summary><div class="sec-body"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Change</th><th>Mirror</th></tr></thead><tbody><tr><td>2026-07-23</td><td><code>init</code> — manual established (v1). Adoption decisions: <strong>ABSORB</strong> the machine-real infra facts (<code>docs/deployment.md</code> remains the generic public template; this manual holds the real label/port/runtime paths that existed nowhere); <strong>INDEX</strong> README, llms-install, HOST-INTEGRATION-MATRIX (canonical host recipes), IDE-INTEGRATIONS, AGENT-PACKS, MCP-HOST-REFRESH, GUARDIAN-METHOD, wiki+mdbook, AGENTS/CLAUDE/CONTRIBUTING; <strong>LEAVE</strong> PRDs/UMLs/proofs/benchmarks/history to their domains; PATHOS stays the logbook.</td><td><code>82df89ee</code></td></tr></tbody></table></div></div></details>
+    <p id="no-results" class="no-results" hidden>No results</p>
+  </main>
+</div>
+<footer class="foot"><!-- GERADO de MANUAL.md — não editar --><span>Generated from <code>MANUAL.md</code> · do not edit by hand</span></footer>
+<!-- m4nual:content:end -->
+<script>
+(function(){
+  var root=document.documentElement;
+  try{var saved=localStorage.getItem('m4nual-theme');if(saved)root.setAttribute('data-theme',saved);}catch(e){}
+  var tbtn=document.getElementById('theme-toggle');
+  if(tbtn)tbtn.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    var prefersDark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=cur==='dark'?'light':(cur==='light'?'dark':(prefersDark?'light':'dark'));
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('m4nual-theme',next);}catch(e){}
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.copy-btn'),function(btn){
+    btn.addEventListener('click',function(){
+      var wrap=btn.closest('.codeblock');if(!wrap)return;
+      var pre=wrap.querySelector('pre');if(!pre)return;
+      var txt=pre.innerText;
+      function done(){var o=btn.textContent;btn.textContent=btn.getAttribute('data-copied')||'copied';
+        setTimeout(function(){btn.textContent=o;},1400);}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done,function(){});}
+    });
+  });
+  var input=document.getElementById('m4-search');
+  var sections=Array.prototype.slice.call(document.querySelectorAll('.section'));
+  var tocItems=Array.prototype.slice.call(document.querySelectorAll('.toc-link'));
+  var noRes=document.getElementById('no-results');
+  if(input)input.addEventListener('input',function(){
+    var q=input.value.trim().toLowerCase();var any=false;
+    sections.forEach(function(sec){
+      var match=!q||sec.textContent.toLowerCase().indexOf(q)>=0;
+      sec.style.display=match?'':'none';
+      if(match&&q)sec.open=true;
+      if(match)any=true;
+    });
+    tocItems.forEach(function(a){
+      var id=a.getAttribute('href').slice(1);var sec=document.getElementById(id);
+      var li=a.parentElement;
+      if(li)li.style.display=(!sec||sec.style.display!=='none')?'':'none';
+    });
+    if(noRes)noRes.hidden=any;
+  });
+  function openHash(){
+    if(!location.hash)return;
+    var el;try{el=document.querySelector(location.hash);}catch(e){return;}
+    if(!el)return;
+    if(el.tagName==='DETAILS')el.open=true;
+    else{var d=el.closest('details');if(d)d.open=true;}
+  }
+  window.addEventListener('hashchange',openHash);openHash();
+})();
+</script>
+
+</body>
+</html>
