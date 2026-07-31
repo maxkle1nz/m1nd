@@ -139,6 +139,34 @@ impl BrainSessionCell {
         self.actor_active.load(Ordering::Acquire)
     }
 
+    /// Block until this cell's single-writer fence is clear, and report whether
+    /// it is. This is the hand-off signal between two owners of one brain
+    /// session, and the reason it has to exist: [`BrainActorHandle::drop`]
+    /// transfers shutdown to a *detached guardian thread*, so when `drop`
+    /// returns the outgoing owner still holds the fence and lowers it at an
+    /// instant the next binder cannot predict. A binder that reads
+    /// `actor_active` once and refuses is deciding a scheduling race, not a
+    /// safety question.
+    ///
+    /// The wait parks on the same storage mutex and condvar
+    /// [`BrainActorActivation::release`] takes when it lowers the fence, so no
+    /// wakeup can land in the window between the predicate check and the park.
+    /// `timeout` bounds a fence that never clears (a genuinely stuck owner);
+    /// a healthy hand-off returns the moment release publishes, not on a tick.
+    pub(crate) fn wait_for_actor_release(&self, timeout: Duration) -> bool {
+        let started = Instant::now();
+        let mut guard = self.state.lock();
+        while self.actor_active.load(Ordering::Acquire) {
+            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                break;
+            };
+            if self.available.wait_for(&mut guard, remaining).timed_out() {
+                break;
+            }
+        }
+        !self.actor_active.load(Ordering::Acquire)
+    }
+
     pub(crate) fn lock(&self) -> BrainSessionGuard<'_> {
         self.read().unwrap_or_else(|error| panic!("{error}"))
     }
@@ -348,8 +376,21 @@ struct BrainActorActivation {
 impl BrainActorActivation {
     fn release(&mut self) {
         if self.active {
+            // Lower the fence while holding the storage mutex a waiter parks
+            // on. `wait_for_actor_release` checks `actor_active` under that
+            // same mutex and only then parks; clearing the flag outside it
+            // would let the store and the notification both land inside that
+            // window, and the waiter would sleep through the very event it
+            // asked for. Holding the mutex here is what makes the release a
+            // signal instead of a state change somebody has to poll for.
+            //
+            // No guard can be outstanding while the fence is up (`claim_actor`
+            // drains them before raising it), so this is never contended by a
+            // long-lived reader.
+            let guard = self.cell.state.lock();
             self.cell.actor_active.store(false, Ordering::Release);
             self.active = false;
+            drop(guard);
             self.cell.available.notify_all();
         }
     }
@@ -4604,12 +4645,11 @@ mod tests {
         assert!(session.try_lock().is_none());
         injector.enabled.store(false, Ordering::SeqCst);
 
-        let deadline = std::time::Instant::now() + OBSERVE_BUDGET;
-        while session.is_actor_active() && std::time::Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(20));
-        }
+        // Wait on the release the guardian publishes, not on a tick: the fence
+        // is lowered under the cell's storage mutex and announced on its
+        // condvar, so this returns the instant recovery completes.
         assert!(
-            !session.is_actor_active(),
+            session.wait_for_actor_release(OBSERVE_BUDGET),
             "guardian did not stop and release the actor after recovery: {:?}",
             lock_unpoisoned(&health).last_persistence_error
         );

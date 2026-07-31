@@ -103,6 +103,19 @@ Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before fini
 If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`), re-run
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
 
+**Brain-actor hand-off is a signal, never a poll.** A brain session's single-writer fence
+(`actor_active`) is lowered by the OUTGOING owner, and `BrainActorHandle::drop` hands that
+shutdown to a *detached guardian thread* — so when a registry drops, the fence it held is
+still up, and clears at an instant the next binder cannot predict. The bound bind therefore
+waits on the cell's release signal (`BrainSessionCell::wait_for_actor_release`) instead of
+deciding that race on first read. Never answer `brain session already has an active actor
+owner` with a longer wait, a retry budget, or `#[ignore]`: a refusal from the bound bind is
+CACHED in `bound_runtime` for the life of the registry, so a retry loop can only re-read its
+own refusal — which is exactly how a 300×100ms spin sat in `host_for_brain` looking like a
+mitigation while burning 30s and failing anyway. `SOURCE_MATRIX_SERIAL` (the source-recovery
+matrix latch) survives only as a LOAD limiter and no longer guards correctness, so a
+process-per-test runner no longer breaks that family by giving each test its own copy.
+
 **A gate is evidence only about the tree it ran in.** Cargo's metadata hash does not encode
 the source path, so two checkouts sharing one `CARGO_TARGET_DIR` emit the same artifact name
 and one can link the other's binary. Measured across parallel worktrees on 2026-07-27/28: a
