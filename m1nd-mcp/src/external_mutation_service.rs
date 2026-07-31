@@ -7069,11 +7069,13 @@ mod tests {
 
     /// The source recovery matrix spawns real brain-actor threads and drives
     /// restart cycles whose previous owner releases *asynchronously* — the actor
-    /// thread must drain and drop before `actor_active` clears. Running several of
-    /// these fixtures at once starves that drain on a loaded CI runner, so the
-    /// restart bind in `host_for_brain` can miss even its 30s wait. Serialize the
-    /// family so only one source matrix fixture is live at a time: each cycle's
-    /// actor is free to release before the next one binds. A poisoned latch is
+    /// thread must drain and drop before `actor_active` clears. Correctness of
+    /// that hand-off no longer depends on this latch: the bound bind waits on
+    /// the cell's own release signal (`BrainSessionCell::wait_for_actor_release`),
+    /// so a starved drain is waited out rather than mistaken for a live owner.
+    /// The latch stays as a LOAD limiter — each fixture is a full brain runtime
+    /// with real checkpoint I/O, and running the family several-at-a-time on a
+    /// two-core runner buys nothing but contention. A poisoned latch is
     /// irrelevant (it carries no state), so recover from it.
     static SOURCE_MATRIX_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -7342,23 +7344,15 @@ mod tests {
                 self.runtime_root.join("source-replay-project-brains"),
                 None,
             ));
-            // The previous host's actor owner releases asynchronously; on slow
-            // shared runners the new bind can race that release, so wait for it.
-            let reconciliation_brain_id = {
-                let mut attempt = 0;
-                loop {
-                    match actor_registry.bound_brain_id_for_target(Arc::clone(&brain)) {
-                        Ok(id) => break id,
-                        Err(_) if attempt < 300 => {
-                            attempt += 1;
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-                        Err(error) => {
-                            panic!("source replay actor id after {attempt} waits: {error:?}")
-                        }
-                    }
-                }
-            };
+            // The previous host's actor owner releases on a detached guardian
+            // thread, so the fence it holds is still up when its registry drops.
+            // The bind itself now waits on that release signal, so this is one
+            // call with no retry budget of its own — and the retry budget it
+            // replaces never worked: `bound_runtime` caches the first answer,
+            // so every re-ask read back the same refusal for 30 seconds.
+            let reconciliation_brain_id = actor_registry
+                .bound_brain_id_for_target(Arc::clone(&brain))
+                .expect("source replay actor identity after owner hand-off");
             assert_eq!(
                 reconciliation_brain_id, self.host.reconciliation_brain_id,
                 "source actor identity must survive restart"
