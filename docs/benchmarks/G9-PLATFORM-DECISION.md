@@ -35,9 +35,14 @@ profile at `<name>.app/Contents/embedded.provisionprofile`.
 
 - **Custody guarantee:** unchanged — Secure Enclave, permanent key, data-protection
   keychain. This is the design as ratified.
-- **What the owner must obtain:** an App ID in the Apple Developer portal with the
-  keychain-access-group capability, and a provisioning profile for it. Portal work,
-  not code.
+- **What the owner must obtain:** a macOS provisioning profile. **Measured
+  2026-07-31, and smaller than it looked:** `keychain-access-groups` is not a
+  capability anyone toggles — a profile already on this machine grants
+  `["<TEAM>.*", "com.apple.token"]`, a team-wide wildcard that already covers the
+  group the custody entitlement names, and the App ID carrying it declares its
+  platform as *iOS, iPadOS, macOS, tvOS, watchOS, visionOS*. So the road needs a
+  profile generated and downloaded, not a capability requested or a membership
+  changed.
 - **What the machine must build:** the release packages the ceremony binary as a
   bundle, embeds the profile, signs the bundle with the entitlement, and the artifact
   smoke learns to launch a bundled executable. The profile **expires** (typically a
@@ -45,9 +50,10 @@ profile at `<name>.app/Contents/embedded.provisionprofile`.
   loudly rather than silently ship an unlaunchable artifact.
 - **Cost of being wrong:** low. If the bundle is malformed the kernel refuses at
   launch, exactly as it did in v1.6.0, and the smoke gate catches it before publish.
-- **Honest unknown:** whether the keychain-access-group capability is available on
-  this account's App ID without a paid-program state the owner does not already have.
-  Checkable in the portal in minutes; not checkable from here.
+- **What is still unmeasured:** that a Developer-ID-signed *bundle* carrying such a
+  profile actually satisfies AMFI for this entitlement — the negative was proven
+  (a bundle without a profile is killed exactly like a raw binary), the positive
+  needs a real profile to test.
 
 ## Road B — the file-based keychain
 
@@ -83,19 +89,22 @@ Mint the enclave key fresh, hold it for the ceremony, never persist it.
   less than it says. Would need the manifest and the ceremony receipt to state the
   epoch boundary explicitly.
 
-## What the machine can do while the owner decides
+## Decision — Road A, ratified by the owner 2026-07-31
 
-Nothing on this critical path — and that is the honest answer. `preflight` already
-reports P4 as owner-side; `provision-seats` and the rest will refuse with the
-keychain's own error on an unentitled binary, which is the correct behaviour and
-should not be "fixed". Work exists elsewhere (the authority provider's identity
-channel, the manifest binding), but every one of those is downstream of this choice.
+Taken after the measurement above turned the road's only unknown into a downloaded
+file. It keeps the guarantee the program already ratified, it re-argues no security
+floor, and its failure mode is the loud kernel refusal an existing gate already
+catches. Roads B and C stay recorded because they remain the honest fallbacks if the
+bundle path fails AMFI for a reason not yet visible — each would change what the
+ladder proves, and would need its own ratification.
 
-## Recommendation
+**What this makes buildable now:** the release learns to package the ceremony as a
+bundle with an embedded profile, sign it with the entitlement, and prove it launches.
+**What stays the owner's:** generating the macOS provisioning profile once, and the
+ceremony itself.
 
-**Road A**, unless the portal blocks it. It is the only road that keeps the
-guarantee the program already ratified, its failure mode is loud and caught by an
-existing gate, and its cost is portal work plus a bundling step rather than a
-re-argued security floor. Roads B and C are real options, but both change what the
-ladder proves — and that is a decision worth making deliberately, not as a way
-around a build problem.
+## What the machine cannot do here
+
+`preflight` reports P4 as owner-side; `provision-seats` and the rest refuse with the
+keychain's own error on an unentitled binary. That refusal is correct and must not be
+"fixed" — it is the floor telling the truth about the platform it is standing on.
