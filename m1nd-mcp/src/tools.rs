@@ -937,6 +937,13 @@ fn finalize_ingest_with_inventory(
         }
     });
 
+    // Every mode below installs a graph whose `edge_plasticity` arrays are born
+    // zeroed — `replace`/`refresh` because the scan builds a new graph, `merge`
+    // because the merge re-adds each edge through `Graph::add_edge`. Take the
+    // learned synapses out here, while the live graph still holds them; they go
+    // back in right after `rebuild_engines` below.
+    let carried_synapses = state.export_learned_synapses_before_replacement();
+
     let combined_graph = if mode == "merge" {
         let current = state.graph.read();
         if current.num_nodes() > 0 {
@@ -1097,6 +1104,11 @@ fn finalize_ingest_with_inventory(
     state.record_file_inventory(inventory_entries);
 
     state.rebuild_engines()?;
+    // IMMEDIATELY after the rebuild, and before anything downstream can persist:
+    // the `state.persist()` at the end of this function is what used to publish
+    // the zeroed counters over the sidecar, and the rebuild is what installs the
+    // two fresh engines this restore seeds the query counter into.
+    let synapses_restored = state.restore_learned_synapses_after_replacement(carried_synapses);
     if adapter == "universal" && !state.document_cache.entries.is_empty() {
         universal_docs::refresh_all_document_semantics(state);
     }
@@ -1237,6 +1249,10 @@ fn finalize_ingest_with_inventory(
         "edge_count": edge_count,
         "light_evidence_resolved": light_evidence_resolved,
         "light_evidence_unresolved": light_evidence_unresolved,
+        // How many learned synapses were carried across the replacement. Zero on
+        // a brain that has never been queried; a drop to zero on a warm one is
+        // the erasure this field exists to make visible.
+        "synapses_restored": synapses_restored,
     });
     // Include memory_freshness only for code ingests (non-null).
     if !memory_freshness.is_null() {

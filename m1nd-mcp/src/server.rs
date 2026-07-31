@@ -2607,7 +2607,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "report",
-                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph.",
+                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph. Also carries verb_usage — the DURABLE per-verb call counters this brain has kept across restarts, one row per verb ever called, most-called first: answered (the call produced a payload; not a claim the payload was useful), refused_at_authority_floor (the F-01 gate refused it before any handler ran), refused_at_dispatch (a tombstone, the read-only attach gate, the proof gate, or a handler error), plus first/last seen. That block is NOT session-scoped and NOT filtered by agent_id: the ledger records verb names and counts only — never an agent id, arguments, queries, paths, or anything derived from them. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -6466,13 +6466,47 @@ pub(crate) fn enforce_generic_action_policy(
 
 /// Defense-in-depth wrapper for generic transport calls. Transport seams still
 /// invoke the pure policy gate before any of their own tracking/routing effects.
+///
+/// THE USAGE SEAM. This is also the ONE place m1nd counts its own use, and it
+/// is this function rather than [`dispatch_tool`] for two reasons. First, it is
+/// the seam a verb arriving FROM OUTSIDE crosses: every transport funnels here
+/// (REST `/api/tools/{tool}`, the Streamable-HTTP wire and stdio via
+/// `handle_mcp_method_transactional`, and the in-process `McpToolClient`),
+/// while m1nd's own internal calls — the post-bootstrap orientation, the
+/// auto-ingest re-ingest — call `dispatch_tool` directly and are correctly NOT
+/// counted as agent usage. Second, it is the only seam that sees BOTH halves of
+/// the answer: the floor gate's refusal and the dispatcher's outcome, recorded
+/// by ONE call so the counters cannot disagree with themselves.
+///
+/// What it does not see, stated so nobody reads a zero as an absence: verbs
+/// with their own interception never reach generic dispatch (`mission_service`,
+/// `external_mutation_service`, and the REST owner proxies declared in
+/// `REST_ROUTE_SEATING`), and the REST/wire ingresses run the SAME floor gate
+/// once more BEFORE brain resolution — deliberately, so an elevated action
+/// never warms a brain — so a floor refusal that arrives over those two
+/// transports is answered before any brain exists to count it. The refusals
+/// counted here are the ones that reach a bound brain.
 pub(crate) fn dispatch_generic_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,
 ) -> M1ndResult<serde_json::Value> {
-    enforce_generic_action_policy(tool_name, params)?;
-    dispatch_tool(state, tool_name, params)
+    use crate::verb_usage::VerbCallOutcome;
+
+    let (result, outcome) = match enforce_generic_action_policy(tool_name, params) {
+        Err(error) => (Err(error), VerbCallOutcome::RefusedAtAuthorityFloor),
+        Ok(()) => {
+            let result = dispatch_tool(state, tool_name, params);
+            let outcome = if result.is_ok() {
+                VerbCallOutcome::Answered
+            } else {
+                VerbCallOutcome::RefusedAtDispatch
+            };
+            (result, outcome)
+        }
+    };
+    state.record_verb_call(tool_name, outcome);
+    result
 }
 
 /// Dispatch a tool call by name. Normalizes underscores to dots.
@@ -9170,6 +9204,178 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ─── The verb-usage battery: what m1nd records about its OWN use ────────
+    //
+    // These drive the REAL seam (`dispatch_generic_tool`), not the ledger's own
+    // unit surface — the unit tests live in `verb_usage.rs`. What is proved
+    // here is the wiring: that a dispatched verb is counted once, that a
+    // refusal never lands in the answered counter, that the counts survive a
+    // process restart through `SessionState::initialize`, and that a corrupt
+    // counter file cannot take the boot with it.
+
+    #[test]
+    fn verb_usage_seam_counts_every_dispatched_verb_under_its_own_name() {
+        let (_temp, mut state) = build_state();
+
+        for _ in 0..2 {
+            super::dispatch_generic_tool(
+                &mut state,
+                "health",
+                &serde_json::json!({"agent_id": "usage-battery"}),
+            )
+            .expect("health answers with no graph");
+        }
+        super::dispatch_generic_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "usage-battery"}),
+        )
+        .expect("help answers with no graph");
+
+        let health = state.verb_usage.counters("health").expect("health counted");
+        assert_eq!(health.answered, 2, "two health dispatches");
+        assert_eq!(health.refused_at_authority_floor, 0);
+        assert_eq!(health.refused_at_dispatch, 0);
+        assert!(health.first_seen_ms > 0 && health.last_seen_ms >= health.first_seen_ms);
+
+        assert_eq!(
+            state.verb_usage.counters("help").map(|c| c.answered),
+            Some(1),
+            "each verb counts under its own name, never folded into a neighbour"
+        );
+        assert_eq!(
+            state.verb_usage.distinct_verbs(),
+            2,
+            "two verbs seen, two rows"
+        );
+    }
+
+    #[test]
+    fn verb_usage_authority_floor_refusal_never_lands_in_the_answered_counter() {
+        let (_temp, mut state) = build_state();
+
+        // `ingest {mode:"merge"}` sits at SCOPED_GRANT_A2: the F-01 gate refuses
+        // it before any handler runs. That is a different FACT from a verb that
+        // ran, and this is the assert that keeps the two apart.
+        let error = super::dispatch_generic_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({"agent_id": "usage-battery", "mode": "merge", "paths": ["."]}),
+        )
+        .expect_err("an elevated generic action must refuse");
+        assert!(
+            error
+                .to_string()
+                .contains("generic_action_authority_required"),
+            "expected the authority-floor refusal, got: {error}"
+        );
+
+        let ingest = state.verb_usage.counters("ingest").expect("ingest counted");
+        assert_eq!(
+            ingest.answered, 0,
+            "a floor-refused verb must never be counted as answered"
+        );
+        assert_eq!(ingest.refused_at_authority_floor, 1);
+        assert_eq!(
+            ingest.refused_at_dispatch, 0,
+            "the refusal happened at the floor, not inside the dispatcher"
+        );
+    }
+
+    #[test]
+    fn verb_usage_dispatcher_refusal_is_counted_apart_from_the_floor_refusal() {
+        let (_temp, mut state) = build_state();
+
+        // Admitted by the floor, refused by the dispatcher: `report` is an
+        // ORDINARY read, but its input is invalid without `agent_id`.
+        super::dispatch_generic_tool(&mut state, "report", &serde_json::json!({}))
+            .expect_err("report without agent_id must fail in the dispatcher");
+
+        let report = state.verb_usage.counters("report").expect("report counted");
+        assert_eq!(report.answered, 0);
+        assert_eq!(
+            report.refused_at_authority_floor, 0,
+            "the floor admitted this call — only the dispatcher refused it"
+        );
+        assert_eq!(report.refused_at_dispatch, 1);
+    }
+
+    #[test]
+    fn verb_usage_survives_a_restart_of_the_session() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+
+        {
+            let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+                .expect("init session");
+            super::dispatch_generic_tool(
+                &mut state,
+                "health",
+                &serde_json::json!({"agent_id": "usage-battery"}),
+            )
+            .expect("health answers");
+            assert!(
+                crate::verb_usage::VerbUsageLedger::state_path(&runtime_dir).exists(),
+                "the first call after a boot must publish the ledger"
+            );
+        }
+
+        // The restart: a second session over the SAME runtime root.
+        let restarted = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("re-init session over the same runtime root");
+        assert_eq!(
+            restarted.verb_usage.counters("health").map(|c| c.answered),
+            Some(1),
+            "counts recorded before the restart must be there after it"
+        );
+    }
+
+    #[test]
+    fn verb_usage_corrupt_counter_file_does_not_fail_boot() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        std::fs::write(
+            crate::verb_usage::VerbUsageLedger::state_path(&runtime_dir),
+            "{ this is not the ledger you are looking for",
+        )
+        .expect("write corrupt ledger");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("a corrupt counter file must never fail the boot");
+        assert_eq!(
+            state.verb_usage.distinct_verbs(),
+            0,
+            "a corrupt ledger degrades to empty counts"
+        );
+        super::dispatch_generic_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({"agent_id": "usage-battery"}),
+        )
+        .expect("the session serves normally after degrading");
+        assert_eq!(
+            state.verb_usage.counters("health").map(|c| c.answered),
+            Some(1),
+            "the counts start over, they do not stay broken"
+        );
     }
 
     #[test]
