@@ -51,6 +51,8 @@ pub mod session;
 pub mod temporal_state;
 pub mod tools;
 pub mod util;
+// What m1nd records about its OWN use: one counter per verb, nothing else.
+pub mod verb_usage;
 
 // Human View v2 F11-a — the candidate_edit engine (typed batch edits on a candidate).
 pub mod candidate_edit;
