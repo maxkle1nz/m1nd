@@ -139,24 +139,42 @@ pub struct SynapticState {
     pub source_label: String,
     pub target_label: String,
     pub relation: String,
+    pub direction: Option<u8>,
+    pub inhibitory: Option<bool>,
     pub original_weight: f32,
     pub current_weight: f32,
     pub strengthen_count: u16,
     pub weaken_count: u16,
     pub ltp_applied: bool,
     pub ltd_applied: bool,
+    pub last_used_query: u32,
 }
 ```
 
 This is exported via `PlasticityEngine::export_state()` and persisted to `M1ND_PLASTICITY_STATE` (a JSON file). The export includes a NaN firewall (FM-PL-001): any non-finite weight falls back to the original weight. The write is atomic (temp file + rename, FM-PL-008) to prevent corruption on crash.
 
+Note where the numbers actually live: the counters are fields of the **graph**'s `edge_plasticity` arrays, not of the engine. The engine reads and writes them. Replace the graph and they are gone, whatever the engine remembers.
+
 ### Importing state
 
-When m1nd restarts, `import_state` restores learned weights. Edge identity matching uses **(source_label, target_label, relation)** triples -- not numeric indices -- because re-ingesting the codebase may produce different node numbering. This means plasticity survives codebase re-ingestion: if `auth.py -> session.py` was strengthened, that strengthening persists even if `auth.py` gets a different NodeId after re-ingest.
+`import_state` restores learned weights. Edge identity matching uses **(source_label, target_label, relation)** triples -- not numeric indices -- because re-ingesting the codebase produces different node numbering. That is what makes surviving a re-ingest *possible*: if `auth.py -> session.py` was strengthened, the record still finds its edge after `auth.py` gets a different NodeId. Parallel edges share that triple, so the persisted identity also carries `direction` and `inhibitory` and the remaining ambiguity is resolved positionally, in file order.
 
-Weights are clamped to `[weight_floor, weight_cap]` on import. Invalid JSON triggers a schema validation error (FM-PL-007) rather than corrupting the graph.
+Invalid JSON triggers a schema validation error (FM-PL-007) rather than corrupting the graph, and a non-finite weight is refused at the load boundary (FM-PL-001). Import does **not** re-clamp to `[weight_floor, weight_cap]` -- those bounds are enforced where weights are produced, by the strengthen cap, the decay floor and the LTP/LTD arms of the learning cycle above.
 
-The restore lands in **both** plasticity engines — the server's own and the orchestrator engine that `activate`/`query` strengthen through. They share the graph's weights but each stamps recency from its own query counter, so restoring only one would leave the counter that live queries use at zero and mis-date the first strengthening after a restart. Both boot paths (strict and friendly) import into both engines.
+The restore lands in **both** plasticity engines — the server's own and the orchestrator engine that `activate`/`query` strengthen through. They share the graph's weights but each stamps recency from its own query counter, so restoring only one would leave the counter that live queries use at zero and mis-date the first strengthening after a restart. Every path that installs a graph imports into both engines.
+
+### Surviving an ingest
+
+Restarting is not the only moment learned state can be lost. **An ingest replaces the graph**, and a replacement's edge arrays are born zeroed, so the restore has to happen there too — otherwise every re-ingest wipes the Hebbian layer and the persist at the end of that same ingest writes the zeros over the sidecar.
+
+That is not hypothetical, and this page used to claim the survival without it. Measured on a production owner on 2026-07-31: a `plasticity_state.json` of 73,332 synaptic rows in which **zero** rows had a `strengthen_count`, a `weaken_count`, an LTP/LTD flag or a `last_used_query`. The mechanism described above had existed and worked the whole time; the ingest path simply never called it, and a served brain re-ingests as its repository changes, so the counters were erased faster than they could grow.
+
+The ingest now carries the learning across the replacement, using the same `import_state`. Two rules govern it:
+
+- **The running session outranks the file.** The live graph is exported before the swap and restored after it; the sidecar is consulted only for edges the session carries no record of (a boot that found no graph snapshot, so nothing was imported at start-up). A session that has strengthened edges since its last persist would otherwise lose exactly that work to a stale file.
+- **Fail-open, like every other sidecar here.** A missing or corrupt `plasticity_state.json` degrades to "counters start over" with one honest log line. It never fails the ingest.
+
+Restoring learned state never creates topology: the import lands only on edges the new graph already owns, so an edge deleted upstream stays deleted. The `ingest` response reports `synapses_restored` so the carry-over is visible rather than assumed.
 
 ### Persistence frequency
 

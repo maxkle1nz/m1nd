@@ -51,6 +51,8 @@ pub mod session;
 pub mod temporal_state;
 pub mod tools;
 pub mod util;
+// What m1nd records about its OWN use: one counter per verb, nothing else.
+pub mod verb_usage;
 
 // Human View v2 F11-a — the candidate_edit engine (typed batch edits on a candidate).
 pub mod candidate_edit;
@@ -284,6 +286,12 @@ mod spec2_brain_bootstrap_birth_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/attach_auto_ingest_coverage.rs"]
 mod attach_auto_ingest_coverage_internal_tests;
+// The Hebbian layer across a graph replacement: an ingest erased every learned
+// counter and then persisted the zeros over the sidecar. Written RED against
+// that binary, before the carry-forward existed.
+#[cfg(test)]
+#[path = "internal_tests/plasticity_survives_ingest.rs"]
+mod plasticity_survives_ingest_internal_tests;
 // The same two questions, asked for the FIRST-MINUTE path: the npm agent CLI is
 // JavaScript, so it needs the answer in a wire shape before it decides whether
 // to boot its own runtime or bridge to a live owner.

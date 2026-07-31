@@ -164,6 +164,63 @@ pub fn decode_plasticity_state_json(bytes: &[u8]) -> M1ndResult<Vec<SynapticStat
     Ok(states)
 }
 
+/// Fold a persisted sidecar UNDER a live in-memory export, so a graph
+/// replacement can restore learned synapses without losing what the running
+/// session learned since its last persist.
+///
+/// **Which side is fresher.** The live export wins every identity it carries.
+/// A running session's graph was itself hydrated from this same sidecar — at
+/// boot, or at the previous replacement — so it holds the file's counts *plus*
+/// everything strengthened since; restoring the file over it would trade one
+/// silent erasure for another. The file is consulted only for identities the
+/// live export does not carry at all: a boot that found no graph snapshot
+/// (where the friendly import never ran and the session knows nothing), and an
+/// edge the file remembers that this session's graph does not.
+///
+/// **Grouping.** Rows are grouped by `(source_label, target_label, relation)`,
+/// the documented edge identity, and a group is taken from one side WHOLE and
+/// in order. Parallel edges share that triple and
+/// [`PlasticityEngine::import_state`] binds them positionally in file order, so
+/// splitting a group across two sources — or interleaving them — would bind a
+/// record to an edge it did not come from. Nothing here re-implements the
+/// matching rule; the result is one ordinary sidecar, resolved by the one
+/// importer.
+pub fn carry_forward_synaptic_state(
+    live: Vec<SynapticState>,
+    persisted: Vec<SynapticState>,
+) -> Vec<SynapticState> {
+    if persisted.is_empty() {
+        return live;
+    }
+    if live.is_empty() {
+        return persisted;
+    }
+    let live_identities: std::collections::HashSet<(&str, &str, &str)> = live
+        .iter()
+        .map(|row| {
+            (
+                row.source_label.as_str(),
+                row.target_label.as_str(),
+                row.relation.as_str(),
+            )
+        })
+        .collect();
+    let only_persisted: Vec<SynapticState> = persisted
+        .iter()
+        .filter(|row| {
+            !live_identities.contains(&(
+                row.source_label.as_str(),
+                row.target_label.as_str(),
+                row.relation.as_str(),
+            ))
+        })
+        .cloned()
+        .collect();
+    let mut carried = live;
+    carried.extend(only_persisted);
+    carried
+}
+
 // ---------------------------------------------------------------------------
 // QueryRecord — per-query metadata for memory
 // Replaces: plasticity.py QueryRecord
@@ -1170,6 +1227,169 @@ mod codec_tests {
         unknown_field[0]["future_field"] = serde_json::json!(true);
         let bytes = serde_json::to_vec_pretty(&unknown_field).expect("json");
         assert!(decode_plasticity_state_json(&bytes).is_err());
+    }
+}
+
+#[cfg(test)]
+mod carry_forward_tests {
+    use super::*;
+    use crate::types::NodeType;
+
+    /// A two-edge graph whose nodes are inserted in the given order, so a caller
+    /// can hand the same topology two different NodeId assignments.
+    fn graph_with_node_order(order: &[&str]) -> Graph {
+        let mut graph = Graph::new();
+        for id in order {
+            graph
+                .add_node(id, id, NodeType::Function, &[], 0.0, 0.0)
+                .expect("add node");
+        }
+        for (source, target) in [("alpha", "beta"), ("beta", "gamma")] {
+            let source = graph.resolve_id(source).expect("source resolves");
+            let target = graph.resolve_id(target).expect("target resolves");
+            graph
+                .add_edge(
+                    source,
+                    target,
+                    "calls",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.5),
+                )
+                .expect("add edge");
+        }
+        graph.finalize().expect("finalize");
+        graph
+    }
+
+    fn learned_on(graph: &Graph, source: &str, target: &str) -> (u16, u32, f32) {
+        let engine = PlasticityEngine::new(graph, PlasticityConfig::default());
+        let row = engine
+            .export_state(graph)
+            .expect("export")
+            .into_iter()
+            .find(|row| row.source_label == source && row.target_label == target)
+            .expect("the edge is in the export");
+        (
+            row.strengthen_count,
+            row.last_used_query,
+            row.current_weight,
+        )
+    }
+
+    /// THE LOAD-BEARING RULE, pinned. `import_state` resolves an edge by its
+    /// `(source_label, target_label, relation)` labels — never by CSR slot
+    /// index — which is the entire reason learned weights can outlive a
+    /// re-ingest that renumbers every node. Here the same two edges are rebuilt
+    /// with the node insertion order reversed, so every NodeId and every CSR
+    /// slot moves; the learning must still land on the edge that owns the same
+    /// triple. An "optimization" to positional matching turns this red.
+    #[test]
+    fn plasticity_import_binds_by_label_triple_not_by_slot_index() {
+        let warm = graph_with_node_order(&["alpha", "beta", "gamma"]);
+        let engine = PlasticityEngine::new(&warm, PlasticityConfig::default());
+        let mut states = engine.export_state(&warm).expect("export");
+        // Learn on ONE edge only, so a slot-indexed import would put it on the
+        // wrong one once the numbering moves.
+        for row in &mut states {
+            if row.source_label == "alpha" {
+                row.strengthen_count = 9;
+                row.last_used_query = 42;
+                row.current_weight = 2.5;
+            }
+        }
+        // Sanity: the two graphs really do disagree about slot order.
+        let mut cold = graph_with_node_order(&["gamma", "beta", "alpha"]);
+        assert_ne!(
+            warm.resolve_id("alpha").expect("alpha in warm"),
+            cold.resolve_id("alpha").expect("alpha in cold"),
+            "precondition: the fixture must actually renumber the nodes"
+        );
+
+        let mut into_cold = PlasticityEngine::new(&cold, PlasticityConfig::default());
+        assert_eq!(
+            into_cold.import_state(&mut cold, &states).expect("import"),
+            states.len() as u32
+        );
+
+        assert_eq!(learned_on(&cold, "alpha", "beta"), (9, 42, 2.5));
+        assert_eq!(learned_on(&cold, "beta", "gamma").0, 0);
+    }
+
+    fn row(source: &str, target: &str, strengthen_count: u16) -> SynapticState {
+        SynapticState {
+            source_label: source.to_string(),
+            target_label: target.to_string(),
+            relation: "calls".to_string(),
+            direction: Some(EdgeDirection::Forward as u8),
+            inhibitory: Some(false),
+            original_weight: 1.0,
+            current_weight: 1.0,
+            strengthen_count,
+            weaken_count: 0,
+            ltp_applied: false,
+            ltd_applied: false,
+            last_used_query: u32::from(strengthen_count),
+        }
+    }
+
+    /// The freshness rule: the running session outranks the file for every
+    /// identity it carries, and the file fills only the identities the session
+    /// knows nothing about.
+    #[test]
+    fn plasticity_carry_forward_prefers_live_rows_and_fills_the_gaps_from_disk() {
+        let live = vec![row("a", "b", 7), row("b", "c", 0)];
+        let persisted = vec![row("a", "b", 2), row("b", "c", 2), row("x", "y", 5)];
+
+        let carried = carry_forward_synaptic_state(live, persisted);
+
+        assert_eq!(carried.len(), 3);
+        assert_eq!(carried[0].strengthen_count, 7, "the live row wins");
+        assert_eq!(
+            carried[1].strengthen_count, 0,
+            "the live row wins even when the file looks warmer — the session is \
+             the one that has been running"
+        );
+        assert_eq!(carried[2].source_label, "x", "the gap comes from the file");
+        assert_eq!(carried[2].strengthen_count, 5);
+    }
+
+    /// Each side alone is returned untouched — a cold session takes the file
+    /// whole, and a brain with no file keeps everything it learned.
+    #[test]
+    fn plasticity_carry_forward_degrades_to_whichever_side_exists() {
+        let persisted = vec![row("a", "b", 3)];
+        let from_disk = carry_forward_synaptic_state(Vec::new(), persisted.clone());
+        assert_eq!(from_disk.len(), 1);
+        assert_eq!(from_disk[0].strengthen_count, 3);
+
+        let live_only = carry_forward_synaptic_state(vec![row("a", "b", 9)], Vec::new());
+        assert_eq!(live_only.len(), 1);
+        assert_eq!(live_only[0].strengthen_count, 9);
+    }
+
+    /// Parallel edges share one identity triple and `import_state` binds them
+    /// positionally, in file order. So a triple is taken from ONE side, whole
+    /// and in order — mixing two sources inside a group would bind a record to
+    /// an edge it did not come from, and emitting both would resolve two rows
+    /// onto one CSR slot, which the importer refuses outright.
+    #[test]
+    fn plasticity_carry_forward_never_splits_a_parallel_group_across_sources() {
+        let live = vec![row("a", "b", 4), row("a", "b", 6)];
+        let persisted = vec![row("a", "b", 1), row("a", "b", 2), row("a", "b", 3)];
+
+        let carried = carry_forward_synaptic_state(live, persisted);
+
+        assert_eq!(
+            carried
+                .iter()
+                .map(|state| state.strengthen_count)
+                .collect::<Vec<_>>(),
+            vec![4, 6],
+            "the live group is taken whole and in order, with nothing from the \
+             file interleaved into it"
+        );
     }
 }
 
