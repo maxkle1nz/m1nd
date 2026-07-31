@@ -1316,7 +1316,7 @@ impl SecurityFrameworkEnclaveKeyStore {
             ItemClass, ItemSearchOptions, KeyClass, Limit, Reference, SearchResult,
         };
         let label = self.keychain_label(key_id);
-        let results = ItemSearchOptions::new()
+        let search = ItemSearchOptions::new()
             .class(ItemClass::key())
             .key_class(KeyClass::private())
             // SENTINEL: this ignore_legacy_keychains() (kSecUseDataProtectionKeychain)
@@ -1327,10 +1327,16 @@ impl SecurityFrameworkEnclaveKeyStore {
             .label(&label)
             .load_refs(true)
             .limit(Limit::Max(2))
-            .search()
-            .map_err(|error| {
-                EnclaveError::Open(format!("keychain item query for label '{label}': {error}"))
-            })?;
+            .search();
+        // A no-match query is NOT an empty Ok: Apple answers it with
+        // errSecItemNotFound, which security-framework surfaces as Err. Route the
+        // error arm through the classifier so ONLY that one OSStatus becomes the
+        // absent answer (Ok(None), the fresh-ceremony case) — every other error
+        // stays a fatal Open.
+        let results = match search {
+            Ok(results) => results,
+            Err(error) => return Self::classify_keychain_search_error(&error, &label),
+        };
         let mut resolved = None;
         for result in results {
             if let SearchResult::Ref(Reference::Key(key)) = result {
@@ -1343,6 +1349,39 @@ impl SecurityFrameworkEnclaveKeyStore {
             }
         }
         Ok(resolved)
+    }
+
+    /// Classify the error arm of the keychain search that backs
+    /// `resolve_persisted_key`'s never-open-or-create guard.
+    ///
+    /// Apple's `SecItemCopyMatching` returns `errSecItemNotFound` (SecBase.h,
+    /// OSStatus `-25300`) when NOTHING matches the query, and the `security-framework`
+    /// crate surfaces that as `Err`, not an empty `Ok`. For this guard that one status
+    /// IS the successful "no key is filed yet" answer, so it maps to `Ok(None)` — the
+    /// fresh-ceremony case, the only time provisioning is legitimate. EVERY other
+    /// OSStatus (access denied, missing entitlement, hardware fault, an ambiguous
+    /// keychain state) stays a fatal `EnclaveError::Open`.
+    ///
+    /// The catch is deliberately narrow. Widening it to "any error means absent" would
+    /// let a real keychain failure read as absence, and a never-open-or-create guard
+    /// that reads a live key as absent would mint a DUPLICATE seat over it. The line
+    /// between `-25300` and every other code is the entire security value here.
+    ///
+    /// Split out as a pure function of the OSStatus so this exact classification — the
+    /// logic that shipped wrong through v1.6.2 — is unit-testable without a Secure
+    /// Enclave: the software fake returns `Ok(None)` on absent and cannot reproduce
+    /// the real Apple `Err`, which is why six weeks of tests never caught it.
+    fn classify_keychain_search_error(
+        error: &security_framework::base::Error,
+        label: &str,
+    ) -> Result<Option<security_framework::key::SecKey>, EnclaveError> {
+        // UNFIXED (this commit): every error is fatal, including errSecItemNotFound —
+        // the behaviour v1.6.2 shipped and the owner's live ceremony hit. The seam is
+        // extracted here so the defect is falsifiable at all; the test above it is RED
+        // against this body and the next commit makes it GREEN.
+        Err(EnclaveError::Open(format!(
+            "keychain item query for label '{label}': {error}"
+        )))
     }
 
     /// Read the resolved key's REAL attributes via `SecKeyCopyAttributes` and prove
@@ -1712,6 +1751,60 @@ mod tests {
             application_label: format!("label-{key_id}"),
             access_control: EnclaveAccessControlV1::PrivateKeyUsageNonExportable,
             bound_context_digest: "ceremony-context-1".to_owned(),
+        }
+    }
+
+    // ---- classify_keychain_search_error ----
+    // The exact classification that shipped wrong through v1.6.2 (found live in the
+    // owner's G9 ceremony). The software fake returns Ok(None) on absent and CANNOT
+    // reproduce the real Apple Err(errSecItemNotFound) — fake and real diverge exactly
+    // here — so these drive the pure classifier directly with constructed OSStatus
+    // errors. No Secure Enclave, no keychain, no key: `Error::from_code` only wraps the
+    // integer status. This is the CI-runnable proof of the logic; the full provision ->
+    // restart -> open path stays owner-only on a real, entitled build.
+
+    #[test]
+    fn keychain_search_not_found_classifies_as_absent_not_fatal() {
+        // Apple's no-match answer is errSecItemNotFound (SecBase.h, OSStatus -25300).
+        // On a fresh ceremony the never-open-or-create guard MUST read this as
+        // "absent, proceed to create" (Ok(None)), never as a fatal Open — that abort
+        // is exactly what stopped v1.6.2 from minting any seat.
+        let not_found = security_framework::base::Error::from_code(
+            security_framework_sys::base::errSecItemNotFound,
+        );
+        let classified = SecurityFrameworkEnclaveKeyStore::classify_keychain_search_error(
+            &not_found,
+            "verifier-seat-alpha-v1",
+        );
+        assert!(
+            matches!(classified, Ok(None)),
+            "errSecItemNotFound (-25300) must classify as absent Ok(None), not a fatal error",
+        );
+    }
+
+    #[test]
+    fn keychain_search_other_errors_stay_fatal_open() {
+        // Every NON-not-found OSStatus is a real failure and must stay a fatal Open, so
+        // the guard never reads access-denied / missing-entitlement / cancelled /
+        // unavailable as "absent" and mints a duplicate over a live key. Representative
+        // spread, each != errSecItemNotFound: errSecAuthFailed -25293,
+        // errSecMissingEntitlement -34018, errSecNotAvailable -25291, errSecParam -50,
+        // errSecUserCanceled -128.
+        for code in [-25293_i32, -34018, -25291, -50, -128] {
+            assert_ne!(
+                code,
+                security_framework_sys::base::errSecItemNotFound,
+                "test fixture code must not be the not-found sentinel",
+            );
+            let error = security_framework::base::Error::from_code(code);
+            let classified = SecurityFrameworkEnclaveKeyStore::classify_keychain_search_error(
+                &error,
+                "verifier-seat-alpha-v1",
+            );
+            assert!(
+                matches!(classified, Err(EnclaveError::Open(_))),
+                "OSStatus {code} must stay a fatal Open error, not be swallowed as absent",
+            );
         }
     }
 
