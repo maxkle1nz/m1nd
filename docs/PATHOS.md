@@ -83,6 +83,37 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - **Tray in flight:** #446 (docs-gate fix pushed), #467 (spec2 windows paths — executor), #473 (custody refusal precedence — executor), #475 (ABBA flake rerun), #476 (conflict merge — executor), #479 (CI pages/i18n, its python-proof red under diagnosis), #480 (attach-auto second question, verified RED→GREEN by the orchestrator's own hands).
 - **G9 custody, measured after the verb wiring:** all five `--custody-ceremony` verbs now reach the enclave floor instead of answering from a placeholder — `provision-seats` mints the four seats the owner's `IndependenceSpecV1` names (plus the ceremony's sealing seat), `owner-seat` mints the biometric seat through a new owner-only entry point that mirrors the agent one's refusal, `seal` builds/validates/binds the receipt and enclave-seals it, and `seal` + `assemble` open the ceremony root through ONE function so what assemble reads cannot drift from what seal wrote. The runbook's §4 table of zeros is closed and is now a test. **Still NOT_RUN and unfakeable:** no enclave key has been minted, no Touch ID answered, no `custody-ceremony.sealed.json` exists; on any local (unentitled) build every custody verb refuses naming P4, which is the correct answer. **Still open:** R3 (`assemble` is one-shot — nothing installs the assembly into a running owner), R4 (no sealed-pubkey ↔ verification-key-registry cross-check), R5 (owner-observed only). The battery is 14 door tests + 14 floor tests against the floor's own software key store, all in temp dirs.
 - **Deliberately sequenced:** the shadowed-REST-verb table guard starts only after #475 lands (so its table includes `curation_spawn` and is born green).
+
+**Delta 2026-07-31 — `north` returns the CODE, and width-vs-use gets its first real answer:**
+- **The second hop is closed inside the verb everybody already calls.** Six weeks of host transcripts
+  (458 m1nd calls across 157 sessions) measured the shape of the failure: 57% of sessions call m1nd
+  exactly ONCE, 71% never make two m1nd calls in a row, and the two most frequent actions after a m1nd
+  verb are Bash (167) and Read (46) — the agent goes and fetches by hand what m1nd just pointed at.
+  `north` opened 105 of 157 sessions and answered healthily 86% of the time, yet it *narrated* its
+  answer in 76% of calls while the agent acted on a file it newly named in only 32%; the verbs that
+  exist to close that gap sat at **1 call (`surgical_context`) and 0 (`batch_view`)**. The fix is not a
+  new verb and not a new slicer: `north` COMPOSES those two and returns the source of its top focus
+  nodes — the symbol's own lines when the node names one, the file head when it does not — for up to 3
+  distinct files under a caller-visible `code_budget_chars` (default 2,000 chars of source), every cut
+  declared with honest `files_total` / `files_returned` / `files_omitted` and per-slice `total_lines`
+  vs `lines_returned`. **Measured on a graph ingested from this repo's own source (9,281 nodes): 5,576
+  chars = 1,394 tokens before → 8,116 chars = 2,029 tokens after.** §C1.3's 2,000-token pin is amended
+  in the same PR with that number: the orientation half is unchanged and still under it, the packet as
+  a whole now sits at ~25% of §O.12.4's 8,000-token hard ceiling, and `code: false` restores the
+  pre-code packet exactly. This is the first move against the owner's harshest grade — **width-vs-use 4
+  (138 verbs, 29 ever called)**: the answer to a verb nobody calls is composition into the verb
+  everybody calls, not more documentation.
+- **Debt this front declares rather than hides.** (a) A focus node whose symbol the Rust extractor
+  cannot name — a method inside an `impl`, since `extract_rust_symbols` skips the whole block — falls
+  back to the file HEAD, which for a deep symbol is the module preamble, not the code. The slice says
+  so (`source: batch_view`, `line_start: 1`, `truncated: true`), so it is honest, but it is the weak
+  answer; the real fix is the focus node's OWN recorded line span, which needs `orient` to carry
+  `line_start`/`line_end` on `focus_nodes` — another verb's contract, deliberately not changed here.
+  (b) `north` now pays `surgical_context`'s neighbour + heuristic pass once per served file. That cost
+  is MOVED, not new (it is what the agent's second call would have cost), but it is unmeasured on the
+  live 18k-node owner. (c) The measurement behind all of this is a read-only audit of host transcripts,
+  not m1nd's own telemetry — m1nd cannot yet see its own usage shape, which is why the number took six
+  weeks to surface.
 - **Machine-side residuals:** G6 provider executable; shadow/canary producer; runtime half of the bundle blind spot; m1nd-ui eslint PAID (ESLint 10 — the break was never eslint itself but the `brace-expansion@5` override from #418 landing under the CJS `minimatch@3` that eslint 9 pulled, and `npm run lint` was not a CI step so nothing saw it — now wired as its own `ui-gates` step, so it can go red again; one residual named in its place: the `eslint-plugin-react-hooks` 7 React Compiler family is held OFF at pre-migration strength with 31 findings open — `set-state-in-effect` ×21, `purity` ×5, `refs` ×5 — whose fixes change render behaviour and belong in their own proven change); the dependabot react 18→19 pair #453/#454 is mutually deadlocked — each PR is the other's missing half, so neither can ever go green alone and they need one combined React 19 PR or closure; serve binary refresh onto this arc's code once the tray lands (then the lifecycle re-proof); `default_registry_root()` cannot see a per-host registry (letter filed, owner's wiring call); PATHOS consolidation pass (the 07-24 list below + the checkpoint-27 Current State narrative both await it).
 
 **Copy / positioning**
