@@ -697,6 +697,13 @@ jobs:
           from datetime import datetime, timedelta, timezone
           from pathlib import Path
 
+
+          def refuse(message: str) -> None:
+              # A failed release must say why where the operator looks first.
+              print(f"::error title=Custody-ceremony bundle refused::{message}")
+              raise SystemExit(1)
+
+
           # The margin is a refusal to ship an artifact that is already
           # effectively dead — not a promise about its shelf life. An embedded
           # profile expires (Apple issues them for about a year) and the bundle
@@ -710,7 +717,7 @@ jobs:
           entitlements = plistlib.loads(Path(os.environ["ENTITLEMENTS"]).read_bytes())
           groups = entitlements.get("keychain-access-groups") or []
           if len(groups) != 1:
-              raise SystemExit(
+              refuse(
                   "the custody entitlement must declare exactly one keychain access "
                   f"group; it declares {len(groups)}"
               )
@@ -719,7 +726,7 @@ jobs:
           if not re.fullmatch(r"[A-Z0-9]{10}", team) or not re.fullmatch(
               r"[A-Za-z0-9][A-Za-z0-9.-]*", bundle_id
           ):
-              raise SystemExit(
+              refuse(
                   f"the keychain access group {group!r} is not <TEAM>.<bundle-id>, so no "
                   "bundle identifier can be derived from it"
               )
@@ -735,12 +742,12 @@ jobs:
 
           expires = profile.get("ExpirationDate")
           if not isinstance(expires, datetime):
-              raise SystemExit("the custody provisioning profile carries no ExpirationDate")
+              refuse("the custody provisioning profile carries no ExpirationDate")
           if expires.tzinfo is None:
               expires = expires.replace(tzinfo=timezone.utc)
           remaining = expires - datetime.now(timezone.utc)
           if remaining < timedelta(days=MARGIN_DAYS):
-              raise SystemExit(
+              refuse(
                   f"the custody provisioning profile expires {expires.isoformat()} "
                   f"({remaining.days} days from now) and the release refuses under "
                   f"{MARGIN_DAYS} days: the bundle stops launching when the profile "
@@ -748,7 +755,7 @@ jobs:
               )
 
           if profile.get("ProvisionedDevices"):
-              raise SystemExit(
+              refuse(
                   "the custody provisioning profile is device-scoped (ProvisionedDevices) "
                   "— a development profile authorizes only enrolled Macs, and this bundle "
                   "is signed and launch-proven on a CI runner that is not one of them. "
@@ -756,8 +763,10 @@ jobs:
               )
 
           platforms = profile.get("Platform") or []
-          if platforms and not {"OSX", "macOS"}.intersection(platforms):
-              raise SystemExit(
+          if platforms and not {"osx", "macos"}.intersection(
+              str(value).casefold() for value in platforms
+          ):
+              refuse(
                   f"the custody provisioning profile declares platforms {platforms!r}; "
                   "the ceremony bundle is macOS"
               )
@@ -772,7 +781,7 @@ jobs:
           if profile_team is None:
               profile_team = (profile.get("TeamIdentifier") or [None])[0]
           if profile_team != team:
-              raise SystemExit(
+              refuse(
                   "the custody provisioning profile belongs to a different team than the "
                   "entitlement's access group; the profile and build/m1nd-mcp.entitlements.plist "
                   "must name the same team"
@@ -780,7 +789,7 @@ jobs:
 
           granted_groups = granted.get("keychain-access-groups") or []
           if not any(covers(value, group) for value in granted_groups):
-              raise SystemExit(
+              refuse(
                   f"the custody provisioning profile does not authorize the access group "
                   f"{group!r}; without that authorization AMFI kills the bundle exactly as "
                   "it killed the raw v1.6.0 binary"
@@ -790,11 +799,11 @@ jobs:
               "com.apple.application-identifier"
           )
           if app_id is None:
-              raise SystemExit(
+              refuse(
                   "the custody provisioning profile grants no application-identifier"
               )
           if not covers(app_id, f"{team}.{bundle_id}"):
-              raise SystemExit(
+              refuse(
                   f"the custody provisioning profile is issued for App ID {app_id!r}, which "
                   f"does not cover the bundle identifier {bundle_id!r} derived from the "
                   "entitlement's access group. Regenerate the profile for that App ID, or "
@@ -807,7 +816,7 @@ jobs:
           release_version = os.environ["RELEASE_VERSION"]
           numeric = re.match(r"\d+(?:\.\d+){0,2}", release_version)
           if numeric is None:
-              raise SystemExit(f"release version {release_version!r} has no numeric prefix")
+              refuse(f"release version {release_version!r} has no numeric prefix")
           plistlib.dump(
               {
                   "CFBundleExecutable": os.environ["BINARY_NAME"],
