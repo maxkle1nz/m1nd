@@ -1303,6 +1303,16 @@ impl SecurityFrameworkEnclaveKeyStore {
     /// never be ambiguous. This one query is also the production
     /// never-open-or-create duplicate guard.
     ///
+    /// `None` is NOT reached through an empty success. Apple answers a no-match query
+    /// with `errSecItemNotFound` and `security-framework` surfaces that as `Err`, so
+    /// the absent case arrives through the ERROR arm, not an empty `Ok`.
+    /// `classify_keychain_search_error` turns ONLY that one OSStatus into `Ok(None)`
+    /// and keeps every other error fatal. Do NOT "simplify" this back to a blanket
+    /// `.map_err(…)?` over `.search()`: that is the exact defect this guard shipped
+    /// with — on a fresh keychain (the only time provisioning is legitimate) the
+    /// duplicate guard aborted instead of proceeding to create, so no seat could be
+    /// minted. Found by the owner's live G9 ceremony against the entitled bundle.
+    ///
     /// The query is scoped to the data-protection keychain
     /// (`ignore_legacy_keychains`, i.e. `kSecUseDataProtectionKeychain`) so it sees
     /// the SAME scope `provision` writes into via `Location::DataProtectionKeychain`
@@ -1375,10 +1385,18 @@ impl SecurityFrameworkEnclaveKeyStore {
         error: &security_framework::base::Error,
         label: &str,
     ) -> Result<Option<security_framework::key::SecKey>, EnclaveError> {
-        // UNFIXED (this commit): every error is fatal, including errSecItemNotFound —
-        // the behaviour v1.6.2 shipped and the owner's live ceremony hit. The seam is
-        // extracted here so the defect is falsifiable at all; the test above it is RED
-        // against this body and the next commit makes it GREEN.
+        // ONLY errSecItemNotFound (SecBase.h, OSStatus -25300) means "no item matched"
+        // — the absent answer this never-open-or-create guard needs on a fresh
+        // ceremony. `security_framework_sys::base::errSecItemNotFound` is the named
+        // constant (already a direct dependency of this crate); `Error::code()`
+        // returns the OSStatus surfaced from `SecItemCopyMatching`.
+        if error.code() == security_framework_sys::base::errSecItemNotFound {
+            return Ok(None);
+        }
+        // Every OTHER status is a real failure (access denied, missing entitlement,
+        // hardware fault, …) and stays fatal — never widened to "any error means
+        // absent", which could mint a duplicate seat over a live key. Same message the
+        // pre-fix code emitted, minus the false abort on not-found.
         Err(EnclaveError::Open(format!(
             "keychain item query for label '{label}': {error}"
         )))
