@@ -5010,6 +5010,33 @@ fn light_recall_freshness_key(authored_ms_ago: Option<u64>) -> (bool, Option<u64
     (authored_ms_ago.is_none(), authored_ms_ago)
 }
 
+/// Default character budget for north's composed code payload, and the reason
+/// it can be ON by default.
+///
+/// Measured on this repo's own served graph (18,084 nodes, 73,332 edges) on
+/// 2026-07-31: the packet WITHOUT code is 5,733 chars ≈ 1,433 tokens, against
+/// the §C1.3 Budget Law ceiling of 2,000 tokens on the MCP path. That leaves
+/// ~567 tokens ≈ 2,270 chars of headroom. 2,000 chars ≈ 500 tokens spends the
+/// headroom without breaking the law — which is the whole argument for a
+/// default instead of an opt-in: the payload is affordable inside the budget
+/// north already has to keep.
+pub(crate) const NORTH_CODE_BUDGET_CHARS: usize = 2_000;
+/// Lower/upper rails for the caller-visible budget. The floor keeps a
+/// "code: true, budget: 3" call from producing a payload too small to mean
+/// anything; the ceiling keeps north under the organism's 8k hard ceiling even
+/// when a caller deliberately widens it.
+const NORTH_CODE_BUDGET_MIN: usize = 200;
+const NORTH_CODE_BUDGET_MAX: usize = 20_000;
+/// How many distinct FILES get a code slice.
+///
+/// The unit is the file, not the focus node: focus nodes cluster hard (measured
+/// live, 8 focus nodes collapsed to 4 files — three of them the same file), and
+/// the file is what the agent actually opens. Three fits the default budget at
+/// ~one 20-line excerpt each, covers the working set of a typical task, and
+/// bounds the composition to three file reads. One would be too few — the
+/// second hop the measurement says never happens is usually the SECOND file.
+const NORTH_CODE_MAX_FILES: usize = 3;
+
 /// Read-only safe: every composed handler is read-only (`trust_selftest`,
 /// `orient`→`activate`, `boot_memory action=list`, `focus`→`seek` all route
 /// through read-only-safe paths).
@@ -8415,7 +8442,7 @@ mod tests {
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
-    use m1nd_core::graph::Graph;
+    use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use std::sync::mpsc;
 
     fn build_state() -> (tempfile::TempDir, SessionState) {
@@ -12729,6 +12756,150 @@ mod tests {
         build_state_populated_with_legacy_boot_memory(read_only, None)
     }
 
+    /// Build a populated session whose focus nodes point at REAL files on disk,
+    /// so the composed code payload has something to read.
+    ///
+    /// The fixture is deliberately adversarial for a naive "head of the file"
+    /// answer: `enforce_lease` sits ~120 lines deep in `src/lease.rs`, so a
+    /// file-head slice would return imports instead of the code the task is
+    /// about. It also carries a non-code node (`docs/lease-notes.md`) whose
+    /// language yields no symbols — the case that must fall through to the file
+    /// head rather than silently return nothing.
+    fn build_state_with_real_sources() -> (tempfile::TempDir, SessionState, std::path::PathBuf) {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        let repo = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        std::fs::create_dir_all(repo.join("src")).expect("src dir");
+        std::fs::create_dir_all(repo.join("docs")).expect("docs dir");
+
+        // A file whose interesting symbol is FAR from the head.
+        let mut lease_rs = String::from("// lease bookkeeping for the instance registry\n");
+        for i in 0..110 {
+            lease_rs.push_str(&format!("// filler line {i}\n"));
+        }
+        lease_rs.push_str("pub fn enforce_lease(now_ms: u64, ttl_ms: u64) -> bool {\n");
+        for i in 0..24 {
+            lease_rs.push_str(&format!("    let step_{i} = now_ms + {i};\n"));
+        }
+        lease_rs.push_str("    now_ms < ttl_ms\n}\n");
+        let lease_line_start = 112u32;
+        std::fs::write(repo.join("src/lease.rs"), &lease_rs).expect("write lease.rs");
+
+        let mut notes_md = String::from("# Lease enforcement notes\n\n");
+        for i in 0..40 {
+            notes_md.push_str(&format!("- lease enforcement note {i}\n"));
+        }
+        std::fs::write(repo.join("docs/lease-notes.md"), &notes_md).expect("write notes");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+
+        let mut graph = Graph::new();
+        let lease_file = graph
+            .add_node(
+                "file::src/lease.rs",
+                "lease.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add lease file node");
+        graph.set_node_provenance(
+            lease_file,
+            NodeProvenanceInput {
+                source_path: Some("src/lease.rs"),
+                line_start: Some(1),
+                line_end: Some(lease_rs.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let enforce = graph
+            .add_node(
+                "file::src/lease.rs::fn::enforce_lease",
+                "enforce_lease",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add enforce_lease node");
+        graph.set_node_provenance(
+            enforce,
+            NodeProvenanceInput {
+                source_path: Some("src/lease.rs"),
+                line_start: Some(lease_line_start),
+                line_end: Some(lease_rs.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let notes = graph
+            .add_node(
+                "file::docs/lease-notes.md",
+                "lease enforcement notes",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add notes node");
+        graph.set_node_provenance(
+            notes,
+            NodeProvenanceInput {
+                source_path: Some("docs/lease-notes.md"),
+                line_start: Some(1),
+                line_end: Some(notes_md.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph
+            .add_edge(
+                lease_file,
+                enforce,
+                "declares",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.9),
+            )
+            .expect("edge file->fn");
+        graph
+            .add_edge(
+                enforce,
+                notes,
+                "documented_by",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.6),
+            )
+            .expect("edge fn->notes");
+        graph.finalize().expect("finalize graph");
+
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("init source-backed session");
+        // Authorize the fixture repo for reads and make the caller a home caller
+        // (covered root → no reception mismatch).
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+        state.caller_root = Some(repo.to_string_lossy().to_string());
+        (temp, state, repo)
+    }
+
+    const CODE_TASK: &str = "enforce_lease lease enforcement notes";
+
     fn build_state_populated_with_legacy_boot_memory(
         read_only: bool,
         legacy_boot_memory: Option<crate::session::BootMemoryState>,
@@ -13209,6 +13380,13 @@ mod tests {
             out["context"].is_null(),
             "brainless caller must not receive the foreign graph's context, got: {}",
             out["context"]
+        );
+        // …and the cut extends to the code payload: foreign SOURCE is the same
+        // poison as foreign anchors, only more convincing.
+        assert!(
+            out.get("code").is_none(),
+            "brainless caller must not receive the foreign graph's source, got: {}",
+            out["code"]
         );
 
         // (a) the canonical project_brain_absent label rides the reception + gaps.
@@ -13785,6 +13963,329 @@ mod tests {
         assert!(
             out["next_move"].is_string() && !out["next_move"].as_str().unwrap().is_empty(),
             "next_move must be a non-empty honest suggestion"
+        );
+    }
+
+    // === north CODE payload (the second hop, closed) ======================
+    //
+    // Six weeks of real agent traffic said the second round-trip never happens:
+    // north opened 105 of 157 sessions, and the verbs that exist to fetch what
+    // it pointed at were at zero (`surgical_context` 1 call, `batch_view` none)
+    // while Bash/Read did the fetching by hand. So the FIRST call carries the
+    // bytes. These cases pin that the payload is real, budgeted, declared,
+    // switchable, and ABSENT wherever the packet already says the graph cannot
+    // answer for this repo.
+
+    /// north hands back the CODE of its top focus nodes, not only their
+    /// addresses — and the code is the code AT the node, not the head of a file
+    /// that happens to contain it.
+    #[test]
+    fn north_serves_code_for_its_top_focus_nodes() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed on a source-backed graph");
+
+        let code = &out["code"];
+        assert_eq!(
+            code["schema"], "m1nd-north-code-v0",
+            "north must carry a code payload on a populated graph, got: {out}"
+        );
+        let slices = code["slices"].as_array().expect("code.slices array");
+        assert!(!slices.is_empty(), "code.slices must not be empty");
+
+        // The symbol slice carries the FUNCTION's own source, which lives ~112
+        // lines into the file — a file-head answer would miss it entirely.
+        let symbol_slice = slices
+            .iter()
+            .find(|s| s["label"] == "enforce_lease")
+            .unwrap_or_else(|| panic!("enforce_lease must get a slice, got: {slices:#?}"));
+        assert_eq!(symbol_slice["source"], "surgical_context");
+        assert!(
+            symbol_slice["content"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("pub fn enforce_lease"),
+            "the slice must carry the symbol's own source, got: {}",
+            symbol_slice["content"]
+        );
+        assert!(
+            symbol_slice["line_start"].as_u64().unwrap_or(0) > 100,
+            "the slice must be addressed at the symbol's real line, got: {}",
+            symbol_slice["line_start"]
+        );
+        // Honest totals ride every slice.
+        assert!(symbol_slice["total_lines"].as_u64().unwrap_or(0) > 130);
+        assert!(symbol_slice["lines_returned"].as_u64().unwrap_or(0) >= 1);
+
+        // A node whose language yields no symbols falls through to the file
+        // head via the other composed verb rather than returning nothing.
+        let doc_slice = slices
+            .iter()
+            .find(|s| s["file_path"].as_str().unwrap_or("").ends_with(".md"))
+            .unwrap_or_else(|| panic!("the doc node must get a slice, got: {slices:#?}"));
+        assert_eq!(doc_slice["source"], "batch_view");
+        assert!(doc_slice["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Lease enforcement notes"));
+    }
+
+    /// The budget is caller-visible, and what it cuts is DECLARED with honest
+    /// totals — a silent cut is a lie (the same contract the binding
+    /// fingerprint's head-truncated `ingest_roots` already keeps).
+    #[test]
+    fn north_code_declares_what_the_budget_cut() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code_budget_chars": 200,
+            }),
+        )
+        .expect("north should succeed under a tight budget");
+
+        let code = &out["code"];
+        assert_eq!(code["budget_chars"], 200, "the budget echoes back verbatim");
+        let chars = code["chars"].as_u64().expect("code.chars");
+        assert!(
+            chars <= 200,
+            "the payload must respect its own budget, got {chars}"
+        );
+        assert_eq!(
+            code["truncated"], true,
+            "a cut payload must SAY it was cut, got: {code}"
+        );
+        // The honest denominator: how many files the focus nodes actually named
+        // versus how many got served.
+        let total = code["files_total"].as_u64().expect("files_total");
+        let returned = code["files_returned"].as_u64().expect("files_returned");
+        let omitted = code["files_omitted"].as_u64().expect("files_omitted");
+        assert!(
+            total >= 2,
+            "the fixture names at least two files, got {total}"
+        );
+        assert_eq!(
+            returned + omitted,
+            total,
+            "returned + omitted must account for every named file"
+        );
+        assert!(
+            code["full_surface"].is_string(),
+            "a truncated payload names the surface that serves the whole file"
+        );
+        // Every slice still declares its own honest counters.
+        for slice in code["slices"].as_array().expect("slices") {
+            assert!(slice["total_lines"].as_u64().is_some());
+            assert!(slice["lines_returned"].as_u64().is_some());
+            assert!(slice["truncated"].is_boolean());
+            let returned_lines = slice["lines_returned"].as_u64().unwrap();
+            assert_eq!(
+                returned_lines,
+                slice["content"].as_str().unwrap_or("").lines().count() as u64,
+                "lines_returned must count what the slice ACTUALLY carries"
+            );
+        }
+    }
+
+    /// The knob turns the payload off entirely — and off means ABSENT, not an
+    /// empty ornament (the landing_bell / map rule).
+    #[test]
+    fn north_code_knob_turns_the_payload_off() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code": false,
+            }),
+        )
+        .expect("north should succeed with the code payload disabled");
+
+        assert!(
+            out.get("code").is_none(),
+            "code:false must omit the field entirely, got: {}",
+            out["code"]
+        );
+        // Everything else the packet promises is untouched.
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        assert!(!out["context"]["focus_nodes"]
+            .as_array()
+            .expect("focus_nodes")
+            .is_empty());
+    }
+
+    /// The calibrated states answer exactly as they did. A code payload must
+    /// never appear where the packet's own contract says the graph cannot
+    /// answer: an empty/unbound graph is `needs_ingest` with NO code.
+    #[test]
+    fn north_empty_graph_carries_no_code_payload() {
+        let (_temp, mut state) = build_state();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed even on an empty graph");
+
+        assert_eq!(out["needs"], "needs_ingest");
+        assert!(out["context"].is_null());
+        assert!(
+            out.get("code").is_none(),
+            "needs_ingest must carry no code payload, got: {}",
+            out["code"]
+        );
+    }
+
+    /// Reception mismatch: the bound graph does NOT cover the caller's repo, so
+    /// its file bytes are somebody else's. The packet keeps warning and carries
+    /// no code — handing back foreign source is the poison the reception block
+    /// exists to prevent.
+    #[test]
+    fn north_caller_root_mismatch_carries_no_code_payload() {
+        let (temp, mut state, _repo) = build_state_with_real_sources();
+        let elsewhere = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&elsewhere).expect("other root");
+        state.caller_root = Some(elsewhere.to_string_lossy().to_string());
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed under a mismatch");
+
+        assert_eq!(out["reception"]["match"], "caller_root_mismatch");
+        assert!(
+            out.get("code").is_none(),
+            "a mismatched caller must never receive the bound repo's source, got: {}",
+            out["code"]
+        );
+    }
+
+    /// The composition pin. north must not grow a third code slicer: its bytes
+    /// are byte-identical to what the composed verbs return for the same
+    /// target. Asserted on shared BEHAVIOUR (the bytes), not on an internal
+    /// call shape that will rot.
+    #[test]
+    fn north_code_slices_are_byte_identical_to_the_composed_verbs() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code_budget_chars": 20000,
+            }),
+        )
+        .expect("north should succeed");
+        let slices = out["code"]["slices"].as_array().expect("slices").to_owned();
+
+        for slice in &slices {
+            let file_path = slice["file_path"].as_str().expect("file_path").to_string();
+            match slice["source"].as_str().expect("source") {
+                "surgical_context" => {
+                    let label = slice["label"].as_str().expect("label").to_string();
+                    let direct = crate::surgical_handlers::handle_surgical_context(
+                        &mut state,
+                        crate::protocol::surgical::SurgicalContextInput {
+                            file_path: file_path.clone(),
+                            agent_id: "northerner".into(),
+                            symbol: Some(label.clone()),
+                            radius: 1,
+                            include_tests: false,
+                        },
+                    )
+                    .expect("direct surgical_context");
+                    let focused = direct
+                        .focused_symbol
+                        .unwrap_or_else(|| panic!("surgical_context must focus {label}"));
+                    assert_eq!(
+                        slice["content"].as_str().unwrap_or_default(),
+                        focused.excerpt.as_deref().unwrap_or_default(),
+                        "north's slice must BE surgical_context's excerpt, byte for byte"
+                    );
+                    assert_eq!(
+                        slice["line_start"].as_u64(),
+                        Some(focused.line_start as u64)
+                    );
+                    assert_eq!(slice["line_end"].as_u64(), Some(focused.line_end as u64));
+                }
+                "batch_view" => {
+                    let direct = crate::surgical_handlers::handle_batch_view(
+                        &mut state,
+                        crate::protocol::surgical::BatchViewInput {
+                            agent_id: "northerner".into(),
+                            files: vec![file_path.clone()],
+                            max_lines_per_file: slice["lines_returned"].as_u64().unwrap() as usize,
+                            summary_mode: false,
+                            auto_ingest: false,
+                            max_output_chars: None,
+                        },
+                    )
+                    .expect("direct batch_view");
+                    let entry = direct.entries.first().expect("one entry");
+                    assert_eq!(
+                        slice["content"].as_str().unwrap_or_default(),
+                        entry.content,
+                        "north's slice must BE batch_view's rendering, byte for byte"
+                    );
+                    assert_eq!(
+                        slice["total_lines"].as_u64(),
+                        Some(entry.total_lines as u64)
+                    );
+                }
+                other => panic!("unknown slice source `{other}`"),
+            }
+        }
+        assert!(
+            slices.len() >= 2,
+            "the pin must cover both composed verbs, got {} slice(s)",
+            slices.len()
+        );
+    }
+
+    /// The measured before/after: the same packet, with and without the code
+    /// payload, on the same graph. The budget is not an adjective.
+    #[test]
+    fn north_packet_stays_inside_the_budget_law_with_code() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let without = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "code": false }),
+        )
+        .expect("north without code");
+        let with = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north with code");
+
+        let before = serde_json::to_string(&without).expect("serialize").len();
+        let after = serde_json::to_string(&with).expect("serialize").len();
+        eprintln!("north packet: {before} chars without code -> {after} chars with code (default budget {} chars)", super::NORTH_CODE_BUDGET_CHARS);
+        assert!(after > before, "the code payload must actually carry bytes");
+        assert!(
+            after - before <= super::NORTH_CODE_BUDGET_CHARS + 512,
+            "the code payload may exceed its budget only by its own declared envelope: grew {} chars",
+            after - before
         );
     }
 
