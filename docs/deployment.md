@@ -131,6 +131,18 @@ both. Any number of attach bridges share the owner's one live graph, so what one
 `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over
 `127.0.0.1`, so it stays local-first.
 
+The same two questions are askable on their own. `m1nd-mcp --discover-owner` prints the
+answer as one JSON object and exits — no bridge, no graph, no lease, no port — with exit
+code `0` when an owner answered and `1` when none did, the refusal carried in `reason`.
+It is what the npm agent CLI asks before deciding how to boot, and the honest way to
+check from any language, or a shell, which owner a given directory would reach:
+
+```bash
+cd /path/to/repo && m1nd-mcp --discover-owner
+# → {"schema":"m1nd-owner-discovery-v0","found":true,"discovery":"ingest_coverage",
+#    "base_url":"http://127.0.0.1:1338","declared_root":"/path/to/repo", …}
+```
+
 ## 3. Noise reduction (large workspaces)
 
 If your workspace contains massive dependencies (iOS Pods, `node_modules`, Rust `target/`),

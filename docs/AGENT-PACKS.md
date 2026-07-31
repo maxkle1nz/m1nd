@@ -120,9 +120,9 @@ orientation calls, then switch to direct source reads, git diff, focused
 runtime probes, tests, or compiler output. Record whether m1nd acted as
 `short_audit_orientation` or whether it became `recovery_overhead`.
 
-For local helper use, prefer the first-class agent CLI. It starts an isolated
-runtime, binds `M1ND_WORKSPACE_ROOT` to the repo, keeps worktree artifacts out
-of the inspected project, and returns a single JSON envelope:
+For local helper use, prefer the first-class agent CLI. It binds
+`M1ND_WORKSPACE_ROOT` to the repo, keeps worktree artifacts out of the inspected
+project, and returns a single JSON envelope:
 
 ```bash
 m1nd agent first-minute \
@@ -157,6 +157,31 @@ bounded orientation envelope that tells the agent to switch to direct
 source/runtime proof. The older
 `skills/m1nd-operator/scripts/probe_m1nd.py short-audit` route remains available
 for compatibility when a host has not installed the npm CLI.
+
+### First contact from the CLI: which runtime it speaks to
+
+Before any of these commands boots anything, it asks the runtime the same two
+questions `--attach auto` asks (`m1nd-mcp --discover-owner`, read-only, no lease
+— see [docs/deployment.md](deployment.md)): is there a live serve owner for this
+client's runtime root, and failing that, one whose declared ingest roots COVER
+`--repo`?
+
+* **An owner answers** → the CLI bridges to it (`--attach auto`) and reads the
+  machine's live graph. No isolated runtime directory is created, no lease is
+  taken, and the bearer token comes from that owner's own runtime root. The
+  envelope reports `runtime.boot: "attached_serve_owner"` and the owner under
+  `runtime.owner_discovery`.
+* **No owner covers the repo** → the historical isolated runtime is launched,
+  bound to `--repo`, with `runtime.boot: "isolated_runtime"`. If the bound brain
+  has no graph the answer is still `needs_authority` / `NOT_PROVEN` — and it now
+  carries the discovery's own refusal, so the caller can tell "no owner is
+  running here" from "the owner refused you".
+* **Ambiguity fails closed**: two live owners covering one repo is refused by
+  name, never guessed, exactly as for the bridge.
+
+`--no-attach` forces the isolated runtime; `--shared-runtime` keeps its previous
+meaning and skips discovery. A runtime older than the probe flag reports
+`owner_discovery.supported: false` and stays on the isolated path.
 
 Use the adjacent agent commands for common recovery flows:
 
@@ -294,12 +319,14 @@ For benchmark lanes or narrow write scopes, prefer the agent CLI:
 m1nd agent trust --repo /path/to/project --ensure-ingest --json
 ```
 
-This keeps runtime state in the isolated runtime directory while setting
-`M1ND_WORKSPACE_ROOT` to the inspected repo. If `--repo` is omitted, the CLI
-uses the caller directory. It avoids accidental
-`graph_snapshot.json`, `ingest_roots.json`, or `plasticity_state.json` files in
-the audited repo. The CLI prefers the managed runtime at `~/.m1nd/bin/m1nd-mcp`
-before a potentially stale `m1nd-mcp` on `PATH`.
+When no live owner covers the repo this keeps runtime state in the isolated
+runtime directory while setting `M1ND_WORKSPACE_ROOT` to the inspected repo;
+when one does, the command reads that owner's graph over the attach bridge and
+writes nothing locally at all. If `--repo` is omitted, the CLI uses the caller
+directory. Either way it avoids accidental `graph_snapshot.json`,
+`ingest_roots.json`, or `plasticity_state.json` files in the audited repo. The
+CLI prefers the managed runtime at `~/.m1nd/bin/m1nd-mcp` before a potentially
+stale `m1nd-mcp` on `PATH`.
 
 ## MCP Config Snippets
 

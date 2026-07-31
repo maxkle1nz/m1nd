@@ -427,8 +427,16 @@ m1nd agent orient \
 Use `m1nd agent first-minute` when the live MCP session is stale, bound to the
 wrong repo, or has not loaded this pack yet — it is the host-neutral CLI escape
 hatch for first contact, not the in-session front door (`north` is). It scopes,
-trusts, ingests when needed, runs one bounded orientation pass, returns anchors,
-and hands control back to direct proof.
+trusts, runs one bounded orientation pass, returns anchors, and hands control
+back to direct proof.
+
+Before it boots anything it asks the runtime whether a live serve owner already
+holds `--repo` (the same two questions `--attach auto` asks: this client's
+runtime root, else an owner whose declared ingest roots cover the repo). When one
+answers, the command bridges to that owner and reads the machine's live graph;
+when none does, it launches an isolated runtime and a `needs_authority` answer
+then names why no owner was reached. Read `runtime.boot` and
+`runtime.owner_discovery` before concluding the machine has no graph.
 
 `m1nd hosts plan`/`m1nd hosts apply` now emit SessionStart-family hook recipes
 (`SessionStart`/`agentSpawn`/`TaskStart`) plus a per-host doctrine file for every
@@ -538,7 +546,9 @@ isolated `--runtime-dir`, use the current `probe_m1nd.py` helper, or group
 dependent checks into one `probe_m1nd.py run` process before falling back to
 files. In benchmark lanes or strict write scopes, prefer
 `m1nd agent ... --repo /path/to/repo --json` so runtime metadata stays in the
-isolated runtime dir while the requested repo becomes `M1ND_WORKSPACE_ROOT`.
+isolated runtime dir while the requested repo becomes `M1ND_WORKSPACE_ROOT`
+(when a live owner covers the repo the command bridges to it and writes nothing
+locally at all; `--no-attach` forces the isolated runtime).
 The helper prefers `~/.m1nd/bin/m1nd-mcp` before a stale `m1nd-mcp` on `PATH`.
 
 If the host appears to be launching an old or stale native runtime, and a local
