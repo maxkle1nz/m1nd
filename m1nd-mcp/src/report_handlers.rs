@@ -9,7 +9,7 @@
 
 use crate::protocol::layers::{
     PanoramicAlert, PanoramicInput, PanoramicModule, PanoramicOutput, ReportHeuristicHotspot,
-    ReportInput, ReportOutput, ReportQueryEntry,
+    ReportInput, ReportOutput, ReportQueryEntry, ReportVerbUsage,
 };
 use crate::scope::normalize_scope_path;
 use crate::session::SessionState;
@@ -47,6 +47,29 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
             m1nd_answered: true,
         })
         .collect();
+
+    // The DURABLE half of the report: what this brain has recorded about its
+    // own use, across restarts. `recent_queries` above is this session's ring
+    // buffer and dies with the process; these counters do not. They are NOT
+    // filtered by `agent_id` — the ledger has no agent dimension, which is the
+    // privacy decision, not an oversight (`crate::verb_usage`).
+    let mut verb_usage: Vec<ReportVerbUsage> = state
+        .verb_usage
+        .entries()
+        .map(|(verb, counters)| ReportVerbUsage {
+            verb: verb.to_string(),
+            answered: counters.answered,
+            refused_at_authority_floor: counters.refused_at_authority_floor,
+            refused_at_dispatch: counters.refused_at_dispatch,
+            first_seen_ms: counters.first_seen_ms,
+            last_seen_ms: counters.last_seen_ms,
+        })
+        .collect();
+    verb_usage.sort_by(|a, b| {
+        let a_total = a.answered + a.refused_at_authority_floor + a.refused_at_dispatch;
+        let b_total = b.answered + b.refused_at_authority_floor + b.refused_at_dispatch;
+        b_total.cmp(&a_total).then_with(|| a.verb.cmp(&b.verb))
+    });
 
     let heuristic_hotspots: Vec<ReportHeuristicHotspot> = {
         let graph = state.graph.read();
@@ -107,17 +130,31 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
          | Queries (this agent) | {} |\n\
          | Total elapsed | {:.0}ms |\n\
          | Graph nodes | {} |\n\
-         | Graph edges | {} |\n\n\
+         | Graph edges | {} |\n\
+         | Verbs ever called (all sessions) | {} |\n\n\
          ### Recent Queries\n{}\n\
+         ### Verb Usage (durable, all agents, all sessions)\n{}\n\
          ### Heuristic Hotspots\n{}",
         uptime,
         session_queries,
         session_elapsed_ms,
         node_count,
         edge_count,
+        verb_usage.len(),
         recent_queries
             .iter()
             .map(|q| format!("- **{}** `{}` ({:.0}ms)\n", q.tool, q.query, q.elapsed_ms))
+            .collect::<String>(),
+        verb_usage
+            .iter()
+            .take(20)
+            .map(|entry| format!(
+                "- **{}** answered={} refused_floor={} refused_dispatch={}\n",
+                entry.verb,
+                entry.answered,
+                entry.refused_at_authority_floor,
+                entry.refused_at_dispatch
+            ))
             .collect::<String>(),
         heuristic_hotspots
             .iter()
@@ -159,6 +196,7 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
         queries_answered,
         recent_queries,
         heuristic_hotspots,
+        verb_usage,
         markdown_summary,
         truncated,
         inline_summary,
@@ -507,6 +545,62 @@ mod tests {
                 .and_then(|contract| contract["trust_mode"].as_str()),
             Some("wrong_workspace_binding")
         );
+    }
+
+    /// The read surface: `report` is the ONE verb that answers "which verbs are
+    /// used, how often" — no second tool, and no `agent_id` filter, because the
+    /// ledger has no agent dimension.
+    #[test]
+    fn verb_usage_report_surfaces_durable_counts_for_every_agent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_report_state(temp.path());
+
+        crate::server::dispatch_generic_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({"agent_id": "agent-one"}),
+        )
+        .expect("health answers");
+        crate::server::dispatch_generic_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({"agent_id": "agent-one", "mode": "merge", "paths": ["."]}),
+        )
+        .expect_err("elevated ingest refuses at the floor");
+
+        // A DIFFERENT agent asks. The durable counters are the brain's, not the
+        // caller's, so both calls above are visible here.
+        let output = handle_report(
+            &mut state,
+            ReportInput {
+                agent_id: "agent-two".into(),
+                max_output_chars: None,
+            },
+        )
+        .expect("report should succeed");
+
+        let health = output
+            .verb_usage
+            .iter()
+            .find(|entry| entry.verb == "health")
+            .expect("health in the durable verb usage");
+        assert_eq!(health.answered, 1);
+        let ingest = output
+            .verb_usage
+            .iter()
+            .find(|entry| entry.verb == "ingest")
+            .expect("ingest in the durable verb usage");
+        assert_eq!(ingest.refused_at_authority_floor, 1);
+        assert_eq!(
+            ingest.answered, 0,
+            "report must not present a refusal as an answer"
+        );
+        assert_eq!(
+            output.session_queries, 0,
+            "this agent asked nothing this session — the durable counts are a \
+             different fact from the session log"
+        );
+        assert!(output.markdown_summary.contains("Verb Usage"));
     }
 
     #[test]

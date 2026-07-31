@@ -584,6 +584,13 @@ pub struct SessionState {
     // --- v0.4.0: Query Log (savings tracker removed — brand gate G1.5) ---
     /// Query log ring buffer (capped at 1000 entries). Feeds `report`.
     pub query_log: Vec<QueryLogEntry>,
+    /// Durable per-verb call counters — the ONLY thing m1nd records about its
+    /// own use, and deliberately the smallest thing that answers "which verbs
+    /// are called, how often". Verb names and counts only; see
+    /// `crate::verb_usage` before adding a field. Written by
+    /// [`SessionState::record_verb_call`] from ONE seam
+    /// (`server::dispatch_generic_tool`); read back through `report`.
+    pub verb_usage: crate::verb_usage::VerbUsageLedger,
     /// Graph node count at session start.
     pub session_start_node_count: u32,
     /// Graph edge count at session start.
@@ -2236,6 +2243,7 @@ impl SessionState {
             calibration_path: runtime_root.join("calibration_state.json"),
             // v0.4.0: Query Log (savings tracker/state removed — brand gate G1.5)
             query_log: Vec::new(),
+            verb_usage: crate::verb_usage::VerbUsageLedger::load(&runtime_root),
             session_start_node_count: 0,
             session_start_edge_count: 0,
             boot_memory_path: runtime_root.join("boot_memory_state.json"),
@@ -3901,6 +3909,36 @@ impl SessionState {
         self.query_log.push(entry);
     }
 
+    /// Record ONE dispatched verb in the durable usage ledger.
+    ///
+    /// The counterpart of [`Self::log_query`], and deliberately its opposite in
+    /// every dimension that matters: the query log is per-agent, per-session,
+    /// capped, in-memory, and carries a query preview; this carries a verb name
+    /// and three counters, survives restarts, and holds NOTHING a caller wrote.
+    /// `tool_name` is mapped onto a compiled route name before it is stored —
+    /// caller text never reaches the file (`crate::verb_usage`).
+    ///
+    /// Two properties this must keep: it is called from exactly ONE seam
+    /// (`server::dispatch_generic_tool`), so the counters cannot disagree with
+    /// themselves; and its disk write is fail-open, so a broken counter file
+    /// costs a log line rather than the agent's tool call.
+    pub fn record_verb_call(
+        &mut self,
+        tool_name: &str,
+        outcome: crate::verb_usage::VerbCallOutcome,
+    ) {
+        let verb = crate::verb_usage::canonical_verb(tool_name);
+        let now_ms = crate::util::now_ms();
+        self.verb_usage.record(verb, outcome, now_ms);
+        if self.read_only {
+            // Attach-mode never writes the owner's runtime root. The counts
+            // still accumulate in memory for this session's own `report`.
+            return;
+        }
+        let ledger = &mut self.verb_usage;
+        crate::server::vigil_fail_open("verb usage counters", verb, || ledger.flush_if_due(now_ms));
+    }
+
     /// Generate a summary of active agent sessions for health output.
     pub fn session_summary(&self) -> Vec<serde_json::Value> {
         self.sessions
@@ -4423,7 +4461,7 @@ fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
     Ok(serde_json::to_vec_pretty(&canonicalize(value))?)
 }
 
-fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
+pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -4556,8 +4594,13 @@ mod tests {
     /// Deliberately excluded, each because it already has a channel of its own:
     /// `graph` (watched by `DurableWitnessV1`), `plasticity` and `temporal`
     /// (regenerable learning drift, excluded by design — FM-PL-006),
-    /// `auto_ingest` (owns `checkpoint_persist_requested`), and the boot-KV
-    /// inventory (rebuilt from `boot_memory`, which IS listed).
+    /// `auto_ingest` (owns `checkpoint_persist_requested`), the boot-KV
+    /// inventory (rebuilt from `boot_memory`, which IS listed), and
+    /// `verb_usage` — the per-verb call counters own an eager throttled writer
+    /// (`VerbUsageLedger::flush_if_due`, the presence-beat shape) and are NOT
+    /// brain knowledge: they are telemetry about traffic, so a graph rollback
+    /// must not roll back the fact that calls happened, and their declared loss
+    /// contract is "the counts start over".
     const DURABLE_SIDECAR_OWNERS: &[&str] = &[
         "antibodies",
         "tremor_registry",

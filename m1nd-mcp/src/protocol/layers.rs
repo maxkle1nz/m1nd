@@ -2581,6 +2581,28 @@ pub struct ReportHeuristicHotspot {
     pub heuristic_signals: HeuristicSignals,
 }
 
+/// One verb's DURABLE call counters, from this runtime's usage ledger.
+///
+/// Unlike the rest of `report` this is neither session-scoped nor per-agent: it
+/// is what this brain has recorded across every restart since the ledger was
+/// created. Verb names and counts only — the ledger holds no agent id, no
+/// arguments, and nothing derived from them (see `crate::verb_usage`).
+#[derive(Clone, Debug, Serialize)]
+pub struct ReportVerbUsage {
+    /// Canonical verb name: always a compiled route name, or `<unrouted>`.
+    pub verb: String,
+    /// Calls that produced a payload. NOT a claim the payload was useful — a
+    /// m1nd payload can itself carry a refusal.
+    pub answered: u64,
+    /// Calls the F-01 authority-floor gate refused before any handler ran.
+    pub refused_at_authority_floor: u64,
+    /// Calls the dispatcher itself refused: a retired-primitive tombstone, the
+    /// read-only attach gate, the proof gate, or a handler error.
+    pub refused_at_dispatch: u64,
+    pub first_seen_ms: u64,
+    pub last_seen_ms: u64,
+}
+
 /// Output for m1nd.report — session statistics.
 ///
 /// Brand gate G1.5: the tokens-saved / CO2 fields were removed as unmeasured
@@ -2597,6 +2619,10 @@ pub struct ReportOutput {
     pub recent_queries: Vec<ReportQueryEntry>,
     /// Highest-risk heuristic hotspots visible in the current graph.
     pub heuristic_hotspots: Vec<ReportHeuristicHotspot>,
+    /// DURABLE per-verb call counts for this brain — every verb called at least
+    /// once, most-called first. Survives restarts; not filtered by `agent_id`
+    /// (the ledger has no agent dimension, on purpose).
+    pub verb_usage: Vec<ReportVerbUsage>,
     /// Markdown-formatted summary for display.
     pub markdown_summary: String,
     pub truncated: bool,
