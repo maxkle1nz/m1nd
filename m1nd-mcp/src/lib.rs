@@ -292,6 +292,12 @@ mod attach_auto_ingest_coverage_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/plasticity_survives_ingest.rs"]
 mod plasticity_survives_ingest_internal_tests;
+// The same two questions, asked for the FIRST-MINUTE path: the npm agent CLI is
+// JavaScript, so it needs the answer in a wire shape before it decides whether
+// to boot its own runtime or bridge to a live owner.
+#[cfg(test)]
+#[path = "internal_tests/first_minute_owner_discovery.rs"]
+mod first_minute_owner_discovery_internal_tests;
 // The transplant proof suites and the boot-drift battery drive `dispatch_tool`
 // and `SessionState::initialize` in-process. Those are owner-internal seams the
 // crate deliberately does NOT export — the `McpServer` / `initialize`

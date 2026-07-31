@@ -334,8 +334,11 @@ probes than by extended graph navigation.
    `session_handshake` (scoped to the intended repo) only when the binding looks
    degraded and you need the trust sub-check alone.
 2. When the host MCP session is stale, bound to the wrong repo, or not loaded
-   yet, use the host-neutral CLI escape hatch instead — it launches an isolated
-   runtime bound to the repo and returns one machine-readable envelope:
+   yet, use the host-neutral CLI escape hatch instead. It first asks the runtime
+   whether a live serve owner already holds this repo (the same two questions
+   `--attach auto` asks) and bridges to it when one does; otherwise it launches
+   an isolated runtime bound to the repo. Either way, one machine-readable
+   envelope — and `runtime.boot` says which of the two you got:
 
    ```bash
    m1nd agent first-minute \
@@ -354,6 +357,12 @@ probes than by extended graph navigation.
    `north` is available. It returns anchors, `do_not` guardrails, and the
    direct-proof handoff without requiring the agent to read this skill first. In a
    healthy session, `north` is the front door; this CLI is the recovery entry.
+
+   A `needs_authority` answer means the brain it reached has no graph — never
+   that the machine has none. Read `runtime.boot` and `runtime.owner_discovery`
+   before concluding anything: on `isolated_runtime` the refusal names why no
+   live serve owner covered this repo, and starting or ingesting into an owner
+   is the repair, not "configure a provider".
 
    It returns an `m1nd-agent-action-envelope-v0`; follow the emitted command or
    recovery path instead of spending calls guessing the tool family.
@@ -480,7 +489,9 @@ probe or the repo-local smoke harness also fails.
 In benchmark lanes or repos with narrow write scopes, add
 `m1nd agent ... --repo /path/to/repo --json` so graph/runtime metadata stays in
 the isolated runtime directory instead of the target worktree. The CLI sets
-`M1ND_WORKSPACE_ROOT` for the requested repo.
+`M1ND_WORKSPACE_ROOT` for the requested repo. When a live serve owner already
+covers that repo the CLI bridges to it instead and writes nothing locally at
+all; pass `--no-attach` when a lane must have its own runtime regardless.
 
 If a tool call fails with `Transport closed`, classify it as a host MCP binding
 failure before m1nd can run. Do not call `doctor`, `recovery_playbook`, or
