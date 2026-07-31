@@ -1651,6 +1651,65 @@ pub fn discover_serve_owner(
     ))
 }
 
+/// Schema of the one-shot owner-discovery answer a non-Rust caller reads.
+pub const OWNER_DISCOVERY_SCHEMA: &str = "m1nd-owner-discovery-v0";
+
+/// [`discover_serve_owner`]'s answer in a wire shape a non-Rust caller can
+/// branch on — today the npm agent CLI (`m1nd agent first-minute` / `context`),
+/// which must decide whether to bridge to a live owner or boot its own runtime.
+///
+/// It carries the refusal text verbatim on the negative answer, because a client
+/// that boots isolated has to be able to say WHY it is isolated.
+#[derive(Clone, Debug, Serialize)]
+pub struct OwnerDiscoveryProbe {
+    pub schema: &'static str,
+    /// True when a live serve ReadWrite owner answered either question.
+    pub found: bool,
+    /// The runtime root question 1 asked about (the client's own).
+    pub client_runtime_root: String,
+    /// The repo question 2 asked about, as the caller named it.
+    pub caller_root: Option<String>,
+    /// `runtime_root` or `ingest_coverage` — which question answered.
+    pub discovery: Option<String>,
+    /// Reachable base URL of the owner, e.g. `http://127.0.0.1:1338`.
+    pub base_url: Option<String>,
+    /// The OWNER's own runtime root — where its bearer token lives.
+    pub owner_runtime_root: Option<String>,
+    /// The owner's declared root that covered the caller (question 2 only).
+    pub declared_root: Option<String>,
+    /// The discovery's own refusal, verbatim, when nothing was found.
+    pub reason: Option<String>,
+}
+
+/// Ask [`discover_serve_owner`]'s two questions and project the answer.
+///
+/// PURE read-only registry inspection, exactly like the discovery it wraps: no
+/// lease, no port, no graph. It exists so the boot decision of a non-Rust client
+/// can be made by the SAME code `--attach auto` uses — never by a second
+/// discovery that would drift from it.
+pub fn probe_serve_owner(
+    runtime_root: &Path,
+    caller_root: Option<&Path>,
+    registry_dir: Option<&Path>,
+) -> OwnerDiscoveryProbe {
+    let _ = registry_dir;
+    // RED MARKER (replaced by the reuse of `discover_serve_owner`): today the
+    // first-minute path never asks either question, so this models exactly that
+    // blindness — every caller is told there is no owner, on a machine where one
+    // holds the whole graph.
+    OwnerDiscoveryProbe {
+        schema: OWNER_DISCOVERY_SCHEMA,
+        found: false,
+        client_runtime_root: runtime_root.to_string_lossy().into_owned(),
+        caller_root: caller_root.map(|root| root.to_string_lossy().into_owned()),
+        discovery: None,
+        base_url: None,
+        owner_runtime_root: None,
+        declared_root: None,
+        reason: Some("owner discovery is not asked on this path".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

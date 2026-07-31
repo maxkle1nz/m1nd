@@ -533,6 +533,23 @@ if (process.argv.includes("--version")) {
 }
 const readline = require("readline");
 const fs = require("fs");
+const launchArgs = process.argv.slice(2);
+if (process.env.M1ND_FAKE_ARGV_LOG) fs.appendFileSync(process.env.M1ND_FAKE_ARGV_LOG, launchArgs.join(" ") + "\\n");
+// The one-shot owner-discovery probe. A runtime that does not know the flag
+// refuses it the way clap does, which is exactly what an older installed binary
+// does — the CLI must treat that as "no discovery was possible", never a crash.
+if (launchArgs.includes("--discover-owner")) {
+  const payload = process.env.M1ND_FAKE_OWNER_DISCOVERY;
+  if (!payload) {
+    process.stderr.write("error: unexpected argument '--discover-owner' found\\n");
+    process.exit(2);
+  }
+  process.stdout.write(payload + "\\n");
+  process.exit(JSON.parse(payload).found ? 0 : 1);
+}
+// Bridged to a served owner: that owner holds the real graph, so the blind
+// empty-runtime envs never apply to it.
+const attached = launchArgs.includes("--attach");
 const rl = readline.createInterface({ input: process.stdin });
 function write(id, result) {
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
@@ -565,14 +582,14 @@ rl.on("line", (line) => {
   const args = req.params.arguments || {};
   const orientBlocked = process.env.M1ND_FAKE_ORIENT_BLOCKED === "1" || process.env.M1ND_FAKE_SEARCH_BLOCKED === "1";
   if (name === "trust_selftest") {
-    if (process.env.M1ND_FAKE_TRUST === "needs_ingest") {
+    if (process.env.M1ND_FAKE_TRUST === "needs_ingest" && !attached) {
       return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "needs_ingest", checks: { needs_ingest: true }, graph_state: { ...graph(), node_count: 0, edge_count: 0, finalized: false, ingest_root_count: 0 } }));
     }
     return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "full_trust", checks: { needs_ingest: false }, graph_state: graph() }));
   }
   if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, graph_state: graph(), path: args.path }));
   if (name === "session_handshake") {
-    if (process.env.M1ND_FAKE_TRUST === "needs_ingest") {
+    if (process.env.M1ND_FAKE_TRUST === "needs_ingest" && !attached) {
       return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "needs_ingest", graph_state: { ...graph(), node_count: 0, edge_count: 0, finalized: false, ingest_root_count: 0 }, scope: args.scope }));
     }
     return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "full_trust", graph_state: graph(), scope: args.scope }));
@@ -2138,6 +2155,156 @@ assert(agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
 const agentLegacyCalls = fs.readFileSync(agentLegacyCallLog, "utf8").split(/\r?\n/);
 assert(!agentLegacyCalls.includes("ingest"));
 
+// --- The first minute must find the owner that already holds this repo. ---
+// Field letter (2026-07-31, README demo capture): `m1nd agent first-minute` and
+// `m1nd agent context` booted an isolated runtime with node_count 0 and answered
+// needs_authority — "connect an authenticated typed governed owner provider" —
+// while the served owner on the SAME machine, the same minute, held the whole
+// graph and already declared that repo among its ingest roots. `--attach auto`
+// was cured of this defect class; this path never adopted the cure. The CLI now
+// asks the runtime's own discovery probe (the SAME two questions) before it
+// decides how to boot.
+const ownerDiscoveryFound = JSON.stringify({
+  schema: "m1nd-owner-discovery-v0",
+  found: true,
+  client_runtime_root: "/isolated/runtime",
+  caller_root: agentOrientRepo,
+  discovery: "ingest_coverage",
+  base_url: "http://127.0.0.1:1338",
+  owner_runtime_root: "/owner/runtime",
+  declared_root: agentOrientRepo,
+  reason: null,
+});
+const ownerDiscoveryNoneReason =
+  "no live serve owner for this client, on either discovery question:\n" +
+  "  1. runtime_root /isolated/runtime — no live serve ReadWrite owner holds it;\n" +
+  `  2. caller root ${agentOrientRepo} — no live serve owner declares an ingest root covering it.`;
+const ownerDiscoveryNone = JSON.stringify({
+  schema: "m1nd-owner-discovery-v0",
+  found: false,
+  client_runtime_root: "/isolated/runtime",
+  caller_root: agentOrientRepo,
+  discovery: null,
+  base_url: null,
+  owner_runtime_root: null,
+  declared_root: null,
+  reason: ownerDiscoveryNoneReason,
+});
+
+const agentAttachArgvLog = path.join(mkTmpDir(), "argv.log");
+const agentFirstMinuteAttached = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      // The isolated sidecar this repo's own runtime would boot is EMPTY; only
+      // the discovered owner has the graph.
+      M1ND_FAKE_TRUST: "needs_ingest",
+      M1ND_FAKE_OWNER_DISCOVERY: ownerDiscoveryFound,
+      M1ND_FAKE_ARGV_LOG: agentAttachArgvLog,
+    },
+  }
+);
+assert.strictEqual(agentFirstMinuteAttached.status, 0, agentFirstMinuteAttached.stderr);
+const agentFirstMinuteAttachedJson = JSON.parse(agentFirstMinuteAttached.stdout);
+assert.strictEqual(
+  agentFirstMinuteAttachedJson.ok,
+  true,
+  "a live owner declaring this repo must be used, never a blind isolated runtime"
+);
+assert.strictEqual(agentFirstMinuteAttachedJson.runtime.boot, "attached_serve_owner");
+assert.strictEqual(agentFirstMinuteAttachedJson.runtime.owner_discovery.found, true);
+assert.strictEqual(agentFirstMinuteAttachedJson.runtime.owner_discovery.base_url, "http://127.0.0.1:1338");
+assert.strictEqual(agentFirstMinuteAttachedJson.runtime.owner_discovery.discovery, "ingest_coverage");
+assert.strictEqual(
+  agentFirstMinuteAttachedJson.runtime.runtime_root,
+  null,
+  "an attached first minute mints no isolated runtime root"
+);
+assert.strictEqual(agentFirstMinuteAttachedJson.status, undefined);
+assert(agentFirstMinuteAttachedJson.anchors.length > 0);
+const agentAttachArgv = fs.readFileSync(agentAttachArgvLog, "utf8").split(/\r?\n/).filter(Boolean);
+assert(
+  agentAttachArgv.some((line) => line.includes("--discover-owner")),
+  "the CLI must ask the runtime's own discovery probe instead of a second discovery"
+);
+const agentAttachBridgeArgv = agentAttachArgv.find((line) => line.includes("--attach"));
+assert(
+  agentAttachBridgeArgv && agentAttachBridgeArgv.includes("--attach auto"),
+  `the runtime must be launched as a bridge to the discovered owner: ${agentAttachArgv.join(" | ")}`
+);
+assert(
+  !agentAttachBridgeArgv.includes("--runtime-dir"),
+  "an attached boot never mints an isolated runtime dir"
+);
+
+// `agent context` is the other half of the letter and shares the boot decision.
+const agentContextAttached = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "src/session.js session boundary", "--tokens", "800", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_TRUST: "needs_ingest",
+      M1ND_FAKE_OWNER_DISCOVERY: ownerDiscoveryFound,
+    },
+  }
+);
+assert.strictEqual(agentContextAttached.status, 0, agentContextAttached.stderr);
+const agentContextAttachedJson = JSON.parse(agentContextAttached.stdout);
+assert.strictEqual(agentContextAttachedJson.runtime.boot, "attached_serve_owner");
+assert.strictEqual(agentContextAttachedJson.runtime.owner_discovery.found, true);
+
+// No covering owner: the isolated path REMAINS, with every refusal intact, and
+// the envelope says WHY it is isolated instead of blaming the caller's setup.
+const agentFirstMinuteIsolated = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_TRUST: "needs_ingest",
+      M1ND_FAKE_OWNER_DISCOVERY: ownerDiscoveryNone,
+    },
+  }
+);
+assert.strictEqual(agentFirstMinuteIsolated.status, 0, agentFirstMinuteIsolated.stderr);
+const agentFirstMinuteIsolatedJson = JSON.parse(agentFirstMinuteIsolated.stdout);
+assert.strictEqual(agentFirstMinuteIsolatedJson.ok, false);
+assert.strictEqual(agentFirstMinuteIsolatedJson.status, "needs_authority");
+assert.strictEqual(agentFirstMinuteIsolatedJson.proof_state, "NOT_PROVEN");
+assert.strictEqual(agentFirstMinuteIsolatedJson.authority.provider.configured, false);
+assert.strictEqual(agentFirstMinuteIsolatedJson.authority.mutation_attempted, false);
+assert.strictEqual(agentFirstMinuteIsolatedJson.mutation_policy.generic_ingest_called, false);
+assert.strictEqual(agentFirstMinuteIsolatedJson.runtime.boot, "isolated_runtime");
+assert.strictEqual(agentFirstMinuteIsolatedJson.runtime.owner_discovery.found, false);
+assert(
+  agentFirstMinuteIsolatedJson.runtime.owner_discovery.reason.includes("no live serve owner"),
+  "the isolated boot carries the discovery's own refusal"
+);
+assert(
+  agentFirstMinuteIsolatedJson.next_actions.some((entry) => entry.includes("no live serve owner")),
+  "the caller is told WHY the runtime is isolated, not only what to configure"
+);
+
+// An older installed runtime that does not know the probe flag is not a crash:
+// the CLI keeps the historical isolated boot and says discovery was impossible.
+const agentFirstMinuteUnprobed = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentFirstMinuteUnprobed.status, 0, agentFirstMinuteUnprobed.stderr);
+const agentFirstMinuteUnprobedJson = JSON.parse(agentFirstMinuteUnprobed.stdout);
+assert.strictEqual(agentFirstMinuteUnprobedJson.ok, true);
+assert.strictEqual(agentFirstMinuteUnprobedJson.runtime.boot, "isolated_runtime");
+assert.strictEqual(agentFirstMinuteUnprobedJson.runtime.owner_discovery.supported, false);
+assert(typeof agentFirstMinuteUnprobedJson.runtime.runtime_root === "string");
+
 const agentAutoSymbol = spawnSync(
   process.execPath,
   [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "chooseOrientationTool", "--binary", fakeMcp, "--json"],
@@ -2392,6 +2559,60 @@ assert.strictEqual(kickstartJson.node_count, 12);
 assert.strictEqual(kickstartJson.edge_count, 21);
 assert.strictEqual(kickstartJson.ok, true);
 assert.strictEqual(kickstartJson.next_action, "ready_to_query");
+
+// --- `m1nd demo --binary <path>` must honor the flag. ---
+// Field letter (2026-07-31): two runs, with and without `--binary`, produced
+// byte-identical errors naming `<repo>/target/debug/m1nd-mcp` — the flag was
+// accepted by the CLI and then dropped before the smoke step, so the demo could
+// only ever run against a debug build of the repo it was pointed at.
+const demoRepo = mkTmpDir();
+fs.mkdirSync(path.join(demoRepo, "scripts"), { recursive: true });
+fs.writeFileSync(path.join(demoRepo, "scripts", "m1nd_agent_demo.py"), "# demo harness stand-in\n");
+const fakePython = path.join(mkTmpDir(), "fake-python");
+fs.writeFileSync(
+  fakePython,
+  `#!/usr/bin/env node
+require("fs").appendFileSync(process.env.M1ND_FAKE_PY_LOG, process.argv.slice(2).join(" ") + "\\n");
+`
+);
+fs.chmodSync(fakePython, 0o755);
+
+const demoArgvLog = path.join(mkTmpDir(), "demo-argv.log");
+const demoWithBinary = spawnSync(
+  process.execPath,
+  [cli, "demo", "--repo", demoRepo, "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: { ...agentEnv, PYTHON: fakePython, M1ND_FAKE_PY_LOG: demoArgvLog },
+  }
+);
+assert.strictEqual(demoWithBinary.status, 0, demoWithBinary.stderr);
+assert(
+  fs.readFileSync(demoArgvLog, "utf8").includes(`--binary ${fakeMcp}`),
+  `the demo must pass --binary through to the smoke harness: ${fs.readFileSync(demoArgvLog, "utf8")}`
+);
+
+// A --binary that does not exist is refused BY NAME. Falling back to the
+// default silently is what made the two runs indistinguishable.
+const demoMissingLog = path.join(mkTmpDir(), "demo-missing-argv.log");
+const demoMissingBinary = path.join(mkTmpDir(), "no-such-runtime");
+const demoWithMissingBinary = spawnSync(
+  process.execPath,
+  [cli, "demo", "--repo", demoRepo, "--binary", demoMissingBinary, "--json"],
+  {
+    encoding: "utf8",
+    env: { ...agentEnv, PYTHON: fakePython, M1ND_FAKE_PY_LOG: demoMissingLog },
+  }
+);
+assert.strictEqual(demoWithMissingBinary.status, 1, demoWithMissingBinary.stdout);
+assert(
+  demoWithMissingBinary.stderr.includes(demoMissingBinary),
+  `the refusal must name the path it tried: ${demoWithMissingBinary.stderr}`
+);
+assert(
+  !fs.existsSync(demoMissingLog),
+  "a missing --binary never silently falls back to target/debug/m1nd-mcp"
+);
 
 } else {
   console.log(
