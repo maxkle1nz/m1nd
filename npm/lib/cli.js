@@ -90,8 +90,8 @@ Usage:
   m1nd agent handoff --repo <dir> [--from last-run|mission] [--json]
   m1nd agent doctor --repo <dir> [--json]
   m1nd kickstart --repo <dir> [--audit-path <dir>] [--binary <path>] [--json]
-  m1nd demo [--repo <dir>] [--transport stdio|http] [--json]
-  m1nd smoke [--repo <dir>] [--transport stdio|http] [--json]
+  m1nd demo [--repo <dir>] [--transport stdio|http] [--binary <path>] [--json]
+  m1nd smoke [--repo <dir>] [--transport stdio|http] [--binary <path>] [--json]
   m1nd pack-check [--json]
   m1nd pack-routing-check [--json]
 
@@ -4532,6 +4532,22 @@ function runDemo(args) {
   }
   const python = process.env.PYTHON || "python3";
   const commandArgs = [script, "--repo", repo, "--transport", args.transport || "stdio"];
+  // --binary names the runtime the demo must exercise, so it has to REACH the
+  // smoke step. It used to be accepted and then dropped here, which made a run
+  // against an installed runtime fail with the same "binary does not exist:
+  // <repo>/target/debug/m1nd-mcp" as a run with no flag at all — two commands,
+  // byte-identical errors, and no way to tell the flag had been ignored. A
+  // named path that does not exist is refused BY NAME rather than replaced by
+  // the default, because a silent fallback is the same lie in a smaller place.
+  if (args.binary) {
+    const binary = path.resolve(args.binary);
+    if (!fs.existsSync(binary)) {
+      throw new Error(
+        `m1nd-mcp binary does not exist: ${binary}; --binary is never replaced by the default target/debug/m1nd-mcp`
+      );
+    }
+    commandArgs.push("--binary", binary);
+  }
   if (args.json) commandArgs.push("--json");
   const result = spawnSync(python, commandArgs, { stdio: "inherit" });
   if (result.error) {
