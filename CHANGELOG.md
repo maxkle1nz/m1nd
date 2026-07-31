@@ -6,6 +6,31 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+## [1.6.2] — 2026-07-31
+
+### Added — the custody ceremony gets an artifact it can actually run in
+
+- **A second macOS artifact: `m1nd-custody-ceremony.app`.** The G9 ceremony persists
+  the owner's authority key in the data-protection keychain, which needs an
+  entitlement macOS honours only under an embedded provisioning profile — and a
+  command-line binary has nowhere to carry one, as 1.6.0 discovered when the kernel
+  killed it. The release now builds a signed, notarized bundle from the same bytes as
+  the ordinary runtime, carrying the profile and the entitlement, and **proves it
+  launches** before publishing it. The ordinary `m1nd-mcp` stays unentitled and
+  launchable; a contract test pins both halves so neither can drift into the other.
+  Absent the profile secret the release says so and publishes no bundle, rather than
+  shipping one that would not run.
+
+### Fixed
+
+- **A brain actor could refuse a legitimate re-bind after its predecessor was
+  dropped.** Releasing an actor lowered its fence outside the lock a waiter parks on,
+  so no one could wait on it, and the acquiring path polled a cached answer — a
+  refusal, once cached, was re-read three hundred times and returned unchanged. The
+  release now signals under that lock and the bind waits on the signal, so a hand-off
+  no longer depends on winning a race. Proven by a test that re-binds on the very next
+  statement, with no sleep and no retry budget.
+
 ## [1.6.1] — 2026-07-30
 
 1.6.0 was tagged but never published: its macOS binaries could not launch, and the
