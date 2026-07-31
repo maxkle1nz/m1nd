@@ -550,6 +550,12 @@ if (launchArgs.includes("--discover-owner")) {
 // Bridged to a served owner: that owner holds the real graph, so the blind
 // empty-runtime envs never apply to it.
 const attached = launchArgs.includes("--attach");
+// A discovered owner that cannot actually be reached: an unreadable credential,
+// or a listener that stopped answering between the probe and the bridge.
+if (attached && process.env.M1ND_FAKE_ATTACH_FAILS === "1") {
+  process.stderr.write("[m1nd-mcp][attach] authentication setup failed: cannot read owner HTTP bearer token\\n");
+  process.exit(1);
+}
 const rl = readline.createInterface({ input: process.stdin });
 function write(id, result) {
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
@@ -2289,6 +2295,34 @@ assert(
 assert(
   agentFirstMinuteIsolatedJson.next_actions.some((entry) => entry.includes("no live serve owner")),
   "the caller is told WHY the runtime is isolated, not only what to configure"
+);
+
+// A found owner that cannot be reached must not dead-end the first minute. The
+// CLI falls back to the isolated runtime, still emits one envelope, and carries
+// the attach failure so nobody reads the empty graph as the machine's truth.
+const agentFirstMinuteAttachFailed = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_OWNER_DISCOVERY: ownerDiscoveryFound,
+      M1ND_FAKE_ATTACH_FAILS: "1",
+    },
+  }
+);
+assert.strictEqual(agentFirstMinuteAttachFailed.status, 0, agentFirstMinuteAttachFailed.stderr);
+const agentFirstMinuteAttachFailedJson = JSON.parse(agentFirstMinuteAttachFailed.stdout);
+assert.strictEqual(agentFirstMinuteAttachFailedJson.runtime.boot, "isolated_runtime");
+assert.strictEqual(agentFirstMinuteAttachFailedJson.runtime.owner_discovery.found, true);
+assert(
+  String(agentFirstMinuteAttachFailedJson.runtime.owner_discovery.attach_error || "").length > 0,
+  "the envelope must carry why the discovered owner could not be reached"
+);
+assert(
+  agentFirstMinuteAttachFailedJson.next_actions.some((entry) => entry.includes("could not be reached")),
+  "the caller is told the graph it just read is a sidecar's, not the owner's"
 );
 
 // An older installed runtime that does not know the probe flag is not a crash:

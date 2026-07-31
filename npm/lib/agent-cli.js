@@ -1058,6 +1058,11 @@ function applyBootPlan(result, plan, repo) {
     }
     return result;
   }
+  if (plan.discovery.attach_error && Array.isArray(result.next_actions)) {
+    result.next_actions.unshift(
+      `A live serve owner declares ${repo} but could not be reached, so this ran against an isolated runtime — ${plan.discovery.attach_error}. Repair the owner before trusting these counts as the machine's graph.`
+    );
+  }
   if (result.status !== "needs_authority" || !plan.discovery.reason) return result;
   const honest = `No live serve owner covers ${repo}, so this ran against an isolated empty runtime — ${plan.discovery.reason}`;
   if (result.authority && Array.isArray(result.authority.recovery_instructions)) {
@@ -1070,9 +1075,7 @@ function applyBootPlan(result, plan, repo) {
   return result;
 }
 
-async function withClient(args, deps, repo, fn) {
-  const binary = args.binary ? path.resolve(args.binary) : deps.findRuntimeBinary() || deps.defaultRuntimePath();
-  const plan = resolveBootPlan(args, binary, repo);
+async function runBootPlan(args, deps, repo, fn, binary, plan) {
   const client = new McpRuntimeClient({
     binary,
     repo,
@@ -1084,6 +1087,26 @@ async function withClient(args, deps, repo, fn) {
     return applyBootPlan(await fn(client, binary), plan, repo);
   } finally {
     client.close();
+  }
+}
+
+async function withClient(args, deps, repo, fn) {
+  const binary = args.binary ? path.resolve(args.binary) : deps.findRuntimeBinary() || deps.defaultRuntimePath();
+  const plan = resolveBootPlan(args, binary, repo);
+  try {
+    return await runBootPlan(args, deps, repo, fn, binary, plan);
+  } catch (error) {
+    if (!plan.attach) throw error;
+    // The owner was found and then could not be reached: an unreadable
+    // credential, or a listener that stopped answering between the probe and
+    // the bridge. Dead-ending the first minute here would recreate the defect
+    // this path was fixed for, so fall back to the isolated runtime — and carry
+    // the failure, so nobody reads a sidecar's empty graph as the machine's.
+    const fallback = {
+      attach: false,
+      discovery: { ...plan.discovery, attach_error: error.message || String(error) },
+    };
+    return runBootPlan(args, deps, repo, fn, binary, fallback);
   }
 }
 

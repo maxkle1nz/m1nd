@@ -178,6 +178,11 @@ client's runtime root, and failing that, one whose declared ingest roots COVER
   running here" from "the owner refused you".
 * **Ambiguity fails closed**: two live owners covering one repo is refused by
   name, never guessed, exactly as for the bridge.
+* **A found owner that cannot be reached** (unreadable credential, a listener
+  gone between the probe and the bridge) falls back to the isolated runtime
+  rather than dead-ending — and the envelope carries `owner_discovery.
+  attach_error` plus a first next action saying the counts are a sidecar's, not
+  the machine's.
 
 `--no-attach` forces the isolated runtime; `--shared-runtime` keeps its previous
 meaning and skips discovery. A runtime older than the probe flag reports
