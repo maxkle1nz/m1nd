@@ -10,8 +10,10 @@
 ## The dependency truth, in one paragraph
 
 The gates are one provenance chain, not a list. G9 (custody) mints the production
-owner authority; G8 (signed release) ships the entitled binary that G9's enclave
-steps require *and* the release the manifest binds; G7 (LIVE) can only prove once
+owner authority; G8 (signed release) ships the release the manifest binds — it was
+also expected to ship the entitled binary G9's enclave steps need, and **that half
+turned out to be impossible for a command-line binary** (Step 1's correction); G7
+(LIVE) can only prove once
 manifest coherence stops being DRIFT, which needs the G9/G8 authorities to exist
 (`organism_manifest.rs` holds G1-truth at DRIFT until then — measured live when the
 owner's first G7 run answered `NOT_PROVEN: manifest coherence is DRIFT`); G10 closes
@@ -128,10 +130,25 @@ design; it is the last mint, after everything above is receipts.
 
 ## The honest scoreboard for this sitting
 
-- Owner can do TODAY: step 0 (metric spec v2) · step 1 (tag) · **step 2 whole**
-  (all five verbs wired since #498 — the ceremony itself now runs to the sealed
-  receipt and the assembly, on the entitled binary, by the owner's hand).
-- Blocked on one named machine-side item: step 3's authority provider executable —
-  itself waiting on the owner's identity-channel decision (keychain-resident,
-  recorded above).
-- Blocked on the chain itself: step 4 (needs 2+1's manifest binding) · step 5.
+**Chain gates proven: 0 of 4** (G9 · G8-as-gate · G7 · G10). The machine side that
+serves them is exhausted; the ladder itself has not moved, and saying otherwise is
+the false 10/10 this program forbids.
+
+- **Done and provable:** the independence spec is authored and sealed (its digest is
+  the owner's, computed by `--seal-independence-spec`, and the ceremony will refuse a
+  spec whose digest does not match). v1.6.1 is published, signed, notarized, and its
+  macOS binary launches — G8's *material* half. Step 0's metric spec v2 can be
+  authored at any time, though its `authority_receipt_digest` stays empty until G9's
+  `assemble` mints one.
+- **Step 2 is BLOCKED on a platform decision, not on the owner's hand.** The five
+  verbs are wired and would run, but the data-protection keychain they persist into
+  needs a restricted entitlement that only a provisioning profile authorizes, and a
+  command-line binary has nowhere to carry one (Step 1's correction, measured against
+  a kernel refusal). No release can hand the owner an entitled CLI. The three
+  candidate resolutions — an app-like bundle carrying an embedded profile, the
+  file-based keychain instead, or dropping the key's permanence requirement — are a
+  design decision with different custody guarantees, costed side by side in
+  `G9-PLATFORM-DECISION.md` and recorded in `G9-CUSTODY-CEREMONY.md` §1 P4 / §5 R1.
+  Undecided.
+- **Blocked behind step 2:** step 3's authority provider (also waiting on its own
+  identity-channel decision) · step 4 (needs the manifest to bind G9+G8) · step 5.
