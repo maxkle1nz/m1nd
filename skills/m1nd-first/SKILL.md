@@ -59,7 +59,13 @@ this loop by default:
    do not call generic `ingest`; use the isolated CLI investigation path or the
    exact typed authority consumer for an existing brain. `needs_ingest` is a real
    answer, not a failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
-   `focus`; reach for the pieces directly only when you need just one. Heed
+   `focus` + `surgical_context`/`batch_view`; reach for the pieces directly only when
+   you need just one. **The packet carries `code` — the real source of its top focus
+   nodes** (the symbol's own lines, or the file head when a node names no symbol), up
+   to 3 files inside a ~2,000-char budget. Read it instead of going out to grep or
+   re-open what north just named; each slice declares `total_lines` vs `lines_returned`
+   and `truncated`, so widen the FIRST call with `code_budget_chars` rather than paying
+   a second round-trip (`code: false` gives the orientation-only packet). Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
    `reception.options[]`. Generic cross-root `ingest` remains withdrawn: never
