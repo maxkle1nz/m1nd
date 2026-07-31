@@ -1692,12 +1692,7 @@ pub fn probe_serve_owner(
     caller_root: Option<&Path>,
     registry_dir: Option<&Path>,
 ) -> OwnerDiscoveryProbe {
-    let _ = registry_dir;
-    // RED MARKER (replaced by the reuse of `discover_serve_owner`): today the
-    // first-minute path never asks either question, so this models exactly that
-    // blindness — every caller is told there is no owner, on a machine where one
-    // holds the whole graph.
-    OwnerDiscoveryProbe {
+    let base = OwnerDiscoveryProbe {
         schema: OWNER_DISCOVERY_SCHEMA,
         found: false,
         client_runtime_root: runtime_root.to_string_lossy().into_owned(),
@@ -1706,7 +1701,32 @@ pub fn probe_serve_owner(
         base_url: None,
         owner_runtime_root: None,
         declared_root: None,
-        reason: Some("owner discovery is not asked on this path".to_string()),
+        reason: None,
+    };
+    match discover_serve_owner(runtime_root, caller_root, registry_dir) {
+        Ok(owner) => {
+            let (discovery, declared_root) = match owner.discovery {
+                OwnerDiscovery::RuntimeRoot => ("runtime_root", None),
+                OwnerDiscovery::IngestCoverage { declared_root, .. } => {
+                    ("ingest_coverage", Some(declared_root))
+                }
+            };
+            OwnerDiscoveryProbe {
+                found: true,
+                discovery: Some(discovery.to_string()),
+                base_url: Some(owner.base_url),
+                owner_runtime_root: Some(owner.runtime_root.to_string_lossy().into_owned()),
+                declared_root,
+                ..base
+            }
+        }
+        // The refusal travels VERBATIM: ambiguity naming both candidates, and
+        // the two-fact "no owner on either question" text. A client that boots
+        // its own runtime instead must be able to say why it is alone.
+        Err(reason) => OwnerDiscoveryProbe {
+            reason: Some(reason),
+            ..base
+        },
     }
 }
 

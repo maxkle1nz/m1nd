@@ -81,12 +81,12 @@ Usage:
   m1nd update rollback [--json]
   m1nd agent scope --repo <dir> [--json]
   m1nd agent trust --repo <dir> [--ensure-ingest] [--json]
-  m1nd agent first-minute --repo <dir> --query <text> [--mode short|normal|deep] [--json]
+  m1nd agent first-minute --repo <dir> --query <text> [--mode short|normal|deep] [--no-attach] [--json]
   m1nd agent orient --repo <dir> --query <text> [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent auto --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent next --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent recover --repo <dir> --from <error|payload|stdin> [--json]
-  m1nd agent context --repo <dir> --query <text> [--anchor <file>] [--allow-discovery] [--tokens <n>] [--json]
+  m1nd agent context --repo <dir> --query <text> [--anchor <file>] [--allow-discovery] [--tokens <n>] [--no-attach] [--json]
   m1nd agent handoff --repo <dir> [--from last-run|mission] [--json]
   m1nd agent doctor --repo <dir> [--json]
   m1nd kickstart --repo <dir> [--audit-path <dir>] [--binary <path>] [--json]
@@ -118,9 +118,14 @@ hosts apply is the opt-in local mutation step. Without --yes it is a dry-run.
 With --yes it installs local agent packs and writes canonical MCP config files
 for known hosts, but active clients still need restart/rebind.
 
-agent is the host-neutral operating layer for coding agents. It launches an
-isolated m1nd-mcp runtime bound to --repo, emits deterministic JSON outside any
-stale MCP host, and tells the agent when to switch back to direct proof.
+agent is the host-neutral operating layer for coding agents. It first asks the
+runtime whether a live serve owner already holds --repo (the same two questions
+--attach auto asks: an owner for this runtime root, else an owner whose declared
+ingest roots cover this repo). When one answers, agent bridges to it and reads
+the machine's real graph; when none does, it launches an isolated m1nd-mcp
+runtime bound to --repo and says so. Either way it emits deterministic JSON
+outside any stale MCP host and tells the agent when to switch back to direct
+proof. Pass --no-attach to force the isolated runtime.
 
 agent auto/next is the deterministic route picker. It does not claim proof; it
 chooses the next bounded agent step or hands control back to direct proof. For
@@ -129,8 +134,10 @@ runtime-heat tasks, it emits RETROBUILDER capability_suggestions.
 
 agent first-minute is the safest first contact for a new repo. It scopes,
 checks trust, and runs one bounded read-only orientation pass only when the bound
-brain already has an ingested graph. An empty graph returns deterministic
-needs_authority/NOT_PROVEN recovery instructions; the npm CLI never calls generic
+brain already has an ingested graph — the live serve owner's graph when one
+covers this repo, the isolated runtime's otherwise. An empty graph returns
+deterministic needs_authority/NOT_PROVEN recovery instructions naming why no
+owner was reached; the npm CLI never calls generic
 ingest, legacy bootstrap, or a software-test authority fallback. It can also surface RETROBUILDER
 tools such as ghost_edges, taint_trace, twins, refactor_plan, and
 runtime_overlay when the query asks for those deeper lenses.
@@ -157,6 +164,7 @@ function parseArgs(args) {
         "ensure-ingest",
         "json",
         "kill",
+        "no-attach",
         "no-build",
         "no-config",
         "no-hooks",
