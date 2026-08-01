@@ -85,10 +85,15 @@ age + author — absent, never faked, when unknown), a sufficiency signal, one \
 `next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
 await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
 line, absent when none do). If it returns `needs_ingest`, do not call generic \
-`ingest` to REPLACE or MERGE — those stay policy-disabled. For an existing brain, \
+`ingest` to REPLACE or MERGE — those stay policy-disabled. Read the packet's \
+`next_move`, which names WHICH repair is live, and SAY IT rather than retrying a \
+refusal. A repo with NO brain gets one from the HUMAN's one-time ceremony \
+`m1nd init --birth <repo>`: OFFER that exact command and stop. It ingests the repo for \
+real and reports the node and edge counts it produced; no agent can run it, because the \
+origin stamp exists only inside that CLI ingress. For an existing brain, \
 use the exact authority flow plus `external_mutation_service`; under \
-`caller_root_mismatch`, creating or rebinding a brain remains unavailable until the \
-typed bootstrap consumer is installed. The ONE ingest you CAN run is \
+`caller_root_mismatch`, creating or rebinding a brain from the wire remains unavailable. \
+The ONE ingest you CAN run is \
 `ingest` with mode=refresh — it re-scans a root this brain already declared, and only \
 when your caller root is exactly that root; it refuses rather than shrink the graph. \
 `north` \
@@ -1135,7 +1140,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "ingest",
-                "description": "POLICY-DISABLED generic graph mutation compatibility surface, with ONE exception. mode='replace' and mode='merge' are refused for every client: use the exact authority flow plus external_mutation_service for an existing brain, and cross-root project-brain bootstrap is unavailable until an exact typed G2/G3 consumer is installed. mode='refresh' IS callable at the SCOPED_GRANT_A2 floor, admitted A2-locally with no lease: it re-scans a root this brain has already declared, and only when your caller root is EXACTLY that root. It never creates a brain, never adds a root, never crosses to another brain, and refuses (refresh_would_shrink_graph) rather than replace a wide graph with a narrow scan.",
+                "description": "POLICY-DISABLED generic graph mutation compatibility surface, with ONE exception. mode='replace' and mode='merge' are refused for every client: use the exact authority flow plus external_mutation_service for an existing brain, and cross-root project-brain bootstrap is unavailable until an exact typed G2/G3 consumer is installed. A repo with NO brain yet is not your call at all — the human runs `m1nd init --birth <repo>` once; offer that command and stop. mode='refresh' IS callable at the SCOPED_GRANT_A2 floor, admitted A2-locally with no lease: it re-scans a root this brain has already declared, and only when your caller root is EXACTLY that root. It never creates a brain, never adds a root, never crosses to another brain, and refuses (refresh_would_shrink_graph) rather than replace a wide graph with a narrow scan.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -5634,13 +5639,19 @@ fn handle_north(
     let (context, sufficiency, next_move) = if brainless_caller {
         // Cut the poison: NO code anchors from the foreign graph cross to the
         // caller. Context is null, the gap is the canonical project_brain_absent,
-        // and the next move is the honest recovery (the same closed-bootstrap
-        // language the write path uses — never an invented `m1nd init` birth).
+        // and the next move is the honest recovery — which since the birth
+        // ceremony landed is a REAL command, not an absence. It used to end at
+        // "unavailable until the typed bootstrap consumer is installed", which
+        // was true about the agent's own doors and silent about the human's, and
+        // it contradicted this server's own initialize instructions.
         honest_gaps.push(crate::session::PROJECT_BRAIN_ABSENT_GAP.to_string());
         (
             serde_json::Value::Null,
             serde_json::Value::Null,
-            "No project brain covers your repo — the medulla's cross-project doctrine is served as memory, but its code graph does not map your repo. Creating a project brain is unavailable until the typed bootstrap consumer is installed; see `reception` for the honest options.".to_string(),
+            format!(
+                "No project brain covers your repo — the medulla's cross-project doctrine is served as memory, but its code graph does not map your repo. No agent can mint one; the human runs `m1nd init --birth {}` once. Offer that command and stop; see `reception` for the other options.",
+                crate::tools::ingest_project_root_hint(state, None)
+            ),
         )
     } else if needs_ingest || !graph_populated {
         // ONE authoring site for this fact (human_view amendment 5): the same
@@ -5649,8 +5660,7 @@ fn handle_north(
         (
             serde_json::Value::Null,
             serde_json::Value::Null,
-            "Run ingest for the intended repo, then call north again to get grounded context."
-                .to_string(),
+            crate::tools::needs_ingest_next_move(state, &agent_id, "north"),
         )
     } else {
         // CONTEXT — reuse orient wholesale (focus_nodes + anchors + coverage +
@@ -6454,14 +6464,45 @@ pub(crate) fn enforce_generic_action_policy(
         return Ok(());
     }
 
+    let exact = action.as_deref().unwrap_or("<owner-fact-dependent>");
     Err(M1ndError::InvalidParams {
         tool: bare.to_string(),
         detail: format!(
-            "generic_action_authority_required: semantic_action={} authority_floor={} cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease consumer is installed for this action",
-            action.as_deref().unwrap_or("<owner-fact-dependent>"),
-            unavailable.join("|")
+            "generic_action_authority_required: semantic_action={} authority_floor={} cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease consumer is installed for this action{}",
+            exact,
+            unavailable.join("|"),
+            first_graph_door_suffix(exact),
         ),
     })
+}
+
+/// The semantic actions whose refusal is a caller asking for a repo's FIRST
+/// graph. Every one of them is correctly refused — minting a brain is the
+/// human's gesture — and every one of them used to end there, naming no way out.
+///
+/// Deliberately NOT the whole floor-gated family. `source.edit.commit` and
+/// `graph.ingest.merge_existing` sit at the same wall, but their answer is not
+/// "run the birth ceremony": they act on a brain that already exists, and their
+/// refusal bytes are pinned by `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5.9
+/// precisely so the action-keyed allowlist cannot drift into opening them.
+const FIRST_GRAPH_ACTIONS: &[&str] = &[
+    "graph.ingest.replace",
+    "brain.bootstrap",
+    "brain.bootstrap.birth",
+];
+
+/// What to append to a first-graph refusal so it names the door.
+///
+/// A refusal that is correct and names no way out is half a refusal: an agent
+/// that hits four of them in a row concludes the product cannot be used and
+/// writes that down — which is what happened in the field on 1.6.2. The policy
+/// does not change here; only the sentence does.
+pub(crate) fn first_graph_door_suffix(action: &str) -> &'static str {
+    if FIRST_GRAPH_ACTIONS.contains(&action) {
+        ". The first graph for a repo is the human's one-time ceremony: offer them `m1nd init --birth <repo>` and stop — agents never run it"
+    } else {
+        ""
+    }
 }
 
 /// Defense-in-depth wrapper for generic transport calls. Transport seams still
@@ -8423,6 +8464,51 @@ impl McpServer {
     /// capability.
     pub fn offline_operator_context(&self) -> (PathBuf, Option<String>) {
         self.offline_context.clone()
+    }
+
+    /// Read-only borrow of the bound session, before the actor is installed.
+    ///
+    /// The birth ceremony needs two facts about this owner's OWN brain before it
+    /// can choose a door: how many nodes it holds, and whether it already covers
+    /// the root the human named. Both are questions, not capabilities — this
+    /// hands out no mutable session, no lock and no lifecycle handle, which is
+    /// exactly what separates it from [`Self::into_session_state`].
+    pub(crate) fn bound_boot_state(&self) -> M1ndResult<&SessionState> {
+        self.boot_state.as_ref().ok_or_else(|| {
+            M1ndError::PersistenceFailed(
+                "the bound session is available only before McpServer::start".to_string(),
+            )
+        })
+    }
+
+    /// THE BIRTH CEREMONY'S ONE WRITE into this owner's OWN graph.
+    ///
+    /// Reachable only from `brain_birth::run_ceremony`, which reaches it only
+    /// from the binary's `--birth` ingress — the single construction site of a
+    /// `HumanOrigin`. No transport can arrive here: MCP and REST reach
+    /// [`dispatch_generic_tool`], whose floor gate refuses `graph.ingest.replace`
+    /// outright, and neither can manufacture the stamp that gets a caller this
+    /// far.
+    ///
+    /// WHY IT GOES THROUGH THE ACTOR, and why an offline file write would not do.
+    /// A graph written into the runtime root *behind* the checkpoint is reverted
+    /// on the very next boot: the actor's `start` restores `CURRENT` and rebuilds
+    /// the session from it, so a `CURRENT` captured while the runtime graph was
+    /// still empty outranks the graph anyone wrote afterwards. That is the
+    /// founding incident of `legacy_snapshot_adoption` (a brain served 0 of 5540
+    /// nodes for five days) and it is measurable here: a populated snapshot
+    /// dropped into a runtime that has booted once comes back as 0 nodes. So the
+    /// first ingest is committed the same way every durable mutation is — inside
+    /// an actor turn classified as mutating, which publishes `CURRENT` on the
+    /// turn it acks.
+    pub(crate) fn ceremony_first_ingest(
+        &mut self,
+        arguments: serde_json::Value,
+    ) -> M1ndResult<serde_json::Value> {
+        self.start()?;
+        self.actor_execute_m1nd(true, move |state| {
+            dispatch_tool(state, "ingest", &arguments)
+        })
     }
 
     /// Startup sequence (03-MCP Section 1.2):

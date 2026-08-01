@@ -156,9 +156,18 @@ pub fn birth_refusal_without_stamp() -> serde_json::Value {
                 "birthing a brain is the human's gesture — the ceremony sends it; agents never do"
             ),
         );
+        object.insert("door".into(), json!(BIRTH_CEREMONY_COMMAND));
     }
     refusal
 }
+
+/// The command every refusal on the first-graph path must name.
+///
+/// It is a constant rather than prose repeated at each seam because the field
+/// failure was not that any one message was wrong — each was correct — but that
+/// FOUR different refusals all stopped short of the door, and an agent that
+/// cannot see a way forward reports that the product does not work.
+pub const BIRTH_CEREMONY_COMMAND: &str = "m1nd init --birth <repo>";
 
 /// Roots currently being born, by canonical key — single-flight per root (the
 /// cp32 TOCTOU requirement), mirroring SPEC-1's own mechanism rather than
@@ -307,23 +316,214 @@ fn sweep_stale_staging(base: &std::path::Path) {
 /// caller can do is arrive over a transport — MCP and REST reach `dispatch_tool`
 /// and the generic policy gate, neither of which can construct the stamp.
 pub fn run_ceremony(
-    server: crate::server::McpServer,
+    mut server: crate::server::McpServer,
     root: &str,
     agent_id: &str,
 ) -> m1nd_core::error::M1ndResult<serde_json::Value> {
     let (runtime_root, _project_root) = server.offline_operator_context();
     let registry_dir = server.config_registry_dir();
+    let request = BirthRequest::ceremony(root, agent_id);
+
+    // THE HOME CASE, decided before any store is chosen. See
+    // [`home_birth_verdict`]: when this owner's runtime lives INSIDE the root the
+    // human named, the brain for that root is this owner's OWN graph, and a
+    // sidecar minted beside it is a brain nobody reads.
+    match home_birth_verdict(&server, &runtime_root, &request)? {
+        HomeBirth::NotHome => {}
+        HomeBirth::Refuse(refusal) => return Ok(refusal),
+        HomeBirth::Fill { canonical_root } => {
+            return run_home_birth(server, &canonical_root, &request, HumanOrigin::Cli);
+        }
+    }
+
     let bound = server.into_session_state();
     let registry = crate::project_brains::ProjectBrainRegistry::new(
         runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
         registry_dir,
     );
-    run_birth(
-        &registry,
-        &bound,
-        &BirthRequest::ceremony(root, agent_id),
-        HumanOrigin::Cli,
-    )
+    run_birth(&registry, &bound, &request, HumanOrigin::Cli)
+}
+
+/// Which door this ceremony takes.
+enum HomeBirth {
+    /// The runtime this owner boots from is not inside the named root: the
+    /// hosted (project-brain) path applies, unchanged.
+    NotHome,
+    /// It is home, and there is nothing to do — the answer is the refusal.
+    Refuse(serde_json::Value),
+    /// It is home and the home is empty: fill this owner's own graph.
+    Fill { canonical_root: String },
+}
+
+/// Is the root the human named the repo THIS OWNER'S RUNTIME LIVES IN?
+///
+/// THE DEFECT THIS ANSWERS, measured on 1.6.2. A user in a new repo, following
+/// the README's own quickstart (`M1ND_RUNTIME_DIR=<repo>/.m1nd`, a plain
+/// `m1nd-mcp --stdio` as their MCP server), ran `m1nd init --birth .`. It exited
+/// 0 reporting a real node count — and their next session still served 0 nodes.
+/// The ceremony had minted a PROJECT BRAIN under
+/// `<runtime>/project-brains/<key>/`, and project brains are reached only by the
+/// served owner's caller-root routing over HTTP (`http_server::resolve_brain`).
+/// A plain stdio owner has no such routing: it serves the runtime's own graph
+/// and nothing else. So the ceremony's whole output was invisible to the only
+/// agent it was run for.
+///
+/// The discriminator is the runtime's own location, and it is the honest one:
+/// if the runtime directory sits inside the named root, then this process IS
+/// that repo's brain — there is no second brain to mint, only an empty one to
+/// fill. It is a fact about THIS OWNER, never about the caller, so nothing here
+/// weakens the cross-root sovereignty the owner ratified: a foreign root still
+/// takes the hosted path with every one of its guards, generic `ingest` stays
+/// refused for every client, and no agent gains a door.
+fn home_birth_verdict(
+    server: &crate::server::McpServer,
+    runtime_root: &std::path::Path,
+    request: &BirthRequest,
+) -> m1nd_core::error::M1ndResult<HomeBirth> {
+    use crate::project_brains::ProjectBrainRegistry;
+
+    // `allow_overlap` and an unresolvable root are refused identically on both
+    // doors, and `run_birth` states each in full. Deferring to it keeps ONE
+    // wording per refusal instead of two that can drift apart.
+    if request.allow_overlap {
+        return Ok(HomeBirth::NotHome);
+    }
+    let trimmed = request.root.trim().trim_end_matches('/');
+    if trimmed.is_empty() || !std::path::Path::new(trimmed).is_dir() {
+        return Ok(HomeBirth::NotHome);
+    }
+    let key = ProjectBrainRegistry::canonical_key(trimmed);
+
+    let runtime_key = ProjectBrainRegistry::canonical_key(&runtime_root.to_string_lossy());
+    if !std::path::Path::new(&runtime_key).starts_with(std::path::Path::new(&key)) {
+        return Ok(HomeBirth::NotHome);
+    }
+
+    // Home, but already inhabited. A brain is born once: a second ceremony must
+    // not re-scan behind the human's back (that would be a silent `replace` on a
+    // graph they may have grown for months), and must not mint a twin beside it.
+    let bound = server.bound_boot_state()?;
+    let node_count = u64::from(bound.graph.read().num_nodes());
+    if node_count > 0 || bound.covers_root(&key) {
+        let mut refusal = birth_refusal(
+            "birth_root_is_bound_graph",
+            "this repo already has its brain — the graph this owner serves IS that brain, so there \
+             is nothing to birth; re-scan it with ingest {mode:\"refresh\"} from this exact root",
+        );
+        if let Some(object) = refusal.as_object_mut() {
+            object.insert("root".into(), json!(key));
+            object.insert("node_count".into(), json!(node_count));
+            object.insert("store_dir".into(), json!(runtime_key));
+        }
+        return Ok(HomeBirth::Refuse(refusal));
+    }
+
+    Ok(HomeBirth::Fill {
+        canonical_root: key,
+    })
+}
+
+/// Fill this owner's OWN empty graph with the repo it lives in — the human's
+/// first ingest, through the human's own door.
+///
+/// It reuses the ordinary `ingest` handler rather than building a second
+/// scanner, and commits it through the brain actor (see
+/// `McpServer::ceremony_first_ingest` for why an offline file write is reverted
+/// on the next boot). The shutdown afterwards is the cooperative
+/// persist-before-release the stdio owner already runs, so the ceremony leaves
+/// the runtime exactly as a clean session would.
+fn run_home_birth(
+    mut server: crate::server::McpServer,
+    canonical_root: &str,
+    request: &BirthRequest,
+    origin: HumanOrigin,
+) -> m1nd_core::error::M1ndResult<serde_json::Value> {
+    // Single-flight per canonical root (the cp32 TOCTOU requirement), shared with
+    // the hosted door so two ceremonies on one root can never interleave.
+    let Some(_in_flight) = claim_birth_root(canonical_root) else {
+        return Ok(birth_refusal(
+            "birth_in_flight",
+            "another birth of this root is already running; a second one would measure an empty \
+             destination the first is about to fill",
+        ));
+    };
+
+    let ingested = server.ceremony_first_ingest(json!({
+        "agent_id": request.agent_id,
+        "path": canonical_root,
+        "include_dotfiles": request.include_dotfiles,
+    }))?;
+    server.shutdown()?;
+
+    let node_count = ingested
+        .get("node_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let edge_count = ingested
+        .get("edge_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if let Some(empty) = refuse_an_empty_birth(canonical_root, node_count) {
+        return Ok(empty);
+    }
+
+    Ok(json!({
+        "ok": true,
+        "schema": BIRTH_SCHEMA,
+        "action": BIRTH_ACTION,
+        "born_root": canonical_root,
+        // Absolute, because a receipt that names `.m1nd` tells a human nothing
+        // about which `.m1nd` on their disk now holds their brain.
+        "store_dir": crate::project_brains::ProjectBrainRegistry::canonical_key(
+            &server.offline_operator_context().0.to_string_lossy(),
+        ),
+        "origin": origin.as_str(),
+        "node_count": node_count,
+        "edge_count": edge_count,
+        // The brain that was filled. Named, because the two doors write to
+        // different places and a human reading a receipt should never have to
+        // guess which one answered.
+        "brain": "owner_bound_graph",
+        "routes_by_caller_root": true,
+        "dev_graph_untouched": false,
+        "honest_limits": [
+            "this runtime lives inside the repo you named, so the brain for that repo IS this owner's own graph — there was no second brain to mint, only an empty one to fill",
+            "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
+            "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
+            "birth happens once; keep the graph fresh afterwards with ingest {mode:\"refresh\"} from this exact root",
+        ],
+    }))
+}
+
+/// THE HONESTY GATE both doors pass through: a ceremony that produced no graph
+/// never reports success.
+///
+/// On 1.6.2 `m1nd init --birth .` could exit 0 over an empty graph, which is
+/// worse than refusing — the human walks away believing they have a brain. An
+/// ingest that yields zero nodes is a real, common condition (an empty repo, a
+/// root one level too high or too low, a tree the extractors do not read), and
+/// every one of those is a thing the human can check and fix.
+fn refuse_an_empty_birth(canonical_root: &str, node_count: u64) -> Option<serde_json::Value> {
+    if node_count > 0 {
+        return None;
+    }
+    let mut refusal = birth_refusal(
+        "birth_produced_empty_graph",
+        "the scan of that root produced no nodes, so there is no brain to report; a ceremony that \
+         exits successfully over an empty graph leaves you believing you have one",
+    );
+    if let Some(object) = refusal.as_object_mut() {
+        object.insert("root".into(), json!(canonical_root));
+        object.insert(
+            "check".into(),
+            json!([
+                "is that the repository root, and does it hold source files?",
+                "are the files you expect ignored (dotfiles are skipped unless include_dotfiles is set)?",
+                "does m1nd have an extractor for this repo's languages (see the language table in README.md)?",
+            ]),
+        );
+    }
+    Some(refusal)
 }
 
 /// Removes its staging directory on every exit path, including a panic inside
@@ -525,6 +725,9 @@ pub fn run_birth(
         .get("edge_count")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
+    if let Some(empty) = refuse_an_empty_birth(&key, node_count) {
+        return Ok(empty);
+    }
 
     Ok(json!({
         "ok": true,
@@ -535,14 +738,22 @@ pub fn run_birth(
         "origin": origin.as_str(),
         "node_count": node_count,
         "edge_count": edge_count,
+        "brain": "project_brain",
         // The facts a human needs in order to believe the ceremony worked, each
         // one measured here rather than hoped for.
         "routes_by_caller_root": registry.knows(&key),
         "dev_graph_untouched": true,
+        // How to REACH what was just born. A hosted brain is served by this
+        // owner's caller-root routing, so an agent gets it by attaching to this
+        // owner from inside that repo — never by starting its own stdio owner on
+        // a different runtime, which would see an empty graph and report that the
+        // ceremony did nothing.
+        "reach_it_with": "m1nd-mcp --attach auto --stdio   # run from inside that repo",
         "honest_limits": [
             "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
             "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
             "adopting an existing brain is migration, a boot-time fact with no verb; birth only ever writes into an empty destination",
+            "this brain is hosted by THIS owner: agents reach it by attaching to it from inside that repo, not by booting their own runtime there",
         ],
     }))
 }
