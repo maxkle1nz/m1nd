@@ -432,6 +432,25 @@ bound brain because the writer never checked which brain it was talking to.
    mismatch — it cannot create or rebind anything, and law 1 still governs. It closes the
    reflex vector, an agent acting from habit or misconfiguration; it is not a defense against
    a hostile same-UID process (that is the lease plane, still dormant).
+5. **A repo with NO brain has ONE door, and it is the human's — say it, don't retry.** Law 4 is
+   for a root the brain already declares; when there is nothing to refresh, the only gesture
+   that mints a graph is `m1nd init --birth <repo>`, run once by a person in a terminal. Offer
+   that exact command and stop: the origin stamp lives in the binary's own CLI ingress, so no
+   agent on any transport can produce it. Every refusal on that path now NAMES it — the floor
+   gate's `generic_action_authority_required` for `graph.ingest.replace`/`brain.bootstrap`, the
+   birth verb's `human_gesture_required`, both `refresh_*` root refusals (in a `door` field),
+   `north`/`delegate`'s `next_move`, `recovery_playbook`'s `offer_the_birth_ceremony` step, and
+   the npm CLI's `needs_authority` envelope. That list is the fix for a measured failure, not
+   decoration: on 1.6.2 an agent collected four correct refusals that named no way out and
+   reported that the product could not be used. **Where the ceremony writes depends on where
+   the runtime it is standing in lives, and its receipt says which in a `brain` field** —
+   `owner_bound_graph` when the runtime is INSIDE the named repo (the solo `<repo>/.m1nd`
+   layout: it fills the graph a plain `m1nd-mcp --stdio` there serves), `project_brain`
+   otherwise (a hosted brain on a served owner, reached by attaching to it from inside that
+   repo, never by booting a second runtime there). Cross-root sovereignty is untouched by that
+   split: it is a fact about the OWNER, never about a caller, and a foreign root still takes the
+   hosted path with every one of its guards. A ceremony that scans to zero nodes REFUSES
+   (`birth_produced_empty_graph`, exit 1) rather than reporting a brain nobody has.
 
 **When you withdraw a capability, sweep the prose in the same PR.** The cross-root bootstrap
 was withdrawn in the runtime (the published `ingest` schema lost `project_root` and

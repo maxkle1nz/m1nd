@@ -13,8 +13,11 @@ This is a doctrine, not a manual.
   composes trust, task context, prior cross-session memory, a sufficiency signal, one
   `next_move`, and `honest_gaps` into a single packet before you read or edit anything.
   If it returns `needs_ingest` (empty/unbound graph), do not call generic `ingest`:
-  that mutation surface is policy-disabled. Use the isolated `m1nd agent ... --repo`
-  CLI path for investigation, or the exact authority flow plus
+  that mutation surface is policy-disabled. **Say the door out loud instead** —
+  a repo with no brain gets one from the HUMAN's one-time ceremony,
+  `m1nd init --birth <repo>`: offer that exact command and stop, then re-`north`
+  once they have run it. Meanwhile use the isolated `m1nd agent ... --repo` CLI
+  path for investigation, or the exact authority flow plus
   `external_mutation_service` for a governed existing-brain mutation.
 - Before `rg`, shell globbing, or manual file reads, `m1nd` answers or narrows FIRST — that is the default, not a question you ask only when convenient. The one exception is the **Skip Conditions** below (exact file+lines already known, or pure compiler/runtime truth); everything else earns a `north`/`seek`/`impact` pass first.
 - Prefer the cheapest `m1nd` surface that preserves truth:
@@ -56,9 +59,10 @@ this loop by default:
    context (focus nodes + PageRank anchors), prior cross-session memory (each
    claim with its real age + author), a sufficiency signal, one `next_move`, and
    `honest_gaps` (what m1nd does NOT yet know). If it returns `needs_ingest`,
-   do not call generic `ingest`; use the isolated CLI investigation path or the
-   exact typed authority consumer for an existing brain. `needs_ingest` is a real
-   answer, not a failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
+   do not call generic `ingest`; OFFER the human `m1nd init --birth <repo>` (the
+   one-time ceremony that mints a brain and ingests it for real) and stop, or use
+   the isolated CLI investigation path / the exact typed authority consumer for an
+   existing brain. `needs_ingest` is a real answer, not a failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
    `focus` + `surgical_context`/`batch_view`; reach for the pieces directly only when
    you need just one. **The packet carries `code` — the real source of its top focus
    nodes** (the symbol's own lines, or the file head when a node names no symbol), up
@@ -248,7 +252,7 @@ merit; facts, never estimated savings (G1).
 | fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
 | `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
 | the bell | a call to the human (missions await landing) — never an error |
-| `needs_ingest` | "I don't know this repo yet" + its one-call repair — never a crash |
+| `needs_ingest` | "I don't know this repo yet" + who repairs it — never a crash. A repo with no brain needs the HUMAN's one-time `m1nd init --birth <repo>`; a stale one you refresh yourself |
 | the tray | the human's door to land receipts — agents never land |
 
 **The verb families (translate by family, not tool-by-tool):**
@@ -567,17 +571,24 @@ generation and counts; and `recovery.arguments` is the payload to pass directly
 to `recovery_playbook`. Empty result arrays are not final truth until the
 contract says the runtime/workspace/graph identity is coherent.
 
-If the verdict is `needs_ingest`, or `graph_state.node_count` is `0` while
-`ingest` is available, treat it as a recoverable cold graph, not as a reason to
-abandon m1nd. Call `ingest` on the same MCP binding with the absolute path of
-the intended repo/workspace, never a managed runtime/session path such as
-`~/.codex/m1nd-runtimes/...`, `~/.claude/m1nd-runtimes/...`, an Antigravity
-agent runtime, or a generic `mcp-runtimes`/`agent-runtimes` folder. Host
-integrations should prefer `M1ND_WORKSPACE_ROOT`; m1nd also recognizes common
+If the verdict is `needs_ingest`, or `graph_state.node_count` is `0`, treat it as
+a recoverable cold graph, not as a reason to abandon m1nd — but do not reach for
+`ingest`: the playbook's own `next_action` tells you which repair is live on this
+binding, and read it rather than guessing. The two real ones:
+
+- **No brain yet** → the HUMAN's one-time ceremony, `m1nd init --birth <repo>`,
+  with the absolute path of the intended repo/workspace, never a managed
+  runtime/session path such as `~/.codex/m1nd-runtimes/...`,
+  `~/.claude/m1nd-runtimes/...`, an Antigravity agent runtime, or a generic
+  `mcp-runtimes`/`agent-runtimes` folder. Offer the command and stop.
+- **A brain that already DECLARES your root, gone stale** → `ingest {mode:"refresh",
+  path: <your root>}` from exactly that root. Yours to run, no human needed.
+
+Host integrations should prefer `M1ND_WORKSPACE_ROOT`; m1nd also recognizes common
 workspace hints from Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS
 Code, and shell/package-manager env vars. Then rerun `session_handshake` and
-one cheap retrieval. Fall back to direct files only when ingest is unavailable,
-ingest fails, or a post-ingest retrieval still reports `blocked` and
+one cheap retrieval. Fall back to direct files while the graph is still cold, or
+when a post-ingest retrieval still reports `blocked` and
 `recovery_playbook`/`doctor` confirms stale binding or degraded host surface.
 
 If `trust_selftest`, `session_handshake`, `recovery_playbook`, `doctor`,

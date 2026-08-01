@@ -186,11 +186,20 @@ north({ "agent_id": "install-check", "task": "orient" })
 
 A healthy response carries `binding.trust_mode` (e.g. `full_trust`), a `context` block
 with `focus_nodes` + `anchors`, and `honest_gaps`. If the graph is empty it returns
-`needs: "needs_ingest"` — then ingest the repo once:
+`needs: "needs_ingest"`, and its `next_move` carries the door: **you do not ingest.**
+Minting a brain is the human's one-time gesture, so tell them to run this once, in a
+terminal, and stop:
 
-```jsonc
-ingest({ "agent_id": "install-check", "path": "/abs/path/to/project" })
+```bash
+npx -y @maxkle1nz/m1nd init --birth /abs/path/to/project
 ```
+
+The ceremony ingests the repo and prints what it built (`node_count`, `edge_count`); it
+exits non-zero if the scan produced nothing, so it never reports success over an empty
+graph. Calling `ingest` yourself is refused on every transport
+(`generic_action_authority_required`) — the refusal names this same command. Once the
+graph exists, `ingest({ "mode": "refresh" })` from that exact root is the agent's own
+door for keeping it fresh.
 
 For a transport-level smoke without a host, from a repo checkout:
 

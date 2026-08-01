@@ -25,6 +25,36 @@ stdio↔HTTP client that loads no graph, builds no engines, and takes no lease.
 4. **Incremental ingest** — the owner updates the graph as files change, skipping noise
    (`node_modules`, `Pods`, Rust `target/`).
 
+## 0. The first graph — one human command, once per repo
+
+Everything below assumes a graph exists. Creating one is the single gesture no agent may
+perform on any transport: generic `ingest` classifies as `graph.ingest.replace` at the
+`POSITIVE_SOVEREIGN` floor and is refused for every client, on MCP and REST alike. The
+door is the birth ceremony, and it is a flag on the binary — no header, payload or claimed
+origin can reach it, because the ingress *is* the human-origin fact:
+
+```bash
+m1nd init --birth /path/to/repo        # or: m1nd-mcp --birth /path/to/repo
+```
+
+It ingests the repo, prints `node_count`/`edge_count` and exits 0; it exits 1 and names
+what to check when the scan produces nothing, so it can never report success over an empty
+graph. Which brain it fills depends on where the runtime it is standing in lives, and it
+says which one it chose in the `brain` field of its receipt:
+
+| Runtime | `brain` | Where the graph lands | Who reads it |
+|---|---|---|---|
+| Inside the repo you named (`<repo>/.m1nd`, the solo setup) | `owner_bound_graph` | that runtime's own graph | the next `m1nd-mcp --stdio` in that repo, directly |
+| Elsewhere (a served owner, §1) | `project_brain` | `<runtime>/project-brains/<key>/` | agents that **attach** to that owner from inside the repo (§2) |
+
+The second row is the one to get right in a served deployment: a hosted brain is reached
+through the owner's caller-root routing, so an agent that starts its own stdio runtime in
+that repo would see an empty graph and conclude the ceremony did nothing. Attach instead —
+the receipt's `reach_it_with` field prints the exact command.
+
+Born once, kept fresh afterwards by the agent: `ingest {mode:"refresh"}` from that exact
+root re-scans a root the brain already declares, at `SCOPED_GRANT_A2`, with no lease.
+
 ## 1. Run the persistent owner
 
 ### macOS — launchd

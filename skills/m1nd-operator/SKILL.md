@@ -79,9 +79,11 @@ measured high-signal pattern starts by never starting cold:
    `north` again. `needs_ingest` is a REAL answer, not a failure. On a brain that
    already DECLARES your root, the repair is yours to run and needs no human:
    `ingest {mode:"refresh", path: <your root>}` from exactly that root (Law 3
-   below). On a root no brain declares, it is not a refresh — bootstrap is still
-   the absent consumer, and the honest move is to reconnect to an owner that
-   hosts the repo. A plain `ingest {path}` (mode `replace`) remains refused.
+   below). On a root no brain declares, it is not a refresh — no agent mints a
+   brain on any transport — and the honest move is to OFFER the human their
+   one-time ceremony, `m1nd init --birth <repo>`, and stop (or reconnect to an
+   owner that already hosts the repo). A plain `ingest {path}` (mode `replace`)
+   remains refused, and its refusal now names that same command.
 3. Act on verdicts, do not override them (see below).
 4. Prove final truth with direct source reads, tests, compiler/runtime output,
    and focused probes.
@@ -351,7 +353,7 @@ graph navigation.
 The route is:
 
 1. Call `north(task)` for the one-round-trip orient (trust + context + memory +
-   sufficiency + `next_move`); `needs_ingest` -> `ingest` -> `north` again. Drop
+   sufficiency + `next_move`); `needs_ingest` -> the playbook's named repair (refresh if this brain declares your root; otherwise OFFER the human `m1nd init --birth <repo>`) -> `north` again. Drop
    to `trust_selftest`/scoped `session_handshake` + `recovery_playbook` only if
    trust looks off or retrieval is blocked.
 2. If needed, perform one bounded recovery/ingest pass.
@@ -597,7 +599,7 @@ source reads, tests, runtime probes, or CI evidence.
 ## Fast Routing
 
 - Unfamiliar repo or need a one-call orientation: start with `north(task)`
-  (`needs_ingest` -> `ingest` -> `north`), then `audit` for a wider sweep and
+  (`needs_ingest` -> the playbook's named repair, never a bare `ingest` -> `north`), then `audit` for a wider sweep and
   `batch_view`, `coverage_session`, or `cross_verify` as needed.
 - Need a subsystem map: use `activate`.
 - Need code by intent: use `seek` — obey its `trust_envelope` + sufficiency
@@ -849,7 +851,7 @@ merit; facts, never estimated savings (G1).
 | fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
 | `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
 | the bell | a call to the human (missions await landing) — never an error |
-| `needs_ingest` | "I don't know this repo yet" + its one-call repair — never a crash |
+| `needs_ingest` | "I don't know this repo yet" + who repairs it — never a crash. A repo with no brain needs the HUMAN's one-time `m1nd init --birth <repo>`; a stale one you refresh yourself |
 | the tray | the human's door to land receipts — agents never land |
 
 **The verb families (translate by family, not tool-by-tool):**

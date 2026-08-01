@@ -2,7 +2,7 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-30 (**checkpoint 38 — THE GATES REVEALED THEMSELVES AS ONE CHAIN, THE OWNER RAN HIS FIRST CEREMONY AND IT ANSWERED HONESTLY, AND THE PRODUCT'S BRAIN CAME HOME TO ITS OWN REPO**).
+> Last checkpoint: 2026-07-30 (open fronts extended 2026-08-01) (**checkpoint 38 — THE GATES REVEALED THEMSELVES AS ONE CHAIN, THE OWNER RAN HIS FIRST CEREMONY AND IT ANSWERED HONESTLY, AND THE PRODUCT'S BRAIN CAME HOME TO ITS OWN REPO**).
 > Checkpoint 38, condensed: fifteen PRs merged since checkpoint 37, measured (#460–#466, #468–#472, #474, #477–#478), seven more armed in flight (#446, #467, #473, #475, #476, #479, #480). **(1) The ladder is a provenance chain, not a list.** The owner ran G7 LIVE with his own hand — the program's FIRST owner-performed ceremony — and it answered `NOT_PROVEN: manifest coherence is DRIFT` (receipt written to the owner's disk), which is the CORRECT answer: `organism_manifest.rs` holds G1-truth at DRIFT until the release/autonomy authorities exist, so the real order is G9 custody → G8 signed release → G7 LIVE → G10, and no ceremony below the chain's head can prove early. The prior claim in this program that G7 was "the only ceremony without external blockage" was wrong and is corrected here. **(2) Every ceremony the machine can stage is staged.** G6 formal: one owner command + preflight — 22 PASS / 0 FAIL / 15 OWNER_INPUT_MISSING, exit 3 `READY_PUBLIC_ONLY` (#472). G7: runbook + typed expectations script + digest discipline (#470 — and the runbook's own staleness was caught live: it cited a superseded bundle digest while the build demanded the post-#474 one, exactly the drift `build.rs` exists to refuse). G9: the ceremony runbook that MEASURED the custody floor as an unwired island (#468), the CLI door (#473: `--custody-ceremony`, `OwnerCeremonyIngressV1` as a private-field ingress constructible at exactly one site, the first non-test caller of `assemble_production_owner_authority_v1`), and the entitlement the shipped binary was structurally missing (#469: before it, `release.yml` signed with no `--entitlements`, so the notarized product COULD NOT run the owner's ceremony at all; AMFI rejects XML comments anywhere in an entitlements plist and `codesign` exits 0 while silently dropping the entitlement — both proven on a probe binary, so the release step now greps the signed output; rationale in `build/README.md`). **(3) The product's brain came home.** The product's own repo could not reach its own graph: the committed `.mcp.json` spawns stdio over an empty repo-local runtime while the served owner (18,084 nodes / 73,332 edges) ingests this very repo one port away, and the machine's user-scope attach entry both lacked the token env and LOST scope precedence to project scope. Machine half: a local-scope attach entry carrying `M1ND_HTTP_BEARER_TOKEN_FILE` — proven by the first live `north` through the bridge (full_trust, spread-activation reaching the week's own SPEC-1 battery). Product half, for every user (#480): `--attach auto` now asks the SECOND discovery question — which live serve ReadWrite owner declares an ingest root COVERING my caller root — coverage decided by the routing predicate (`covers_root`), never the authority-exclusive one; worktrees resolve to the main repository for discovery while the hop-2 header keeps the TRUE caller root (normalizing it would forge the exact-root claim SPEC-1 exists to refuse); ambiguity fails closed naming every candidate; a runtime-root match still wins (pinned by test); the bearer token follows the DISCOVERED owner's runtime root. Battery-first 8-case RED→GREEN, live-proven from a real worktree against the production registry. Four letters filed from that mission; the sharp one: `default_registry_root()` still cannot see this machine's owner (per-host registry split — owner's wiring call). **(4) The factory's own gates bit correctly all night:** the `brain_birth` advertised-vs-routed parity guard caught #467 (fixed with the comment saying WHY it routes); the agent-docs gate refused #446 for touching `server.rs` without teaching agents (paid: the plasticity wiki page now says restore lands in BOTH engines); the a11y lane's bite was proven honestly after a first false probe (an appended comment is stripped by the minifier — re-proven by removing the nav aria-label, 2/4 specs red, recorded in the PR); windows-required caught spec2's path-identity family the Unix legs are structurally blind to. Tonight's tray red is diagnosed three ways — #467 spec2 windows paths, #473 custody refusal precedence (unattended vs not_installed on non-mac), and the ABBA serialization flake — with three executors dispatched on the first two plus the #476 conflict, and the docs-gate fix landed inline. **(5) Dogfood is real and telemetried:** field reports include the first win through the repaired bridge, and a sibling agent's "are we even using m1nd in development?" report was answered by REPAIRING the bridge, not by rhetoric. **Open the owner must touch:** 2 missions in merge_wait (the bell has rung three times); #398 MANUAL public-boundary decision; #419; #423; canonical git email; bincode #431; metric spec v2 minting (custody-bound); the ceremony chain itself G9→G8→G7→G10. **Open machine-side:** the tray in flight; the shadowed-REST-verb table guard (deliberately waiting for #475 to land so its table includes `curation_spawn`); the G6 provider executable; the shadow/canary producer; the runtime half of the bundle blind spot; m1nd-ui eslint; refreshing the serve binary onto this arc's code once the tray lands, then the lifecycle re-proof.
 >
 > Previous checkpoint: 2026-07-29 (**checkpoint 37 — THE FACTORY NIGHT: LIFECYCLE GATE LANDED, GENESIS RATIFIED, THE LIVE BRAIN REFRESHED ONTO THE WEEK'S OWN CODE, AND 40 ADVERTISED VERBS STOPPED LYING**).
@@ -73,7 +73,7 @@
 > hygiene rule; full text in git history). Prior checkpoints (10 → 7) are summarized in **Prior Eras**
 > below; full text in git history.
 
-## Open fronts — the declared debt (2026-07-24, delta 2026-07-30)
+## Open fronts — the declared debt (2026-07-24, delta 2026-08-01)
 
 Everything promised or planned and not yet done, named here rather than left in a chat.
 Update this list in the same PR that closes one; a front that dies silently is a lie.
@@ -116,6 +116,55 @@ Update this list in the same PR that closes one; a front that dies silently is a
   weeks to surface.
 - **The Hebbian layer had never accumulated anything in production (measured 2026-07-31, fixed on the ingest path).** The served owner's `plasticity_state.json` held 73,332 synaptic rows with **zero** carrying a `strengthen_count`, a `weaken_count`, an LTP/LTD flag or a `last_used_query`. Not dead code: `activate` reaches step 8 and writes them. The ingest erased them — `finalize_ingest_with_inventory` installs a graph whose `edge_plasticity` arrays are born zeroed, nothing on that path re-imported the sidecar, and the `state.persist()` at the end of the same function published the zeros. The mechanism to survive already existed and was already documented (label-triple matching, built precisely for a re-ingest that renumbers nodes); it was simply never called there. The ingest now carries the learning across the replacement, preferring the running session over the file and failing open on a bad sidecar. **Residual debt, named not fixed:** two other seams still install a graph without restoring learning — `AutoIngest::replace_graph` (`m1nd-mcp/src/auto_ingest.rs:499`, the document lane's own tick) and the `persist` `load` action (`m1nd-mcp/src/persist_handlers.rs:113`). And the deeper product question, filed as a letter, not decided here: only 2 of ~141 verbs (`activate`, `missing`) reach step 8 at all, so the graph learns from one retrieval path.
 - **Machine-side residuals:** G6 provider executable; shadow/canary producer; runtime half of the bundle blind spot; m1nd-ui eslint PAID (ESLint 10 — the break was never eslint itself but the `brace-expansion@5` override from #418 landing under the CJS `minimatch@3` that eslint 9 pulled, and `npm run lint` was not a CI step so nothing saw it — now wired as its own `ui-gates` step, so it can go red again; one residual named in its place: the `eslint-plugin-react-hooks` 7 React Compiler family is held OFF at pre-migration strength with 31 findings open — `set-state-in-effect` ×21, `purity` ×5, `refs` ×5 — whose fixes change render behaviour and belong in their own proven change); the dependabot react 18→19 pair #453/#454 is mutually deadlocked — each PR is the other's missing half, so neither can ever go green alone and they need one combined React 19 PR or closure; serve binary refresh onto this arc's code once the tray lands (then the lifecycle re-proof); `default_registry_root()` cannot see a per-host registry (letter filed, owner's wiring call); PATHOS consolidation pass (the 07-24 list below + the checkpoint-27 Current State narrative both await it).
+
+**Delta 2026-08-01 — THE FIRST GRAPH CAN BE BORN: the product had no first-value path, on either side of the room:**
+- **Measured on 1.6.2, in a virgin repo with an empty runtime, both actors dead-ended.** (a) An agent
+  calling `ingest` with only `agent_id` on an EMPTY graph is refused
+  `generic_action_authority_required: semantic_action=graph.ingest.replace
+  authority_floor=POSITIVE_SOVEREIGN` — correct policy, and the README told every reader the opposite
+  ("the agent may call `ingest` directly on an empty graph"). (b) The human's `m1nd init --birth .`
+  exited **0** reporting 10 nodes, and the very next stdio session in that repo served **0**: the
+  ceremony minted a project-brain sidecar under `<runtime>/project-brains/<key>/`, which only the
+  served owner's HTTP caller-root routing reaches (`http_server::resolve_brain`), while a plain stdio
+  owner serves the runtime's own graph and nothing else. A ceremony that succeeds loudly and delivers
+  an empty brain is worse than one that refuses.
+- **What the spec actually says, checked before changing anything.** `docs/GENESIS-INGEST-CONSUMERS-SPEC.md`
+  admits exactly two ingest doors: SPEC-1 `refresh` (A2-local, exact declared root) and SPEC-2 `birth`
+  (PositiveSovereign, owner-stamped `human-cli`, minted only by this ceremony). Same-root `replace` on an
+  empty graph is **not** among them, and §1.1's purity rule (classify from `(tool, params)` alone, no
+  trusted route facts) forbids implementing it as a classifier change, because "the graph is empty" and
+  "the caller stands at the workspace root" are owner facts the pure pre-brain gate cannot see. So the
+  spec is silent on (a) by construction, and the fix went where it is unambiguous: the human's door.
+- **The fix, and why it does not weaken cross-root sovereignty.** `run_ceremony` now decides WHICH brain it
+  is filling from a fact about the OWNER, never about a caller: if the runtime it boots from lives INSIDE
+  the root the human named and the bound graph is empty, that root's brain IS this owner's own graph, so the
+  ceremony fills it (`brain: "owner_bound_graph"`) instead of minting a sidecar nobody reads. Any other
+  root takes the hosted path exactly as before, with every guard intact; agents gained no door; generic
+  `ingest` is as refused as it was. The first ingest commits through the brain actor
+  (`McpServer::ceremony_first_ingest`), because a graph written into the runtime behind `CURRENT` is
+  reverted on the next boot — the `legacy_snapshot_adoption` incident, re-measured live here (a populated
+  snapshot dropped into a once-booted runtime came back as 0 nodes).
+- **Honesty, the half that was worth more than the mechanism.** A birth that scans to zero nodes now REFUSES
+  (`birth_produced_empty_graph`, exit 1, naming what to check) on BOTH doors. And every refusal on this path
+  names the way out: the field agent that found this defect hit four correct refusals
+  (`generic_action_authority_required`, `refresh_caller_root_unknown`, `needs_authority_not_proven`, the
+  birth verb's own), none of which mentioned `m1nd init --birth`, and concluded in writing that the product
+  could not be used. Fixed at the floor gate (for the first-graph actions only — §5.9's two A2 siblings keep
+  their pinned bytes), both `refresh_*` root refusals, `north`/`delegate`'s `next_move`, `recovery_playbook`
+  (whose `use_served_owner_authenticated_ingress` step was fiction for a repo with no brain), the npm CLI's
+  `needs_authority` envelope, and the served MCP instructions. The `_m1nd` envelope also stopped announcing
+  "ingested: 0 nodes, 0 edges. graph ready." over a refusal.
+- **Proof:** `m1nd-mcp/tests/first_graph_is_born.rs` drives the REAL binary from a virgin repo — first
+  contact refused with the door named, the ceremony, then a SECOND boot that must serve what the ceremony
+  reported. RED on today's code at both assertions, GREEN after.
+- **Debt this front declares rather than hides.** (a) `refresh_caller_root_unknown` is still the answer for a
+  plain stdio owner even AFTER the graph exists, because `caller_root` is a client-supplied header and a
+  stdio owner has none — the refusal now says so and names the attach bridge, but an owner that knows its own
+  cwd arguably should carry it; not touched here (SPEC-1's ingress rules are its own front). (b) A repo born
+  before this change owns an orphan sidecar under `project-brains/`; the ceremony refuses to birth over it
+  (`birth_destination_not_empty`) rather than deleting anything, which is the right refusal and leaves the
+  cleanup unwritten. (c) The spec has no clause for the solo topology at all — the resolution is recorded in
+  `brain_birth::home_birth_verdict` as a resolution, not a reading.
 
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**

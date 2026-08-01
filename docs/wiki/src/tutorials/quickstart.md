@@ -243,8 +243,12 @@ matches the brain serving you.
 
 `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus` — reach
 for those pieces directly only when you need just one. If `north` returns
-`needs_ingest` (empty or unbound graph), `ingest` the repo and call `north`
-again. `needs_ingest` is a real answer, not a failure.
+`needs_ingest` (empty or unbound graph), that is a real answer, not a failure —
+and it is not yours to fix with `ingest`, which is refused on every transport.
+Read the packet's `next_move`: a repo with no brain yet needs the HUMAN's
+one-time ceremony `m1nd init --birth <repo>` (offer the command and stop), while
+a brain that already declares your root you refresh yourself with
+`ingest {mode:"refresh", path: <your root>}`. Then call `north` again.
 
 If trust looks off — retrieval blocked, `wrong_workspace_binding`, or a
 `Transport closed` error — drop to the degraded/recovery path with
