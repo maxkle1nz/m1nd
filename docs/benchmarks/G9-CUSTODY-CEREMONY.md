@@ -84,7 +84,16 @@ invents one. That is not convenience: a ceremony that fabricated its own seats w
    least three distinct domains, each permit carrying its `bound_context_digest` (sealed later as
    seat lineage). Provision is never open-or-create: an existing item under the same
    `kSecAttrLabel` fails closed, and the created key's real token/type/size are read back via
-   `SecKeyCopyAttributes` and attested against the framework's own constants.
+   `SecKeyCopyAttributes` and attested against the framework's own constants. The MIRROR case — an
+   ABSENT label on a fresh keychain, the only time provisioning is legitimate — must PROCEED to
+   create. Apple answers that no-match query with `errSecItemNotFound`, which `security-framework`
+   surfaces as `Err`; the guard originally misread that error as a fatal open and aborted, so on a
+   clean keychain no seat could ever be minted. Found live in the owner's first real G9 ceremony
+   against the entitled `m1nd-custody-ceremony.app` bundle (v1.6.2) — the software fake returns
+   `Ok(None)` on absent and never reproduced it — and fixed in `resolve_persisted_key` by routing
+   the search error through `classify_keychain_search_error`, which maps only `errSecItemNotFound`
+   to absent and keeps every other OSStatus fatal (a new signed release is required to carry the
+   fix onto an entitled bundle).
    - EXISTS: `provision_agent_enclave_seat` `enclave_authority.rs:187`;
      `EnclaveProvisioningPermitV1` `:136`; `EnclaveKeyAttestationV1::canonical` `:101`;
      duplicate guard via `resolve_persisted_key` `:1247`.
