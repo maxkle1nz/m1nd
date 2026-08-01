@@ -402,13 +402,21 @@ fn home_birth_verdict(
     // Home, but already inhabited. A brain is born once: a second ceremony must
     // not re-scan behind the human's back (that would be a silent `replace` on a
     // graph they may have grown for months), and must not mint a twin beside it.
+    //
+    // The test is the NODE COUNT, not `covers_root`. On this door those two ask
+    // different questions: an EMPTY graph whose `workspace_root` happens to name
+    // the repo — which is what a runtime placed at the repo root itself produces,
+    // since the binding falls back to the graph path's parent — is covered and
+    // still has no brain. Refusing it as "already has its brain" while reporting
+    // zero nodes would be the same dishonesty this whole change is about.
     let bound = server.bound_boot_state()?;
     let node_count = u64::from(bound.graph.read().num_nodes());
-    if node_count > 0 || bound.covers_root(&key) {
+    if node_count > 0 {
         let mut refusal = birth_refusal(
             "birth_root_is_bound_graph",
             "this repo already has its brain — the graph this owner serves IS that brain, so there \
-             is nothing to birth; re-scan it with ingest {mode:\"refresh\"} from this exact root",
+             is nothing to birth; a birth would replace a graph that may have been growing for \
+             months, and that is never this command's job",
         );
         if let Some(object) = refusal.as_object_mut() {
             object.insert("root".into(), json!(key));

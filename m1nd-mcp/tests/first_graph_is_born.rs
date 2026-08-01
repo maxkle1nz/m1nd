@@ -359,3 +359,41 @@ fn a_second_ceremony_on_a_born_repo_refuses_and_says_you_are_home() {
     );
     owner.shutdown();
 }
+
+/// The layout where the runtime IS the repo root, not a `.m1nd` inside it.
+///
+/// It earns its own case because it is the one place the two "am I home?"
+/// questions disagree. With the graph path directly under the repo, the empty
+/// binding's `workspace_root` falls back to that parent — the repo itself — so
+/// `covers_root` answers YES over a brain that holds nothing. A ceremony gated on
+/// coverage would refuse "this repo already has its brain" while reporting zero
+/// nodes, which is the same dishonesty this file exists to kill. The gate is the
+/// node count, and this walk proves it end to end.
+#[test]
+fn a_runtime_at_the_repo_root_is_home_too_and_its_empty_graph_is_filled() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let repo = tmp.path().join("repo-gamma");
+    write_fixture_repo(&repo);
+
+    let (payload, exit_code) = run_birth_ceremony(&repo, &repo);
+    assert_eq!(
+        payload.get("ok").and_then(|ok| ok.as_bool()),
+        Some(true),
+        "an empty brain is an empty brain wherever its runtime sits: {payload}"
+    );
+    assert_eq!(exit_code, 0, "a successful ceremony exits 0: {payload}");
+    assert_eq!(
+        payload.get("brain").and_then(|brain| brain.as_str()),
+        Some("owner_bound_graph"),
+        "the runtime lives at the named root, so the graph it fills is its own: {payload}"
+    );
+
+    let mut after = Owner::spawn(&repo, &repo);
+    let served = after.node_count();
+    assert!(
+        served > 0,
+        "the session that follows must serve the graph the ceremony built, and it \
+         serves {served} nodes"
+    );
+    after.shutdown();
+}
