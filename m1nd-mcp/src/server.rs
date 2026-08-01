@@ -95,6 +95,21 @@ when your caller root is exactly that root; it refuses rather than shrink the gr
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
 
+**north hands back the CODE, not just the address.** The packet carries `code`: the real \
+source of its top focus nodes — the symbol's own lines when the node names one, the file \
+head when it does not — for up to 3 distinct files inside a ~2,000-char budget. READ IT \
+BEFORE YOU GO FETCH ANYTHING. Do not grep, `sed`, or re-open a file north already handed \
+you; that second trip is the one this payload exists to save. Every slice states \
+`file_path`, its line span, `total_lines` vs `lines_returned` and `truncated`, so you \
+always know what you are missing: when a slice is truncated, `surgical_context(file_path, \
+symbol)` or `batch_view(files)` serves the rest — the SAME verbs the payload was composed \
+from, so nothing new is learned by calling them on untruncated code. Widen the first call \
+with `code_budget_chars` instead of paying a round-trip; pass `code: false` if you truly \
+want orientation only. The payload is ABSENT — not empty — wherever the packet already \
+says the graph cannot answer for your repo: `needs_ingest`, an empty graph, no project \
+brain, and `caller_root_mismatch` (under a mismatch those file bytes would be ANOTHER \
+repo's source, which is the most convincing form of context poisoning there is).
+
 **Memory is PULL, never PUSH (the medulla law).** Your default recall beat carries exactly \
 TWO feeds: your own project brain's memory + the shared `medulla` (promoted/doctrine claims). \
 Another repo's private claim NEVER appears in your beat — it can only reach you if it was \
@@ -818,7 +833,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -826,6 +841,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
                         "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
                         "scope": { "type": "string", "description": "Optional scope hint to bound orientation and trust binding" },
+                        "code": { "type": "boolean", "default": true, "description": "Carry the source of the top focus nodes in the packet. ON by default — the second round-trip to fetch what north named is the one agents do not make. Set false for the pre-code, orientation-only packet." },
+                        "code_budget_chars": { "type": "integer", "default": 2000, "description": "Character budget for the SOURCE in the code payload (clamped 200..20000). Spent in activation order over at most 3 distinct files; what it cuts is declared (`truncated`, `files_total` / `files_returned` / `files_omitted`, and per-slice `total_lines` vs `lines_returned`). Raise it when you want more of each file in the first call; the whole file is still one surgical_context / batch_view away." },
                         "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for the packet's recall beat (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each memory row labeled origin_brain — the explicit cross-project inspection, never ambient. Another brain's claim reaches your default beat only if it was promoted to the medulla." }
                     },
                     "required": ["agent_id", "task"]
@@ -2590,7 +2607,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "report",
-                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph.",
+                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph. Also carries verb_usage — the DURABLE per-verb call counters this brain has kept across restarts, one row per verb ever called, most-called first: answered (the call produced a payload; not a claim the payload was useful), refused_at_authority_floor (the F-01 gate refused it before any handler ran), refused_at_dispatch (a tombstone, the read-only attach gate, the proof gate, or a handler error), plus first/last seen. That block is NOT session-scoped and NOT filtered by agent_id: the ledger records verb names and counts only — never an agent id, arguments, queries, paths, or anything derived from them. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -5010,6 +5027,275 @@ fn light_recall_freshness_key(authored_ms_ago: Option<u64>) -> (bool, Option<u64
     (authored_ms_ago.is_none(), authored_ms_ago)
 }
 
+/// Default character budget for the SOURCE north carries back, and the
+/// measurement behind the number.
+///
+/// Measured on this repo's own served graph (18,084 nodes, 73,332 edges,
+/// 2026-07-31): the packet WITHOUT code is ~5.7k chars ≈ 1,433 tokens by the
+/// repo's own estimator (`estimate_tokens_from_chars`, chars/4). §C1.3's
+/// default pin is 2,000 tokens = 8,000 chars, so the headroom is ~2.3k chars —
+/// and the envelope alone (three slices' addresses and counters) eats ~0.9k of
+/// it. A payload that fit the old pin would be ~200 chars of source per file:
+/// five lines, which is theatre, not an answer. So the number is chosen against
+/// §O.12.4's HARD ceiling (8,000 tokens) instead, and declared: 2,000 chars of
+/// source ≈ 500 tokens takes the measured packet to ~2.3k tokens — a quarter of
+/// the hard ceiling, and less than the single `Read` of a whole file it
+/// replaces. `code: false` restores the packet to its pre-code size exactly.
+///
+/// 2,000 also divides cleanly by the three files below: ~666 chars each, which
+/// is the same ~20 lines `surgical_context`'s own excerpt builder caps at. The
+/// budget and the fan-out were picked to agree.
+pub(crate) const NORTH_CODE_BUDGET_CHARS: usize = 2_000;
+/// Lower/upper rails for the caller-visible budget. The floor keeps a
+/// "code: true, budget: 3" call from producing a payload too small to mean
+/// anything; the ceiling keeps north under the organism's 8k hard ceiling even
+/// when a caller deliberately widens it.
+const NORTH_CODE_BUDGET_MIN: usize = 200;
+const NORTH_CODE_BUDGET_MAX: usize = 20_000;
+/// How many distinct FILES get a code slice.
+///
+/// The unit is the file, not the focus node: focus nodes cluster hard (measured
+/// live, 8 focus nodes collapsed to 4 files — three of them the same file), and
+/// the file is what the agent actually opens. Three fits the default budget at
+/// ~one 20-line excerpt each, covers the working set of a typical task, and
+/// bounds the composition to three file reads. One would be too few — the
+/// second hop the measurement says never happens is usually the SECOND file.
+const NORTH_CODE_MAX_FILES: usize = 3;
+/// Lines per file-head slice. Deliberately the SAME cap `surgical_context`'s
+/// excerpt builder already applies to a symbol, so a file-head slice and a
+/// symbol slice cost the caller the same and the budget arithmetic is uniform.
+const NORTH_CODE_MAX_LINES_PER_FILE: usize = 20;
+
+/// Compose the CODE of north's top focus nodes out of the verbs that already
+/// serve code.
+///
+/// THE SECOND HOP, CLOSED. north handed back coordinates and the agent went and
+/// fetched the bytes by hand — 167 Bash calls and 46 Reads immediately after a
+/// m1nd verb, against 1 `surgical_context` and 0 `batch_view` in six weeks. The
+/// toll of a second round-trip is not paid, so the first call pays it.
+///
+/// PURE COMPOSITION, no third slicer: every byte here came verbatim out of
+/// `surgical_context` (the symbol's own source, addressed at its real lines) or
+/// `batch_view` (the file head, for a node that names no symbol). All this
+/// function decides is WHICH targets to ask for, and it declares what the
+/// budget cut. Both handlers are read-only here — `auto_ingest` is off, so the
+/// composition cannot mutate the graph north is describing.
+///
+/// The unit is the FILE, not the focus node: focus nodes cluster hard (measured
+/// live: 8 focus nodes over 4 files, three of them the same file), and the file
+/// is what the agent actually opens. The highest-activation node in each file
+/// picks that file's slice.
+///
+/// Returns `None` when nothing could be served — absent, never an empty
+/// ornament (the `landing_bell` / `map` rule).
+fn compose_north_code(
+    state: &mut SessionState,
+    agent_id: &str,
+    focus_nodes: &[serde_json::Value],
+    budget_chars: usize,
+) -> Option<serde_json::Value> {
+    // One target per distinct file, in activation order — the first focus node
+    // to name a file is that file's highest-activation node, so it names the
+    // slice.
+    struct Target {
+        path: String,
+        label: String,
+        symbol_bearing: bool,
+    }
+    let mut targets: Vec<Target> = Vec::new();
+    for node in focus_nodes {
+        let Some(path) = node
+            .get("path")
+            .and_then(|p| p.as_str())
+            .filter(|p| !p.is_empty())
+        else {
+            // A node with no file provenance (a L1GHT memory claim, a synthetic
+            // node) names no file. Its content is its claim, and that already
+            // rides in `memory` — it gets no code, deliberately.
+            continue;
+        };
+        if targets.iter().any(|t| t.path == path) {
+            continue;
+        }
+        targets.push(Target {
+            path: path.to_string(),
+            label: node
+                .get("label")
+                .and_then(|l| l.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            // A `File` node definitionally names no symbol; anything else does,
+            // and falls through to the file head when its language yields none.
+            symbol_bearing: node.get("kind").and_then(|k| k.as_str()) != Some("File"),
+        });
+    }
+    let files_total = targets.len();
+    if files_total == 0 {
+        return None;
+    }
+
+    // A composed slice before the packet budget is applied.
+    struct Slice {
+        label: String,
+        file_path: String,
+        source: &'static str,
+        line_start: u32,
+        line_end: u32,
+        total_lines: usize,
+        content: String,
+        truncated: bool,
+    }
+    let mut composed: Vec<Option<Slice>> = Vec::new();
+    let mut head_wanted: Vec<usize> = Vec::new();
+
+    // Pass 1 — `surgical_context` for every symbol-bearing target.
+    for (index, target) in targets.iter().take(NORTH_CODE_MAX_FILES).enumerate() {
+        let focused = if target.symbol_bearing {
+            crate::surgical_handlers::handle_surgical_context(
+                state,
+                crate::protocol::surgical::SurgicalContextInput {
+                    file_path: target.path.clone(),
+                    agent_id: agent_id.to_string(),
+                    symbol: Some(target.label.clone()),
+                    radius: 1,
+                    include_tests: false,
+                },
+            )
+            .ok()
+            .and_then(|out| {
+                out.focused_symbol
+                    .map(|symbol| (symbol, out.line_count as usize))
+            })
+        } else {
+            None
+        };
+        match focused {
+            Some((symbol, line_count)) => {
+                let content = symbol.excerpt.unwrap_or_default();
+                let span = (symbol.line_end.saturating_sub(symbol.line_start) + 1) as usize;
+                let truncated = content.lines().count() < span;
+                composed.push(Some(Slice {
+                    label: target.label.clone(),
+                    file_path: target.path.clone(),
+                    source: "surgical_context",
+                    line_start: symbol.line_start,
+                    line_end: symbol.line_end,
+                    total_lines: line_count,
+                    content,
+                    truncated,
+                }));
+            }
+            None => {
+                // No symbol to focus (a File node, an unsupported language, a
+                // name the extractor cannot see) — the file head answers.
+                composed.push(None);
+                head_wanted.push(index);
+            }
+        }
+    }
+
+    // Pass 2 — ONE `batch_view` for every fall-through, which is what that verb
+    // is for: many files, one call, honest per-file counters.
+    if !head_wanted.is_empty() {
+        let files: Vec<String> = head_wanted
+            .iter()
+            .map(|&index| targets[index].path.clone())
+            .collect();
+        if let Ok(batch) = crate::surgical_handlers::handle_batch_view(
+            state,
+            crate::protocol::surgical::BatchViewInput {
+                agent_id: agent_id.to_string(),
+                files,
+                max_lines_per_file: NORTH_CODE_MAX_LINES_PER_FILE,
+                summary_mode: false,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        ) {
+            for &index in &head_wanted {
+                let target = &targets[index];
+                let Some(entry) = batch
+                    .entries
+                    .iter()
+                    .find(|entry| entry.file_path.ends_with(&target.path))
+                else {
+                    continue;
+                };
+                composed[index] = Some(Slice {
+                    label: target.label.clone(),
+                    file_path: target.path.clone(),
+                    source: "batch_view",
+                    line_start: 1,
+                    line_end: entry.lines_returned.max(1) as u32,
+                    total_lines: entry.total_lines,
+                    content: entry.content.clone(),
+                    truncated: entry.truncated,
+                });
+            }
+        }
+    }
+
+    // Pass 3 — spend the budget in rank order and DECLARE the cut. A silent
+    // truncation is a lie; the vocabulary mirrors the binding fingerprint's
+    // head-truncated `ingest_roots` (`*_total` / `*_omitted` / `*_truncated` /
+    // the surface that serves the whole thing).
+    let mut slices: Vec<serde_json::Value> = Vec::new();
+    let mut used = 0usize;
+    let mut any_truncated = false;
+    for slice in composed.into_iter().flatten() {
+        let remaining = budget_chars.saturating_sub(used);
+        if remaining == 0 {
+            break;
+        }
+        let mut content = slice.content;
+        let mut truncated = slice.truncated;
+        if content.chars().count() > remaining {
+            content = content.chars().take(remaining).collect();
+            truncated = true;
+        }
+        used += content.chars().count();
+        any_truncated |= truncated;
+        // No `node_id`: §C1.3 rule 4 forbids duplicate serialization, and
+        // `file_path` + `label` already join a slice back to its focus node.
+        slices.push(serde_json::json!({
+            "label": slice.label,
+            "file_path": slice.file_path,
+            "source": slice.source,
+            "line_start": slice.line_start,
+            "line_end": slice.line_end,
+            "total_lines": slice.total_lines,
+            "lines_returned": content.lines().count(),
+            "truncated": truncated,
+            "content": content,
+        }));
+    }
+    if slices.is_empty() {
+        return None;
+    }
+
+    let files_returned = slices.len();
+    let files_omitted = files_total.saturating_sub(files_returned);
+    let truncated = any_truncated || files_omitted > 0;
+    let mut payload = serde_json::Map::new();
+    payload.insert("schema".into(), serde_json::json!("m1nd-north-code-v0"));
+    payload.insert("budget_chars".into(), serde_json::json!(budget_chars));
+    payload.insert("chars".into(), serde_json::json!(used));
+    payload.insert("files_total".into(), serde_json::json!(files_total));
+    payload.insert("files_returned".into(), serde_json::json!(files_returned));
+    payload.insert("files_omitted".into(), serde_json::json!(files_omitted));
+    payload.insert("truncated".into(), serde_json::json!(truncated));
+    if truncated {
+        payload.insert(
+            "full_surface".into(),
+            serde_json::json!(
+                "surgical_context(file_path, symbol) or batch_view(files) serves the whole file; this block carries the activation-ranked head only"
+            ),
+        );
+    }
+    payload.insert("slices".into(), serde_json::Value::Array(slices));
+    Some(serde_json::Value::Object(payload))
+}
+
 /// Read-only safe: every composed handler is read-only (`trust_selftest`,
 /// `orient`→`activate`, `boot_memory action=list`, `focus`→`seek` all route
 /// through read-only-safe paths).
@@ -5050,6 +5336,18 @@ fn handle_north(
         .get("scope")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // The code payload is ON by default. The measurement that ordered it is
+    // exactly why: nobody opts in to what they do not know exists, and the verbs
+    // that already closed this hop sat at 1 call in six weeks. A knob nobody
+    // turns changes nothing — so the knob here is the OFF switch, for the caller
+    // who has measured that they do not want the bytes.
+    let code_enabled = params.get("code").and_then(|v| v.as_bool()).unwrap_or(true);
+    let code_budget_chars = params
+        .get("code_budget_chars")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(NORTH_CODE_BUDGET_CHARS)
+        .clamp(NORTH_CODE_BUDGET_MIN, NORTH_CODE_BUDGET_MAX);
 
     // 1. BINDING — one trust_selftest gives the verdict + fingerprint + graph
     //    state + (when not full) the attached recovery_playbook. Reuse wholesale;
@@ -5567,6 +5865,48 @@ fn handle_north(
     // returned, so it never conflicts with the earlier `&mut state` uses.
     let reception = state.reception_verdict();
 
+    // THE SECOND HOP, CLOSED — the code of the top focus nodes, composed from
+    // `surgical_context` / `batch_view`.
+    //
+    // It rides EXACTLY where the packet already claims it can answer: `context`
+    // non-null (so `needs_ingest`, an empty graph and the brainless-caller
+    // fallback are untouched — each keeps returning the repair, never bytes) and
+    // no reception mismatch. That last gate is the sharp one: under
+    // `caller_root_mismatch` the bound graph does not cover the caller's repo, so
+    // its file bytes are ANOTHER repo's source. Foreign anchors are already cut
+    // as context poisoning; foreign source is the same poison wearing the most
+    // convincing costume there is — real, compiling code.
+    let reception_mismatch = reception
+        .as_ref()
+        .and_then(|r| r.get("match").and_then(|m| m.as_str()))
+        == Some("caller_root_mismatch");
+    let code = if code_enabled && !context.is_null() && !reception_mismatch {
+        let focus_nodes = context
+            .get("focus_nodes")
+            .and_then(|f| f.as_array())
+            .cloned()
+            .unwrap_or_default();
+        // A focus node with no file provenance names no file, so it gets no
+        // code. Say so rather than let the omission look like a failure to read.
+        let pathless = focus_nodes
+            .iter()
+            .filter(|node| {
+                node.get("path")
+                    .and_then(|p| p.as_str())
+                    .filter(|p| !p.is_empty())
+                    .is_none()
+            })
+            .count();
+        if pathless > 0 {
+            honest_gaps.push(format!(
+                "{pathless} focus node(s) carry no file provenance, so no code was served for them — their content, if any, is the memory claim already in this packet."
+            ));
+        }
+        compose_north_code(state, &agent_id, &focus_nodes, code_budget_chars)
+    } else {
+        None
+    };
+
     // The m1nd voice (`human_view`, m1nd-human-view-v0) — the server-composed,
     // already-mounted card for the HUMAN in the conversation. Composed AFTER
     // reception (amendment 3: a card composed before it would describe the
@@ -5651,6 +5991,15 @@ fn handle_north(
     if let Some(bell) = landing_bell {
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("landing_bell".to_string(), bell);
+        }
+    }
+    // The code payload rides ONLY when it carries bytes — absent (not null) when
+    // the packet is switched off, when the graph cannot answer for this repo, or
+    // when no focus node named a readable file. Same rule as the landing bell:
+    // no empty ornament.
+    if let Some(code) = code {
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("code".to_string(), code);
         }
     }
     // The map fact rides ONLY when the served brain has a SystemBlock store
@@ -6117,13 +6466,47 @@ pub(crate) fn enforce_generic_action_policy(
 
 /// Defense-in-depth wrapper for generic transport calls. Transport seams still
 /// invoke the pure policy gate before any of their own tracking/routing effects.
+///
+/// THE USAGE SEAM. This is also the ONE place m1nd counts its own use, and it
+/// is this function rather than [`dispatch_tool`] for two reasons. First, it is
+/// the seam a verb arriving FROM OUTSIDE crosses: every transport funnels here
+/// (REST `/api/tools/{tool}`, the Streamable-HTTP wire and stdio via
+/// `handle_mcp_method_transactional`, and the in-process `McpToolClient`),
+/// while m1nd's own internal calls — the post-bootstrap orientation, the
+/// auto-ingest re-ingest — call `dispatch_tool` directly and are correctly NOT
+/// counted as agent usage. Second, it is the only seam that sees BOTH halves of
+/// the answer: the floor gate's refusal and the dispatcher's outcome, recorded
+/// by ONE call so the counters cannot disagree with themselves.
+///
+/// What it does not see, stated so nobody reads a zero as an absence: verbs
+/// with their own interception never reach generic dispatch (`mission_service`,
+/// `external_mutation_service`, and the REST owner proxies declared in
+/// `REST_ROUTE_SEATING`), and the REST/wire ingresses run the SAME floor gate
+/// once more BEFORE brain resolution — deliberately, so an elevated action
+/// never warms a brain — so a floor refusal that arrives over those two
+/// transports is answered before any brain exists to count it. The refusals
+/// counted here are the ones that reach a bound brain.
 pub(crate) fn dispatch_generic_tool(
     state: &mut SessionState,
     tool_name: &str,
     params: &serde_json::Value,
 ) -> M1ndResult<serde_json::Value> {
-    enforce_generic_action_policy(tool_name, params)?;
-    dispatch_tool(state, tool_name, params)
+    use crate::verb_usage::VerbCallOutcome;
+
+    let (result, outcome) = match enforce_generic_action_policy(tool_name, params) {
+        Err(error) => (Err(error), VerbCallOutcome::RefusedAtAuthorityFloor),
+        Ok(()) => {
+            let result = dispatch_tool(state, tool_name, params);
+            let outcome = if result.is_ok() {
+                VerbCallOutcome::Answered
+            } else {
+                VerbCallOutcome::RefusedAtDispatch
+            };
+            (result, outcome)
+        }
+    };
+    state.record_verb_call(tool_name, outcome);
+    result
 }
 
 /// Dispatch a tool call by name. Normalizes underscores to dots.
@@ -8415,7 +8798,7 @@ mod tests {
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
-    use m1nd_core::graph::Graph;
+    use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use std::sync::mpsc;
 
     fn build_state() -> (tempfile::TempDir, SessionState) {
@@ -8821,6 +9204,178 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ─── The verb-usage battery: what m1nd records about its OWN use ────────
+    //
+    // These drive the REAL seam (`dispatch_generic_tool`), not the ledger's own
+    // unit surface — the unit tests live in `verb_usage.rs`. What is proved
+    // here is the wiring: that a dispatched verb is counted once, that a
+    // refusal never lands in the answered counter, that the counts survive a
+    // process restart through `SessionState::initialize`, and that a corrupt
+    // counter file cannot take the boot with it.
+
+    #[test]
+    fn verb_usage_seam_counts_every_dispatched_verb_under_its_own_name() {
+        let (_temp, mut state) = build_state();
+
+        for _ in 0..2 {
+            super::dispatch_generic_tool(
+                &mut state,
+                "health",
+                &serde_json::json!({"agent_id": "usage-battery"}),
+            )
+            .expect("health answers with no graph");
+        }
+        super::dispatch_generic_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "usage-battery"}),
+        )
+        .expect("help answers with no graph");
+
+        let health = state.verb_usage.counters("health").expect("health counted");
+        assert_eq!(health.answered, 2, "two health dispatches");
+        assert_eq!(health.refused_at_authority_floor, 0);
+        assert_eq!(health.refused_at_dispatch, 0);
+        assert!(health.first_seen_ms > 0 && health.last_seen_ms >= health.first_seen_ms);
+
+        assert_eq!(
+            state.verb_usage.counters("help").map(|c| c.answered),
+            Some(1),
+            "each verb counts under its own name, never folded into a neighbour"
+        );
+        assert_eq!(
+            state.verb_usage.distinct_verbs(),
+            2,
+            "two verbs seen, two rows"
+        );
+    }
+
+    #[test]
+    fn verb_usage_authority_floor_refusal_never_lands_in_the_answered_counter() {
+        let (_temp, mut state) = build_state();
+
+        // `ingest {mode:"merge"}` sits at SCOPED_GRANT_A2: the F-01 gate refuses
+        // it before any handler runs. That is a different FACT from a verb that
+        // ran, and this is the assert that keeps the two apart.
+        let error = super::dispatch_generic_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({"agent_id": "usage-battery", "mode": "merge", "paths": ["."]}),
+        )
+        .expect_err("an elevated generic action must refuse");
+        assert!(
+            error
+                .to_string()
+                .contains("generic_action_authority_required"),
+            "expected the authority-floor refusal, got: {error}"
+        );
+
+        let ingest = state.verb_usage.counters("ingest").expect("ingest counted");
+        assert_eq!(
+            ingest.answered, 0,
+            "a floor-refused verb must never be counted as answered"
+        );
+        assert_eq!(ingest.refused_at_authority_floor, 1);
+        assert_eq!(
+            ingest.refused_at_dispatch, 0,
+            "the refusal happened at the floor, not inside the dispatcher"
+        );
+    }
+
+    #[test]
+    fn verb_usage_dispatcher_refusal_is_counted_apart_from_the_floor_refusal() {
+        let (_temp, mut state) = build_state();
+
+        // Admitted by the floor, refused by the dispatcher: `report` is an
+        // ORDINARY read, but its input is invalid without `agent_id`.
+        super::dispatch_generic_tool(&mut state, "report", &serde_json::json!({}))
+            .expect_err("report without agent_id must fail in the dispatcher");
+
+        let report = state.verb_usage.counters("report").expect("report counted");
+        assert_eq!(report.answered, 0);
+        assert_eq!(
+            report.refused_at_authority_floor, 0,
+            "the floor admitted this call — only the dispatcher refused it"
+        );
+        assert_eq!(report.refused_at_dispatch, 1);
+    }
+
+    #[test]
+    fn verb_usage_survives_a_restart_of_the_session() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..McpConfig::default()
+        };
+
+        {
+            let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+                .expect("init session");
+            super::dispatch_generic_tool(
+                &mut state,
+                "health",
+                &serde_json::json!({"agent_id": "usage-battery"}),
+            )
+            .expect("health answers");
+            assert!(
+                crate::verb_usage::VerbUsageLedger::state_path(&runtime_dir).exists(),
+                "the first call after a boot must publish the ledger"
+            );
+        }
+
+        // The restart: a second session over the SAME runtime root.
+        let restarted = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("re-init session over the same runtime root");
+        assert_eq!(
+            restarted.verb_usage.counters("health").map(|c| c.answered),
+            Some(1),
+            "counts recorded before the restart must be there after it"
+        );
+    }
+
+    #[test]
+    fn verb_usage_corrupt_counter_file_does_not_fail_boot() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        std::fs::write(
+            crate::verb_usage::VerbUsageLedger::state_path(&runtime_dir),
+            "{ this is not the ledger you are looking for",
+        )
+        .expect("write corrupt ledger");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("a corrupt counter file must never fail the boot");
+        assert_eq!(
+            state.verb_usage.distinct_verbs(),
+            0,
+            "a corrupt ledger degrades to empty counts"
+        );
+        super::dispatch_generic_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({"agent_id": "usage-battery"}),
+        )
+        .expect("the session serves normally after degrading");
+        assert_eq!(
+            state.verb_usage.counters("health").map(|c| c.answered),
+            Some(1),
+            "the counts start over, they do not stay broken"
+        );
     }
 
     #[test]
@@ -12729,6 +13284,150 @@ mod tests {
         build_state_populated_with_legacy_boot_memory(read_only, None)
     }
 
+    /// Build a populated session whose focus nodes point at REAL files on disk,
+    /// so the composed code payload has something to read.
+    ///
+    /// The fixture is deliberately adversarial for a naive "head of the file"
+    /// answer: `enforce_lease` sits ~120 lines deep in `src/lease.rs`, so a
+    /// file-head slice would return imports instead of the code the task is
+    /// about. It also carries a non-code node (`docs/lease-notes.md`) whose
+    /// language yields no symbols — the case that must fall through to the file
+    /// head rather than silently return nothing.
+    fn build_state_with_real_sources() -> (tempfile::TempDir, SessionState, std::path::PathBuf) {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        let repo = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        std::fs::create_dir_all(repo.join("src")).expect("src dir");
+        std::fs::create_dir_all(repo.join("docs")).expect("docs dir");
+
+        // A file whose interesting symbol is FAR from the head.
+        let mut lease_rs = String::from("// lease bookkeeping for the instance registry\n");
+        for i in 0..110 {
+            lease_rs.push_str(&format!("// filler line {i}\n"));
+        }
+        lease_rs.push_str("pub fn enforce_lease(now_ms: u64, ttl_ms: u64) -> bool {\n");
+        for i in 0..24 {
+            lease_rs.push_str(&format!("    let step_{i} = now_ms + {i};\n"));
+        }
+        lease_rs.push_str("    now_ms < ttl_ms\n}\n");
+        let lease_line_start = 112u32;
+        std::fs::write(repo.join("src/lease.rs"), &lease_rs).expect("write lease.rs");
+
+        let mut notes_md = String::from("# Lease enforcement notes\n\n");
+        for i in 0..40 {
+            notes_md.push_str(&format!("- lease enforcement note {i}\n"));
+        }
+        std::fs::write(repo.join("docs/lease-notes.md"), &notes_md).expect("write notes");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+
+        let mut graph = Graph::new();
+        let lease_file = graph
+            .add_node(
+                "file::src/lease.rs",
+                "lease.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add lease file node");
+        graph.set_node_provenance(
+            lease_file,
+            NodeProvenanceInput {
+                source_path: Some("src/lease.rs"),
+                line_start: Some(1),
+                line_end: Some(lease_rs.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let enforce = graph
+            .add_node(
+                "file::src/lease.rs::fn::enforce_lease",
+                "enforce_lease",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add enforce_lease node");
+        graph.set_node_provenance(
+            enforce,
+            NodeProvenanceInput {
+                source_path: Some("src/lease.rs"),
+                line_start: Some(lease_line_start),
+                line_end: Some(lease_rs.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let notes = graph
+            .add_node(
+                "file::docs/lease-notes.md",
+                "lease enforcement notes",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add notes node");
+        graph.set_node_provenance(
+            notes,
+            NodeProvenanceInput {
+                source_path: Some("docs/lease-notes.md"),
+                line_start: Some(1),
+                line_end: Some(notes_md.lines().count() as u32),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph
+            .add_edge(
+                lease_file,
+                enforce,
+                "declares",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.9),
+            )
+            .expect("edge file->fn");
+        graph
+            .add_edge(
+                enforce,
+                notes,
+                "documented_by",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.6),
+            )
+            .expect("edge fn->notes");
+        graph.finalize().expect("finalize graph");
+
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("init source-backed session");
+        // Authorize the fixture repo for reads and make the caller a home caller
+        // (covered root → no reception mismatch).
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+        state.caller_root = Some(repo.to_string_lossy().to_string());
+        (temp, state, repo)
+    }
+
+    const CODE_TASK: &str = "enforce_lease lease enforcement notes";
+
     fn build_state_populated_with_legacy_boot_memory(
         read_only: bool,
         legacy_boot_memory: Option<crate::session::BootMemoryState>,
@@ -13209,6 +13908,13 @@ mod tests {
             out["context"].is_null(),
             "brainless caller must not receive the foreign graph's context, got: {}",
             out["context"]
+        );
+        // …and the cut extends to the code payload: foreign SOURCE is the same
+        // poison as foreign anchors, only more convincing.
+        assert!(
+            out.get("code").is_none(),
+            "brainless caller must not receive the foreign graph's source, got: {}",
+            out["code"]
         );
 
         // (a) the canonical project_brain_absent label rides the reception + gaps.
@@ -13786,6 +14492,440 @@ mod tests {
             out["next_move"].is_string() && !out["next_move"].as_str().unwrap().is_empty(),
             "next_move must be a non-empty honest suggestion"
         );
+    }
+
+    // === north CODE payload (the second hop, closed) ======================
+    //
+    // Six weeks of real agent traffic said the second round-trip never happens:
+    // north opened 105 of 157 sessions, and the verbs that exist to fetch what
+    // it pointed at were at zero (`surgical_context` 1 call, `batch_view` none)
+    // while Bash/Read did the fetching by hand. So the FIRST call carries the
+    // bytes. These cases pin that the payload is real, budgeted, declared,
+    // switchable, and ABSENT wherever the packet already says the graph cannot
+    // answer for this repo.
+
+    /// north hands back the CODE of its top focus nodes, not only their
+    /// addresses — and the code is the code AT the node, not the head of a file
+    /// that happens to contain it.
+    #[test]
+    fn north_serves_code_for_its_top_focus_nodes() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed on a source-backed graph");
+
+        let code = &out["code"];
+        assert_eq!(
+            code["schema"], "m1nd-north-code-v0",
+            "north must carry a code payload on a populated graph, got: {out}"
+        );
+        let slices = code["slices"].as_array().expect("code.slices array");
+        assert!(!slices.is_empty(), "code.slices must not be empty");
+
+        // The symbol slice carries the FUNCTION's own source, which lives ~112
+        // lines into the file — a file-head answer would miss it entirely.
+        let symbol_slice = slices
+            .iter()
+            .find(|s| s["label"] == "enforce_lease")
+            .unwrap_or_else(|| panic!("enforce_lease must get a slice, got: {slices:#?}"));
+        assert_eq!(symbol_slice["source"], "surgical_context");
+        assert!(
+            symbol_slice["content"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("pub fn enforce_lease"),
+            "the slice must carry the symbol's own source, got: {}",
+            symbol_slice["content"]
+        );
+        assert!(
+            symbol_slice["line_start"].as_u64().unwrap_or(0) > 100,
+            "the slice must be addressed at the symbol's real line, got: {}",
+            symbol_slice["line_start"]
+        );
+        // Honest totals ride every slice.
+        assert!(symbol_slice["total_lines"].as_u64().unwrap_or(0) > 130);
+        assert!(symbol_slice["lines_returned"].as_u64().unwrap_or(0) >= 1);
+
+        // A node whose language yields no symbols falls through to the file
+        // head via the other composed verb rather than returning nothing.
+        let doc_slice = slices
+            .iter()
+            .find(|s| s["file_path"].as_str().unwrap_or("").ends_with(".md"))
+            .unwrap_or_else(|| panic!("the doc node must get a slice, got: {slices:#?}"));
+        assert_eq!(doc_slice["source"], "batch_view");
+        assert!(doc_slice["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Lease enforcement notes"));
+    }
+
+    /// The budget is caller-visible, and what it cuts is DECLARED with honest
+    /// totals — a silent cut is a lie (the same contract the binding
+    /// fingerprint's head-truncated `ingest_roots` already keeps).
+    #[test]
+    fn north_code_declares_what_the_budget_cut() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code_budget_chars": 200,
+            }),
+        )
+        .expect("north should succeed under a tight budget");
+
+        let code = &out["code"];
+        assert_eq!(code["budget_chars"], 200, "the budget echoes back verbatim");
+        let chars = code["chars"].as_u64().expect("code.chars");
+        assert!(
+            chars <= 200,
+            "the payload must respect its own budget, got {chars}"
+        );
+        assert_eq!(
+            code["truncated"], true,
+            "a cut payload must SAY it was cut, got: {code}"
+        );
+        // The honest denominator: how many files the focus nodes actually named
+        // versus how many got served.
+        let total = code["files_total"].as_u64().expect("files_total");
+        let returned = code["files_returned"].as_u64().expect("files_returned");
+        let omitted = code["files_omitted"].as_u64().expect("files_omitted");
+        assert!(
+            total >= 2,
+            "the fixture names at least two files, got {total}"
+        );
+        assert_eq!(
+            returned + omitted,
+            total,
+            "returned + omitted must account for every named file"
+        );
+        assert!(
+            code["full_surface"].is_string(),
+            "a truncated payload names the surface that serves the whole file"
+        );
+        // Every slice still declares its own honest counters.
+        for slice in code["slices"].as_array().expect("slices") {
+            assert!(slice["total_lines"].as_u64().is_some());
+            assert!(slice["lines_returned"].as_u64().is_some());
+            assert!(slice["truncated"].is_boolean());
+            let returned_lines = slice["lines_returned"].as_u64().unwrap();
+            assert_eq!(
+                returned_lines,
+                slice["content"].as_str().unwrap_or("").lines().count() as u64,
+                "lines_returned must count what the slice ACTUALLY carries"
+            );
+        }
+    }
+
+    /// The knob turns the payload off entirely — and off means ABSENT, not an
+    /// empty ornament (the landing_bell / map rule).
+    #[test]
+    fn north_code_knob_turns_the_payload_off() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code": false,
+            }),
+        )
+        .expect("north should succeed with the code payload disabled");
+
+        assert!(
+            out.get("code").is_none(),
+            "code:false must omit the field entirely, got: {}",
+            out["code"]
+        );
+        // Everything else the packet promises is untouched.
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        assert!(!out["context"]["focus_nodes"]
+            .as_array()
+            .expect("focus_nodes")
+            .is_empty());
+    }
+
+    /// The calibrated states answer exactly as they did. A code payload must
+    /// never appear where the packet's own contract says the graph cannot
+    /// answer: an empty/unbound graph is `needs_ingest` with NO code.
+    #[test]
+    fn north_empty_graph_carries_no_code_payload() {
+        let (_temp, mut state) = build_state();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed even on an empty graph");
+
+        assert_eq!(out["needs"], "needs_ingest");
+        assert!(out["context"].is_null());
+        assert!(
+            out.get("code").is_none(),
+            "needs_ingest must carry no code payload, got: {}",
+            out["code"]
+        );
+    }
+
+    /// Reception mismatch: the bound graph does NOT cover the caller's repo, so
+    /// its file bytes are somebody else's. The packet keeps warning and carries
+    /// no code — handing back foreign source is the poison the reception block
+    /// exists to prevent.
+    #[test]
+    fn north_caller_root_mismatch_carries_no_code_payload() {
+        let (temp, mut state, _repo) = build_state_with_real_sources();
+        let elsewhere = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&elsewhere).expect("other root");
+        state.caller_root = Some(elsewhere.to_string_lossy().to_string());
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed under a mismatch");
+
+        assert_eq!(out["reception"]["match"], "caller_root_mismatch");
+        assert!(
+            out.get("code").is_none(),
+            "a mismatched caller must never receive the bound repo's source, got: {}",
+            out["code"]
+        );
+    }
+
+    /// The composition pin. north must not grow a third code slicer: its bytes
+    /// are byte-identical to what the composed verbs return for the same
+    /// target. Asserted on shared BEHAVIOUR (the bytes), not on an internal
+    /// call shape that will rot.
+    #[test]
+    fn north_code_slices_are_byte_identical_to_the_composed_verbs() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": CODE_TASK,
+                "code_budget_chars": 20000,
+            }),
+        )
+        .expect("north should succeed");
+        let slices = out["code"]["slices"].as_array().expect("slices").to_owned();
+
+        for slice in &slices {
+            let file_path = slice["file_path"].as_str().expect("file_path").to_string();
+            match slice["source"].as_str().expect("source") {
+                "surgical_context" => {
+                    let label = slice["label"].as_str().expect("label").to_string();
+                    let direct = crate::surgical_handlers::handle_surgical_context(
+                        &mut state,
+                        crate::protocol::surgical::SurgicalContextInput {
+                            file_path: file_path.clone(),
+                            agent_id: "northerner".into(),
+                            symbol: Some(label.clone()),
+                            radius: 1,
+                            include_tests: false,
+                        },
+                    )
+                    .expect("direct surgical_context");
+                    let focused = direct
+                        .focused_symbol
+                        .unwrap_or_else(|| panic!("surgical_context must focus {label}"));
+                    assert_eq!(
+                        slice["content"].as_str().unwrap_or_default(),
+                        focused.excerpt.as_deref().unwrap_or_default(),
+                        "north's slice must BE surgical_context's excerpt, byte for byte"
+                    );
+                    assert_eq!(
+                        slice["line_start"].as_u64(),
+                        Some(focused.line_start as u64)
+                    );
+                    assert_eq!(slice["line_end"].as_u64(), Some(focused.line_end as u64));
+                }
+                "batch_view" => {
+                    let direct = crate::surgical_handlers::handle_batch_view(
+                        &mut state,
+                        crate::protocol::surgical::BatchViewInput {
+                            agent_id: "northerner".into(),
+                            files: vec![file_path.clone()],
+                            max_lines_per_file: slice["lines_returned"].as_u64().unwrap() as usize,
+                            summary_mode: false,
+                            auto_ingest: false,
+                            max_output_chars: None,
+                        },
+                    )
+                    .expect("direct batch_view");
+                    let entry = direct.entries.first().expect("one entry");
+                    assert_eq!(
+                        slice["content"].as_str().unwrap_or_default(),
+                        entry.content,
+                        "north's slice must BE batch_view's rendering, byte for byte"
+                    );
+                    assert_eq!(
+                        slice["total_lines"].as_u64(),
+                        Some(entry.total_lines as u64)
+                    );
+                }
+                other => panic!("unknown slice source `{other}`"),
+            }
+        }
+        assert!(
+            slices.len() >= 2,
+            "the pin must cover both composed verbs, got {} slice(s)",
+            slices.len()
+        );
+    }
+
+    /// The measured before/after: the same packet, with and without the code
+    /// payload, on the same graph. The budget is not an adjective.
+    #[test]
+    fn north_packet_stays_inside_the_budget_law_with_code() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let without = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "code": false }),
+        )
+        .expect("north without code");
+        let with = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north with code");
+
+        let before = serde_json::to_string(&without).expect("serialize").len();
+        let after = serde_json::to_string(&with).expect("serialize").len();
+        let block = serde_json::to_string(&with["code"]).expect("serialize code");
+        eprintln!(
+            "north packet: {before} chars without code -> {after} chars with code \
+             (default budget {} chars; code block {} chars, of which {} are source; \
+             estimated {} -> {} tokens)",
+            super::NORTH_CODE_BUDGET_CHARS,
+            block.len(),
+            with["code"]["chars"],
+            crate::result_shaping::estimate_tokens_from_chars(before),
+            crate::result_shaping::estimate_tokens_from_chars(after),
+        );
+        assert!(after > before, "the code payload must actually carry bytes");
+        assert!(
+            after - before <= super::NORTH_CODE_BUDGET_CHARS + 512,
+            "the code payload may exceed its budget only by its own declared envelope: grew {} chars",
+            after - before
+        );
+    }
+
+    /// REAL PROBE: the same before/after measured on a graph ingested from THIS
+    /// repo's own source, not a fixture — the number that has to survive
+    /// contact with real Rust files (long paths, deep symbols, big files).
+    ///
+    /// Run with:
+    /// `cargo test -p m1nd-mcp --lib north_code_real_repo_probe -- --ignored --nocapture`
+    /// Ignored by default: it ingests a directory, so it is slow and depends on
+    /// the checkout layout. Skips gracefully when the source tree is absent.
+    #[test]
+    #[ignore = "probe: ingests this repo's own source to measure the real packet"]
+    fn north_code_real_repo_probe() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        if !src.exists() {
+            eprintln!(
+                "[north_code_real_repo_probe] {} absent — skipping",
+                src.display()
+            );
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init probe session");
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: src.to_string_lossy().to_string(),
+                agent_id: "probe".into(),
+                mode: "merge".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+                project_root: None,
+            },
+        )
+        .expect("ingest this crate's source");
+        state.caller_root = state.workspace_root.clone();
+
+        let task = "compose the code payload north returns for its focus nodes";
+        let without = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "probe", "task": task, "code": false }),
+        )
+        .expect("north without code");
+        let with = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "probe", "task": task }),
+        )
+        .expect("north with code");
+        let before = serde_json::to_string(&without).expect("serialize").len();
+        let after = serde_json::to_string(&with).expect("serialize").len();
+        eprintln!(
+            "\n=== north on {} real nodes ===\n\
+             before: {before} chars ({} tokens)\n\
+             after:  {after} chars ({} tokens)\n\
+             code block: {} chars, {} of them source, {} slice(s), truncated={}\n",
+            state.graph.read().num_nodes(),
+            crate::result_shaping::estimate_tokens_from_chars(before),
+            crate::result_shaping::estimate_tokens_from_chars(after),
+            serde_json::to_string(&with["code"])
+                .expect("serialize code")
+                .len(),
+            with["code"]["chars"],
+            with["code"]["slices"]
+                .as_array()
+                .map(|s| s.len())
+                .unwrap_or(0),
+            with["code"]["truncated"],
+        );
+        eprintln!(
+            "files_total={} returned={} omitted={}",
+            with["code"]["files_total"],
+            with["code"]["files_returned"],
+            with["code"]["files_omitted"]
+        );
+        let empty = Vec::new();
+        for slice in with["code"]["slices"].as_array().unwrap_or(&empty) {
+            eprintln!(
+                "  {} [{}] {} lines, span {}..{} of {} (truncated={})",
+                slice["file_path"],
+                slice["source"],
+                slice["lines_returned"],
+                slice["line_start"],
+                slice["line_end"],
+                slice["total_lines"],
+                slice["truncated"],
+            );
+        }
     }
 
     /// north carries durable boot memory with its REAL age (now − updated_at_ms)

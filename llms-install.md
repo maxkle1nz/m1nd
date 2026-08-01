@@ -199,6 +199,20 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
+Outside a host entirely, the first-value packet for a repo:
+
+```bash
+npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
+```
+
+It asks `m1nd-mcp --discover-owner` first (read-only, no lease — `--attach auto`'s two
+questions) and bridges to a live serve owner whose declared ingest roots cover the repo,
+so on a machine with a served owner it reads that owner's real graph. With no covering
+owner it runs an isolated runtime, and if that brain has no graph it answers
+`needs_authority` / `NOT_PROVEN` **naming why no owner was reached**. Read `runtime.boot`
+(`attached_serve_owner` | `isolated_runtime`) and `runtime.owner_discovery` before
+concluding the machine has no graph; `--no-attach` forces the isolated runtime.
+
 ## 6. Troubleshooting
 
 - **`doctor` says the runtime is not visible** → the npm package is installed but the

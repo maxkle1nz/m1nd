@@ -43,9 +43,16 @@ measured high-signal pattern starts by never starting cold:
    repair travels with it when degraded), task context (focus nodes + PageRank
    anchors), prior cross-session memory (each claim with real age + author —
    absent, never faked, when unknown), a sufficiency signal, one `next_move`,
-   and `honest_gaps` (what m1nd does NOT know). `north` composes
-   `trust_selftest` + `orient` + `boot_memory` + `focus`; reach for the pieces
-   directly only when you need just one. Heed `reception`:
+   and `honest_gaps` (what m1nd does NOT know) — plus `code`, the real SOURCE of
+   the top focus nodes (the symbol's own lines, or the file head when a node
+   names no symbol) for up to 3 files inside a ~2,000-char budget, each slice
+   declaring `total_lines` vs `lines_returned` and `truncated`. Read that payload
+   instead of grepping or re-opening what north just named; widen the first call
+   with `code_budget_chars` rather than paying a second round-trip, and pass
+   `code: false` when you want orientation only. `north` composes
+   `trust_selftest` + `orient` + `boot_memory` + `focus` +
+   `surgical_context`/`batch_view`; reach for the pieces directly only when you
+   need just one. Heed `reception`:
    `reception.match == "caller_root_mismatch"` means the bound graph does NOT
    cover your current repo — do not trust retrieval for it; read
    `reception.options[]`. Generic cross-root `ingest` remains withdrawn
@@ -378,12 +385,20 @@ m1nd agent orient \
 ```
 
 `agent first-minute` is the HOST-NEUTRAL CLI escape hatch for stale, unbound, or
-not-yet-loaded sessions — an out-of-session isolated-runtime entry, not the
-in-session front door (`north` is). Reach for it for first contact from a stale
-MCP client, broad architecture/audit requests outside a live binding, or when an
-agent has not yet loaded the m1nd operating doctrine. It scopes the repo,
-establishes trust, ingests when needed, runs one bounded orientation pass,
-returns anchors, and emits `do_not` guardrails plus a direct-proof handoff.
+not-yet-loaded sessions — an out-of-session entry, not the in-session front door
+(`north` is). Reach for it for first contact from a stale MCP client, broad
+architecture/audit requests outside a live binding, or when an agent has not yet
+loaded the m1nd operating doctrine. It scopes the repo, establishes trust, runs
+one bounded orientation pass, returns anchors, and emits `do_not` guardrails plus
+a direct-proof handoff.
+
+It is no longer isolated by default: before booting anything it asks the runtime
+`--attach auto`'s two questions (`m1nd-mcp --discover-owner`, read-only, no
+lease) and BRIDGES to a live serve owner whose declared ingest roots cover
+`--repo`, so on a machine with a served owner the first minute reads the real
+graph instead of an empty sidecar. `runtime.boot` is `attached_serve_owner` or
+`isolated_runtime`, and `runtime.owner_discovery` carries the owner or the
+refusal. `--no-attach` forces the isolated runtime.
 
 `agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move,
 so use it when you are choosing between scope, trust, orient, context, recover,
@@ -876,8 +891,17 @@ m1nd agent recover --repo /path/to/repo --from wrong_workspace_binding --json
 m1nd agent doctor --repo /path/to/repo --json
 ```
 
-In the serve/attach era, the cheapest live probe is a direct HTTP call to the
-served owner — no isolated runtime, no lease, and it exercises the SAME graph the
+These reach the served owner themselves now: each asks `m1nd-mcp
+--discover-owner` first (read-only, no lease) and bridges to the live owner
+whose declared ingest roots cover `--repo`, reporting it under
+`runtime.owner_discovery`. To ask only which owner a directory would reach:
+
+```bash
+cd /path/to/repo && m1nd-mcp --discover-owner   # exit 0 = found, 1 = none
+```
+
+The cheapest live probe of the graph itself is still a direct HTTP call to the
+served owner — no runtime spawned at all, and it exercises the SAME graph the
 hosts see:
 
 ```bash

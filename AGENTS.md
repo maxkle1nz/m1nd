@@ -248,6 +248,14 @@ The four verbs now reach the real floor, which means a run on any unentitled bin
 build — refuses at the keychain naming prerequisite P4. That refusal is the correct answer and
 must never be worked around: `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §5 R1.
 
+**One artifact IS entitled, and it changes nothing above.** The release builds a second macOS
+artifact, `m1nd-custody-ceremony.app` (the same binary bytes in an app-like bundle with the owner's
+provisioning profile embedded), because a restricted entitlement on a raw executable is SIGKILLed
+by the kernel — `build/README.md`. It exists so the OWNER can run the ceremony; the four verbs stay
+the owner's on it exactly as on any other build, and `preflight` stays the only one an agent may
+run. Agents do not build it, do not sign it, and never handle the profile: it is a repository
+secret the release step reads and deletes.
+
 **`--seal-independence-spec <PATH>` is NOT one of these verbs.** It sits next to them in the CLI
 and serves the same ceremony, but it seals a DOCUMENT: it reads the owner's hand-authored
 `IndependenceSpecV1`, fills `independence_spec_digest` from the digest of that spec's own core,
@@ -265,6 +273,17 @@ unless m1nd is served at a reachable address.
 
 Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
 field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
+
+**What m1nd records about YOUR use of it, in full:** one row per verb in
+`<runtime>/verb_usage_state.json` — the verb name and three counters (`answered`,
+`refused_at_authority_floor`, `refused_at_dispatch`) plus first/last seen. It is written at ONE
+seam (`server::dispatch_generic_tool`, the door every transport crosses) and read back through
+`report`. What it deliberately does NOT record, and must never grow: your `agent_id`, your
+arguments, your queries, paths, node labels, or anything derived from them — a verb name that
+is not in the compiled route table collapses into a single `<unrouted>` bucket, so caller text
+cannot reach the file even by accident (`m1nd-mcp/src/verb_usage.rs`, pinned by
+`verb_usage_persisted_shape_holds_no_free_text`). Losing the file means the counts start over;
+it is not brain knowledge and is not in the checkpoint.
 
 ## The box — carve out-of-scope findings in stone (mandatory, every repo)
 

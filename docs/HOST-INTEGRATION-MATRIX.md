@@ -136,9 +136,12 @@ m1nd agent first-minute --repo "<repo>" --query "<task>" --json
 ```
 
 This is the shipped CLI escape hatch (`skills/m1nd-universal-agent-pack.md:160-176`): it
-**scopes, trusts, ingests when needed, runs one bounded orientation pass, returns anchors,
-and hands control back to direct proof** — without a live MCP session. It is the
-host-neutral front for out-of-loop hooks; `north` remains the in-session front door.
+**scopes, trusts, runs one bounded orientation pass, returns anchors, and hands control
+back to direct proof** — without a live MCP session. It is the host-neutral front for
+out-of-loop hooks; `north` remains the in-session front door. It reaches the served owner
+by itself: before booting it asks `m1nd-mcp --discover-owner` (read-only, `--attach auto`'s
+two questions) and bridges to the live owner whose declared ingest roots cover the repo,
+falling back to an isolated runtime — and saying so in `runtime.boot` — when none does.
 
 > **The parse contract every hook shares.** A SessionStart-family hook must emit, on
 > stdout, exactly:

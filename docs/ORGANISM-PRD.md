@@ -126,6 +126,25 @@ Pull-not-push graduates from a memory law (MEDULLA law 2) to **the packet law**:
 1. **Size:** north ≤ **2,000 tokens** on the MCP path (the organism's own budget doctrine, §O.12.4:
    default 2k, hard ceiling 8k, applied to its flagship packet); ≤ **1,200 chars** on the hook path
    (TT §10.1, restated as binding on the packet composer, not just the shell script).
+
+   **Amendment (2026-07-31) — the code payload is budgeted against the HARD ceiling.** The 2k pin
+   was set when north carried orientation only: coordinates, never content. Six weeks of real agent
+   traffic then measured what that costs — north opened 105 of 157 sessions, but the verbs that
+   exist to fetch what it named were at 1 call (`surgical_context`) and 0 (`batch_view`), while Bash
+   (167) and Read (46) did the fetching by hand. The second round-trip is not made, so north now
+   returns the source of its top focus nodes. **Measured on a graph ingested from this repo's own
+   source (9,281 nodes): 5,576 chars = 1,394 tokens before, 8,116 chars = 2,029 tokens after**
+   (`estimate_tokens_from_chars`, chars/4) — the orientation half is unchanged and still under the
+   2k pin; the packet as a whole now sits just past it, at **~25% of §O.12.4's 8,000-token hard
+   ceiling**. The arithmetic that forced the move: with ~2.3k chars of headroom and ~0.9k of it
+   spent on three slices' addresses and counters, a payload that fit the old pin would be ~200 chars
+   of source per file — five lines, which is theatre. The budget is caller-visible
+   (`code_budget_chars`, default 2,000 chars of source, clamped 200..20,000) and `code: false`
+   restores the pre-code packet byte for byte, so the 2k form remains reachable by argument. Rules
+   2-5 bind the payload unchanged: it is absent (not null) when it carries nothing, it declares
+   every cut with honest `files_total` / `files_returned` / `files_omitted` and per-slice
+   `total_lines` vs `lines_returned`, it names the pull verb that serves the rest, and it duplicates
+   no field the packet already carries.
 2. **Sufficiency-gating with recorded drops:** omitted sections drop out of the JSON and each drop
    adds a `non_claims` line (§O.12.4's law, generalized; north already carries `non_claims` — wire it).
 3. **The satellite one-line rule:** reception (mismatch only), inbox, soul, doctrine each enter

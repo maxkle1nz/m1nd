@@ -237,6 +237,22 @@ pub struct Cli {
     #[arg(long)]
     pub attach: Option<String>,
 
+    /// Ask `--attach auto`'s TWO discovery questions, print the answer as one
+    /// JSON object, and exit — without attaching, loading a graph, taking a
+    /// lease or opening a port. Exit code 0 when an owner answered, 1 when none
+    /// did (the refusal travels verbatim in the payload's `reason`).
+    ///
+    /// It exists so a client that is NOT Rust can make the same boot decision
+    /// the bridge makes. The npm agent CLI (`m1nd agent first-minute`,
+    /// `m1nd agent context`) used to boot an isolated runtime unconditionally
+    /// and report `needs_authority` on a machine where a served owner already
+    /// held the caller's repo; it now asks this probe first. Answering here
+    /// instead of re-implementing the questions is the whole point: there is
+    /// exactly ONE discovery (`instance_registry::discover_serve_owner`), and
+    /// this is a projection of it. Requires the `serve` feature.
+    #[arg(long)]
+    pub discover_owner: bool,
+
     /// One-shot triage: distribute the field-report spool into per-project boxes
     /// (`<repo>/.m1nd/inbox.jsonl`) + the medulla box, then print the cross-box
     /// sweep (spool ∪ every known box, de-duplicated by content id) as JSON and

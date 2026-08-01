@@ -942,6 +942,45 @@ async fn main() {
     #[cfg(unix)]
     ensure_bwrap_compat_wrapper();
 
+    // --discover-owner: ask `--attach auto`'s two questions, print the answer,
+    // exit. One bounded read-only step — no bridge, no graph, no lease, no port
+    // — so it is dispatched here, beside `--attach` and before any config load.
+    //
+    // The runtime root and caller root are resolved by the SAME helpers the
+    // bridge uses, so the probe can never answer about one identity while the
+    // attach that follows it presents another.
+    if cli.discover_owner {
+        #[cfg(feature = "serve")]
+        {
+            let runtime_root = match resolve_attach_runtime_root(&cli) {
+                Ok(root) => root,
+                Err(message) => {
+                    eprintln!("[m1nd-mcp][discover-owner] {message}");
+                    std::process::exit(1);
+                }
+            };
+            let caller_root = m1nd_mcp::attach_client::resolve_caller_root().map(PathBuf::from);
+            let registry_dir = cli.registry_dir.as_ref().map(PathBuf::from);
+            let probe = m1nd_mcp::instance_registry::probe_serve_owner(
+                &runtime_root,
+                caller_root.as_deref(),
+                registry_dir.as_deref(),
+            );
+            let found = probe.found;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&probe).unwrap_or_default()
+            );
+            std::process::exit(if found { 0 } else { 1 });
+        }
+        #[cfg(not(feature = "serve"))]
+        {
+            eprintln!("[m1nd-mcp] --discover-owner requires the 'serve' feature.");
+            eprintln!("  Rebuild with: cargo build --release --features serve");
+            std::process::exit(1);
+        }
+    }
+
     // --attach: thin stdio↔HTTP bridge. This path loads NO graph, builds NO
     // engines, and takes NO lease — it must NEVER reach `McpServer::new`. It is
     // handled before `load_config_from_cli`/`--serve`/stdio so none of that

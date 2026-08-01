@@ -489,9 +489,12 @@ pub fn preflight(protected_root: &Path) -> PreflightReportV1 {
         check(
             "P4",
             "UNPROVEN",
-            "KeychainAccessGroups entitlement — proven only by the ceremony itself. The \
-             release signs with build/m1nd-mcp.entitlements.plist; a locally built binary \
-             does not, and will fail closed naming this prerequisite",
+            "KeychainAccessGroups entitlement — proven only by a verb that touches the \
+             keychain, never by this report. The release signs ONE artifact with \
+             build/m1nd-mcp.entitlements.plist: the m1nd-custody-ceremony.app bundle, \
+             whose embedded provisioning profile is what authorizes it. The plain \
+             m1nd-mcp binary and every local build carry no entitlement and will fail \
+             closed naming this prerequisite",
         ),
         protected_root_check(protected_root),
         check(

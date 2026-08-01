@@ -14,8 +14,9 @@ flowchart TB
 
     subgraph Delivery["BUILT delivery path"]
         SHIM["npm/bin/m1nd-north-shim.js<br/>renderNorthPacket :47 (≤1200 chars)<br/>FAIL-OPEN: any error → exit 0, no output"]
-        FM["agent-cli.js agentFirstMinute :1086<br/>(host-neutral orientation CLI)"]
-        RC["mcp-runtime-client.js :39<br/>spawn m1nd-mcp stdio<br/>M1ND_WORKSPACE_ROOT + isolated runtime-dir"]
+        FM["agent-cli.js agentFirstMinute :1319<br/>(host-neutral orientation CLI)"]
+        DISC["mcp-runtime-client.js discoverServeOwner :34<br/>m1nd-mcp --discover-owner (read-only, no lease)<br/>= instance_registry::discover_serve_owner"]
+        RC["mcp-runtime-client.js launchConfig :100<br/>owner found → spawn --attach auto (no runtime-dir)<br/>else → spawn stdio + isolated runtime-dir"]
     end
 
     subgraph Engine["hosts recipe engine (cli.js)"]
@@ -36,7 +37,7 @@ flowchart TB
 
     TierA -->|SessionStart cmd| SHIM
     TierAmgd -.printed block.-> SHIM
-    SHIM --> FM --> RC --> MCP
+    SHIM --> FM --> DISC --> RC --> MCP
     APPLY --> WDOC
     APPLY --> WHOOK
     TierA --> WHOOK
@@ -60,8 +61,14 @@ sequenceDiagram
     Note over Host,MCP: BUILT SessionStart delivery (turn 0)
     Host->>Shim: m1nd-north-shim --repo $CWD --query orient
     Shim->>FM: spawnSync agent first-minute --json (8s timeout, SIGKILL)
-    FM->>RC: withClient → spawn native binary
-    RC->>MCP: M1ND_WORKSPACE_ROOT=$repo, isolated --runtime-dir
+    FM->>RC: withClient → resolveBootPlan
+    RC->>MCP: m1nd-mcp --discover-owner (read-only, no lease)
+    MCP-->>RC: m1nd-owner-discovery-v0 (found / refusal reason)
+    alt a live serve owner covers $repo
+        RC->>MCP: spawn --attach auto (bridge; no graph, no lease, no runtime-dir)
+    else no covering owner
+        RC->>MCP: M1ND_WORKSPACE_ROOT=$repo, isolated --runtime-dir
+    end
     MCP->>MCP: trust sequence + ONE orientation tool<br/>(search/seek/activate/audit/glob)
     MCP-->>FM: m1nd-agent-cli-v0 envelope<br/>(scope_alignment, trust, anchors, proof_boundary)
     FM-->>Shim: JSON

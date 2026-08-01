@@ -142,6 +142,64 @@ class CiSecurityContractTests(unittest.TestCase):
         self.assertIn("placeholder UI artifact is forbidden", build)
         self.assertIn("UI digest mismatch", build)
 
+    def test_the_two_macos_artifacts_keep_opposite_entitlement_contracts(self):
+        # v1.6.0 signed the shipped runtime with keychain-access-groups and the
+        # kernel SIGKILLed it: a restricted entitlement is honoured only when an
+        # embedded provisioning profile authorizes it, and a raw executable has
+        # nowhere to hold one. The release therefore ships TWO macOS artifacts
+        # with OPPOSITE contracts, and neither refusal may be relaxed for the
+        # other. build/README.md carries the measurement.
+        build = self.job(".github/workflows/release.yml", "build")
+        runtime, _, bundle = build.partition(
+            "- name: Package, sign, and prove the entitled custody-ceremony bundle"
+        )
+        self.assertTrue(bundle, "the custody-ceremony bundle step is gone")
+
+        # 1. the ordinary runtime: no entitlements on the signing command, a
+        #    mechanical refusal if one appears anyway, and a launch proof.
+        self.assertIn(
+            "codesign --force --timestamp --options runtime \\\n"
+            '            --sign "$APPLE_SIGNING_IDENTITY" "$BIN_PATH"',
+            runtime,
+            "the shipped runtime must be signed with no entitlements at all",
+        )
+        self.assertIn(
+            "keychain-access-groups|application-identifier|com\\.apple\\.developer\\.",
+            runtime,
+        )
+        self.assertIn('"$BIN_PATH" --version', runtime)
+
+        # 2. the bundle: the entitlement and the profile live here and only here.
+        for token in (
+            # the profile is an owner secret, never a repo file, and its absence
+            # publishes NOTHING rather than a silently-unentitled lookalike
+            "secrets.APPLE_CUSTODY_PROFILE_BASE64",
+            "::warning title=No custody-ceremony bundle",
+            # Apple's own layout for a restricted entitlement on a daemon
+            'cp "$PROFILE" "$APP_BUNDLE/Contents/embedded.provisionprofile"',
+            '--entitlements "$ENTITLEMENTS"',
+            # the profile constrains the bundle identity; a mismatch is refused
+            # rather than shipped as a bundle the kernel will kill
+            "does not cover the bundle identifier",
+            "MARGIN_DAYS = 30",
+            "ExpirationDate",
+            "ProvisionedDevices",
+            # a signature that verifies is not a binary that runs
+            '"$BUNDLED_EXE" --version',
+            "does not launch after a round trip",
+            # and the runtime must leave this step exactly as it entered it
+            "acquired a restricted entitlement while the bundle was built",
+        ):
+            self.assertIn(token, bundle, f"custody bundle lost its contract: {token}")
+        self.assertNotIn("cargo build", bundle)
+
+        # 3. the bundle is published only when it was really built, and never
+        #    enters the signed candidate byte set (the same posture the
+        #    verified-updater receipts hold).
+        self.assertIn("steps.custody-bundle.outputs.built == 'true'", bundle)
+        assembly = self.job(".github/workflows/release.yml", "candidate-assembly")
+        self.assertNotIn("m1nd-custody-ceremony", assembly)
+
     def test_npm_package_is_packed_once_and_promoted_as_candidate_bytes(self):
         workflow = self.text(".github/workflows/release.yml")
         candidate = self.text("scripts/m1nd10_release_candidate.py")

@@ -584,6 +584,13 @@ pub struct SessionState {
     // --- v0.4.0: Query Log (savings tracker removed — brand gate G1.5) ---
     /// Query log ring buffer (capped at 1000 entries). Feeds `report`.
     pub query_log: Vec<QueryLogEntry>,
+    /// Durable per-verb call counters — the ONLY thing m1nd records about its
+    /// own use, and deliberately the smallest thing that answers "which verbs
+    /// are called, how often". Verb names and counts only; see
+    /// `crate::verb_usage` before adding a field. Written by
+    /// [`SessionState::record_verb_call`] from ONE seam
+    /// (`server::dispatch_generic_tool`); read back through `report`.
+    pub verb_usage: crate::verb_usage::VerbUsageLedger,
     /// Graph node count at session start.
     pub session_start_node_count: u32,
     /// Graph edge count at session start.
@@ -2236,6 +2243,7 @@ impl SessionState {
             calibration_path: runtime_root.join("calibration_state.json"),
             // v0.4.0: Query Log (savings tracker/state removed — brand gate G1.5)
             query_log: Vec::new(),
+            verb_usage: crate::verb_usage::VerbUsageLedger::load(&runtime_root),
             session_start_node_count: 0,
             session_start_edge_count: 0,
             boot_memory_path: runtime_root.join("boot_memory_state.json"),
@@ -3459,6 +3467,118 @@ impl SessionState {
         Ok(())
     }
 
+    /// Take the live graph's learned synapses out before a graph replacement
+    /// overwrites them.
+    ///
+    /// The counters live in `graph.edge_plasticity`, not in the engine, so the
+    /// replacement destroys them the moment the new graph is installed — this
+    /// has to be called BEFORE the swap. Fail-open in both directions: a graph
+    /// with no edges and a graph that cannot be exported both carry nothing,
+    /// and the persisted sidecar alone is used.
+    pub(crate) fn export_learned_synapses_before_replacement(
+        &self,
+    ) -> Vec<m1nd_core::plasticity::SynapticState> {
+        let graph = self.graph.read();
+        if graph.csr.num_edges() == 0 {
+            return Vec::new();
+        }
+        match self.plasticity.export_state(&graph) {
+            Ok(states) => states,
+            Err(error) => {
+                eprintln!(
+                    "[m1nd] could not carry the live synaptic state across the graph replacement ({error}); continuing with the persisted sidecar alone"
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// Re-apply learned plasticity to a graph that has just replaced the live
+    /// one. Returns how many synapses were restored.
+    ///
+    /// A replacement graph's `edge_plasticity` arrays are born zeroed
+    /// (`Graph::add_edge`), so without this the Hebbian layer is erased by
+    /// every ingest and the next persist writes the zeros over the sidecar —
+    /// measured in the field as 73,332 synaptic rows with not one non-zero
+    /// counter among them. The restore itself is the ordinary import, which
+    /// binds by the `(source, target, relation)` label triple and therefore
+    /// survives the renumbering an ingest does; `carry_forward_synaptic_state`
+    /// only decides which record describes each identity.
+    ///
+    /// Call it IMMEDIATELY after `rebuild_engines`, and never before: the
+    /// rebuild installs two fresh engines whose `query_count` is zero, and
+    /// `import_state` is what seeds them from the restored recency. Any persist
+    /// between the swap and this call would publish the zeros.
+    ///
+    /// Fail-open throughout, the standing posture for a sidecar: an unreadable
+    /// or corrupt file degrades to "counters start over" with one honest line,
+    /// never to a failed ingest.
+    pub(crate) fn restore_learned_synapses_after_replacement(
+        &mut self,
+        carried: Vec<m1nd_core::plasticity::SynapticState>,
+    ) -> usize {
+        let persisted = if self.plasticity_path.exists() {
+            match m1nd_core::snapshot::load_plasticity_state(&self.plasticity_path) {
+                Ok(states) => states,
+                Err(error) => {
+                    eprintln!(
+                        "[m1nd] Failed to load plasticity state ({error}), continuing without it"
+                    );
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        let states = m1nd_core::plasticity::carry_forward_synaptic_state(carried, persisted);
+        if states.is_empty() {
+            return 0;
+        }
+
+        let mut graph = self.graph.write();
+        // BOTH engines restore, exactly as the friendly boot, strict recovery
+        // and the legacy adoption do. `self.orchestrator.plasticity` is the
+        // engine `activate`/`query` actually update (query.rs `query()` step 8)
+        // and it stamps its own `query_count` into `last_used_query`; left at
+        // zero beside a graph carrying restored counts, the first strengthen
+        // would mark a just-used edge 1 — older than everything the restore
+        // brought back. Re-applying the same validated plan to the same
+        // topology is idempotent and cannot fail where the first import
+        // succeeded.
+        let imported = self
+            .plasticity
+            .import_state(&mut graph, &states)
+            .and_then(|applied| {
+                self.orchestrator
+                    .plasticity
+                    .import_state(&mut graph, &states)
+                    .map(|_| applied)
+            });
+        match imported {
+            Ok(applied) => applied as usize,
+            Err(error) => {
+                // `import_state` validates the whole record set before touching
+                // one slot, so a refusal leaves the graph untouched — but it can
+                // leave the two engines disagreeing about the query counter.
+                // Drop both for clean ones bound to the replacement rather than
+                // let that skew reach the persist at the end of this ingest.
+                self.plasticity = PlasticityEngine::new(
+                    &graph,
+                    m1nd_core::plasticity::PlasticityConfig::default(),
+                );
+                self.orchestrator.plasticity = PlasticityEngine::new(
+                    &graph,
+                    m1nd_core::plasticity::PlasticityConfig::default(),
+                );
+                eprintln!(
+                    "[m1nd] Failed to import plasticity state ({error}), continuing without it"
+                );
+                0
+            }
+        }
+    }
+
     // --- Perspective MCP methods (12-PERSPECTIVE-SYNTHESIS) ---
 
     /// Bump graph generation (Theme 1). Called after ingest and rebuild_engines.
@@ -3899,6 +4019,36 @@ impl SessionState {
             self.query_log.remove(0);
         }
         self.query_log.push(entry);
+    }
+
+    /// Record ONE dispatched verb in the durable usage ledger.
+    ///
+    /// The counterpart of [`Self::log_query`], and deliberately its opposite in
+    /// every dimension that matters: the query log is per-agent, per-session,
+    /// capped, in-memory, and carries a query preview; this carries a verb name
+    /// and three counters, survives restarts, and holds NOTHING a caller wrote.
+    /// `tool_name` is mapped onto a compiled route name before it is stored —
+    /// caller text never reaches the file (`crate::verb_usage`).
+    ///
+    /// Two properties this must keep: it is called from exactly ONE seam
+    /// (`server::dispatch_generic_tool`), so the counters cannot disagree with
+    /// themselves; and its disk write is fail-open, so a broken counter file
+    /// costs a log line rather than the agent's tool call.
+    pub fn record_verb_call(
+        &mut self,
+        tool_name: &str,
+        outcome: crate::verb_usage::VerbCallOutcome,
+    ) {
+        let verb = crate::verb_usage::canonical_verb(tool_name);
+        let now_ms = crate::util::now_ms();
+        self.verb_usage.record(verb, outcome, now_ms);
+        if self.read_only {
+            // Attach-mode never writes the owner's runtime root. The counts
+            // still accumulate in memory for this session's own `report`.
+            return;
+        }
+        let ledger = &mut self.verb_usage;
+        crate::server::vigil_fail_open("verb usage counters", verb, || ledger.flush_if_due(now_ms));
     }
 
     /// Generate a summary of active agent sessions for health output.
@@ -4423,7 +4573,7 @@ fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
     Ok(serde_json::to_vec_pretty(&canonicalize(value))?)
 }
 
-fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
+pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -4556,8 +4706,13 @@ mod tests {
     /// Deliberately excluded, each because it already has a channel of its own:
     /// `graph` (watched by `DurableWitnessV1`), `plasticity` and `temporal`
     /// (regenerable learning drift, excluded by design — FM-PL-006),
-    /// `auto_ingest` (owns `checkpoint_persist_requested`), and the boot-KV
-    /// inventory (rebuilt from `boot_memory`, which IS listed).
+    /// `auto_ingest` (owns `checkpoint_persist_requested`), the boot-KV
+    /// inventory (rebuilt from `boot_memory`, which IS listed), and
+    /// `verb_usage` — the per-verb call counters own an eager throttled writer
+    /// (`VerbUsageLedger::flush_if_due`, the presence-beat shape) and are NOT
+    /// brain knowledge: they are telemetry about traffic, so a graph rollback
+    /// must not roll back the fact that calls happened, and their declared loss
+    /// contract is "the counts start over".
     const DURABLE_SIDECAR_OWNERS: &[&str] = &[
         "antibodies",
         "tremor_registry",

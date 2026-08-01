@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { McpRuntimeClient, callToolSafely } = require("./mcp-runtime-client");
+const { McpRuntimeClient, callToolSafely, discoverServeOwner } = require("./mcp-runtime-client");
 const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent-schemas");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
@@ -1002,18 +1002,111 @@ function operatingContract(maxGraphCalls = 2) {
   };
 }
 
-async function withClient(args, deps, repo, fn) {
-  const binary = args.binary ? path.resolve(args.binary) : deps.findRuntimeBinary() || deps.defaultRuntimePath();
+/// Decide how the first minute boots, by asking the runtime the SAME two
+/// questions `--attach auto` asks: is there a live serve ReadWrite owner for
+/// this client's runtime root, and failing that, one whose declared ingest roots
+/// COVER this repo?
+///
+/// A found owner is used — the CLI bridges to it, which is the difference
+/// between reading the machine's real graph and reporting `needs_authority`
+/// against an empty sidecar on a machine where m1nd works. When no owner covers
+/// the repo the historical isolated boot remains, carrying the discovery's own
+/// refusal so the envelope can say WHY it is alone.
+///
+/// Discovery only widens WHERE the CLI looks. It authorizes nothing: every verb
+/// still meets the owner's own floors, and the empty-graph refusal is unchanged.
+function resolveBootPlan(args, binary, repo) {
+  if (args["shared-runtime"]) {
+    return {
+      attach: false,
+      discovery: {
+        supported: false,
+        found: false,
+        reason: "--shared-runtime was requested, so the ambient runtime is used verbatim",
+      },
+    };
+  }
+  if (args["no-attach"]) {
+    return {
+      attach: false,
+      discovery: {
+        supported: false,
+        found: false,
+        reason: "--no-attach was requested, so owner discovery was skipped",
+      },
+    };
+  }
+  const discovery = discoverServeOwner({ binary, repo });
+  return { attach: Boolean(discovery.found && discovery.base_url), discovery };
+}
+
+/// Record the boot decision on whatever the command returned, and keep the
+/// isolated path honest about why it is isolated.
+function applyBootPlan(result, plan, repo) {
+  if (!result || typeof result !== "object") return result;
+  const boot = plan.attach ? "attached_serve_owner" : "isolated_runtime";
+  if (result.runtime && typeof result.runtime === "object") {
+    result.runtime.boot = boot;
+    result.runtime.owner_discovery = plan.discovery;
+  } else {
+    result.boot = boot;
+    result.owner_discovery = plan.discovery;
+  }
+  if (plan.attach) {
+    if (result.scope_alignment) {
+      result.scope_alignment.reason = `m1nd agent bridged to the live serve owner that declares ${repo} (no isolated runtime, no lease)`;
+    }
+    return result;
+  }
+  if (plan.discovery.attach_error && Array.isArray(result.next_actions)) {
+    result.next_actions.unshift(
+      `A live serve owner declares ${repo} but could not be reached, so this ran against an isolated runtime — ${plan.discovery.attach_error}. Repair the owner before trusting these counts as the machine's graph.`
+    );
+  }
+  if (result.status !== "needs_authority" || !plan.discovery.reason) return result;
+  const honest = `No live serve owner covers ${repo}, so this ran against an isolated empty runtime — ${plan.discovery.reason}`;
+  if (result.authority && Array.isArray(result.authority.recovery_instructions)) {
+    result.authority.recovery_instructions.unshift({
+      id: "reach_a_live_serve_owner",
+      action: honest,
+    });
+  }
+  if (Array.isArray(result.next_actions)) result.next_actions.unshift(honest);
+  return result;
+}
+
+async function runBootPlan(args, deps, repo, fn, binary, plan) {
   const client = new McpRuntimeClient({
     binary,
     repo,
     sharedRuntime: Boolean(args["shared-runtime"]),
+    attach: plan.attach ? "auto" : null,
   });
   try {
     await client.start();
-    return await fn(client, binary);
+    return applyBootPlan(await fn(client, binary), plan, repo);
   } finally {
     client.close();
+  }
+}
+
+async function withClient(args, deps, repo, fn) {
+  const binary = args.binary ? path.resolve(args.binary) : deps.findRuntimeBinary() || deps.defaultRuntimePath();
+  const plan = resolveBootPlan(args, binary, repo);
+  try {
+    return await runBootPlan(args, deps, repo, fn, binary, plan);
+  } catch (error) {
+    if (!plan.attach) throw error;
+    // The owner was found and then could not be reached: an unreadable
+    // credential, or a listener that stopped answering between the probe and
+    // the bridge. Dead-ending the first minute here would recreate the defect
+    // this path was fixed for, so fall back to the isolated runtime — and carry
+    // the failure, so nobody reads a sidecar's empty graph as the machine's.
+    const fallback = {
+      attach: false,
+      discovery: { ...plan.discovery, attach_error: error.message || String(error) },
+    };
+    return runBootPlan(args, deps, repo, fn, binary, fallback);
   }
 }
 

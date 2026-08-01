@@ -44,7 +44,7 @@ prerequisite P4, which is the honest form of "this did not run".
 | P1 | Apple Silicon / T2 Mac with a Secure Enclave, owner physically present | owner's machine | — |
 | P2 | Touch ID enrolled for the owner | owner's machine | — |
 | P3 | macOS build target — the module is `#[cfg(target_os = "macos")]` and absent by construction elsewhere, so the assembly stays NOT_INSTALLED and fails closed rather than falling back to software | **satisfied** | `m1nd-mcp/src/lib.rs:36-37` |
-| P4 | Binary codesigned with a **`KeychainAccessGroups` entitlement**. Secure Enclave keys can only be made permanent in the data-protection keychain; an unsigned or unentitled binary cannot persist *or* resolve the key, so `provision`/`open`/`sign` all fail closed | **UNSATISFIED, and NOT satisfiable by the release — owner-side.** #469 threaded `--entitlements` into the signing step; the resulting v1.6.0 binary was SIGKILLed by AMFI at launch, because `keychain-access-groups` is a *restricted* entitlement and a raw executable has nowhere to embed the provisioning profile that would authorize it (measured 2026-07-30, run `30556058443`; Apple's rule: TN3137 § Implementation differences). The release now signs WITHOUT it and refuses one on the output, so **every** shipped and local build fails closed here, naming the prerequisite. Closing P4 needs an owner-side decision — a locally signed profile-authorized build, or shipping the ceremony surface as a bundle — see §5 R1 | `m1nd-mcp/src/enclave_authority.rs:1197-1222`, `:1489`, `build/README.md`, `.github/workflows/release.yml:570-617` |
+| P4 | Binary codesigned with a **`KeychainAccessGroups` entitlement**. Secure Enclave keys can only be made permanent in the data-protection keychain; an unsigned or unentitled binary cannot persist *or* resolve the key, so `provision`/`open`/`sign` all fail closed | **UNSATISFIED until the owner supplies one file — then the release ships the entitled artifact itself.** #469 threaded `--entitlements` onto the raw binary and AMFI SIGKILLed the v1.6.0 product at launch: `keychain-access-groups` is *restricted*, and a raw executable has nowhere to embed the provisioning profile that would authorize it (measured 2026-07-30, run `30556058443`; TN3137 § Implementation differences). Road A is ratified (`G9-PLATFORM-DECISION.md`), so the release now builds a **second** macOS artifact — `m1nd-custody-ceremony.app`, the same binary bytes inside an app-like bundle with the profile at `Contents/embedded.provisionprofile`, signed WITH the entitlement, notarized, stapled, and proven to launch before publication. The ordinary `m1nd-mcp` stays unentitled and keeps refusing one. **The owner's remaining act is one-time and off-machine:** generate a macOS **Developer ID** provisioning profile for the App ID whose suffix is the access group in `build/m1nd-mcp.entitlements.plist`, and paste it base64-encoded into the repository secret `APPLE_CUSTODY_PROFILE_BASE64`. Without that secret the release publishes NO ceremony artifact and says so loudly; local builds keep failing closed here, naming P4 | `m1nd-mcp/src/enclave_authority.rs:1197-1222`, `:1489`, `build/README.md`, `.github/workflows/release.yml:539-935` |
 | P5 | A `0700`, non-symlink, device/inode-pinned protected root directory for the sealed slots | code ready, root not provisioned | `SealedProtectedRootV1::open` — `m1nd-mcp/src/enclave_authority.rs:441` |
 | P6 | Custody dependency pins intact — `security-framework =3.7.0` (feature `OSX_10_15`), `security-framework-sys =2.17.0`, `core-foundation =0.10.1`. **These are custody surface; never bump them opportunistically** | **satisfied** | `m1nd-mcp/Cargo.toml:112-114` |
 | P7 | Crypto stack coherent after the RustCrypto sweep (#464) | **satisfied, measured** (see §6) | — |
@@ -58,6 +58,15 @@ Each step names what already exists (with `file:line`) and what is missing. All 
 to the repo root. `enclave_authority.rs` means `m1nd-mcp/src/enclave_authority.rs`, and
 `custody_ceremony.rs` means `m1nd-mcp/src/custody_ceremony.rs` — the door, which is where every
 WIRED line below points.
+
+**Where the owner runs these.** Not from the ordinary `m1nd-mcp` on `PATH` — that one is
+deliberately unentitled and refuses at the keychain, naming P4. The verbs are run from the
+ceremony bundle published by the release run for the tag, `m1nd-custody-ceremony-macos-<arch>.zip`,
+unzipped anywhere the owner likes:
+`m1nd-custody-ceremony.app/Contents/MacOS/m1nd-mcp --custody-ceremony <verb>`. It is the same
+executable and the same CLI — nothing about the verbs, the ingress or the refusals changes; only
+the signature around it does. Prerequisite P4 above names the one-time step that makes the release
+produce it.
 
 The ceremony reads the seats it provisions out of the owner's `IndependenceSpecV1` (P9) and never
 invents one. That is not convenience: a ceremony that fabricated its own seats would make step 6's
@@ -75,7 +84,16 @@ invents one. That is not convenience: a ceremony that fabricated its own seats w
    least three distinct domains, each permit carrying its `bound_context_digest` (sealed later as
    seat lineage). Provision is never open-or-create: an existing item under the same
    `kSecAttrLabel` fails closed, and the created key's real token/type/size are read back via
-   `SecKeyCopyAttributes` and attested against the framework's own constants.
+   `SecKeyCopyAttributes` and attested against the framework's own constants. The MIRROR case — an
+   ABSENT label on a fresh keychain, the only time provisioning is legitimate — must PROCEED to
+   create. Apple answers that no-match query with `errSecItemNotFound`, which `security-framework`
+   surfaces as `Err`; the guard originally misread that error as a fatal open and aborted, so on a
+   clean keychain no seat could ever be minted. Found live in the owner's first real G9 ceremony
+   against the entitled `m1nd-custody-ceremony.app` bundle (v1.6.2) — the software fake returns
+   `Ok(None)` on absent and never reproduced it — and fixed in `resolve_persisted_key` by routing
+   the search error through `classify_keychain_search_error`, which maps only `errSecItemNotFound`
+   to absent and keeps every other OSStatus fatal (a new signed release is required to carry the
+   fix onto an entitled bundle).
    - EXISTS: `provision_agent_enclave_seat` `enclave_authority.rs:187`;
      `EnclaveProvisioningPermitV1` `:136`; `EnclaveKeyAttestationV1::canonical` `:101`;
      duplicate guard via `resolve_persisted_key` `:1247`.
@@ -237,7 +255,8 @@ Two properties are worth stating because they are load-bearing rather than incid
 
 ## 5. Residual engineering, ranked by blocking-ness
 
-- **R1 (OPEN, and the release cannot close it — reopened 2026-07-30 by measurement).** The
+- **R1 (the machine half is BUILT; one owner file remains — reopened 2026-07-30 by
+  measurement, road ratified and implemented 2026-07-31).** The
   original entry said the signed release binary was structurally incapable of running this
   ceremony because `release.yml` passed no `--entitlements`. #469 added
   `build/m1nd-mcp.entitlements.plist` and threaded the flag through — and that is where the
@@ -254,17 +273,30 @@ Two properties are worth stating because they are load-bearing rather than incid
   "Code has restricted entitlements, but the validation of its code signature failed", with amfid
   reporting `-413 "No matching profile found"`. Same bytes re-signed without the entitlement run.
   A minimal `.app` wrapper without an `embedded.provisionprofile` is killed identically.
-  **So the release ships unentitled** (`.github/workflows/release.yml:570-617`: no
+  **So the ordinary runtime ships unentitled** (`.github/workflows/release.yml:539-634`: no
   `--entitlements`, a refusal if any restricted entitlement appears on the output, and a launch
-  check on the signed bytes). Every build — shipped or local — therefore refuses at P4, surfaced
-  as `custody_ceremony_keychain_entitlement_missing` rather than an opaque OSStatus, which is the
-  honest answer and not a regression.
-  **What remains open is a decision only the owner can make**, and this document does not make it:
-  the ceremony needs a binary whose entitlement *is* authorized — either the owner signs a build
-  locally against a profile he holds, or the ceremony surface ships inside an app-like bundle
-  (Apple's own workaround for this case is *Signing a daemon with a restricted entitlement*).
-  Whichever path, P4 is owner-side, and the persistence proof — a real key persisted and resolved
-  across a process restart — still happens only in the owner's run.
+  check on the signed bytes). Every raw binary — shipped or local — therefore refuses at P4,
+  surfaced as `custody_ceremony_keychain_entitlement_missing` rather than an opaque OSStatus, which
+  is the honest answer and not a regression.
+  **The decision was made and the machine half is built.** The owner ratified Road A on
+  2026-07-31 (`G9-PLATFORM-DECISION.md`): the ceremony surface ships inside an app-like bundle,
+  Apple's own workaround for this case (*Signing a daemon with a restricted entitlement*). The
+  release now produces `m1nd-custody-ceremony.app` per macOS target — the SAME binary bytes, the
+  profile at `Contents/embedded.provisionprofile`, signed WITH the entitlement, notarized,
+  stapled, launch-proven on the runner before and after packaging, and published as
+  `m1nd-custody-ceremony-macos-<arch>.zip` outside the signed candidate byte set. The ordinary
+  runtime is untouched and stays unentitled.
+  **What is left is one owner file and one owner run.** The profile cannot be minted by this
+  pipeline: the owner generates a macOS **Developer ID** provisioning profile for the App ID whose
+  suffix is the access group in `build/m1nd-mcp.entitlements.plist` and puts it, base64-encoded,
+  in the repository secret `APPLE_CUSTODY_PROFILE_BASE64`. Absent it the release publishes no
+  ceremony artifact and warns; present it, the release refuses to publish one whose profile is
+  expired (or within 30 days of it), device-scoped, non-macOS, or issued for an App ID the derived
+  bundle identifier does not match. **Still unproven, and only a tagged release can prove it:**
+  that a Developer-ID-signed bundle with a real profile satisfies AMFI for this entitlement — the
+  negative was measured (a bundle without a profile dies exactly like the raw binary), the
+  positive is decided by the launch check on the first such release. And the persistence proof — a
+  real key persisted and resolved across a process restart — still happens only in the owner's run.
 - **R2 (CLOSED).** The ceremony surface exists and all five verbs reach the floor — §4. The one
   thing no surface can supply is the owner's hand.
 - **R3 (open — blocking for the ladder, not for the ceremony).** `assemble` is now a production
