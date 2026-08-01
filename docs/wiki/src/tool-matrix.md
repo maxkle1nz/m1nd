@@ -4,9 +4,26 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 
 ## Source Of Truth
 
-- `m1nd-mcp/src/server.rs` tool schema registry and the live `tools/list` response are the callable surface. Use `tools/list` for the exact count in your current build.
-- This matrix is the routing SSOT for the canonical tool surface used by agents and LLMs.
-- Any page that advertises a fixed tool count can drift. Treat `tools/list` as counting truth.
+- The `m1nd-mcp/src/server.rs` tool schema **registry** is the callable surface. `tools/list` shows the advertised **menu**, which since 2026-08-01 is a curated subset of it — read *The core menu* below before treating an unlisted verb as a missing capability.
+- This matrix is the routing SSOT for the canonical tool surface used by agents and LLMs, and it documents the REGISTRY: a verb with a row here is callable whether or not `tools/list` lists it.
+- Any page that advertises a fixed tool count can drift. Treat `health.tool_surface_contract` (`full_registry_tool_count` / `advertised_tool_count` / `hidden_tool_count`) as counting truth.
+
+## The core menu (default `tools/list`)
+
+By default m1nd advertises a **core menu of about 15 verbs**, not the whole registry:
+
+| | verbs |
+|---|---|
+| the owner-ratified core (12) | `north` · `memorize` · `ingest` · `seek` · `search` · `health` · `trust_selftest` · `view` · `impact` · `session_handshake` · `boot_memory` · `surgical_context` |
+| the host-binding floor (3 more) | `help` · `doctor` · `recovery_playbook` |
+
+The floor is not an exception to the core — it is why the core can be small. `health.tool_surface_contract` publishes `required_host_visible_tools` and tells every host to read a binding missing any of them as `degraded_host_tool_surface`, so the menu is DERIVED (`core ∪ floor`) rather than hand-typed, and cannot drift from the contract it has to satisfy.
+
+**Nothing was removed.** Every other verb in this matrix keeps its handler, its policy route, its authority floor and its dispatch, and answers exactly as before the moment a caller names it. The cut is at advertisement only.
+
+**How to reach the rest.** `help` catalogs the FULL registry at every tier: `help(intent)` or `help(stage)` routes you to the right verb for what you are doing, and `help(tool_name)` returns any verb's schema, listed or not. Operators who want the whole list in the menu set `M1ND_TOOL_TIER=full` on the server; an unrecognised value falls back to the core, never to the full surface.
+
+**Why.** Measured over six weeks of real agent traffic (458 calls / 157 sessions): 141 verbs advertised, **13 ever called**. 69 verbs sit in prefix families and across all of those families exactly two calls were ever made. Eleven standalone verbs carried 370 of the 458. An independent external evaluator working a foreign 107k-LOC codebase ranked `surgical_context` in its top three — a verb with one call in six weeks. The verbs were not bad; a 141-item menu is not a menu.
 
 ## Row Contract
 

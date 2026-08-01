@@ -172,7 +172,7 @@ stateDiagram-v2
 - **[medium]** Antibody `regex` match_mode is a lie by omission: silently degrades to substring (regex crate not a dependency), so regex semantics differ with no error/warning (antibody.rs:911-916).
 - **[low]** ghost_edges shells out to the git binary; on a non-git/shallow/missing-git source it returns an I/O error rather than degrading, leaving the temporal layer with no real co-change signal (git_history.rs:113-124).
 - **[low]** Twins pairwise comparison is O(candidates^2) capped at a fixed 100000-comparison budget; on large graphs the scan silently truncates mid-pass with no `truncated` flag in TwinResult (twins.rs:388-399).
-- **[low]** All RB verbs are hidden by default: with M1ND_TOOL_TIER unset/essential none appear in tools/list, so an agent cannot discover them without knowing to set the full tier (server.rs:425-432; ESSENTIAL_TOOLS has no RB verb).
+- **[low]** All RB verbs are hidden by default: with `M1ND_TOOL_TIER` unset none appear in `tools/list` (`CORE_TOOLS` has no RB verb). Since 2026-08-01 they are discoverable without setting the full tier — `help` catalogs the whole registry at every tier, and the core menu says outright that it is a core — but an agent still has to ask `help` rather than read them off the list.
 - **[low]** Epidemic on dense graphs relies on handler-side heuristics (auto_calibrate + promotion_threshold=1.0 when avg_degree>4) to avoid burnout; without auto_calibrate the SIR can burnout-error or saturate, sensitive to a flag the caller may not set (layer_handlers.rs:8278-8308; epidemic.rs:533-541).
 
 ## Proof gaps (from map proof_missing)
