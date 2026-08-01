@@ -461,6 +461,62 @@ scenes["l1ght-lane"] = c => {
   };
 };
 
+scenes["architecture"] = c => {
+  const e = E(c);
+  const y = head(e, c, "architecture",
+    "hosts speak MCP to one served owner; the owner routes each session to the brain that covers its repository root");
+
+  const hosts = ["Claude Code", "Codex", "Cursor", "22 hosts"];
+  const hw = snap(Math.max(...hosts.map(t => tw(t))) + PADX * 2);
+  const gap = snap((W - 80 - hosts.length * hw) / (hosts.length - 1));
+  const hostBoxes = hosts.map((t, i) =>
+    e.box(40 + i * (hw + gap), y, [{ t, size: 16, fill: i === 3 ? c.sec : c.ink }], { minW: hw - PADX * 2 }));
+
+  const mcpY = hostBoxes[0].b + 72;
+  const mcp = e.boxAt(W / 2, mcpY, [{ t: "MCP · stdio or HTTP", size: 18 }, { t: "48 tools, one contract", fill: c.sec }],
+    { bite: { side: "top", at: 0.5 } });
+  hostBoxes.forEach(b => {
+    e.line(b.cx, b.b, b.cx, mcpY - 32, { width: 2 });
+    e.line(b.cx, mcpY - 32, mcp.cx, mcpY - 32, { width: 2 });
+  });
+  e.arrowV(mcp.cx, mcpY - 32, mcp.y);
+
+  const ownerY = mcp.b + 72;
+  const owner = e.boxAt(W / 2, ownerY, [
+    { t: "served owner", size: 18 }, { t: "one process · one port", fill: c.sec },
+    { t: "routes by repository root", fill: c.sec },
+  ], { bite: { side: "top", at: 0.5 } });
+  e.arrowV(mcp.cx, mcp.b, ownerY);
+
+  const brainY = owner.b + 88;
+  const bw = snap((W - 80 - 2 * 48) / 3);
+  const brains = [0, 1, 2].map(i => {
+    const x = 40 + i * (bw + 48);
+    const b = e.box(x, brainY, [
+      { t: `brain ${"ABC"[i]}`, size: 18 }, { t: "graph", fill: c.sec },
+      { t: "memory", fill: c.sec }, { t: "persistence", fill: c.sec },
+    ], { minW: bw - PADX * 2, bite: { side: "top", at: 0.5 } });
+    e.line(owner.cx, owner.b, owner.cx, brainY - 40, { width: 2 });
+    e.line(b.cx, brainY - 40, owner.cx, brainY - 40, { width: 2 });
+    e.arrowV(b.cx, brainY - 40, b.y);
+    return b;
+  });
+
+  const diskY = brains[0].b + 64;
+  e.line(40, diskY, W - 40, diskY, { width: 2, dashed: true });
+  e.text(40, diskY + 32, "on disk, inside the repository it covers", { size: 16, fill: c.sec });
+  e.text(W - 40, diskY + 32, "no account · no telemetry · no network hop", { size: 16, fill: c.sec, anchor: "end" });
+
+  const end = foot(e, c, diskY + 88, [
+    "one Rust binary serves every host on the machine; a repository it does not cover gets a typed refusal",
+  ]);
+  return {
+    h: snap(end + 8), body: [...e.bg, ...e.out].join("\n"),
+    title: "m1nd architecture at a glance",
+    desc: "A layer stack. Coding agent hosts across the top, twenty two of them, all speak MCP over stdio or HTTP through one contract of 48 tools. That reaches a single served owner, one process on one port, which routes every session by repository root to the brain that covers it. Each brain holds its own graph, memory and persistence, and lives on disk inside the repository it covers. Nothing leaves the machine.",
+  };
+};
+
 /* ------------------------------------------------------------------- build */
 
 const OUT = process.argv[2] ?? "docs/assets/diagrams";

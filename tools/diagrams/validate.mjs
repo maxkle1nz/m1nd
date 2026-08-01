@@ -2,7 +2,7 @@
 import { readFileSync, existsSync, statSync } from "fs";
 import { execSync } from "child_process";
 
-const SCENES = ["transplant-two-phase","brain-per-repo","verdict-gate","grounded-memory",
+const SCENES = ["architecture","transplant-two-phase","brain-per-repo","verdict-gate","grounded-memory",
                 "mailbox","presence-collision","ambient-hooks","l1ght-lane"];
 const THEMES = ["dark","light"];
 // Paleta medida do brief gen-008 (dark + light) — nenhum hex fora disto.

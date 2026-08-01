@@ -1,5 +1,8 @@
 <p align="center">
-  <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/m1nd-wordmark-dark.svg">
+    <img src=".github/m1nd-wordmark-light.svg" alt="m1nd" width="300">
+  </picture>
 </p>
 
 **m1nd** gives your coding agent a brain per repository: a local code graph served over MCP, memory anchored to the code it cites, and a trust verdict on every answer. "Insufficient evidence" is a real answer here. So is "don't trust this yet, and here is how to repair it".
@@ -19,10 +22,10 @@ Think of it as an X-ray of your repo that your agent can read: one structure tha
 <p align="center">Four commands to install: <a href="#sixty-seconds">Sixty seconds</a>. Reasons to close the tab first: <a href="#when-not-to-use-m1nd">When not to use m1nd</a>.</p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" width="760" alt="A real m1nd session: north returns trust, focus and honest gaps; seek answers with a reverify verdict; memorize anchors the finding to code" />
+  <img src="docs/assets/demos/impact.gif" width="900" alt="impact() on a live graph: seven dependents ranked with hop distance, and two of them live in a file that never spells the symbol. grep cannot find those; the edges can.">
 </p>
 
-<p align="center"><em>A real session on this repo's 6,453-node graph (m1nd-mcp 1.4.0): <code>north</code> orients, <code>seek</code> answers wearing a <code>reverify</code> verdict, <code>memorize</code> anchors the finding to code.</em></p>
+<p align="center"><em>One real call against a live graph of 18,084 nodes, captured 2026-07-31. Five more of these sit beside the claims they prove, further down.</em></p>
 
 ## The audit your agent stops paying for
 
@@ -82,7 +85,11 @@ It is two-phase, `transplant_preview` before `transplant_commit`, and the commit
 </p>
 
 
-Measured on the real case: the whole-file edit cost 12,235 output tokens; the transplant cost 48 in and wrote 3 files in 1.3 seconds, with the crate compiling on the other side. rust-analyzer has had an issue open asking for cross-file moves since 2019.
+Measured on the real case: the whole-file edit cost 12,235 output tokens
+
+<p align="center">
+  <img src="docs/assets/demos/cost.gif" width="880" alt="the same question asked both ways: without the graph, grep names 2 files and 606,278 bytes to read, about 151,000 tokens, and still misses two dependents; with the graph, one impact call returns 1,909 bytes in 428 ms.">
+</p>; the transplant cost 48 in and wrote 3 files in 1.3 seconds, with the crate compiling on the other side. rust-analyzer has had an issue open asking for cross-file moves since 2019.
 
 v1 boundaries, stated plainly: Rust only, top-level `fn` only, same crate, the destination file must already exist, and references born inside macros are invisible to it. Each boundary is deliberate and written down in [docs/TRANSPLANT-PRD.md](docs/TRANSPLANT-PRD.md), next to 13 test files that hold the verb to it.
 
@@ -218,9 +225,17 @@ This is why I built m1nd. Retrieval layers are good at answering. Almost none of
 
 A `seek` hit carries a sufficiency readout and a trust envelope. When no calibration has been measured yet, the envelope caps its own verdict at `reverify` instead of overclaiming. `predict`'s gate is tuned for coverage (α=0.10); on this repo's history that lands at roughly a third precision in the `act` band, and most of the time it abstains, which is the honest output of a weak signal. `abstain` tells the agent to stop. `insufficient_evidence` means no evidence at all, which is a different thing from medium risk, and the API keeps the two apart.
 
+<p align="center">
+  <img src="docs/assets/demos/refusal.gif" width="880" alt="a typed refusal: the response names the missing field and hands back a minimal call that works, so the agent repairs itself on the next line.">
+</p>
+
 Two tools, `savings` and `resonate`, were deleted outright in beta (handlers, types and state files, all gone) because they returned a win on every input I gave them, and a tool that never loses has stopped measuring. That is the bar every claim in this file is held to.
 
 The closest neighbor I know is GitHub Copilot Memory (public preview, 2026): it stores facts with code citations and re-checks them against the current branch before use. That is real staleness detection, and it deserves the credit. It is also cloud-side, binary, and lives inside Copilot. What I have still not found anywhere is the rest of the verdict: a graded `act` / `reverify` / `abstain` with per-repo calibration, typed refusals that carry a repair plan, on a local graph that any MCP agent can share. I checked the public docs of Mem0, Zep, Letta, Cognee, Supermemory and Copilot Memory, as of July 2026. Know a closer one? Open an issue and I will link it here.
+
+<p align="center">
+  <img src="docs/assets/demos/predict.gif" width="880" alt="predict grades its own confidence against a cut measured on 9,196 predictions from this repository: 0.4827 against a threshold of 0.4583, with the calibration attached.">
+</p>
 
 <p align="center">
   <picture>
@@ -249,6 +264,10 @@ memorize({
 Because the memory is anchored, it can be audited against reality. `cross_verify` re-hashes every cited file and names which claims went stale because their code changed. Claims carry age and author, supersede older claims, and age out. This loop is proven live end to end in this repo: memorize, anchor, edit the cited file, watch the claim flag itself, survive a full re-ingest, auto-load on the next boot. Kill the process, start a fresh one, and the first `north` already carries the earlier session's claims with provenance attached.
 
 <p align="center">
+  <img src="docs/assets/demos/north.gif" width="880" alt="the orientation packet at spawn: the binding, the memory, and honest_gaps naming what the store holds but did not surface for this task.">
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/grounded-memory-dark.svg">
     <img src="docs/assets/diagrams/grounded-memory-light.svg" alt="memorize stores claims with evidence and grounded_in anchors them to the cited code node at hash H1; when that code changes to H2, cross_verify compares the hashes and the claim marks itself stale, warning instead of asserting." width="820">
@@ -269,6 +288,10 @@ Different people get different products out of the same lane:
 - A vibecoder's pile of chat exports and scattered notes stops being a folder and becomes memory the agent actually consults mid-edit.
 
 Same binary, same MCP verbs, same trust layer. `seek` on a mixed graph returns code and documents in one ranked answer.
+
+<p align="center">
+  <img src="docs/assets/demos/seek.gif" width="880" alt="seek answers in 467 ms and then grades its own answer: this set carries 24 percent of the salience, and the strongest match left out still scores 0.44.">
+</p>
 
 <p align="center">
   <picture>
@@ -362,7 +385,10 @@ The skeptic's question ("no human writes this much this fast") is correct. No hu
 Three core Rust crates plus auxiliaries: `m1nd-mcp` (the MCP server and runtime surface), `m1nd-core` (the graph engine: spreading activation, Hebbian plasticity, CSR adjacency, git-derived ghost edges), `m1nd-ingest` (extractors and adapters for code, documents and memory). Your agent sees 48 tools by default instead of 130+, so it picks the right one more often and pays for a shorter tool list on every request; the full surface is one env var away (`M1ND_TOOL_TIER=full`), and tiering only trims the advertised menu, never availability.
 
 <p align="center">
-  <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="880" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/architecture-dark.svg">
+    <img src="docs/assets/diagrams/architecture-light.svg" alt="m1nd architecture: hosts speak MCP to one served owner, which routes each session by repository root to the brain that covers it; each brain holds its own graph, memory and persistence on disk." width="900">
+  </picture>
 </p>
 
 Depth lives in the [wiki](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md), [EXAMPLES.md](EXAMPLES.md) and [CHANGELOG.md](CHANGELOG.md).

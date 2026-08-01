@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 1048" width="920" height="1048" role="img">
+<title>m1nd architecture at a glance</title>
+<desc>A layer stack. Coding agent hosts across the top, twenty two of them, all speak MCP over stdio or HTTP through one contract of 48 tools. That reaches a single served owner, one process on one port, which routes every session by repository root to the brain that covers it. Each brain holds its own graph, memory and persistence, and lives on disk inside the repository it covers. Nothing leaves the machine.</desc>
+<rect x="0" y="0" width="920" height="1048" fill="#ECEDE8"/>
+<text x="40" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" fill="#14181C" text-anchor="start">architecture</text>
+<text x="40" y="78" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">hosts speak MCP to one served owner; the owner routes each session to the brain</text>
+<text x="40" y="102" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">that covers its repository root</text>
+<line x1="40" y1="130" x2="880" y2="130" stroke="#84867F" stroke-width="2"/>
+<rect x="40" y="178" width="152" height="64" fill="#ECEDE8"/>
+<rect x="40" y="178" width="152" height="64" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="116" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">Claude Code</text>
+<rect x="272" y="178" width="152" height="64" fill="#ECEDE8"/>
+<rect x="272" y="178" width="152" height="64" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="348" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">Codex</text>
+<rect x="504" y="178" width="152" height="64" fill="#ECEDE8"/>
+<rect x="504" y="178" width="152" height="64" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="580" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#14181C" text-anchor="middle">Cursor</text>
+<rect x="736" y="178" width="152" height="64" fill="#ECEDE8"/>
+<rect x="736" y="178" width="152" height="64" fill="none" stroke="#84867F" stroke-width="4"/>
+<text x="812" y="213" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">22 hosts</text>
+<rect x="336" y="314" width="256" height="88" fill="#ECEDE8"/>
+<rect x="336" y="314" width="256" height="88" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="444" y1="314" x2="484" y2="314" stroke="#ECEDE8" stroke-width="10"/>
+<text x="464" y="349" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">MCP · stdio or HTTP</text>
+<text x="464" y="375" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">48 tools, one contract</text>
+<line x1="116" y1="242" x2="116" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="116" y1="282" x2="464" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="348" y1="242" x2="348" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="348" y1="282" x2="464" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="580" y1="242" x2="580" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="580" y1="282" x2="464" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="812" y1="242" x2="812" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="812" y1="282" x2="464" y2="282" stroke="#84867F" stroke-width="2"/>
+<line x1="464" y1="282" x2="464" y2="302" stroke="#84867F" stroke-width="4"/>
+<polygon points="464,314 457,300 471,300" fill="#84867F"/>
+<rect x="320" y="474" width="288" height="112" fill="#ECEDE8"/>
+<rect x="320" y="474" width="288" height="112" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="444" y1="474" x2="484" y2="474" stroke="#ECEDE8" stroke-width="10"/>
+<text x="464" y="509" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">served owner</text>
+<text x="464" y="535" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">one process · one port</text>
+<text x="464" y="561" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">routes by repository root</text>
+<line x1="464" y1="402" x2="464" y2="462" stroke="#84867F" stroke-width="4"/>
+<polygon points="464,474 457,460 471,460" fill="#84867F"/>
+<rect x="40" y="674" width="248" height="144" fill="#ECEDE8"/>
+<rect x="40" y="674" width="248" height="144" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="144" y1="674" x2="184" y2="674" stroke="#ECEDE8" stroke-width="10"/>
+<text x="164" y="709" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">brain A</text>
+<text x="164" y="735" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">graph</text>
+<text x="164" y="761" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">memory</text>
+<text x="164" y="787" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">persistence</text>
+<line x1="464" y1="586" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="164" y1="634" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="164" y1="634" x2="164" y2="662" stroke="#84867F" stroke-width="4"/>
+<polygon points="164,674 157,660 171,660" fill="#84867F"/>
+<rect x="336" y="674" width="248" height="144" fill="#ECEDE8"/>
+<rect x="336" y="674" width="248" height="144" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="440" y1="674" x2="480" y2="674" stroke="#ECEDE8" stroke-width="10"/>
+<text x="460" y="709" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">brain B</text>
+<text x="460" y="735" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">graph</text>
+<text x="460" y="761" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">memory</text>
+<text x="460" y="787" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">persistence</text>
+<line x1="464" y1="586" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="460" y1="634" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="460" y1="634" x2="460" y2="662" stroke="#84867F" stroke-width="4"/>
+<polygon points="460,674 453,660 467,660" fill="#84867F"/>
+<rect x="632" y="674" width="248" height="144" fill="#ECEDE8"/>
+<rect x="632" y="674" width="248" height="144" fill="none" stroke="#84867F" stroke-width="4"/>
+<line x1="736" y1="674" x2="776" y2="674" stroke="#ECEDE8" stroke-width="10"/>
+<text x="756" y="709" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#14181C" text-anchor="middle">brain C</text>
+<text x="756" y="735" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">graph</text>
+<text x="756" y="761" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">memory</text>
+<text x="756" y="787" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">persistence</text>
+<line x1="464" y1="586" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="756" y1="634" x2="464" y2="634" stroke="#84867F" stroke-width="2"/>
+<line x1="756" y1="634" x2="756" y2="662" stroke="#84867F" stroke-width="4"/>
+<polygon points="756,674 749,660 763,660" fill="#84867F"/>
+<line x1="40" y1="882" x2="880" y2="882" stroke="#84867F" stroke-width="2" stroke-dasharray="10 8"/>
+<text x="40" y="914" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="start">on disk, inside the repository it covers</text>
+<text x="880" y="914" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="end">no account · no telemetry · no network hop</text>
+<text x="460" y="970" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">one Rust binary serves every host on the machine; a repository it does not cover</text>
+<text x="460" y="996" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A6169" text-anchor="middle">gets a typed refusal</text>
+</svg>
