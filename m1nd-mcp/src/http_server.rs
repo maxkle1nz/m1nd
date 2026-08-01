@@ -1849,6 +1849,15 @@ fn health_snapshot_json(
     project_brain_runtimes: Vec<crate::brain_runtime::BrainRuntimeHealthV1>,
 ) -> serde_json::Value {
     let has_graph = snapshot.node_count > 0 && snapshot.edge_count > 0;
+    let count_tools = |schemas: &serde_json::Value| -> usize {
+        schemas
+            .get("tools")
+            .and_then(|tools| tools.as_array())
+            .map(Vec::len)
+            .unwrap_or(0)
+    };
+    let full_registry_tool_count = count_tools(&crate::server::all_tool_schemas());
+    let advertised_tool_count = count_tools(&crate::server::tool_schemas());
     serde_json::json!({
         "status": if snapshot.node_count > 0 { "ok" } else { "empty" },
         "owner_busy": false,
@@ -1872,17 +1881,14 @@ fn health_snapshot_json(
         "binding_fingerprint": snapshot.binding_fingerprint,
         "tool_surface_contract": {
             "schema": "m1nd-tool-surface-contract-v0",
-            "full_registry_tool_count": crate::server::all_tool_schemas()
-                .get("tools")
-                .and_then(|tools| tools.as_array())
-                .map(|tools| tools.len())
-                .unwrap_or(0),
-            "advertised_tool_count": crate::server::tool_schemas()
-                .get("tools")
-                .and_then(|tools| tools.as_array())
-                .map(|tools| tools.len())
-                .unwrap_or(0),
+            "full_registry_tool_count": full_registry_tool_count,
+            "advertised_tool_count": advertised_tool_count,
+            "hidden_tool_count": full_registry_tool_count.saturating_sub(advertised_tool_count),
             "tool_tier": crate::server::active_tool_tier(),
+            "hidden_tools_are_callable": true,
+            "discovery_rule": "The advertised menu is a curated core, not the whole surface. Every verb counted in full_registry_tool_count is callable by name whether or not tools/list shows it — naming one works exactly as if it were listed. help(intent) or help(stage) routes you to the right verb and help(tool_name) returns its full schema; help catalogs the FULL registry at every tier. Set M1ND_TOOL_TIER=full to advertise everything in tools/list instead.",
+            "discovery_tool": "help",
+            "full_surface_env": "M1ND_TOOL_TIER=full",
             "required_agent_trust_tools": crate::tools::AGENT_TRUST_REQUIRED_TOOLS,
             "required_host_visible_tools": crate::tools::HOST_BINDING_REQUIRED_TOOLS,
             "minimum_safe_tool_count": crate::tools::HOST_BINDING_REQUIRED_TOOLS.len(),

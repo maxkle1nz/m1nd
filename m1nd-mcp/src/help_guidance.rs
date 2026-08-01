@@ -446,8 +446,17 @@ pub fn runtime_error_guidance_hint(tool_name: &str, detail: &str) -> String {
     parts.join("; ")
 }
 
+/// The catalog `help` reasons over: THE REGISTRY, never the advertised menu.
+///
+/// `help` is the door to every verb `tools/list` no longer shows, so reading the
+/// tier-gated list here would have opened that door onto the same small room —
+/// and the fuzzy "did you mean?" matcher behind every mistyped call could not
+/// have named a hidden verb even when the agent typed it almost right. The gap
+/// was already on the record as low severity in `docs/uml/tool-surface.md`;
+/// shrinking the default menu to a core promoted it to load-bearing. Pinned by
+/// `server::tests::help_sees_every_verb_regardless_of_tier`.
 fn schema_tools() -> Vec<SchemaTool> {
-    crate::server::tool_schemas()
+    crate::server::all_tool_schemas()
         .get("tools")
         .and_then(Value::as_array)
         .cloned()

@@ -426,7 +426,7 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd アーキテクチャ概観" width="960" />
 </p>
 
-ライブ MCP サーフェスはリリースとともに進化する——使用中のビルドにおける正確なツール数と名前は `tools/list` で確認すること。**ティアリング：** ツール選択コストを削減するため、デフォルトでは 27 のエッセンシャルツールが公告される；`M1ND_TOOL_TIER=full` を設定するとフルサーフェス（100 以上のツール：RETROBUILDER、perspectives、federation、daemon）が公告される。隠されたツールは常に `tools/call` で呼び出せる——ティアリングは `tools/list` がサーフェスするものだけを制御する。ツールごとのカタログはこの README には載っていない：深掘りは[公式 wiki](https://m1nd.world/wiki/)、[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md)、[EXAMPLES.md](../EXAMPLES.md) を、リリース履歴は [CHANGELOG.md](../CHANGELOG.md) を参照。
+ライブ MCP サーフェスはリリースとともに進化する——使用中のビルドにおける正確なツール数と名前は `tools/list` で確認すること。**コアメニュー：** デフォルトでは約 15 のツールが公告される——オーナーが批准したコアに、ホストバインディングの基盤を加えたもの。6 週間の実測トラフィックで、公告 141 に対し実際に呼ばれたのは 13 だったためである。`M1ND_TOOL_TIER=full` を設定するとレジストリ全体（140 以上のツール：RETROBUILDER、perspectives、federation、daemon）が公告される。何も削除されていない：隠されたツールは `tools/call` で名前を指定すればそのまま呼び出せ、`help` はどのティアでもレジストリ全体をカタログ化して説明する——それが入口である。ツールごとのカタログはこの README には載っていない：深掘りは[公式 wiki](https://m1nd.world/wiki/)、[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md)、[EXAMPLES.md](../EXAMPLES.md) を、リリース履歴は [CHANGELOG.md](../CHANGELOG.md) を参照。
 
 ## コントリビューション
 

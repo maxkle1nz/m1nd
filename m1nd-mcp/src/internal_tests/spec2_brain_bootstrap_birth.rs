@@ -761,11 +761,11 @@ fn spec2_2c_the_birth_verb_is_advertised_with_its_honest_annotation() {
         description.contains("POSITIVE_SOVEREIGN"),
         "the annotation must name the floor an agent would have to satisfy: {description}"
     );
-    // Never in the essential tier: the ceremony is the human's, and the default
-    // agent surface should not put it in front of one.
+    // Never in the core menu: the ceremony is the human's, and the default agent
+    // surface must not put it in front of one.
     assert!(
-        !m1nd_mcp::server::ESSENTIAL_TOOLS.contains(&BIRTH_TOOL),
-        "the birth verb must not sit in the curated agent-facing tier"
+        !m1nd_mcp::server::core_menu_tool_names().contains(&BIRTH_TOOL),
+        "the birth verb must not sit in the core agent-facing menu"
     );
     assert_eq!(
         birth["inputSchema"]["type"],

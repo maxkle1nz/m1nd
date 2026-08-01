@@ -129,6 +129,44 @@ this loop by default:
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
 
+## The menu is a core, not the surface
+
+`tools/list` advertises about **fifteen** verbs by default — the owner-ratified
+core plus the host-binding floor — while 140+ are registered:
+
+| | verbs |
+|---|---|
+| the core (12) | `north` `memorize` `ingest` `seek` `search` `health` `trust_selftest` `view` `impact` `session_handshake` `boot_memory` `surgical_context` |
+| the binding floor (3) | `help` `doctor` `recovery_playbook` |
+
+That is the shop window, not the shop. **Nothing was removed**: every other verb
+keeps its handler, its route and its authority floor, and naming one works
+exactly as if it were listed. The cut is at advertisement only, and it was made
+against measurement — six weeks of real traffic advertised 141 verbs and saw 13
+called; across every prefix family (`perspective_*`, `mission_*`, `trail_*`,
+`daemon_*`, `document_*`, …) exactly two calls were ever made. The verbs were
+never bad. A 141-item menu is not a menu.
+
+**`help` is the door.** It catalogs the FULL registry at every tier, so it can
+name and explain a verb you cannot see:
+
+- `help(agent_id, intent: "...")` or `help(agent_id, stage: "...")` — route to
+  the right verb for what you are actually doing.
+- `help(agent_id, tool_name: "...")` — any verb's full schema and minimal call,
+  listed or not.
+- A mistyped name comes back with a did-you-mean drawn from the whole registry.
+
+`health.tool_surface_contract` reports the live `advertised_tool_count`,
+`hidden_tool_count` and `full_registry_tool_count`. An operator who wants every
+verb in the menu sets `M1ND_TOOL_TIER=full` on the server.
+
+**The rule this replaces a reflex with:** never conclude m1nd cannot do
+something because it is not in the tool list. Ask `help` first. The measurement
+that motivated this change also caught the opposite failure — an independent
+evaluator on a foreign 107k-LOC codebase ranked `surgical_context` in its top
+three while agents here called it once in six weeks. Invisible is not absent,
+and a long list made everything equally invisible.
+
 ## Advertised ≠ callable — the authority floors
 
 `tools/list` advertises the full verb surface, but generic MCP/REST dispatch
@@ -136,7 +174,7 @@ admits only actions whose M1ND-10 authority floor is `ORDINARY`. A verb above it
 (`SCOPED_GRANT_A2` / `POSITIVE_SOVEREIGN` / `SERVICE_IDENTITY`) refuses with
 `generic_action_authority_required`; no payload shape, capability claim, or retry
 lifts it — only an exact typed G2/G3 consumer (an authority lease), and none is
-installed for those actions yet. 40 of the 141 advertised verbs are affected
+installed for those actions yet. 40 of the registry's verbs are affected
 today, including `learn`, `debrief`, `promote`, `calibrate_predict` /
 `calibrate_envelope`, `ghost_edges`, `runtime_overlay`, `apply` / `apply_batch` /
 `edit_commit`, `daemon_start` / `_stop` / `_tick`, `auto_ingest_start` / `_stop`
