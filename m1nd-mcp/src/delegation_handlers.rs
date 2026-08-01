@@ -446,7 +446,7 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
             "schema": "m1nd-delegation-packet-v0",
             "verdict": "needs_ingest",
             "binding": binding,
-            "next_move": "Run ingest for the intended repo, then call delegate again to get a grounded packet.",
+            "next_move": crate::tools::needs_ingest_next_move(state, &agent_id, "delegate"),
             "recovery_playbook": recovery.unwrap_or(Value::Null),
             "honest_gaps": [
                 "The graph is empty or unbound — no packet can be composed until ingest runs."

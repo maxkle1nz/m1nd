@@ -461,9 +461,20 @@ function authorityRequirement(repo) {
     ],
     mutation_attempted: false,
     recovery_instructions: [
+      // THE DOOR, first. Everything below it is true, and none of it was
+      // actionable for a person whose repo simply has no brain yet: measured on
+      // 1.6.2, an agent hit this envelope plus three other refusals and not one
+      // of them named the single command that works, so it reported that the
+      // product could not be used. Minting a brain stays the human's gesture —
+      // this CLI still never ingests — but the refusal now says whose gesture it
+      // is, and what it is.
+      {
+        id: "run_the_birth_ceremony",
+        action: `If ${repo} simply has no brain yet, the human runs \`m1nd init --birth ${repo}\` once, in a terminal: the ceremony ingests the repo for real and reports the node and edge counts it produced. Offer that command and stop — no agent and no CLI may run it, because the origin stamp exists only inside that ingress.`,
+      },
       {
         id: "configure_governed_provider",
-        action: `Connect an authenticated typed governed owner provider already bound to ${repo}; the npm CLI does not install or synthesize one.`,
+        action: `To ingest into a brain that already exists, connect an authenticated typed governed owner provider already bound to ${repo}; the npm CLI does not install or synthesize one.`,
       },
       {
         id: "prove_authorized_ingest",

@@ -128,6 +128,16 @@ fn refresh_params(path: &str) -> serde_json::Value {
 /// Opening ONE door must not widen the wall. A foreign-root `replace` — the R-D
 /// hijack class, two bound-brain replacements in 24h on the deployed 1.4.x owner
 /// — keeps today's refusal, verbatim, including the floor it names.
+///
+/// AMENDED once, deliberately: the refusal now carries the way out. What §5.1
+/// pins is that the DECISION does not move (same code, same action, same floor,
+/// nothing mutated), and it does not — a sentence naming the human's ceremony
+/// grants no authority to anyone, least of all the foreign caller being refused
+/// here, for whom that command is exactly the correct answer. Measured on 1.6.2:
+/// an agent hit this refusal plus three siblings, none of which named a door,
+/// and reported that m1nd could not be used at all. The two SCOPED_GRANT_A2
+/// siblings in §5.9 keep their bytes untouched, because their answer is not the
+/// ceremony — see `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`.
 #[test]
 fn spec1_5_1_foreign_root_replace_keeps_todays_refusal_bytes() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -150,7 +160,9 @@ fn spec1_5_1_foreign_root_replace_keeps_todays_refusal_bytes() {
         "invalid params for ingest: generic_action_authority_required: \
          semantic_action=graph.ingest.replace authority_floor=POSITIVE_SOVEREIGN \
          cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease \
-         consumer is installed for this action"
+         consumer is installed for this action. The first graph for a repo is \
+         the human's one-time ceremony: offer them `m1nd init --birth <repo>` \
+         and stop — agents never run it"
     );
 }
 

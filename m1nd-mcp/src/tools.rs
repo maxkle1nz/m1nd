@@ -66,6 +66,35 @@ fn normalized_ingest_mode(mode: &str) -> &str {
 /// 1.4.x owner — dies here even for a caller who is entirely legitimate.
 pub const REFRESH_SHRINK_FLOOR_PERCENT: u64 = 60;
 
+/// THE WAY OUT a refusal on the ingest path must name, chosen from what this
+/// brain actually holds.
+///
+/// A refusal that is correct and names no door is half a refusal. Measured in
+/// the field on 1.6.2: an agent in a new repo hit four different refusals in a
+/// row — `generic_action_authority_required`, `refresh_caller_root_unknown`,
+/// `refresh_root_not_exact` and the birth verb's own — none of which mentioned
+/// the one command that would have worked, so it concluded the product could not
+/// be used and wrote that in its report.
+///
+/// The two doors are genuinely different, which is why this reads the brain
+/// instead of printing one sentence everywhere: a brain with no code root has no
+/// brain yet (the human's ceremony), while a brain that HAS one is simply being
+/// asked by a session that cannot say where it stands (the caller-root fact).
+fn ingest_door_for(state: &SessionState) -> String {
+    if state.code_root_path().is_some() {
+        "this brain already maps a repo; a refresh is authorized by the caller's own root, so \
+         reach the owner with `m1nd-mcp --attach auto --stdio` from inside that repo (the bridge \
+         sends the root), or set PROJECT_ROOT to it"
+            .to_string()
+    } else {
+        format!(
+            "this repo has no brain yet — offer the human `{}` and stop; birthing a brain is their \
+             gesture, never an agent's",
+            crate::brain_birth::BIRTH_CEREMONY_COMMAND
+        )
+    }
+}
+
 /// The refusal envelope. ONE shape for every refusal reason so both transports
 /// emit the same bytes for the same decision (SPEC-1g), and so an agent can
 /// branch on `refused` without parsing prose.
@@ -141,10 +170,17 @@ fn handle_ingest_refresh(
     // 1. The door authenticates a ROOT RELATIONSHIP. With no caller root there
     //    is nothing to authenticate — fail closed, never open.
     let Some(caller_root) = state.caller_root.clone() else {
-        return Ok(refresh_refusal(
+        let mut refusal = refresh_refusal(
             "refresh_caller_root_unknown",
             "a refresh is authorized by the caller's own root; this session carries none, and an unknown root is never treated as a match",
-        ));
+        );
+        if let Some(object) = refusal.as_object_mut() {
+            object.insert(
+                "door".to_string(),
+                serde_json::json!(ingest_door_for(state)),
+            );
+        }
+        return Ok(refusal);
     };
 
     // 2. The exact-root predicate (SPEC-1.2): EQUALITY of canonical keys against
@@ -167,6 +203,10 @@ fn handle_ingest_refresh(
                 object.insert(
                     "declared_roots".to_string(),
                     serde_json::json!(state.declared_roots_canonical()),
+                );
+                object.insert(
+                    "door".to_string(),
+                    serde_json::json!(ingest_door_for(state)),
                 );
             }
             return Ok(refusal);
@@ -350,6 +390,41 @@ pub(crate) fn ingest_project_root_hint(state: &SessionState, scope: Option<&str>
         .or_else(|| state.code_root_path())
         .or_else(|| state.caller_root.clone())
         .unwrap_or_else(|| "<intended-repo-path>".to_string())
+}
+
+/// THE NEXT MOVE for a session whose graph is empty — read off the REAL gate,
+/// never assumed.
+///
+/// "Run ingest for the intended repo" was the answer every empty-graph surface
+/// gave (`north`, `delegate`, `trust_selftest`), and on 1.6.2 it was a refusal
+/// loop: generic `ingest` classifies as `graph.ingest.replace` at
+/// `POSITIVE_SOVEREIGN` and fails closed for every client. So this asks
+/// `enforce_generic_action_policy` the same way `recovery_playbook` does — a
+/// future typed consumer re-enables the one-call answer automatically — and
+/// otherwise names the door that actually opens.
+pub(crate) fn needs_ingest_next_move(state: &SessionState, agent_id: &str, then: &str) -> String {
+    let repo = ingest_project_root_hint(state, None);
+    let proposed = serde_json::json!({ "agent_id": agent_id, "path": repo });
+    if crate::server::enforce_generic_action_policy("ingest", &proposed).is_ok() {
+        return format!(
+            "Run ingest for the intended repo, then call {then} again to get grounded context."
+        );
+    }
+    // The hint's placeholder is what a brand-new brain resolves to: no code
+    // root, no caller root, nothing to name. Printing it inside a command a
+    // human is meant to TYPE would hand them `m1nd init --birth
+    // <intended-repo-path>`, so the command becomes the relative one they can
+    // run where they already are.
+    let command = if repo.starts_with('<') {
+        "m1nd init --birth .".to_string()
+    } else {
+        format!("m1nd init --birth {repo}")
+    };
+    format!(
+        "This repo has no brain yet, and minting one is the human's gesture: offer them \
+         `{command}` — once, in a terminal, from inside the repo — then call {then} again. Agents \
+         never run it: the origin stamp exists only inside that CLI ingress."
+    )
 }
 
 fn note_learn_node_effect(
@@ -4538,11 +4613,25 @@ pub fn handle_recovery_playbook(
                 )
             } else {
                 // The generic ingest verb is policy-disabled here. Recommend the
-                // honest repair instead of a call the server would reject.
+                // honest repair instead of a call the server would reject — and
+                // NAME THE DOOR. Until 1.6.2 this playbook was correct about
+                // everything it forbade and silent about the one command that
+                // works, so an agent reading it concluded there was no way to
+                // populate a new repo at all.
+                //
+                // A brand-new brain resolves `ingest_path` to its placeholder —
+                // no code root, no caller root, nothing to name — so the command
+                // becomes the relative one a human can run where they already
+                // stand, rather than a literal `<intended-repo-path>`.
+                let birth_command = if ingest_path.starts_with('<') {
+                    "m1nd init --birth .".to_string()
+                } else {
+                    format!("m1nd init --birth {ingest_path}")
+                };
                 (
                     "blocked",
-                    "Populate this binding's graph through the served owner's authenticated ingress; the generic ingest verb is policy-disabled on this binding.",
-                    "populate_via_owner_restart_or_authenticated_ingress",
+                    "Offer the human the one-time birth ceremony for this repo; the generic ingest verb is policy-disabled on this binding, because minting a brain is their gesture and not an agent's.",
+                    "offer_the_birth_ceremony",
                     vec![
                         playbook_step(
                             "generic_ingest_unavailable",
@@ -4551,7 +4640,7 @@ pub fn handle_recovery_playbook(
                             None,
                             Some(serde_json::json!({
                                 "code": "brain_bootstrap_consumer_not_installed",
-                                "intended_repo": ingest_path,
+                                "intended_repo": ingest_path.clone(),
                             })),
                         ),
                         playbook_step(
@@ -4562,11 +4651,16 @@ pub fn handle_recovery_playbook(
                             None,
                         ),
                         playbook_step(
-                            "use_served_owner_authenticated_ingress",
-                            "Otherwise populate the graph through the served owner's authenticated MCP ingress (the typed consumer path), not the generic REST/MCP dispatch.",
-                            "Only the served owner's authenticated ingress carries the sovereign authority the generic transport intentionally lacks.",
+                            "offer_the_birth_ceremony",
+                            &format!(
+                                "Otherwise this repo has no brain yet: tell the human to run `{birth_command}` once, in a terminal, from inside the repo. Offer the command and stop — running it is not yours to do."
+                            ),
+                            "The ceremony is the human gesture that mints a brain: it ingests the repo for real and reports the node and edge counts it produced. An agent cannot run it — the origin stamp exists only inside that CLI ingress.",
                             None,
-                            None,
+                            Some(serde_json::json!({
+                                "command": birth_command,
+                                "who_runs_it": "the human, once",
+                            })),
                         ),
                         playbook_step(
                             "rerun_session_handshake",
