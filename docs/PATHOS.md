@@ -143,8 +143,14 @@ show adoption moving — action rate (32% baseline) and live verbs are the needl
 
 ### (e) State the successor inherits, precisely
 
-- **#521 (menu of 15)** — auto-merge armed, CI running at handoff. If it landed, the
-  served default is 15 and 127 stay callable; verify before assuming.
+- **#521 (menu of 15)** — **RED at handoff on all three OS legs**:
+  `cockpit::tests::cockpit_budget_holds_with_the_eighth_slot` panics at
+  `m1nd-mcp/src/cockpit.rs:849` (1608 passed, 1 failed). Causally plausible and
+  probably a real coupling rather than a flake: the cockpit budgets against the
+  tool surface, and the surface just shrank from 141 to 15 — the eighth slot's
+  arithmetic likely assumed the wide menu. Fix the coupling (or the test's
+  premise) before merging; **do not merge it red**, and do not "fix" it by
+  widening the menu back.
 - **#520 (first graph can be born)** — **RED at handoff**: `Rust gates (ubuntu)`,
   `a_runtime_at_the_repo_root_is_home_too_and_its_empty_graph_is_filled` panics at
   `m1nd-mcp/tests/first_graph_is_born.rs:219` (2 passed, 1 failed). The fix is real
