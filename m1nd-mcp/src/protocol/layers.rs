@@ -1175,6 +1175,10 @@ pub struct TraceSuspect {
     pub line_end: Option<u32>,
     /// Who calls this suspect.
     pub related_callers: Vec<String>,
+    /// How this suspect's stacktrace frame was matched to a graph identity:
+    /// "exact" | "inferred_root" | "suffix" | "basename". Descending strength —
+    /// "exact" is the stored identity itself, "basename" is a filename-only hit.
+    pub match_method: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1210,8 +1214,15 @@ pub struct TraceUnmappedFrame {
     pub file: String,
     pub line: u32,
     pub function: String,
-    /// "file not in graph" | "line outside any node range" | "stdlib/third-party"
+    /// Why the frame did not map, naming the rungs that were tried:
+    /// "stdlib/third-party" | "ambiguous: …" | "no graph file matches … (tried …)".
     pub reason: String,
+    /// Graph file identities that tied for this frame. Non-empty only when the
+    /// frame was refused for ambiguity — `trace` reports the candidates instead
+    /// of picking one, because a wrong attribution in a debugging tool sends the
+    /// caller to edit the wrong file.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

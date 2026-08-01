@@ -5063,12 +5063,13 @@ pub fn handle_trace(
 
     for frame in &raw_frames {
         match l6_resolve_frame(&graph, frame, n, &state.ingest_roots) {
-            Some(node_id) => {
+            Some((node_id, method)) => {
                 mapped.push(L6MappedFrame {
                     node_id,
                     file: frame.file.clone(),
                     line: frame.line,
                     function: frame.function.clone(),
+                    match_method: method,
                 });
             }
             None => {
@@ -5077,6 +5078,7 @@ pub fn handle_trace(
                     line: frame.line,
                     function: frame.function.clone(),
                     reason: l6_classify_unmapped(&graph, &frame.file, &state.ingest_roots),
+                    candidates: vec![],
                 });
             }
         }
@@ -5176,6 +5178,7 @@ pub fn handle_trace(
             line_start,
             line_end,
             related_callers,
+            match_method: mf.match_method.to_string(),
         });
     }
 
@@ -5773,6 +5776,8 @@ struct L6MappedFrame {
     file: String,
     line: u32,
     function: String,
+    /// Which rung of the identity ladder matched this frame.
+    match_method: &'static str,
 }
 
 /// Auto-detect language from error text patterns.
@@ -6064,7 +6069,7 @@ fn l6_resolve_frame(
     frame: &L6RawFrame,
     n: usize,
     ingest_roots: &[String],
-) -> Option<NodeId> {
+) -> Option<(NodeId, &'static str)> {
     // Normalize: strip absolute prefix via ingest_roots first, then fallback
     // to the heuristic l6_normalize_path so repo-relative paths still work.
     let frame_path =
@@ -6079,10 +6084,10 @@ fn l6_resolve_frame(
     if let Some(nid) = graph.resolve_id(&ext_id) {
         if frame.line > 0 {
             if let Some(specific) = l6_find_specific_node(graph, &frame_path, frame.line, n) {
-                return Some(specific);
+                return Some((specific, "exact"));
             }
         }
-        return Some(nid);
+        return Some((nid, "exact"));
     }
 
     // Strategy 2: scan all node provenance for path suffix match
@@ -6112,7 +6117,7 @@ fn l6_resolve_frame(
             }
         }
     }
-    best.map(|(nid, _)| nid)
+    best.map(|(nid, _)| (nid, "suffix"))
 }
 
 /// Find a specific sub-file node (function/class) at a given line.
@@ -13820,6 +13825,7 @@ mod tests {
             line_start: None,
             line_end: None,
             related_callers: vec![],
+            match_method: "exact".into(),
         };
 
         assert_eq!(
@@ -15037,6 +15043,368 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             output.frames_mapped >= 1,
             "expected frames_mapped >= 1 for absolute path frame, got {} (unmapped: {:?})",
             output.frames_mapped,
+            output.unmapped_frames
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // trace frame -> node identity.
+    //
+    // Reported twice by an independent external evaluator auditing a foreign
+    // 107k-LOC Python codebase (0.9.0-beta.6 in May, unchanged on 1.6.2):
+    //
+    //   "frames_parsed": 2, "frames_mapped": 0,
+    //   "unmapped_frames": [{"file": "agent/conversation_loop.py",
+    //                        "reason": "file not in graph"}, ...]
+    //
+    // The files ARE in the graph — as `file::conversation_loop.py`, because the
+    // graph was ingested from inside `agent/`. The stacktrace's paths are
+    // relative to the process CWD (the repo root), so the two identities are
+    // relative to DIFFERENT roots.
+    // -------------------------------------------------------------------------
+
+    /// Build a session whose graph holds the identity `m1nd-ingest` actually
+    /// stores: `file::<path relative to the INGEST ROOT>`
+    /// (`build_file_external_id` + `relative_source_path` in
+    /// `m1nd-ingest/src/lib.rs`). `line_span` mirrors provenance when the
+    /// caller wants it — provenance is best-effort (stamped only for nodes a
+    /// provenance-aware ingest created or refreshed), so several fixtures
+    /// deliberately omit it.
+    fn build_trace_state(
+        root: &std::path::Path,
+        ingest_subdir: Option<&str>,
+        files: &[(&str, Option<(u32, u32)>)],
+    ) -> SessionState {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        for (rel_path, line_span) in files {
+            let external_id = format!("file::{rel_path}");
+            let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+            let node = graph
+                .add_node(&external_id, label, NodeType::File, &[], 0.0, 0.0)
+                .expect("add file node");
+            if let Some((line_start, line_end)) = line_span {
+                graph.set_node_provenance(
+                    node,
+                    NodeProvenanceInput {
+                        source_path: Some(rel_path),
+                        line_start: Some(*line_start),
+                        line_end: Some(*line_end),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        let ingest_root = match ingest_subdir {
+            Some(sub) => root.join(sub),
+            None => root.to_path_buf(),
+        };
+        state.ingest_roots = vec![ingest_root.to_string_lossy().into_owned()];
+        state.workspace_root = Some(root.to_string_lossy().into_owned());
+        state
+    }
+
+    fn run_trace(
+        state: &mut SessionState,
+        error_text: &str,
+    ) -> crate::protocol::layers::TraceOutput {
+        use super::handle_trace;
+        use crate::protocol::layers::TraceInput;
+
+        handle_trace(
+            state,
+            TraceInput {
+                agent_id: "test".into(),
+                error_text: error_text.into(),
+                language: Some("python".into()),
+                window_hours: 24.0,
+                top_k: 10,
+            },
+        )
+        .expect("handle_trace should not fail")
+    }
+
+    /// THE REPORTED BUG. The stacktrace carries an `agent/` prefix the graph's
+    /// identities do not, because the graph was ingested from inside `agent/`.
+    /// Two frames agree on that prefix, so the root is inferable and both must
+    /// map.
+    #[test]
+    fn trace_maps_frames_whose_stacktrace_root_differs_from_the_ingest_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_trace_state(
+            temp.path(),
+            Some("agent"),
+            &[
+                ("conversation_loop.py", None),
+                ("anthropic_adapter.py", None),
+            ],
+        );
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"agent/conversation_loop.py\", line 412, in run\n    self.adapter.send(msg)\n  \
+             File \"agent/anthropic_adapter.py\", line 88, in send\n    raise ApiError(resp)\n\
+             ApiError: 429 rate limited\n",
+        );
+
+        assert_eq!(output.frames_parsed, 2, "both frames must parse");
+        assert_eq!(
+            output.frames_mapped, 2,
+            "both frames must map; unmapped: {:?}",
+            output.unmapped_frames
+        );
+        assert!(
+            output.unmapped_frames.is_empty(),
+            "nothing should stay unmapped: {:?}",
+            output.unmapped_frames
+        );
+        assert!(
+            output
+                .suspects
+                .iter()
+                .all(|suspect| suspect.match_method == "inferred_root"),
+            "a prefix corroborated by 2 frames must be reported as inferred_root, got {:?}",
+            output
+                .suspects
+                .iter()
+                .map(|suspect| suspect.match_method.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A frame's line number must never VETO a file-level match. The file node's
+    /// provenance span here does not contain either frame's line (a stale graph,
+    /// a shrunk file, or an extractor that under-counted lines all produce this),
+    /// and that alone used to drop the frame to "file not in graph".
+    #[test]
+    fn trace_maps_a_frame_whose_line_falls_outside_every_node_line_range() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_trace_state(
+            temp.path(),
+            Some("agent"),
+            &[
+                ("conversation_loop.py", Some((1, 1))),
+                ("anthropic_adapter.py", Some((1, 1))),
+            ],
+        );
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"agent/conversation_loop.py\", line 412, in run\n    self.adapter.send(msg)\n  \
+             File \"agent/anthropic_adapter.py\", line 88, in send\n    raise ApiError(resp)\n\
+             ApiError: 429 rate limited\n",
+        );
+
+        assert_eq!(
+            output.frames_mapped, 2,
+            "an out-of-range line must not veto the file match; unmapped: {:?}",
+            output.unmapped_frames
+        );
+    }
+
+    /// Exact identity matching must not be weakened by the new ladder.
+    #[test]
+    fn trace_still_maps_the_exact_repo_relative_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state =
+            build_trace_state(temp.path(), None, &[("src/agent/core.py", Some((1, 900)))]);
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"src/agent/core.py\", line 10, in boot\n    start()\n\
+             RuntimeError: boom\n",
+        );
+
+        assert_eq!(
+            output.frames_mapped, 1,
+            "the exact stored identity must still map; unmapped: {:?}",
+            output.unmapped_frames
+        );
+        assert_eq!(
+            output.suspects[0].match_method, "exact",
+            "an identical path is an exact match, not a guess"
+        );
+    }
+
+    /// Silent wrong attribution in a debugging tool is worse than no
+    /// attribution: a basename shared by several graph files is NOT a mapping.
+    #[test]
+    fn trace_refuses_to_guess_between_files_that_share_a_basename() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_trace_state(
+            temp.path(),
+            None,
+            &[
+                ("a/util.py", None),
+                ("b/util.py", None),
+                ("adapter.py", None),
+            ],
+        );
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"svc/util.py\", line 3, in helper\n    boom()\n  \
+             File \"svc/adapter.py\", line 9, in send\n    raise ApiError()\n\
+             ApiError: nope\n",
+        );
+
+        assert_eq!(
+            output.frames_mapped, 1,
+            "only the unambiguous frame may map; unmapped: {:?}",
+            output.unmapped_frames
+        );
+        assert!(
+            output
+                .suspects
+                .iter()
+                .all(|suspect| !suspect.node_id.contains("util.py")),
+            "an ambiguous frame must never be attributed to one of its candidates: {:?}",
+            output
+                .suspects
+                .iter()
+                .map(|suspect| suspect.node_id.clone())
+                .collect::<Vec<_>>()
+        );
+
+        let ambiguous = output
+            .unmapped_frames
+            .iter()
+            .find(|frame| frame.file == "svc/util.py")
+            .expect("the ambiguous frame must be reported");
+        assert!(
+            ambiguous.reason.contains("ambiguous"),
+            "the reason must name the ambiguity, got {:?}",
+            ambiguous.reason
+        );
+        assert_eq!(
+            ambiguous.candidates,
+            vec!["a/util.py".to_string(), "b/util.py".to_string()],
+            "both candidates must be reported so the caller can disambiguate"
+        );
+    }
+
+    /// "file not in graph" is not an answer — say what was tried.
+    #[test]
+    fn trace_names_what_it_tried_for_a_file_absent_from_the_graph() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_trace_state(temp.path(), None, &[("src/core.py", None)]);
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"services/totally_absent.py\", line 3, in helper\n    boom()\n\
+             RuntimeError: nope\n",
+        );
+
+        assert_eq!(output.frames_mapped, 0);
+        let reason = &output.unmapped_frames[0].reason;
+        for tried in ["exact", "root", "suffix", "basename"] {
+            assert!(
+                reason.contains(tried),
+                "the reason must say the {tried} rung was tried, got {reason:?}"
+            );
+        }
+        assert_ne!(
+            reason, "file not in graph",
+            "the bare legacy reason is not useful enough"
+        );
+    }
+
+    /// A filename-only hit must be LABELLED as such, never dressed up as a path
+    /// match. `"mylib/parser.py".ends_with("lib/parser.py")` is true as bytes and
+    /// false as paths — the identity-domain trap the Windows phase-2 debt was
+    /// made of. Segment-aligned matching keeps the two apart.
+    #[test]
+    fn trace_labels_a_filename_only_hit_as_a_basename_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_trace_state(temp.path(), None, &[("lib/parser.py", None)]);
+
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"mylib/parser.py\", line 3, in parse\n    boom()\n\
+             RuntimeError: nope\n",
+        );
+
+        assert_eq!(output.frames_mapped, 1);
+        assert_eq!(
+            output.suspects[0].match_method, "basename",
+            "a byte-suffix that is not a path-segment suffix is a basename hit, nothing stronger"
+        );
+    }
+
+    /// PIN: the identity `trace` matches is the identity INGEST STORES. If a
+    /// future ingest change moves file identity off `file::<path relative to the
+    /// ingest root>`, this turns red instead of silently un-mapping every frame.
+    #[test]
+    fn trace_frame_identity_is_what_ingest_stores() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path();
+        let agent_dir = repo_root.join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("conversation_loop.py"),
+            "class Loop:\n    def run(self):\n        return self.send()\n\n    def send(self):\n        raise RuntimeError('boom')\n",
+        )
+        .expect("write source");
+
+        // Ingest from INSIDE `agent/` — the evaluator's shape.
+        let ingestor = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+            root: agent_dir.clone(),
+            ..m1nd_ingest::IngestConfig::default()
+        });
+        let (graph, _stats) = ingestor.ingest().expect("ingest should succeed");
+
+        assert!(
+            graph.resolve_id("file::conversation_loop.py").is_some(),
+            "ingest stores a file node as `file::<path relative to the ingest root>`; \
+             if that changed, trace's identity rule must change with it"
+        );
+
+        let runtime_dir = repo_root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![agent_dir.to_string_lossy().into_owned()];
+        state.workspace_root = Some(repo_root.to_string_lossy().into_owned());
+
+        // The stacktrace was produced with the REPO ROOT as CWD, so its paths
+        // carry the `agent/` prefix the graph's identities lack.
+        let output = run_trace(
+            &mut state,
+            "Traceback (most recent call last):\n  \
+             File \"agent/conversation_loop.py\", line 3, in run\n    return self.send()\n  \
+             File \"agent/conversation_loop.py\", line 6, in send\n    raise RuntimeError('boom')\n\
+             RuntimeError: boom\n",
+        );
+
+        assert_eq!(
+            output.frames_mapped, 2,
+            "a real ingested graph must map a real stacktrace; unmapped: {:?}",
             output.unmapped_frames
         );
     }
