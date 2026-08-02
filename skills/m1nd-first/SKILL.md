@@ -72,7 +72,11 @@ this loop by default:
    a second round-trip (`code: false` gives the orientation-only packet). Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. Generic cross-root `ingest` remains withdrawn: never
+   `reception.options[]`. Under that mismatch north answers FAST and marks the
+   packet `proof_state: "reception_mismatch"` with `context: null`: it returns
+   the reception and the human-voice card WITHOUT orienting over a graph that is
+   not yours (a mismatch is a millisecond answer, not a spread-activation).
+   Generic cross-root `ingest` remains withdrawn: never
    add `project_root` or `allow_overlap`, and never treat the internal owner
    bootstrap as an executable repair. A brainless repo now has ONE real path —
    the HUMAN's one-time ceremony `m1nd init --birth <repo>`: OFFER that exact
