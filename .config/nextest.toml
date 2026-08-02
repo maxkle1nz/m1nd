@@ -1,0 +1,48 @@
+# nextest is the workspace's test runner (adopted 2026-08-02; the CI comment on
+# the "Test every target" step carries the measurements that decided it).
+#
+# Two policies live here, both about honesty:
+#
+# * `retries = 0` — a test that fails is RED. Auto-retry is how a flake class
+#   gets institutionalized; the one flake family this workspace had (the
+#   `external_mutation_service` deadlock timeouts) turned out to be an artifact
+#   of the shared-process runner, and switching runners removed it. If a test
+#   flakes under nextest, we want to see it, not survive it.
+#
+# * `slow-timeout` — today a runaway test owns the job until the 90-minute CI
+#   ceiling. Outside the retrobuilder family the slowest legitimate test
+#   measured on the dev box is ~119s, so 600s leaves ~5x headroom. SLOW
+#   warnings start at 60s so the tail stays visible in every run's output.
+[profile.default]
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# The retrobuilder batteries are the workspace's real heavy tail: thirteen
+# tests measured at 390-567s EACH on the dev box (rb01-rb05 walk this repo's
+# actual git history; the stress battery builds thousand-span overlays). Under
+# `cargo test` they had the whole machine — one test binary at a time; under
+# nextest they run amid everything else, and the first adoption of this file
+# shipped a 600s ceiling calibrated on the LIB's heavy tail (119s) instead of
+# the WORKSPACE's — all four rb tests died together at 600.04s on the 4-vCPU
+# ubuntu runner. Their ceiling is their own: ~4x the dev-box worst case. A
+# genuine runaway here still dies named at 40 minutes, not the job's 90.
+[[profile.default.overrides]]
+filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+# ---------------------------------------------------------------------------
+# The CI shadow lane (see the `nextest-shadow` job in ci.yml). Inherits the
+# default profile; what it adds is the concurrency cap the GATE measurement
+# demanded: on the 4-vCPU ubuntu runner the heavy families — nested-Cargo
+# compiler oracles and real-repo ingests — running fully parallel turned the
+# suite from 62 into 83 minutes (the suite-audit's §10 process storm). The cap
+# lives HERE and not in the default profile because the dev box has the cores
+# and I/O to run them wide open (935s→377s); capping locally would give that
+# win back. Tune the cap in this profile until the shadow's wall is
+# acceptable; promote the runner only then.
+[test-groups]
+heavy-io = { max-threads = 2 }
+
+[[profile.shadow.overrides]]
+filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress) | test(transplant)'
+test-group = 'heavy-io'
