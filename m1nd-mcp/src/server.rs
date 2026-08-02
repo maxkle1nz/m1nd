@@ -1088,7 +1088,10 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "default": "forward",
                             "description": "Propagation direction for impact analysis"
                         },
-                        "include_causal_chains": { "type": "boolean", "default": true, "description": "Include causal chain detection" }
+                        "include_causal_chains": { "type": "boolean", "default": true, "description": "Include causal chain detection" },
+                        "max_nodes": { "type": "integer", "minimum": 0, "default": 150, "description": "Maximum blast-radius nodes to return" },
+                        "max_chains": { "type": "integer", "minimum": 0, "default": 20, "description": "Maximum causal chains to return" },
+                        "max_output_chars": { "type": "integer", "minimum": 1, "default": 50000, "description": "Maximum serialized response characters" }
                     },
                     "required": ["node_id", "agent_id"]
                 }
@@ -2179,7 +2182,10 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "symbol": { "type": "string", "description": "Optional: narrow context to a specific symbol (function/struct/class name)" },
                         "radius": { "type": "integer", "default": 1, "description": "BFS radius for graph neighbourhood (1 or 2)" },
-                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" }
+                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" },
+                        "max_neighbours_per_side": { "type": "integer", "minimum": 0, "default": 50, "description": "Maximum callers, callees, and tests returned per list" },
+                        "max_primary_file_lines": { "type": "integer", "minimum": 0, "default": 400, "description": "Maximum primary-file lines to return" },
+                        "max_primary_file_chars": { "type": "integer", "minimum": 0, "default": 40000, "description": "Maximum primary-file characters to return after the line cap" }
                     },
                     "required": ["file_path", "agent_id"]
                 }
@@ -2249,7 +2255,9 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" },
                         "radius": { "type": "integer", "default": 1, "description": "BFS radius for graph neighbourhood (1 or 2)" },
                         "max_connected_files": { "type": "integer", "default": 5, "description": "Maximum number of connected files to include source for" },
-                        "max_lines_per_file": { "type": "integer", "default": 60, "description": "Maximum lines per connected file (primary file is unbounded)" }
+                        "max_lines_per_file": { "type": "integer", "default": 60, "description": "Maximum lines per connected file" },
+                        "max_primary_file_lines": { "type": "integer", "minimum": 0, "default": 400, "description": "Maximum primary-file lines to return" },
+                        "max_primary_file_chars": { "type": "integer", "minimum": 0, "default": 40000, "description": "Maximum primary-file characters to return after the line cap" }
                     },
                     "required": ["agent_id", "file_path"]
                 }
@@ -4899,6 +4907,13 @@ fn top_pagerank_anchors(graph: &m1nd_core::graph::Graph, n: usize) -> Vec<serde_
                 .try_resolve(graph.nodes.label[i])
                 .unwrap_or("");
             if is_marker_fragment(ext, label) {
+                return None;
+            }
+            // Same reason, same shape, one class later: minifier-renamed symbols
+            // (1-2 char labels) and nodes from machine-generated files collect a
+            // bundle's whole fan-in and win PageRank outright, wasting the anchor
+            // slots on build-tool artifacts (askGOD F5 verdict, 2026-07-24).
+            if m1nd_core::seed::graph_ranking_noise_demote(graph, i, "") < 1.0 {
                 return None;
             }
             Some((pr, i))

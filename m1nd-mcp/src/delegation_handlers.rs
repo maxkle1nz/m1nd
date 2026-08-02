@@ -968,6 +968,12 @@ fn static_dependents(
             direction: "reverse".into(),
             include_causal_chains: false,
             max_nodes: Some(max_nodes),
+            max_chains: None,
+            // Internal caller: the packet's best-effort contract is bounded by
+            // max_nodes alone — never by the wire serialization default, so a
+            // future DEFAULT_IMPACT_MAX_OUTPUT_CHARS change cannot silently
+            // shrink the dependents list.
+            max_output_chars: Some(usize::MAX),
         },
     );
     match out {

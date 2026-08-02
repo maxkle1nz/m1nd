@@ -268,8 +268,16 @@ pub fn handle_panoramic(
             }
         }
 
-        // Only file-level nodes for panoramic
-        if !ext_id.starts_with("file::") {
+        // Only file-level nodes for panoramic. The `file::` prefix alone does NOT
+        // say that: a symbol's id is built from its file's, so `file::app.ts::fn::s`
+        // shares it. Measured on a 103k-node brain, that let minifier-renamed
+        // helpers — `…::fn::s`, `…::fn::t`, `…::fn::h` — take the top of the risk
+        // ranking, which is a ranking of MODULES an agent might have to change
+        // (askGOD F5 verdict, 2026-07-24). Ask the node what it is.
+        if !matches!(
+            graph.nodes.node_type[nid.as_usize()],
+            m1nd_core::types::NodeType::File
+        ) {
             continue;
         }
 

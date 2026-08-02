@@ -17,6 +17,9 @@ Impact radius / blast analysis for a node. Propagates signal outward from a sour
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
 | `direction` | `string` | No | `"forward"` | Propagation direction. Values: `"forward"` (what does this affect?), `"reverse"` (what affects this?), `"both"`. |
 | `include_causal_chains` | `boolean` | No | `true` | Include causal chain detection. Shows the specific paths through which impact propagates. |
+| `max_nodes` | `integer` | No | `150` | Cap on `blast_radius` entries. The pre-cap count stays visible in `total_blast_nodes`. |
+| `max_chains` | `integer` | No | `20` | Cap on `causal_chains` entries. The pre-cap count stays visible in `total_causal_chains`. |
+| `max_output_chars` | `integer` | No | `50000` | Serialized-response budget. When the payload would exceed it, chains are dropped first, then blast entries, and `truncated` is set — counts always reflect the pre-cap totals. |
 
 ### Example Request
 

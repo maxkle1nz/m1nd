@@ -275,7 +275,9 @@ impl DirectoryWalker {
         // hidden(!include_dotfiles) mirrors the old hidden-dir/file pruning while honoring the
         // include_dotfiles escape hatch. The filter_entry below preserves the hardcoded
         // skip_dirs + is_noise_dir_name pruning so noise dirs are dropped even in a repo with
-        // NO .gitignore.
+        // NO .gitignore. Per-FILE policy (editor temps, runtime artifacts, and named
+        // minified bundles/sourcemaps) is applied by `is_noise_path` in the loop below,
+        // so discovery has exactly one policy source.
         let filter_root = root_canonical.clone();
         let skip_dirs = self.skip_dirs.clone();
         let include_dotfiles = self.include_dotfiles;
@@ -1042,6 +1044,36 @@ mod tests {
             .files
             .iter()
             .any(|file| file.relative_path == "12345678"));
+    }
+
+    #[test]
+    fn walk_skips_named_build_output_but_keeps_authored_assets() {
+        let temp = TempTree::new("minified-build-output");
+        std::fs::create_dir_all(temp.path().join("assets")).expect("assets dir");
+        for (name, body) in [
+            ("assets/vendor.min.js", "function q(e){return e}\n"),
+            ("assets/vendor.min.js.map", "{\"version\":3}\n"),
+            ("assets/theme.min.css", ".a{color:#fff}\n"),
+            ("assets/app.js", "export function render() {}\n"),
+            ("assets/minify.js", "export function minify() {}\n"),
+        ] {
+            std::fs::write(temp.path().join(name), body).expect("write asset");
+        }
+
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+        let result = walker.walk(temp.path()).expect("walk asset tree");
+        let mut rels: Vec<&str> = result
+            .files
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect();
+        rels.sort_unstable();
+
+        assert_eq!(
+            rels,
+            vec!["assets/app.js", "assets/minify.js"],
+            "only authored assets survive discovery"
+        );
     }
 
     #[test]

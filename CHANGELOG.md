@@ -172,6 +172,42 @@ carries everything 1.6.0 contained.
   791 of 794 function nodes gained a real extent (99.6%), snapshot size −73 bytes, ingest time
   inside the existing noise band.
 
+### Changed
+- **Bounded tool output for `surgical_context` v1 and `impact` causal chains.** On large brains
+  (measured on a 103k-node graph) `surgical_context` at `radius=2` could serialize 2.09M chars and
+  `impact` with `include_causal_chains` 195K chars. Both are now capped by default, mirroring the
+  existing v2/search/report budget pattern: v1 gets a 50-per-side neighbour ceiling plus
+  line/char caps on the primary file (`max_neighbours_per_side`, `max_primary_file_lines`,
+  `max_primary_file_chars`); `impact` gets `max_chains` (20) and `max_output_chars` (50000), and
+  `max_nodes` is now exposed on the wire schema. Caps are defaults with explicit params to raise
+  them; truncation is always honest — `truncated`/`primary_truncated` flags plus pre-cap
+  `total_*` counts, and v2 re-reads the full file before registering proof when the primary was
+  truncated. Internal delegate-packet impact calls are exempt from the wire budget by
+  construction.
+- **Build output stops out-ranking real code.** Minifier-renamed helpers collect a bundle's whole
+  fan-in and win PageRank outright: on the 103k-node probe brain, `top_pagerank` came back as
+  `[h, s, q, invoke, lookup]` and `panoramic`'s risk ranking was led by `…::fn::s` and `…::fn::t`.
+  Three rules, deliberately different in force:
+  - **Skip, name-exact:** `*.min.{js,mjs,cjs,jsx,ts,tsx,css}` / `*-min.*` and true sourcemaps
+    (`<name>.<web-ext>.map`) never reach the graph. A bare `*.map` still does — `world.map` is a
+    real file.
+  - **Tag, never skip:** a bounded 64KB probe (lines far longer than authored code runs *and*
+    whitespace stripped) stamps `noise:minified`. A deliberately vendored bundle stays
+    retrievable; a false positive costs a demote, not the file's existence. Because the probe
+    measures shape, dense machine-written data (this repo's `docs/benchmarks/**/*.jsonl`) is
+    tagged too — intended: a recorded event log should rank below the code a query is looking for.
+  - **Demote, softly:** any `noise:` tag and any 1-2 char label scale a node's score at the three
+    places a ranking is built (activation/PageRank, seek, the `top_pagerank` anchors), with the
+    escape hatch that a label the query itself named is never demoted. Only an unreadable label —
+    never provenance alone — can cost a hit outright.
+
+  `panoramic` also now ranks what it always claimed to: it filtered on the `file::` id prefix,
+  which a symbol's id shares (`file::app.ts::fn::s`), so it asks the node its `NodeType` instead.
+
+  Measured on the same 103k-node brain: every probe symbol at rank 1 with no 1-2 char label in the
+  top 10, and `panoramic` led by `hermes_cli/web_server.py`, `gateway/run.py`, `cli.py` — the
+  repo's real entry points.
+
 ---
 
 ## [1.5.0] — 2026-07-22

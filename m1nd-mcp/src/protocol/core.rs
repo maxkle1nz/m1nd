@@ -74,6 +74,12 @@ pub struct ImpactInput {
     /// Set higher (or None/omit) to get the full set.
     #[serde(default)]
     pub max_nodes: Option<usize>,
+    /// Maximum causal chains to return. Default: 20.
+    #[serde(default)]
+    pub max_chains: Option<usize>,
+    /// Maximum serialized response characters. Default: 50,000.
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
 }
 
 /// Input for m1nd.missing (03-MCP Section 2.3).
@@ -498,7 +504,9 @@ pub struct ImpactOutput {
     pub next_step_hint: Option<String>,
     /// Total blast-radius nodes before any cap was applied.
     pub total_blast_nodes: usize,
-    /// True when blast_radius was capped by max_nodes.
+    /// Total causal chains before any cap was applied.
+    pub total_causal_chains: usize,
+    /// True when blast_radius, causal_chains, or the serialized response was capped.
     pub truncated: bool,
 }
 
