@@ -15,8 +15,25 @@ import type { GraphSnapshot } from './snapshot';
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
 const snap = JSON.parse(readFileSync(join(FIX, 'snapshot.compact.json'), 'utf8')) as GraphSnapshot;
 
+// The "now" for freshness assertions is derived FROM the fixture, not from the
+// wall clock. A frozen capture carries LAW (which tags a memory has, which file
+// it anchors), never WORLD (what today's date is) — pinning `now` to
+// Date.now() made a "fresh" memory silently age into "aging" once the fixture's
+// light:created crossed STALE_AFTER_MS (30 days), which is exactly what broke
+// this suite on the main branch. Anchoring `now` a second after the newest
+// captured claim makes freshness a property of the fixture, reproducible on any
+// day. (Contract freezes LAW, never WORLD — the house rule this file forgot.)
+const FIXTURE_NOW =
+  Math.max(
+    ...snap.nodes
+      .flatMap((n) => n.tags ?? [])
+      .filter((t) => t.startsWith('light:created:'))
+      .map((t) => Number(t.slice('light:created:'.length)))
+      .filter((n) => Number.isFinite(n) && n > 0),
+  ) + 1000;
+
 test('post-it index anchors memories to the code node their grounded_in edge cites', () => {
-  const idx = buildPostItIndex(snap, Date.now());
+  const idx = buildPostItIndex(snap, FIXTURE_NOW);
   // The two real memories in the fixture cite http_server.rs and trust.rs.
   assert.ok(idx.has('m1nd-mcp/src/http_server.rs'), 'http_server.rs must carry a post-it');
   assert.ok(idx.has('m1nd-core/src/trust.rs'), 'trust.rs must carry a post-it');
