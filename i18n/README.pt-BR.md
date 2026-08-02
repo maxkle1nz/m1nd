@@ -297,7 +297,7 @@ A pergunta do cético ("nenhum humano escreve tanto assim tão rápido") está c
 
 ## Arquitetura num relance
 
-Três crates Rust principais mais auxiliares: `m1nd-mcp` (o servidor MCP e a superfície de runtime), `m1nd-core` (o motor de grafo: spreading activation, plasticidade Hebbiana, adjacência CSR, ghost edges derivadas do git), `m1nd-ingest` (extractors e adapters de código, documentos e memória). O seu agente vê 48 tools por padrão em vez de 130+, então escolhe a certa com mais frequência e paga uma lista de tools mais curta em cada request; a superfície completa está a uma env var de distância (`M1ND_TOOL_TIER=full`), e o tiering só enxuga o cardápio anunciado, nunca a disponibilidade.
+Três crates Rust principais mais auxiliares: `m1nd-mcp` (o servidor MCP e a superfície de runtime), `m1nd-core` (o motor de grafo: spreading activation, plasticidade Hebbiana, adjacência CSR, ghost edges derivadas do git), `m1nd-ingest` (extractors e adapters de código, documentos e memória). O seu agente vê um **cardápio central de cerca de 15 tools** por padrão em vez do registro inteiro, então escolhe a certa com mais frequência e paga uma lista curta em cada request. O resto fica escondido, nunca removido: qualquer verbo responde quando chamado pelo nome, esteja listado ou não, o `help` cataloga e explica todos eles em qualquer tier, e o cardápio completo está a uma env var de distância (`M1ND_TOOL_TIER=full`). O núcleo foi cortado contra seis semanas de tráfego medido, em que 141 verbos anunciados geraram chamadas a 13.
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="visão geral da arquitetura do m1nd" width="880" />

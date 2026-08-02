@@ -281,6 +281,69 @@ Update this list in the same PR that closes one; a front that dies silently is a
   among user code) is the underlying illness — moving state under one hidden dir is a product decision for
   the owner's table, recorded in the project inbox.
 
+**Delta 2026-08-01 — the menu fits on one screen (the shop window closes on the core):**
+- **THE OWNER'S ACCEPTANCE RULE FOR THIS FRONT, verbatim and standing (ratified 2026-08-01):**
+
+  > "o m1nd tem que voltar a ser rápido, fácil, e que o agente tenha VONTADE de usá-lo porque
+  > realmente é incrível e resolve seus problemas."
+
+  This is the definition of done for the whole width-vs-use front, not for one PR. In proof terms:
+  a virgin repo's first `north` delights in seconds · **the menu fits on one screen** · telemetry
+  (#514) shows adoption moving in the coming weeks. Judge every decision on this front against
+  that sentence; it outranks any local cleverness, and it does not expire when this PR merges.
+- **The advertised menu is now a core of 15, measured not guessed.** Two measurements decided it.
+  (a) Six weeks of real agent traffic (458 calls / 157 sessions, reconstructed from host
+  transcripts): **141 verbs advertised, 13 ever called**; 69 verbs live in prefix families and
+  across ALL of them exactly **2** calls were ever made (`xray_paint`, `system_blocks_snapshot`) —
+  `perspective_*` (12 verbs), `mission_*` (8), `trail_*`, `document_*`, `daemon_*`,
+  `auto_ingest_*` (4 each), `antibody_*`, `candidate_*`, `authority_*`, `transplant*` (3 each),
+  `calibrate_*`, `soul_*` (2 each) sat at absolute zero; 11 standalone verbs carried **370 of 458
+  (81%)**. (b) An independent external evaluator, told to exercise everything on a foreign
+  107k-LOC codebase, ranked `surgical_context` in its **top three** — a verb with **1 call** in six
+  weeks. The verbs are not bad. They are invisible, and a 141-item menu is what made them so.
+  `tools/list` now serves `CORE_TOOLS` (the owner-ratified 12: `north`, `memorize`, `ingest`,
+  `seek`, `search`, `health`, `trust_selftest`, `view`, `impact`, `session_handshake`,
+  `boot_memory`, `surgical_context`) ∪ `HOST_BINDING_REQUIRED_TOOLS` (`help`, `doctor`,
+  `recovery_playbook`). This is the second move against the owner's harshest grade — width-vs-use
+  4 — and the complement of 07-31's: that one composed unused verbs INTO the verb everybody calls,
+  this one stops advertising a wall in front of both.
+- **Nothing was removed, and that is mechanical.** The cut lands at exactly one seam,
+  `tool_schemas_for_tier` (the menu). `all_tool_schemas` (the registry) and dispatch are
+  untouched, so the two policy-parity guards in `action_routes.rs` still compare the registry to
+  `MCP_TOOL_ROUTE_NAMES` and keep their full meaning, and the `POLICY-DISABLED` floor annotations
+  still ride on every description because they are applied before the filter runs. A battery test
+  names a hidden verb over the real MCP wire and asserts it still answers.
+- **Discovery is the price of hiding, paid three ways.** `help` now catalogs the FULL registry at
+  every tier (it read the tier-gated list before — a gap already on the record in
+  `docs/uml/tool-surface.md` as low severity, promoted to load-bearing by this change and now
+  CLOSED); the menu's `help` entry carries a computed `[CORE MENU]` line stating the live hidden
+  count; `health.tool_surface_contract` gained `hidden_tool_count`, `hidden_tools_are_callable`
+  and a `discovery_rule`; and the initialize instructions teach it before anything else.
+  `M1ND_TOOL_TIER=full` remains the operator opt-out — an unrecognised value now falls back to the
+  CORE, never to the wall.
+- **Debt this front declares rather than hides.** (a) **The served owner will not see the small
+  menu until its launchd env changes** — that plist sets `M1ND_TOOL_TIER=full`, which is exactly
+  why the six-week measurement saw 141 advertised. The change is correct for every fresh install
+  and inert for this machine until the owner drops that var; it is his config, outside the repo,
+  and no agent should touch it. (b) The `lock_*` family is still invisible to `help` — not because
+  help is narrow now, but because those five verbs are in no registry at all; fixing it means
+  registering their schemas. (c) The core is a judgement about which verbs a new agent should MEET
+  first, and #514's telemetry is what will falsify or confirm it — until those weeks pass the list
+  is ratified, not proven. (d) `docs/uml/tool-surface.md` and `docs/UML-ORGANISM.md` still carry
+  pre-existing stale line numbers and catalog counts (117/122/41) from before this front; only the
+  lines this change invalidated were corrected.
+- **The red the handoff named is paid (2026-08-02), and it was a real coupling.**
+  `cockpit_budget_holds_with_the_eighth_slot` broke not because the menu shrank but because the
+  DOOR widened: `help` now catalogs the full registry, so the cockpit — whose root lifts each
+  entry's `why` from that one canonical catalog (amendment 10) — began embedding raw schema
+  descriptions for the verbs the old tier-gated catalog could not see (`system_blocks_snapshot`
+  alone: 762 chars; on main those four `why`s were silently EMPTY). Measured: root 914 tokens
+  against the ≤800 ceiling. The fix is the budget owner's, in the cockpit: `menu_why` cuts the
+  line at `MENU_WHY_CAP` (120 chars, sentence-boundary first, honest ellipsis), root back to
+  ~633 tokens, and `menu_why_is_bounded_for_every_routed_verb` pins BOTH directions — no future
+  description can resize the root, and no help regression can silently empty the menu's `why`
+  again.
+
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**
   Full README rewrite in the owner's voice (definition at line 5, anti-pitch section, "If I disappear",

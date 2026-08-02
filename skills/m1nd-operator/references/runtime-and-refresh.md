@@ -86,9 +86,13 @@ Operational rule:
 
 ## Tool Tiering
 
-`tools/list` advertises a curated ESSENTIAL set (~27 tools) by default. Set the env var `M1ND_TOOL_TIER=full` to advertise the complete surface (100+ tools).
+`tools/list` advertises a CORE MENU of about 15 verbs by default: the owner-ratified core (`north`, `memorize`, `ingest`, `seek`, `search`, `health`, `trust_selftest`, `view`, `impact`, `session_handshake`, `boot_memory`, `surgical_context`) plus the host-binding floor (`help`, `doctor`, `recovery_playbook` — the three the trust contract requires be visible). Set `M1ND_TOOL_TIER=full` to advertise the whole registry (140+ verbs).
 
-Hidden tools remain callable by name at any tier — tiering only controls advertisement, not availability. If a tool you need is not in the default advertised list, you can still call it directly by name.
+The core was cut against measurement, not taste: over six weeks of real agent traffic, 141 advertised verbs produced calls to 13, and across every prefix family (`perspective_*`, `mission_*`, `trail_*`, `daemon_*`, …) exactly two calls were ever made. The verbs were not bad — a 141-item menu is not a menu.
+
+Hidden tools remain callable by name at any tier — the cut is at advertisement, never availability. Calling an unlisted verb works exactly as if it were listed. **`help` is the door**: it catalogs the FULL registry at every tier, so `help(intent)`/`help(stage)` routes to the right verb and `help(tool_name)` returns any verb's schema, listed or not. `health.tool_surface_contract` reports `advertised_tool_count`, `hidden_tool_count` and `full_registry_tool_count` live.
+
+Operator judgement: the default is the small menu because the default is what a repo that has never heard of m1nd gets on its first call. A long-running owner whose agents already know the surface is exactly the case for `M1ND_TOOL_TIER=full`.
 
 Operational rule: when exact tool counts matter, always use the live `tools/list` result (or `python3 scripts/probe_m1nd.py tools`) rather than any count stated in prose docs.
 

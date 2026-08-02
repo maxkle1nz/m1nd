@@ -393,15 +393,42 @@ fn compose_menu_sig(
     format!("mc_{:08x}", (hasher.finish() as u32))
 }
 
+/// Ceiling on a menu entry's `why` line, in chars, ellipsis included.
+///
+/// The help catalog spans the FULL registry (it is the door to the verbs the
+/// menu no longer shows), and a verb without a curated `ToolDoc` hands back its
+/// raw schema description — paragraphs, for some verbs. The cockpit's budget is
+/// its own (amendment 9), so it cannot embed prose sized by other owners: the
+/// lift from the canonical catalog (amendment 10) stays, the LENGTH is bounded
+/// here, by the owner of the budget. Pinned by
+/// `menu_why_is_bounded_for_every_routed_verb`.
+const MENU_WHY_CAP: usize = 120;
+
+/// The canonical catalog `why`, cut to ONE menu line: whole when it fits,
+/// else at the last sentence boundary inside the cap, else hard-cut with an
+/// honest ellipsis.
+fn menu_why(verb: &str) -> String {
+    let full = crate::help_guidance::catalog_entry(verb)
+        .map(|e| e.one_liner)
+        .unwrap_or_default();
+    if full.chars().count() <= MENU_WHY_CAP {
+        return full;
+    }
+    let head: String = full.chars().take(MENU_WHY_CAP - 1).collect();
+    match head.rfind(". ") {
+        Some(pos) => format!("{}.", &head[..pos]),
+        None => format!("{}…", head.trim_end()),
+    }
+}
+
 /// Serialize one collection as a root entry. Read entries carry the canonical
-/// `why` lifted from the help catalog (amendment 10); pointer entries carry the
-/// door text and NO verb (amendment 3).
+/// `why` lifted from the help catalog (amendment 10), bounded to one line by
+/// [`MENU_WHY_CAP`]; pointer entries carry the door text and NO verb
+/// (amendment 3).
 fn entry_json(c: &Collection) -> Value {
     match (c.verb, c.door) {
         (Some(verb), _) => {
-            let why = crate::help_guidance::catalog_entry(verb)
-                .map(|e| e.one_liner)
-                .unwrap_or_default();
+            let why = menu_why(verb);
             json!({
                 "slot": c.slot,
                 "key": c.key,
@@ -557,9 +584,7 @@ fn compose_drill(
     } else {
         match (c.verb, c.door) {
             (Some(verb), _) => {
-                let why = crate::help_guidance::catalog_entry(verb)
-                    .map(|e| e.one_liner)
-                    .unwrap_or_default();
+                let why = menu_why(verb);
                 // Present the argument-less call to RUN (router pattern, like help):
                 // its own output carries the receipts/hashes, rendered in the item
                 // view (amendment 5) — the cockpit never fabricates a receipt.
@@ -854,6 +879,33 @@ mod tests {
             drill_tokens <= 800,
             "cockpit presences-drill budget breach: ~{drill_tokens} tokens (>800 ceiling)"
         );
+    }
+
+    /// The menu `why` is ONE line, mechanically. The help catalog spans the
+    /// FULL registry (the door), so a verb without a curated `ToolDoc` hands
+    /// the cockpit its raw schema description — 762 chars for
+    /// `system_blocks_snapshot` the day this test was born, which alone blew
+    /// the amendment-9 ceiling. The budget's owner cuts the line; prose sized
+    /// by other owners can never again resize the root.
+    #[test]
+    fn menu_why_is_bounded_for_every_routed_verb() {
+        let f = empty_facts();
+        for c in root_collections(&f) {
+            if let Some(verb) = c.verb {
+                let why = menu_why(verb);
+                assert!(
+                    why.chars().count() <= MENU_WHY_CAP,
+                    "slot {} ({verb}) menu line exceeds MENU_WHY_CAP: {} chars",
+                    c.slot,
+                    why.chars().count()
+                );
+                assert!(
+                    !why.is_empty(),
+                    "slot {} ({verb}) lost its why — the catalog no longer names it",
+                    c.slot
+                );
+            }
+        }
     }
 
     /// P1 — slot 8 is the presence roster. Its ROOT line is ONE line whether

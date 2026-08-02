@@ -3961,10 +3961,17 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
             "full_registry_tool_count": full_registry_tool_count,
             // advertised_tool_count: what tools/list currently exposes (tier-dependent)
             "advertised_tool_count": advertised_tool_count,
-            // tool_tier: "essential" (default, 42 tools) or "full" (all tools).
-            // Set M1ND_TOOL_TIER=full to expose all 133 tools in tools/list.
-            // Hidden tools remain callable via tools/call dispatch at all times.
+            // hidden_tool_count: registered, callable, and simply not advertised.
+            // Stated outright so no reader has to subtract two numbers to learn
+            // that the menu is a core.
+            "hidden_tool_count": full_registry_tool_count.saturating_sub(advertised_tool_count),
+            // tool_tier: "core" (the default menu) or "full" (every registered verb).
             "tool_tier": tool_tier,
+            // The rule that keeps a hidden verb from being a removed verb.
+            "hidden_tools_are_callable": true,
+            "discovery_rule": "The advertised menu is a curated core, not the whole surface. Every verb counted in full_registry_tool_count is callable by name whether or not tools/list shows it — naming one works exactly as if it were listed. help(intent) or help(stage) routes you to the right verb and help(tool_name) returns its full schema; help catalogs the FULL registry at every tier. Set M1ND_TOOL_TIER=full to advertise everything in tools/list instead.",
+            "discovery_tool": "help",
+            "full_surface_env": "M1ND_TOOL_TIER=full",
             "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,
             "required_host_visible_tools": HOST_BINDING_REQUIRED_TOOLS,
             // minimum_safe_tool_count is now based on required tools, not total count,

@@ -273,12 +273,45 @@ async fn real_wires_desurface_and_refuse_legacy_before_invalid_body_parsing() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    assert!(names.contains(&"mission_service"));
-    assert!(names.contains(&"authority_session_challenge"));
-    assert!(names.contains(&"authority_session_authenticate"));
-    assert!(names.contains(&"authority_authorize"));
-    assert!(!names.contains(&"mission_post"));
-    assert!(!names.contains(&"receipt_import"));
+    // SEMANTICS FIXED 2026-08-01 with the core-menu change, deliberately.
+    //
+    // This guard has two halves and they judge two different sets. The POSITIVE
+    // half says the typed replacements still EXIST — desurfacing the legacy raw
+    // writes must not have taken `mission_service` or the authority flow with
+    // them. Existence is a property of the REGISTRY, which the core menu does
+    // not touch; these four verbs are simply no longer advertised, and reading
+    // the advertised list for them would have turned a real guard into a test of
+    // the shop window's contents.
+    //
+    // The NEGATIVE half is untouched in meaning and is now checked against BOTH
+    // sets, which is strictly stronger than before: `mission_post` and
+    // `receipt_import` were REMOVED, so they must be absent from the registry
+    // itself, not merely hidden from the menu.
+    let registry = crate::server::all_tool_schemas();
+    let registered: Vec<&str> = registry["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    for replacement in [
+        "mission_service",
+        "authority_session_challenge",
+        "authority_session_authenticate",
+        "authority_authorize",
+    ] {
+        assert!(
+            registered.contains(&replacement),
+            "{replacement} must remain registered and callable"
+        );
+    }
+    for desurfaced in ["mission_post", "receipt_import"] {
+        assert!(
+            !registered.contains(&desurfaced),
+            "{desurfaced} was removed from the surface, not merely unadvertised"
+        );
+        assert!(!names.contains(&desurfaced));
+    }
 
     for legacy in ["mission_post", "receipt_import", "landed"] {
         let (status, refusal) = rest_raw(&router, legacy, b"{not-json".to_vec()).await;

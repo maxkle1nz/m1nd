@@ -139,6 +139,35 @@ when a single tool violates it — the 2026-07-22 incident (a bare top-level `on
 sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
 (`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
 
+**THE MENU IS NOT THE REGISTRY (since 2026-08-01).** `tools/list` advertises a CORE MENU of
+about 15 verbs — `CORE_TOOLS` (the owner-ratified 12: `north`, `memorize`, `ingest`, `seek`,
+`search`, `health`, `trust_selftest`, `view`, `impact`, `session_handshake`, `boot_memory`,
+`surgical_context`) ∪ `HOST_BINDING_REQUIRED_TOOLS` — while the registry holds 140+.
+The cut was measured, not aesthetic: over six weeks of real traffic, 141 advertised verbs
+produced calls to 13, and across every prefix family exactly two calls were ever made.
+
+Three rules follow, and they are load-bearing when you touch this area:
+
+- **The cut lives at ONE seam: `tool_schemas_for_tier` (the menu).** `all_tool_schemas` (the
+  registry) and dispatch are untouched, which is why the two policy-parity guards in
+  `action_routes.rs` still compare the registry to `MCP_TOOL_ROUTE_NAMES` and keep their full
+  meaning, and why the `POLICY-DISABLED` floor annotations still ride on every description
+  (they are applied to the registry BEFORE the filter). A new verb is registered and routed
+  exactly as before; adding it to the menu is a separate, deliberate act.
+- **The menu is DERIVED, never a second hand-typed list.** `core_menu_tool_names()` is
+  `CORE_TOOLS ∪ HOST_BINDING_REQUIRED_TOOLS`. Serving the bare 12 would have made every host
+  report `degraded_host_tool_surface` (the trust contract requires `help`/`doctor`/
+  `recovery_playbook` be visible) and reach for a recovery verb that was not there. Never
+  "fix" a menu test by shrinking `HOST_BINDING_REQUIRED_TOOLS` — that is weakening the honest
+  surface to pass. `CORE_MENU_MAX` bounds the menu, and `const _: () = assert!(CORE_MENU_MAX
+  < 30)` fails the BUILD if the bound stops meaning "fits on one screen".
+- **Hidden is not removed, so discovery is a contract.** `help` catalogs the FULL registry at
+  every tier (`help_guidance::schema_tools` reads `all_tool_schemas`) — never narrow it back
+  to the menu. The menu's `help` entry carries a computed `[CORE MENU]` line, the initialize
+  instructions teach it first, and `health.tool_surface_contract` reports `hidden_tool_count`
+  + `discovery_rule`. Battery: `server::tests::core_menu_*` and
+  `help_sees_every_verb_regardless_of_tier`.
+
 **REST route seating contract:** `POST /api/tools/{tool}` runs the F-01 generic floor gate
 (`enforce_generic_action_policy`) on its way to generic dispatch. A verb that carries its OWN
 interception in `handle_tool_call` — the owner→daemon proxies (`mission_spawn`,

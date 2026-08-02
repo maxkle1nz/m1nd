@@ -426,7 +426,7 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd 架构概览" width="960" />
 </p>
 
-Live MCP 界面随版本演进——使用 `tools/list` 获取你所用构建中确切的工具数量和名称。**分层：** 默认公告 27 个基础工具以降低工具选择成本；设置 `M1ND_TOOL_TIER=full` 可公告完整界面（100+ 工具：RETROBUILDER、perspectives、federation、daemon）。隐藏工具始终可通过 `tools/call` 调用——分层仅控制 `tools/list` 显示什么。逐工具目录不在这份 README 中：深入内容见[官方 wiki](https://m1nd.world/wiki/)、[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) 和 [EXAMPLES.md](../EXAMPLES.md)，版本历史见 [CHANGELOG.md](../CHANGELOG.md)。
+Live MCP 界面随版本演进——使用 `tools/list` 获取你所用构建中确切的工具数量和名称。**核心菜单：** 默认公告约 15 个工具——所有者批准的核心，加上主机绑定基线——因为六周实测流量显示：公告 141 个，实际被调用的只有 13 个。设置 `M1ND_TOOL_TIER=full` 可公告完整注册表（140+ 工具：RETROBUILDER、perspectives、federation、daemon）。没有任何东西被移除：隐藏工具仍可通过 `tools/call` 按名调用，且 `help` 在任何层级都会编目并解释整个注册表——它就是入口。逐工具目录不在这份 README 中：深入内容见[官方 wiki](https://m1nd.world/wiki/)、[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) 和 [EXAMPLES.md](../EXAMPLES.md)，版本历史见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## 贡献
 

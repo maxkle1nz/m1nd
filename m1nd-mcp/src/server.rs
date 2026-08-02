@@ -60,18 +60,31 @@ brain). Do not attempt a write from this mismatched session. The honest recovery
 escape hatch exists — the sovereign consumer is human-gated, and the human's ceremony \
 (`m1nd init --birth <repo>`) is the only door.
 
+**THE MENU IS A CORE, NOT THE SURFACE.** By default `tools/list` advertises about fifteen verbs \
+— the handful six weeks of real traffic showed agents actually reach for, plus the host-binding \
+floor. That is the shop window, not the shop: ~127 more verbs are registered and fully callable, \
+and naming one works exactly as if it were listed. Nothing was removed. **`help` is the door**: \
+`help(intent)` or `help(stage)` routes you to the right verb for what you are doing, and \
+`help(tool_name)` returns any verb's full schema — `help` catalogs the WHOLE registry, never just \
+the menu, so it can name and explain a verb you cannot see. `health.tool_surface_contract` \
+reports the live numbers (`advertised_tool_count`, `hidden_tool_count`, \
+`full_registry_tool_count`). An operator who wants the whole list in the menu sets \
+`M1ND_TOOL_TIER=full` on the server. Never conclude a capability is missing because it is not in \
+the list — ask `help` first.
+
 **ADVERTISED ≠ CALLABLE — the authority floors.** Bootstrap is not the only closed door. Every \
 semantic action carries an M1ND-10 authority floor and generic MCP/REST dispatch admits only \
 `ORDINARY`; a verb above it (`SCOPED_GRANT_A2` / `POSITIVE_SOVEREIGN` / `SERVICE_IDENTITY`) \
 refuses with `generic_action_authority_required`. No payload shape, capability claim or retry \
 lifts that — only an exact typed G2/G3 consumer (an authority lease), and none is installed for \
-those actions yet. 40 of the 141 advertised verbs are affected today, INCLUDING ones this \
+those actions yet. 40 of the registry's verbs are affected today, INCLUDING ones this \
 document teaches: `learn`, `debrief`, `promote`, `calibrate_predict` / `calibrate_envelope`, \
 `ghost_edges`, `runtime_overlay`, `apply` / `apply_batch` / `edit_commit`, `daemon_start` / \
 `_stop` / `_tick`, `auto_ingest_start` / `_stop` / `_tick` (their `_status` reads stay open), \
 the `xray_*` commit branch, `boot_memory` set/delete, \
-`mission_close write_light_memory:true`, and every system-blocks writer. `tools/list` marks each \
-one: its description is prefixed `POLICY-DISABLED (authority floor …)`. READ THAT before planning \
+`mission_close write_light_memory:true`, and every system-blocks writer. Every one of them \
+carries the mark in its own description — `POLICY-DISABLED (authority floor …)` — in the menu and \
+in `help` alike. READ THAT before planning \
 around a verb, and do not spend turns retrying a refusal. Still ORDINARY and genuinely callable: \
 every read, `memorize`, `delegate`, `trail_save`, the perspective family, plain `mission_start` / \
 `mission_event` / `mission_verify` / `mission_handoff` / `mission_close`.
@@ -672,70 +685,94 @@ impl Drop for ShutdownWakeRegistration {
 // Tool tier gate
 // ---------------------------------------------------------------------------
 
-/// The curated ESSENTIAL tool set (48 tools) advertised by default.
+/// THE CORE — the owner-ratified shop window, 12 verbs (ratified 2026-08-01).
 ///
-/// These are the high-frequency tools agents need for orientation, trust, and
-/// everyday graph queries. All other tools are "advanced" and are hidden from
-/// `tools/list` unless `M1ND_TOOL_TIER=full` is set — they remain fully
-/// callable via `tools/call` dispatch at all times.
+/// Measured over six weeks of real agent traffic (458 calls across 157 sessions,
+/// reconstructed from host transcripts): 141 verbs were advertised and **13 were
+/// ever called**. 69 verbs sit in prefix families, and across ALL of those
+/// families exactly two calls were ever made. Eleven standalone verbs carried
+/// 370 of the 458 calls. Meanwhile an independent external evaluator, told to
+/// exercise everything against a foreign 107k-LOC codebase, ranked
+/// `surgical_context` in its top three — a verb with ONE call in six weeks.
 ///
-/// To expose everything, set `M1ND_TOOL_TIER=full` in the MCP environment.
-pub const ESSENTIAL_TOOLS: &[&str] = &[
+/// The verbs are not bad. They are invisible: a 141-item menu is not a menu.
+/// So the shop window shrinks and the shop does not. Everything outside this
+/// list keeps its handler, its policy route, its authority floor and its
+/// dispatch, and answers exactly as before the moment a caller names it — see
+/// [`core_menu_tool_names`] for the serving rule and `help` for the way in.
+pub const CORE_TOOLS: &[&str] = &[
+    // Orient, remember, ground.
+    "north",
+    "memorize",
+    "boot_memory",
+    // Bring the graph into existence and keep it current.
+    "ingest",
+    // Find.
+    "seek",
+    "search",
+    // Read.
+    "view",
+    "surgical_context",
+    // Judge a change before making it.
+    "impact",
+    // Know whether to believe the answer.
+    "health",
     "trust_selftest",
     "session_handshake",
-    "orient",
-    "north",
-    "delegate",
-    "debrief",
-    "am_i_stale",
-    "recovery_playbook",
-    "health",
-    "doctor",
-    "help",
-    "ingest",
-    "audit",
-    "search",
-    "seek",
-    "focus",
-    "activate",
-    "learn",
-    "glob",
-    "view",
-    "batch_view",
-    "impact",
-    "why",
-    "trace",
-    "predict",
-    "validate_plan",
-    "surgical_context_v2",
-    "cross_verify",
-    "soul_check",
-    "soul_read",
-    "mission_start",
-    "mission_next",
-    "mission_close",
-    "mission_service",
-    "external_mutation_service",
-    "graph_ingest_preview",
-    "authority_session_challenge",
-    "authority_session_authenticate",
-    "authority_authorize",
-    "persist",
-    "memorize",
-    "promote",
-    "xray_retag",
-    "xray_apply",
-    "xray_orient",
-    "xray_gate",
-    "xray_paint",
-    "xray_ledger",
 ];
+
+/// The stated bound on the served menu — the mechanical form of the owner's
+/// acceptance rule, "the menu must fit on one screen".
+///
+/// The served menu is [`CORE_TOOLS`] ∪ [`crate::tools::HOST_BINDING_REQUIRED_TOOLS`],
+/// so it is 15 today with headroom for the binding contract to grow. Raising
+/// this number is a product decision the owner makes, never a test fix: a guard
+/// test fails the moment the menu outgrows it.
+pub const CORE_MENU_MAX: usize = 20;
+
+/// "Fits on one screen" has to keep meaning something. A bound this size has
+/// stopped being one, so it fails the BUILD rather than a test — the number is
+/// the owner's to move, and moving it should cost a deliberate edit here.
+const _: () = assert!(CORE_MENU_MAX < 30);
+
+/// The token the discovery line carries, so hosts, tests and agents grep for
+/// exactly one string — the same discipline as [`FLOOR_GATE_MARKER`].
+pub const CORE_MENU_DISCOVERY_MARKER: &str = "CORE MENU";
+
+/// The names the default `tools/list` serves: the ratified core PLUS the
+/// host-binding floor.
+///
+/// The floor is not an exception to the core — it is why the core can be small.
+/// `health.tool_surface_contract` publishes
+/// [`crate::tools::HOST_BINDING_REQUIRED_TOOLS`] and instructs every host to read
+/// a binding missing any of them as `degraded_host_tool_surface`. Serving the
+/// bare 12 would have made every host on earth report degraded and reach for
+/// `recovery_playbook` — which would not have been there either. Deriving the
+/// menu from the contract instead of hand-typing a second list means the two can
+/// never drift apart, and `help` (a floor member) is exactly the door to the
+/// verbs the window no longer shows.
+pub fn core_menu_tool_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = CORE_TOOLS.to_vec();
+    for required in crate::tools::HOST_BINDING_REQUIRED_TOOLS {
+        if !names.contains(&required) {
+            names.push(required);
+        }
+    }
+    names
+}
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
 ///
-/// - Unset or `essential` (case-insensitive) → `"essential"` (curated 43)
-/// - `full` (case-insensitive) → `"full"` (all 132 external tools)
-/// - Any unrecognized value → defaults to `"essential"`
+/// - `full` (case-insensitive) → `"full"`: every registered verb is advertised.
+/// - Anything else, including unset and the historical `essential` →
+///   `"core"`: the shop window of [`core_menu_tool_names`].
+///
+/// The DEFAULT is the small menu, deliberately. The default is what a repo that
+/// has never heard of m1nd gets on its first call, and the measurement that
+/// motivated this change was taken on hosts serving everything: 141 advertised,
+/// 13 ever called. `full` stays one env var away for the caller who has already
+/// learned the surface — an operator's own long-running owner, or this repo's
+/// development sessions — because for them the wall is a map, not a wall.
 pub fn active_tool_tier() -> &'static str {
     match std::env::var("M1ND_TOOL_TIER")
         .unwrap_or_default()
@@ -743,7 +780,7 @@ pub fn active_tool_tier() -> &'static str {
         .as_str()
     {
         "full" => "full",
-        _ => "essential",
+        _ => "core",
     }
 }
 
@@ -776,33 +813,39 @@ pub fn proof_gate_enabled() -> bool {
     }
 }
 
-/// Returns ALL registered MCP tool schemas regardless of tier.
-/// Use this when you always need the full 132-tool registry (e.g., health
-/// contract counts, internal tests that verify advanced tool registration).
+/// Returns ALL registered MCP tool schemas regardless of tier — THE REGISTRY.
+///
+/// This is the set the policy-parity guards judge
+/// (`action_routes::live_schema_registry_and_policy_route_inventory_are_exactly_equal`
+/// and its MCP-reachability sibling), the set `help` catalogs, and the set
+/// `health.full_registry_tool_count` reports. It is deliberately untouched by
+/// the core-menu change: shrinking the shop window must not, and does not,
+/// shrink the shop.
 pub fn all_tool_schemas() -> serde_json::Value {
     all_tool_schemas_inner()
 }
 
-/// Returns the tier-gated tool list for `tools/list` advertisement.
+/// Returns the tier-gated tool list for `tools/list` advertisement — THE MENU.
 ///
-/// With `M1ND_TOOL_TIER=full` → returns all tools.
-/// Otherwise → returns only the ESSENTIAL_TOOLS curated set.
-/// Hidden tools remain callable via `tools/call` dispatch (handlers untouched).
+/// This is the ONLY seam the core-menu change touches. Dispatch reads the
+/// registry, never this: a verb absent here is hidden, never removed, and
+/// answers exactly as before the moment a caller names it.
 pub fn tool_schemas() -> serde_json::Value {
     tool_schemas_for_tier(active_tool_tier())
 }
 
-/// Returns the tool list for the given tier string.
-/// Used internally and by tests to avoid env-var races.
-/// `tier`: "full" → all tools; anything else → essential set only.
+/// Returns the tool list for the given tier string. Tests call this directly to
+/// avoid racing on the process-wide env var.
+///
+/// `tier`: `"full"` → the whole registry; anything else → the core menu.
 pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
     let all = all_tool_schemas_inner();
     if tier.eq_ignore_ascii_case("full") {
         return all;
     }
-    // Filter to essential set only
-    let essential_set: std::collections::HashSet<&str> = ESSENTIAL_TOOLS.iter().copied().collect();
-    let filtered: Vec<serde_json::Value> = all["tools"]
+    let menu: std::collections::HashSet<&str> = core_menu_tool_names().into_iter().collect();
+    let all_count = all["tools"].as_array().map(Vec::len).unwrap_or(0);
+    let mut filtered: Vec<serde_json::Value> = all["tools"]
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -810,11 +853,48 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
         .filter(|tool| {
             tool.get("name")
                 .and_then(|n| n.as_str())
-                .map(|name| essential_set.contains(name))
+                .map(|name| menu.contains(name))
                 .unwrap_or(false)
         })
         .collect();
+    let hidden = all_count.saturating_sub(filtered.len());
+    annotate_core_menu_discovery(&mut filtered, hidden);
     serde_json::json!({ "tools": filtered })
+}
+
+/// Write the one line that keeps a hidden verb from being a removed verb.
+///
+/// A menu that shows 15 of 142 is honest only if it says so, on a surface the
+/// agent actually reads, and names the door. `tools/list` has exactly one place
+/// to put prose — a tool description — so the line rides on `help`, which is
+/// both the door itself and a member of the host-binding floor (so it is always
+/// in the menu; the guard test pins that).
+///
+/// The count is COMPUTED from the live registry, never typed: verb #143 keeps
+/// this sentence true on the day it is added.
+fn annotate_core_menu_discovery(tools: &mut [serde_json::Value], hidden: usize) {
+    let Some(help) = tools
+        .iter_mut()
+        .find(|tool| tool.get("name").and_then(serde_json::Value::as_str) == Some("help"))
+    else {
+        return;
+    };
+    let Some(description) = help.get("description").and_then(serde_json::Value::as_str) else {
+        return;
+    };
+    if description.contains(CORE_MENU_DISCOVERY_MARKER) {
+        return;
+    }
+    let annotated = format!(
+        "{description} \
+         [{CORE_MENU_DISCOVERY_MARKER}] The m1nd tools you can see are a curated core, not the \
+         whole surface: {hidden} more verbs are registered, callable, and simply not advertised — \
+         calling one by name works exactly as if it were listed. `help` knows every one of them: \
+         `help(intent)` or `help(stage)` routes you to the right verb, and `help(tool_name)` \
+         returns its full schema. To see them all in tools/list instead, set M1ND_TOOL_TIER=full \
+         on the m1nd server."
+    );
+    help["description"] = serde_json::Value::String(annotated);
 }
 
 /// Internal: the complete external tool registry. Legacy raw mission writes
@@ -8879,7 +8959,7 @@ mod tests {
         all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms, handle_mcp_method,
         handle_mcp_method_transactional, light_recall_freshness_key, read_request_payload,
         run_daemon_tick, should_autotick_daemon, tool_schemas, tool_schemas_for_tier,
-        write_response, DaemonRuntimeControl, McpServer, TransportMode, ESSENTIAL_TOOLS,
+        write_response, DaemonRuntimeControl, McpServer, TransportMode,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -11158,6 +11238,23 @@ mod tests {
             s.contains("counterfactual test"),
             "instructions must gate attribution on the counterfactual test"
         );
+        // THE MENU IS A CORE: the instructions are the one surface every host
+        // injects, so they are where an agent learns that the short tool list is
+        // a window and not the whole shop. Without this paragraph the menu
+        // shrink reads as a capability removal — which is precisely the failure
+        // this change exists to avoid.
+        assert!(
+            s.contains("THE MENU IS A CORE"),
+            "instructions must state that the advertised menu is a curated core"
+        );
+        assert!(
+            s.contains("`help` is the door"),
+            "instructions must name help as the way to the unadvertised verbs"
+        );
+        assert!(
+            s.contains("M1ND_TOOL_TIER=full"),
+            "instructions must name the operator opt-out to the full surface"
+        );
     }
 
     #[test]
@@ -13079,50 +13176,50 @@ mod tests {
     // M1ND_TOOL_TIER) is also validated where safe to do so.
     // -------------------------------------------------------------------------
 
-    /// The "essential" tier must advertise exactly the ESSENTIAL_TOOLS set:
-    /// all required trust tools present, advanced tools absent.
+    /// The default tier advertises exactly the core menu — and the historical
+    /// `"essential"` token still lands there.
+    ///
+    /// SEMANTICS CHANGED 2026-08-01, deliberately. This test used to assert
+    /// `names.len() == ESSENTIAL_TOOLS.len()` against a hand-typed 48-name list.
+    /// The menu is now DERIVED (core ∪ host-binding floor), so comparing it to a
+    /// second hand-typed list would be comparing the implementation to a copy of
+    /// itself. It is compared to the derived rule instead — a stricter check
+    /// than the old one, because it pins membership and not just the count.
     #[test]
-    fn tier_gate_essential_advertises_only_essential_tools() {
-        let schema = tool_schemas_for_tier("essential");
-        let names: Vec<&str> = schema["tools"]
-            .as_array()
-            .expect("tools array")
-            .iter()
-            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
-            .collect();
+    fn tier_gate_default_advertises_only_the_core_menu() {
+        for tier in ["core", "essential", ""] {
+            let schema = tool_schemas_for_tier(tier);
+            let names: Vec<&str> = schema["tools"]
+                .as_array()
+                .expect("tools array")
+                .iter()
+                .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+                .collect();
 
-        // Size must equal ESSENTIAL_TOOLS
-        assert_eq!(
-            names.len(),
-            ESSENTIAL_TOOLS.len(),
-            "essential tier should advertise exactly {} tools, got {}: {:?}",
-            ESSENTIAL_TOOLS.len(),
-            names.len(),
-            names
-        );
-
-        // All required trust tools must be present in the essential set
-        for required in crate::tools::HOST_BINDING_REQUIRED_TOOLS {
-            assert!(
-                names.contains(&required),
-                "essential tier must include required trust tool '{}'",
-                required
+            let expected: BTreeSet<&str> = core_menu_tool_names().into_iter().collect();
+            let served: BTreeSet<&str> = names.iter().copied().collect();
+            assert_eq!(
+                served, expected,
+                "tier {tier:?} must advertise exactly the core menu"
             );
-        }
 
-        // Advanced tools that are NOT in ESSENTIAL_TOOLS must be absent
-        assert!(
-            !names.contains(&"resonate"),
-            "advanced tool 'resonate' must be absent from essential tier (schema removed)"
-        );
-        assert!(
-            !names.contains(&"ghost_edges"),
-            "advanced tool 'ghost_edges' must be absent from essential tier"
-        );
-        assert!(
-            !names.contains(&"twins"),
-            "advanced tool 'twins' must be absent from essential tier"
-        );
+            // The host-binding floor is never optional: health tells every host
+            // to read a binding missing one of these as degraded.
+            for required in crate::tools::HOST_BINDING_REQUIRED_TOOLS {
+                assert!(
+                    names.contains(&required),
+                    "tier {tier:?} must include required host-visible tool '{required}'"
+                );
+            }
+
+            // Hidden verbs must not be in the window.
+            for hidden in ["resonate", "ghost_edges", "twins"] {
+                assert!(
+                    !names.contains(&hidden),
+                    "'{hidden}' must be absent from the {tier:?} menu"
+                );
+            }
+        }
     }
 
     /// The "full" tier must advertise all registered tools (same as all_tool_schemas).
@@ -13164,33 +13261,34 @@ mod tests {
         );
     }
 
-    /// Explicit "essential" string matches what an empty/unset tier produces.
+    /// The historical `"essential"` token, the empty string and an unset var all
+    /// land on the same core menu — renaming the default tier broke nothing.
     #[test]
     fn tier_gate_essential_explicit_matches_unset() {
-        // "essential" and "" (unset/default) must yield same count
-        let essential_count = tool_schemas_for_tier("essential")["tools"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
-        let unset_count = tool_schemas_for_tier("")["tools"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
-
+        let count = |tier: &str| {
+            tool_schemas_for_tier(tier)["tools"]
+                .as_array()
+                .map(|a| a.len())
+                .unwrap_or(0)
+        };
         assert_eq!(
-            essential_count, unset_count,
-            "tier=essential must equal tier='' (unset)"
+            count("essential"),
+            count(""),
+            "the historical tier token must still resolve to the default menu"
         );
+        assert_eq!(count("core"), count(""), "tier=core is the default menu");
         assert_eq!(
-            essential_count,
-            ESSENTIAL_TOOLS.len(),
-            "essential count must match ESSENTIAL_TOOLS const"
+            count(""),
+            core_menu_tool_names().len(),
+            "the default menu must be exactly the derived core menu"
         );
     }
 
-    /// Unrecognized tier values must fall back to essential (not full).
+    /// Unrecognized tier values must fall back to the core menu — never to full.
+    /// Fail-closed on the SMALL surface: a typo in an operator's env must not
+    /// silently hand every agent the 142-verb wall back.
     #[test]
-    fn tier_gate_unrecognized_value_falls_back_to_essential() {
+    fn tier_gate_unrecognized_value_falls_back_to_core() {
         let count = tool_schemas_for_tier("bogus_value_xyz")["tools"]
             .as_array()
             .map(|a| a.len())
@@ -13198,9 +13296,9 @@ mod tests {
 
         assert_eq!(
             count,
-            ESSENTIAL_TOOLS.len(),
-            "unrecognized tier value must fall back to essential ({} tools), got {}",
-            ESSENTIAL_TOOLS.len(),
+            core_menu_tool_names().len(),
+            "an unrecognized tier value must fall back to the core menu ({} tools), got {}",
+            core_menu_tool_names().len(),
             count
         );
     }
@@ -13229,7 +13327,7 @@ mod tests {
 
     /// all_tool_schemas() must always return the full registry regardless of tier,
     /// and the essential set must be a strict subset. This proves that hidden tools
-    /// remain registered (their handlers exist) even when tier=essential.
+    /// remain registered (their handlers exist) even when the menu is the core.
     #[test]
     fn all_tool_schemas_always_contains_all_tools_regardless_of_tier() {
         let full = all_tool_schemas();
@@ -13259,12 +13357,242 @@ mod tests {
         );
         assert!(
             full_names.contains(&"ghost_edges"),
-            "'ghost_edges' handler must remain registered even when tier=essential"
+            "'ghost_edges' handler must remain registered even when the menu is the core"
         );
         assert!(
             full_names.contains(&"daemon_start"),
-            "'daemon_start' handler must remain registered even when tier=essential"
+            "'daemon_start' handler must remain registered even when the menu is the core"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // THE CORE MENU — the shop window shrinks, the shop does not.
+    //
+    // Measured over six weeks of real agent traffic (458 calls / 157 sessions):
+    // 141 verbs advertised, 13 ever called. 69 verbs sit in prefix families and
+    // across ALL of them exactly 2 were ever called. An independent external
+    // evaluator ranked `surgical_context` in its top three on a foreign 107k-LOC
+    // codebase — that verb has ONE call in six weeks. The verbs are not bad;
+    // they are invisible, and a 141-item menu is the reason.
+    //
+    // So the DEFAULT `tools/list` serves the owner-ratified core. Nothing is
+    // removed: every other verb keeps its handler, its route, its policy floor
+    // and its dispatch, and answers exactly as before when a caller names it.
+    // These tests hold that line from both sides.
+    // -------------------------------------------------------------------------
+
+    /// The owner's ratified core, as data — pinned here independently of the
+    /// implementation constant so the battery judges the shipped menu against
+    /// the ORDER, not against itself.
+    const RATIFIED_CORE: [&str; 12] = [
+        "north",
+        "memorize",
+        "ingest",
+        "seek",
+        "search",
+        "health",
+        "trust_selftest",
+        "view",
+        "impact",
+        "session_handshake",
+        "boot_memory",
+        "surgical_context",
+    ];
+
+    use super::{core_menu_tool_names, CORE_MENU_DISCOVERY_MARKER, CORE_MENU_MAX, CORE_TOOLS};
+    use std::collections::BTreeSet;
+
+    fn served_menu_names(tier: &str) -> Vec<String> {
+        tool_schemas_for_tier(tier)["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|n| n.as_str()))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The served default menu is EXACTLY the ratified core plus the host-binding
+    /// floor — no more, and never less.
+    ///
+    /// The floor is not an exception to the core; it is the reason the core can
+    /// be small at all. `health.tool_surface_contract` declares
+    /// `HOST_BINDING_REQUIRED_TOOLS` and tells every host to read a binding that
+    /// lacks one of them as `degraded_host_tool_surface`. Serving the bare 12
+    /// would have made every host in the world report degraded — so the menu is
+    /// DERIVED (core ∪ floor), not a second hand-typed list that can drift from
+    /// the contract it has to satisfy.
+    #[test]
+    fn core_menu_serves_exactly_the_ratified_core_plus_the_binding_floor() {
+        let expected: BTreeSet<&str> = RATIFIED_CORE
+            .iter()
+            .copied()
+            .chain(crate::tools::HOST_BINDING_REQUIRED_TOOLS)
+            .collect();
+        let served: BTreeSet<String> = served_menu_names("core").into_iter().collect();
+        let served_refs: BTreeSet<&str> = served.iter().map(String::as_str).collect();
+
+        assert_eq!(
+            served_refs, expected,
+            "the default menu must be exactly the ratified core ∪ the host-binding floor"
+        );
+        for name in RATIFIED_CORE {
+            assert!(
+                served_refs.contains(name),
+                "ratified core verb '{name}' must be in the shop window"
+            );
+        }
+    }
+
+    /// Hidden is not removed. A non-core verb must be ABSENT from the menu, still
+    /// PRESENT in the registry, and still ANSWER when a caller names it.
+    ///
+    /// This is the whole safety of the change in one test: the cut lands at the
+    /// advertising seam and nowhere else.
+    #[test]
+    fn core_menu_hides_but_never_removes_a_non_core_verb() {
+        let menu: BTreeSet<String> = served_menu_names("core").into_iter().collect();
+        let registry: BTreeSet<String> = all_tool_schemas()["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|n| n.as_str()))
+            .map(str::to_string)
+            .collect();
+
+        // One from a zero-call prefix family, one standalone, one the external
+        // evaluator praised but that the old 48-item menu still buried.
+        for hidden in ["perspective_start", "twins", "surgical_context_v2"] {
+            assert!(
+                !menu.contains(hidden),
+                "'{hidden}' must not be in the default shop window"
+            );
+            assert!(
+                registry.contains(hidden),
+                "'{hidden}' must remain in the full registry — nothing is removed"
+            );
+        }
+
+        // And it still DISPATCHES. `twins` is read-only and ORDINARY, so it
+        // answers on an empty graph instead of refusing at an authority floor.
+        use crate::protocol::core::JsonRpcRequest;
+        let (_temp, mut state) = build_state();
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({
+                "name": "twins",
+                "arguments": { "agent_id": "core-menu-battery", "node_id": "nonexistent::node" }
+            }),
+        };
+        let response = handle_mcp_method(&mut state, &request);
+        assert!(
+            response.error.is_none(),
+            "a hidden verb named directly must not become a JSON-RPC error: {:?}",
+            response.error
+        );
+        let rendered = serde_json::to_string(&response.result).expect("serialize result");
+        assert!(
+            !rendered.contains("Unknown tool") && !rendered.contains("unknown_tool"),
+            "a hidden verb must still route to its handler, not to unknown-tool: {rendered}"
+        );
+    }
+
+    /// A hidden verb nobody can find is a removed verb. The menu must carry, on a
+    /// surface the agent already reads, the fact that it is a core and the exact
+    /// way to the rest.
+    #[test]
+    fn core_menu_carries_the_line_that_leads_to_the_rest() {
+        let menu = tool_schemas_for_tier("core");
+        let help = menu["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .find(|tool| tool["name"] == "help")
+            .expect("help must be in the core menu — it is the door to the rest");
+        let description = help["description"].as_str().unwrap_or_default();
+
+        assert!(
+            description.contains(CORE_MENU_DISCOVERY_MARKER),
+            "the core menu's help entry must carry the discovery line: {description}"
+        );
+        for signpost in ["help", "M1ND_TOOL_TIER=full"] {
+            assert!(
+                description.contains(signpost),
+                "the discovery line must name '{signpost}': {description}"
+            );
+        }
+        // It must state the real size of what is hidden, computed — never a
+        // number typed by hand that rots at verb #143.
+        let hidden = all_tool_schemas()["tools"]
+            .as_array()
+            .map(|t| t.len())
+            .unwrap_or(0)
+            - menu["tools"].as_array().map(|t| t.len()).unwrap_or(0);
+        assert!(
+            description.contains(&hidden.to_string()),
+            "the discovery line must state the live hidden count ({hidden}): {description}"
+        );
+    }
+
+    /// The cut is a POLICY with a stated bound, not a hand-typed list. Every core
+    /// name must exist in the registry (a typo would silently shrink the menu),
+    /// and the menu may not quietly grow back into a wall of verbs.
+    #[test]
+    fn core_menu_stays_within_its_stated_bound() {
+        let registry: BTreeSet<String> = all_tool_schemas()["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|n| n.as_str()))
+            .map(str::to_string)
+            .collect();
+        for name in CORE_TOOLS {
+            assert!(
+                registry.contains(*name),
+                "core verb '{name}' does not exist in the registry — the menu would serve a ghost"
+            );
+        }
+
+        let served = served_menu_names("core").len();
+        assert!(
+            served <= CORE_MENU_MAX,
+            "the menu must fit on one screen: {served} verbs exceeds the stated bound of \
+             {CORE_MENU_MAX}. Raising the bound is a product decision, not a test fix."
+        );
+    }
+
+    /// `help` is the door, so `help` must see the whole house.
+    ///
+    /// Before this change `help` (and the did-you-mean matcher behind every
+    /// mistyped call) read the TIER-GATED list, so an agent that knew a hidden
+    /// verb existed could not get its schema — the gap was already logged in
+    /// `docs/uml/tool-surface.md` as low severity, and shrinking the menu to 15
+    /// promoted it to load-bearing.
+    #[test]
+    fn help_sees_every_verb_regardless_of_tier() {
+        let registry: BTreeSet<String> = all_tool_schemas()["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|n| n.as_str()))
+            .map(str::to_string)
+            .collect();
+        let help_catalog: BTreeSet<String> = crate::help_guidance::live_tool_names()
+            .into_iter()
+            .collect();
+
+        assert_eq!(
+            help_catalog, registry,
+            "help must catalog every registered verb, not just the advertised menu"
+        );
+        for hidden in ["perspective_start", "twins", "surgical_context_v2"] {
+            assert!(
+                help_catalog.contains(hidden),
+                "help must be able to explain hidden verb '{hidden}'"
+            );
+        }
     }
 
     #[test]

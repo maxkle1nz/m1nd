@@ -364,7 +364,7 @@ The skeptic's question ("no human writes this much this fast") is correct. No hu
 
 ## Architecture at a glance
 
-Three core Rust crates plus auxiliaries: `m1nd-mcp` (the MCP server and runtime surface), `m1nd-core` (the graph engine: spreading activation, Hebbian plasticity, CSR adjacency, git-derived ghost edges), `m1nd-ingest` (extractors and adapters for code, documents and memory). Your agent sees 48 tools by default instead of 130+, so it picks the right one more often and pays for a shorter tool list on every request; the full surface is one env var away (`M1ND_TOOL_TIER=full`), and tiering only trims the advertised menu, never availability.
+Three core Rust crates plus auxiliaries: `m1nd-mcp` (the MCP server and runtime surface), `m1nd-core` (the graph engine: spreading activation, Hebbian plasticity, CSR adjacency, git-derived ghost edges), `m1nd-ingest` (extractors and adapters for code, documents and memory). Your agent sees a **core menu of about 15 tools** by default rather than the whole registry, so it picks the right one more often and pays for a short tool list on every request. The rest are hidden, never removed: any verb answers when called by name whether or not it is listed, `help` catalogs and explains all of them at any tier, and the full menu is one env var away (`M1ND_TOOL_TIER=full`). The core was cut against six weeks of measured traffic, where 141 advertised verbs produced calls to 13.
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="880" />
