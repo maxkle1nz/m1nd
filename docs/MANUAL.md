@@ -142,6 +142,10 @@ indexes them, it does not restate them.
   `cargo test --workspace --doc` leg does. They carry `compile_fail` sentinels
   that no other gate reaches; a sentinel that starts compiling means a privacy
   wall fell.
+- **The suite is a governed portfolio.** `doc:docs/TEST-PORTFOLIO.md` is the
+  manifest: what each family proves, its lane and budget, the fifteen
+  never-cut families, and the safe order for any reduction. A test leaves the
+  portfolio only through that file's registry, never through a cleanup PR.
 - **The embedded UI bundle must match the source that builds it** — CI refuses a
   commit whose `dist/` is not a fresh build of its own source.
 - **Frozen contracts** (`docs/M1ND-10-PRD.md`, `docs/M1ND-10-UML.md`) are checked
@@ -234,11 +238,13 @@ an answer: run the refresh or the ingest, then say what it cost. `north` returns
 | Every schema is a top-level object | one violation wipes the whole tool list for strict clients | `every_tool_input_schema_is_top_level_object` |
 | A sidecar failure degrades, never kills the boot | a sidecar's `?` once killed the server and every tool with it | each sidecar loads fail-open with "continuing without it" |
 | A release artifact must launch | a signed, notarized binary that the kernel kills is worse than an unsigned one | the release proves the signed bytes run before packaging them |
+| The fifteen never-cut proof families stay | the suite is a portfolio of proofs; each of the fifteen paid for itself with a real incident (three bricking boot bugs under 1,458 green units, a schema that wiped every tool, sentinels that rotted unrun) | `doc:docs/TEST-PORTFOLIO.md` §3 — removing or weakening one is an owner decision recorded there, never a cleanup |
 
 <!-- m4nual:section id=registry -->
 ## 8. Registry
 
 | Date | Revision |
 |---|---|
+| 2026-08-02 | §5+§7: the test portfolio manifest established (`docs/TEST-PORTFOLIO.md`) — lanes, families, the fifteen never-cut, lightning proposed-not-active; the fifteen added to §7 invariants. |
 | 2026-08-02 | §5: nextest adopted as the LOCAL canonical runner; CI required legs stay on `cargo test` by gate-side measurement (ubuntu 62→83 min under nextest); `nextest-shadow` observational job collects gate timing toward promotion; policy at `.config/nextest.toml`. |
 | 2026-08-01 | Manual established at `0b892874`. Sources adopted: `docs/deployment.md` (indexed, not absorbed — it remains the deployment reference), `build/README.md` (indexed for the signing surface). PR #398's earlier draft was **not** adopted: it recorded machine-specific identity (service label, uid, personal paths) which must not travel in a public repo. |
