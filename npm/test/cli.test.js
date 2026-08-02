@@ -35,6 +35,9 @@ const {
   parseLaunchctlProgramPath,
   launchdLabelManagesTarget,
   shouldKickstartAfterInstall,
+  doctor,
+  RUNTIME_VERSION_PROBE_MS,
+  RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS,
 } = require("../lib/cli");
 
 const runSelfUpdateTest = createSelfUpdateTestHarness();
@@ -3017,5 +3020,38 @@ const shimUrls = northShim.servedOwnerBaseUrls();
 assert(shimUrls.includes("http://127.0.0.1:1337"), "probe fallback includes :1337");
 assert(shimUrls.includes("http://127.0.0.1:1338"), "probe fallback includes :1338");
 assert.strictEqual(new Set(shimUrls).size, shimUrls.length, "candidate URLs are deduped");
+
+// ---------------------------------------------------------------------------
+// The gatehouse answers honestly (1.6.4, 2026-08-02). Four stranger-install
+// trips measured on a fresh HOME; three are pure logic held here, the fourth
+// (the version-probe timeout) is a wall-clock budget proven in the real
+// gauntlet and pinned by its constant below.
+// ---------------------------------------------------------------------------
+
+// (2) doctor with NO runtime must offer the verified installer FIRST, not a
+// source build. Measured: it sent the npm newcomer to `cargo build`.
+{
+  const report = withEnv(
+    { M1ND_TEST_HOME: mkTmpDir(), M1ND_TEST_RUNTIME_ABSENT: "1" },
+    () => doctor()
+  );
+  const actions = report.next_actions.join("\n");
+  const installIdx = report.next_actions.findIndex((a) => a.includes("m1nd update apply --yes"));
+  const cargoIdx = report.next_actions.findIndex((a) => a.includes("cargo build"));
+  assert(installIdx >= 0, "doctor names the verified installer when the runtime is absent");
+  assert(cargoIdx < 0 || installIdx < cargoIdx, "the installer is offered before the source build");
+}
+
+// (4) the version probe after an install budgets for a cold ~70 MB binary's
+// first exec (measured 1.66s first run vs the 1.5s warm default) — the one
+// call the verified installer makes to confirm what it just installed.
+assert(
+  RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS >= 10000,
+  "the post-install version probe budgets for a cold first exec, not the warm 1.5s default"
+);
+assert(
+  RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS > RUNTIME_VERSION_PROBE_MS,
+  "the post-install probe budget is strictly larger than the warm-path default"
+);
 
 console.log("npm cli tests ok");
