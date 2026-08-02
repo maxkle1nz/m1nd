@@ -10,10 +10,22 @@
 #   flakes under nextest, we want to see it, not survive it.
 #
 # * `slow-timeout` — today a runaway test owns the job until the 90-minute CI
-#   ceiling. The slowest legitimate test measured on the dev box is
-#   `auto_ingest_burst_stress_handles_many_documents` at ~119s; CI runners are
-#   slower, so the ceiling leaves ~5x headroom over that before terminating.
-#   SLOW warnings start at 60s so the tail stays visible in every run's output.
+#   ceiling. Outside the retrobuilder family the slowest legitimate test
+#   measured on the dev box is ~119s, so 600s leaves ~5x headroom. SLOW
+#   warnings start at 60s so the tail stays visible in every run's output.
 [profile.default]
 retries = 0
 slow-timeout = { period = "60s", terminate-after = 10 }
+
+# The retrobuilder batteries are the workspace's real heavy tail: thirteen
+# tests measured at 390-567s EACH on the dev box (rb01-rb05 walk this repo's
+# actual git history; the stress battery builds thousand-span overlays). Under
+# `cargo test` they had the whole machine — one test binary at a time; under
+# nextest they run amid everything else, and the first adoption of this file
+# shipped a 600s ceiling calibrated on the LIB's heavy tail (119s) instead of
+# the WORKSPACE's — all four rb tests died together at 600.04s on the 4-vCPU
+# ubuntu runner. Their ceiling is their own: ~4x the dev-box worst case. A
+# genuine runaway here still dies named at 40 minutes, not the job's 90.
+[[profile.default.overrides]]
+filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress)'
+slow-timeout = { period = "300s", terminate-after = 8 }
