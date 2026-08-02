@@ -218,3 +218,20 @@ path for development builds.
 At the protocol level, `m1nd`'s canonical tool names are bare names like `activate` and `validate_plan`.
 
 If Codex exposes the MCP server as first-class tools, the host wrapper may namespace them differently, but the underlying routing logic in this skill should still be based on the canonical tool semantics above.
+
+## First-Contact Doors — What The npm CLI Answers (1.6.4)
+
+The npm wrapper is a stranger's first surface, so it answers honestly at every
+door — no silence, no dead ends, and the cause always visible:
+
+- **`m1nd init --birth <repo>` with no runtime installed** names the way out
+  (`m1nd update apply --yes`, then retry) instead of exiting mute.
+- **`m1nd doctor` with no runtime** offers the verified installer
+  (`m1nd update apply --yes`) FIRST, and the source build only as a fallback.
+- **`m1nd update apply`** prints the blocking `cause:` in human mode — e.g.
+  `cosign not found; install cosign` — not just a generic "install failed".
+- **`m1nd init --birth`** on a repo that already holds a brain returns the
+  CHOICE (create-new × load-existing) with the existing brain's node count;
+  relay `--confirm create-new` or `--confirm load-existing` from the human.
+  An agent MAY run the ceremony with the human's explicit authorization (the
+  owner's law, 2026-08-02) — always offer both options first, never choose.
