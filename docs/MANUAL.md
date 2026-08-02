@@ -127,7 +127,13 @@ indexes them, it does not restate them.
   in CI and locally — one process per test; measured 641–935s → 377s on the same
   suite with the shared-process deadlock-timeout flakes gone. Timeout policy
   lives in `doc:.config/nextest.toml`: retries 0 (a flake goes red), runaway
-  tests terminated at 10×60s instead of owning the 90-minute job.
+  tests terminated at 10×60s instead of owning the 90-minute job; the heavy
+  retrobuilder family carries its own measured ceiling.
+- **One same-process lane stays, on purpose.** A faster suite must not quietly
+  prove a different system: the production owner is ONE process with shared
+  statics/locks, so the ubuntu leg also runs `cargo test -p m1nd-mcp --lib`
+  under the classic shared harness — the explicit insurance the suite-audit
+  verdict demanded (2026-08-02), blocking, server crate only.
 - **Doctests are their own gate.** nextest never runs them; the dedicated
   `cargo test --workspace --doc` leg does. They carry `compile_fail` sentinels
   that no other gate reaches; a sentinel that starts compiling means a privacy

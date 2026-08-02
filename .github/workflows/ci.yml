@@ -63,6 +63,21 @@ jobs:
       # nextest runs no doctests; the dedicated doctest leg below is unchanged.
       - name: Test every target
         run: cargo nextest run --locked --workspace --all-targets
+      # A faster suite must not quietly prove a DIFFERENT system. nextest is
+      # one process per test; the production owner is one process with many
+      # concurrent handlers over shared statics, locks and env — the topology
+      # `cargo test`'s shared harness happens to reproduce and per-process
+      # isolation happens not to. The concurrency batteries build that
+      # topology INSIDE single tests and the lifecycle gate drives the real
+      # binary, so most of it survives the runner switch — this leg is the
+      # explicit insurance for the remainder (test-to-test cohabitation over
+      # the server crate's globals), demanded by the suite-audit verdict
+      # (2026-08-02). One leg, the server crate only: the class is not
+      # OS-specific, and the whole-workspace form is what the runner switch
+      # exists to retire.
+      - name: Same-process topology lane (the server crate under one roof)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --locked -p m1nd-mcp --lib
       # `--all-targets` EXCLUDES doctests by construction, so the step above has
       # never executed one. That is not a documentation detail here: all 13 of
       # this workspace's doctests are `compile_fail` sentinels, and they are the
