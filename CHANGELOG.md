@@ -6,7 +6,61 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-## [1.6.2] — 2026-07-31
+## [1.6.3] — 2026-08-02
+
+1.6.2 was tagged but never published: its release run was refused by the
+immutable-registry gate (`m1nd-control@0.2.0` already existed on crates.io
+with different bytes — `cargo package` embeds the tagging commit in
+`.cargo_vcs_info.json`, so every new tag changes a crate's bytes even when
+its code did not change). This release carries everything 1.6.2 contained,
+bumps every published crate, and adds the week's first-value work.
+
+### Added
+
+- **A fresh repo can actually end up with a graph.** `m1nd init --birth <repo>`
+  now fills the runtime's own graph when the runtime lives at or inside the
+  repo (the solo topology), refuses a ceremony that would exit successfully
+  with zero nodes (`birth_produced_empty_graph`), and every refusal on the
+  first-contact path names the exact command that opens the door. Proven end
+  to end by a subprocess battery that walks virgin repo → ceremony → second
+  boot → served graph, in all three runtime layouts.
+- **The tool menu fits on one screen.** `tools/list` serves a core of 15
+  (the ratified 12 plus `help`/`doctor`/`recovery_playbook`); the other 127
+  registered verbs stay fully callable by name, `help` catalogs the FULL
+  registry at every tier, and `health.tool_surface_contract` states the
+  hidden count and the discovery rule outright. `M1ND_TOOL_TIER=full`
+  restores the old wall for operators who want it.
+- **`north` returns the code of its top focus nodes** — the symbol's own
+  lines when the node names one — under a caller-visible `code_budget_chars`,
+  closing the second hop agents used to make by hand after every orientation.
+- **m1nd records how it is used**: per-verb counters (names and counts only,
+  by mechanism nothing else can reach the file) in `verb_usage_state.json`,
+  surfaced through `report`.
+
+### Fixed
+
+- **Ingest no longer erases the Hebbian layer.** Re-ingesting a root now
+  carries the learned synaptic counters across the graph replacement; in
+  production every one of 73k+ edges had been sitting at zero because each
+  ingest was born zeroed and nothing re-imported the sidecar.
+- **A birth ceremony no longer ingests its own runtime.** With the runtime at
+  the repo root, the source walk swallowed the runtime's state files (32 of a
+  measured 39 nodes were checkpoint blobs and lease files) and the freshness
+  revalidation raced the live lease writers on Linux. The runtime's own files
+  are now excluded from the walk via the pipeline receipt, and a gate test
+  fails naming any new state file the exclusion misses.
+- **The first minute finds the owner that already holds the repo**
+  (`--attach auto` discovery), and an absent keychain label reads as absent
+  instead of aborting a fresh custody ceremony.
+
+### Known issues, carried openly
+
+- `trace` can report `file not in graph` for files the graph holds when the
+  stacktrace CWD differs from the ingest root (pinned by test, fix pending);
+  `search` has a known regex edge; `tremor`/`trust` answer empty on a fresh
+  graph with no history. All four are frozen pending prioritization.
+
+## [1.6.2] — 2026-07-31 (tagged, never published)
 
 ### Added — the custody ceremony gets an artifact it can actually run in
 

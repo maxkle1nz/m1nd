@@ -1,6 +1,6 @@
 [package]
 name = "m1nd-runnerd"
-version = "1.6.2"
+version = "1.6.3"
 edition = "2021"
 description = "The m1nd runner daemon (F2.5c): the ONLY spawner. Executes pinned spawn missions in an isolated git worktree, runs the gate, and emits mission letters on the chain — never `landed`."
 license = "MIT"
@@ -12,7 +12,7 @@ publish = false
 # side record (§1f) + the shared-secret filename — `default-features = false` keeps
 # axum/reqwest/embed OUT of this dependency edge (we bring our own below); the
 # runnerd is a CLIENT of the owner's contract, so the wire types must be the owner's.
-m1nd-mcp = { path = "../m1nd-mcp", version = "1.6.2", default-features = false }
+m1nd-mcp = { path = "../m1nd-mcp", version = "1.6.3", default-features = false }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
