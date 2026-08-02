@@ -6,6 +6,30 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- **The first graph can be born.** A new repo with an empty runtime had no path to a populated
+  graph, from either side. An agent calling `ingest` on an empty graph was refused
+  `generic_action_authority_required` (correct — minting a brain is the human's gesture) while the
+  README told readers the opposite; and the human's `m1nd init --birth .` exited 0 reporting a node
+  count while the next session in that repo still served **0 nodes**, because the ceremony minted a
+  project-brain sidecar that only a served owner's caller-root routing reaches. `m1nd init --birth`
+  now recognises the solo layout — a runtime living inside the repo it is asked to birth — and fills
+  that owner's OWN graph, the one a plain `m1nd-mcp --stdio` there serves, committing it through the
+  brain actor so the next boot cannot revert it. Its receipt names which brain it filled
+  (`brain: "owner_bound_graph"` or `"project_brain"`). Nothing about cross-root sovereignty changed:
+  a foreign root still takes the hosted path with every guard, and no agent gained a door.
+- **A ceremony can no longer report success over an empty graph.** A birth whose scan produces zero
+  nodes refuses `birth_produced_empty_graph` and exits 1, naming what to check.
+- **Every refusal on the first-graph path now names the way out.** The floor gate (for
+  `graph.ingest.replace` / `brain.bootstrap` / `brain.bootstrap.birth` only — the two
+  `SCOPED_GRANT_A2` siblings keep their pinned refusal bytes), both `refresh_*` root refusals, the
+  birth verb's `human_gesture_required`, `north` / `delegate`'s `next_move`, `recovery_playbook`
+  (whose "use the served owner's authenticated ingress" step was fiction for a repo with no brain),
+  the npm CLI's `needs_authority` envelope and the served MCP instructions all name
+  `m1nd init --birth <repo>`. The `_m1nd` envelope also stopped reporting
+  "ingested: 0 nodes, 0 edges. graph ready." over a refused ingest.
+
 ---
 
 ## [1.5.0] — 2026-07-22

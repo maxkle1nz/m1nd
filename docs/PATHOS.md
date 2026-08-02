@@ -211,6 +211,76 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - **The Hebbian layer had never accumulated anything in production (measured 2026-07-31, fixed on the ingest path).** The served owner's `plasticity_state.json` held 73,332 synaptic rows with **zero** carrying a `strengthen_count`, a `weaken_count`, an LTP/LTD flag or a `last_used_query`. Not dead code: `activate` reaches step 8 and writes them. The ingest erased them — `finalize_ingest_with_inventory` installs a graph whose `edge_plasticity` arrays are born zeroed, nothing on that path re-imported the sidecar, and the `state.persist()` at the end of the same function published the zeros. The mechanism to survive already existed and was already documented (label-triple matching, built precisely for a re-ingest that renumbers nodes); it was simply never called there. The ingest now carries the learning across the replacement, preferring the running session over the file and failing open on a bad sidecar. **Residual debt, named not fixed:** two other seams still install a graph without restoring learning — `AutoIngest::replace_graph` (`m1nd-mcp/src/auto_ingest.rs:499`, the document lane's own tick) and the `persist` `load` action (`m1nd-mcp/src/persist_handlers.rs:113`). And the deeper product question, filed as a letter, not decided here: only 2 of ~141 verbs (`activate`, `missing`) reach step 8 at all, so the graph learns from one retrieval path.
 - **Machine-side residuals:** G6 provider executable; shadow/canary producer; runtime half of the bundle blind spot; m1nd-ui eslint PAID (ESLint 10 — the break was never eslint itself but the `brace-expansion@5` override from #418 landing under the CJS `minimatch@3` that eslint 9 pulled, and `npm run lint` was not a CI step so nothing saw it — now wired as its own `ui-gates` step, so it can go red again; one residual named in its place: the `eslint-plugin-react-hooks` 7 React Compiler family is held OFF at pre-migration strength with 31 findings open — `set-state-in-effect` ×21, `purity` ×5, `refs` ×5 — whose fixes change render behaviour and belong in their own proven change); the dependabot react 18→19 pair #453/#454 is mutually deadlocked — each PR is the other's missing half, so neither can ever go green alone and they need one combined React 19 PR or closure; serve binary refresh onto this arc's code once the tray lands (then the lifecycle re-proof); `default_registry_root()` cannot see a per-host registry (letter filed, owner's wiring call); PATHOS consolidation pass (the 07-24 list below + the checkpoint-27 Current State narrative both await it).
 
+**Delta 2026-08-01 — THE FIRST GRAPH CAN BE BORN: the product had no first-value path, on either side of the room:**
+- **Measured on 1.6.2, in a virgin repo with an empty runtime, both actors dead-ended.** (a) An agent
+  calling `ingest` with only `agent_id` on an EMPTY graph is refused
+  `generic_action_authority_required: semantic_action=graph.ingest.replace
+  authority_floor=POSITIVE_SOVEREIGN` — correct policy, and the README told every reader the opposite
+  ("the agent may call `ingest` directly on an empty graph"). (b) The human's `m1nd init --birth .`
+  exited **0** reporting 10 nodes, and the very next stdio session in that repo served **0**: the
+  ceremony minted a project-brain sidecar under `<runtime>/project-brains/<key>/`, which only the
+  served owner's HTTP caller-root routing reaches (`http_server::resolve_brain`), while a plain stdio
+  owner serves the runtime's own graph and nothing else. A ceremony that succeeds loudly and delivers
+  an empty brain is worse than one that refuses.
+- **What the spec actually says, checked before changing anything.** `docs/GENESIS-INGEST-CONSUMERS-SPEC.md`
+  admits exactly two ingest doors: SPEC-1 `refresh` (A2-local, exact declared root) and SPEC-2 `birth`
+  (PositiveSovereign, owner-stamped `human-cli`, minted only by this ceremony). Same-root `replace` on an
+  empty graph is **not** among them, and §1.1's purity rule (classify from `(tool, params)` alone, no
+  trusted route facts) forbids implementing it as a classifier change, because "the graph is empty" and
+  "the caller stands at the workspace root" are owner facts the pure pre-brain gate cannot see. So the
+  spec is silent on (a) by construction, and the fix went where it is unambiguous: the human's door.
+- **The fix, and why it does not weaken cross-root sovereignty.** `run_ceremony` now decides WHICH brain it
+  is filling from a fact about the OWNER, never about a caller: if the runtime it boots from lives INSIDE
+  the root the human named and the bound graph is empty, that root's brain IS this owner's own graph, so the
+  ceremony fills it (`brain: "owner_bound_graph"`) instead of minting a sidecar nobody reads. Any other
+  root takes the hosted path exactly as before, with every guard intact; agents gained no door; generic
+  `ingest` is as refused as it was. The first ingest commits through the brain actor
+  (`McpServer::ceremony_first_ingest`), because a graph written into the runtime behind `CURRENT` is
+  reverted on the next boot — the `legacy_snapshot_adoption` incident, re-measured live here (a populated
+  snapshot dropped into a once-booted runtime came back as 0 nodes).
+- **Honesty, the half that was worth more than the mechanism.** A birth that scans to zero nodes now REFUSES
+  (`birth_produced_empty_graph`, exit 1, naming what to check) on BOTH doors. And every refusal on this path
+  names the way out: the field agent that found this defect hit four correct refusals
+  (`generic_action_authority_required`, `refresh_caller_root_unknown`, `needs_authority_not_proven`, the
+  birth verb's own), none of which mentioned `m1nd init --birth`, and concluded in writing that the product
+  could not be used. Fixed at the floor gate (for the first-graph actions only — §5.9's two A2 siblings keep
+  their pinned bytes), both `refresh_*` root refusals, `north`/`delegate`'s `next_move`, `recovery_playbook`
+  (whose `use_served_owner_authenticated_ingress` step was fiction for a repo with no brain), the npm CLI's
+  `needs_authority` envelope, and the served MCP instructions. The `_m1nd` envelope also stopped announcing
+  "ingested: 0 nodes, 0 edges. graph ready." over a refusal.
+- **Proof:** `m1nd-mcp/tests/first_graph_is_born.rs` drives the REAL binary from a virgin repo — first
+  contact refused with the door named, the ceremony, then a SECOND boot that must serve what the ceremony
+  reported. RED on today's code at both assertions, GREEN after.
+- **Debt this front declares rather than hides.** (a) `refresh_caller_root_unknown` is still the answer for a
+  plain stdio owner even AFTER the graph exists, because `caller_root` is a client-supplied header and a
+  stdio owner has none — the refusal now says so and names the attach bridge, but an owner that knows its own
+  cwd arguably should carry it; not touched here (SPEC-1's ingress rules are its own front). (b) A repo born
+  before this change owns an orphan sidecar under `project-brains/`; the ceremony refuses to birth over it
+  (`birth_destination_not_empty`) rather than deleting anything, which is the right refusal and leaves the
+  cleanup unwritten. (c) The spec has no clause for the solo topology at all — the resolution is recorded in
+  `brain_birth::home_birth_verdict` as a resolution, not a reading.
+- **The handoff's ubuntu red was the ceremony ingesting ITSELF, and it was worse than a flake (2026-08-02).**
+  With `runtime == repo root`, the source walk swallowed the runtime's own state: measured with an
+  instrumented walk, 32 of the birth's 39 nodes were checkpoint blobs, lease files and boot sidecars — the
+  first-value graph was born 82% runtime droppings — because `path_policy::RUNTIME_ARTIFACT_FILE_NAMES`
+  aged silently (10 names covered, ~20 live state files not: `daemon_state`, `temporal_state_v1`,
+  `checkpoint-store/**`, `registry/**`, `boot_*`…). The ubuntu failure was the same defect's second face:
+  any lease-heartbeat/daemon write BETWEEN the extraction walk and `require_complete`'s revalidation walk
+  shifted a captured mtime and killed the ceremony with `FullReindexRequired: VCS/file-metadata context
+  changed since extraction` — a race ubuntu lost and macOS happened to win. Fix with zero schema change:
+  `tools::code_ingest_config` injects the runtime's own top-level names into `skip_dirs`/`skip_files` when
+  (and only when) the scanned root covers the runtime root — those fields already travel in the pipeline
+  receipt and already drive revalidation, so extraction and `require_complete` see the same world forever.
+  The new lists are gated by `the_runtime_owned_list_covers_what_a_real_session_writes`, which boots a real
+  session and fails NAMING any state file the exclusion misses — the validator the old list never had, and
+  it bit on its first run (`antibodies.json.bak`; the `.bak` class is now covered on both sides). Proof:
+  walk 34→2 files, birth 39→7 nodes with zero runtime nodes, pollution test proven RED with the wiring
+  removed, e2e 3/3 local; the ubuntu leg is the CI's to prove. Residual, filed not fixed: sibling seams
+  still build a raw `IngestConfig` (`AutoIngest::replace_graph`, audit/layer handlers) — same disease if
+  their scanned root ever covers a live runtime; and the runtime-at-root layout itself (state files strewn
+  among user code) is the underlying illness — moving state under one hidden dir is a product decision for
+  the owner's table, recorded in the project inbox.
+
 **Delta 2026-08-01 — the menu fits on one screen (the shop window closes on the core):**
 - **THE OWNER'S ACCEPTANCE RULE FOR THIS FRONT, verbatim and standing (ratified 2026-08-01):**
 

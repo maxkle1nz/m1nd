@@ -41,10 +41,19 @@ const BIRTH_TOOL: &str = "brain_birth";
 
 /// The refusal EVERY generic seam must produce for a birth attempt. Written out
 /// once, asserted from several angles: the bytes are the contract.
+///
+/// The closing sentence is part of that contract, not decoration. A wire client
+/// asking to birth a brain is asking for the one thing only a human can do, and
+/// until 1.6.2 the refusal ended without saying so — measured in the field, an
+/// agent collected four such refusals and concluded the product was unusable.
+/// Naming the ceremony grants nothing: the stamp lives in the CLI ingress, and
+/// no sentence in a refusal can manufacture one.
 const GENERIC_BIRTH_REFUSAL: &str = "invalid params for brain_birth: \
      generic_action_authority_required: semantic_action=brain.bootstrap.birth \
      authority_floor=POSITIVE_SOVEREIGN cannot use generic REST/MCP dispatch; \
-     no exact typed G2/G3 lease consumer is installed for this action";
+     no exact typed G2/G3 lease consumer is installed for this action. The first \
+     graph for a repo is the human's one-time ceremony: offer them \
+     `m1nd init --birth <repo>` and stop — agents never run it";
 
 /// The owner's own bound brain (the "dev graph" §2 says birth never touches),
 /// with a runtime under `runtime` and no roots declared.

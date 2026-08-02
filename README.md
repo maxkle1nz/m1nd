@@ -16,7 +16,7 @@ Think of it as an X-ray of your repo that your agent can read: one structure tha
   <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-official-6d28d9" alt="MCP Registry" /></a>
 </p>
 
-<p align="center">Four commands to install: <a href="#sixty-seconds">Sixty seconds</a>. Reasons to close the tab first: <a href="#when-not-to-use-m1nd">When not to use m1nd</a>.</p>
+<p align="center">Five commands to install: <a href="#sixty-seconds">Sixty seconds</a>. Reasons to close the tab first: <a href="#when-not-to-use-m1nd">When not to use m1nd</a>.</p>
 
 <p align="center">
   <img src="docs/assets/demo.gif" width="760" alt="A real m1nd session: north returns trust, focus and honest gaps; seek answers with a reverify verdict; memorize anchors the finding to code" />
@@ -186,9 +186,14 @@ npx -y @maxkle1nz/m1nd doctor
 # 3 · wire your host: MCP config + the session hooks that make m1nd ambient
 npx -y @maxkle1nz/m1nd hosts apply --host claude --project . --yes
 
-# 4 · first value: the orientation packet for YOUR repo, read-only, no host config touched
+# 4 · give this repo its brain — once, by you. It ingests and prints what it built.
+npx -y @maxkle1nz/m1nd init --birth .
+
+# 5 · first value: the orientation packet for YOUR repo, read-only, no host config touched
 npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
 ```
+
+Step 4 is the one command an agent can never run for you, and that is deliberate: minting a brain writes a whole graph, so it is a human gesture the runtime only accepts from its own CLI. It is also the only one — after it, the agent drives everything, including keeping the graph fresh. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
 
 Step 1 verifies the signature with [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), so install that first if it is not on your PATH. If you prefer the source registry and accept skipping verification, `cargo install m1nd-mcp` works too. Prefer to see before you write: `hosts plan` prints everything `hosts apply` would touch, and writes nothing. There is no uninstall command yet; `hosts plan` doubles as the list of what to remove by hand.
 
@@ -208,10 +213,10 @@ This is why I built m1nd. Retrieval layers are good at answering. Almost none of
 // trust_selftest on an unbound runtime. The verdict IS the repair instruction:
 {
   "ok": false,
-  "verdict": "needs_ingest",          // never a bare "no results"
-  "next_action": "call_ingest",
+  "verdict": "needs_ingest",              // never a bare "no results"
+  "next_action": "offer_the_birth_ceremony",
   "recovery_playbook": {
-    "steps": [ { "action": "Call ingest for the intended repository on this same binding." } ]
+    "steps": [ { "action": "This repo has no brain yet: tell the human to run `m1nd init --birth <repo>` once. Offer the command and stop — running it is not yours to do." } ]
   }
 }
 ```
@@ -304,7 +309,7 @@ Everything above ships in the current release; the documents under `docs/` marke
 
 ## One graph, many agents
 
-For one agent, the stdio server from [Sixty seconds](#sixty-seconds) is all you need, and the agent may call `ingest` directly on an empty graph. For real work, run one served owner that holds the live graph, and attach every agent to it as a thin bridge:
+For one agent, the stdio server from [Sixty seconds](#sixty-seconds) is all you need. The first graph is yours to start, not the agent's: run `m1nd init --birth .` once in the repo and it ingests it, prints the node and edge counts, and the next session opens on that graph. Agents cannot do it — generic `ingest` is refused for every client, and every refusal names this command instead. For real work, run one served owner that holds the live graph, and attach every agent to it as a thin bridge:
 
 ```bash
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
@@ -313,7 +318,7 @@ m1nd-mcp --attach auto --stdio     # each agent: no graph load, no lease, shared
 
 What one agent memorizes, another recalls immediately, and the presence and collision warnings described above run through this same owner. It also hosts per-repo brains and renders the web UI. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists. `auto` finds the owner of your own runtime first, and otherwise any live owner that has already ingested the repo you are standing in — including from a git worktree — so one central owner is found from inside its own projects instead of each repo starting an empty brain. The `m1nd agent` commands ask those same two questions before they boot, so the CLI reaches that owner too; `m1nd-mcp --discover-owner` prints the answer on its own, as JSON, attaching to nothing.
 
-One gate to know about: a served owner refuses generic `ingest` for repos it does not already host. Minting a new brain on a served owner is a governed gesture, and it fails closed by design. For a first session on a new repo, use the stdio path or `m1nd agent first-minute` — which will say plainly that no owner covers this repo yet, rather than pretending the machine has no graph. Attach to the owner once it hosts your repo. Full deployment guide: [docs/deployment.md](docs/deployment.md).
+One gate to know about: no agent, on any transport, can mint a brain — generic `ingest` fails closed by design, and minting one for a repo a served owner does not host fails closed twice over. Both doors open the same way: you run `m1nd init --birth <repo>` once. Standing in the repo with its own runtime, that fills the graph your stdio session reads; pointed at another repo from a served owner, it mints that repo's brain on the owner, which then routes to it by caller root. `m1nd agent first-minute` says plainly when no owner covers a repo yet, rather than pretending the machine has no graph. Full deployment guide: [docs/deployment.md](docs/deployment.md).
 
 ## Language coverage
 

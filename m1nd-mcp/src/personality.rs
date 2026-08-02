@@ -270,6 +270,19 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
             )
         }
         "ingest" => {
+            // A REFUSAL is not an ingest. `ingest` answers in two shapes — the
+            // receipt, and the refusal envelope every `mode:"refresh"` guard
+            // returns (`ok: false` + `refused`) — and this line used to read the
+            // absent counts off a refusal and announce "ingested: 0 nodes, 0
+            // edges. graph ready." over a call that mutated nothing. The verb's
+            // own payload was honest; the decoration wrapped around it was not.
+            if result.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+                let refused = result
+                    .get("refused")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("refused");
+                return format!("refused: {refused}. nothing was ingested, nothing changed.");
+            }
             let nodes = result
                 .get("node_count")
                 .and_then(|v| v.as_u64())

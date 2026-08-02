@@ -74,12 +74,15 @@ binding is stale — not the default front door.
 
 - **Session start** -- the first call before any read or edit, to pre-orient
 - **Task switch** -- re-orient when the goal changes
-- **After `needs_ingest`** -- `ingest` the repo, then call `north` again;
-  `needs_ingest` is a real answer for an empty or unbound graph, not a failure
+- **After `needs_ingest`** -- follow the packet's `next_move`, then call `north`
+  again. `needs_ingest` is a real answer for an empty or unbound graph, not a
+  failure. A repo with no brain yet is the HUMAN's one-time
+  `m1nd init --birth <repo>` (offer it, never run it); a stale declared root is
+  `ingest {mode:"refresh"}`, which is yours
 
 ### Related Tools
 
-- [`ingest`](#m1ndingest) -- run after `north` returns `needs_ingest`
+- [`ingest`](#m1ndingest) -- `mode:"refresh"` after `needs_ingest` on a root this brain already declares; a repo with no brain at all needs the human's `m1nd init --birth <repo>`
 - [`trust_selftest`](#m1ndtrust_selftest) -- the degraded/recovery entry when trust looks off
 - [`seek`](exploration.md#m1ndseek) -- first retrieval pass after orientation
 
@@ -565,7 +568,7 @@ mutate files, refresh host bindings, or probe retrieval automatically.
 ### Verdicts
 
 - `full_trust` -- graph has content and the required recovery surface is present.
-- `needs_ingest` -- graph is empty but `ingest` is available.
+- `needs_ingest` -- graph is empty; the playbook names who repairs it (the human's `m1nd init --birth <repo>` for a repo with no brain, `ingest {mode:"refresh"}` for a declared root).
 - `orientation_only` -- graph is empty and the current host surface cannot ingest.
 - `degraded_host_tool_surface` -- the host is hiding required recovery tools.
 - `wrong_workspace_binding` -- the requested `scope` points at a different
@@ -579,7 +582,7 @@ mutate files, refresh host bindings, or probe retrieval automatically.
 - [`session_handshake`](#m1ndsession_handshake) -- cheaper sub-check used by the selftest
 - [`recovery_playbook`](#m1ndrecovery_playbook) -- attached when the verdict needs action
 - [`doctor`](#m1nddoctor) -- deeper runtime diagnosis when recovery asks for it
-- [`ingest`](#m1ndingest) -- run only after `needs_ingest`
+- [`ingest`](#m1ndingest) -- `mode:"refresh"` only, and only after `needs_ingest` on a declared root
 
 ---
 
@@ -650,7 +653,7 @@ as `ingest`.
 ### Trust Modes
 
 - `full_trust` -- graph has content and the required recovery surface is present.
-- `needs_ingest` -- graph is empty but `ingest` is available.
+- `needs_ingest` -- graph is empty; the playbook names who repairs it (the human's `m1nd init --birth <repo>` for a repo with no brain, `ingest {mode:"refresh"}` for a declared root).
 - `orientation_only` -- graph is empty and the current host surface cannot ingest.
 - `degraded_host_tool_surface` -- the host is hiding required recovery tools.
 - `wrong_workspace_binding` -- the requested scope belongs to a different
@@ -661,7 +664,7 @@ as `ingest`.
 
 - [`trust_selftest`](#m1ndtrust_selftest) -- preferred one-call startup verdict
 - [`recovery_playbook`](#m1ndrecovery_playbook) -- what to do when trust mode is not full
-- [`ingest`](#m1ndingest) -- load data after `needs_ingest`
+- [`ingest`](#m1ndingest) -- `mode:"refresh"` reloads a declared root after `needs_ingest`
 - [`doctor`](#m1nddoctor) -- inspect the recovery payload under suspicion
 - [`seek`](exploration.md#m1ndseek) -- first retrieval pass after `full_trust`
 

@@ -26,8 +26,12 @@ In a live MCP session the front door is one call: `north(task)`. It returns
 binding trust, task context (focus nodes + PageRank anchors), prior
 cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps`
 in a single packet, before any query. If it returns `needs_ingest` (empty/unbound
-graph), `ingest` the repo, then `north` again — that is a real answer, not a
-failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
+graph), that is a real answer, not a failure — and it is NOT yours to fix with
+`ingest`, which is refused on every transport. Follow the packet's `next_move`:
+a repo with no brain needs the HUMAN's one-time `m1nd init --birth <repo>` (offer
+it and stop); a brain that already declares your root you refresh yourself with
+`ingest {mode:"refresh", path: <your root>}`. Then `north` again.
+`north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
 Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
 `reception.options[]`. Generic cross-root `ingest` remains withdrawn (`project_root`
@@ -150,7 +154,7 @@ merit; facts, never estimated savings (G1).
 | fresh / stale | freshness is priced per boundary (the block's scope), never vibes |
 | `full_trust` | the binding verdict (the graph covers and answers) — not a code-quality grade |
 | the bell | a call to the human (missions await landing) — never an error |
-| `needs_ingest` | "I don't know this repo yet" + the honest repair — never a crash. Follow the packet's `recovery_playbook`: where generic `ingest` is policy-allowed it names it; under the sovereign mutation policy it returns `blocked` (`brain_bootstrap_consumer_not_installed`) with the real paths (legacy snapshot adoption at owner restart, or the served owner's authenticated ingress) — never retry a verb the playbook did not name. ONE repair is yours to run without asking: if the brain already DECLARES your root and its graph is stale or empty, `ingest {mode:"refresh", path: <your root>}` re-scans it — from exactly that root, and refusing rather than replacing the graph with a scan holding under 60% of its nodes. It never creates or rebinds a brain, so it is not a fix for `caller_root_mismatch` |
+| `needs_ingest` | "I don't know this repo yet" + the honest repair — never a crash. Follow the packet's `recovery_playbook`: where generic `ingest` is policy-allowed it names it; under the sovereign mutation policy it returns `blocked` (`brain_bootstrap_consumer_not_installed`) with the real paths (legacy snapshot adoption at owner restart, or — for a repo that has no brain at all — the HUMAN's one-time ceremony `m1nd init --birth <repo>`, which you OFFER and never run) — never retry a verb the playbook did not name. ONE repair is yours to run without asking: if the brain already DECLARES your root and its graph is stale or empty, `ingest {mode:"refresh", path: <your root>}` re-scans it — from exactly that root, and refusing rather than replacing the graph with a scan holding under 60% of its nodes. It never creates or rebinds a brain, so it is not a fix for `caller_root_mismatch` |
 | the tray | the human's door to land receipts — agents never land |
 
 **The verb families (translate by family, not tool-by-tool):**
@@ -197,7 +201,8 @@ this loop by default:
    context, prior cross-session memory, a sufficiency signal, one `next_move`,
    and `honest_gaps`. `needs_ingest` → follow the packet's `recovery_playbook`
    (it consults the live mutation policy: generic `ingest` where allowed;
-   otherwise `blocked` with the real recovery steps) → `north` again.
+   otherwise `blocked`, naming the real repair — a refresh you run, or the
+   human's one-time `m1nd init --birth <repo>` you offer) → `north` again.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to `recovery_playbook` before interpreting absence.
    `wrong_workspace_binding` means rebind, intentional ingest, or real
@@ -395,7 +400,8 @@ For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded
 orientation pass instead of a long graph investigation:
 
 1. Orient with one `north(task)` call (trust + context in the same round-trip);
-   `needs_ingest` → one bounded ingest → re-`north`. Drop to `trust_selftest` /
+   `needs_ingest` → the playbook's named repair (a refresh you run, or the
+   human's `m1nd init --birth <repo>` you offer) → re-`north`. Drop to `trust_selftest` /
    scoped `session_handshake` only if the binding looks degraded.
 2. Run at most one or two cheap follow-up calls: `search`, `seek`, or
    `activate` (or `audit` for the structural map).
