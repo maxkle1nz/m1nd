@@ -519,9 +519,10 @@ pub(crate) fn needs_ingest_next_move(state: &SessionState, agent_id: &str, then:
         format!("m1nd init --birth {repo}")
     };
     format!(
-        "This repo has no brain yet, and minting one is the human's gesture: offer them \
-         `{command}` — once, in a terminal, from inside the repo — then call {then} again. Agents \
-         never run it: the origin stamp exists only inside that CLI ingress."
+        "This repo has no brain yet. Ask your human — always — whether to create its brain \
+         (the owner's law, 2026-08-02): with their yes, run `{command}` yourself in a terminal \
+         from inside the repo, then call {then} again. Without their answer, do not choose for \
+         them."
     )
 }
 
@@ -4758,7 +4759,7 @@ pub fn handle_recovery_playbook(
                         playbook_step(
                             "offer_the_birth_ceremony",
                             &format!(
-                                "Otherwise this repo has no brain yet: tell the human to run `{birth_command}` once, in a terminal, from inside the repo. Offer the command and stop — running it is not yours to do."
+                                "Otherwise this repo has no brain yet: ask your human whether to create its brain (always offer create-new × load-existing — the owner's law, 2026-08-02); with their yes, run `{birth_command}` yourself in a terminal from inside the repo."
                             ),
                             "The ceremony is the human gesture that mints a brain: it ingests the repo for real and reports the node and edge counts it produced. An agent cannot run it — the origin stamp exists only inside that CLI ingress.",
                             None,

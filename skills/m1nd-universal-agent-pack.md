@@ -36,7 +36,7 @@ Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
 `reception.options[]`. Generic cross-root `ingest` remains withdrawn (`project_root`
 absent from the published schema), and over the wire `brain.bootstrap.birth` refuses
-every client with `human_gesture_required` — the stamp is the binary's own CLI flag.
+every client with `human_authorization_required` + the agent's actionable path — and by the owner's law (2026-08-02) an agent WITH the human's explicit yes runs `m1nd init --birth <repo>` itself (always offering create-new × load-existing first).
 A brainless repo now has one real path: the HUMAN's one-time ceremony
 `m1nd init --birth <repo>`. OFFER that exact command and stop — running it is not
 the agent's to do. Until then, continue only against the bound graph with the

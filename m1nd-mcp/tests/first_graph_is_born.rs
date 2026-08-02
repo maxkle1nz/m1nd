@@ -204,15 +204,28 @@ impl Owner {
 /// Run the human's ceremony through the REAL CLI ingress — the only door that
 /// can stamp `human-cli`. Returns its parsed JSON answer and its exit code.
 fn run_birth_ceremony(repo: &Path, runtime_dir: &Path) -> (serde_json::Value, i32) {
-    let output = Command::new(BIN)
+    run_birth_ceremony_with_confirm(repo, runtime_dir, None)
+}
+
+/// The ceremony with the human's create-new × load-existing pick relayed
+/// (the owner's law, 2026-08-02).
+fn run_birth_ceremony_with_confirm(
+    repo: &Path,
+    runtime_dir: &Path,
+    confirm: Option<&str>,
+) -> (serde_json::Value, i32) {
+    let mut command = Command::new(BIN);
+    command
         .arg("--birth")
         .arg(repo)
         .current_dir(repo)
         .env("M1ND_RUNTIME_DIR", runtime_dir)
         .env("M1ND_REGISTRY_DIR", runtime_dir.join("registry"))
-        .env("M1ND_NO_GUI", "1")
-        .output()
-        .expect("run the birth ceremony");
+        .env("M1ND_NO_GUI", "1");
+    if let Some(choice) = confirm {
+        command.arg("--confirm").arg(choice);
+    }
+    let output = command.output().expect("run the birth ceremony");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let payload =
         serde_json::from_str::<serde_json::Value>(stdout.trim()).unwrap_or_else(|error| {
@@ -316,7 +329,7 @@ fn a_virgin_repo_ends_up_with_a_populated_graph() {
 }
 
 #[test]
-fn a_second_ceremony_on_a_born_repo_refuses_and_says_you_are_home() {
+fn a_second_ceremony_on_a_born_repo_offers_the_choice_instead_of_refusing() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let repo = tmp.path().join("repo-beta");
     write_fixture_repo(&repo);
@@ -331,23 +344,49 @@ fn a_second_ceremony_on_a_born_repo_refuses_and_says_you_are_home() {
     );
     assert_eq!(first_exit, 0, "the first ceremony exits 0: {first}");
 
-    // A second run must not mint anything, must not re-scan behind the human's
-    // back, and must say plainly that this repo already has its brain.
+    // A second run must not mint anything and must not re-scan behind the
+    // human's back — and by the owner's law (2026-08-02) the answer is the
+    // create-new × load-existing CHOICE with the existing brain's numbers,
+    // never a bare refusal.
     let (second, second_exit) = run_birth_ceremony(&repo, &runtime_dir);
     assert_eq!(
         second.get("ok").and_then(|ok| ok.as_bool()),
         Some(false),
-        "a repo that already has its brain must not be born twice: {second}"
+        "an unconfirmed second ceremony completes nothing: {second}"
     );
     assert_eq!(
-        second.get("refused").and_then(|code| code.as_str()),
-        Some("birth_root_is_bound_graph"),
-        "the refusal must be the 'you are home' one: {second}"
+        second.get("choice_required").and_then(|c| c.as_bool()),
+        Some(true),
+        "an inhabited destination answers with the CHOICE: {second}"
+    );
+    let options = second.get("options").cloned().unwrap_or_default();
+    assert!(
+        options.get("create-new").is_some() && options.get("load-existing").is_some(),
+        "both options must be offered by name: {second}"
+    );
+    assert!(
+        second
+            .get("existing")
+            .and_then(|e| e.get("node_count"))
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0)
+            > 0,
+        "the choice must carry the existing brain's numbers so the human decides informed: {second}"
     );
     assert_eq!(
         second_exit, 1,
-        "a refusal exits 1 so a script sees the difference: {second}"
+        "an incomplete ceremony exits 1 so a script sees the difference: {second}"
     );
+
+    // The human picks load-existing: acknowledged, nothing re-scanned.
+    let (kept, kept_exit) =
+        run_birth_ceremony_with_confirm(&repo, &runtime_dir, Some("load-existing"));
+    assert_eq!(
+        kept.get("ok").and_then(|ok| ok.as_bool()),
+        Some(true),
+        "load-existing acknowledges the served brain: {kept}"
+    );
+    assert_eq!(kept_exit, 0, "an acknowledged choice exits 0: {kept}");
 
     // The graph the first ceremony built is untouched by the refusal.
     let mut owner = Owner::spawn(&repo, &runtime_dir);

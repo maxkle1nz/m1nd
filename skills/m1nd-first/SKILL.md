@@ -75,10 +75,14 @@ this loop by default:
    `reception.options[]`. Generic cross-root `ingest` remains withdrawn: never
    add `project_root` or `allow_overlap`, and never treat the internal owner
    bootstrap as an executable repair. A brainless repo now has ONE real path —
-   the HUMAN's one-time ceremony `m1nd init --birth <repo>`: OFFER that exact
-   command and stop (over the wire the birth verb refuses every client with
-   `human_gesture_required`; writes into a brainless root still refuse
-   `brain_bootstrap_consumer_not_installed`). Until the human runs it, connect
+   the ceremony `m1nd init --birth <repo>`, on the human's explicit pick (the
+   owner's law, 2026-08-02): ASK your human — always — create a new brain or
+   load the existing one?; with their yes, RUN the command yourself (add
+   `--confirm create-new`/`load-existing` when a brain already exists — an
+   unconfirmed ceremony there answers with that choice). Over the wire the
+   birth verb answers `human_authorization_required` with this same path;
+   writes into a brainless root still refuse
+   `brain_bootstrap_consumer_not_installed`. Until the human answers, connect
    to an owner that already hosts the intended brain or continue only with
    explicit mismatch caveats.
    Reception governs WRITES, not just reads: a read under mismatch is a warning,

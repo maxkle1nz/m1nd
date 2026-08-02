@@ -280,15 +280,23 @@ pub struct Cli {
     /// produce one. Over the wire the verb is refused for every client.
     ///
     /// The human-facing form is `m1nd init --birth <repo>`; the npm CLI runs this
-    /// binary with this flag. An AGENT that finds a repo with no brain OFFERS
-    /// that command and stops — running it is not the agent's to do.
+    /// binary with this flag. An AGENT may run it too — WITH the human's
+    /// explicit authorization, having always offered the create-new ×
+    /// load-existing choice first (the owner's law, 2026-08-02).
     ///
-    /// Refuses unless the destination is EMPTY on disk, unless the root resolves,
-    /// on any overlap with an existing brain, and on the owner's own bound root.
-    /// It is not the way to adopt an existing brain: that is migration, a
-    /// boot-time fact with no verb.
+    /// On a virgin destination it fills the graph. On an inhabited one it
+    /// answers with the CHOICE (create-new × load-existing) unless `--confirm`
+    /// carries the human's pick. Refuses when the root does not resolve and on
+    /// any overlap with a DIFFERENT brain.
     #[arg(long, value_name = "REPO")]
     pub birth: Option<String>,
+
+    /// The human's pick when the birth destination already holds a brain:
+    /// `create-new` re-scans REPLACING the graph; `load-existing` acknowledges
+    /// the served brain and touches nothing. Without it, an inhabited
+    /// destination gets the choice back — never a bare refusal.
+    #[arg(long, value_name = "CHOICE")]
+    pub confirm: Option<String>,
 
     /// One-shot MEDULLA storage-split migration (MEDULLA-PRD §4.2, slice M5a).
     /// Takes one required verb (no default):
