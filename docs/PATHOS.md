@@ -344,6 +344,31 @@ Update this list in the same PR that closes one; a front that dies silently is a
   description can resize the root, and no help regression can silently empty the menu's `why`
   again.
 
+**Delta 2026-08-02 — the suite becomes a governed portfolio, and the runner learned where it lives:**
+- **The owner's "1-hour test suite" laugh became a program.** A suite-audit verdict (askGOD fugu,
+  CHANGE) was CONFRONTED with resident measurements rather than trusted: its direction survived
+  (portfolio-not-count, the fifteen never-cut families, the safe order), its denominators did not —
+  it audited a checkout 41 commits stale, a process finding now standing (every verdict declares its
+  audited sha; every confrontation checks freshness first). The verdict's one risk the measurement
+  CONFIRMED (§10, the nested-Cargo process storm) is exactly what the gate then produced.
+- **nextest, measured three times before it was believed anywhere:** dev box 935s→377s with the
+  shared-process ABBA flakes gone (they are a harness artifact — pass isolated, pass under nextest);
+  gate-side ubuntu 62→83 min (the §10 storm on the weakest-I/O runner), macos flat, windows 70→48.
+  So #523 landed as the honest split: nextest CANONICAL LOCALLY (the owner's machine was the pain),
+  CI required legs stay on `cargo test` (whose shared harness doubles as the same-process topology
+  insurance), and a `nextest-shadow` observational job (main pushes, never in test-status) collects
+  gate timing with heavy-family concurrency caps in a separate profile — promotion only when two
+  weeks of shadow reproduce the gate's greens and reds. Two resident calibration errors confessed
+  inside the PR's own history: a ceiling sized on the lib's tail instead of the workspace's, and a
+  runner sized on the dev box instead of the gate. The law they minted: **before switching tools in
+  a required gate, measure IN the gate.**
+- **`docs/TEST-PORTFOLIO.md` is born** (denominators re-derived from fresh main `94fff76f`: 2,604
+  lexical tests, 79.3% inline, 47 targets, 30 ignored): lanes, families with promise/lane/budget/
+  owner, the fifteen never-cut gravadas also in MANUAL §7, and the LIGHTNING lane as a PROPOSAL
+  (~60–120s hot measured components) awaiting the owner's signature — activating it changes what
+  the fast loop promises, and that is not a config change. Safe-order position: step 1 (observe)
+  RUNNING via shadow + local timing; step 2 (manifest) THIS delta; steps 3+ gated on ratification.
+
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**
   Full README rewrite in the owner's voice (definition at line 5, anti-pitch section, "If I disappear",
