@@ -178,6 +178,10 @@ pub mod xray_handlers;
 // them as unit-test modules so those implementation details do not need to be
 // exported solely for integration tests.
 #[cfg(test)]
+#[path = "internal_tests/ingest_excludes_runtime_state.rs"]
+mod ingest_excludes_runtime_state_internal_tests;
+
+#[cfg(test)]
 #[path = "internal_tests/project_brain_runtime.rs"]
 mod project_brain_runtime_internal_tests;
 

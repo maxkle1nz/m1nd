@@ -147,6 +147,104 @@ fn claim_refresh_root(canonical_root: &str) -> Option<RefreshInFlightGuard> {
     Some(RefreshInFlightGuard(canonical_root.to_string()))
 }
 
+/// Top-level DIRECTORIES the runtime itself creates inside its runtime root.
+///
+/// They matter in exactly one layout: the runtime living AT (or inside) the
+/// root being scanned, where the runtime's own state would otherwise enter the
+/// source walk. Measured on a real birth ceremony with `runtime == repo root`:
+/// 32 of 39 graph nodes were the runtime's own files, and the walk↔revalidate
+/// digest raced against the live lease/daemon writers
+/// (`FullReindexRequired: VCS/file-metadata context changed since extraction`)
+/// — deterministic pollution everywhere, a lost race on ubuntu.
+///
+/// `path_policy::RUNTIME_ARTIFACT_FILE_NAMES` already filters ten of these at
+/// walk level, but that list aged silently (nothing validated it). This pair is
+/// gated by `the_runtime_owned_list_covers_what_a_real_session_writes`, which
+/// boots a real session over its own root and fails naming any state file the
+/// lists miss — grow the lists when that test says so, never from memory.
+pub(crate) const RUNTIME_OWNED_ROOT_DIRS: &[&str] =
+    &["checkpoint-store", "project-brains", "registry"];
+
+/// Top-level FILES the runtime itself creates inside its runtime root, beyond
+/// the ten `path_policy::RUNTIME_ARTIFACT_FILE_NAMES` already filters.
+/// Same gate as [`RUNTIME_OWNED_ROOT_DIRS`].
+pub(crate) const RUNTIME_OWNED_ROOT_FILES: &[&str] = &[
+    "boot_config_v1.json",
+    "boot_kv_migration_v1.json",
+    "boot_kv_migration_journal_v1.json",
+    "boot_memory_state.json",
+    "calibration_state.json",
+    "checkpoint-working-set-v1.json",
+    "daemon_alerts.json",
+    "daemon_state.json",
+    "document_artifact_inventory.json",
+    "document_cache_index.json",
+    "embeddings_cache.bin",
+    "runtime.session",
+    "temporal_state_v1.json",
+    "verb_usage_state.json",
+];
+
+/// Build the code-ingest config for `root`, excluding the runtime's OWN state
+/// when the runtime lives inside the root being scanned.
+///
+/// The extra skips ride the config's existing `skip_dirs`/`skip_files`, which
+/// the pipeline receipt already records and the freshness revalidation already
+/// replays — so extraction and `require_complete` see the same world and the
+/// receipt stays self-consistent with no schema change. In every other layout
+/// (runtime under `~/.m1nd`, or a hidden `.m1nd/` inside the repo) the config
+/// is exactly the default one; name-collision cost (a user's own top-level
+/// `registry/`, say) is confined to the one layout whose alternative is a
+/// graph made of the runtime's droppings.
+fn code_ingest_config(
+    state: &SessionState,
+    root: &std::path::Path,
+    include_dotfiles: bool,
+    dotfile_patterns: Vec<String>,
+) -> m1nd_ingest::IngestConfig {
+    let mut config = m1nd_ingest::IngestConfig {
+        root: root.to_path_buf(),
+        include_dotfiles,
+        dotfile_patterns,
+        ..m1nd_ingest::IngestConfig::default()
+    };
+    let canonical =
+        |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let ingest_root = canonical(root);
+    if canonical(&state.runtime_root).starts_with(&ingest_root) {
+        for dir in RUNTIME_OWNED_ROOT_DIRS {
+            if !config.skip_dirs.iter().any(|d| d == dir) {
+                config.skip_dirs.push((*dir).to_string());
+            }
+        }
+        // Cover each owned name AND its `.bak` sibling: state writers keep
+        // rename-based backups beside the live file (`antibodies.json.bak`
+        // was the anti-aging gate's first catch), and a backup of runtime
+        // state is runtime state.
+        for file in RUNTIME_OWNED_ROOT_FILES
+            .iter()
+            .chain(m1nd_ingest::path_policy::RUNTIME_ARTIFACT_FILE_NAMES)
+        {
+            for name in [(*file).to_string(), format!("{file}.bak")] {
+                if !config.skip_files.contains(&name) {
+                    config.skip_files.push(name);
+                }
+            }
+        }
+        // The registry base is configurable; skip it by its real name only
+        // when it, too, sits under the scanned root.
+        let registry_root = canonical(&state.instance.registry_root());
+        if registry_root.starts_with(&ingest_root) {
+            if let Some(name) = registry_root.file_name().and_then(|n| n.to_str()) {
+                if !config.skip_dirs.iter().any(|d| d == name) {
+                    config.skip_dirs.push(name.to_string());
+                }
+            }
+        }
+    }
+    config
+}
+
 /// Re-ingest a root this brain has ALREADY declared.
 ///
 /// The door never creates a brain, never adds a root, and never crosses to
@@ -259,12 +357,12 @@ fn handle_ingest_refresh(
 
     // 6. The CANDIDATE, computed first and committed only if it survives. The
     //    ingest itself is the existing one — this door builds no second scanner.
-    let (candidate, stats) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
-        root: std::path::PathBuf::from(target),
-        include_dotfiles: input.include_dotfiles,
-        dotfile_patterns: input.dotfile_patterns.clone(),
-        ..m1nd_ingest::IngestConfig::default()
-    })
+    let (candidate, stats) = m1nd_ingest::Ingestor::new(code_ingest_config(
+        state,
+        std::path::Path::new(target),
+        input.include_dotfiles,
+        input.dotfile_patterns.clone(),
+    ))
     .ingest()?;
 
     let live_nodes = u64::from(state.graph.read().num_nodes());
@@ -3469,12 +3567,12 @@ pub fn handle_ingest(
     match input.adapter.as_str() {
         "code" => {
             // Existing code ingestion path (default)
-            let config = m1nd_ingest::IngestConfig {
-                root: path.clone(),
-                include_dotfiles: input.include_dotfiles,
-                dotfile_patterns: input.dotfile_patterns.clone(),
-                ..m1nd_ingest::IngestConfig::default()
-            };
+            let config = code_ingest_config(
+                state,
+                &path,
+                input.include_dotfiles,
+                input.dotfile_patterns.clone(),
+            );
 
             let ingestor = m1nd_ingest::Ingestor::new(config);
 
