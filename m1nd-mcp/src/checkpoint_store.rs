@@ -848,6 +848,12 @@ impl Drop for CheckpointStoreInner {
 #[derive(Clone)]
 pub struct CheckpointStore {
     inner: Arc<CheckpointStoreInner>,
+    /// Brain ids this store may LEAVE on a chain transition — the one-way
+    /// re-stamp of a checkpoint written under a known legacy spelling of the
+    /// same canonical root (a 1.6.3 `--birth .` stamped `<root>/.`). Set only
+    /// by the adopting boot; empty everywhere else, so the cross-brain guard
+    /// keeps its full bite for genuinely foreign state.
+    accepted_legacy_brain_ids: Vec<String>,
 }
 
 impl CheckpointStore {
@@ -926,6 +932,7 @@ impl CheckpointStore {
         }
 
         let store = Self {
+            accepted_legacy_brain_ids: Vec::new(),
             inner: Arc::new(CheckpointStoreInner {
                 namespace_root,
                 checkpoints,
@@ -943,6 +950,13 @@ impl CheckpointStore {
         };
         store.inner.verify_namespace_binding()?;
         Ok(store)
+    }
+
+    /// Authorize this store to leave the given brain ids on a chain
+    /// transition — the adopting boot's one-way re-stamp (see the field doc).
+    pub(crate) fn with_accepted_legacy_brain_ids(mut self, ids: Vec<String>) -> Self {
+        self.accepted_legacy_brain_ids = ids;
+        self
     }
 
     pub fn root(&self) -> &Path {
@@ -993,7 +1007,11 @@ impl CheckpointStore {
         }
         if let Some(previous) = &built.manifest.previous_checkpoint_id {
             let previous_manifest = self.validate_checkpoint_directory(previous)?;
-            validate_monotonic_successor(&previous_manifest, &built.manifest)?;
+            validate_monotonic_successor(
+                &previous_manifest,
+                &built.manifest,
+                &self.accepted_legacy_brain_ids,
+            )?;
         }
 
         let final_directory = self.io_checkpoint_directory(&checkpoint_id);
@@ -1834,12 +1852,18 @@ fn validate_manifest(manifest: &CheckpointManifestV1) -> Result<(), CheckpointEr
 fn validate_monotonic_successor(
     previous: &CheckpointManifestV1,
     next: &CheckpointManifestV1,
+    accepted_legacy_brain_ids: &[String],
 ) -> Result<(), CheckpointError> {
     if previous.brain_id != next.brain_id {
-        return Err(CheckpointError::refused(
-            "checkpoint_brain_mismatch",
-            format!("{} != {}", previous.brain_id, next.brain_id),
-        ));
+        // The one sanctioned transition: leaving a brain id the adopting boot
+        // proved to be a legacy spelling of this very root. Everything else
+        // keeps the full cross-brain refusal.
+        if !accepted_legacy_brain_ids.contains(&previous.brain_id) {
+            return Err(CheckpointError::refused(
+                "checkpoint_brain_mismatch",
+                format!("{} != {}", previous.brain_id, next.brain_id),
+            ));
+        }
     }
     if (next.epoch, next.generation, next.revision)
         <= (previous.epoch, previous.generation, previous.revision)

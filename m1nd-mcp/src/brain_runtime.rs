@@ -781,6 +781,11 @@ pub enum BrainRuntimeError {
     BrainBindingMismatch {
         expected: String,
         observed: String,
+        /// The path string the EXPECTED id was derived from, when the caller
+        /// knows it. An agent once spent a whole turn brute-forcing sha256
+        /// preimages to learn where a brain id came from (2026-08-02); the
+        /// error now carries the derivation instead of demanding archaeology.
+        expected_source: Option<String>,
     },
     SnapshotRevisionMismatch {
         expected: u64,
@@ -875,10 +880,25 @@ impl fmt::Display for BrainRuntimeError {
                 observed.generation,
                 observed.revision
             ),
-            Self::BrainBindingMismatch { expected, observed } => write!(
-                formatter,
-                "runtime job brain binding mismatch: expected '{expected}', observed '{observed}'"
-            ),
+            Self::BrainBindingMismatch {
+                expected,
+                observed,
+                expected_source,
+            } => match expected_source {
+                Some(source) => write!(
+                    formatter,
+                    "runtime job brain binding mismatch: this boot derived '{expected}' from the \
+                     canonical root '{source}' (id = sha256 over \"m1nd-brain-runtime-v1\\0bound:{source}\"), \
+                     but the checkpoint on disk was written by a brain named '{observed}', and \
+                     '{observed}' matches no known legacy spelling of that root either. If the \
+                     checkpoint belongs to a different root, boot from that root; if it is this \
+                     root's own state written by an older build, file it — do not brute-force ids"
+                ),
+                None => write!(
+                    formatter,
+                    "runtime job brain binding mismatch: expected '{expected}', observed '{observed}'"
+                ),
+            },
             Self::SnapshotRevisionMismatch { expected, observed } => write!(
                 formatter,
                 "runtime job snapshot revision mismatch: expected {expected}, observed {observed}"
@@ -978,6 +998,7 @@ impl BrainActorHandle {
     ) -> Result<Arc<Self>, BrainRuntimeError> {
         Self::start_with_faults(
             brain_id,
+            None,
             session,
             checkpoint_root,
             authority,
@@ -987,8 +1008,43 @@ impl BrainActorHandle {
         )
     }
 
+    /// Start the BOUND actor, carrying the canonical root its id derives from.
+    ///
+    /// One root, one identity: `.`/trailing-slash/symlink spellings of the same
+    /// directory must never mint different brains. A 1.6.3 birth run as
+    /// `--birth .` stamped its checkpoint with the id of `<root>/.` while the
+    /// next boot derived the id of `<root>` — the serve came up and refused
+    /// every job over a spelling difference, and an agent burned a whole turn
+    /// brute-forcing sha256 preimages to find out why (2026-08-02). Carrying
+    /// the source lets the boot RECOGNIZE checkpoints written under a known
+    /// legacy spelling of its own canonical root (adopting them; the next
+    /// checkpoint re-stamps the canonical id) and lets the mismatch error
+    /// name the derivation instead of demanding archaeology.
+    pub(crate) fn start_bound(
+        brain_id: String,
+        identity_source: String,
+        session: Arc<BrainSessionCell>,
+        checkpoint_root: PathBuf,
+        authority: Arc<dyn BrainCheckpointAuthority>,
+        queue_capacity: usize,
+        recovery: Option<BrainBootRecovery>,
+    ) -> Result<Arc<Self>, BrainRuntimeError> {
+        Self::start_with_faults(
+            brain_id,
+            Some(identity_source),
+            session,
+            checkpoint_root,
+            authority,
+            queue_capacity,
+            recovery,
+            Arc::new(NoCheckpointFaults),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_with_faults(
         brain_id: String,
+        identity_source: Option<String>,
         session: Arc<BrainSessionCell>,
         checkpoint_root: PathBuf,
         authority: Arc<dyn BrainCheckpointAuthority>,
@@ -1002,7 +1058,17 @@ impl BrainActorHandle {
         // compatibility cell. A duplicate actor start must return a typed
         // WriterLocked refusal without quarantining an otherwise healthy live
         // session that this attempted start never modified.
-        let store = CheckpointStore::open(checkpoint_root)?;
+        let store = CheckpointStore::open(checkpoint_root)?.with_accepted_legacy_brain_ids(
+            identity_source
+                .as_deref()
+                .map(|source| {
+                    legacy_identity_spellings(source)
+                        .iter()
+                        .map(|spelling| project_brain_id(&format!("bound:{spelling}")))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        );
         let mut boot_state = session.checkout()?;
         // Callers may have cloned interior Arcs before moving SessionState into
         // the cell. Detach them at the ownership handoff so no pre-actor graph
@@ -1038,10 +1104,37 @@ impl BrainActorHandle {
             let recovery = match observed {
                 Ok(loaded) => {
                     if loaded.manifest.brain_id != brain_id {
-                        return Err(BrainRuntimeError::BrainBindingMismatch {
-                            expected: brain_id.clone(),
-                            observed: loaded.manifest.brain_id,
+                        // One root, one identity. When we know the canonical
+                        // source this id derives from, a checkpoint stamped
+                        // under a known LEGACY SPELLING of that same root
+                        // (`<root>/.` from a `--birth .`, a trailing slash) is
+                        // OUR OWN state, not a foreign brain: adopt it — the
+                        // next checkpoint re-stamps the canonical id. Anything
+                        // else stays a hard mismatch, now carrying the
+                        // derivation so nobody has to brute-force sha256 to
+                        // learn where an id came from.
+                        let legacy_match = identity_source.as_deref().is_some_and(|source| {
+                            legacy_identity_spellings(source)
+                                .iter()
+                                .any(|spelling| {
+                                    project_brain_id(&format!("bound:{spelling}"))
+                                        == loaded.manifest.brain_id
+                                })
                         });
+                        if legacy_match {
+                            eprintln!(
+                                "[m1nd] adopting checkpoint written under a legacy spelling of \
+                                 this root (stored brain id {}); the next checkpoint re-stamps \
+                                 the canonical id {brain_id}",
+                                loaded.manifest.brain_id
+                            );
+                        } else {
+                            return Err(BrainRuntimeError::BrainBindingMismatch {
+                                expected: brain_id.clone(),
+                                observed: loaded.manifest.brain_id,
+                                expected_source: identity_source.clone(),
+                            });
+                        }
                     }
                     let verified_working_set = verified_working_set(&loaded)?;
                     let expected_candidate_digest =
@@ -3339,6 +3432,7 @@ pub(crate) fn recover_checkpoint_for_boot(
         return Err(BrainRuntimeError::BrainBindingMismatch {
             expected: brain_id.to_string(),
             observed: loaded.manifest.brain_id.clone(),
+            expected_source: None,
         });
     }
     let verified_working_set = verified_working_set(&loaded)?;
@@ -3416,6 +3510,7 @@ fn rejected_current_working_paths(
         return Err(BrainRuntimeError::BrainBindingMismatch {
             expected: loaded.manifest.brain_id.clone(),
             observed: rejected.brain_id,
+            expected_source: None,
         });
     }
     if rejected.previous_checkpoint_id.as_deref() != Some(loaded.manifest.checkpoint_id.as_str()) {
@@ -4064,6 +4159,21 @@ pub fn project_brain_id(canonical_root: &str) -> String {
     format!("project-brain-{}", domain_digest(canonical_root))
 }
 
+/// The known legacy spellings a pre-canonicalization build could have derived
+/// an identity from, for one canonical root. Bounded and documented: `--birth .`
+/// stamped `<root>/.`; other observed shapes are the trailing-slash family.
+/// This list exists so a boot can RECOGNIZE its own old checkpoints — it is the
+/// sha256 archaeology an agent once did by hand, done by the product, once,
+/// at boot.
+pub(crate) fn legacy_identity_spellings(canonical_root: &str) -> Vec<String> {
+    let trimmed = canonical_root.trim_end_matches('/');
+    vec![
+        format!("{trimmed}/."),
+        format!("{trimmed}/"),
+        format!("{trimmed}/./"),
+    ]
+}
+
 fn sha256_bytes(bytes: &[u8]) -> String {
     hex_lower(&Sha256::digest(bytes))
 }
@@ -4500,6 +4610,7 @@ mod tests {
             let faults: Arc<dyn CheckpointFaultInjector> = injector.clone();
             let actor = BrainActorHandle::start_with_faults(
                 format!("one-shot-fault-{index}"),
+                None,
                 Arc::clone(&session),
                 checkpoint_root.clone(),
                 Arc::new(UnboundBrainCheckpointAuthority),
@@ -4538,6 +4649,7 @@ mod tests {
         let faults: Arc<dyn CheckpointFaultInjector> = injector.clone();
         let actor = BrainActorHandle::start_with_faults(
             "persistent-post-current-fault".to_string(),
+            None,
             Arc::clone(&session),
             checkpoint_root.clone(),
             Arc::new(UnboundBrainCheckpointAuthority),
@@ -4608,6 +4720,98 @@ mod tests {
         actor.stop().expect("stop reconciled actor");
     }
 
+    /// One root, one identity — the 2026-08-02 field kill: a 1.6.3
+    /// `--birth .` stamped its checkpoint with the id of `<root>/.`, the next
+    /// boot derived the id of `<root>`, and a live serve refused every job
+    /// over a spelling difference while an agent brute-forced sha256 preimages
+    /// to find out why. Four boots pin the whole law:
+    ///   (a) a legacy-spelled actor writes a checkpoint;
+    ///   (b) CONTROL — a canonical boot WITHOUT a known source still refuses
+    ///       with the typed mismatch (the cross-brain protection stands);
+    ///   (c) a canonical boot that KNOWS its source adopts the legacy
+    ///       checkpoint and re-stamps it;
+    ///   (d) a plain canonical boot now succeeds — proof the re-stamp landed.
+    #[test]
+    fn a_spelling_difference_cannot_orphan_a_brain() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let checkpoint_root = runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY);
+        let canonical = runtime_root.to_string_lossy().into_owned();
+        let legacy_id = project_brain_id(&format!("bound:{canonical}/."));
+        let canonical_id = project_brain_id(&format!("bound:{canonical}"));
+        assert_ne!(legacy_id, canonical_id);
+
+        // (a) the legacy-spelled era writes real state.
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            legacy_id.clone(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("legacy-era actor starts");
+        actor
+            .try_execute_with_checkpoint_ack(|state| {
+                state.graph_generation = state.graph_generation.saturating_add(1);
+                Ok::<(), RuntimeJobFailure>(())
+            })
+            .expect("legacy-era checkpoint lands");
+        actor.stop().expect("legacy-era actor stops");
+
+        // (b) CONTROL: canonical id, no source — the typed refusal stands.
+        let control = BrainActorHandle::start(
+            canonical_id.clone(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        );
+        match control {
+            Err(BrainRuntimeError::BrainBindingMismatch {
+                expected_source: None,
+                ..
+            }) => {}
+            Err(other) => panic!(
+                "a sourceless canonical boot must refuse with the typed mismatch, got {other:?}"
+            ),
+            Ok(_) => panic!("a sourceless canonical boot must refuse, but it started"),
+        }
+
+        // (c) the canonical boot that knows its root adopts the legacy state…
+        let adopted = BrainActorHandle::start_bound(
+            canonical_id.clone(),
+            canonical.clone(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("a known legacy spelling of this root is OUR state — adopt, never orphan");
+        adopted
+            .try_execute_with_checkpoint_ack(|state| {
+                state.graph_generation = state.graph_generation.saturating_add(1);
+                Ok::<(), RuntimeJobFailure>(())
+            })
+            .expect("the adopting boot re-stamps the canonical id");
+        adopted.stop().expect("adopting actor stops");
+
+        // (d) …and a PLAIN canonical boot now works: the re-stamp landed.
+        let plain = BrainActorHandle::start(
+            canonical_id,
+            Arc::clone(&session),
+            checkpoint_root,
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("after the re-stamp, the canonical id boots with no source needed");
+        plain.stop().expect("plain canonical actor stops");
+    }
+
     #[test]
     fn dropping_last_handle_delegates_in_doubt_recovery_to_a_guardian() {
         let temporary = tempfile::tempdir().expect("temporary runtime");
@@ -4619,6 +4823,7 @@ mod tests {
         let faults: Arc<dyn CheckpointFaultInjector> = injector.clone();
         let actor = BrainActorHandle::start_with_faults(
             "drop-reconciliation-guardian".to_string(),
+            None,
             Arc::clone(&session),
             runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
             Arc::new(UnboundBrainCheckpointAuthority),
@@ -4670,6 +4875,7 @@ mod tests {
         let faults: Arc<dyn CheckpointFaultInjector> = injector.clone();
         let actor = BrainActorHandle::start_with_faults(
             "reconciliation-panic-fence".to_string(),
+            None,
             Arc::clone(&session),
             checkpoint_root,
             Arc::new(UnboundBrainCheckpointAuthority),
@@ -4726,6 +4932,7 @@ mod tests {
 
         let actor = BrainActorHandle::start_with_faults(
             "bootstrap-post-current-fault".to_string(),
+            None,
             Arc::clone(&session),
             checkpoint_root.clone(),
             Arc::new(UnboundBrainCheckpointAuthority),
@@ -4777,6 +4984,7 @@ mod tests {
 
         let error = match BrainActorHandle::start_with_faults(
             "bootstrap-pre-current-fault".to_string(),
+            None,
             Arc::clone(&session),
             checkpoint_root.clone(),
             Arc::new(UnboundBrainCheckpointAuthority),
@@ -4802,6 +5010,7 @@ mod tests {
         injector.enabled.store(false, Ordering::SeqCst);
         let actor = BrainActorHandle::start_with_faults(
             "bootstrap-pre-current-fault".to_string(),
+            None,
             Arc::clone(&session),
             checkpoint_root,
             Arc::new(UnboundBrainCheckpointAuthority),
