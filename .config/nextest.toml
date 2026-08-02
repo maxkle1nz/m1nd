@@ -46,3 +46,29 @@ heavy-io = { max-threads = 2 }
 [[profile.shadow.overrides]]
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress) | test(transplant)'
 test-group = 'heavy-io'
+
+# ---------------------------------------------------------------------------
+# The LIGHTNING lane — a fast day-to-day CHECK, deliberately NOT the merge
+# gate (ratified with that exact condition, 2026-08-02). Its selector is the
+# never-cut core from docs/TEST-PORTFOLIO.md §4: lifecycle, checkpoint
+# fault-injection, byte continuity, birth e2e, the runtime-exclusion gate,
+# schema/parity/seating, reception guards and the fail-closed authority
+# family. Run it through `scripts/lightning_check.sh`, which adds the two
+# proofs nextest cannot carry (the compile_fail doctest leg and the lean
+# no-default-features check) and prints, on every run, what this lane does
+# NOT prove. The merge gate remains the FULL suite on three OSes, always.
+[profile.lightning]
+default-filter = '''
+binary_id(m1nd-mcp::persist_runtime_root)
+| binary_id(m1nd-mcp::checkpoint_store)
+| binary_id(m1nd-mcp::first_graph_is_born)
+| binary_id(m1nd-core::snapshot_bin_continuity)
+| binary_id(m1nd-core::snapshot_bin_roundtrip)
+| test(ingest_excludes_runtime_state)
+| test(every_tool_input_schema_is_top_level_object)
+| test(live_schema_registry_and_policy_route_inventory_are_exactly_equal)
+| test(rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate)
+| test(catalog_minimal_arguments_validate_against_live_schema)
+| test(reception)
+| test(fail_closed)
+'''
