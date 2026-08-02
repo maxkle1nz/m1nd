@@ -57,10 +57,14 @@ measured high-signal pattern starts by never starting cold:
    cover your current repo — do not trust retrieval for it; read
    `reception.options[]`. Generic cross-root `ingest` remains withdrawn
    (`project_root` absent from the published schema), and over the wire
-   `brain.bootstrap.birth` refuses every client with `human_gesture_required`.
-   The way forward for a brainless repo is the HUMAN's one-time ceremony —
-   OFFER the exact command `m1nd init --birth <repo>` and stop; running it is
-   not the agent's to do. Until then, continue only against the bound graph
+   `brain.bootstrap.birth` answers every client with
+   `human_authorization_required` and the agent's actionable path.
+   The way forward for a brainless repo (the owner's law, 2026-08-02): ASK
+   your human — always — create a new brain or load the existing one?; with
+   their yes, run `m1nd init --birth <repo>` YOURSELF (add `--confirm
+   create-new`/`--confirm load-existing` when a brain already exists — an
+   unconfirmed ceremony there answers with that choice, never a bare
+   refusal). Until the human answers, continue only against the bound graph
    with the mismatch warning intact, or reconnect to an owner that already
    hosts the intended repo. Absent/null = your root matches the brain
    serving you. Reception governs WRITES too, not only reads: a read under

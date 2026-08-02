@@ -15,8 +15,9 @@ This is a doctrine, not a manual.
   If it returns `needs_ingest` (empty/unbound graph), do not call generic `ingest`:
   that mutation surface is policy-disabled. **Say the door out loud instead** —
   a repo with no brain gets one from the HUMAN's one-time ceremony,
-  `m1nd init --birth <repo>`: offer that exact command and stop, then re-`north`
-  once they have run it. Meanwhile use the isolated `m1nd agent ... --repo` CLI
+  `m1nd init --birth <repo>`: ask them which they want, a new brain or an existing one
+  loaded, and with their yes run it yourself, then re-`north`. Meanwhile use the
+  isolated `m1nd agent ... --repo` CLI
   path for investigation, or the exact authority flow plus
   `external_mutation_service` for a governed existing-brain mutation.
 - Before `rg`, shell globbing, or manual file reads, `m1nd` answers or narrows FIRST — that is the default, not a question you ask only when convenient. The one exception is the **Skip Conditions** below (exact file+lines already known, or pure compiler/runtime truth); everything else earns a `north`/`seek`/`impact` pass first.
@@ -79,10 +80,14 @@ this loop by default:
    Generic cross-root `ingest` remains withdrawn: never
    add `project_root` or `allow_overlap`, and never treat the internal owner
    bootstrap as an executable repair. A brainless repo now has ONE real path —
-   the HUMAN's one-time ceremony `m1nd init --birth <repo>`: OFFER that exact
-   command and stop (over the wire the birth verb refuses every client with
-   `human_gesture_required`; writes into a brainless root still refuse
-   `brain_bootstrap_consumer_not_installed`). Until the human runs it, connect
+   the ceremony `m1nd init --birth <repo>`, on the human's explicit pick (the
+   owner's law, 2026-08-02): ASK your human — always — create a new brain or
+   load the existing one?; with their yes, RUN the command yourself (add
+   `--confirm create-new`/`load-existing` when a brain already exists — an
+   unconfirmed ceremony there answers with that choice). Over the wire the
+   birth verb answers `human_authorization_required` with this same path;
+   writes into a brainless root still refuse
+   `brain_bootstrap_consumer_not_installed`. Until the human answers, connect
    to an owner that already hosts the intended brain or continue only with
    explicit mismatch caveats.
    Reception governs WRITES, not just reads: a read under mismatch is a warning,
@@ -622,7 +627,7 @@ binding, and read it rather than guessing. The two real ones:
   with the absolute path of the intended repo/workspace, never a managed
   runtime/session path such as `~/.codex/m1nd-runtimes/...`,
   `~/.claude/m1nd-runtimes/...`, an Antigravity agent runtime, or a generic
-  `mcp-runtimes`/`agent-runtimes` folder. Offer the command and stop.
+  `mcp-runtimes`/`agent-runtimes` folder. Ask your human, then run it with their yes.
 - **A brain that already DECLARES your root, gone stale** → `ingest {mode:"refresh",
   path: <your root>}` from exactly that root. Yours to run, no human needed.
 

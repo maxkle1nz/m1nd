@@ -59,8 +59,16 @@ pub enum HumanOrigin {
     /// the ratified allowlist; no stamping seam is installed in this PR.
     TouchId,
     /// The P2 ceremony (`human-cli`) — `m1nd init --birth <root>`, which reaches
-    /// the owner as its own `--birth` ingress. The ONLY stamp installed today.
+    /// the owner as its own `--birth` ingress.
     Cli,
+    /// An agent relaying its human's explicit yes over the wire — the owner's
+    /// law, declared verbatim 2026-08-02: "brain o agente PODE fazer com
+    /// autorização do humano, e ele tem que dizer SEMPRE pro humano se quer
+    /// fazer o brain ou carregar." The agent's declaration is accepted BY THE
+    /// OWNER'S DECISION; the honesty obligation (always ask the human first,
+    /// always offer create-new × load-existing) lives in the agent protocol and
+    /// in the choice payload the wire returns when the declaration is absent.
+    AgentRelayed,
 }
 
 impl HumanOrigin {
@@ -70,13 +78,15 @@ impl HumanOrigin {
             HumanOrigin::Ui => "human-ui",
             HumanOrigin::TouchId => "human-touchid",
             HumanOrigin::Cli => "human-cli",
+            HumanOrigin::AgentRelayed => "human-via-agent",
         }
     }
 }
 
 /// The ratified allowlist as tokens, for payloads that must NAME the closed set
 /// (the refusal's `allowed_origins`, mirroring `receipt_import`'s shape).
-pub const BIRTH_HUMAN_ORIGINS: &[&str] = &["human-ui", "human-touchid", "human-cli"];
+pub const BIRTH_HUMAN_ORIGINS: &[&str] =
+    &["human-ui", "human-touchid", "human-cli", "human-via-agent"];
 
 /// The origins that have a STAMPING SEAM in this binary today.
 ///
@@ -110,6 +120,12 @@ pub struct BirthRequest {
     pub allow_overlap: bool,
     /// Passed through to the first ingest.
     pub include_dotfiles: bool,
+    /// The human's explicit pick when the destination already holds a brain
+    /// and the door offers the create-new × load-existing choice (the owner's
+    /// law, 2026-08-02). `Some("create-new")` re-scans replacing the graph;
+    /// `Some("load-existing")` acknowledges and touches nothing; `None` on an
+    /// inhabited destination gets the CHOICE back, never a bare refusal.
+    pub confirm: Option<String>,
 }
 
 impl BirthRequest {
@@ -120,6 +136,7 @@ impl BirthRequest {
             agent_id: agent_id.into(),
             allow_overlap: false,
             include_dotfiles: false,
+            confirm: None,
         }
     }
 }
@@ -143,18 +160,32 @@ pub(crate) fn birth_refusal(code: &str, reason: &str) -> serde_json::Value {
 /// `dispatch_tool` directly still cannot birth, because the dispatcher has no
 /// `HumanOrigin` to hand the handler and cannot manufacture one.
 pub fn birth_refusal_without_stamp() -> serde_json::Value {
+    // The owner's law, declared verbatim 2026-08-02: "brain o agente PODE
+    // fazer com autorização do humano, e ele tem que dizer SEMPRE pro humano
+    // se quer fazer o brain ou carregar." So this seam no longer teaches
+    // "agents never do" — it teaches the agent's real path: ask the human,
+    // offer both options, and with their yes RUN THE CEREMONY YOURSELF via
+    // the CLI (which any authorized agent can execute). The wire payload
+    // still cannot birth directly — the dispatcher holds no owner context —
+    // and that residual is declared, not hidden.
     let mut refusal = birth_refusal(
-        "human_gesture_required",
-        "birth is the human's one-time gesture; the owner stamps its origin from a fact it \
-         observes about itself, and a client-supplied origin string grants nothing",
+        "human_authorization_required",
+        "a brain is born on the human's explicit pick — ask them now: create a new brain for \
+         this repo, or load the existing one?",
     );
     if let Some(object) = refusal.as_object_mut() {
         object.insert("allowed_origins".into(), json!(BIRTH_HUMAN_ORIGINS));
         object.insert(
-            "lesson".into(),
-            json!(
-                "birthing a brain is the human's gesture — the ceremony sends it; agents never do"
-            ),
+            "your_path".into(),
+            json!({
+                "1": "present the choice to your human: create-new × load-existing (always — the owner's standing law)",
+                "2": format!(
+                    "with their yes, run the ceremony yourself: `{BIRTH_CEREMONY_COMMAND}` \
+                     (add `--confirm create-new` or `--confirm load-existing` when the repo \
+                     already holds a brain)"
+                ),
+                "3": "relay the outcome to your human verbatim",
+            }),
         );
         object.insert("door".into(), json!(BIRTH_CEREMONY_COMMAND));
     }
@@ -320,9 +351,21 @@ pub fn run_ceremony(
     root: &str,
     agent_id: &str,
 ) -> m1nd_core::error::M1ndResult<serde_json::Value> {
+    run_ceremony_with_confirm(server, root, agent_id, None)
+}
+
+/// [`run_ceremony`] with the human's explicit create-new × load-existing pick
+/// (the owner's law, 2026-08-02) — relayed from `--confirm` on the CLI.
+pub fn run_ceremony_with_confirm(
+    mut server: crate::server::McpServer,
+    root: &str,
+    agent_id: &str,
+    confirm: Option<String>,
+) -> m1nd_core::error::M1ndResult<serde_json::Value> {
     let (runtime_root, _project_root) = server.offline_operator_context();
     let registry_dir = server.config_registry_dir();
-    let request = BirthRequest::ceremony(root, agent_id);
+    let mut request = BirthRequest::ceremony(root, agent_id);
+    request.confirm = confirm;
 
     // THE HOME CASE, decided before any store is chosen. See
     // [`home_birth_verdict`]: when this owner's runtime lives INSIDE the root the
@@ -331,6 +374,8 @@ pub fn run_ceremony(
     match home_birth_verdict(&server, &runtime_root, &request)? {
         HomeBirth::NotHome => {}
         HomeBirth::Refuse(refusal) => return Ok(refusal),
+        HomeBirth::Choice(choice) => return Ok(choice),
+        HomeBirth::AlreadyServed(acknowledged) => return Ok(acknowledged),
         HomeBirth::Fill { canonical_root } => {
             return run_home_birth(server, &canonical_root, &request, HumanOrigin::Cli);
         }
@@ -351,7 +396,15 @@ enum HomeBirth {
     NotHome,
     /// It is home, and there is nothing to do — the answer is the refusal.
     Refuse(serde_json::Value),
-    /// It is home and the home is empty: fill this owner's own graph.
+    /// It is home and inhabited, and the caller has not chosen yet: the answer
+    /// is the create-new × load-existing CHOICE (the owner's law, 2026-08-02),
+    /// with the existing brain's numbers so the human decides informed.
+    Choice(serde_json::Value),
+    /// It is home, inhabited, and the human chose to keep it: acknowledge and
+    /// touch nothing.
+    AlreadyServed(serde_json::Value),
+    /// It is home and the home is empty (or the human chose create-new): fill
+    /// this owner's own graph.
     Fill { canonical_root: String },
 }
 
@@ -409,21 +462,58 @@ fn home_birth_verdict(
     // since the binding falls back to the graph path's parent — is covered and
     // still has no brain. Refusing it as "already has its brain" while reporting
     // zero nodes would be the same dishonesty this whole change is about.
+    //
+    // And when it IS inhabited, the answer is a CHOICE, never a bare refusal
+    // (the owner's law, 2026-08-02: the product must always say "create new or
+    // load the existing one?"). The field case that forced this: a boot could
+    // ingest the repo BEFORE this verdict ran, so the ceremony refused the very
+    // graph its own process had just filled — the agent read "failed" while a
+    // working brain sat behind the message.
     let bound = server.bound_boot_state()?;
     let node_count = u64::from(bound.graph.read().num_nodes());
     if node_count > 0 {
-        let mut refusal = birth_refusal(
-            "birth_root_is_bound_graph",
-            "this repo already has its brain — the graph this owner serves IS that brain, so there \
-             is nothing to birth; a birth would replace a graph that may have been growing for \
-             months, and that is never this command's job",
-        );
-        if let Some(object) = refusal.as_object_mut() {
-            object.insert("root".into(), json!(key));
-            object.insert("node_count".into(), json!(node_count));
-            object.insert("store_dir".into(), json!(runtime_key));
+        match request.confirm.as_deref() {
+            Some("create-new") => {
+                // The human explicitly chose to re-scan. Proceed to Fill —
+                // an authorized replace, not a silent one.
+            }
+            Some("load-existing") => {
+                return Ok(HomeBirth::AlreadyServed(json!({
+                    "ok": true,
+                    "schema": BIRTH_SCHEMA,
+                    "action": BIRTH_ACTION,
+                    "chose": "load-existing",
+                    "root": key,
+                    "node_count": node_count,
+                    "store_dir": runtime_key,
+                    "note": "this owner already serves that brain — nothing to run; use it as-is",
+                })));
+            }
+            Some(other) => {
+                return Ok(HomeBirth::Refuse(birth_refusal(
+                    "birth_confirm_unknown",
+                    &format!("confirm must be \"create-new\" or \"load-existing\"; got {other:?}"),
+                )));
+            }
+            None => {
+                return Ok(HomeBirth::Choice(json!({
+                    "ok": false,
+                    "choice_required": true,
+                    "schema": BIRTH_SCHEMA,
+                    "action": BIRTH_ACTION,
+                    "existing": {
+                        "root": key,
+                        "node_count": node_count,
+                        "store_dir": runtime_key,
+                    },
+                    "options": {
+                        "load-existing": "this brain is ALREADY SERVED by this owner — using it costs nothing; confirm with confirm:\"load-existing\" (or just use it)",
+                        "create-new": "re-scan this root REPLACING the graph — confirm with confirm:\"create-new\"; a graph that may have been growing for months is replaced, so this is the human's call",
+                    },
+                    "ask_the_human": "present both options to your human and relay their pick — never choose for them (the owner's standing law)",
+                })));
+            }
         }
-        return Ok(HomeBirth::Refuse(refusal));
     }
 
     Ok(HomeBirth::Fill {

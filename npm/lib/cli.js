@@ -4770,7 +4770,14 @@ async function main(rawArgs) {
     if (command === "init" && args.birth) {
       const targetBinary = path.resolve(args.binary || defaultRuntimePath());
       const repoArg = typeof args.birth === "string" ? args.birth : args._[1] || process.cwd();
-      const result = spawnSync(targetBinary, ["--birth", path.resolve(repoArg)], {
+      const birthArgs = ["--birth", path.resolve(repoArg)];
+      // Relay the human's create-new × load-existing pick (the owner's law,
+      // 2026-08-02) — the binary answers with the choice when it is absent
+      // and the destination already holds a brain.
+      if (typeof args.confirm === "string" && args.confirm) {
+        birthArgs.push("--confirm", args.confirm);
+      }
+      const result = spawnSync(targetBinary, birthArgs, {
         stdio: "inherit",
       });
       // The FIRST command this product teaches must never answer with silence.

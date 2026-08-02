@@ -36,11 +36,12 @@ Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
 `reception.options[]`. Generic cross-root `ingest` remains withdrawn (`project_root`
 absent from the published schema), and over the wire `brain.bootstrap.birth` refuses
-every client with `human_gesture_required` — the stamp is the binary's own CLI flag.
-A brainless repo now has one real path: the HUMAN's one-time ceremony
-`m1nd init --birth <repo>`. OFFER that exact command and stop — running it is not
-the agent's to do. Until then, continue only against the bound graph with the
-mismatch warning intact, or reconnect to an owner that already hosts the intended repo.
+every client with `human_authorization_required` + the agent's actionable path — and by the owner's law (2026-08-02) an agent WITH the human's explicit yes runs `m1nd init --birth <repo>` itself (always offering create-new × load-existing first).
+A brainless repo has one real path: the ceremony `m1nd init --birth <repo>`. ASK your
+human which they want, a new brain or an existing one loaded, and with their yes run it
+yourself and report what it built. Until they answer, continue only against the bound
+graph with the mismatch warning intact, or reconnect to an owner that already hosts the
+intended repo.
 Absent/null `reception` = your root matches the brain serving you. Reception
 governs WRITES, not just reads: a read under mismatch is a warning, but a WRITE
 under mismatch is PROHIBITED — see Write-Mode Laws below, and no public
