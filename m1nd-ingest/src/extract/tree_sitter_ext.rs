@@ -559,6 +559,16 @@ impl TreeSitterExtractor {
             if self.config.import_kinds.contains(&kind) && self.is_import_node(node, source) {
                 let targets = self.extract_import_target(node, source);
                 for target in targets {
+                    // The full-text fallback splits on quotes, so a whitespace
+                    // string literal in the source (`replace(/\s+/g," ")`) can
+                    // come back as a target of pure whitespace — which becomes
+                    // the invalid endpoint `ref:: ` and killed a real birth
+                    // ceremony (2026-08-02). A blank reference names nothing;
+                    // drop it here, at the producer.
+                    let target = target.trim();
+                    if target.is_empty() {
+                        continue;
+                    }
                     let ref_id = format!("ref::{}", target);
                     edges.push(ExtractedEdge {
                         source: file_id.to_string(),
@@ -577,7 +587,11 @@ impl TreeSitterExtractor {
             // We still recurse into children so that nested calls inside
             // argument lists are also detected with the same enclosing caller.
             if self.config.call_kinds.contains(&kind) {
-                if let Some(callee) = self.extract_callee(node, source) {
+                if let Some(callee) = self
+                    .extract_callee(node, source)
+                    .map(|callee| callee.trim().to_string())
+                    .filter(|callee| !callee.is_empty())
+                {
                     let caller = parent_id.as_deref().unwrap_or(file_id);
                     let ref_id = format!("ref::{}", callee);
                     edges.push(ExtractedEdge {
@@ -1718,6 +1732,41 @@ mod tests {
         for child in node.named_children(&mut cursor) {
             dump_node(&child, src, out, depth + 1);
         }
+    }
+
+    /// A birth ceremony died on a REAL html file for this (2026-08-02, the HQ
+    /// repo): an inline `<script>` is an import_kind, its structured targets
+    /// come back empty, and the full-text fallback splits the script body on
+    /// quotes — so a JS string literal `" "` became import target `" "`,
+    /// edge `ref:: `, and the ingest validator refused the WHOLE payload.
+    /// Every emitted reference must be non-whitespace; the degenerate ones are
+    /// dropped, never emitted.
+    #[test]
+    fn html_inline_script_with_whitespace_string_literals_emits_no_blank_refs() {
+        // The exact minimal shape bisected from the real file: a call chain
+        // ending in `replace(/\s+/g," ")` inside a function body — the
+        // structured collector finds no clean identifier, the full-text
+        // fallback splits on quotes, and the `" "` literal becomes a target.
+        let src = b"<!doctype html><html><head><script>\nfunction idOf(c){return c.querySelector(\".name\").textContent.trim().replace(/\\s+/g,\" \")}\n</script></head><body></body></html>";
+        let ext = EmbeddedExtractor::html_embedded();
+        let result = ext.extract(src, "file::page.html").unwrap();
+        let blank: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| {
+                e.target
+                    .strip_prefix("ref::")
+                    .is_some_and(|t| t.trim().is_empty())
+            })
+            .collect();
+        assert!(
+            blank.is_empty(),
+            "no edge may carry a blank ref target; got {:?}",
+            blank
+                .iter()
+                .map(|e| (&e.source, &e.target, &e.relation))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
