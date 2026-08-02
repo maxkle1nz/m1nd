@@ -245,8 +245,9 @@ matches the brain serving you.
 for those pieces directly only when you need just one. If `north` returns
 `needs_ingest` (empty or unbound graph), that is a real answer, not a failure —
 and it is not yours to fix with `ingest`, which is refused on every transport.
-Read the packet's `next_move`: a repo with no brain yet needs the HUMAN's
-one-time ceremony `m1nd init --birth <repo>` (offer the command and stop), while
+Read the packet's `next_move`: a repo with no brain yet needs the ceremony
+`m1nd init --birth <repo>` — ask your human which they want, a new brain or an
+existing one loaded, and run it yourself with their yes — while
 a brain that already declares your root you refresh yourself with
 `ingest {mode:"refresh", path: <your root>}`. Then call `north` again.
 
