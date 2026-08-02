@@ -176,7 +176,22 @@ fn discovery_policy_fingerprint(
     } else {
         root.as_path()
     };
+    // An unreadable SCAN ROOT is fatal — there is nothing to fingerprint and
+    // silence would lie. An unreadable entry DEEPER in the tree is not: it can
+    // contain neither a readable control file nor an ingestable source, so it
+    // is skipped with a notice. A real birth ceremony died whole on a
+    // `.secrets/` directory owned by another user (2026-08-02) before this
+    // distinction existed.
+    if scan_root.is_dir() {
+        std::fs::read_dir(scan_root).map_err(|error| {
+            M1ndError::Io(std::io::Error::other(format!(
+                "policy control walk cannot open the scan root {}: {error}",
+                scan_root.display()
+            )))
+        })?;
+    }
     let mut controls = BTreeMap::<String, String>::new();
+    let mut skipped_unreadable_paths = 0u64;
     let iter = walkdir::WalkDir::new(scan_root)
         .follow_links(false)
         .into_iter()
@@ -190,11 +205,14 @@ fn discovery_policy_fingerprint(
                 && !skip_dirs.iter().any(|skip| skip == name.as_ref())
         });
     for entry in iter {
-        let entry = entry.map_err(|error| {
-            M1ndError::Io(std::io::Error::other(format!(
-                "policy control walk failed: {error}"
-            )))
-        })?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                eprintln!("[m1nd ingest] skipping unreadable path in policy control walk: {error}");
+                skipped_unreadable_paths += 1;
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -301,6 +319,11 @@ fn discovery_policy_fingerprint(
                 controls.insert("global-git-exclude-config".into(), "UNSET".into());
             }
         }
+    }
+    if skipped_unreadable_paths > 0 {
+        eprintln!(
+            "[m1nd ingest] policy control walk skipped {skipped_unreadable_paths} unreadable path(s); nothing under an unreadable directory is fingerprinted or ingested"
+        );
     }
     let build_features = active_pipeline_features();
     let encoded = serde_json::to_vec(&(
@@ -1914,6 +1937,46 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("m1nd-ingest-{name}-{nonce}"))
+    }
+
+    /// The second gatehouse kill of 2026-08-02, one layer below the first: a
+    /// REAL repo carried a `.secrets/` directory owned by another user
+    /// (mode 700, and listed in the repo's own `.gitignore`), and the birth
+    /// ceremony died whole on `policy control walk failed: … Permission
+    /// denied`. An unreadable directory can contain neither a readable
+    /// control file nor an ingestable source, so skipping it is semantically
+    /// safe and deterministic — the ceremony must survive, count the skip,
+    /// and say so. Root-level unreadability stays fatal: nothing at all can
+    /// be ingested then, and silence would be a lie.
+    #[test]
+    #[cfg(unix)]
+    fn an_unreadable_subdirectory_does_not_abort_the_ingest() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_ingest_dir("unreadable-subdir");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn a() -> u32 { 1 }\n").unwrap();
+        let sealed = root.join(".secrets");
+        fs::create_dir_all(&sealed).unwrap();
+        fs::write(sealed.join("token"), "shh").unwrap();
+        fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..IngestConfig::default()
+        })
+        .ingest();
+
+        // Restore permissions before asserting so the tempdir can be cleaned
+        // up even when the assertion fails.
+        fs::set_permissions(&sealed, fs::Permissions::from_mode(0o755)).unwrap();
+        let (graph, _stats) = result.expect(
+            "an unreadable subdirectory must be skipped and counted, never abort the ingest",
+        );
+        assert!(
+            graph.num_nodes() > 0,
+            "the readable half of the repo must still produce a graph"
+        );
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

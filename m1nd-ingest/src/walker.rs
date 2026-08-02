@@ -276,6 +276,17 @@ impl DirectoryWalker {
         // include_dotfiles escape hatch. The filter_entry below preserves the hardcoded
         // skip_dirs + is_noise_dir_name pruning so noise dirs are dropped even in a repo with
         // NO .gitignore.
+        // An unreadable SCAN ROOT is fatal (nothing at all can be discovered,
+        // and an empty walk would silently claim an empty repo). An unreadable
+        // entry DEEPER in the tree is skipped below — it can contain nothing
+        // ingestable, and a whole birth ceremony once died on a foreign-owned
+        // `.secrets/` directory (2026-08-02).
+        std::fs::read_dir(&root_canonical).map_err(|error| {
+            M1ndError::Io(std::io::Error::other(format!(
+                "directory walk cannot open the scan root {}: {error}",
+                root_canonical.display()
+            )))
+        })?;
         let filter_root = root_canonical.clone();
         let skip_dirs = self.skip_dirs.clone();
         let include_dotfiles = self.include_dotfiles;
@@ -305,7 +316,20 @@ impl DirectoryWalker {
             .build();
 
         for entry in walk {
-            let entry = Self::require_walk_entry(&root_canonical, entry)?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    // The root was proven readable above; anything failing
+                    // here is a deeper unreadable path, which can contain
+                    // nothing ingestable. Skip it loudly instead of killing
+                    // the whole discovery.
+                    eprintln!(
+                        "[m1nd ingest] skipping unreadable path under {}: {error}",
+                        root_canonical.display()
+                    );
+                    continue;
+                }
+            };
 
             // ignore::DirEntry::file_type is Option (None for stdin/errors) — skip non-files.
             if !entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -381,18 +405,6 @@ impl DirectoryWalker {
             files,
             commit_groups,
             vcs,
-        })
-    }
-
-    fn require_walk_entry(
-        root: &Path,
-        entry: Result<ignore::DirEntry, ignore::Error>,
-    ) -> M1ndResult<ignore::DirEntry> {
-        entry.map_err(|error| {
-            M1ndError::Io(std::io::Error::other(format!(
-                "directory walk failed under {}: {error}",
-                root.display()
-            )))
         })
     }
 
@@ -825,20 +837,34 @@ mod tests {
     }
 
     #[test]
-    fn walk_entry_error_is_fatal() {
-        let root = Path::new("/governed/root");
-        let error = ignore::Error::WithPath {
-            path: root.join("unreadable"),
-            err: Box::new(ignore::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "injected walk-entry failure",
-            ))),
-        };
-
-        assert_io_error(
-            DirectoryWalker::require_walk_entry(root, Err(error)),
-            "injected walk-entry failure",
-        );
+    fn unreadable_scan_root_is_fatal() {
+        // The 2026-08-02 inversion: a deeper unreadable entry is now skipped
+        // (it can contain nothing ingestable — pinned end to end by
+        // `an_unreadable_subdirectory_does_not_abort_the_ingest` in lib.rs),
+        // but the SCAN ROOT itself stays fatal: an empty walk over a root we
+        // cannot open would silently claim an empty repo.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let root = std::env::temp_dir().join(format!(
+                "m1nd-walker-unreadable-root-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let result =
+                DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new()).walk(&root);
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            let error = result.expect_err("an unreadable scan root must be a hard error");
+            assert!(
+                error.to_string().contains("cannot open the scan root"),
+                "the error must name the root refusal, got: {error}"
+            );
+        }
     }
 
     #[test]
