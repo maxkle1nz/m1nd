@@ -312,6 +312,10 @@ function defaultRuntimePath(platform = process.platform, homeDirValue = homeDir(
 }
 
 function findRuntimeBinary() {
+  // Test seam, same family as the M1ND_TEST_* hooks below: force the
+  // no-runtime branch deterministically so the doctor's "which door?" answer
+  // can be pinned without depending on the host's PATH.
+  if (process.env.M1ND_TEST_RUNTIME_ABSENT) return null;
   const managedRuntime = defaultRuntimePath();
   return (
     process.env.M1ND_MCP_BINARY ||
@@ -1859,7 +1863,12 @@ function doctor() {
     result.next_actions.push("Reinstall or rebuild the npm package; required agent-pack files are missing.");
   }
   if (!binary) {
-    result.next_actions.push(`From a source checkout: cargo build --release -p m1nd-mcp, then copy ${runtimeBinaryName()} to ${defaultRuntimePath()}`);
+    // The npm user's door is the verified installer, not a source checkout.
+    // Measured on a stranger install (2026-08-02): with no runtime present,
+    // doctor sent the newcomer to `cargo build` — a path most npm users cannot
+    // take — while the working command sat one line away.
+    result.next_actions.push("Install the native runtime: m1nd update apply --yes (verified download; needs cosign on PATH)");
+    result.next_actions.push(`Or from a source checkout: cargo build --release -p m1nd-mcp, then copy ${runtimeBinaryName()} to ${defaultRuntimePath()}`);
   }
   if (binary && (!binaryVersion || !binaryVersion.includes(packageVersion))) {
     result.next_actions.push(`Runtime version ${binaryVersion || "unknown"} does not match package ${packageVersion}; run m1nd update apply --yes to install the matching runtime, then rebind the host.`);
@@ -1893,7 +1902,18 @@ function runCommand(command, args, options = {}) {
   };
 }
 
-function runtimeVersion(binary) {
+// The default probe budget for a runtime that is already warm on disk.
+const RUNTIME_VERSION_PROBE_MS = 1500;
+// The budget for a binary written SECONDS ago: the shipped runtime is ~70 MB
+// and its first exec pages in cold. Measured 2026-08-02: first run 1.66s,
+// second run 0.00s — so the 1.5s default expired on exactly the one call that
+// matters, the verified installer asking "which version did I just install?".
+// It answered `version-check-timeout`, which matches no version string, and a
+// correct install reported `runtime-version-mismatch-after-install`: the
+// updater refusing the very binary it had verified, staged and installed.
+const RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS = 30000;
+
+function runtimeVersion(binary, timeoutMs = RUNTIME_VERSION_PROBE_MS) {
   if (!binary || !fs.existsSync(binary)) return null;
   if (process.env.M1ND_TEST_RUNTIME_VERSION_BY_PATH) {
     const versions = safeJsonParse(process.env.M1ND_TEST_RUNTIME_VERSION_BY_PATH) || {};
@@ -1905,7 +1925,7 @@ function runtimeVersion(binary) {
     }
   }
   if (process.env.M1ND_TEST_RUNTIME_VERSION) return process.env.M1ND_TEST_RUNTIME_VERSION;
-  const result = runCommand(binary, ["--version"], { timeout: 1500 });
+  const result = runCommand(binary, ["--version"], { timeout: timeoutMs });
   if (result.error && result.error.includes("ETIMEDOUT")) return "version-check-timeout";
   if (!result.ok) return null;
   return result.stdout.trim() || null;
@@ -3657,7 +3677,7 @@ function installRuntimeBinaryWithBackup(sourceBinary, targetBinary, verification
     );
   }
   installRuntimeBinary(sourceBinary, targetBinary);
-  state.after_version = runtimeVersion(targetBinary);
+  state.after_version = runtimeVersion(targetBinary, RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS);
   state.after_sha256 = sha256File(targetBinary);
   if (state.after_sha256 !== candidateSha256) {
     throw new Error(
@@ -4615,7 +4635,15 @@ function print(value, asJson) {
     }
     if (value.blocked_actions.length > 0) {
       console.log(`blocked actions: ${value.blocked_actions.length}`);
-      for (const blocked of value.blocked_actions) console.log(`  - ${blocked.id}: ${blocked.description}`);
+      for (const blocked of value.blocked_actions) {
+        // Print the CAUSE, not just the label. Measured on a stranger install
+        // (2026-08-02): human mode said "runtime release install failed" while
+        // the --json carried the actionable truth ("cosign not found; install
+        // cosign, then retry…"). The person who needs the cause the most is
+        // the one who did not think to ask for JSON.
+        console.log(`  - ${blocked.id}: ${blocked.description}`);
+        if (blocked.error) console.log(`      cause: ${blocked.error}`);
+      }
     }
     if (value.next_actions.length > 0) {
       console.log("next:");
@@ -4742,10 +4770,34 @@ async function main(rawArgs) {
     if (command === "init" && args.birth) {
       const targetBinary = path.resolve(args.binary || defaultRuntimePath());
       const repoArg = typeof args.birth === "string" ? args.birth : args._[1] || process.cwd();
-      const result = spawnSync(targetBinary, ["--birth", path.resolve(repoArg)], {
+      const birthArgs = ["--birth", path.resolve(repoArg)];
+      // Relay the human's create-new × load-existing pick (the owner's law,
+      // 2026-08-02) — the binary answers with the choice when it is absent
+      // and the destination already holds a brain.
+      if (typeof args.confirm === "string" && args.confirm) {
+        birthArgs.push("--confirm", args.confirm);
+      }
+      const result = spawnSync(targetBinary, birthArgs, {
         stdio: "inherit",
       });
-      process.exitCode = result.status === null ? 1 : result.status;
+      // The FIRST command this product teaches must never answer with silence.
+      // Measured on a stranger install (2026-08-02): with no runtime on disk,
+      // spawnSync returns status null with an ENOENT in `result.error`, which
+      // this line used to swallow — stdout empty, stderr empty, exit 1. The
+      // newcomer's very first step said nothing at all.
+      if (result.error || result.status === null) {
+        const missing = !fs.existsSync(targetBinary);
+        console.error(
+          missing
+            ? `m1nd: the native runtime is not installed at ${targetBinary}\n` +
+              `      install it first:  m1nd update apply --yes\n` +
+              `      then run again:    m1nd init --birth ${path.resolve(repoArg)}`
+            : `m1nd: could not run the ceremony binary ${targetBinary}: ${result.error ? result.error.message : "unknown spawn failure"}`
+        );
+        process.exitCode = 1;
+        return;
+      }
+      process.exitCode = result.status;
       return;
     }
     const host = args._[1] || args.host || "generic";
@@ -4896,4 +4948,6 @@ module.exports = {
   parseLaunchctlProgramPath,
   launchdLabelManagesTarget,
   shouldKickstartAfterInstall,
+  RUNTIME_VERSION_PROBE_MS,
+  RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS,
 };

@@ -27,7 +27,17 @@ jobs:
   rust-gates:
     name: Rust gates (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # 120, not 90 (2026-08-02). `cargo test --workspace --all-targets` measured
+    # 62 min on the ubuntu 4-vCPU runner and up to 70 on windows, and under
+    # concurrent-PR runner contention it crossed the old 90-min ceiling and got
+    # cancelled — a timeout, not a test failure. The measured fix is more
+    # headroom for the runner the suite already fits on, NOT swapping to nextest,
+    # which the same gate-side measurement showed is SLOWER here (ubuntu 62→83
+    # min: the nested-Cargo I/O storm on a weak-I/O runner). nextest stays the
+    # local canonical runner and the shadow lane; the required legs stay on
+    # `cargo test` with room to finish. Revisit with a per-crate split if the
+    # wall keeps climbing.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

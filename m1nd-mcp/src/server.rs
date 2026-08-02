@@ -43,10 +43,10 @@ A response may carry a `reception` block. `reception.match == \"caller_root_mism
 means the bound graph does NOT cover your current repo (its root ≠ your resolved \
 `caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
 Generic cross-root `ingest` remains withdrawn (no `project_root` in the schema; \
-POSITIVE_SOVEREIGN, fails closed), and the birth verb refuses every wire client with \
-`human_gesture_required` — but a repo with NO brain now has a real path: the HUMAN \
-runs the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
-OFFER that exact command and stop; running it is not the agent's to do. Until the human runs it: continue only against the bound graph (with the mismatch \
+POSITIVE_SOVEREIGN, fails closed), and the birth verb answers every wire client with \
+`human_authorization_required` and the actionable path — a repo with NO brain has a \
+real door: the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
+ASK your human — always — whether to create the brain or load an existing one (the owner's law, 2026-08-02); with their yes, run that exact command yourself. Until then: continue only against the bound graph (with the mismatch \
 warning intact), or reconnect to an owner that already hosts the intended repo. Absent \
 `reception` = your root matches the brain serving you (silent bind is legal only on a \
 match, TT-INV-12).
@@ -1260,7 +1260,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "brain_birth",
-                "description": "Birth a NEW project brain for a repo that has none. This is the HUMAN's one-time gesture, not an agent's call: admission is an origin the OWNER stamps from a fact it observes about itself, and an origin string sent as a parameter grants nothing. Over generic MCP/REST this verb is refused for every client, however the call is dressed. The one path that exists today is the P2 ceremony a HUMAN runs in their terminal: `m1nd init --birth <repo>`. If you are an agent and a repo has no brain, OFFER that exact command and stop; running it is not yours to do. Birth refuses unless the destination is empty ON DISK (no manifest, snapshot or checkpoint), refuses any root that overlaps an existing brain, never touches the owner's bound graph, and is not the way to adopt an existing brain — that is migration, a boot-time fact with no verb.",
+                "description": "Birth a NEW project brain for a repo that has none. A brain is born on the HUMAN's explicit pick, and an agent MAY run the ceremony WITH that authorization (the owner's law, 2026-08-02): always ask your human first — create a new brain, or load the existing one? — then, with their yes, run `m1nd init --birth <repo>` yourself in a terminal (add `--confirm create-new` or `--confirm load-existing` when the repo already holds a brain; an unconfirmed ceremony on an inhabited destination answers with that CHOICE, never a bare refusal). Over generic MCP/REST this verb cannot execute — the dispatcher holds no owner context — and answers with that same actionable path. Birth refuses roots that do not resolve and overlaps with a DIFFERENT brain; it never silently replaces a graph.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -5434,6 +5434,81 @@ fn handle_north(
         .unwrap_or(NORTH_CODE_BUDGET_CHARS)
         .clamp(NORTH_CODE_BUDGET_MIN, NORTH_CODE_BUDGET_MAX);
 
+    // FAST PATH — a caller_root_mismatch is answered before the expensive
+    // steps. Measured 2026-08-02 on the 21k-node served owner: the north for an
+    // uncovered caller cost ≈47–55s (activate/spread-activation is ≈44s of it,
+    // trust_selftest+handshake ≈5s), only to hand back "this graph does not
+    // cover your repo" — a fact the reception computes from the caller_root
+    // header in microseconds, and the human_view card carries WITHOUT any
+    // statistics (compose_human_view uses only the mismatch under a mismatch;
+    // trust_mode is irrelevant to it). So under mismatch we compose exactly
+    // {reception, human_view} and return — no trust_selftest, no orient, no
+    // spread-activation over a graph that is not the caller's. The medulla
+    // brainless case is left to the full path on purpose: a served medulla is a
+    // legitimate cross-project memory feed, so its beat still composes (that
+    // path already skips the orient, so it never paid the activate cost).
+    if !state.caller_root_is_brainless() {
+        if let Some(reception) = state.reception_verdict() {
+            if reception.get("match").and_then(|m| m.as_str()) == Some("caller_root_mismatch") {
+                let mismatch_next_move =
+                    "this owner serves a different repo; ingest your root or attach to an owner that covers it — see `reception.options`";
+                let human_view =
+                    crate::human_view::compose_human_view(&crate::human_view::HumanViewInput {
+                        // Under a mismatch the card IS the warning and carries no
+                        // statistics, so these graph/trust fields are unread —
+                        // pinned by `north_human_view_mismatch_is_the_warning`.
+                        trust_mode: "orientation_only",
+                        node_count: 0,
+                        memory_count: 0,
+                        ratified_blocks: 0,
+                        focus_activated: false,
+                        merge_wait: 0,
+                        bell_line: None,
+                        coherence_line: None,
+                        needs_ingest: false,
+                        reception_mismatch: Some(crate::human_view::ReceptionMismatch {
+                            honest: reception
+                                .get("honest")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("this graph does NOT cover your repo"),
+                            caller_root: reception
+                                .get("caller_root")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown"),
+                            bound_workspace: reception
+                                .get("bound_workspace")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown"),
+                        }),
+                        next_move: mismatch_next_move,
+                    });
+                let mut packet = serde_json::json!({
+                    "schema": "m1nd-north-packet-v0",
+                    "task": task,
+                    "reception": reception,
+                    "needs": null,
+                    "context": serde_json::Value::Null,
+                    "memory": [],
+                    "memory_exists": 0,
+                    "next_move": mismatch_next_move,
+                    "honest_gaps": [
+                        "the bound graph does not cover your repo — its orientation is WITHHELD rather than computed over a foreign graph (a mismatch is answered in milliseconds, not the ~50s a spread-activation over a 21k-node graph costs); see `reception`"
+                    ],
+                    "non_claims": [
+                        "north did not orient over this owner's graph because it does not cover your caller root.",
+                        "north does not ingest, mutate, or repair the graph.",
+                        "north does not replace compiler, tests, or local file truth.",
+                    ],
+                    "proof_state": "reception_mismatch",
+                });
+                if let Some(card) = human_view {
+                    packet["human_view"] = card;
+                }
+                return Ok(packet);
+            }
+        }
+    }
+
     // 1. BINDING — one trust_selftest gives the verdict + fingerprint + graph
     //    state + (when not full) the attached recovery_playbook. Reuse wholesale;
     //    it internally composes session_handshake + recovery_playbook already.
@@ -6579,7 +6654,7 @@ const FIRST_GRAPH_ACTIONS: &[&str] = &[
 /// does not change here; only the sentence does.
 pub(crate) fn first_graph_door_suffix(action: &str) -> &'static str {
     if FIRST_GRAPH_ACTIONS.contains(&action) {
-        ". The first graph for a repo is the human's one-time ceremony: offer them `m1nd init --birth <repo>` and stop — agents never run it"
+        ". The first graph is born on the human's explicit pick: ask them (create new × load existing — always), then with their yes run `m1nd init --birth <repo>` yourself"
     } else {
         ""
     }
@@ -14255,6 +14330,52 @@ mod tests {
             );
         }
         assert_human_view_cap(card);
+    }
+
+    /// A NON-medulla caller_root_mismatch takes the fast path: the reception
+    /// answer, with the human voice card intact, WITHOUT running trust_selftest
+    /// or the spread-activation. Measured 2026-08-02: that orientation cost
+    /// ≈47–55s on the 21k served owner (activate ≈44s of it) to produce a
+    /// "does not cover your repo" the reception knew in microseconds. The
+    /// signature of the fast path is `proof_state == "reception_mismatch"` with
+    /// a null context and the mismatch voice card present. (The served-medulla
+    /// case keeps its full beat — pinned separately in two_tier_project_brains.)
+    #[test]
+    fn north_non_medulla_mismatch_takes_the_fast_path_with_the_voice_intact() {
+        let (_temp, mut state) = build_state_populated(false);
+        // Make this a PROJECT brain (not the medulla) so the fast path is live.
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.caller_root = Some("/some/other/repo".into());
+
+        let out = bell_north_call(&mut state);
+
+        assert_eq!(
+            out["reception"]["match"], "caller_root_mismatch",
+            "the mismatch is declared: {out}"
+        );
+        assert_eq!(
+            out["proof_state"], "reception_mismatch",
+            "the fast path answers with the reception, not an orientation: {out}"
+        );
+        assert!(
+            out["context"].is_null(),
+            "no context is composed over a graph that does not cover the caller: {out}"
+        );
+        // The voice the earlier attempt dropped is present and correct.
+        let card = &out["human_view"];
+        assert_eq!(
+            card["state"], "mismatch",
+            "the human voice card survives the fast path: {out}"
+        );
+        assert_eq!(
+            card["lines"][0], "m1nd │ this graph does NOT cover your repo",
+            "line 1 IS the warning, verbatim: {out}"
+        );
+        let gaps = out["honest_gaps"].to_string();
+        assert!(
+            gaps.contains("does not cover your repo") && gaps.contains("WITHHELD"),
+            "the withheld orientation is explained honestly: {out}"
+        );
     }
 
     /// P1 — the medulla-only read fallback (TWO-TIER-BRAIN-PRD §9.5 · §10.4 rung 3

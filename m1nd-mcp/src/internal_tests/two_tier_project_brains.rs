@@ -657,6 +657,61 @@ async fn reception_reports_the_closed_bootstrap_consumer_without_a_call() {
 }
 
 // ---------------------------------------------------------------------------
+// (6b) — a caller_root_mismatch is answered FAST, with the human voice intact.
+// ---------------------------------------------------------------------------
+
+/// The field kill (2026-08-02, Paco's probes): a north from a root the bound
+/// graph does not cover cost ≈47–55s on a 21k graph (activate ≈44s of it) only
+/// to return "this graph does not cover your repo" — a fact the reception knows
+/// from the caller_root header in microseconds. north now returns under
+/// mismatch BEFORE trust_selftest and orient/activate. The earlier attempt at
+/// this dropped the human_view voice card; this proves it survives — the card
+/// carries no statistics under a mismatch, so it needs no expensive step.
+///
+/// This harness's store serves medulla (brainless), so it exercises the
+/// COMPLEMENT: the fast path must NOT fire for a served-medulla caller (its
+/// doctrine beat is legitimate), and the full mismatch packet — with its
+/// project_brain_absent gap and human_view — must still compose. Together with
+/// the human_view unit test in server.rs (which drives a non-medulla mismatch),
+/// both sides of the guard are pinned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_served_medulla_mismatch_keeps_its_full_beat_not_the_fast_path() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, _bound_repo, _n0) = owner_with_bound_graph(tmp.path()).await;
+
+    let stranger = tmp.path().join("stranger-repo");
+    std::fs::create_dir_all(&stranger).expect("mk stranger");
+    let sid = owner.init_session(&stranger).await;
+    let north = owner
+        .tool(
+            &sid,
+            &stranger,
+            "north",
+            serde_json::json!({"agent_id": "stranger", "task": "orient"}),
+        )
+        .await;
+
+    assert_eq!(
+        north["reception"]["match"], "caller_root_mismatch",
+        "the mismatch is still declared: {north}"
+    );
+    // The served-medulla case is NOT the fast path: it keeps the full beat.
+    assert_ne!(
+        north["proof_state"], "reception_mismatch",
+        "a served-medulla mismatch keeps its full beat, not the bare fast path: {north}"
+    );
+    assert!(
+        north["human_view"].is_object(),
+        "the human voice card must be present on every mismatch: {north}"
+    );
+    let gaps = north["honest_gaps"].to_string();
+    assert!(
+        gaps.contains("project_brain_absent"),
+        "the served-medulla mismatch names project_brain_absent: {north}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // (7) — THE EVICTION GATE (§C9.1, ladder R15). The interim owner-hosted topology
 // recreates the blast radius two-tier was built to kill: one owner holds N warm
 // brains, so an unbounded map + one crash loses N brains' state. Law: the warm
