@@ -89,16 +89,28 @@ seating · MCP top-level schema · windows path/fs/process · the 13
 `compile_fail` doctests · lean `default-features=false` · docs coupling ·
 a11y as a separate proof · eslint actually executed · `m1nd-ui/dist` drift.
 
-## 4. The lightning proposal (AWAITS OWNER RATIFICATION — not active)
+## 4. The lightning lane (BUILT — canonical status awaits the owner's stamp)
 
-Selector sketch (nextest filterset, to be pinned as `[profile.lightning]`):
-lifecycle + checkpoint + continuity + parity/schema/seating + birth e2e +
-runtime-exclusion + lean edge + doctests leg + per-touched-surface wings.
-Measured components sum to **~60–120s hot** on the dev box — under the 180s
-ceiling with room for wings. What it deliberately omits (still on merge):
-retrobuilder, transplant oracles, 10k stress, wide proptests, full grammar
-matrix, browser fixtures. **Activating it changes what the fast loop
-promises; that is the owner's signature, not a config change.**
+Ratified 2026-08-02 (Paco) with one non-negotiable design condition, built
+and measured the same day; **taught as the day-to-day path only after the
+owner's stamp** — until then it exists and works, and nothing points agents
+at it as "the" loop.
+
+- Selector pinned as `[profile.lightning]` in `.config/nextest.toml`; the
+  command is `scripts/lightning_check.sh`, which adds the two proofs nextest
+  cannot carry (the 13 `compile_fail` sentinels, the lean
+  `no-default-features` check).
+- **Measured on the dev box: 57s hot** (82 selected tests of 2,674 — the
+  never-cut core is ~3% of the suite; 16.3s nextest + 0.36s doctests + lean
+  check + incremental overhead). Warm-after-branch-switch: 190s. Ceiling: 180s
+  hot, per ratification.
+- **The design condition, verbatim in mechanism:** the script prints on EVERY
+  run that it is not the merge gate and exactly what it does not prove; the
+  merge gate remains the full suite on three OSes, unchanged; MANUAL §5
+  carries the one-line cost statement with the pointer here.
+- What it deliberately omits (all still on merge): retrobuilder over real
+  history, transplant compiler oracles, 10k-op stress, wide proptests, the
+  full grammar matrix, browser suites, every other OS.
 
 ## 5. Safe order (ratified; where we are)
 

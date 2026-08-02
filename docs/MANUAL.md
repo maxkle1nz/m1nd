@@ -146,6 +146,12 @@ indexes them, it does not restate them.
   manifest: what each family proves, its lane and budget, the fifteen
   never-cut families, and the safe order for any reduction. A test leaves the
   portfolio only through that file's registry, never through a cleanup PR.
+- **The lightning check buys ~57s by NOT proving** real-history retrieval,
+  compiler oracles, stress, wide properties, or any other OS — it is a
+  day-to-day signal (`cmd:scripts/lightning_check.sh`), never "the tests
+  passed"; the merge gate is the full suite on three OSes, and the never-cut
+  fifteen live in `doc:docs/TEST-PORTFOLIO.md` §3. (Built 2026-08-02; taught
+  as the canonical fast loop only after the owner's stamp.)
 - **The embedded UI bundle must match the source that builds it** — CI refuses a
   commit whose `dist/` is not a fresh build of its own source.
 - **Frozen contracts** (`docs/M1ND-10-PRD.md`, `docs/M1ND-10-UML.md`) are checked
