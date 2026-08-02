@@ -663,6 +663,7 @@ impl ProjectBrainRegistry {
                 BrainRuntimeError::BrainBindingMismatch {
                     expected: snapshot.brain_id,
                     observed: request.binding.brain_id,
+                    expected_source: None,
                 },
             ));
         }
@@ -1032,11 +1033,20 @@ impl ProjectBrainRegistry {
                     let session = target
                         .lock_mut_before_actor()
                         .map_err(|error| error.to_string())?;
-                    let identity = session
-                        .workspace_root
-                        .clone()
-                        .or_else(|| session.ingest_roots.first().cloned())
-                        .unwrap_or_else(|| session.runtime_root.to_string_lossy().into_owned());
+                    // One root, one identity: whatever spelling this session
+                    // carries (`.` from a `--birth .`, a trailing slash, a
+                    // symlink), the bound brain's identity derives from the
+                    // CANONICAL form. A 1.6.3 birth stamped `<root>/.` here
+                    // and the next boot derived `<root>` — same directory,
+                    // two brain ids, and a live serve that refused all work
+                    // (2026-08-02).
+                    let identity = Self::canonical_key(
+                        &session
+                            .workspace_root
+                            .clone()
+                            .or_else(|| session.ingest_roots.first().cloned())
+                            .unwrap_or_else(|| session.runtime_root.to_string_lossy().into_owned()),
+                    );
                     (
                         session.runtime_root.clone(),
                         session.graph_path.clone(),
@@ -1045,8 +1055,9 @@ impl ProjectBrainRegistry {
                         identity,
                     )
                 };
-                let runtime = BrainActorHandle::start(
+                let runtime = BrainActorHandle::start_bound(
                     project_brain_id(&format!("bound:{identity}")),
+                    identity.clone(),
                     target.clone(),
                     runtime_root.join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY),
                     self.checkpoint_authority.clone(),

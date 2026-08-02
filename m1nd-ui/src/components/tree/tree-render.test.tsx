@@ -11,11 +11,24 @@ import { dirname, join } from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import TreeRowView from './TreeRowView';
-import { buildTree, type TreeRow } from '../../lib/tree';
+import { buildTree, buildPostItIndex, type TreeRow } from '../../lib/tree';
 import type { GraphSnapshot } from '../../lib/snapshot';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '__fixtures__');
 const snap = JSON.parse(readFileSync(join(FIX, 'snapshot.compact.json'), 'utf8')) as GraphSnapshot;
+
+// Freshness derives from the fixture's own newest claim, not the wall clock:
+// a frozen capture carries LAW, never WORLD, so the "fresh" post-it stays fresh
+// on any day (it silently aged past STALE_AFTER_MS once the fixture crossed 30
+// days, breaking this suite on main). See tree.test.ts.
+const FIXTURE_NOW =
+  Math.max(
+    ...snap.nodes
+      .flatMap((n) => n.tags ?? [])
+      .filter((t) => t.startsWith('light:created:'))
+      .map((t) => Number(t.slice('light:created:'.length)))
+      .filter((n) => Number.isFinite(n) && n > 0),
+  ) + 1000;
 
 function findRow(root: TreeRow, path: string): TreeRow | null {
   let found: TreeRow | null = null;
@@ -32,7 +45,7 @@ function findRow(root: TreeRow, path: string): TreeRow | null {
 const noop = () => {};
 
 test('a real file row with a memory renders its post-it chip and trust dot', () => {
-  const root = buildTree(snap);
+  const root = buildTree(snap, buildPostItIndex(snap, FIXTURE_NOW));
   const row = findRow(root, 'm1nd-mcp/src/http_server.rs');
   assert.ok(row, 'http_server.rs row exists in the assembled tree');
 
