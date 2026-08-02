@@ -1579,13 +1579,18 @@ impl Ingestor {
         for (source_key, edge) in &all_edges {
             cancellation.check()?;
             if !is_valid_external_id(&edge.source) || !is_valid_external_id(&edge.target) {
-                return Err(M1ndError::InvalidParams {
-                    tool: "ingest".into(),
-                    detail: format!(
-                        "extractor emitted invalid edge endpoint {:?} -> {:?} ({}) for source {source_key:?}",
-                        edge.source, edge.target, edge.relation
-                    ),
-                });
+                // One degenerate edge must never abort the whole ingest: a
+                // REAL birth ceremony died on `ref:: ` from an html inline
+                // script (2026-08-02) — a brain refused to be born over one
+                // blank href-shaped reference. Invalid nodes were already
+                // skipped-and-counted a few lines up; edges now get the same
+                // treatment, and the count is reported after the loop.
+                eprintln!(
+                    "[m1nd ingest] skipping invalid edge endpoint {:?} -> {:?} ({}) for source {source_key:?}",
+                    edge.source, edge.target, edge.relation
+                );
+                skipped_invalid_edges += 1;
+                continue;
             }
 
             if edge.target.starts_with("ref::") {
