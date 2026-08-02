@@ -29,3 +29,20 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 [[profile.default.overrides]]
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress)'
 slow-timeout = { period = "300s", terminate-after = 8 }
+
+# ---------------------------------------------------------------------------
+# The CI shadow lane (see the `nextest-shadow` job in ci.yml). Inherits the
+# default profile; what it adds is the concurrency cap the GATE measurement
+# demanded: on the 4-vCPU ubuntu runner the heavy families — nested-Cargo
+# compiler oracles and real-repo ingests — running fully parallel turned the
+# suite from 62 into 83 minutes (the suite-audit's §10 process storm). The cap
+# lives HERE and not in the default profile because the dev box has the cores
+# and I/O to run them wide open (935s→377s); capping locally would give that
+# win back. Tune the cap in this profile until the shadow's wall is
+# acceptable; promote the runner only then.
+[test-groups]
+heavy-io = { max-threads = 2 }
+
+[[profile.shadow.overrides]]
+filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress) | test(transplant)'
+test-group = 'heavy-io'

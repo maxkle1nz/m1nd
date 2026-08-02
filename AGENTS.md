@@ -17,17 +17,26 @@ This is a **PUBLIC** repository. Everything you commit is published.
 Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
 
 ```bash
-cargo nextest run --workspace --all-targets             # the runner CI uses (one process per test)
+cargo nextest run --workspace --all-targets             # the LOCAL canonical runner (one process per test)
 cargo test --workspace --doc                            # the sentinels nextest never runs
 cargo clippy --workspace --all-targets -- -D warnings   # warnings fail the build
 cargo fmt --check
 ```
 
-nextest is the runner, not a preference (adopted 2026-08-02, measured: same suite
-641–935s under `cargo test`, 377s under nextest, 1643/1643 — including the two
-deadlock-timeout tests that expire under `cargo test`'s shared-process load).
-Plain `cargo test` still works when you need `--nocapture` on one test; trust
-nextest's verdict for the suite. Retries are 0 by policy — a flake goes red.
+nextest is the canonical runner ON YOUR MACHINE (adopted 2026-08-02, measured:
+same suite 641–935s under `cargo test`, 377s under nextest, 1643/1643 —
+including the two deadlock-timeout tests that expire under `cargo test`'s
+shared-process load). Retries are 0 by policy — a flake goes red. Plain
+`cargo test` still works when you need `--nocapture` on one test.
+
+CI's required legs still run `cargo test`, deliberately: the same measurement
+taken ON THE GATE said no — ubuntu went 62→83 min under nextest (the
+nested-Cargo process storm on the weakest-I/O runner) while windows improved
+70→48. A `nextest-shadow` job collects gate-side timing on main pushes; the
+required legs switch only when the shadow reproduces the gate's greens and
+reds at an acceptable wall. Local green under nextest + gate green under
+`cargo test` are BOTH required truths until then — do not "fix" one by
+trusting the other.
 
 The second line is not a duplicate of the first: nextest runs **no doctests at all** (and
 the old `cargo test --all-targets` excluded them too), and every doctest in this workspace

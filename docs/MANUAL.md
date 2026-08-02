@@ -123,17 +123,21 @@ indexes them, it does not restate them.
 - **CI gates that block merge** run on ubuntu, macOS and Windows: the workspace
   test suite, clippy with warnings denied, and `cargo fmt --check`. Windows red
   blocks merge.
-- **The test runner is nextest** (`cargo nextest run --workspace --all-targets`),
-  in CI and locally — one process per test; measured 641–935s → 377s on the same
-  suite with the shared-process deadlock-timeout flakes gone. Timeout policy
-  lives in `doc:.config/nextest.toml`: retries 0 (a flake goes red), runaway
-  tests terminated at 10×60s instead of owning the 90-minute job; the heavy
-  retrobuilder family carries its own measured ceiling.
-- **One same-process lane stays, on purpose.** A faster suite must not quietly
-  prove a different system: the production owner is ONE process with shared
-  statics/locks, so the ubuntu leg also runs `cargo test -p m1nd-mcp --lib`
-  under the classic shared harness — the explicit insurance the suite-audit
-  verdict demanded (2026-08-02), blocking, server crate only.
+- **nextest is the LOCAL canonical runner** (`cargo nextest run --workspace
+  --all-targets`) — one process per test; measured 641–935s → 377s on the dev
+  box with the shared-process deadlock-timeout flakes gone. Policy in
+  `doc:.config/nextest.toml`: retries 0 (a flake goes red), runaway tests
+  terminated at 10×60s; the heavy retrobuilder family carries its own measured
+  ceiling.
+- **CI's required legs still run `cargo test`, by gate-side measurement.** The
+  same suite under nextest on the runners: ubuntu 62→83 min (nested-Cargo
+  process storm on the weakest-I/O runner), macos 53→52, windows 70→48. The
+  `nextest-shadow` job (observational, main pushes, never in `test-status`)
+  collects gate timing with heavy-family concurrency caps in the `shadow`
+  profile; the required legs switch only when the shadow reproduces the
+  gate's greens and reds at an acceptable wall. The shared-process harness on
+  the required legs doubles as the same-process topology insurance the
+  suite-audit verdict demands.
 - **Doctests are their own gate.** nextest never runs them; the dedicated
   `cargo test --workspace --doc` leg does. They carry `compile_fail` sentinels
   that no other gate reaches; a sentinel that starts compiling means a privacy
@@ -236,5 +240,5 @@ an answer: run the refresh or the ingest, then say what it cost. `north` returns
 
 | Date | Revision |
 |---|---|
-| 2026-08-02 | §5: nextest adopted as the workspace test runner (CI + local), doctest leg unchanged; timeout/retry policy at `.config/nextest.toml`. |
+| 2026-08-02 | §5: nextest adopted as the LOCAL canonical runner; CI required legs stay on `cargo test` by gate-side measurement (ubuntu 62→83 min under nextest); `nextest-shadow` observational job collects gate timing toward promotion; policy at `.config/nextest.toml`. |
 | 2026-08-01 | Manual established at `0b892874`. Sources adopted: `docs/deployment.md` (indexed, not absorbed — it remains the deployment reference), `build/README.md` (indexed for the signing surface). PR #398's earlier draft was **not** adopted: it recorded machine-specific identity (service label, uid, personal paths) which must not travel in a public repo. |
