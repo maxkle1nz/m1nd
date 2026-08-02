@@ -768,6 +768,31 @@ pub const BINARY_BUILD_SOURCE_DIRTY: &str = env!("M1ND_BUILD_SOURCE_DIRTY");
 /// using only std. Returns the first `version = "..."` at zero indentation
 /// (package-level, not a dependency's nested version) — good enough for the
 /// warn-only self-repo lag heuristic. `None` if no such line is found.
+/// Compare two dotted version strings (`X.Y.Z…`) numerically, component by
+/// component, so `1.6.3` orders after `1.6.2` and `1.10.0` after `1.9.0`. A
+/// non-numeric or missing component sorts as 0. Deliberately tiny — the drift
+/// detector needs only the DIRECTION of a version difference, not full semver
+/// with pre-release/build semantics.
+pub(crate) fn compare_dotted_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split(['.', '-', '+'])
+            .map(|c| c.parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    let (pa, pb) = (parts(a), parts(b));
+    for i in 0..pa.len().max(pb.len()) {
+        let (x, y) = (
+            pa.get(i).copied().unwrap_or(0),
+            pb.get(i).copied().unwrap_or(0),
+        );
+        match x.cmp(&y) {
+            std::cmp::Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
 pub(crate) fn parse_cargo_package_version(cargo_toml: &str) -> Option<String> {
     for line in cargo_toml.lines() {
         // Package-level keys sit at column 0; a dependency's inline `version =`
@@ -889,12 +914,30 @@ impl SessionState {
             .unwrap_or(false);
 
         let repo_version = self.self_repo_declared_version();
-        let repo_lags = repo_version
+        // A version difference between the running binary and the bound repo's
+        // declared version is drift — but WHICH side is stale is the whole
+        // point. The old code always reported `binary_lags_repo`, which named
+        // the wrong culprit when the CLONE was the stale one: a running 1.6.3
+        // over a checkout 45 commits behind at 1.6.2 was reported as the BINARY
+        // lagging, sending the agent to distrust the correct binary
+        // (measured 2026-08-02). Compare the versions and name the side that is
+        // actually behind.
+        let repo_differs = repo_version
             .as_deref()
             .map(|repo| repo != running_version)
             .unwrap_or(false);
+        let binary_lags_repo = repo_version
+            .as_deref()
+            .map(|repo| compare_dotted_versions(running_version, repo) == std::cmp::Ordering::Less)
+            .unwrap_or(false);
+        let repo_lags_binary = repo_version
+            .as_deref()
+            .map(|repo| {
+                compare_dotted_versions(running_version, repo) == std::cmp::Ordering::Greater
+            })
+            .unwrap_or(false);
 
-        let drift = version_mismatch || sha_mismatch || repo_lags;
+        let drift = version_mismatch || sha_mismatch || repo_differs;
 
         let identity = if drift {
             let mut warnings: Vec<String> = Vec::new();
@@ -912,11 +955,17 @@ impl SessionState {
                     running_sha
                 ));
             }
-            if repo_lags {
+            if repo_differs {
+                let repo_declared = repo_version.as_deref().unwrap_or("");
+                let note = if binary_lags_repo {
+                    "binary_lags_repo — the running binary is older than the bound repo; refresh the binary (scripts/m1nd_selfhost_refresh.sh)"
+                } else if repo_lags_binary {
+                    "repo_lags_binary — the bound checkout is older than the running binary; it is the CLONE that is stale, not the binary (pull/checkout the repo, do not distrust the binary)"
+                } else {
+                    "versions differ in a way that is neither strictly older nor newer; inspect both"
+                };
                 warnings.push(format!(
-                    "bound repo m1nd-mcp/Cargo.toml declares {} but running {} (binary_lags_repo — likely testing against a stale binary)",
-                    repo_version.as_deref().unwrap_or(""),
-                    running_version
+                    "bound repo m1nd-mcp/Cargo.toml declares {repo_declared} but running {running_version} ({note})"
                 ));
             }
             serde_json::json!({
@@ -931,7 +980,8 @@ impl SessionState {
                     "running_sha": running_sha,
                     "version_mismatch": version_mismatch,
                     "sha_mismatch": sha_mismatch,
-                    "binary_lags_repo": repo_lags,
+                    "binary_lags_repo": binary_lags_repo,
+                    "repo_lags_binary": repo_lags_binary,
                     "repo_declared_version": repo_version,
                     "warning": warnings.join("; "),
                 },
@@ -4587,8 +4637,9 @@ pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResu
 #[cfg(test)]
 mod tests {
     use super::{
-        basename_of, CheckpointCandidatePresence, ProofReadyMark, SeekFileIndexCache, SessionState,
-        FINGERPRINT_INGEST_ROOTS_HEAD, WORKSPACE_ROOT_ENV_CANDIDATES,
+        basename_of, compare_dotted_versions, CheckpointCandidatePresence, ProofReadyMark,
+        SeekFileIndexCache, SessionState, FINGERPRINT_INGEST_ROOTS_HEAD,
+        WORKSPACE_ROOT_ENV_CANDIDATES,
     };
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
@@ -4766,6 +4817,26 @@ mod tests {
         /// Not reached through verb dispatch at all — an owner-side loop whose
         /// writes ride the enclosing tick's own persist.
         OwnerLoop,
+    }
+
+    /// Drift names the side that is actually stale. The field kill (2026-08-02):
+    /// a running 1.6.3 over a checkout 45 commits behind at 1.6.2 was reported
+    /// `binary_lags_repo`, telling the agent to distrust the correct binary. The
+    /// direction is now measured, not assumed.
+    #[test]
+    fn drift_direction_names_the_lagging_side() {
+        use std::cmp::Ordering;
+        // The exact field case: binary AHEAD of the stale clone.
+        assert_eq!(compare_dotted_versions("1.6.3", "1.6.2"), Ordering::Greater);
+        // Binary behind the repo — the case the old label assumed universally.
+        assert_eq!(compare_dotted_versions("1.5.0", "1.6.2"), Ordering::Less);
+        // Numeric, not lexical: 1.10.0 is newer than 1.9.0.
+        assert_eq!(
+            compare_dotted_versions("1.10.0", "1.9.0"),
+            Ordering::Greater
+        );
+        // Equal is equal; a git sha suffix does not change the release order.
+        assert_eq!(compare_dotted_versions("1.6.3", "1.6.3"), Ordering::Equal);
     }
 
     /// Every function outside `#[cfg(test)]` that writes a durable sidecar owner,
