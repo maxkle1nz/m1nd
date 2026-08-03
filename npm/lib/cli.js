@@ -1850,7 +1850,7 @@ function doctor() {
       visible_on_path_or_env: Boolean(binary),
       hint: binary
         ? "m1nd-mcp is visible. Use m1nd smoke from a repo checkout for a live MCP smoke."
-        : "m1nd-mcp is not visible. Build from source or install the native runtime before wiring MCP hosts.",
+        : "m1nd-mcp is not visible. Install it with `m1nd update apply --yes` (verified download; needs cosign on PATH), or build from source — see next_actions.",
     },
     codex: {
       skill_root: codexSkillRoot,

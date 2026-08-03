@@ -32,8 +32,11 @@ npx -y @maxkle1nz/m1nd doctor --json
 ```
 
 - `status: "ok"` with a `runtime`/version block → the native `m1nd-mcp` is visible; skip to §3.
-- If it reports the runtime is missing, install it: a release binary on `PATH` as
-  `m1nd-mcp`, or `cargo install m1nd-mcp`. Re-run `doctor` until it is visible.
+- If it reports the runtime is missing, install it the verified way:
+  `npx -y @maxkle1nz/m1nd update apply --yes` (downloads and signature-verifies the
+  native binary; needs [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
+  on `PATH`). If you accept skipping verification, `cargo install m1nd-mcp` works too.
+  Re-run `doctor` until it is visible.
 
 Global install alternative (gives you the `m1nd` command directly):
 
