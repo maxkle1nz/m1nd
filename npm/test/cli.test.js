@@ -210,7 +210,7 @@ assert(help.stdout.includes("m1nd agent first-minute"));
 assert(help.stdout.includes("m1nd agent auto"));
 assert(help.stdout.includes("m1nd agent next"));
 assert(help.stdout.includes("m1nd pack-routing-check"));
-assert(help.stdout.includes("RETROBUILDER capability_suggestions"));
+assert(help.stdout.includes("m1nd's deeper graph"));
 
 // Cold-start bug 1: `m1nd --version` (a stranger's most common first command) must
 // print the package version and exit 0 — not "missing value for --version". The bare
