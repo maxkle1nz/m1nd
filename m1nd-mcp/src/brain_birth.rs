@@ -855,3 +855,65 @@ pub fn run_birth(
         ],
     }))
 }
+
+/// A plain, human-facing one line for a successful birth, printed to stderr next
+/// to the machine JSON on stdout. A newcomer who runs `m1nd init --birth` should
+/// read a sentence, not parse a receipt. Success only — callers print it when the
+/// payload's `ok` is true.
+pub fn birth_receipt_human_line(payload: &serde_json::Value) -> String {
+    let root = payload
+        .get("born_root")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("this repo");
+    let nodes = payload
+        .get("node_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let edges = payload
+        .get("edge_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    format!(
+        "m1nd: done — {root} now has a graph of {nodes} nodes and {edges} edges. \
+         Reach it with an agent from inside that repo: m1nd-mcp --attach auto --stdio"
+    )
+}
+
+#[cfg(test)]
+mod human_line_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn birth_human_line_speaks_plainly_and_names_the_next_step() {
+        let line = birth_receipt_human_line(&json!({
+            "ok": true,
+            "born_root": "/tmp/acme",
+            "node_count": 6453u64,
+            "edge_count": 21012u64,
+        }));
+        assert!(line.contains("/tmp/acme"), "names the repo: {line}");
+        assert!(line.contains("6453"), "carries the real node count: {line}");
+        assert!(
+            line.contains("m1nd-mcp --attach auto"),
+            "tells them how to reach it: {line}"
+        );
+        // No apparatus vocabulary bleeds into the sentence a newcomer reads.
+        for leak in ["honest_limits", "schema", "reflex", "POSITIVE_SOVEREIGN"] {
+            assert!(
+                !line.contains(leak),
+                "human line must not leak `{leak}`: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn birth_human_line_survives_a_missing_root() {
+        let line = birth_receipt_human_line(&json!({ "ok": true, "node_count": 1u64 }));
+        assert!(
+            line.contains("this repo"),
+            "falls back to a plain noun: {line}"
+        );
+    }
+}
