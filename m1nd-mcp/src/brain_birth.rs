@@ -587,7 +587,7 @@ fn run_home_birth(
         "honest_limits": [
             "this runtime lives inside the repo you named, so the brain for that repo IS this owner's own graph — there was no second brain to mint, only an empty one to fill",
             "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
-            "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
+            "it stops an agent from creating a brain by habit or with a disguised request — it is not a defense against a hostile local process running as you",
             "birth happens once; keep the graph fresh afterwards with ingest {mode:\"refresh\"} from this exact root",
         ],
     }))
@@ -849,7 +849,7 @@ pub fn run_birth(
         "reach_it_with": "m1nd-mcp --attach auto --stdio   # run from inside that repo",
         "honest_limits": [
             "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
-            "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
+            "it stops an agent from creating a brain by habit or with a disguised request — it is not a defense against a hostile local process running as you",
             "adopting an existing brain is migration, a boot-time fact with no verb; birth only ever writes into an empty destination",
             "this brain is hosted by THIS owner: agents reach it by attaching to it from inside that repo, not by booting their own runtime there",
         ],
