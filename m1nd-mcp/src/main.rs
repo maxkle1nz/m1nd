@@ -606,7 +606,7 @@ fn run_medulla_migrate(
 /// the verb, print JSON, exit. Exit code follows the answer — `0` for a
 /// certificate, `1` for a refusal — so a script or a human sees the difference
 /// without parsing.
-fn run_birth_ceremony(config: McpConfig, root: &str, confirm: Option<String>) {
+fn run_birth_ceremony(config: McpConfig, root: &str) {
     let server = match McpServer::new(config) {
         Ok(server) => server,
         Err(e) => {
@@ -620,12 +620,7 @@ fn run_birth_ceremony(config: McpConfig, root: &str, confirm: Option<String>) {
     // (`McpServer::into_session_state` is `pub(crate)`, guarded by a
     // `compile_fail` doctest). The binary contributes the INGRESS — the fact
     // that a human ran this command — and nothing else.
-    let payload = match m1nd_mcp::brain_birth::run_ceremony_with_confirm(
-        server,
-        root,
-        "m1nd-init-birth",
-        confirm,
-    ) {
+    let payload = match m1nd_mcp::brain_birth::run_ceremony(server, root, "m1nd-init-birth") {
         Ok(payload) => payload,
         Err(e) => {
             eprintln!("[m1nd-mcp][birth] the ceremony failed: {e}");
@@ -1070,7 +1065,7 @@ async fn main() {
     // transport — which is also why the stamp it applies can never be reached
     // through one.
     if let Some(root) = cli.birth {
-        run_birth_ceremony(config, &root, cli.confirm.clone());
+        run_birth_ceremony(config, &root);
         return;
     }
 

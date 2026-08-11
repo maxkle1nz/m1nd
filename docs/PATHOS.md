@@ -369,23 +369,12 @@ Update this list in the same PR that closes one; a front that dies silently is a
   the fast loop promises, and that is not a config change. Safe-order position: step 1 (observe)
   RUNNING via shadow + local timing; step 2 (manifest) THIS delta; steps 3+ gated on ratification.
 
-**Delta 2026-08-02 (late) — the door offers a CHOICE, and the owner's law replaces the old doctrine:**
-- **The owner's law, declared verbatim and now IMPLEMENTED:** "brain o agente PODE fazer com
-  autorização do humano, e ele tem que dizer SEMPRE pro humano se quer fazer o brain ou carregar."
-  Every birth surface now offers the create-new × load-existing CHOICE instead of a bare refusal:
-  the CLI (`--confirm create-new|load-existing`, relayed by the npm wrapper), the ceremony verdict
-  (an inhabited destination returns `choice_required` with the existing brain's numbers — the exact
-  fix for the field case where a boot ingested BEFORE the verdict and the ceremony refused the graph
-  its own process had just filled), and the wire verb (now `human_authorization_required` + the
-  agent's actionable 3-step path, never "agents never do"). `HumanOrigin` gained `AgentRelayed`
-  ("human-via-agent") by the owner's decision. The OLD doctrine ("agents offer, never run") was
-  swept from every surface that taught it — server instructions, tool descriptions, ingest doors,
-  recovery playbook, both skills, the universal agent pack — in the same change. Declared residual:
-  the wire verb still cannot EXECUTE a birth (the dispatcher holds no owner context); the authorized
-  agent's executable path is the CLI, and direct wire execution is its own plumbing decision.
-- Pinned: the second-ceremony e2e now proves the CHOICE (options by name + the existing node_count)
-  and the load-existing acknowledgement; the wire pin proves the 3-step path names both choices and
-  the exact command; the allowlist pin carries the fourth origin with the law's date.
+**Delta 2026-08-11 — birth has one human ingress:**
+- `m1nd init --birth <repo>` is the human's one-time terminal gesture. An agent names that
+  command and stops; no client-supplied authorization can mint a graph, and `human-via-agent` is
+  not an allowed origin.
+- The ceremony accepts only an empty destination. A second invocation refuses rather than rescan or
+  adopt an existing graph; those are separate owner-controlled lifecycle operations.
 
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**

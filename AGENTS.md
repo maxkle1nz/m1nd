@@ -435,11 +435,10 @@ bound brain because the writer never checked which brain it was talking to.
    `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
    gesture lifts this for AGENTS.** Generic cross-root `ingest` remains withdrawn
    (`project_root` is absent from the published schema; POSITIVE_SOVEREIGN), and over the
-   wire `brain.bootstrap.birth` answers every client with `human_authorization_required` —
-   the stamp is the binary's own CLI flag, which no MCP or REST payload can forge. The way
-   forward for a brainless repo is the ceremony `m1nd init --birth <repo>`, and by the
-   owner's law of 2026-08-02 an agent runs it ITSELF once its human has picked: ask first
-   (a new brain, or load the one already there), then run it and report. Until they answer,
+   wire `brain.bootstrap.birth` answers every client with `human_gesture_required` — the
+   stamp is the binary's own CLI flag, which no MCP or REST payload can forge. The way
+   forward for a brainless repo is the human's one-time ceremony
+   `m1nd init --birth <repo>`: offer that exact command and stop. Until the human runs it,
    reconnect to an owner that already hosts the intended repo, or stay read-only with the
    mismatch warning intact — do not write.
    (The mechanical write-refusal has LANDED — every skeleton write verb

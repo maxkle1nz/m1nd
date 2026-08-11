@@ -52,9 +52,8 @@ const GENERIC_BIRTH_REFUSAL: &str = "invalid params for brain_birth: \
      generic_action_authority_required: semantic_action=brain.bootstrap.birth \
      authority_floor=POSITIVE_SOVEREIGN cannot use generic REST/MCP dispatch; \
      no exact typed G2/G3 lease consumer is installed for this action. The first \
-     graph is born on the human's explicit pick: ask them (create new × load \
-     existing — always), then with their yes run `m1nd init --birth <repo>` \
-     yourself";
+     graph for a repo is the human's one-time ceremony: offer them \
+     `m1nd init --birth <repo>` and stop — agents never run it";
 
 /// The owner's own bound brain (the "dev graph" §2 says birth never touches),
 /// with a runtime under `runtime` and no roots declared.
@@ -227,13 +226,10 @@ fn spec2_5_7b2_every_allowlisted_token_grants_nothing_when_the_client_claims_it(
 }
 
 /// Defense in depth: a caller that reaches `dispatch_tool` DIRECTLY — past the
-/// gate, the way an in-process seam could — still cannot birth THERE, because
-/// the dispatcher holds no owner context. But by the owner's law (2026-08-02:
-/// an agent MAY birth with the human's authorization, and must always offer
-/// create-new × load-existing) the answer is no longer "agents never do": it
-/// is the agent's real path — ask the human, then run the ceremony yourself.
+/// gate, the way an in-process seam could — still cannot birth, because the
+/// dispatcher holds no `HumanOrigin` and cannot construct one.
 #[test]
-fn spec2_5_7b3_direct_dispatch_answers_with_the_agents_path_not_a_dead_end() {
+fn spec2_5_7b3_direct_dispatch_without_a_stamp_refuses_human_gesture_required() {
     let temp = tempfile::tempdir().expect("tempdir");
     let mut state = build_bound_state(&temp.path().join("runtime"));
     let repo = temp.path().join("repo");
@@ -247,20 +243,8 @@ fn spec2_5_7b3_direct_dispatch_answers_with_the_agents_path_not_a_dead_end() {
     .expect("the dispatcher must answer with a refusal payload, not an unknown tool");
 
     assert_eq!(payload["ok"], json!(false));
-    assert_eq!(payload["refused"], json!("human_authorization_required"));
+    assert_eq!(payload["refused"], json!("human_gesture_required"));
     assert_eq!(payload["allowed_origins"], json!(BIRTH_HUMAN_ORIGINS));
-    let path = payload
-        .get("your_path")
-        .expect("the answer must carry the agent's actionable path");
-    let steps = serde_json::to_string(path).expect("encode path");
-    assert!(
-        steps.contains("create-new") && steps.contains("load-existing"),
-        "the path must offer both choices by name: {steps}"
-    );
-    assert!(
-        steps.contains("m1nd init --birth"),
-        "the path must name the exact command the authorized agent runs: {steps}"
-    );
 }
 
 /// The allowlist is the ratified one, and the binary is honest about which of
@@ -270,9 +254,8 @@ fn spec2_5_7b3_direct_dispatch_answers_with_the_agents_path_not_a_dead_end() {
 fn spec2_5_7b4_the_allowlist_is_the_ratified_one_and_names_its_installed_stamp() {
     assert_eq!(
         BIRTH_HUMAN_ORIGINS,
-        ["human-ui", "human-touchid", "human-cli", "human-via-agent"],
-        "§2's closed allowlist, ratified §6 item 4, extended by the owner's \
-         2026-08-02 law (an agent relaying the human's explicit yes)"
+        ["human-ui", "human-touchid", "human-cli"],
+        "§2's closed allowlist, ratified §6 item 4"
     );
     assert_eq!(
         BIRTH_ORIGINS_WITH_A_STAMPING_SEAM,

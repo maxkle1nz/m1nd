@@ -212,6 +212,32 @@ assert(help.stdout.includes("m1nd agent next"));
 assert(help.stdout.includes("m1nd pack-routing-check"));
 assert(help.stdout.includes("RETROBUILDER capability_suggestions"));
 
+// Birth has one human CLI ingress. The withdrawn choice protocol must fail
+// before the wrapper tries to resolve or execute a native runtime.
+{
+  const absentBirthBinary = path.join(mkTmpDir(), runtimeBinaryName());
+  const rejectedConfirm = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "init",
+      "--birth",
+      mkTmpDir(),
+      "--confirm",
+      "create-new",
+      "--binary",
+      absentBirthBinary,
+    ],
+    { encoding: "utf8" }
+  );
+  assert.strictEqual(rejectedConfirm.status, 1, rejectedConfirm.stderr);
+  assert.match(rejectedConfirm.stderr, /--confirm is not supported/);
+  assert(
+    !rejectedConfirm.stderr.includes("native runtime is not installed"),
+    "--confirm must reject before the wrapper touches the native binary"
+  );
+}
+
 // Cold-start bug 1: `m1nd --version` (a stranger's most common first command) must
 // print the package version and exit 0 — not "missing value for --version". The bare
 // `version` subcommand and the conventional `-V` short flag behave identically.

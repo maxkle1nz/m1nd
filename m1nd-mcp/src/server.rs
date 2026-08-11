@@ -43,10 +43,10 @@ A response may carry a `reception` block. `reception.match == \"caller_root_mism
 means the bound graph does NOT cover your current repo (its root ≠ your resolved \
 `caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
 Generic cross-root `ingest` remains withdrawn (no `project_root` in the schema; \
-POSITIVE_SOVEREIGN, fails closed), and the birth verb answers every wire client with \
-`human_authorization_required` and the actionable path — a repo with NO brain has a \
-real door: the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
-ASK your human — always — whether to create the brain or load an existing one (the owner's law, 2026-08-02); with their yes, run that exact command yourself. Until then: continue only against the bound graph (with the mismatch \
+POSITIVE_SOVEREIGN, fails closed), and the birth verb refuses every wire client with \
+`human_gesture_required` — but a repo with NO brain now has a real path: the HUMAN \
+runs the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
+OFFER that exact command and stop; running it is not the agent's to do. Until the human runs it: continue only against the bound graph (with the mismatch \
 warning intact), or reconnect to an owner that already hosts the intended repo. Absent \
 `reception` = your root matches the brain serving you (silent bind is legal only on a \
 match, TT-INV-12).
@@ -1260,7 +1260,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "brain_birth",
-                "description": "Birth a NEW project brain for a repo that has none. A brain is born on the HUMAN's explicit pick, and an agent MAY run the ceremony WITH that authorization (the owner's law, 2026-08-02): always ask your human first — create a new brain, or load the existing one? — then, with their yes, run `m1nd init --birth <repo>` yourself in a terminal (add `--confirm create-new` or `--confirm load-existing` when the repo already holds a brain; an unconfirmed ceremony on an inhabited destination answers with that CHOICE, never a bare refusal). Over generic MCP/REST this verb cannot execute — the dispatcher holds no owner context — and answers with that same actionable path. Birth refuses roots that do not resolve and overlaps with a DIFFERENT brain; it never silently replaces a graph.",
+                "description": "Birth a NEW project brain for a repo that has none. This is the HUMAN's one-time gesture, not an agent's call: admission is an origin the OWNER stamps from a fact it observes about itself, and an origin string sent as a parameter grants nothing. Over generic MCP/REST this verb is refused for every client, however the call is dressed. The one path that exists today is the ceremony a HUMAN runs in their terminal: `m1nd init --birth <repo>`. If you are an agent and a repo has no brain, OFFER that exact command and stop; running it is not yours to do. Birth refuses unless the destination is empty ON DISK (no manifest, snapshot or checkpoint), refuses any root that overlaps an existing brain, never touches the owner's bound graph, and is not the way to adopt an existing brain — that is migration, a boot-time fact with no verb.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -6654,7 +6654,7 @@ const FIRST_GRAPH_ACTIONS: &[&str] = &[
 /// does not change here; only the sentence does.
 pub(crate) fn first_graph_door_suffix(action: &str) -> &'static str {
     if FIRST_GRAPH_ACTIONS.contains(&action) {
-        ". The first graph is born on the human's explicit pick: ask them (create new × load existing — always), then with their yes run `m1nd init --birth <repo>` yourself"
+        ". The first graph for a repo is the human's one-time ceremony: offer them `m1nd init --birth <repo>` and stop — agents never run it"
     } else {
         ""
     }

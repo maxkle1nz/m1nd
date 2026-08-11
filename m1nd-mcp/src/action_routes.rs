@@ -134,8 +134,7 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "persist",
     "boot_memory",
     // Advertised so an agent can SEE the birth verb and read its honest refusal
-    // (`human_authorization_required`, with the agent's path) — never so it can
-    // execute it there. It routes to
+    // (`human_gesture_required`) — never so it can call it. It routes to
     // `brain.bootstrap.birth` at the `PositiveSovereign` floor and is refused for
     // every wire client; the stamp is the binary's own `--birth` ingress. Absent
     // from this list the verb would be advertised with no ratified floor at all,

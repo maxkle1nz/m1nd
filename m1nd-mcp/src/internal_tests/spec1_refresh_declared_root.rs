@@ -129,19 +129,15 @@ fn refresh_params(path: &str) -> serde_json::Value {
 /// hijack class, two bound-brain replacements in 24h on the deployed 1.4.x owner
 /// — keeps today's refusal, verbatim, including the floor it names.
 ///
-/// AMENDED twice, deliberately. First the refusal grew a way out; then the
-/// owner's law moved the door itself — the agent MAY run the ceremony once the
-/// human has picked (create new × load existing), so the suffix now reads "with
-/// their yes run it yourself", not "agents never run it". What §5.1 still pins
-/// is that the DECISION does not move: same code, same action, same floor,
-/// nothing mutated for this foreign-root replace. Naming the human's pick grants
-/// no authority to anyone, least of all the foreign caller refused here, for
-/// whom `m1nd init --birth <their repo>` is the correct answer and buys no path
-/// to replace the bound brain. Measured on 1.6.2: an agent hit this refusal plus
-/// three siblings, none of which named a door, and reported that m1nd could not
-/// be used at all. The two SCOPED_GRANT_A2 siblings in §5.9 keep their bytes
-/// untouched, because their answer is not the ceremony — see
-/// `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`.
+/// AMENDED once, deliberately: the refusal now carries the way out. What §5.1
+/// pins is that the DECISION does not move (same code, same action, same floor,
+/// nothing mutated), and it does not — a sentence naming the human's ceremony
+/// grants no authority to anyone, least of all the foreign caller being refused
+/// here, for whom that command is exactly the correct answer. Measured on 1.6.2:
+/// an agent hit this refusal plus three siblings, none of which named a door,
+/// and reported that m1nd could not be used at all. The two SCOPED_GRANT_A2
+/// siblings in §5.9 keep their bytes untouched, because their answer is not the
+/// ceremony — see `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`.
 #[test]
 fn spec1_5_1_foreign_root_replace_keeps_todays_refusal_bytes() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -164,9 +160,9 @@ fn spec1_5_1_foreign_root_replace_keeps_todays_refusal_bytes() {
         "invalid params for ingest: generic_action_authority_required: \
          semantic_action=graph.ingest.replace authority_floor=POSITIVE_SOVEREIGN \
          cannot use generic REST/MCP dispatch; no exact typed G2/G3 lease \
-         consumer is installed for this action. The first graph is born on \
-         the human's explicit pick: ask them (create new × load existing — \
-         always), then with their yes run `m1nd init --birth <repo>` yourself"
+         consumer is installed for this action. The first graph for a repo is \
+         the human's one-time ceremony: offer them `m1nd init --birth <repo>` \
+         and stop — agents never run it"
     );
 }
 

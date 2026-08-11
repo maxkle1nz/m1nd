@@ -64,7 +64,7 @@ function usage() {
 
 Usage:
   m1nd init [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>]
-  m1nd init --birth <repo>   The P2 birth ceremony (human's gesture; agents offer, never run)
+  m1nd init --birth <repo>   Create a repo's graph (a one-time step you run yourself)
   m1nd install-skills <host> [--project <dir>]
   m1nd mcp-config <host> [--binary <path>] [--project <dir>]
   m1nd hosts status [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
@@ -4768,16 +4768,14 @@ async function main(rawArgs) {
     // forge it), so the npm side only relays the human's gesture to the binary
     // it resolves — inherit stdio so the ceremony speaks to the human directly.
     if (command === "init" && args.birth) {
+      if (args.confirm !== undefined) {
+        console.error("m1nd: --confirm is not supported; a birth accepts only an empty destination");
+        process.exitCode = 1;
+        return;
+      }
       const targetBinary = path.resolve(args.binary || defaultRuntimePath());
       const repoArg = typeof args.birth === "string" ? args.birth : args._[1] || process.cwd();
-      const birthArgs = ["--birth", path.resolve(repoArg)];
-      // Relay the human's create-new × load-existing pick (the owner's law,
-      // 2026-08-02) — the binary answers with the choice when it is absent
-      // and the destination already holds a brain.
-      if (typeof args.confirm === "string" && args.confirm) {
-        birthArgs.push("--confirm", args.confirm);
-      }
-      const result = spawnSync(targetBinary, birthArgs, {
+      const result = spawnSync(targetBinary, ["--birth", path.resolve(repoArg)], {
         stdio: "inherit",
       });
       // The FIRST command this product teaches must never answer with silence.

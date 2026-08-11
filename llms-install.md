@@ -187,19 +187,16 @@ north({ "agent_id": "install-check", "task": "orient" })
 A healthy response carries `binding.trust_mode` (e.g. `full_trust`), a `context` block
 with `focus_nodes` + `anchors`, and `honest_gaps`. If the graph is empty it returns
 `needs: "needs_ingest"`, and its `next_move` carries the door: **you do not ingest.**
-Minting a brain happens on your human's explicit pick, so ask them first — a new brain
-for this repo, or load one that already exists? — and with their yes run the ceremony
-yourself, in a terminal, then report what it built:
+Minting a brain is the human's one-time terminal gesture. Offer this command and
+stop; do not try to mint a brain through the agent transport:
 
 ```bash
 npx -y @maxkle1nz/m1nd init --birth /abs/path/to/project
 ```
 
-If the destination already holds a brain, the ceremony answers with the CHOICE and that
-brain's numbers instead of a bare refusal; add `--confirm create-new` or
-`--confirm load-existing` once your human has picked. The ceremony ingests the repo and
-prints what it built (`node_count`, `edge_count`); it exits non-zero if the scan produced
-nothing, so it never reports success over an empty graph. Calling `ingest` yourself is refused on every transport
+The ceremony accepts only an empty destination. It ingests the repo and prints what it
+built (`node_count`, `edge_count`); it exits non-zero if the scan produced nothing, so
+it never reports success over an empty graph. Calling `ingest` yourself is refused on every transport
 (`generic_action_authority_required`) — the refusal names this same command. Once the
 graph exists, `ingest({ "mode": "refresh" })` from that exact root is the agent's own
 door for keeping it fresh.

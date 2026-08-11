@@ -193,7 +193,7 @@ npx -y @maxkle1nz/m1nd init --birth .
 npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
 ```
 
-Step 4 is the one command that waits for your word. Minting a brain writes a whole graph, so it happens on your explicit pick and nowhere else: your agent asks you first, a new brain for this repo or the one already sitting here, and with your yes it runs the ceremony itself. A repo that already holds a brain gets the choice back with that brain's numbers instead of a refusal, and `--confirm create-new` or `--confirm load-existing` settles it. After that the agent drives everything, including keeping the graph fresh. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
+Step 4 is the one command only you run. Minting a brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. If an agent finds a repo without a brain, it offers this command and stops. Once the graph exists, the agent can keep it fresh. The ceremony exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
 
 Step 1 verifies the signature with [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), so install that first if it is not on your PATH. If you prefer the source registry and accept skipping verification, `cargo install m1nd-mcp` works too. Prefer to see before you write: `hosts plan` prints everything `hosts apply` would touch, and writes nothing. There is no uninstall command yet; `hosts plan` doubles as the list of what to remove by hand.
 
@@ -214,9 +214,9 @@ This is why I built m1nd. Retrieval layers are good at answering. Almost none of
 {
   "ok": false,
   "verdict": "needs_ingest",              // never a bare "no results"
-  "next_action": "ask_then_birth",
+  "next_action": "offer_birth_ceremony",
   "recovery_playbook": {
-    "steps": [ { "action": "This repo has no brain yet: ask your human which they want, a new brain here or an existing one loaded. With their yes, run `m1nd init --birth <repo>` yourself and report what it built." } ]
+    "steps": [ { "action": "This repo has no brain yet: offer the human `m1nd init --birth <repo>` and stop." } ]
   }
 }
 ```

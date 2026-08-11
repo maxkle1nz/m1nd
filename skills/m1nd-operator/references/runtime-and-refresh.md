@@ -230,8 +230,5 @@ door — no silence, no dead ends, and the cause always visible:
   (`m1nd update apply --yes`) FIRST, and the source build only as a fallback.
 - **`m1nd update apply`** prints the blocking `cause:` in human mode — e.g.
   `cosign not found; install cosign` — not just a generic "install failed".
-- **`m1nd init --birth`** on a repo that already holds a brain returns the
-  CHOICE (create-new × load-existing) with the existing brain's node count;
-  relay `--confirm create-new` or `--confirm load-existing` from the human.
-  An agent MAY run the ceremony with the human's explicit authorization (the
-  owner's law, 2026-08-02) — always offer both options first, never choose.
+- **`m1nd init --birth`** accepts only an empty destination. An agent offers
+  the human this one-time command and stops; it never runs the ceremony.
