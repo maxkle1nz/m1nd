@@ -23,7 +23,7 @@
     "dagre": "^0.8.5",
     "lucide-react": "^1.27.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react-dom": "^19.2.8",
     "shiki": "^4.3.1",
     "zustand": "^5.0.14"
   },
@@ -33,7 +33,7 @@
     "@types/dagre": "^0.7.52",
     "@types/node": "^22.20.0",
     "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
     "eslint": "^10.8.0",
