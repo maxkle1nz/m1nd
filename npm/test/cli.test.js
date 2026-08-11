@@ -210,7 +210,7 @@ assert(help.stdout.includes("m1nd agent first-minute"));
 assert(help.stdout.includes("m1nd agent auto"));
 assert(help.stdout.includes("m1nd agent next"));
 assert(help.stdout.includes("m1nd pack-routing-check"));
-assert(help.stdout.includes("RETROBUILDER capability_suggestions"));
+assert(help.stdout.includes("m1nd's deeper graph"));
 
 // Birth has one human CLI ingress. The withdrawn choice protocol must fail
 // before the wrapper tries to resolve or execute a native runtime.

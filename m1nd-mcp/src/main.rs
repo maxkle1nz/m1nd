@@ -607,6 +607,9 @@ fn run_medulla_migrate(
 /// certificate, `1` for a refusal — so a script or a human sees the difference
 /// without parsing.
 fn run_birth_ceremony(config: McpConfig, root: &str) {
+    eprintln!(
+        "m1nd: creating the graph for {root} — reading the repo, this can take a moment on a large one…"
+    );
     let server = match McpServer::new(config) {
         Ok(server) => server,
         Err(e) => {
@@ -635,6 +638,12 @@ fn run_birth_ceremony(config: McpConfig, root: &str) {
         "{}",
         serde_json::to_string_pretty(&payload).unwrap_or_default()
     );
+    if ok {
+        eprintln!(
+            "{}",
+            m1nd_mcp::brain_birth::birth_receipt_human_line(&payload)
+        );
+    }
     if !ok {
         std::process::exit(1);
     }

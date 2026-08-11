@@ -497,7 +497,7 @@ fn run_home_birth(
         "honest_limits": [
             "this runtime lives inside the repo you named, so the brain for that repo IS this owner's own graph — there was no second brain to mint, only an empty one to fill",
             "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
-            "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
+            "it stops an agent from creating a brain by habit or with a disguised request — it is not a defense against a hostile local process running as you",
             "birth happens once; keep the graph fresh afterwards with ingest {mode:\"refresh\"} from this exact root",
         ],
     }))
@@ -759,9 +759,71 @@ pub fn run_birth(
         "reach_it_with": "m1nd-mcp --attach auto --stdio   # run from inside that repo",
         "honest_limits": [
             "birth is the human's gesture: the owner stamps its origin from the ceremony ingress, and no client payload can produce that stamp",
-            "it closes the reflex vector — an agent calling by habit or with a dressed-up payload — not a hostile same-UID local process",
+            "it stops an agent from creating a brain by habit or with a disguised request — it is not a defense against a hostile local process running as you",
             "adopting an existing brain is migration, a boot-time fact with no verb; birth only ever writes into an empty destination",
             "this brain is hosted by THIS owner: agents reach it by attaching to it from inside that repo, not by booting their own runtime there",
         ],
     }))
+}
+
+/// A plain, human-facing one line for a successful birth, printed to stderr next
+/// to the machine JSON on stdout. A newcomer who runs `m1nd init --birth` should
+/// read a sentence, not parse a receipt. Success only — callers print it when the
+/// payload's `ok` is true.
+pub fn birth_receipt_human_line(payload: &serde_json::Value) -> String {
+    let root = payload
+        .get("born_root")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("this repo");
+    let nodes = payload
+        .get("node_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let edges = payload
+        .get("edge_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    format!(
+        "m1nd: done — {root} now has a graph of {nodes} nodes and {edges} edges. \
+         Reach it with an agent from inside that repo: m1nd-mcp --attach auto --stdio"
+    )
+}
+
+#[cfg(test)]
+mod human_line_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn birth_human_line_speaks_plainly_and_names_the_next_step() {
+        let line = birth_receipt_human_line(&json!({
+            "ok": true,
+            "born_root": "/tmp/acme",
+            "node_count": 6453u64,
+            "edge_count": 21012u64,
+        }));
+        assert!(line.contains("/tmp/acme"), "names the repo: {line}");
+        assert!(line.contains("6453"), "carries the real node count: {line}");
+        assert!(
+            line.contains("m1nd-mcp --attach auto"),
+            "tells them how to reach it: {line}"
+        );
+        // No apparatus vocabulary bleeds into the sentence a newcomer reads.
+        for leak in ["honest_limits", "schema", "reflex", "POSITIVE_SOVEREIGN"] {
+            assert!(
+                !line.contains(leak),
+                "human line must not leak `{leak}`: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn birth_human_line_survives_a_missing_root() {
+        let line = birth_receipt_human_line(&json!({ "ok": true, "node_count": 1u64 }));
+        assert!(
+            line.contains("this repo"),
+            "falls back to a plain noun: {line}"
+        );
+    }
 }

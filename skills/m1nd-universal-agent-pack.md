@@ -17,8 +17,8 @@ The trust is calibrated, not blind — that is why it leads: a calibrated absenc
 (`caller_root_mismatch`, `abstain`, `gathering`, `insufficient_evidence`) is the
 answer that stops the wrong edit, and m1nd narrows/connects while the compiler,
 tests, and runtime still decide truth. When a verb hangs or a fresh memory lags
-recall, work around and file one field-report line (never fix mid-mission, never
-conclude "broken").
+recall, work around it and move on — never fix m1nd mid-mission, and never
+conclude "broken" from a single hiccup.
 
 ## Startup: north First
 
@@ -225,11 +225,10 @@ this loop by default:
 6. Before edits or reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
 7. Close warmer than you found it: `memorize` every durable finding (with
-   `confidence` and repo-relative `evidence` paths), then leave one
-   field-telemetry signal — `learn(correct|wrong|partial)` on a retrieval, or one
-   JSON line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves
-   (local-only; never fix m1nd mid-mission — report). A memory-delivery fault is
-   `class:"memory_misdelivery"` + a `kind`. Letters distribute LOCALLY into
+   `confidence` and repo-relative `evidence` paths), then, if a retrieval was
+   plainly right or wrong, tell m1nd with `learn(correct|wrong|partial)` so the
+   next agent inherits the correction. Out-of-scope findings you should not fix
+   now become a letter in the project's box. Letters distribute LOCALLY into
    per-project boxes (`<repo>/.m1nd/inbox.jsonl`, git-travelling) + a medulla box
    for projectless letters; triage is `m1nd-mcp --inbox-sweep` / `GET /api/inbox_sweep`
    and a project's box reads via `GET /api/mailbox?brain=<root>` (CLI/REST, not MCP).

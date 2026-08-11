@@ -107,7 +107,7 @@ update is the safe self-update surface. check/plan never mutate. apply mutates
 only with --yes, writes runtime backups before replacement, and always reports
 that active MCP hosts still need restart or rebind.
 
-hosts status is a read-only universality-loop cockpit. It reports whether each
+hosts status is a read-only report. It shows whether each
 agent host has an agent pack, an MCP config hint, a current runtime, and the
 remaining rebind caveat.
 
@@ -124,23 +124,23 @@ runtime whether a live serve owner already holds --repo (the same two questions
 ingest roots cover this repo). When one answers, agent bridges to it and reads
 the machine's real graph; when none does, it launches an isolated m1nd-mcp
 runtime bound to --repo and says so. Either way it emits deterministic JSON
-outside any stale MCP host and tells the agent when to switch back to direct
-proof. Pass --no-attach to force the isolated runtime.
+outside any stale MCP host and tells the agent when to switch back to the
+compiler, tests, and source. Pass --no-attach to force the isolated runtime.
 
 agent auto/next is the deterministic route picker. It does not claim proof; it
-chooses the next bounded agent step or hands control back to direct proof. For
-deep architecture, hidden coupling, security/taint, duplication/refactor, or
-runtime-heat tasks, it emits RETROBUILDER capability_suggestions.
+chooses the next bounded agent step or hands control back to the compiler,
+tests, and source. For deep architecture, hidden coupling, security/taint,
+duplication/refactor, or runtime-heat tasks, it suggests m1nd's deeper graph
+tools.
 
 agent first-minute is the safest first contact for a new repo. It scopes,
 checks trust, and runs one bounded read-only orientation pass only when the bound
 brain already has an ingested graph — the live serve owner's graph when one
-covers this repo, the isolated runtime's otherwise. An empty graph returns
-deterministic needs_authority/NOT_PROVEN recovery instructions naming why no
-owner was reached; the npm CLI never calls generic
-ingest, legacy bootstrap, or a software-test authority fallback. It can also surface RETROBUILDER
+covers this repo, the isolated runtime's otherwise. Over an empty graph it
+returns clear recovery steps explaining why no owner was reached; the npm CLI
+never ingests or bootstraps on its own. It can also suggest m1nd's deeper graph
 tools such as ghost_edges, taint_trace, twins, refactor_plan, and
-runtime_overlay when the query asks for those deeper lenses.
+runtime_overlay when the query asks for those lenses.
 
 agent context is anchor-first. Use --anchor or a concrete file path for capsules;
 use --allow-discovery only when you intentionally accept discovery overhead.`;
@@ -1850,7 +1850,7 @@ function doctor() {
       visible_on_path_or_env: Boolean(binary),
       hint: binary
         ? "m1nd-mcp is visible. Use m1nd smoke from a repo checkout for a live MCP smoke."
-        : "m1nd-mcp is not visible. Build from source or install the native runtime before wiring MCP hosts.",
+        : "m1nd-mcp is not visible. Install it with `m1nd update apply --yes` (verified download; needs cosign on PATH), or build from source — see next_actions.",
     },
     codex: {
       skill_root: codexSkillRoot,
