@@ -14730,7 +14730,11 @@ mod tests {
     /// run `orient` on a real task, printing the focus nodes + summary.
     ///
     /// Run with: `cargo test -p m1nd-mcp orient_real_snapshot_probe -- --nocapture`
-    /// Skips gracefully (printing a note) if the snapshot is not present.
+    /// Skips gracefully (printing a note) if the snapshot is not present OR
+    /// present but empty (0 nodes) — the file is git-ignored dev-machine state,
+    /// never checked in, so a fresh checkout always takes the not-present path
+    /// and an accidentally-truncated/placeholder file takes the empty path;
+    /// neither is this probe's job to prove wrong.
     #[test]
     fn orient_real_snapshot_probe() {
         // Locate the repo-root snapshot relative to the crate dir.
@@ -14745,6 +14749,13 @@ mod tests {
 
         let graph =
             m1nd_core::snapshot::load_graph(&snapshot_path).expect("load real graph_snapshot.json");
+        if graph.nodes.count == 0 {
+            eprintln!(
+                "[orient_real_snapshot_probe] {} loaded but empty (0 nodes) — skipping",
+                snapshot_path.display()
+            );
+            return;
+        }
         eprintln!(
             "[orient_real_snapshot_probe] loaded {} nodes from {}",
             graph.nodes.count,
@@ -16045,7 +16056,11 @@ mod tests {
     /// top-signal hits and dropping the rest on real data.
     ///
     /// Run with: `cargo test -p m1nd-mcp seek_token_budget_real_snapshot_probe -- --nocapture`
-    /// Skips gracefully (printing a note) if the snapshot is not present.
+    /// Skips gracefully (printing a note) if the snapshot is not present OR
+    /// present but empty (0 nodes) — the file is git-ignored dev-machine state,
+    /// never checked in, so a fresh checkout always takes the not-present path
+    /// and an accidentally-truncated/placeholder file takes the empty path;
+    /// neither is this probe's job to prove wrong.
     #[test]
     fn seek_token_budget_real_snapshot_probe() {
         let snapshot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -16062,6 +16077,13 @@ mod tests {
         let graph =
             m1nd_core::snapshot::load_graph(&snapshot_path).expect("load real graph_snapshot.json");
         let node_count = graph.nodes.count;
+        if node_count == 0 {
+            eprintln!(
+                "[seek_token_budget_real_snapshot_probe] {} loaded but empty (0 nodes) — skipping",
+                snapshot_path.display()
+            );
+            return;
+        }
 
         let temp = tempfile::tempdir().expect("tempdir");
         let runtime_dir = temp.path().join("runtime");

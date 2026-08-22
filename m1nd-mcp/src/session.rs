@@ -3011,13 +3011,6 @@ impl SessionState {
                 )?),
             ),
             (
-                "embeddings_cache",
-                self.embeddings_cache_path.as_path(),
-                // The cache is derived and has no complete in-memory owner.
-                // Explicit absence is safer than checkpointing stale disk bytes.
-                CheckpointCandidatePresence::Absent,
-            ),
-            (
                 "binary_graph_snapshot",
                 binary_snapshot_path.as_path(),
                 // Binary snapshots are a derived, explicitly requested export.
@@ -4793,7 +4786,6 @@ mod tests {
         "daemon_state",
         "document_artifact_inventory",
         "document_cache_index",
-        "embeddings_cache",
         "graph_snapshot",
         "ingest_roots",
         "plasticity_state",
@@ -5517,15 +5509,38 @@ mod tests {
         };
         let snapshot: serde_json::Value = serde_json::from_slice(graph_bytes).expect("graph JSON");
         assert_eq!(snapshot["version"], m1nd_core::snapshot::SNAPSHOT_VERSION);
-        assert!(matches!(
+        // The embedding cache is a self-managed, self-validating sidecar
+        // (`brain_runtime.rs:554-570`) and must stay OUTSIDE the checkpoint
+        // system's ownership entirely — not merely be declared Absent. Listing
+        // it as an explicit Absent candidate is exactly what caused every
+        // checkpoint working-set projection (persist AND boot restore) to
+        // treat the file as checkpoint-managed and delete it right after it
+        // was written, guaranteeing a full re-embed on every boot. So the
+        // checkpoint candidate list must carry NO entry for it at all.
+        assert!(
+            first
+                .files
+                .iter()
+                .all(|file| file.logical_name != "embeddings_cache"),
+            "embeddings_cache must not be a checkpoint candidate at all (self-managed sidecar); \
+             found an entry for it: {:?}",
             first
                 .files
                 .iter()
                 .find(|file| file.logical_name == "embeddings_cache")
-                .expect("explicit derived cache decision")
-                .presence,
-            CheckpointCandidatePresence::Absent
-        ));
+        );
+        // It is still real on disk though: `SessionState::initialize` already
+        // wrote it directly (self-managed, independent of any checkpoint
+        // staging) — this is the local proxy for "must survive"; the full
+        // warm-boot reuse property across a real process restart is proven by
+        // `m1nd-mcp/tests/estate_north_and_cache_repro.rs`'s
+        // `embedding_cache_is_reused_on_warm_second_boot`.
+        assert!(
+            state.embeddings_cache_path.exists(),
+            "embedding cache must already exist on disk, self-managed, before any checkpoint \
+             staging touches it: {}",
+            state.embeddings_cache_path.display()
+        );
 
         assert_eq!(
             state
@@ -5546,6 +5561,13 @@ mod tests {
         assert!(graph_path.exists());
         assert!(daemon_path.exists());
         assert!(auto_ingest_path.exists());
+        // The checkpoint cycle above (stage -> apply -> finish -> persist)
+        // must never have touched the self-managed cache file.
+        assert!(
+            state.embeddings_cache_path.exists(),
+            "embedding cache must survive a full checkpoint persist cycle: {}",
+            state.embeddings_cache_path.display()
+        );
     }
 
     #[test]

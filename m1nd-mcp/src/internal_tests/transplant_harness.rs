@@ -989,16 +989,58 @@ fn atomicity_write_failure_after_preflight_touches_nothing() {
     perms.set_mode(0o555);
     std::fs::set_permissions(&src, perms).unwrap();
 
-    let result = dispatch_tool(
-        &mut state,
-        "transplant",
-        &params(root, "move_me", "src/alpha.rs", "src/beta.rs"),
-    );
+    // Permission bits alone do not block a root-euid process (DAC is bypassed for
+    // root by the kernel; measured directly: `chmod 0555` + `touch` under root
+    // still creates the file). CI (ubuntu-latest/macos-latest) never runs tests
+    // as root, so this branch is normally a no-op — it exists for root-euid dev
+    // containers/sandboxes, which this repo is also developed in. `chattr +i`
+    // sets the ext-family FS_IMMUTABLE_FL flag, which the VFS enforces
+    // regardless of euid, so it closes the gap chmod leaves open for root.
+    let running_as_root = unsafe { libc::geteuid() } == 0;
+    let made_immutable = running_as_root
+        && std::process::Command::new("chattr")
+            .arg("+i")
+            .arg(&src)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+    // Verify the injection actually holds before trusting it for the assertions
+    // below: attempt (and discard) the same kind of write `apply_batch` would
+    // make. A test that asserts atomicity without confirming its own fault was
+    // ever injected can pass for the wrong reason.
+    let probe_path = src.join(".m1nd_atomicity_probe.tmp");
+    let injection_holds = std::fs::write(&probe_path, b"probe").is_err();
+    let _ = std::fs::remove_file(&probe_path);
+
+    let result = if injection_holds {
+        Some(dispatch_tool(
+            &mut state,
+            "transplant",
+            &params(root, "move_me", "src/alpha.rs", "src/beta.rs"),
+        ))
+    } else {
+        None
+    };
 
     // Restore write permission BEFORE any assertion so tempdir cleanup never panics.
+    if made_immutable {
+        let _ = std::process::Command::new("chattr")
+            .arg("-i")
+            .arg(&src)
+            .status();
+    }
     let mut perms = std::fs::metadata(&src).unwrap().permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&src, perms).unwrap();
+
+    let Some(result) = result else {
+        eprintln!(
+            "[atomicity_write_failure_after_preflight_touches_nothing] could not force a \
+             write failure in this environment (root euid without a working chattr) — skipping"
+        );
+        return;
+    };
 
     assert!(
         result.is_err(),

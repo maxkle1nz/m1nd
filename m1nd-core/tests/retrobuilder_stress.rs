@@ -10,31 +10,17 @@ use m1nd_core::runtime_overlay::{OtelBatch, OtelSpan, RuntimeOverlay};
 use m1nd_core::taint::{TaintConfig, TaintEngine, TaintType};
 use m1nd_core::twins::{find_twins, TwinConfig};
 use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
-use m1nd_ingest::{IngestConfig, Ingestor};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Instant;
+
+mod support;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 fn ingest_m1nd() -> Graph {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let config = IngestConfig {
-        root,
-        ..Default::default()
-    };
-    let (graph, _stats) = Ingestor::new(config).ingest().unwrap();
-    eprintln!(
-        "[STRESS] Ingested: {} nodes, {} edges",
-        graph.num_nodes(),
-        graph.num_edges()
-    );
-    graph
+    support::cached_ingest_m1nd("STRESS")
 }
 
 /// Build a dense graph with N nodes where every node connects to every other.

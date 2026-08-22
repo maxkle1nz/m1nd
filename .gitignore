@@ -1,6 +1,11 @@
 target/
 /.l00p/
 
+# Runtime HTTP auth token artifact (HTTP_AUTH_TOKEN_FILE_NAME), minted at the
+# repo root by instance_registry/attach during local stdio/HTTP runs. Secret
+# material — never commit.
+/http-auth-token-v1
+
 # m1nd-runnerd (F2.5c §5a): the operator-private runner config + the shared secret
 # are NEVER versioned. Only runners.example.toml (neutral placeholders) is tracked.
 runners.toml

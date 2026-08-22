@@ -9,31 +9,13 @@ use m1nd_core::taint::{TaintConfig, TaintEngine};
 use m1nd_core::temporal::CoChangeMatrix;
 use m1nd_core::twins::{find_twins, TwinConfig};
 use m1nd_core::types::NodeId;
-use m1nd_ingest::{IngestConfig, Ingestor};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+mod support;
+
 fn ingest_m1nd() -> m1nd_core::graph::Graph {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    eprintln!("[REAL TEST] Ingesting m1nd from: {:?}", root);
-
-    let config = IngestConfig {
-        root: root.clone(),
-        ..Default::default()
-    };
-    let ingestor = Ingestor::new(config);
-    let (graph, stats) = ingestor.ingest().unwrap();
-
-    eprintln!(
-        "[REAL TEST] Ingest complete: {} nodes, {} edges, {} files parsed in {:.1}ms",
-        graph.num_nodes(),
-        graph.num_edges(),
-        stats.files_parsed,
-        stats.elapsed_ms
-    );
+    let graph = support::cached_ingest_m1nd("REAL");
 
     assert!(
         graph.num_nodes() > 100,
