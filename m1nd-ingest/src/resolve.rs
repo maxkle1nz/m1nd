@@ -214,6 +214,16 @@ impl ReferenceResolver {
         };
         let mut ownership = OwnershipDeltaV1::default();
         let mut decisions = Vec::with_capacity(unresolved.len());
+        // Memoizes the O(num_nodes) suffix-match scan below by `clean_label`. The
+        // scan result depends only on the graph's (fixed, for the duration of this
+        // pass) label roster and `clean_label`/`last_segment` — never on `source` —
+        // so every reference that repeats the same unresolved external label (the
+        // common case: many files `use`/`import` the same stdlib/third-party name)
+        // reuses one scan instead of paying it again. Real corpora hit this branch
+        // thousands of times with heavy label repetition, which made this the
+        // dominant cost of ingesting m1nd's own ~1000-file workspace.
+        let mut suffix_scan_cache: std::collections::HashMap<String, Vec<NodeId>> =
+            std::collections::HashMap::new();
 
         for reference in unresolved {
             let source_id = &reference.source_id;
@@ -264,17 +274,25 @@ impl ReferenceResolver {
             let label_interned = match graph.strings.lookup(last_segment) {
                 Some(id) => id,
                 None => {
-                    // Try matching by suffix (e.g., "Config" matches "module::Config")
-                    let mut found = Vec::new();
-                    for i in 0..graph.num_nodes() as usize {
-                        let node_label = graph.strings.resolve(graph.nodes.label[i]);
-                        if node_label == last_segment
-                            || node_label == clean_label
-                            || clean_label.ends_with(node_label)
-                        {
-                            found.push(NodeId::new(i as u32));
-                        }
-                    }
+                    // Try matching by suffix (e.g., "Config" matches "module::Config").
+                    // Memoized by `clean_label`: the scan result is invariant across
+                    // this whole pass (see `suffix_scan_cache` comment above).
+                    let found = suffix_scan_cache
+                        .entry(clean_label.to_string())
+                        .or_insert_with(|| {
+                            let mut found = Vec::new();
+                            for i in 0..graph.num_nodes() as usize {
+                                let node_label = graph.strings.resolve(graph.nodes.label[i]);
+                                if node_label == last_segment
+                                    || node_label == clean_label
+                                    || clean_label.ends_with(node_label)
+                                {
+                                    found.push(NodeId::new(i as u32));
+                                }
+                            }
+                            found
+                        })
+                        .clone();
                     if found.is_empty() {
                         stats.unresolved += 1;
                         graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);

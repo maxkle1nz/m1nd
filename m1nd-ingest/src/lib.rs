@@ -988,8 +988,14 @@ impl Ingestor {
     }
 
     pub fn ingest(&self) -> M1ndResult<(m1nd_core::graph::Graph, IngestStats)> {
+        // `ingest_bundle()` -> `ingest_bundle_inner` already calls
+        // `require_complete_inner` (schema check, source revalidation, ownership
+        // verification, coverage check) as its last step before returning
+        // `Ok(bundle)` — an Err bundle never reaches here. Calling
+        // `require_complete()` again would only re-run the exact same,
+        // non-cancellable check (full re-walk + git re-enrichment + serial
+        // per-source re-hash) a moment later for no additional safety.
         let bundle = self.ingest_bundle()?;
-        bundle.require_complete()?;
         Ok((bundle.graph, bundle.stats))
     }
 

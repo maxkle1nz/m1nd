@@ -550,6 +550,22 @@ const UNBOUND_AUTHORITY_VALIDATOR_ID: &str = "m1nd-project-brain-unbound-authori
 /// Files written by `SessionState::persist` that are sufficient to warm-boot
 /// the graph and its in-memory sidecars. Runtime logs, document artifact bodies,
 /// and external authority stores are intentionally outside this list.
+///
+/// The embedding cache (`embeddings_cache.bin`) is deliberately NOT here. It is
+/// a self-managed, self-validating, purely advisory sidecar (`embed_cache.rs`):
+/// written directly to disk by `EmbeddingCache::save` and read back through
+/// `EmbeddingCache::load_compatible`, which ignores any mismatch or corruption
+/// on its own. `checkpoint_candidate_files` always declares it ABSENT (by
+/// design — "explicit absence is safer than checkpointing stale disk bytes"),
+/// so listing it here made every checkpoint working-set projection (persist
+/// AND boot restore) treat the file as a checkpoint-managed path that must not
+/// exist and delete it right after `SessionState::initialize` had just written
+/// it — the whole cache was destroyed on every single boot, guaranteeing a full
+/// re-embed every time (`cache 0 reused / N new`, unconditionally). Unlike
+/// `binary_graph_snapshot` below (also always-Absent, but INTENTIONALLY swept
+/// as a transient export artifact), the embedding cache is meant to survive
+/// exactly so a warm boot reuses it — it must stay outside the checkpoint
+/// system's ownership entirely, not merely be declared Present.
 const OPTIONAL_SESSION_SIDECARS: &[(&str, &str)] = &[
     ("binary_graph_snapshot", "graph_snapshot.bin"),
     ("plasticity_state", "plasticity_state.json"),
@@ -569,7 +585,6 @@ const OPTIONAL_SESSION_SIDECARS: &[(&str, &str)] = &[
     ("daemon_alerts", "daemon_alerts.json"),
     ("auto_ingest_state", "auto_ingest_state.json"),
     ("document_cache_index", "document_cache_index.json"),
-    ("embeddings_cache", "embeddings_cache.bin"),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

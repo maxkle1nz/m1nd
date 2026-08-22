@@ -11,7 +11,48 @@ use m1nd_core::twins::{find_twins, TwinConfig};
 use m1nd_core::types::NodeId;
 use m1nd_ingest::{IngestConfig, Ingestor};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Copies `source` into a fresh private temp directory (skipping `target` and
+/// `node_modules`, which the ingest walker never visits anyway and which can
+/// run to gigabytes). `Ingestor::ingest()` walks the whole tree once to
+/// extract and once more at COMPLETE-time to revalidate that no source
+/// changed mid-ingest (`m1nd_ingest::CodeIngestBundleV1::revalidate_sources`)
+/// — for a ~1000-file workspace that second walk lands minutes after the
+/// first. Ingesting the LIVE working tree in place means any edit landing
+/// anywhere in that multi-minute window (a human, another agent, a sibling
+/// test) is real drift and correctly trips `FullReindexRequired` — the fence
+/// is doing its job, but a long-running stress test has no business being
+/// hostage to everything else touching the repo while it runs. Ingesting a
+/// private copy instead makes the source set provably immutable for the
+/// whole run, without touching the guard itself: genuine drift inside the
+/// copy (a real bug in the ingest pipeline) still fails it exactly the same
+/// way.
+fn snapshot_repo_root(source: &Path) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("snapshot tempdir");
+    copy_tree(source, dir.path());
+    dir
+}
+
+fn copy_tree(src: &Path, dst: &Path) {
+    for entry in std::fs::read_dir(src).expect("read_dir") {
+        let entry = entry.expect("dir entry");
+        let file_type = entry.file_type().expect("file_type");
+        let name = entry.file_name();
+        if file_type.is_dir() && (name == "target" || name == "node_modules") {
+            continue;
+        }
+        let dst_path = dst.join(&name);
+        if file_type.is_dir() {
+            std::fs::create_dir(&dst_path).expect("create_dir");
+            copy_tree(&entry.path(), &dst_path);
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), &dst_path).expect("copy file");
+        }
+        // Symlinks are skipped: the walker never follows them either
+        // (`follow_links(false)`), so they carry nothing ingestable.
+    }
+}
 
 fn ingest_m1nd() -> m1nd_core::graph::Graph {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -19,9 +60,10 @@ fn ingest_m1nd() -> m1nd_core::graph::Graph {
         .unwrap()
         .to_path_buf();
     eprintln!("[REAL TEST] Ingesting m1nd from: {:?}", root);
+    let snapshot = snapshot_repo_root(&root);
 
     let config = IngestConfig {
-        root: root.clone(),
+        root: snapshot.path().to_path_buf(),
         ..Default::default()
     };
     let ingestor = Ingestor::new(config);

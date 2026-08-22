@@ -3011,13 +3011,6 @@ impl SessionState {
                 )?),
             ),
             (
-                "embeddings_cache",
-                self.embeddings_cache_path.as_path(),
-                // The cache is derived and has no complete in-memory owner.
-                // Explicit absence is safer than checkpointing stale disk bytes.
-                CheckpointCandidatePresence::Absent,
-            ),
-            (
                 "binary_graph_snapshot",
                 binary_snapshot_path.as_path(),
                 // Binary snapshots are a derived, explicitly requested export.
