@@ -18,34 +18,34 @@
     "test:e2e:live": "npm run test:e2e:live:contract && playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
-    "@shikijs/langs": "^4.3.1",
-    "@xyflow/react": "^12.11.2",
+    "@shikijs/langs": "^4.4.3",
+    "@xyflow/react": "^12.11.3",
     "dagre": "^0.8.5",
-    "lucide-react": "^1.27.0",
+    "lucide-react": "^1.32.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "shiki": "^4.3.1",
-    "zustand": "^5.0.14"
+    "shiki": "^4.4.3",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@types/dagre": "^0.7.52",
     "@types/node": "^22.20.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.5.4",
-    "eslint": "^10.8.0",
+    "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.3",
-    "globals": "^17.8.0",
-    "postcss": "^8.5.24",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "~5.7.0",
-    "typescript-eslint": "^8.65.0",
-    "vite": "^8.1.5"
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1"
   },
   "overrides": {
     "brace-expansion": "^5.0.8"
