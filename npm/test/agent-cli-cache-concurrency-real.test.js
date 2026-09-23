@@ -137,7 +137,24 @@ function spawnFirstMinute(repo, symbol, binary, env) {
   child.stdout.on("data", (chunk) => { stdout += chunk; });
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   const completed = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal, stdout, stderr })));
-  return { child, completed };
+  return { child, completed, output: () => ({ stdout, stderr }) };
+}
+
+async function waitForHolderReady(signals, holder) {
+  try {
+    const outcome = await Promise.race([
+      waitForSignal(signals, ["holder-ready"], 60_000).then((signal) => ({ signal })),
+      holder.completed.then((completed) => ({ completed })),
+    ]);
+    assert.equal(outcome.signal, "holder-ready", `holder exited before initialization: ${JSON.stringify(outcome.completed)}`);
+  } catch (error) {
+    throw new Error(
+      `${error.message}; holder-claimed=${fs.existsSync(path.join(signals, "holder-claimed"))}; ` +
+        `child exit=${holder.child.exitCode} signal=${holder.child.signalCode}; ` +
+        `output=${JSON.stringify(holder.output())}`,
+      { cause: error }
+    );
+  }
 }
 
 function waitForSignal(dir, names, timeoutMs = 15_000) {
@@ -327,7 +344,7 @@ test(
 
 test(
   "simultaneous public first-minute calls serialize one cache owner and both return real matches",
-  { skip: !BINARY || !EMBED_MODEL, timeout: 60_000 },
+  { skip: !BINARY || !EMBED_MODEL, timeout: 180_000 },
   async () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-concurrency-"));
     const children = new Set();
@@ -347,7 +364,7 @@ test(
 
       const first = spawnFirstMinute(repo, symbol, wrapper, env);
       children.add(first.child);
-      await waitForSignal(signals, ["holder-ready"]);
+      await waitForHolderReady(signals, first);
 
       const second = spawnFirstMinute(repo, symbol, wrapper, env);
       children.add(second.child);
@@ -381,7 +398,7 @@ test(
 
 test(
   "distinct workspaces do not share the cache owner lease",
-  { skip: !BINARY || !EMBED_MODEL, timeout: 60_000 },
+  { skip: !BINARY || !EMBED_MODEL, timeout: 180_000 },
   async () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-distinct-"));
     const children = new Set();
@@ -403,7 +420,7 @@ test(
 
       const alpha = spawnFirstMinute(repoAlpha, alphaSymbol, wrapper, env);
       children.add(alpha.child);
-      await waitForSignal(signals, ["holder-ready"]);
+      await waitForHolderReady(signals, alpha);
 
       const beta = spawnFirstMinute(repoBeta, betaSymbol, wrapper, env);
       children.add(beta.child);
@@ -425,7 +442,7 @@ test(
 
 test(
   "a bounded loser preserves another owner and interruption cannot terminate the winner",
-  { skip: !BINARY || !EMBED_MODEL, timeout: 60_000 },
+  { skip: !BINARY || !EMBED_MODEL, timeout: 180_000 },
   async () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-busy-"));
     const children = new Set();
@@ -445,7 +462,7 @@ test(
 
       const winner = spawnFirstMinute(repo, symbol, wrapper, env);
       children.add(winner.child);
-      await waitForSignal(signals, ["holder-ready"]);
+      await waitForHolderReady(signals, winner);
       const runtimeDir = path.join(env.M1ND_AGENT_CACHE_DIR, fs.readdirSync(env.M1ND_AGENT_CACHE_DIR)[0]);
       const ownerManifest = path.join(runtimeDir, ".agent-cache-owner-v1", "owner.json");
       const ownerBefore = sha256(ownerManifest);

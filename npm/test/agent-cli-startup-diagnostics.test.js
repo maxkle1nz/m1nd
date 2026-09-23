@@ -166,17 +166,30 @@ test(
 
 test(
   "synchronous ENOEXEC spawn failure reports the cause and releases its cache lease",
-  { skip: process.platform === "win32" },
   () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-spawn-enoexec-"));
     try {
       const repo = path.join(fixture, "repo-alpha");
       const binary = path.join(fixture, "invalid-m1nd-mcp");
+      const preload = path.join(fixture, "throw-enoexec.cjs");
       const cache = path.join(fixture, "cache");
       fs.mkdirSync(repo, { recursive: true });
       fs.writeFileSync(path.join(repo, "signal.js"), "export const startup_signal = 1;\n");
       fs.writeFileSync(binary, "not an executable format\n", { mode: 0o700 });
+      fs.writeFileSync(preload, [
+        `const childProcess = require("node:child_process");`,
+        `const originalSpawn = childProcess.spawn;`,
+        `childProcess.spawn = function(file) {`,
+        `  if (file === ${JSON.stringify(binary)}) {`,
+        `    const error = new Error("fixture-ENOEXEC");`,
+        `    error.code = "ENOEXEC";`,
+        `    throw error;`,
+        `  }`,
+        `  return originalSpawn.apply(this, arguments);`,
+        `};`,
+      ].join("\n"));
       const env = {
+        NODE_OPTIONS: `--require=${preload}`,
         HOME: path.join(fixture, "home"),
         TMPDIR: path.join(fixture, "tmp"),
         TMP: path.join(fixture, "tmp"),
