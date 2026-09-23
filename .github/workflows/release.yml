@@ -271,7 +271,9 @@ jobs:
           EXPECTED_VERSION="${{ needs.tag-guard.outputs.version }}" node - <<'NODE'
           const fs = require("node:fs");
           const path = require("node:path");
+          const { assertPackContents } = require("./npm/lib/pack-contents-check");
           const records = JSON.parse(fs.readFileSync("npm-pack.json", "utf8"));
+          assertPackContents(records);
           if (!Array.isArray(records) || records.length !== 1) {
             throw new Error(`npm pack produced ${Array.isArray(records) ? records.length : "invalid"} records`);
           }
@@ -345,8 +347,28 @@ jobs:
           cargo clippy --locked --workspace --all-targets -- -D warnings
           cargo fmt --all --check
           cargo build --locked --release --workspace
-      - name: Host pack, update, and rollback gates
+      - name: Fetch and verify immutable small embedding model
+        env:
+          MODEL_DIR: ${{ runner.temp }}/m1nd-test-embed-model
         run: |
+          mkdir -m 700 "$MODEL_DIR"
+          cd "$MODEL_DIR"
+          base='https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23'
+          for file in config.json model.safetensors tokenizer.json; do
+            curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --retry 3 \
+              --output "$file" "$base/$file"
+          done
+          printf '%s\n' \
+            '2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553  config.json' \
+            'f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2  model.safetensors' \
+            'e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50  tokenizer.json' \
+            | sha256sum --check --strict
+      - name: Host pack, update, and rollback gates
+        env:
+          M1ND_TEST_AGENT_CACHE_BINARY: ${{ github.workspace }}/target/release/m1nd-mcp
+          M1ND_TEST_EMBED_MODEL: ${{ runner.temp }}/m1nd-test-embed-model
+        run: |
+          test -x "$M1ND_TEST_AGENT_CACHE_BINARY"
           npm test
           npm run m1nd:pack-check
           npm run m1nd:pack-routing-check

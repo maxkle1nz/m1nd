@@ -147,8 +147,10 @@ host-neutral CLI escape hatch for first contact when the live MCP session is
 stale, wrong-bound, or not loaded yet — not the in-session front door (`north`
 is). For broad
 "understand/audit/map this repo" tasks in that out-of-session case it scopes,
-trusts, ingests when needed, returns anchors, and emits `do_not` guardrails
-before handing the agent to direct proof. `agent next`/`agent auto` emits an
+trusts, and — only inside an explicit launcher grant plus private runtime —
+prepares isolated derived state when needed. It never uses generic `ingest` to
+mint shared authority. It returns anchors and emits `do_not` guardrails before
+handing the agent to direct proof. `agent next`/`agent auto` emits an
 inner `m1nd-agent-action-envelope-v0` so an agent can choose the first safe move
 without memorizing the full tool matrix. `agent context` is anchor-first; use it
 after a concrete file, path, or identifier is known, not as the first narrative
@@ -171,11 +173,13 @@ client's runtime root, and failing that, one whose declared ingest roots COVER
   taken, and the bearer token comes from that owner's own runtime root. The
   envelope reports `runtime.boot: "attached_serve_owner"` and the owner under
   `runtime.owner_discovery`.
-* **No owner covers the repo** → the historical isolated runtime is launched,
-  bound to `--repo`, with `runtime.boot: "isolated_runtime"`. If the bound brain
-  has no graph the answer is still `needs_authority` / `NOT_PROVEN` — and it now
-  carries the discovery's own refusal, so the caller can tell "no owner is
-  running here" from "the owner refused you".
+* **No owner covers the repo** → an isolated runtime is launched, bound to
+  `--repo`, with `runtime.boot: "isolated_runtime"`. Its launcher grant can
+  prepare only that exact root in its private runtime; it never creates or
+  mutates a served owner. If preparation cannot establish an eligible graph,
+  the answer remains `needs_authority` / `NOT_PROVEN` and carries the
+  discovery's own refusal, so the caller can tell "no owner is running here"
+  from "the owner refused you".
 * **Ambiguity fails closed**: two live owners covering one repo is refused by
   name, never guessed, exactly as for the bridge.
 * **A found owner that cannot be reached** (unreadable credential, a listener

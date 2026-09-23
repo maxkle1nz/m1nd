@@ -42,10 +42,18 @@ slow-timeout = { period = "300s", terminate-after = 8 }
 # acceptable; promote the runner only then.
 [test-groups]
 heavy-io = { max-threads = 2 }
+# The stdio and HTTP bootstrap suites each spawn an embedding owner in a
+# separate nextest process. A test binary's Mutex cannot serialize those
+# processes; serialize both families on their shared bounded resource.
+agent-bootstrap = { max-threads = 1 }
 
 [[profile.shadow.overrides]]
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress) | test(transplant)'
 test-group = 'heavy-io'
+
+[[profile.shadow.overrides]]
+filter = 'binary_id(m1nd-mcp::agent_autonomy_bootstrap) | binary_id(m1nd-mcp::agent_autonomy_http_bootstrap)'
+test-group = 'agent-bootstrap'
 
 # ---------------------------------------------------------------------------
 # The LIGHTNING lane — a fast day-to-day CHECK, deliberately NOT the merge

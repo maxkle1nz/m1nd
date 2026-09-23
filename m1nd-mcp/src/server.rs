@@ -453,6 +453,14 @@ pub struct McpConfig {
     pub runtime_dir: Option<PathBuf>,
     #[serde(default)]
     pub registry_dir: Option<PathBuf>,
+    /// Workspace explicitly granted by the process launcher. This is distinct
+    /// from the mutable/inferred `SessionState::workspace_root`: only this
+    /// preserved boot fact may authorize automatic first-use preparation.
+    #[serde(default)]
+    pub launcher_workspace_root: Option<PathBuf>,
+    /// Diagnostic provenance for `launcher_workspace_root`.
+    #[serde(default)]
+    pub launcher_workspace_root_source: Option<String>,
     pub auto_persist_interval: u32,
     pub learning_rate: f32,
     pub decay_rate: f32,
@@ -477,6 +485,8 @@ impl Default for McpConfig {
             plasticity_state: PathBuf::from("./plasticity_state.json"),
             runtime_dir: None,
             registry_dir: None,
+            launcher_workspace_root: None,
+            launcher_workspace_root_source: None,
             auto_persist_interval: 50,
             learning_rate: 0.08,
             decay_rate: 0.005,
@@ -6389,10 +6399,17 @@ fn handle_am_i_stale(
             "0 files checked ({}): nothing in your working set was tracked in m1nd's file inventory.",
             source
         )
-    } else if stale.is_empty() {
+    } else if stale.is_empty() && unknown.is_empty() {
         format!(
             "All {} file(s) checked ({}) are fresh — nothing changed on disk since ingest.",
             checked, source
+        )
+    } else if stale.is_empty() {
+        format!(
+            "{} of {} file(s) checked ({}) are unknown — freshness could not be determined.",
+            unknown.len(),
+            checked,
+            source
         )
     } else {
         let stale_paths: Vec<&str> = stale
@@ -6414,13 +6431,22 @@ fn handle_am_i_stale(
         } else {
             "you're checking"
         };
-        format!(
+        let stale_summary = format!(
             "{} of {} files {} changed since ingest — re-read {} before editing.",
             stale.len(),
             checked,
             touched,
             suffix
-        )
+        );
+        if unknown.is_empty() {
+            stale_summary
+        } else {
+            format!(
+                "{} {} file(s) remain unknown; freshness could not be determined.",
+                stale_summary,
+                unknown.len()
+            )
+        }
     };
 
     let mut out = serde_json::json!({
@@ -8302,6 +8328,304 @@ fn dispatch_lock_tool(
 }
 
 impl McpServer {
+    fn canonical_launcher_workspace(config: &McpConfig) -> M1ndResult<Option<PathBuf>> {
+        let Some(raw) = config.launcher_workspace_root.as_deref() else {
+            return Ok(None);
+        };
+        let canonical = std::fs::canonicalize(raw).map_err(|error| M1ndError::InvalidParams {
+            tool: "agent_workspace_bootstrap".to_string(),
+            detail: format!(
+                "launcher_workspace_unresolvable: explicit launcher workspace '{}' cannot be resolved: {error}",
+                raw.display()
+            ),
+        })?;
+        if !canonical.is_dir() {
+            return Err(M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: format!(
+                    "launcher_workspace_not_directory: explicit launcher workspace '{}' is not a directory",
+                    canonical.display()
+                ),
+            });
+        }
+        Ok(Some(canonical))
+    }
+
+    #[cfg(unix)]
+    fn runtime_ancestor_is_trusted(current_uid: u32, owner_uid: u32, mode: u32) -> bool {
+        // A foreign owner can rename children of a 0755 directory despite the
+        // absence of group/other write permission. Only our own or root-owned
+        // parents can anchor a private runtime path.
+        if owner_uid != current_uid && owner_uid != 0 {
+            return false;
+        }
+        mode & 0o022 == 0 || (mode & 0o1000 != 0 && (owner_uid == 0 || owner_uid == current_uid))
+    }
+
+    fn canonical_private_runtime(runtime: &std::path::Path) -> M1ndResult<PathBuf> {
+        if runtime
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: format!(
+                    "launcher_workspace_runtime_parent_component: private runtime '{}' must not contain '..'; no graph or source mutation was attempted",
+                    runtime.display()
+                ),
+            });
+        }
+
+        // The launcher will subsequently create predictable graph checkpoint
+        // names below this directory. Accepting a missing, shared, or symlinked
+        // runtime would leave a TOCTOU window in which another local principal
+        // could replace that name with a link before the first checkpoint. The
+        // Node cache creates this root privately before it launches us; direct
+        // launcher users must do the same rather than asking this process to
+        // manufacture a trust boundary from an ambient path.
+        let raw_metadata = std::fs::symlink_metadata(runtime).map_err(|error| {
+            M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: format!(
+                    "launcher_workspace_runtime_not_private: private runtime '{}' must already exist as an owner-private directory: {error}; no graph or source mutation was attempted",
+                    runtime.display()
+                ),
+            }
+        })?;
+        if raw_metadata.file_type().is_symlink() || !raw_metadata.is_dir() {
+            return Err(M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: format!(
+                    "launcher_workspace_runtime_not_private: private runtime '{}' must be a real directory, not a symlink or non-directory; no graph or source mutation was attempted",
+                    runtime.display()
+                ),
+            });
+        }
+        let canonical = std::fs::canonicalize(runtime).map_err(|error| M1ndError::InvalidParams {
+            tool: "agent_workspace_bootstrap".to_string(),
+            detail: format!(
+                "launcher_workspace_runtime_not_private: private runtime '{}' cannot be canonicalized: {error}; no graph or source mutation was attempted",
+                runtime.display()
+            ),
+        })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+            let current_uid = unsafe { libc::geteuid() };
+            let mut current = canonical.as_path();
+            loop {
+                let metadata = std::fs::symlink_metadata(current).map_err(|error| {
+                    M1ndError::InvalidParams {
+                        tool: "agent_workspace_bootstrap".to_string(),
+                        detail: format!(
+                            "launcher_workspace_runtime_not_private: cannot inspect runtime component '{}': {error}; no graph or source mutation was attempted",
+                            current.display()
+                        ),
+                    }
+                })?;
+                let mode = metadata.permissions().mode() & 0o1777;
+                if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                    return Err(M1ndError::InvalidParams {
+                        tool: "agent_workspace_bootstrap".to_string(),
+                        detail: format!(
+                            "launcher_workspace_runtime_not_private: runtime component '{}' must remain a real directory; no graph or source mutation was attempted",
+                            current.display()
+                        ),
+                    });
+                }
+                if current == canonical {
+                    if metadata.uid() != current_uid || mode & 0o077 != 0 {
+                        return Err(M1ndError::InvalidParams {
+                            tool: "agent_workspace_bootstrap".to_string(),
+                            detail: format!(
+                                "launcher_workspace_runtime_not_private: private runtime '{}' must be owned by effective uid {current_uid} and inaccessible to group or other users (observed uid {} mode {mode:o}); no graph or source mutation was attempted",
+                                canonical.display(),
+                                metadata.uid()
+                            ),
+                        });
+                    }
+                } else if !Self::runtime_ancestor_is_trusted(current_uid, metadata.uid(), mode) {
+                    return Err(M1ndError::InvalidParams {
+                        tool: "agent_workspace_bootstrap".to_string(),
+                        detail: format!(
+                            "launcher_workspace_runtime_not_private: ancestor '{}' of private runtime '{}' must be owned by effective uid {current_uid} or root and cannot be group/other-writable unless trusted sticky (observed uid {} mode {mode:o}); no graph or source mutation was attempted",
+                            current.display(),
+                            canonical.display(),
+                            metadata.uid(),
+                        ),
+                    });
+                }
+
+                let Some(parent) = current.parent() else {
+                    break;
+                };
+                if parent == current {
+                    break;
+                }
+                current = parent;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            return Err(M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: "launcher_workspace_runtime_not_private: launcher preparation currently requires a POSIX owner-private runtime; no graph or source mutation was attempted".to_string(),
+            });
+        }
+
+        Ok(canonical)
+    }
+
+    /// Prepare an empty stdio owner's graph from the launcher's explicit root.
+    ///
+    /// This is owner startup work, not a public ingest call and not a simulated
+    /// human ceremony. The grant is captured in `McpConfig` before the session
+    /// exists; tool arguments, prompts, README text and request headers cannot
+    /// influence it. A populated graph is only reused, never replaced, and a
+    /// conflicting grant fails closed with no ingest.
+    pub(crate) fn prepare_launcher_workspace_for_transport(
+        config: &McpConfig,
+        session: Arc<BrainSessionCell>,
+        project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
+    ) -> M1ndResult<()> {
+        let Some(granted_root) = Self::canonical_launcher_workspace(config)? else {
+            return Ok(());
+        };
+        let granted_text = granted_root.to_string_lossy().to_string();
+        let grant_source = config
+            .launcher_workspace_root_source
+            .clone()
+            .unwrap_or_else(|| "config:launcher_workspace_root".to_string());
+
+        let (node_count, known_roots, read_only, runtime_root) = project_brains
+            .execute_target_runtime(Arc::clone(&session), None, true, false, |state| {
+                let node_count = state.graph.read().num_nodes();
+                let mut roots = state.ingest_roots.clone();
+                // `workspace_root` is normally inferred during this very boot. It
+                // is identity evidence only when a persisted project-brain manifest
+                // supplied it; otherwise a new launcher grant could validate itself.
+                if state.workspace_root_source.as_deref() == Some("project_brain_manifest") {
+                    if let Some(root) = state.workspace_root.clone() {
+                        roots.push(root);
+                    }
+                }
+                Ok((
+                    node_count,
+                    roots,
+                    state.read_only,
+                    state.runtime_root.clone(),
+                ))
+            })?;
+
+        // A legitimate `memorize` merge declares one auxiliary root: this
+        // state's own `<runtime_root>/agent-memory` store. Derive that identity
+        // from the already-created state, not from ambient environment, and
+        // only admit it when canonicalization proves the directory remains a
+        // direct child of the canonical runtime (a symlink escape is foreign).
+        let owned_memory_store =
+            std::fs::canonicalize(&runtime_root)
+                .ok()
+                .and_then(|canonical_runtime| {
+                    std::fs::canonicalize(runtime_root.join("agent-memory"))
+                        .ok()
+                        .filter(|store| store.parent() == Some(canonical_runtime.as_path()))
+                });
+        let mut has_code_root = false;
+        let every_root_is_owned = known_roots.iter().all(|root| {
+            let Ok(known) = std::fs::canonicalize(root) else {
+                return false;
+            };
+            if known == granted_root {
+                has_code_root = true;
+                true
+            } else {
+                owned_memory_store.as_ref() == Some(&known)
+            }
+        });
+        let matches_existing = has_code_root && every_root_is_owned;
+        if node_count > 0 || !known_roots.is_empty() {
+            if matches_existing && node_count > 0 {
+                return Ok(());
+            }
+            if !matches_existing {
+                return Err(M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_conflicts_with_bound_graph: explicit launcher workspace '{}' does not match this brain's persisted declared roots; no graph or source mutation was attempted",
+                        granted_root.display()
+                    ),
+                });
+            }
+        }
+
+        if read_only {
+            return Err(M1ndError::InvalidParams {
+                tool: "agent_workspace_bootstrap".to_string(),
+                detail: "launcher_workspace_requires_writable_runtime: the granted source may be read-only, but automatic first-use preparation needs a writable derived-state runtime; no graph or source mutation was attempted"
+                    .to_string(),
+            });
+        }
+
+        project_brains.execute_target_m1nd(session, None, true, true, move |state| {
+            let output = crate::tools::handle_ingest(
+                state,
+                serde_json::from_value(serde_json::json!({
+                    "path": granted_text,
+                    "agent_id": "launcher-workspace-bootstrap",
+                    "adapter": "code",
+                    "mode": "replace",
+                    "incremental": false,
+                    "include_dotfiles": false,
+                    "dotfile_patterns": [],
+                    "namespace": null,
+                    "project_root": null
+                }))
+                .map_err(M1ndError::Serde)?,
+            )?;
+            let prepared_nodes = output
+                .get("node_count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            if prepared_nodes == 0 {
+                return Err(M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_produced_empty_graph: explicit launcher workspace '{}' produced zero nodes; startup will not report an empty preparation as success",
+                        granted_root.display()
+                    ),
+                });
+            }
+            state.workspace_root_source = Some(grant_source);
+            Ok(output)
+        })?;
+        Ok(())
+    }
+
+    fn prepare_launcher_workspace(&self) -> M1ndResult<()> {
+        let runtime = self.actor_runtime()?;
+        Self::prepare_launcher_workspace_for_transport(
+            &self.config,
+            Arc::clone(&runtime.session),
+            Arc::clone(&runtime.project_brains),
+        )?;
+
+        // Direct stdio has no request-scoped header seam. Its caller identity
+        // therefore comes only from the same explicit launcher grant that was
+        // already canonicalized and admitted above. Keep this outside the
+        // transport-shared preparation function: HTTP stamps identity per MCP
+        // session/request and must never inherit a process-global caller root.
+        if let Some(granted_root) = Self::canonical_launcher_workspace(&self.config)? {
+            let caller_root = granted_root.to_string_lossy().to_string();
+            self.actor_execute_m1nd(false, move |state| {
+                state.caller_root = Some(caller_root);
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
     fn actor_runtime(&self) -> M1ndResult<&StdioActorRuntime> {
         self.actor_runtime.as_ref().ok_or_else(|| {
             M1ndError::PersistenceFailed(
@@ -8437,7 +8761,54 @@ impl McpServer {
     /// 3. Build all engines from graph
     /// 4. Try to load plasticity state and import into graph
     /// 5. Fall back gracefully to empty graph on any failure
-    pub fn new(config: McpConfig) -> M1ndResult<Self> {
+    pub fn new(mut config: McpConfig) -> M1ndResult<Self> {
+        // A launcher grant authorizes derived-state preparation only inside an
+        // explicit private runtime. Resolve this before reading any snapshot so
+        // ambient persistence overrides can never turn the grant into an
+        // arbitrary filesystem read/write capability.
+        if let Some(workspace) = config.launcher_workspace_root.as_deref() {
+            let runtime = config.runtime_dir.as_ref().ok_or_else(|| {
+                M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: "launcher_workspace_requires_explicit_runtime: automatic first-use preparation requires M1ND_RUNTIME_DIR or --runtime-dir; no graph or source mutation was attempted".to_string(),
+                }
+            })?;
+            if !runtime.is_absolute() {
+                return Err(M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_requires_absolute_runtime: private runtime '{}' must be absolute; no graph or source mutation was attempted",
+                        runtime.display()
+                    ),
+                });
+            }
+            let canonical_workspace =
+                std::fs::canonicalize(workspace).map_err(|error| M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_unresolvable: explicit launcher workspace '{}' cannot be resolved: {error}",
+                        workspace.display()
+                    ),
+                })?;
+            let runtime_identity = Self::canonical_private_runtime(runtime)?;
+            if runtime_identity == canonical_workspace
+                || runtime_identity.starts_with(&canonical_workspace)
+            {
+                return Err(M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_requires_private_runtime: runtime '{}' must be outside source workspace '{}'; no graph or source mutation was attempted",
+                        runtime_identity.display(),
+                        canonical_workspace.display()
+                    ),
+                });
+            }
+            config.runtime_dir = Some(runtime_identity.clone());
+            config.graph_source = runtime_identity.join("graph_snapshot.json");
+            config.plasticity_state = runtime_identity.join("plasticity_state.json");
+            config.registry_dir = Some(runtime_identity.join("registry"));
+        }
+
         // Build domain config from config.domain
         let domain_config = match config.domain.as_deref() {
             Some("music") => DomainConfig::music(),
@@ -8692,6 +9063,8 @@ impl McpServer {
                 project_brains,
             });
         }
+
+        self.prepare_launcher_workspace()?;
 
         let runtime = self.actor_runtime()?;
         let snapshot = runtime.project_brains.read_target_runtime_snapshot(
@@ -9071,6 +9444,262 @@ mod tests {
         };
         let server = McpServer::new(config).expect("server");
         (temp, server)
+    }
+
+    #[test]
+    fn launcher_workspace_requires_an_explicit_private_runtime_before_loading_state() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let config = McpConfig {
+            launcher_workspace_root: Some(workspace),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
+        let error = match McpServer::new(config) {
+            Ok(_) => panic!("launcher grant without runtime must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_requires_explicit_runtime"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn launcher_workspace_rejects_runtime_nested_in_the_source_tree() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let runtime = workspace.join(".m1nd-runtime");
+        std::fs::create_dir_all(&runtime).expect("nested runtime");
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            &runtime,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .expect("private nested runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            launcher_workspace_root: Some(workspace),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
+        let error = match McpServer::new(config) {
+            Ok(_) => panic!("launcher runtime inside workspace must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_requires_private_runtime"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_runtime_rejects_foreign_owned_readable_ancestor() {
+        let current_uid = 501;
+        let foreign_uid = 502;
+        assert!(!McpServer::runtime_ancestor_is_trusted(
+            current_uid,
+            foreign_uid,
+            0o755,
+        ));
+        assert!(McpServer::runtime_ancestor_is_trusted(
+            current_uid,
+            current_uid,
+            0o755,
+        ));
+        assert!(McpServer::runtime_ancestor_is_trusted(
+            current_uid,
+            0,
+            0o755,
+        ));
+        assert!(McpServer::runtime_ancestor_is_trusted(
+            current_uid,
+            0,
+            0o1777,
+        ));
+        assert!(!McpServer::runtime_ancestor_is_trusted(
+            current_uid,
+            foreign_uid,
+            0o1777,
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_workspace_rejects_nonexistent_runtime_through_symlink_into_source_tree() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let runtime_link = temp.path().join("runtime-link");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::os::unix::fs::symlink(&workspace, &runtime_link).expect("workspace symlink");
+        let runtime = runtime_link.join(".m1nd-private");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            launcher_workspace_root: Some(workspace.clone()),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
+        let error = match McpServer::new(config) {
+            Ok(_) => panic!("a symlinked runtime resolving into source must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_runtime_not_private"),
+            "the nonexistent runtime must refuse before canonical source containment: {error}"
+        );
+        assert!(
+            !workspace.join(".m1nd-private").exists(),
+            "the rejected runtime must not create derived state in the source workspace"
+        );
+    }
+
+    #[test]
+    fn launcher_workspace_forces_registry_into_the_private_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("private-runtime");
+        let injected_registry = workspace.join("injected-registry");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
+                .expect("private runtime mode");
+        }
+        let canonical_runtime = std::fs::canonicalize(&runtime).expect("canonical runtime");
+        let config = McpConfig {
+            graph_source: workspace.join("injected-graph.json"),
+            plasticity_state: workspace.join("injected-plasticity.json"),
+            runtime_dir: Some(runtime),
+            registry_dir: Some(injected_registry.clone()),
+            launcher_workspace_root: Some(workspace),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
+        let server = McpServer::new(config).expect("private launcher runtime");
+        assert_eq!(server.config.runtime_dir, Some(canonical_runtime.clone()));
+        assert_eq!(
+            server.config.graph_source,
+            canonical_runtime.join("graph_snapshot.json")
+        );
+        assert_eq!(
+            server.config.plasticity_state,
+            canonical_runtime.join("plasticity_state.json")
+        );
+        assert_eq!(
+            server.config.registry_dir,
+            Some(canonical_runtime.join("registry")),
+            "a launcher grant must not retain an ambient registry destination"
+        );
+        assert!(
+            !injected_registry.exists(),
+            "the launcher must not create registry state under the source workspace"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_workspace_accepts_private_runtime_below_sticky_tmp_ancestor() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let sticky = temp.path().join("sticky-tmp");
+        let runtime = sticky.join("private-runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        std::fs::set_permissions(&sticky, std::fs::Permissions::from_mode(0o1777))
+            .expect("sticky ancestor mode");
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
+            .expect("private runtime mode");
+        let server = McpServer::new(McpConfig {
+            runtime_dir: Some(runtime.clone()),
+            launcher_workspace_root: Some(workspace),
+            ..McpConfig::default()
+        })
+        .expect("sticky /tmp ancestor must not reject owner-private runtime");
+        assert_eq!(
+            server.config.runtime_dir,
+            Some(std::fs::canonicalize(runtime).unwrap())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_workspace_rejects_world_readable_runtime_before_snapshot_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let sticky = temp.path().join("sticky-tmp");
+        let runtime = sticky.join("runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        std::fs::set_permissions(&sticky, std::fs::Permissions::from_mode(0o1777))
+            .expect("sticky ancestor mode");
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755))
+            .expect("world-readable runtime mode");
+        let error = match McpServer::new(McpConfig {
+            runtime_dir: Some(runtime.clone()),
+            launcher_workspace_root: Some(workspace),
+            ..McpConfig::default()
+        }) {
+            Ok(_) => panic!("world-readable launcher runtime must be refused"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_runtime_not_private"),
+            "{error}"
+        );
+        assert!(
+            !runtime.join("graph_snapshot.json").exists(),
+            "refusal must precede graph snapshot creation"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_workspace_rejects_nonsticky_world_writable_ancestor() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let shared = temp.path().join("shared");
+        let runtime = shared.join("private-runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777))
+            .expect("shared ancestor mode");
+        let error = match McpServer::new(McpConfig {
+            runtime_dir: Some(runtime),
+            launcher_workspace_root: Some(workspace),
+            ..McpConfig::default()
+        }) {
+            Ok(_) => panic!("nonsticky writable ancestor must be refused"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_runtime_not_private"),
+            "{error}"
+        );
     }
 
     #[test]

@@ -138,7 +138,7 @@ jobs:
   test-status:
     name: Test
     runs-on: ubuntu-latest
-    needs: [rust-gates, ui-gates, host-pack-gates, python-gates, security-gates, contract-gates]
+    needs: [rust-gates, ui-gates, host-pack-gates, agent-cache-real-gates, python-gates, security-gates, contract-gates]
     if: always()
     steps:
       - name: Require every cumulative gate
@@ -255,6 +255,51 @@ jobs:
       - run: npm run m1nd:pack-routing-check
       - name: Prove the publish file set is packable
         run: npm pack --dry-run
+
+  agent-cache-real-gates:
+    name: Agent cache against native runtime (no skipped real tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: agent-cache-real
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Build the native binary exercised by Node
+        run: cargo build --locked -p m1nd-mcp
+      - name: Fetch and verify immutable small embedding model
+        env:
+          MODEL_DIR: ${{ runner.temp }}/m1nd-test-embed-model
+        run: |
+          mkdir -m 700 "$MODEL_DIR"
+          cd "$MODEL_DIR"
+          base='https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23'
+          for file in config.json model.safetensors tokenizer.json; do
+            curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --retry 3 \
+              --output "$file" "$base/$file"
+          done
+          printf '%s\n' \
+            '2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553  config.json' \
+            'f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2  model.safetensors' \
+            'e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50  tokenizer.json' \
+            | sha256sum --check --strict
+      - name: Run native cache and lease integration tests without skips
+        env:
+          M1ND_TEST_AGENT_CACHE_BINARY: ${{ github.workspace }}/target/debug/m1nd-mcp
+          M1ND_TEST_EMBED_MODEL: ${{ runner.temp }}/m1nd-test-embed-model
+        run: |
+          set -o pipefail
+          test -x "$M1ND_TEST_AGENT_CACHE_BINARY"
+          node --test --test-concurrency=1 \
+            npm/test/agent-cli-cache-real.test.js \
+            npm/test/agent-cli-cache-concurrency-real.test.js \
+            | tee agent-cache-real.tap
+          grep -qx '# skipped 0' agent-cache-real.tap
+          grep -Eq '^# tests [1-9][0-9]*$' agent-cache-real.tap
 
   python-gates:
     name: Python proof harnesses

@@ -342,6 +342,7 @@ function assertPackShape() {
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "l1ght-and-docs.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "scripts", "probe_m1nd.py"),
     path.join(PACKAGE_ROOT, "docs", "M1ND-GUARDIAN-METHOD.md"),
+    path.join(PACKAGE_ROOT, "docs", "AGENT-AUTONOMY.md"),
     UNIVERSAL_PACK,
   ];
   const missing = required.filter((file) => !fs.existsSync(file));
@@ -4865,6 +4866,7 @@ async function main(rawArgs) {
       selfUpdate,
     });
     print(result, args.json || !process.stdout.isTTY);
+    if (result.ok === false) process.exitCode = 1;
     return;
   }
 

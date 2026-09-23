@@ -3,6 +3,12 @@
 const fs = require("fs");
 const path = require("path");
 const { McpRuntimeClient, callToolSafely, discoverServeOwner } = require("./mcp-runtime-client");
+const {
+  acquireAgentRuntimeLease,
+  agentRuntimeCacheTarget,
+  ensureAgentRuntimeIdentity,
+  releaseAgentRuntimeLease,
+} = require("./agent-runtime-cache");
 const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent-schemas");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
@@ -372,6 +378,10 @@ function callSummary(tool, result) {
     status: payload.status,
     proof_state: proofState(payload),
     candidate_count: candidateCount(payload),
+    ok: payload.ok,
+    action: payload.action,
+    refused: payload.refused,
+    reason: payload.reason,
   };
   if (Object.keys(graphState).length > 0) {
     summary.graph_state = {
@@ -691,7 +701,7 @@ function queryLooksLikePath(repo, query) {
   for (const candidate of pathCandidatesFromQuery(query)) {
     const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(repo, candidate);
     if (!pathContains(repo, resolved)) continue;
-    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return ensureWithinRepo(repo, resolved);
   }
   return null;
 }
@@ -937,12 +947,19 @@ function autoActionForObserved(args, repo, binary = null) {
 function ensureWithinRepo(repo, target) {
   const resolved = path.isAbsolute(target) ? target : path.resolve(repo, target);
   const repoPath = path.resolve(repo);
-  const targetPath = fs.existsSync(resolved) ? realPathOrResolved(resolved) : resolved;
   const safeRepoPath = fs.existsSync(repoPath) ? realPathOrResolved(repoPath) : repoPath;
-  if (!pathContains(repoPath, resolved) && !pathContains(safeRepoPath, targetPath)) {
+  let targetPath;
+  if (fs.existsSync(resolved)) {
+    targetPath = realPathOrResolved(resolved);
+  } else if (pathContains(repoPath, resolved)) {
+    targetPath = path.resolve(safeRepoPath, path.relative(repoPath, resolved));
+  } else {
+    targetPath = resolved;
+  }
+  if (!pathContains(safeRepoPath, targetPath)) {
     throw new Error(`path escapes repo: ${target}`);
   }
-  return resolved;
+  return targetPath;
 }
 
 function anchorGroupForFile(filePath) {
@@ -1087,18 +1104,74 @@ function applyBootPlan(result, plan, repo) {
 }
 
 async function runBootPlan(args, deps, repo, fn, binary, plan) {
+  const explicitRuntimeDir = args["runtime-dir"] ? path.resolve(args["runtime-dir"]) : null;
+  const ambientHasRuntimeDir = String(process.env.M1ND_MCP_ARGS || "")
+    .trim()
+    .split(/\s+/)
+    .some((arg) => arg === "--runtime-dir" || arg.startsWith("--runtime-dir="));
+  const cacheTarget = plan.attach || args["shared-runtime"] || explicitRuntimeDir || ambientHasRuntimeDir
+    ? null
+    : agentRuntimeCacheTarget(repo);
+  const runtimeDir = plan.attach || args["shared-runtime"]
+    ? null
+    : explicitRuntimeDir || (ambientHasRuntimeDir ? null : cacheTarget.runtimeDir);
   const client = new McpRuntimeClient({
     binary,
     repo,
     sharedRuntime: Boolean(args["shared-runtime"]),
     attach: plan.attach ? "auto" : null,
+    runtimeDir,
+    runtimeDirExplicit: Boolean(explicitRuntimeDir),
   });
+  const cacheLease = runtimeDir ? await acquireAgentRuntimeLease(runtimeDir) : null;
+  let result;
+  let primaryError = null;
   try {
+    if (cacheTarget) {
+      // Identity can be written before the first graph bootstrap succeeds.
+      // Only a persisted graph is eligible for the warm exact-root refresh;
+      // an identity-only directory must retain the cold bootstrap path.
+      client.reusedRuntimeCache = fs.existsSync(path.join(runtimeDir, "graph_snapshot.json"));
+      ensureAgentRuntimeIdentity(cacheLease, cacheTarget.identity);
+    }
     await client.start();
-    return applyBootPlan(await fn(client, binary), plan, repo);
-  } finally {
-    client.close();
+    result = applyBootPlan(await fn(client, binary), plan, repo);
+  } catch (error) {
+    primaryError = error;
   }
+  let cleanupError = null;
+  try {
+    await client.close();
+  } catch (error) {
+    cleanupError = error;
+  }
+  let leaseReleaseError = null;
+  // An unsuccessful close is not proof that the native writer stopped. A
+  // failed spawn and a witnessed child `close` are safe; otherwise leave the
+  // owner proof in place so contenders fail busy rather than overlap writers.
+  if (cacheLease && (!client.spawned || client.processClosed)) {
+    try {
+      releaseAgentRuntimeLease(cacheLease);
+    } catch (error) {
+      leaseReleaseError = error;
+    }
+  }
+  if (!cleanupError && leaseReleaseError) cleanupError = leaseReleaseError;
+  else if (cleanupError && leaseReleaseError) {
+    cleanupError = new Error(
+      `m1nd-mcp cleanup failure: ${cleanupError.message || String(cleanupError)}; cache lease release failure: ${leaseReleaseError.message || String(leaseReleaseError)}`,
+      { cause: cleanupError }
+    );
+  }
+  if (primaryError && cleanupError) {
+    throw new Error(
+      `m1nd-mcp primary failure: ${primaryError.message || String(primaryError)}; cleanup failure: ${cleanupError.message || String(cleanupError)}`,
+      { cause: primaryError }
+    );
+  }
+  if (primaryError) throw primaryError;
+  if (cleanupError) throw cleanupError;
+  return result;
 }
 
 async function withClient(args, deps, repo, fn) {
@@ -1126,6 +1199,46 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
   const calls = [toolSurface.summary];
   const supports = (name) => toolSurface.names === null || toolSurface.names.has(name);
 
+  // A warm automatic cache is only an identity match, never a freshness
+  // claim. Consume the existing public exact-root refresh while this process
+  // still owns the cache lease, before any trust/orientation/retrieval call.
+  let refresh = null;
+  if (client.reusedRuntimeCache) {
+    refresh = supports("ingest")
+      ? await callToolSafely(client, "ingest", {
+        agent_id: agentId,
+        path: repo,
+        mode: "refresh",
+        adapter: "code",
+      })
+      : {
+        isError: true,
+        payload: {
+          ok: false,
+          action: "graph.ingest.refresh_declared_root",
+          refused: "refresh_tool_unavailable",
+          reason: "the reused runtime does not expose the public refresh tool",
+        },
+      };
+    calls.push(callSummary("ingest", refresh));
+    const refreshPayload = payloadDict(refresh);
+    if (refresh.isError || refreshPayload.ok !== true) {
+      return {
+        refresh,
+        refreshFailed: true,
+        trustBefore: null,
+        ingest: null,
+        handshake: null,
+        calls,
+        graphAvailable: false,
+        needsAuthority: false,
+        requestedIngest: Boolean(legacyEnsureIngestRequested),
+        genericMutationCalled: false,
+        availableTools: toolSurface.names ? [...toolSurface.names].sort() : null,
+      };
+    }
+  }
+
   // Compatibility is read-only: older runtimes may expose only one of these
   // trust surfaces.  Generic `ingest` can appear in tools/list, but its mere
   // presence is never authority and this CLI deliberately never calls it.
@@ -1146,6 +1259,8 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
   const explicitlyNeedsIngest = trustNeedsIngest(trustBefore) || trustNeedsIngest(handshake);
   const needsAuthority = explicitlyNeedsIngest && !graphAvailable;
   return {
+    refresh,
+    refreshFailed: false,
     trustBefore,
     ingest: null,
     handshake,
@@ -1156,6 +1271,26 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
     genericMutationCalled: false,
     availableTools: toolSurface.names ? [...toolSurface.names].sort() : null,
   };
+}
+
+function applyRefreshFailure(envelope, sequence) {
+  const payload = payloadDict(sequence.refresh);
+  envelope.ok = false;
+  envelope.status = "refresh_refused";
+  envelope.proof_state = "NOT_PROVEN";
+  envelope.trust = { verdict: "not_evaluated", freshness: "refresh_refused" };
+  envelope.freshness = {
+    isError: Boolean(sequence.refresh && sequence.refresh.isError),
+    ok: payload.ok === true,
+    action: payload.action || "graph.ingest.refresh_declared_root",
+    refused: payload.refused || null,
+    reason: payload.reason || payload.error || "refresh failed before trust or retrieval",
+  };
+  envelope.results = [payload];
+  envelope.next_actions.push(
+    `Freshness refresh did not complete: ${envelope.freshness.refused || "transport_error"} — ${envelope.freshness.reason}`
+  );
+  return envelope;
 }
 
 async function agentScope(args, deps, repo, agentId) {
@@ -1213,6 +1348,7 @@ async function agentTrust(args, deps, repo, agentId) {
       },
     });
     envelope.calls = sequence.calls;
+    if (sequence.refreshFailed) return applyRefreshFailure(envelope, sequence);
     envelope.results = sequence.needsAuthority ? authorityEvidence(sequence) : [payload];
     envelope.mutation_policy = {
       generic_ingest_called: sequence.genericMutationCalled,
@@ -1257,6 +1393,21 @@ async function agentOrient(args, deps, repo, agentId) {
   const topK = Number(args["top-k"] || args.topK || 5);
   return withClient(args, deps, repo, async (client, binary) => {
     const sequence = await runTrustSequence(client, repo, agentId, !args["skip-ingest"]);
+    if (sequence.refreshFailed) {
+      const envelope = baseAgentEnvelope({
+        command: "orient",
+        repo,
+        agentId,
+        runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+        scopeAlignment: buildScopeAlignment(repo),
+        trust: { verdict: "not_evaluated" },
+      });
+      envelope.query = query;
+      envelope.mode = mode;
+      envelope.orientation_tool = tool;
+      envelope.calls = sequence.calls;
+      return attachCapabilityGuidance(applyRefreshFailure(envelope, sequence), query);
+    }
     if (sequence.needsAuthority) {
       const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);
       const envelope = baseAgentEnvelope({
@@ -1359,6 +1510,23 @@ async function agentFirstMinute(args, deps, repo, agentId) {
   const topK = Number(args["top-k"] || args.topK || 8);
   return withClient(args, deps, repo, async (client, binary) => {
     const sequence = await runTrustSequence(client, repo, agentId, true);
+    if (sequence.refreshFailed) {
+      const envelope = baseAgentEnvelope({
+        command: "first-minute",
+        repo,
+        agentId,
+        runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+        scopeAlignment: buildScopeAlignment(repo),
+        trust: { verdict: "not_evaluated" },
+      });
+      envelope.query = query;
+      envelope.mode = mode;
+      envelope.orientation_tool = tool;
+      envelope.calls = sequence.calls;
+      envelope.anchors = [];
+      envelope.anchor_groups = {};
+      return attachCapabilityGuidance(applyRefreshFailure(envelope, sequence), query);
+    }
     if (sequence.needsAuthority) {
       const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);
       const envelope = baseAgentEnvelope({
@@ -1506,6 +1674,9 @@ async function agentContext(args, deps, repo, agentId) {
       generic_ingest_called: sequence.genericMutationCalled,
       ensure_ingest_flag_semantics: "compatibility_only_never_generic_mutation",
     };
+    if (sequence.refreshFailed) {
+      return attachCapabilityGuidance(applyRefreshFailure(envelope, sequence), query);
+    }
     if (sequence.needsAuthority) {
       envelope.results = authorityEvidence(sequence);
       return attachCapabilityGuidance(applyNeedsAuthority(envelope, repo), query);
@@ -1572,7 +1743,21 @@ async function agentContext(args, deps, repo, agentId) {
         ? "discovery_allowed"
         : "identifier_anchor";
     envelope.calls.push(callSummary("surgical_context_v2", context));
-    envelope.results = [compactContextPayload(payloadDict(context), maxOutputChars)];
+    const contextPayload = payloadDict(context);
+    if (context.isError || contextPayload.ok === false || contextPayload.refused) {
+      envelope.ok = false;
+      envelope.status = "context_refused";
+      envelope.context_confidence = "context_unavailable";
+      envelope.switch_to_direct_proof = true;
+      envelope.results = [compactContextPayload(contextPayload, maxOutputChars)];
+      envelope.proof_boundary = {
+        m1nd_proved: "the context request did not produce a usable capsule",
+        still_needs_direct_proof: ["read the selected file directly", "resolve the context refusal before relying on graph context"],
+      };
+      envelope.next_actions.push("Context was refused or failed; read the selected file directly before making claims.");
+      return attachCapabilityGuidance(envelope, query);
+    }
+    envelope.results = [compactContextPayload(contextPayload, maxOutputChars)];
     envelope.action = buildDirectProofAction("context_capsule_ready");
     envelope.proof_boundary = {
       m1nd_proved: "m1nd built a bounded context capsule for a concrete source anchor",
@@ -1759,6 +1944,29 @@ async function agentKickstart(args, deps) {
       const tTrust0 = Date.now();
       const sequence = await runTrustSequence(client, repo, agentId, true);
       trustMs = Date.now() - tTrust0;
+
+      if (sequence.refreshFailed) {
+        const payload = payloadDict(sequence.refresh);
+        return {
+          schema: KICKSTART_SCHEMA,
+          ok: false,
+          status: "refresh_refused",
+          proof_state: "NOT_PROVEN",
+          trust_verdict: "not_evaluated",
+          freshness: {
+            isError: Boolean(sequence.refresh && sequence.refresh.isError),
+            ok: payload.ok === true,
+            action: payload.action || "graph.ingest.refresh_declared_root",
+            refused: payload.refused || null,
+            reason: payload.reason || payload.error || "refresh failed before trust or retrieval",
+          },
+          ingest: { performed: false, files_parsed: 0 },
+          audit_summary: "Audit was not run because freshness refresh did not complete.",
+          next_action: "repair_refresh_refusal",
+          calls: sequence.calls,
+          timing_ms: { trust: trustMs, ingest: 0, audit: 0, total: Date.now() - t0 },
+        };
+      }
 
       if (sequence.needsAuthority) {
         const trustPayload = payloadDict(sequence.handshake || sequence.trustBefore);

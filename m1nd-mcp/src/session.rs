@@ -438,6 +438,14 @@ struct StrictRecoveryState {
 ///     .into_session_state();
 /// let _escaped_lifecycle_capability = state.instance;
 /// ```
+#[derive(Clone)]
+pub(crate) struct CallbackPerspectiveStatePreimage {
+    perspectives: HashMap<(String, String), PerspectiveState>,
+    locks: HashMap<String, LockState>,
+    perspective_counter: HashMap<String, u64>,
+    lock_counter: HashMap<String, u64>,
+}
+
 pub struct SessionState {
     /// Exact friendly-boot construction contract retained for diagnostics and
     /// process configuration. Strict recovery does not reconstruct through this
@@ -854,6 +862,25 @@ pub(crate) fn basename_of(root: &str) -> String {
 }
 
 impl SessionState {
+    pub(crate) fn capture_callback_perspective_state(&self) -> CallbackPerspectiveStatePreimage {
+        CallbackPerspectiveStatePreimage {
+            perspectives: self.perspectives.clone(),
+            locks: self.locks.clone(),
+            perspective_counter: self.perspective_counter.clone(),
+            lock_counter: self.lock_counter.clone(),
+        }
+    }
+
+    pub(crate) fn restore_callback_perspective_state(
+        &mut self,
+        preimage: CallbackPerspectiveStatePreimage,
+    ) {
+        self.perspectives = preimage.perspectives;
+        self.locks = preimage.locks;
+        self.perspective_counter = preimage.perspective_counter;
+        self.lock_counter = preimage.lock_counter;
+    }
+
     /// The version the bound repo's own `m1nd-mcp/Cargo.toml` declares, if a
     /// bound root (workspace_root, else any ingest root) actually contains one.
     /// This is the "am I testing against an old m1nd binary?" signal: the repo

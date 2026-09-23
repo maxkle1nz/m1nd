@@ -653,6 +653,13 @@ impl SemanticEngine {
         use crate::embed::{Embedder, Model2VecEmbedder};
         use crate::embed_cache::{content_key, EmbeddingCache};
 
+        // A virgin graph has nothing to encode. Loading (or downloading) the
+        // model here delays signal handling and MCP initialization for no work;
+        // an ingest rebuilds the semantic engine once nodes are present.
+        if graph.num_nodes() == 0 {
+            return (HashMap::new(), None);
+        }
+
         let embedder: std::sync::Arc<Model2VecEmbedder> = match Model2VecEmbedder::from_default() {
             Ok(e) => std::sync::Arc::new(e),
             Err(e) => {

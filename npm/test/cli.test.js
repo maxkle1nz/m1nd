@@ -48,6 +48,8 @@ function selfUpdate(args) {
   });
 }
 const { classifyScopeBinding } = require("../lib/agent-cli");
+const { agentRuntimeCacheTarget } = require("../lib/agent-runtime-cache");
+const { McpRuntimeClient } = require("../lib/mcp-runtime-client");
 const northShim = require("../bin/m1nd-north-shim");
 
 const cli = path.resolve(__dirname, "../bin/m1nd.js");
@@ -622,7 +624,7 @@ rl.on("line", (line) => {
     }
     return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "full_trust", checks: { needs_ingest: false }, graph_state: graph() }));
   }
-  if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, graph_state: graph(), path: args.path }));
+  if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, action: args.mode === "refresh" ? "graph.ingest.refresh_declared_root" : undefined, graph_state: graph(), path: args.path }));
   if (name === "session_handshake") {
     if (process.env.M1ND_FAKE_TRUST === "needs_ingest" && !attached) {
       return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "needs_ingest", graph_state: { ...graph(), node_count: 0, edge_count: 0, finalized: false, ingest_root_count: 0 }, scope: args.scope }));
@@ -689,6 +691,55 @@ const fakeEnvBase = {
   M1ND_TEST_CRATE_VERSION: CURRENT_VERSION,
   M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
 };
+
+{
+  const repo = mkTmpDir();
+  const cache = mkTmpDir();
+  fs.writeFileSync(path.join(repo, "signal.js"), "export const signal = 1;\n");
+  assert.strictEqual(spawnSync("git", ["init"], { cwd: repo }).status, 0);
+  assert.strictEqual(spawnSync("git", ["add", "signal.js"], { cwd: repo }).status, 0);
+  assert.strictEqual(
+    spawnSync(
+      "git",
+      ["-c", "user.name=Test User", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"],
+      { cwd: repo }
+    ).status,
+    0
+  );
+  const env = { ...process.env, M1ND_AGENT_CACHE_DIR: cache };
+  const mainRuntime = agentRuntimeCacheTarget(repo, env).runtimeDir;
+  assert.strictEqual(spawnSync("git", ["switch", "-c", "alternate"], { cwd: repo }).status, 0);
+  const branchRuntime = agentRuntimeCacheTarget(repo, env).runtimeDir;
+  assert.notStrictEqual(branchRuntime, mainRuntime, "a branch switch must not reuse the prior snapshot");
+  fs.writeFileSync(path.join(repo, "signal.js"), "export const signal = 2;\n");
+  assert.strictEqual(spawnSync("git", ["add", "signal.js"], { cwd: repo }).status, 0);
+  assert.strictEqual(
+    spawnSync(
+      "git",
+      ["-c", "user.name=Test User", "-c", "user.email=test@example.invalid", "commit", "-m", "revision"],
+      { cwd: repo }
+    ).status,
+    0
+  );
+  const revisionRuntime = agentRuntimeCacheTarget(repo, env).runtimeDir;
+  assert.notStrictEqual(revisionRuntime, branchRuntime, "a revision change must not reuse the prior snapshot");
+}
+
+for (const runtimeArgs of [["--runtime-dir", "runtime"], ["--runtime-dir=runtime"]]) {
+  const repo = mkTmpDir();
+  const client = new McpRuntimeClient({ repo, args: ["--stdio", "--no-gui", ...runtimeArgs] });
+  const config = client.launchConfig();
+  const index = config.args.findIndex((arg) => arg === "--runtime-dir" || arg.startsWith("--runtime-dir="));
+  const value = config.args[index].startsWith("--runtime-dir=")
+    ? config.args[index].slice("--runtime-dir=".length)
+    : config.args[index + 1];
+  assert.strictEqual(config.runtimeDir, path.join(repo, "runtime"));
+  assert.strictEqual(
+    path.resolve(config.cwd, value),
+    config.runtimeDir,
+    "relative runtime argv must still identify the selected runtime after child cwd changes"
+  );
+}
 
 // Security regression: ambient test transport/verifier variables are never a
 // production authority.  Refusal happens before fixture reads, verifier
@@ -1977,6 +2028,7 @@ writeFakeMcpRuntime(fakeMcp);
 const agentEnv = {
   ...process.env,
   ...fakeEnvBase,
+  M1ND_AGENT_CACHE_DIR: mkTmpDir(),
   M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
 };
 const agentScopeRepo = mkTmpDir();
@@ -2011,11 +2063,11 @@ const agentTrust = spawnSync(
     },
   }
 );
-assert.strictEqual(agentTrust.status, 0, agentTrust.stderr);
 const agentTrustJson = JSON.parse(agentTrust.stdout);
 assert.strictEqual(agentTrustJson.schema, "m1nd-agent-cli-v0");
 assert.strictEqual(agentTrustJson.command, "trust");
 assert.strictEqual(agentTrustJson.ok, false);
+assert.strictEqual(agentTrust.status, 1, "a failed agent task must not exit successfully");
 assert.strictEqual(agentTrustJson.status, "needs_authority");
 assert.strictEqual(agentTrustJson.proof_state, "NOT_PROVEN");
 assert.strictEqual(agentTrustJson.trust.verdict, "needs_authority");
@@ -2044,6 +2096,29 @@ assert.strictEqual(agentOrientJson.action.schema, "m1nd-agent-action-envelope-v0
 assert.strictEqual(agentOrientJson.action.route.kind, "direct_proof");
 assert.strictEqual(fs.existsSync(path.join(agentOrientRepo, "graph_snapshot.json")), false);
 assert.strictEqual(fs.existsSync(path.join(agentOrientRepo, "plasticity_state.json")), false);
+
+const explicitAgentRuntime = mkTmpDir();
+const agentExplicitRuntime = spawnSync(
+  process.execPath,
+  [cli, "agent", "orient", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_MCP_ARGS: `--stdio --no-gui --runtime-dir ${explicitAgentRuntime}`,
+    },
+  }
+);
+assert.strictEqual(agentExplicitRuntime.status, 0, agentExplicitRuntime.stderr);
+assert.strictEqual(JSON.parse(agentExplicitRuntime.stdout).runtime.runtime_root, explicitAgentRuntime);
+
+const agentSharedRuntime = spawnSync(
+  process.execPath,
+  [cli, "agent", "orient", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--shared-runtime", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentSharedRuntime.status, 0, agentSharedRuntime.stderr);
+assert.strictEqual(JSON.parse(agentSharedRuntime.stdout).runtime.runtime_root, null);
 
 const agentBlocked = spawnSync(
   process.execPath,
@@ -2118,13 +2193,13 @@ const agentFirstMinute = spawnSync(
     },
   }
 );
-assert.strictEqual(agentFirstMinute.status, 0, agentFirstMinute.stderr);
 const agentFirstMinuteJson = JSON.parse(agentFirstMinute.stdout);
 assert.strictEqual(agentFirstMinuteJson.command, "first-minute");
 assert.strictEqual(agentFirstMinuteJson.ok, false);
+assert.strictEqual(agentFirstMinute.status, 1, "first-minute refusal must reach the process caller");
 assert.strictEqual(agentFirstMinuteJson.status, "needs_authority");
 assert.strictEqual(agentFirstMinuteJson.proof_state, "NOT_PROVEN");
-assert(!agentFirstMinuteJson.calls.some((entry) => entry.tool === "ingest"));
+assert(!agentFirstMinuteJson.calls.some((entry) => entry.tool === "ingest"), "identity-only cache is still cold");
 assert(!agentFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
 assert.strictEqual(agentFirstMinuteJson.switch_to_direct_proof, true);
 assert.strictEqual(agentFirstMinuteJson.m1nd_usage_mode, "authority_required_before_orientation");
@@ -2142,6 +2217,9 @@ assert.deepStrictEqual(
 assert(agentFirstMinuteJson.playbook.steps.some((step) => step.includes("RETROBUILDER")));
 assert(!fs.readFileSync(agentFirstMinuteCallLog, "utf8").split(/\r?\n/).includes("ingest"));
 
+// Simulate a successfully persisted graph after the earlier cold refusal;
+// warm invocations now need an exact-root public refresh before retrieval.
+fs.writeFileSync(path.join(agentFirstMinuteJson.runtime.runtime_root, "graph_snapshot.json"), "{}\n");
 // An already-ingested bound brain remains a read-only orientation lane.
 const agentFirstMinuteReadyCallLog = path.join(mkTmpDir(), "calls.log");
 const agentFirstMinuteReady = spawnSync(
@@ -2160,14 +2238,14 @@ const agentFirstMinuteReadyJson = JSON.parse(agentFirstMinuteReady.stdout);
 assert.strictEqual(agentFirstMinuteReadyJson.ok, true);
 assert.strictEqual(agentFirstMinuteReadyJson.m1nd_usage_mode, "first_minute_orientation");
 assert(agentFirstMinuteReadyJson.calls.some((entry) => entry.tool === "seek"));
-assert(!agentFirstMinuteReadyJson.calls.some((entry) => entry.tool === "ingest"));
+assert(agentFirstMinuteReadyJson.calls.some((entry) => entry.tool === "ingest" && entry.ok === true));
 assert(agentFirstMinuteReadyJson.anchors.length > 0);
 const agentFirstMinuteReadyCalls = fs.readFileSync(agentFirstMinuteReadyCallLog, "utf8").split(/\r?\n/);
 assert(agentFirstMinuteReadyCalls.includes("seek"));
-assert(!agentFirstMinuteReadyCalls.includes("ingest"));
+assert(agentFirstMinuteReadyCalls.includes("ingest"));
 
 // Legacy runtimes without trust_selftest stay compatible through the read-only
-// session_handshake surface; their generic ingest verb is still never called.
+// session_handshake surface; warm-cache reuse still consumes only public refresh.
 const agentLegacyCallLog = path.join(mkTmpDir(), "calls.log");
 const agentLegacyFirstMinute = spawnSync(
   process.execPath,
@@ -2188,7 +2266,7 @@ assert(!agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "trust_s
 assert(agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "session_handshake"));
 assert(agentLegacyFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
 const agentLegacyCalls = fs.readFileSync(agentLegacyCallLog, "utf8").split(/\r?\n/);
-assert(!agentLegacyCalls.includes("ingest"));
+assert(agentLegacyCalls.includes("ingest"));
 
 // --- The first minute must find the owner that already holds this repo. ---
 // Field letter (2026-07-31, README demo capture): `m1nd agent first-minute` and
@@ -2276,6 +2354,10 @@ assert(
 );
 
 // `agent context` is the other half of the letter and shares the boot decision.
+// A successful context request needs a real anchor, not only owner metadata.
+const attachedContextFile = path.join(agentOrientRepo, "src", "session.js");
+fs.mkdirSync(path.dirname(attachedContextFile), { recursive: true });
+fs.writeFileSync(attachedContextFile, "// attached context anchor\n");
 const agentContextAttached = spawnSync(
   process.execPath,
   [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "src/session.js session boundary", "--tokens", "800", "--json"],
@@ -2290,6 +2372,9 @@ const agentContextAttached = spawnSync(
 );
 assert.strictEqual(agentContextAttached.status, 0, agentContextAttached.stderr);
 const agentContextAttachedJson = JSON.parse(agentContextAttached.stdout);
+assert.strictEqual(agentContextAttachedJson.ok, true);
+assert.strictEqual(agentContextAttachedJson.selected_file, fs.realpathSync(attachedContextFile));
+assert(agentContextAttachedJson.calls.some((entry) => entry.tool === "surgical_context_v2" && !entry.isError));
 assert.strictEqual(agentContextAttachedJson.runtime.boot, "attached_serve_owner");
 assert.strictEqual(agentContextAttachedJson.runtime.owner_discovery.found, true);
 
@@ -2307,9 +2392,9 @@ const agentFirstMinuteIsolated = spawnSync(
     },
   }
 );
-assert.strictEqual(agentFirstMinuteIsolated.status, 0, agentFirstMinuteIsolated.stderr);
 const agentFirstMinuteIsolatedJson = JSON.parse(agentFirstMinuteIsolated.stdout);
 assert.strictEqual(agentFirstMinuteIsolatedJson.ok, false);
+assert.strictEqual(agentFirstMinuteIsolated.status, 1, "an isolated refusal must not exit successfully");
 assert.strictEqual(agentFirstMinuteIsolatedJson.status, "needs_authority");
 assert.strictEqual(agentFirstMinuteIsolatedJson.proof_state, "NOT_PROVEN");
 assert.strictEqual(agentFirstMinuteIsolatedJson.authority.provider.configured, false);
@@ -2491,10 +2576,10 @@ const agentContext = spawnSync(
     },
   }
 );
-assert.strictEqual(agentContext.status, 0, agentContext.stderr);
 const agentContextJson = JSON.parse(agentContext.stdout);
 assert.strictEqual(agentContextJson.command, "context");
 assert.strictEqual(agentContextJson.ok, false);
+assert.strictEqual(agentContext.status, 1, "a missing context prerequisite must reach the process caller");
 assert.strictEqual(agentContextJson.needs_orientation_first, true);
 assert.strictEqual(agentContextJson.context_confidence, "needs_orientation_first");
 assert(!agentContextJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
@@ -2521,7 +2606,7 @@ const agentContextAnchor = spawnSync(
 );
 assert.strictEqual(agentContextAnchor.status, 0, agentContextAnchor.stderr);
 const agentContextAnchorJson = JSON.parse(agentContextAnchor.stdout);
-assert.strictEqual(agentContextAnchorJson.selected_file, directContextFile);
+assert.strictEqual(agentContextAnchorJson.selected_file, fs.realpathSync(directContextFile));
 assert.strictEqual(agentContextAnchorJson.context_confidence, "direct_anchor");
 assert(agentContextAnchorJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
 
@@ -2532,7 +2617,7 @@ const agentContextPathPhrase = spawnSync(
 );
 assert.strictEqual(agentContextPathPhrase.status, 0, agentContextPathPhrase.stderr);
 const agentContextPathPhraseJson = JSON.parse(agentContextPathPhrase.stdout);
-assert.strictEqual(agentContextPathPhraseJson.selected_file, directContextFile);
+assert.strictEqual(agentContextPathPhraseJson.selected_file, fs.realpathSync(directContextFile));
 assert(!agentContextPathPhraseJson.calls.some((entry) => entry.tool === "search"));
 
 const agentContextIdentifierFallback = spawnSync(
@@ -2581,6 +2666,26 @@ const agentContextEscape = spawnSync(
 );
 assert.notStrictEqual(agentContextEscape.status, 0);
 assert(agentContextEscape.stderr.includes("path escapes repo"));
+
+const outsideContextFile = path.join(path.dirname(agentOrientRepo), "outside-context.js");
+const symlinkedContextFile = path.join(agentOrientRepo, "src", "outside-link.js");
+fs.writeFileSync(outsideContextFile, "export const outside_context = true;\n");
+fs.symlinkSync(outsideContextFile, symlinkedContextFile);
+for (const query of [symlinkedContextFile, "outside-link.js context"]) {
+  const symlinkEscape = spawnSync(
+    process.execPath,
+    [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", query, "--allow-discovery", "--json"],
+    {
+      encoding: "utf8",
+      env: {
+        ...agentEnv,
+        M1ND_FAKE_SEARCH_FILE: "src/outside-link.js",
+      },
+    }
+  );
+  assert.notStrictEqual(symlinkEscape.status, 0, `symlink escape was accepted for ${query}`);
+  assert(symlinkEscape.stderr.includes("path escapes repo"), symlinkEscape.stderr);
+}
 
 const agentDoctor = spawnSync(
   process.execPath,
