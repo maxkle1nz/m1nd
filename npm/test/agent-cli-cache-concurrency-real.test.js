@@ -141,9 +141,10 @@ function spawnFirstMinute(repo, symbol, binary, env) {
 }
 
 async function waitForHolderReady(signals, holder) {
+  const controller = new AbortController();
   try {
     const outcome = await Promise.race([
-      waitForSignal(signals, ["holder-ready"], 60_000).then((signal) => ({ signal })),
+      waitForSignal(signals, ["holder-ready"], 60_000, controller.signal).then((signal) => ({ signal })),
       holder.completed.then((completed) => ({ completed })),
     ]);
     assert.equal(outcome.signal, "holder-ready", `holder exited before initialization: ${JSON.stringify(outcome.completed)}`);
@@ -154,25 +155,44 @@ async function waitForHolderReady(signals, holder) {
         `output=${JSON.stringify(holder.output())}`,
       { cause: error }
     );
+  } finally {
+    controller.abort();
   }
 }
 
-function waitForSignal(dir, names, timeoutMs = 15_000) {
+test("signal waiter releases its timeout and polling on cancellation", async () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-waiter-abort-"));
+  try {
+    const controller = new AbortController();
+    const waiter = waitForSignal(fixture, ["never-ready"], 1_000, controller.signal);
+    controller.abort();
+    await assert.rejects(waiter, /abort/i);
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+function waitForSignal(dir, names, timeoutMs = 15_000, signal) {
+  if (signal?.aborted) return Promise.reject(new Error("signal wait aborted"));
   const present = () => names.find((name) => fs.existsSync(path.join(dir, name)));
   const immediate = present();
   if (immediate) return Promise.resolve(immediate);
   return new Promise((resolve, reject) => {
-    const interval = setInterval(() => {
-      const name = present();
-      if (!name) return;
+    const finish = (callback, value) => {
       clearTimeout(timer);
       clearInterval(interval);
-      resolve(name);
+      signal?.removeEventListener("abort", onAbort);
+      callback(value);
+    };
+    const onAbort = () => finish(reject, new Error("signal wait aborted"));
+    const interval = setInterval(() => {
+      const name = present();
+      if (name) finish(resolve, name);
     }, 10);
     const timer = setTimeout(() => {
-      clearInterval(interval);
-      reject(new Error(`timed out waiting for signal: ${names.join(", ")}`));
+      finish(reject, new Error(`timed out waiting for signal: ${names.join(", ")}`));
     }, timeoutMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

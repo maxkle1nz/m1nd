@@ -9469,6 +9469,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn launcher_workspace_rejects_runtime_nested_in_the_source_tree() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -9568,6 +9569,39 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn launcher_workspace_rejects_runtime_without_posix_privacy_proof() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("private-runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            launcher_workspace_root: Some(workspace.clone()),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
+        let error = match McpServer::new(config) {
+            Ok(_) => panic!("launcher runtime without a POSIX privacy proof must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("launcher_workspace_runtime_not_private"),
+            "unexpected error: {error}"
+        );
+        assert!(!runtime.join("graph_snapshot.json").exists());
+        assert!(!runtime.join("registry").exists());
+        assert!(!workspace.join("registry").exists());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn launcher_workspace_forces_registry_into_the_private_runtime() {
         let temp = tempfile::tempdir().expect("tempdir");
