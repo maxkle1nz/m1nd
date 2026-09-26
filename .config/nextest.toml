@@ -30,6 +30,15 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress)'
 slow-timeout = { period = "300s", terminate-after = 8 }
 
+# The stdio and HTTP bootstrap suites launch embedding owners in separate
+# nextest processes. A test binary's Mutex cannot serialize those processes.
+# Keep this on the LOCAL default too: without it parallel cold model loads
+# exhausted the 120s per-child timeout in 13 tests; the same suite passed
+# without skips under the shadow profile, which already applied this group.
+[[profile.default.overrides]]
+filter = 'binary_id(m1nd-mcp::agent_autonomy_bootstrap) | binary_id(m1nd-mcp::agent_autonomy_http_bootstrap)'
+test-group = 'agent-bootstrap'
+
 # ---------------------------------------------------------------------------
 # The manual CI shadow workflow (`.github/workflows/rust-shadow.yml`). Inherits the
 # default profile; what it adds is the concurrency cap the GATE measurement
@@ -42,6 +51,7 @@ slow-timeout = { period = "300s", terminate-after = 8 }
 # acceptable; promote the runner only then.
 [test-groups]
 heavy-io = { max-threads = 2 }
+agent-bootstrap = { max-threads = 1 }
 
 [[profile.shadow.overrides]]
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress) | test(transplant)'

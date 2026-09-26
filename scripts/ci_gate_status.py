@@ -18,6 +18,7 @@ ALWAYS_REQUIRED = frozenset(
         "ci-lane",
         "ui-gates",
         "host-pack-gates",
+        "agent-cache-real-gates",
         "python-gates",
         "security-gates",
         "contract-gates",

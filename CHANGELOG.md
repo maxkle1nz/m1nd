@@ -6,6 +6,23 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- Launcher-granted `agent first-minute` bootstrap for an exact workspace in an
+  isolated private runtime, with reuse keyed by canonical repository identity.
+- Deterministic Node coverage for cache symlink refusal, async/sync spawn
+  failures, and published-tarball contents.
+
+### Fixed
+
+- Launcher persistence now canonicalizes the private runtime and forces graph,
+  plasticity, and registry state beneath it; source-resolving symlink paths and
+  missing runtimes refuse before mutation.
+- Isolated cache paths reject symlinked runtime, owner, and manifest entries;
+  pre-child `EACCES` and `ENOEXEC` failures release their lease safely.
+- npm package checks prove `docs/AGENT-AUTONOMY.md` is present in the exact
+  release tarball.
+
 ## [1.6.3] — 2026-08-02
 
 1.6.2 was tagged but never published: its release run was refused by the

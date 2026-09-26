@@ -17,6 +17,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::task::JoinHandle;
@@ -187,6 +188,30 @@ impl InstanceHandle {
         registry_root: Option<&Path>,
         mode: InstanceMode,
     ) -> M1ndResult<Self> {
+        Self::acquire_with_mode_and_cancel(
+            workspace_root,
+            runtime_root,
+            graph_source,
+            plasticity_state,
+            registry_root,
+            mode,
+            None,
+        )
+    }
+
+    /// Cancellation is honored while waiting for the lease-mutation guard,
+    /// before a writer can claim ownership. Once claiming begins the caller
+    /// must finish constructing its owner and checkpoint on shutdown.
+    pub(crate) fn acquire_with_mode_and_cancel(
+        workspace_root: &Path,
+        runtime_root: &Path,
+        graph_source: &Path,
+        plasticity_state: &Path,
+        registry_root: Option<&Path>,
+        mode: InstanceMode,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Self> {
+        check_startup_cancelled(cancelled)?;
         let workspace_root = canonicalish(workspace_root)?;
         let runtime_root = canonicalish(runtime_root)?;
         let graph_source = canonicalish(graph_source)?;
@@ -233,8 +258,14 @@ impl InstanceHandle {
         // ReadOnly remains discovery-only and never touches either primitive.
         let (lock_path, owner_lifetime_guard) = match mode {
             InstanceMode::ReadWrite => {
+                // GC may briefly probe the lifetime lock. Take the shared
+                // mutation guard first so a new owner cannot race that probe
+                // and receive a spurious AlreadyExists at startup.
+                let mutation_guard =
+                    LeaseMutationGuard::acquire_with_cancel(&lease_file, cancelled)?;
+                check_startup_cancelled(cancelled)?;
                 let lifetime_guard = OwnerLifetimeGuard::acquire(&lease_file)?;
-                claim_readwrite_lease(&lease_file, &entry)?;
+                claim_readwrite_lease(&lease_file, &entry, &mutation_guard)?;
                 (Some(lease_file), Some(lifetime_guard))
             }
             InstanceMode::ReadOnly => (None, None),
@@ -554,10 +585,12 @@ pub fn delete_instance_state(
 /// files are left untouched. Safe to call while a live instance is running —
 /// only provably-dead entries are removed.
 ///
-/// The OS process table is read exactly ONCE per sweep (one `LivePids::snapshot`)
-/// and the resulting live-pid set is reused for every entry across both
-/// directories — so a boot sweep over a registry that has leaked tens of
-/// thousands of stale files does a single process-table read, not one per entry.
+/// A single initial process-table snapshot prunes live entries. Before deleting
+/// a candidate, a fresh PID probe catches owners started during the sweep; on
+/// Unix that probe is `kill(pid, 0)`; on Windows it queries just the named
+/// process handle. Other targets fall back to a fresh process-table snapshot.
+/// A live writer's lifetime guard is also authoritative, even if its JSON
+/// contains a dead PID.
 pub fn gc_dead_leases(registry_root: &Path) -> std::io::Result<GcReport> {
     let mut report = GcReport::default();
     // One process-table read for the whole sweep.
@@ -597,8 +630,9 @@ pub fn spawn_boot_gc(registry_root: PathBuf) -> std::thread::JoinHandle<()> {
     })
 }
 
-/// Sweep a single registry directory, removing only entries whose pid is dead
-/// according to the pre-built per-sweep live-pid snapshot.
+/// Sweep a single registry directory, removing only entries whose pid is
+/// absent from both the per-sweep snapshot and a fresh deletion-time probe.
+/// An active writer's crash-released guard also prevents removal.
 fn gc_dead_in_dir(
     dir: &Path,
     live: &LivePids,
@@ -630,30 +664,104 @@ fn gc_dead_in_dir(
             continue;
         }
 
-        if is_lease_dir {
-            // Serialize with claim/heartbeat/release, then re-read the exact
-            // acquisition identity. A successor can never be removed based on
-            // the dead predecessor observed before entering this critical
-            // section.
-            let _guard = match LeaseMutationGuard::acquire(&path) {
-                Ok(guard) => guard,
+        // The process may have started after our once-per-sweep PID snapshot.
+        // Check a candidate again at deletion time; on Unix this is a cheap
+        // single-PID kernel probe, not a second full process-table scan.
+        if gc_pid_live(entry.pid) {
+            continue;
+        }
+        let writer = is_lease_dir || InstanceMode::from_str(&entry.mode) == InstanceMode::ReadWrite;
+        let lease_path = if is_lease_dir {
+            path.clone()
+        } else {
+            dir.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(LEASE_DIR_NAME)
+                .join(format!(
+                    "{}.json",
+                    fingerprint_path(Path::new(&entry.runtime_root))
+                ))
+        };
+        // A writer's lifetime guard is authoritative even when a stale PID
+        // snapshot says otherwise. Serialize against claim, re-key and release
+        // before testing that guard and removing either lease or discovery.
+        let _mutation = if writer {
+            match LeaseMutationGuard::acquire(&lease_path) {
+                Ok(guard) => Some(guard),
                 Err(_) => continue,
-            };
-            let verified: InstanceRegistryEntry = match read_json(&path) {
-                Ok(verified) => verified,
-                Err(_) => continue,
-            };
-            if !lease_identity_matches(&verified, &entry) || live.is_live(verified.pid) {
-                continue;
             }
-            if fs::remove_file(&path).is_ok() {
-                *removed += 1;
+        } else {
+            None
+        };
+        let owner_lock = lease_path.with_extension("owner.lock");
+        let _owner = if writer && owner_lock.exists() {
+            match OwnerLifetimeGuard::acquire(&lease_path) {
+                Ok(guard) => Some(guard),
+                Err(_) => continue, // live writer or unknown lock failure: fail closed
             }
-        } else if fs::remove_file(&path).is_ok() {
+        } else {
+            None
+        };
+        // Identity can change between the first read and the mutation guard.
+        // Fail closed on malformed/replaced entries, including discovery files.
+        let verified: InstanceRegistryEntry = match read_json(&path) {
+            Ok(verified) => verified,
+            Err(_) => continue,
+        };
+        if !lease_identity_matches(&verified, &entry) || gc_pid_live(verified.pid) {
+            continue;
+        }
+        if fs::remove_file(&path).is_ok() {
             *removed += 1;
         }
     }
     Ok(())
+}
+
+/// Cheap fresh liveness fence for a deletion candidate: a boot sweep's PID
+/// snapshot can predate an owner that published a file during the walk.
+fn gc_pid_live(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        if pid == 0 || pid > i32::MAX as u32 {
+            return false;
+        }
+        // SAFETY: kill(pid, 0) sends no signal; it only probes process existence.
+        if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
+            return true;
+        }
+        // A process we lack permission to signal is still alive.
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        if pid == 0 {
+            return false;
+        }
+        // SAFETY: OpenProcess creates a handle for the named PID with no
+        // mutation right. Every successful open is closed below.
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if process.is_null() {
+            // Permission denial or an unknown error cannot prove the owner dead.
+            return std::io::Error::last_os_error().raw_os_error()
+                != Some(ERROR_INVALID_PARAMETER as i32);
+        }
+        let mut exit_code = 0u32;
+        // SAFETY: process is a valid, owned handle and exit_code is writable.
+        let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) };
+        // SAFETY: the handle is owned by this function and is no longer needed.
+        unsafe { CloseHandle(process) };
+        queried == 0 || exit_code == STILL_ACTIVE as u32
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        // Fail closed when a platform's process table cannot be read.
+        is_pid_live(pid)
+    }
 }
 
 pub fn default_registry_root() -> PathBuf {
@@ -705,6 +813,14 @@ fn apply_conflicts(entries: &mut [InstanceRegistryEntry]) {
 /// if the process dies; on Windows an open handle with no sharing provides the
 /// same crash-released cross-process lifetime.
 static LEASE_MUTATION_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn check_startup_cancelled(cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
+    if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        Err(M1ndError::StartupCancelled)
+    } else {
+        Ok(())
+    }
+}
 
 /// Same-process ownership table for per-runtime lifetime guards. OS locking is
 /// authoritative across processes; this table closes platform-specific
@@ -834,9 +950,29 @@ struct LeaseMutationGuard {
 
 impl LeaseMutationGuard {
     fn acquire(lease_path: &Path) -> M1ndResult<Self> {
-        let in_process = LEASE_MUTATION_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::acquire_with_cancel(lease_path, None)
+    }
+
+    fn acquire_with_cancel(lease_path: &Path, cancelled: Option<&AtomicBool>) -> M1ndResult<Self> {
+        let in_process = if cancelled.is_some() {
+            loop {
+                check_startup_cancelled(cancelled)?;
+                match LEASE_MUTATION_MUTEX.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                        break poisoned.into_inner()
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+            }
+        } else {
+            LEASE_MUTATION_MUTEX
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        check_startup_cancelled(cancelled)?;
         let guard_path = lease_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -858,7 +994,13 @@ impl LeaseMutationGuard {
             loop {
                 // SAFETY: `file` owns a valid descriptor for the full guard
                 // lifetime; LOCK_EX has no pointer or aliasing requirements.
-                let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+                check_startup_cancelled(cancelled)?;
+                let operation = if cancelled.is_some() {
+                    libc::LOCK_EX | libc::LOCK_NB
+                } else {
+                    libc::LOCK_EX
+                };
+                let result = unsafe { libc::flock(file.as_raw_fd(), operation) };
                 if result == 0 {
                     return Ok(Self {
                         file,
@@ -866,8 +1008,12 @@ impl LeaseMutationGuard {
                     });
                 }
                 let error = std::io::Error::last_os_error();
-                if error.kind() != std::io::ErrorKind::Interrupted {
-                    return Err(M1ndError::Io(error));
+                match error.kind() {
+                    std::io::ErrorKind::Interrupted => continue,
+                    std::io::ErrorKind::WouldBlock if cancelled.is_some() => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    _ => return Err(M1ndError::Io(error)),
                 }
             }
         }
@@ -877,6 +1023,7 @@ impl LeaseMutationGuard {
             use std::os::windows::fs::OpenOptionsExt;
 
             loop {
+                check_startup_cancelled(cancelled)?;
                 match fs::OpenOptions::new()
                     .read(true)
                     .write(true)
@@ -891,7 +1038,11 @@ impl LeaseMutationGuard {
                         });
                     }
                     Err(error) if matches!(error.raw_os_error(), Some(32) | Some(33)) => {
-                        std::thread::yield_now();
+                        if cancelled.is_some() {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        } else {
+                            std::thread::yield_now();
+                        }
                     }
                     Err(error) => return Err(M1ndError::Io(error)),
                 }
@@ -989,10 +1140,13 @@ fn save_json_exclusive<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 }
 
 /// Atomically claim a ReadWrite lease. Only `create_new` can produce a winner.
-/// A stale/dead incumbent is re-read and identity-checked while the mutation
-/// guard is held, removed, and retried without opening an overwrite seam.
-fn claim_readwrite_lease(path: &Path, requested: &InstanceRegistryEntry) -> M1ndResult<()> {
-    let _guard = LeaseMutationGuard::acquire(path)?;
+/// A stale/dead incumbent is re-read and identity-checked while the caller's
+/// mutation guard is held, removed, and retried without an overwrite seam.
+fn claim_readwrite_lease(
+    path: &Path,
+    requested: &InstanceRegistryEntry,
+    _guard: &LeaseMutationGuard,
+) -> M1ndResult<()> {
     loop {
         match save_json_exclusive(path, requested) {
             Ok(()) => return Ok(()),
@@ -1782,6 +1936,124 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_bootstrap_does_not_wait_for_held_mutation_guard_or_claim_lease() {
+        use std::sync::{atomic::AtomicBool, mpsc};
+
+        let temp = tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let registry = temp.path().join("registry");
+        let workspace = temp.path().join("workspace");
+        fs::create_dir_all(&runtime).expect("runtime");
+        fs::create_dir_all(&workspace).expect("workspace");
+        let lease_path = registry.join(LEASE_DIR_NAME).join("held.json");
+        let held = LeaseMutationGuard::acquire(&lease_path).expect("hold shared guard");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let driver_cancelled = Arc::clone(&cancelled);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            entered_tx.send(()).expect("driver entered acquire");
+            let result = InstanceHandle::acquire_with_mode_and_cancel(
+                &workspace,
+                &runtime,
+                &runtime.join("graph.json"),
+                &runtime.join("plasticity.json"),
+                Some(&registry),
+                InstanceMode::ReadWrite,
+                Some(&driver_cancelled),
+            );
+            outcome_tx.send(result).expect("driver result");
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        assert!(matches!(
+            outcome_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(held); // Release even if the assertion below fails.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
+        assert_eq!(
+            fs::read_dir(temp.path().join("registry/leases"))
+                .expect("leases")
+                .filter(|e| e
+                    .as_ref()
+                    .is_ok_and(|e| e.path().extension().is_some_and(|ext| ext == "json")))
+                .count(),
+            0
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn cancelled_bootstrap_does_not_wait_for_held_os_mutation_guard() {
+        use std::sync::{atomic::AtomicBool, mpsc};
+
+        let temp = tempdir().expect("tempdir");
+        let lease_path = temp.path().join("leases/held.json");
+        let guard_path = lease_path
+            .parent()
+            .expect("parent")
+            .join(".lease-mutations.guard");
+        fs::create_dir_all(lease_path.parent().expect("parent")).expect("leases");
+        #[cfg(unix)]
+        let held = {
+            use std::os::fd::AsRawFd;
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&guard_path)
+                .expect("open independent lock handle");
+            // SAFETY: file is a valid descriptor, held until after cancellation.
+            assert_eq!(
+                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+                0
+            );
+            file
+        };
+        #[cfg(windows)]
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .share_mode(0)
+                .open(&guard_path)
+                .expect("open exclusive lock handle")
+        };
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let driver_cancelled = Arc::clone(&cancelled);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            entered_tx.send(()).expect("driver entered acquire");
+            let result =
+                LeaseMutationGuard::acquire_with_cancel(&lease_path, Some(&driver_cancelled))
+                    .map(drop);
+            outcome_tx.send(result).expect("driver result");
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        assert!(matches!(
+            outcome_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(held); // Release even if the assertion below fails.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
+    }
+
+    #[test]
     fn rejects_live_runtime_root_collision_for_foreign_owner() {
         let temp = tempdir().unwrap();
         let workspace = temp.path().join("workspace");
@@ -2464,6 +2736,126 @@ mod tests {
         }
         assert!(live_entry_path.exists());
         assert!(live_lease_path.exists());
+    }
+
+    #[test]
+    fn gc_snapshot_taken_before_a_new_owner_never_deletes_its_lease_or_discovery() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        // The process did not exist when a concurrent GC took its snapshot.
+        // Its live owner can publish a lease while GC walks the directory.
+        let before_owner_started = LivePids::Known(HashSet::new());
+        let mut owner = InstanceHandle::acquire(
+            &workspace,
+            &runtime,
+            &runtime.join("graph.json"),
+            &runtime.join("plasticity.json"),
+            Some(&registry),
+        )
+        .unwrap();
+        let lease = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        let discovery = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", owner.summary().instance_id));
+        let mut attacher = InstanceHandle::acquire_with_mode(
+            &workspace,
+            &runtime,
+            &runtime.join("graph.json"),
+            &runtime.join("plasticity.json"),
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        let attachment = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", attacher.summary().instance_id));
+        let (mut scanned, mut removed) = (0, 0);
+        gc_dead_in_dir(
+            &registry.join(LEASE_DIR_NAME),
+            &before_owner_started,
+            true,
+            &mut scanned,
+            &mut removed,
+        )
+        .unwrap();
+        gc_dead_in_dir(
+            &registry.join(INSTANCE_DIR_NAME),
+            &before_owner_started,
+            false,
+            &mut scanned,
+            &mut removed,
+        )
+        .unwrap();
+        assert_eq!(
+            removed, 0,
+            "a stale PID snapshot cannot revoke a live owner"
+        );
+        assert!(lease.exists(), "live writer lease must survive stale GC");
+        assert!(
+            discovery.exists(),
+            "live owner discovery must survive stale GC"
+        );
+        assert!(
+            attachment.exists(),
+            "live read-only attacher must survive stale GC"
+        );
+        attacher.release().unwrap();
+        owner.release().unwrap();
+    }
+
+    #[test]
+    fn gc_cannot_revoke_a_live_writer_guard_even_if_registry_pid_is_dead() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+        let mut owner = InstanceHandle::acquire(
+            &workspace,
+            &runtime,
+            &runtime.join("graph.json"),
+            &runtime.join("plasticity.json"),
+            Some(&registry),
+        )
+        .unwrap();
+        let lease = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        let discovery = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", owner.summary().instance_id));
+        let original: InstanceRegistryEntry = read_json(&lease).unwrap();
+        let mut forged_dead = original.clone();
+        forged_dead.pid = u32::MAX - 1;
+        save_json_atomic(&lease, &forged_dead).unwrap();
+        save_json_atomic(&discovery, &forged_dead).unwrap();
+        let (mut scanned, mut removed) = (0, 0);
+        for (directory, is_lease) in [(LEASE_DIR_NAME, true), (INSTANCE_DIR_NAME, false)] {
+            gc_dead_in_dir(
+                &registry.join(directory),
+                &LivePids::Known(HashSet::new()),
+                is_lease,
+                &mut scanned,
+                &mut removed,
+            )
+            .unwrap();
+        }
+        assert_eq!(removed, 0, "a held lifetime guard is authoritative");
+        assert!(lease.exists());
+        assert!(discovery.exists());
+        save_json_atomic(&lease, &original).unwrap();
+        save_json_atomic(&discovery, &original).unwrap();
+        owner.release().unwrap();
     }
 
     // ── STABLE BRAIN ID + inherited-duplicate reconcile ─────────────────────────

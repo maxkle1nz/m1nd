@@ -2917,7 +2917,8 @@ fn resolve_baseline_commit(repo_root: &Path, date_str: &str) -> M1ndResult<Optio
     }
 }
 
-/// Compute modified nodes by comparing git diff between baseline date and HEAD.
+/// Compute modified nodes by comparing the selected baseline commit with the
+/// current worktree (committed, staged, and unstaged tracked changes).
 fn compute_modified_nodes(
     repo_root: &Path,
     baseline_date: &str,
@@ -2929,10 +2930,11 @@ fn compute_modified_nodes(
         _ => return vec![],
     };
 
-    // Run git diff --numstat between baseline and HEAD
+    // A one-revision diff compares the baseline against the current worktree,
+    // not merely HEAD. This keeps diverge honest while edits are still dirty.
     let output = match Command::new("git")
         .current_dir(repo_root)
-        .args(["diff", "--numstat", &baseline_commit, "HEAD"])
+        .args(["diff", "--numstat", &baseline_commit])
         .output()
     {
         Ok(o) if o.status.success() => o,
@@ -11127,8 +11129,8 @@ fn generate_dot(
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_calibrate_envelope, handle_focus, handle_layers, handle_scan, handle_seek,
-        handle_validate_plan, TrailData,
+        compute_modified_nodes, handle_calibrate_envelope, handle_focus, handle_layers,
+        handle_scan, handle_seek, handle_validate_plan, TrailData,
     };
     use crate::protocol::layers::{
         HypothesizeInput, LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput,
@@ -15835,5 +15837,39 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .is_some(),
             "calibration row must be persisted to disk"
         );
+    }
+
+    #[test]
+    fn diverge_modified_nodes_include_the_current_worktree() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(repo)
+                .args(args)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "diverge@example.com"]);
+        git(&["config", "user.name", "Diverge Test"]);
+        std::fs::write(repo.join("tracked.rs"), "pub fn value() -> u8 { 1 }\n")
+            .expect("write baseline");
+        git(&["add", "tracked.rs"]);
+        git(&["commit", "-q", "-m", "baseline"]);
+
+        std::fs::write(repo.join("tracked.rs"), "pub fn value() -> u8 { 2 }\n")
+            .expect("modify worktree");
+
+        let modified = compute_modified_nodes(repo, "2030-01-01", None);
+        assert_eq!(modified.len(), 1, "dirty tracked file must be reported");
+        assert_eq!(modified[0].file, "tracked.rs");
+        assert_eq!(modified[0].delta, "+1/-1");
     }
 }

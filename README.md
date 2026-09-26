@@ -186,14 +186,18 @@ npx -y @maxkle1nz/m1nd doctor
 # 3 · wire your host: MCP config + the session hooks that make m1nd ambient
 npx -y @maxkle1nz/m1nd hosts apply --host claude --project . --yes
 
-# 4 · give this repo its brain — once, by you. It ingests and prints what it built.
-npx -y @maxkle1nz/m1nd init --birth .
-
-# 5 · first value: the orientation packet for YOUR repo, read-only, no host config touched
+# 4 · first value: attach to an owner or prepare an isolated private graph for this repo
 npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
+
+# 5 · optional shared/served brain — once, by you. It ingests and prints what it built.
+npx -y @maxkle1nz/m1nd init --birth .
 ```
 
-Step 4 is the one command only you run. Minting a brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. If an agent finds a repo without a brain, it offers this command and stops. Once the graph exists, the agent can keep it fresh. The ceremony exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
+Step 4 requires v1.6.4 or later. Before that version reaches the public registry, the command above cannot prove the candidate's behavior; use the checked-out source and native binary for validation instead.
+
+Step 4 is the local first-value path: when no served owner covers the repo, the agent CLI grants only that exact repo and an external private runtime to its child. It prepares derived state there without invoking generic `ingest` or minting a shared brain. Missing, source-nested, or source-resolving runtime paths refuse before mutation. The optional step 5 is not a prerequisite.
+
+Step 5 is the human-only route for a shared or served brain. Minting that kind of brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
 
 Step 1 verifies the signature with [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), so install that first if it is not on your PATH. If you prefer the source registry and accept skipping verification, `cargo install m1nd-mcp` works too. Prefer to see before you write: `hosts plan` prints everything `hosts apply` would touch, and writes nothing. There is no uninstall command yet; `hosts plan` doubles as the list of what to remove by hand.
 
@@ -297,7 +301,7 @@ m1nd complements the compiler, the test runner and your security tooling. It rep
 
 ## Evidence
 
-Everything above ships in the current release; the documents under `docs/` marked PRD are design intent, kept labeled apart. Every row is hedged to exactly what was measured. m1nd does not lead with token savings or ROI, and that is deliberate: those are the least falsifiable numbers in this category.
+The capabilities above describe this source revision; the latest published package can lag behind it. Documents under `docs/` marked PRD are design intent, kept labeled apart. Every row is hedged to exactly what was measured. m1nd does not lead with token savings or ROI, and that is deliberate: those are the least falsifiable numbers in this category.
 
 | Claim | Result | Reproduce / hedge |
 |---|---|---|
@@ -309,7 +313,7 @@ Everything above ships in the current release; the documents under `docs/` marke
 
 ## One graph, many agents
 
-For one agent, the stdio server from [Sixty seconds](#sixty-seconds) is all you need. The first graph is yours to start, not the agent's: run `m1nd init --birth .` once in the repo and it ingests it, prints the node and edge counts, and the next session opens on that graph. Agents cannot do it — generic `ingest` is refused for every client, and every refusal names this command instead. For real work, run one served owner that holds the live graph, and attach every agent to it as a thin bridge:
+For one agent, the stdio server from [Sixty seconds](#sixty-seconds) is all you need. `m1nd agent first-minute` can prepare an isolated graph only within its explicit repo grant and external private runtime. If you want a persistent shared graph instead, run `m1nd init --birth .` once in the repo: it ingests, prints the node and edge counts, and the next shared session opens on that graph. Generic `ingest` remains refused for every client; the isolated bootstrap is not a general mutation door. For real work, run one served owner that holds the live graph, and attach every agent to it as a thin bridge:
 
 ```bash
 m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
@@ -318,7 +322,7 @@ m1nd-mcp --attach auto --stdio     # each agent: no graph load, no lease, shared
 
 What one agent memorizes, another recalls immediately, and the presence and collision warnings described above run through this same owner. It also hosts per-repo brains and renders the web UI. Queries stay on localhost; every non-loopback bind is refused until authenticated transport exists. `auto` finds the owner of your own runtime first, and otherwise any live owner that has already ingested the repo you are standing in — including from a git worktree — so one central owner is found from inside its own projects instead of each repo starting an empty brain. The `m1nd agent` commands ask those same two questions before they boot, so the CLI reaches that owner too; `m1nd-mcp --discover-owner` prints the answer on its own, as JSON, attaching to nothing.
 
-One gate to know about: no agent, on any transport, can mint a brain — generic `ingest` fails closed by design, and minting one for a repo a served owner does not host fails closed twice over. Both doors open the same way: you run `m1nd init --birth <repo>` once. Standing in the repo with its own runtime, that fills the graph your stdio session reads; pointed at another repo from a served owner, it mints that repo's brain on the owner, which then routes to it by caller root. `m1nd agent first-minute` says plainly when no owner covers a repo yet, rather than pretending the machine has no graph. Full deployment guide: [docs/deployment.md](docs/deployment.md).
+One gate to know about: no agent, on any transport, can mint a shared or served brain — generic `ingest` fails closed by design, and minting one for a repo a served owner does not host fails closed twice over. Those shared doors open through `m1nd init --birth <repo>` once. Standing in the repo with its own runtime, that fills the graph your stdio session reads; pointed at another repo from a served owner, it mints that repo's brain on the owner, which then routes to it by caller root. `m1nd agent first-minute` is narrower: it may prepare only the exact launcher-granted repo in a private isolated runtime, never the served owner's graph or another root. Full deployment guide: [docs/deployment.md](docs/deployment.md).
 
 ## Language coverage
 

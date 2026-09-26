@@ -438,6 +438,14 @@ struct StrictRecoveryState {
 ///     .into_session_state();
 /// let _escaped_lifecycle_capability = state.instance;
 /// ```
+#[derive(Clone)]
+pub(crate) struct CallbackPerspectiveStatePreimage {
+    perspectives: HashMap<(String, String), PerspectiveState>,
+    locks: HashMap<String, LockState>,
+    perspective_counter: HashMap<String, u64>,
+    lock_counter: HashMap<String, u64>,
+}
+
 pub struct SessionState {
     /// Exact friendly-boot construction contract retained for diagnostics and
     /// process configuration. Strict recovery does not reconstruct through this
@@ -854,6 +862,25 @@ pub(crate) fn basename_of(root: &str) -> String {
 }
 
 impl SessionState {
+    pub(crate) fn capture_callback_perspective_state(&self) -> CallbackPerspectiveStatePreimage {
+        CallbackPerspectiveStatePreimage {
+            perspectives: self.perspectives.clone(),
+            locks: self.locks.clone(),
+            perspective_counter: self.perspective_counter.clone(),
+            lock_counter: self.lock_counter.clone(),
+        }
+    }
+
+    pub(crate) fn restore_callback_perspective_state(
+        &mut self,
+        preimage: CallbackPerspectiveStatePreimage,
+    ) {
+        self.perspectives = preimage.perspectives;
+        self.locks = preimage.locks;
+        self.perspective_counter = preimage.perspective_counter;
+        self.lock_counter = preimage.lock_counter;
+    }
+
     /// The version the bound repo's own `m1nd-mcp/Cargo.toml` declares, if a
     /// bound root (workspace_root, else any ingest root) actually contains one.
     /// This is the "am I testing against an old m1nd binary?" signal: the repo
@@ -2114,6 +2141,15 @@ impl SessionState {
         config: &crate::server::McpConfig,
         domain: DomainConfig,
     ) -> M1ndResult<Self> {
+        Self::initialize_with_cancel(graph, config, domain, None)
+    }
+
+    pub(crate) fn initialize_with_cancel(
+        graph: Graph,
+        config: &crate::server::McpConfig,
+        domain: DomainConfig,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
         // Resolve the runtime root up front so the embedding cache (and its
         // directory) exist before any engine build writes to them.
         let runtime_root = config.runtime_dir.clone().unwrap_or_else(|| {
@@ -2132,10 +2168,11 @@ impl SessionState {
         // Build all engines from graph (semantic reuses the embedding cache).
         // Only the writable owner persists the cache; a read-only attacher reuses
         // it but never writes (honoring the read-only "persistence disabled" contract).
-        let mut orchestrator = QueryOrchestrator::build_with_cache(
+        let mut orchestrator = QueryOrchestrator::build_with_cache_and_cancel(
             &graph,
             Some(&embeddings_cache_path),
             !config.read_only,
+            cancelled,
         )?;
         let mut temporal = TemporalEngine::build(&graph)?;
         let temporal_state_path = runtime_root.join(crate::temporal_state::TEMPORAL_STATE_FILE);
@@ -2172,13 +2209,19 @@ impl SessionState {
         } else {
             crate::instance_registry::InstanceMode::ReadWrite
         };
-        let instance = InstanceHandle::acquire_with_mode(
+        // Abort before acquiring the writer lease. After acquisition the caller
+        // must own a complete server and use its persist-before-release shutdown.
+        if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(M1ndError::StartupCancelled);
+        }
+        let instance = InstanceHandle::acquire_with_mode_and_cancel(
             &workspace_root,
             &runtime_root,
             &config.graph_source,
             &config.plasticity_state,
             config.registry_dir.as_deref(),
             instance_mode,
+            cancelled,
         )?;
         if config.read_only {
             eprintln!(

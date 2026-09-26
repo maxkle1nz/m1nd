@@ -2,8 +2,9 @@
 
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::error::M1ndResult;
+use crate::error::{M1ndError, M1ndResult};
 use crate::graph::Graph;
 use crate::types::*;
 
@@ -23,6 +24,160 @@ const WALK_LENGTH: usize = 10;
 const WINDOW_SIZE: usize = 4;
 /// Max nodes before disabling co-occurrence (DEC-050).
 const COOCCURRENCE_MAX_NODES: u32 = 50_000;
+
+fn check_startup_cancelled(cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
+    if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        Err(M1ndError::StartupCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+/// Upstream model and cache reads have no cancellation hook. Before acquiring
+/// a lease, isolate only these read-only loads so SIGTERM can return without
+/// waiting for a blocked read. A cancelled worker owns no runtime lease or
+/// writes; process exit stops it. Non-stdio builds keep the inline path.
+#[cfg(feature = "embed")]
+fn run_cancellable_prelease_load<T: Send + 'static>(
+    cancelled: Option<&AtomicBool>,
+    load: impl FnOnce() -> M1ndResult<T> + Send + 'static,
+) -> M1ndResult<T> {
+    check_startup_cancelled(cancelled)?;
+    let Some(cancelled) = cancelled else {
+        return load();
+    };
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("m1nd-cold-prelease-load".into())
+        .spawn(move || {
+            let _ = tx.send(load());
+        })?;
+    loop {
+        check_startup_cancelled(Some(cancelled))?;
+        match rx.recv_timeout(std::time::Duration::from_millis(20)) {
+            Ok(result) => {
+                check_startup_cancelled(Some(cancelled))?;
+                return result;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(M1ndError::EmbedError(
+                    "pre-lease loader terminated without a result".into(),
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(feature = "embed")]
+fn load_embedding_cache_with_cancel(
+    path: Option<&std::path::Path>,
+    model_id: &str,
+    dim: u32,
+    cancelled: Option<&AtomicBool>,
+) -> M1ndResult<Option<crate::embed_cache::EmbeddingCache>> {
+    let Some(path) = path else {
+        check_startup_cancelled(cancelled)?;
+        return Ok(None);
+    };
+    let path = path.to_path_buf();
+    let model_id = model_id.to_owned();
+    run_cancellable_prelease_load(cancelled, move || {
+        Ok(crate::embed_cache::EmbeddingCache::load_compatible(
+            &path, &model_id, dim,
+        ))
+    })
+}
+
+#[cfg(all(test, feature = "embed"))]
+mod startup_cancel_tests {
+    use super::*;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn cancellation_during_model_loader_returns_before_loader_finishes() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            let result = run_cancellable_prelease_load(Some(&worker_cancelled), move || {
+                started_tx.send(()).expect("loader started");
+                release_rx.recv().expect("test releases loader");
+                Ok::<_, M1ndError>(42usize)
+            });
+            outcome_tx.send(result).expect("driver outcome");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("loader must start");
+        cancelled.store(true, Ordering::Release);
+        let outcome = outcome_rx.recv_timeout(Duration::from_secs(2));
+        release_tx.send(()).expect("release blocked loader");
+        driver.join().expect("join driver");
+        assert!(matches!(outcome, Ok(Err(M1ndError::StartupCancelled))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_during_blocked_embedding_cache_read_returns_prelease() {
+        use std::os::fd::FromRawFd;
+        use std::os::unix::ffi::OsStrExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("embeddings_cache.bin");
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("fifo path");
+        // SAFETY: c_path is a valid, null-terminated filename in our test dir.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let read_path = path.clone();
+        let driver = std::thread::spawn(move || {
+            started_tx.send(()).expect("driver started");
+            let result = load_embedding_cache_with_cancel(
+                Some(&read_path),
+                "test-model",
+                2,
+                Some(&worker_cancelled),
+            );
+            outcome_tx.send(result).expect("driver outcome");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        // A nonblocking writer succeeds only after the cache worker has reached
+        // the FIFO reader open. Hold it idle to force the actual read to block.
+        let writer = (0..200)
+            .find_map(|_| {
+                // SAFETY: c_path is valid for this test's lifetime.
+                let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    // SAFETY: this successful open uniquely transfers ownership of fd.
+                    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+                } else {
+                    std::thread::sleep(Duration::from_millis(10));
+                    None
+                }
+            })
+            .expect("cache worker must open FIFO reader");
+        assert!(
+            matches!(
+                outcome_rx.recv_timeout(Duration::from_millis(100)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "FIFO read should be blocked, not silently treated as cache miss"
+        );
+        cancelled.store(true, Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(writer); // EOF releases the detached read-only worker.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // CharNgramIndex — trigram embeddings (semantic_v2.py CharNgramEmbedder)
@@ -261,6 +416,17 @@ impl CoOccurrenceIndex {
         walks_per_node: usize,
         window_size: usize,
     ) -> M1ndResult<Self> {
+        Self::build_with_cancel(graph, walk_length, walks_per_node, window_size, None)
+    }
+
+    pub fn build_with_cancel(
+        graph: &Graph,
+        walk_length: usize,
+        walks_per_node: usize,
+        window_size: usize,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Self> {
+        check_startup_cancelled(cancelled)?;
         let n = graph.num_nodes() as usize;
 
         // DEC-050: disable for large graphs
@@ -287,6 +453,7 @@ impl CoOccurrenceIndex {
         // For each node, perform random walks and accumulate co-occurrence
         #[allow(clippy::needless_range_loop)]
         for start in 0..n {
+            check_startup_cancelled(cancelled)?;
             let mut co_counts: HashMap<u32, f32> = HashMap::new();
             let start_node = NodeId::new(start as u32);
 
@@ -334,6 +501,7 @@ impl CoOccurrenceIndex {
         let mut total_all = 0.0f32;
 
         for vec in &vectors {
+            check_startup_cancelled(cancelled)?;
             let row_sum: f32 = vec.iter().map(|(_, w)| w.get()).sum();
             marginal_i.push(row_sum);
             total_all += row_sum;
@@ -344,6 +512,7 @@ impl CoOccurrenceIndex {
 
         if total_all > 0.0 {
             for (i, vec) in vectors.iter_mut().enumerate() {
+                check_startup_cancelled(cancelled)?;
                 let mi = marginal_i[i];
                 if mi <= 0.0 {
                     continue;
@@ -611,9 +780,26 @@ impl SemanticEngine {
         cache_path: Option<&std::path::Path>,
         persist: bool,
     ) -> M1ndResult<Self> {
+        Self::build_with_cache_and_cancel(graph, weights, cache_path, persist, None)
+    }
+
+    pub fn build_with_cache_and_cancel(
+        graph: &Graph,
+        weights: SemanticWeights,
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Self> {
+        check_startup_cancelled(cancelled)?;
         let ngram = CharNgramIndex::build(graph, NGRAM_SIZE)?;
-        let cooccurrence =
-            CoOccurrenceIndex::build(graph, WALK_LENGTH, WALKS_PER_NODE, WINDOW_SIZE)?;
+        let cooccurrence = CoOccurrenceIndex::build_with_cancel(
+            graph,
+            WALK_LENGTH,
+            WALKS_PER_NODE,
+            WINDOW_SIZE,
+            cancelled,
+        )?;
+        check_startup_cancelled(cancelled)?;
         let synonym = SynonymExpander::build_default()?;
 
         // OPTIONAL `embed` feature: compute a per-node static-embedding side-map
@@ -622,9 +808,11 @@ impl SemanticEngine {
         // vendored locally, we log and leave the map empty so `seek` cleanly
         // falls back to the legacy trigram path (ZERO behavior change).
         #[cfg(feature = "embed")]
-        let (embeddings, embedder) = Self::build_embeddings(graph, cache_path, persist);
+        let (embeddings, embedder) = Self::build_embeddings(graph, cache_path, persist, cancelled)?;
         #[cfg(not(feature = "embed"))]
         let _ = (cache_path, persist); // unused without the embed feature
+
+        check_startup_cancelled(cancelled)?;
 
         Ok(Self {
             ngram,
@@ -649,24 +837,35 @@ impl SemanticEngine {
         graph: &Graph,
         cache_path: Option<&std::path::Path>,
         persist: bool,
-    ) -> EmbeddingBuild {
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<EmbeddingBuild> {
         use crate::embed::{Embedder, Model2VecEmbedder};
         use crate::embed_cache::{content_key, EmbeddingCache};
 
-        let embedder: std::sync::Arc<Model2VecEmbedder> = match Model2VecEmbedder::from_default() {
-            Ok(e) => std::sync::Arc::new(e),
-            Err(e) => {
-                eprintln!("[m1nd embed] static embeddings disabled: {e}");
-                return (HashMap::new(), None);
-            }
-        };
+        // A virgin graph has nothing to encode. Loading (or downloading) the
+        // model here delays signal handling and MCP initialization for no work;
+        // an ingest rebuilds the semantic engine once nodes are present.
+        if graph.num_nodes() == 0 {
+            return Ok((HashMap::new(), None));
+        }
+
+        let embedder: std::sync::Arc<Model2VecEmbedder> =
+            match run_cancellable_prelease_load(cancelled, Model2VecEmbedder::from_default) {
+                Ok(e) => std::sync::Arc::new(e),
+                Err(M1ndError::StartupCancelled) => return Err(M1ndError::StartupCancelled),
+                Err(e) => {
+                    eprintln!("[m1nd embed] static embeddings disabled: {e}");
+                    return Ok((HashMap::new(), None));
+                }
+            };
+        check_startup_cancelled(cancelled)?;
 
         let model_id = embedder.model_id().to_string();
         let dim = embedder.dim() as u32;
 
         // Warm cache: reuse vectors whose (model, text) are unchanged. Any
         // version/model/dim mismatch or corruption yields None (full recompute).
-        let warm = cache_path.and_then(|p| EmbeddingCache::load_compatible(p, &model_id, dim));
+        let warm = load_embedding_cache_with_cancel(cache_path, &model_id, dim, cancelled)?;
 
         let n = graph.num_nodes() as usize;
         let mut map: HashMap<NodeId, Box<[f32]>> = HashMap::with_capacity(n);
@@ -676,6 +875,7 @@ impl SemanticEngine {
         let (mut hits, mut misses) = (0usize, 0usize);
 
         for i in 0..n {
+            check_startup_cancelled(cancelled)?;
             let label = graph.strings.resolve(graph.nodes.label[i]);
             let text = match graph.nodes.provenance[i].excerpt {
                 Some(e) => {
@@ -710,6 +910,7 @@ impl SemanticEngine {
         // pointless I/O that would needlessly dirty the runtime dir for no gain.
         if persist && !next.entries.is_empty() {
             if let Some(p) = cache_path {
+                check_startup_cancelled(cancelled)?;
                 match next.save(p) {
                     Ok(()) => eprintln!(
                         "[m1nd embed] cache {hits} reused / {misses} new of {n} nodes -> {}",
@@ -720,7 +921,8 @@ impl SemanticEngine {
             }
         }
 
-        (map, Some(embedder as std::sync::Arc<dyn Embedder>))
+        check_startup_cancelled(cancelled)?;
+        Ok((map, Some(embedder as std::sync::Arc<dyn Embedder>)))
     }
 
     /// TEST-ONLY: build a `SemanticEngine` whose embedding tier is driven by an

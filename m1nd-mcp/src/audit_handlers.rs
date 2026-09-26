@@ -1050,10 +1050,22 @@ pub fn handle_coverage_session(
         .get(&input.agent_id)
         .cloned()
         .unwrap_or_default();
-    let total_files = state.file_inventory.len();
-    let visited = session.visited_files.len();
-    let unread_files: Vec<String> = state
-        .file_inventory
+    // Snapshot loading restores the graph but does not hydrate this optional
+    // audit cache. Build one live inventory on demand and retain it so repeated
+    // coverage reads describe the same snapshot instead of re-hashing the tree.
+    if state.file_inventory.is_empty() {
+        state.file_inventory = inventory_from_roots(state, false, &[]);
+    }
+    let inventory = &state.file_inventory;
+    let total_files = inventory.len();
+    // Historical visits may refer to files outside the current inventory (for
+    // example after deletion or a root change). Count only the intersection so
+    // coverage cannot exceed 100%.
+    let visited = inventory
+        .values()
+        .filter(|entry| session.visited_files.contains(&entry.file_path))
+        .count();
+    let unread_files: Vec<String> = inventory
         .values()
         .filter(|entry| !session.visited_files.contains(&entry.file_path))
         .map(|entry| entry.file_path.clone())
@@ -3228,6 +3240,62 @@ mod tests {
             state,
             _runtime: runtime,
         }
+    }
+
+    #[test]
+    fn coverage_session_counts_only_inventory_files_and_caches_fallback_inventory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let visited_path = root.join("visited.rs");
+        std::fs::write(&visited_path, "pub fn visited() {}\n").expect("write visited");
+
+        let mut state = build_empty_state(root);
+        let agent_id = "coverage-test".to_string();
+        state
+            .coverage_sessions
+            .entry(agent_id.clone())
+            .or_default()
+            .visited_files
+            .insert("/stale/outside-the-current-inventory.rs".to_string());
+
+        let first = handle_coverage_session(
+            &mut state,
+            layers::CoverageSessionInput {
+                agent_id: agent_id.clone(),
+            },
+        )
+        .expect("first coverage");
+        assert_eq!(first["total_files"], 1);
+        assert_eq!(first["visited"], 0);
+        assert_eq!(first["coverage_pct"], 0.0);
+        assert_eq!(state.file_inventory.len(), 1, "fallback must be cached");
+
+        let inventoried_path = state
+            .file_inventory
+            .values()
+            .next()
+            .expect("inventoried file")
+            .file_path
+            .clone();
+        state
+            .coverage_sessions
+            .get_mut(&agent_id)
+            .expect("coverage session")
+            .visited_files
+            .insert(inventoried_path);
+        std::fs::write(
+            root.join("created-after-snapshot.rs"),
+            "pub fn later() {}\n",
+        )
+        .expect("write later file");
+        let second = handle_coverage_session(&mut state, layers::CoverageSessionInput { agent_id })
+            .expect("second coverage");
+        assert_eq!(
+            second["total_files"], 1,
+            "cached snapshot must remain stable"
+        );
+        assert_eq!(second["visited"], 1);
+        assert_eq!(second["coverage_pct"], 100.0);
     }
 
     #[test]

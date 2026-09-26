@@ -211,6 +211,96 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - **The Hebbian layer had never accumulated anything in production (measured 2026-07-31, fixed on the ingest path).** The served owner's `plasticity_state.json` held 73,332 synaptic rows with **zero** carrying a `strengthen_count`, a `weaken_count`, an LTP/LTD flag or a `last_used_query`. Not dead code: `activate` reaches step 8 and writes them. The ingest erased them — `finalize_ingest_with_inventory` installs a graph whose `edge_plasticity` arrays are born zeroed, nothing on that path re-imported the sidecar, and the `state.persist()` at the end of the same function published the zeros. The mechanism to survive already existed and was already documented (label-triple matching, built precisely for a re-ingest that renumbers nodes); it was simply never called there. The ingest now carries the learning across the replacement, preferring the running session over the file and failing open on a bad sidecar. **Residual debt, named not fixed:** two other seams still install a graph without restoring learning — `AutoIngest::replace_graph` (`m1nd-mcp/src/auto_ingest.rs:499`, the document lane's own tick) and the `persist` `load` action (`m1nd-mcp/src/persist_handlers.rs:113`). And the deeper product question, filed as a letter, not decided here: only 2 of ~141 verbs (`activate`, `missing`) reach step 8 at all, so the graph learns from one retrieval path.
 - **Machine-side residuals:** G6 provider executable; shadow/canary producer; runtime half of the bundle blind spot; m1nd-ui eslint PAID (ESLint 10 — the break was never eslint itself but the `brace-expansion@5` override from #418 landing under the CJS `minimatch@3` that eslint 9 pulled, and `npm run lint` was not a CI step so nothing saw it — now wired as its own `ui-gates` step, so it can go red again; one residual named in its place: the `eslint-plugin-react-hooks` 7 React Compiler family is held OFF at pre-migration strength with 31 findings open — `set-state-in-effect` ×21, `purity` ×5, `refs` ×5 — whose fixes change render behaviour and belong in their own proven change); the dependabot react 18→19 pair #453/#454 is mutually deadlocked — each PR is the other's missing half, so neither can ever go green alone and they need one combined React 19 PR or closure; serve binary refresh onto this arc's code once the tray lands (then the lifecycle re-proof); `default_registry_root()` cannot see a per-host registry (letter filed, owner's wiring call); PATHOS consolidation pass (the 07-24 list below + the checkpoint-27 Current State narrative both await it).
 
+**Delta 2026-09-18 — automatic first value, slice 1A (direct stdio only):**
+- A launcher can now grant an exact workspace with `M1ND_WORKSPACE_ROOT` (or the explicit config
+  field `launcher_workspace_root`) while placing derived state in a separate writable runtime.
+  An empty direct-stdio owner prepares the code graph through the existing actor/checkpoint seam
+  before serving its first public query; `north` and `search` then retrieve a real source symbol.
+  The same session and a clean restart reuse the persisted graph. Read-only source remains usable.
+- The grant is captured before session state exists and remains separate from mutable/inferred
+  `workspace_root`. Prompt text, tool `scope`/paths, request headers, cwd and editor aliases do not
+  authorize preparation. A populated brain bound to a different root refuses with
+  `launcher_workspace_conflicts_with_bound_graph`; it is never silently replaced or merged.
+- No `HumanOrigin` is fabricated, the old ceremony is not impersonated, and the generic ingest
+  floor is unchanged. The earlier birth mechanism below remains historical truth and a legacy
+  path for launchers outside this explicit contract.
+- Proof is the real-binary stdio battery in `m1nd-mcp/tests/agent_autonomy_bootstrap.rs`: eleven
+  cases cover first retrieval + restart, sibling prompt/tool text, read-only source with external
+  cache, wrong-root refusal, populated snapshots without persisted identity, empty snapshots with
+  incompatible persisted identity, nonzero invalid/empty
+  startup refusals with transactional recovery, and hostile inherited persistence overrides. The
+  review corrections make reuse require a non-empty persisted identity whose every root canonicalizes
+  to the exact grant (foreign or unresolvable extras refuse before ingest; exact duplicates remain valid), move the zero-node
+  check inside actor rollback, propagate startup failure to process status, and confine every test
+  subprocess to fixture-owned graph/plasticity/runtime/home/temp paths. Honest limit: authenticated HTTP, npm CLI, interprocess races,
+  symlink/parent/child/worktree overlap, exclusions and advanced access remain unproved.
+
+**Follow-up 2026-09-18 — sequential public CLI cache reuse:**
+- The isolated `m1nd agent` path now derives one external runtime from the canonical workspace root
+  plus Git branch and HEAD when available. A root-bound manifest refuses ambiguous or mismatched
+  state; separate worktrees remain separate because canonical path identity is part of the key.
+  Attach discovery, shared-runtime mode and explicit runtime selection remain separate paths.
+- A real-binary Node tracer ran `agent first-minute` in two distinct processes for one fixture and
+  once for a second fixture. The first pair reused one runtime and an unchanged snapshot digest,
+  independently retained the exact persisted root, and retrieved the real symbol after restart.
+  The second root received a different runtime and neither structured match array crossed roots;
+  both source trees remained byte- and permission-identical. The child is now closed by EOF and
+  awaited, with bounded signal escalation only for the owned process.
+- The key prevents a different Git branch or HEAD revision from being served as the current one,
+  but this is not broad freshness: dirty working-tree edits and non-Git source changes do not alter
+  the identity. Concurrent single-flight, automatic refresh and broader overlap policy remain later
+  slices rather than hidden claims.
+
+**Follow-up 2026-09-20 — warm-cache freshness through the existing public door:**
+- Direct stdio now registers its canonical caller root only from the explicit launcher grant,
+  after the shared bootstrap seam completes. HTTP is untouched by that process-local binding and
+  keeps caller identity per MCP session/request. No prompt, tool argument, query, `agent_id`, cwd,
+  or header can grant the stdio root.
+- A reused automatic npm agent cache calls the existing exact-root public refresh while holding
+  its current Node lease, before trust/orientation/retrieval. Non-Git and dirty-Git real-binary
+  fixtures keep the same runtime (and Git branch/HEAD where applicable) while the persisted
+  snapshot replaces OLD with NEW. This pays a real rescan on warm commands; it is not a watcher or
+  an inventory-derived freshness claim.
+- Refresh MCP errors and application refusals stop with `ok:false`, exit 1, and expose
+  `isError`/`action`/`refused`/`reason`; trust remains `not_evaluated`. The public shrink floor,
+  unknown/foreign/subdirectory refusals, root invariance, and replace/merge floors remain intact.
+  Local stdio and predicate batteries are green; the loopback HTTP regression is compiled but its
+  execution in this sandbox is `BLOCKED_SANDBOX` because binding `127.0.0.1:0` returns `EPERM`.
+- **01j correction to 01i:** the earlier statement that unknown was never summarized as fresh was
+  too broad: it proved refresh refusals, but missed `am_i_stale`'s unknown-only summary. The public
+  regression now requires unknown to remain explicit uncertainty; only a non-empty checked set with
+  no stale and no unknown may claim all-fresh, and mixed stale+unknown keeps both warnings.
+
+**Follow-up to slice 1A — cold public CLI and honest process status:**
+- The matching native build also prepared a virgin source fixture through the public npm
+  `agent first-minute` command: a real retrieval and independent snapshot read found its
+  symbol, with no source-tree changes, human ceremony, or generic ingest call. This is the
+  isolated stdio-backed CLI path. That earlier probe did not establish hosted HTTP or
+  cross-invocation cache reuse; the later follow-ups in this checkpoint prove those boundaries
+  separately.
+- `npm/lib/cli.js` propagates an agent envelope's explicit `ok: false` to process exit 1,
+  retaining the JSON body. `npm/test/cli.test.js` covers refusal and successful paths. A real
+  public context refusal returned `ok: false`/exit 1; an empty-source startup refused with
+  exit 1 and its cause on stderr. The separate kickstart contract is unchanged.
+
+**Follow-up to slice 1A — authenticated HTTP transport verified on macOS:**
+- The foreground loopback HTTP owner calls the same actor-backed exact-root preparation seam as
+  stdio before admitting requests. Real execution caught an actor-start ordering defect: authority,
+  bearer security and endpoint setup now finish before preparation starts the actor. Preparation
+  failure withdraws the endpoint before refusing. No caller header, payload or `HumanOrigin` grants
+  a workspace; bearer middleware and generic authority floors remain unchanged.
+- Both real-binary HTTP cases passed: first retrieval, unauthenticated 401, header/payload-only sibling
+  refusal, independent snapshot/root readback, and preservation on a conflicting warm-root launch.
+  Search assertions require actual matches, not the echoed query. The stdio-bootstrap,
+  capability-contract, legacy-birth, and router-authentication regression batteries also passed;
+  Clippy and fmt passed.
+  The implementing sandbox's earlier socket `EPERM` remains an environmental limit, not its own PASS.
+- An independent public-protocol probe found the fixture symbol, preserved source trees and the exact
+  persisted root, rejected unauthenticated access and terminated its owner gracefully. This proves the
+  explicit-grant foreground path, not hosted cross-root birth, concurrent owners, overlap matrices
+  or model-backed retrieval. CLI cache reuse has its own separate proof above. Protected agent-guide
+  synchronization remains pending.
+
 **Delta 2026-08-01 — THE FIRST GRAPH CAN BE BORN: the product had no first-value path, on either side of the room:**
 - **Measured on 1.6.2, in a virgin repo with an empty runtime, both actors dead-ended.** (a) An agent
   calling `ingest` with only `agent_id` on an EMPTY graph is refused

@@ -17,6 +17,8 @@ use clap::Parser;
 use m1nd_mcp::cli::Cli;
 use m1nd_mcp::server::{McpConfig, McpServer};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[cfg(unix)]
 fn ensure_bwrap_compat_wrapper() {
@@ -221,6 +223,10 @@ fn resolve_graph_source(path: PathBuf) -> PathBuf {
 /// exactly as given. With no runtime_dir, behavior is unchanged (relative to
 /// cwd), preserving the plain `m1nd-mcp` stdio-in-a-repo workflow.
 fn anchor_persist_target(path: PathBuf, runtime_dir: Option<&std::path::Path>) -> PathBuf {
+    // Ordinary starts may preserve explicit absolute overrides. McpServer::new
+    // overrides graph, plasticity, and registry destinations when a launcher
+    // workspace grant is present, so this parser never establishes that grant's
+    // persistence boundary by itself.
     match runtime_dir {
         Some(root) if path.is_relative() => root.join(path),
         _ => path,
@@ -244,6 +250,14 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
                 eprintln!("[m1nd-mcp] Config loaded from {}", path);
                 // --read-only / env always wins over a config file (safety opt-in).
                 config.read_only = config.read_only || force_read_only;
+                if config.launcher_workspace_root.is_some() {
+                    config.launcher_workspace_root_source =
+                        Some("config:launcher_workspace_root".to_string());
+                } else if let Some(root) = std::env::var_os("M1ND_WORKSPACE_ROOT") {
+                    config.launcher_workspace_root = Some(PathBuf::from(root));
+                    config.launcher_workspace_root_source =
+                        Some("env:M1ND_WORKSPACE_ROOT".to_string());
+                }
                 return config;
             }
         }
@@ -293,6 +307,14 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .map(PathBuf::from)
         .or_else(|| std::env::var("M1ND_REGISTRY_DIR").ok().map(PathBuf::from));
 
+    // Only the host-neutral, explicit launcher contract authorizes automatic
+    // first-use preparation. PWD/editor aliases remain useful for diagnostics,
+    // but are deliberately not capabilities.
+    let launcher_workspace_root = std::env::var_os("M1ND_WORKSPACE_ROOT").map(PathBuf::from);
+    let launcher_workspace_root_source = launcher_workspace_root
+        .as_ref()
+        .map(|_| "env:M1ND_WORKSPACE_ROOT".to_string());
+
     let xlr_enabled = std::env::var("M1ND_XLR_ENABLED")
         .map(|v| v != "0" && v != "false")
         .unwrap_or(true);
@@ -307,6 +329,8 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         plasticity_state,
         runtime_dir,
         registry_dir,
+        launcher_workspace_root,
+        launcher_workspace_root_source,
         xlr_enabled,
         domain,
         read_only: force_read_only,
@@ -668,7 +692,67 @@ fn most_recent_backup(medulla_dir: &std::path::Path) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
-async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: bool, _port: u16) {
+#[cfg(unix)]
+struct StdioShutdownSignals {
+    interrupt: tokio::signal::unix::Signal,
+    terminate: tokio::signal::unix::Signal,
+}
+
+#[cfg(unix)]
+impl StdioShutdownSignals {
+    fn install() -> std::io::Result<Self> {
+        Ok(Self {
+            interrupt: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?,
+            terminate: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?,
+        })
+    }
+
+    async fn wait(&mut self) -> Result<&'static str, String> {
+        tokio::select! {
+            signal = self.interrupt.recv() => {
+                signal.map(|()| "SIGINT").ok_or_else(|| "SIGINT watcher closed".to_string())
+            }
+            signal = self.terminate.recv() => {
+                signal.map(|()| "SIGTERM").ok_or_else(|| "SIGTERM watcher closed".to_string())
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+struct StdioShutdownSignals;
+
+#[cfg(not(unix))]
+impl StdioShutdownSignals {
+    fn install() -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    async fn wait(&mut self) -> Result<&'static str, String> {
+        tokio::signal::ctrl_c()
+            .await
+            .map(|()| "CTRL_C")
+            .map_err(|error| error.to_string())
+    }
+}
+
+async fn run_stdio_server(
+    config: McpConfig,
+    event_log: Option<String>,
+    no_gui: bool,
+    _port: u16,
+) -> Result<(), ()> {
+    // Install process-signal streams before acquiring an owner lease or
+    // starting actors. Once ownership begins, SIGINT/SIGTERM can no longer
+    // bypass the cooperative checkpoint-and-release path.
+    let mut shutdown_signals = match StdioShutdownSignals::install() {
+        Ok(signals) => signals,
+        Err(error) => {
+            eprintln!("[m1nd-mcp] Failed to install shutdown signal watchers: {error}");
+            return Err(());
+        }
+    };
+
     if event_log.is_some() {
         eprintln!(
             "[m1nd-mcp] NOTE: --event-log in stdio-only mode writes events for external consumers."
@@ -695,23 +779,65 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
     #[cfg(not(feature = "serve"))]
     let _ = (no_gui, _port); // suppress unused warnings
 
-    let mut server = match McpServer::new(config) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[m1nd-mcp] Failed to create server: {}", e);
-            return;
+    // `new` builds a populated graph synchronously. Keep signal polling on the
+    // async executor while the worker builds; never detach an owner/lease-bearing
+    // worker, even when shutdown is requested during construction.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&cancelled);
+    let mut bootstrap = tokio::task::spawn_blocking(move || {
+        let mut server = McpServer::new_with_cancel(config, Some(&worker_cancel))?;
+        // After ownership is acquired, start the actor even if SIGTERM won
+        // the race: shutdown must checkpoint before the lease is released.
+        if let Err(error) = server.start() {
+            eprintln!("[m1nd-mcp] Failed to start server: {error}");
+            if let Err(shutdown_error) = server.shutdown() {
+                eprintln!("[m1nd-mcp] Failed to shut down after startup refusal: {shutdown_error}");
+            }
+            return Err(error);
+        }
+        Ok(server)
+    });
+    let (built, signalled, watcher_failed) = tokio::select! {
+        biased;
+        signal = shutdown_signals.wait() => {
+            let watcher_failed = signal.is_err();
+            match signal {
+                Ok(signal) => eprintln!("[m1nd-mcp] {signal} received."),
+                Err(error) => eprintln!(
+                    "[m1nd-mcp] shutdown signal watcher failed; stopping fail-closed: {error}"
+                ),
+            }
+            cancelled.store(true, Ordering::Release);
+            ((&mut bootstrap).await, true, watcher_failed)
+        }
+        result = &mut bootstrap => (result, false, false)
+    };
+    let mut server = match built {
+        Ok(Ok(server)) => server,
+        Ok(Err(m1nd_core::error::M1ndError::StartupCancelled)) if signalled => {
+            eprintln!("[m1nd-mcp] Startup cancelled before serving; no owner remains.");
+            return if watcher_failed { Err(()) } else { Ok(()) };
+        }
+        Ok(Err(error)) => {
+            eprintln!("[m1nd-mcp] Failed to create server: {error}");
+            return Err(());
+        }
+        Err(error) => {
+            eprintln!("[m1nd-mcp] Bootstrap task failed: {error}");
+            return Err(());
         }
     };
-
-    if let Err(e) = server.start() {
-        eprintln!("[m1nd-mcp] Failed to start server: {}", e);
-        if let Err(shutdown_error) = server.shutdown() {
-            eprintln!(
-                "[m1nd-mcp] Failed to shut down after startup refusal: {}",
-                shutdown_error
-            );
-        }
-        return;
+    if signalled {
+        // Construction may have crossed lease acquisition when the signal won.
+        // Join first, then persist/checkpoint and release; never abort the task.
+        return match server.shutdown() {
+            Ok(()) if !watcher_failed => Ok(()),
+            Ok(()) => Err(()),
+            Err(error) => {
+                eprintln!("[m1nd-mcp] Failed to shut down after bootstrap signal: {error}");
+                Err(())
+            }
+        };
     }
 
     let heartbeat = match server.spawn_instance_heartbeat() {
@@ -724,7 +850,7 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
                     shutdown_error
                 );
             }
-            return;
+            return Err(());
         }
     };
     let shutdown = server.shutdown_handle();
@@ -742,23 +868,41 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
     // A signal requests cooperative return from the blocking loop, then awaits
     // the same serve+checkpoint+release task. The heartbeat is revoked only
     // after that lifecycle transaction has completed.
-    let result = tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            eprintln!("[m1nd-mcp] SIGINT received.");
+    let (result, watcher_failed) = tokio::select! {
+        signal = shutdown_signals.wait() => {
+            let watcher_failed = signal.is_err();
+            match signal {
+                Ok(signal) => eprintln!("[m1nd-mcp] {signal} received."),
+                Err(error) => eprintln!(
+                    "[m1nd-mcp] shutdown signal watcher failed; stopping fail-closed: {error}"
+                ),
+            }
             shutdown.request_shutdown();
-            (&mut serve_handle).await
+            ((&mut serve_handle).await, watcher_failed)
         }
         result = &mut serve_handle => {
-            result
+            (result, false)
         }
     };
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => eprintln!("[m1nd-mcp] Server error: {}", e),
-        Err(e) => eprintln!("[m1nd-mcp] Task error: {}", e),
-    }
+    let outcome = match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            eprintln!("[m1nd-mcp] Server error: {}", e);
+            Err(())
+        }
+        Err(e) => {
+            eprintln!("[m1nd-mcp] Task error: {}", e);
+            Err(())
+        }
+    };
+    let outcome = if watcher_failed && outcome.is_ok() {
+        Err(())
+    } else {
+        outcome
+    };
     heartbeat.abort();
     let _ = heartbeat.await;
+    outcome
 }
 
 /// Pure strict-version decision (no I/O, no exit) so it is unit-testable in
@@ -1106,7 +1250,12 @@ async fn main() {
             std::process::exit(1);
         }
     } else {
-        run_stdio_server(config, event_log, cli.no_gui, cli.port).await;
+        if run_stdio_server(config, event_log, cli.no_gui, cli.port)
+            .await
+            .is_err()
+        {
+            std::process::exit(1);
+        }
     }
 }
 

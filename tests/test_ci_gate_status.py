@@ -45,6 +45,7 @@ class CiGateStatusTest(unittest.TestCase):
         names = (
             "ui-gates",
             "host-pack-gates",
+            "agent-cache-real-gates",
             "python-gates",
             "security-gates",
             "contract-gates",
@@ -91,6 +92,15 @@ class CiGateStatusTest(unittest.TestCase):
     def test_missing_job_fails_closed(self):
         jobs = self.jobs()
         del jobs["host-pack-gates"]
+        self.assertEqual(status.evaluate(jobs)[0], 1)
+
+    def test_native_agent_cache_gate_is_mandatory(self):
+        jobs = self.jobs()
+        jobs["agent-cache-real-gates"] = {"result": "success"}
+        self.assertEqual(status.evaluate(jobs)[0], 0)
+        del jobs["agent-cache-real-gates"]
+        self.assertEqual(status.evaluate(jobs)[0], 1)
+        jobs["agent-cache-real-gates"] = {"result": "skipped"}
         self.assertEqual(status.evaluate(jobs)[0], 1)
 
     def test_extra_job_with_failure_fails_closed(self):

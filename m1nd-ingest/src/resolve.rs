@@ -8,6 +8,16 @@ use crate::ownership::{
     graph_has_edge, OwnedEdgeClaimV1, OwnershipDeltaV1, ResolutionDecisionV1, ResolutionOutcomeV1,
 };
 
+#[cfg(test)]
+thread_local! {
+    static REVERSE_IDENTITY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn count_reverse_identity_visit() {
+    REVERSE_IDENTITY_VISITS.set(REVERSE_IDENTITY_VISITS.get() + 1);
+}
+
 // ---------------------------------------------------------------------------
 // ReferenceResolver — resolve ref:: edges to actual nodes
 // FM-ING-008 fix: multi-value index + proximity disambiguation (not dict overwrite).
@@ -19,6 +29,34 @@ use crate::ownership::{
 /// disambiguation (same file > same directory > same module) instead of
 /// silently shadowing with dict overwrite.
 pub struct ReferenceResolver;
+
+struct ReverseIdentityIndex {
+    identities: std::collections::HashMap<NodeId, Option<String>>,
+}
+
+impl ReverseIdentityIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut identities = std::collections::HashMap::with_capacity(graph.id_to_node.len());
+        for (interned, &node) in &graph.id_to_node {
+            #[cfg(test)]
+            count_reverse_identity_visit();
+            let external_id = graph.strings.resolve(*interned).to_owned();
+            identities
+                .entry(node)
+                .and_modify(|identity| *identity = None)
+                .or_insert(Some(external_id));
+        }
+        Self { identities }
+    }
+
+    fn get(&self, node: NodeId) -> Option<&str> {
+        self.identities.get(&node)?.as_deref()
+    }
+
+    fn get_owned(&self, node: NodeId) -> Option<String> {
+        self.get(node).map(str::to_owned)
+    }
+}
 
 /// Resolution outcome for a single reference.
 #[derive(Clone, Debug)]
@@ -206,6 +244,7 @@ impl ReferenceResolver {
             }
         }
 
+        let reverse_identities = ReverseIdentityIndex::build(graph);
         let label_index = Self::build_label_index(graph);
         let mut stats = ResolutionStats {
             resolved: 0,
@@ -226,6 +265,7 @@ impl ReferenceResolver {
                     stats.unresolved += 1;
                     decisions.push(resolution_decision(
                         graph,
+                        &reverse_identities,
                         reference,
                         ResolutionOutcomeV1::Unresolved,
                         None,
@@ -280,6 +320,7 @@ impl ReferenceResolver {
                         graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                         decisions.push(resolution_decision(
                             graph,
+                            &reverse_identities,
                             reference,
                             ResolutionOutcomeV1::Unresolved,
                             None,
@@ -296,7 +337,14 @@ impl ReferenceResolver {
                     let (target, is_tie) = if found.len() == 1 {
                         (found[0], false)
                     } else {
-                        Self::pick_candidate(graph, source, &found, qualifier, import_hint)
+                        Self::pick_candidate(
+                            graph,
+                            &reverse_identities,
+                            source,
+                            &found,
+                            qualifier,
+                            import_hint,
+                        )
                     };
                     if is_tie {
                         stats.ambiguous += 1;
@@ -307,7 +355,7 @@ impl ReferenceResolver {
                         // guess KNOWABLE so `why` can flag a path that rests on it.
                         // Both the bare (node-level count) and targeted (per-edge,
                         // read by `why`) tags are added.
-                        Self::tag_ambiguous_edge(graph, source, target);
+                        Self::tag_ambiguous_edge(graph, &reverse_identities, source, target);
                     }
 
                     // Add edge
@@ -342,7 +390,7 @@ impl ReferenceResolver {
                             ),
                         }
                     };
-                    let target_id = Self::find_external_id(graph, target);
+                    let target_id = reverse_identities.get_owned(target);
                     if owned && !reference.source_key.is_empty() {
                         if let Some(target_id) = target_id.clone() {
                             ownership.claim_edge(OwnedEdgeClaimV1::forward(
@@ -355,6 +403,7 @@ impl ReferenceResolver {
                     }
                     decisions.push(resolution_decision(
                         graph,
+                        &reverse_identities,
                         reference,
                         if is_tie {
                             ResolutionOutcomeV1::Ambiguous
@@ -376,6 +425,7 @@ impl ReferenceResolver {
                     graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                     decisions.push(resolution_decision(
                         graph,
+                        &reverse_identities,
                         reference,
                         ResolutionOutcomeV1::Unresolved,
                         None,
@@ -390,14 +440,21 @@ impl ReferenceResolver {
                 let (target, is_tie) = if candidates.len() == 1 {
                     (candidates[0], false)
                 } else {
-                    Self::pick_candidate(graph, source, candidates, qualifier, import_hint)
+                    Self::pick_candidate(
+                        graph,
+                        &reverse_identities,
+                        source,
+                        candidates,
+                        qualifier,
+                        import_hint,
+                    )
                 };
                 if is_tie {
                     stats.ambiguous += 1;
                     // Provenance only — see the suffix-branch comment above. The
                     // SAME disambiguated edge is still created; the tags mark a
                     // genuine coin-flip so `why` can flag a path that rests on it.
-                    Self::tag_ambiguous_edge(graph, source, target);
+                    Self::tag_ambiguous_edge(graph, &reverse_identities, source, target);
                 }
 
                 let rel = relation.as_str();
@@ -425,7 +482,7 @@ impl ReferenceResolver {
                             ),
                         }
                     };
-                let target_id = Self::find_external_id(graph, target);
+                let target_id = reverse_identities.get_owned(target);
                 if owned && !reference.source_key.is_empty() {
                     if let Some(target_id) = target_id.clone() {
                         ownership.claim_edge(OwnedEdgeClaimV1::forward(
@@ -438,6 +495,7 @@ impl ReferenceResolver {
                 }
                 decisions.push(resolution_decision(
                     graph,
+                    &reverse_identities,
                     reference,
                     if is_tie {
                         ResolutionOutcomeV1::Ambiguous
@@ -453,6 +511,7 @@ impl ReferenceResolver {
                 graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                 decisions.push(resolution_decision(
                     graph,
+                    &reverse_identities,
                     reference,
                     ResolutionOutcomeV1::Unresolved,
                     None,
@@ -503,10 +562,15 @@ impl ReferenceResolver {
     /// so `why` can report it per-path (not blame clean siblings). If the target
     /// has no resolvable external id (should not happen for a real bind), only the
     /// bare tag is added.
-    fn tag_ambiguous_edge(graph: &mut Graph, source: NodeId, target: NodeId) {
+    fn tag_ambiguous_edge(
+        graph: &mut Graph,
+        reverse_identities: &ReverseIdentityIndex,
+        source: NodeId,
+        target: NodeId,
+    ) {
         graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
-        if let Some(target_ext_id) = Self::find_external_id(graph, target) {
-            let targeted = ambiguous_edge_tag(&target_ext_id);
+        if let Some(target_ext_id) = reverse_identities.get(target) {
+            let targeted = ambiguous_edge_tag(target_ext_id);
             graph.add_node_tags(source, &[targeted.as_str()]);
         }
     }
@@ -528,23 +592,30 @@ impl ReferenceResolver {
     /// candidates; a single candidate never reaches here (handled inline).
     fn pick_candidate(
         graph: &Graph,
+        reverse_identities: &ReverseIdentityIndex,
         source: NodeId,
         candidates: &[NodeId],
         qualifier: Option<&str>,
         import_hint: Option<&str>,
     ) -> (NodeId, bool) {
         // 1) Call-site qualifier decides the owner — decisive.
-        if let Some(t) = Self::disambiguate_with_qualifier(graph, candidates, qualifier) {
+        if let Some(t) =
+            Self::disambiguate_with_qualifier(graph, reverse_identities, candidates, qualifier)
+        {
             return (t, false);
         }
         // 2) Import-path hint decides the module — decisive.
         if let Some(hint) = import_hint {
-            if let Some(t) = Self::disambiguate_with_hint(graph, source, candidates, hint) {
+            if let Some(t) =
+                Self::disambiguate_with_hint(reverse_identities, source, candidates, hint)
+            {
                 return (t, false);
             }
         }
         // 3) Proximity: decisive only when the best score is uniquely held.
-        if let Some((t, unique_best)) = Self::disambiguate_decisive(graph, source, candidates) {
+        if let Some((t, unique_best)) =
+            Self::disambiguate_decisive(reverse_identities, source, candidates)
+        {
             return (t, !unique_best);
         }
         // 4) No signal applied at all (e.g. source has no external id): coin-flip.
@@ -561,14 +632,14 @@ impl ReferenceResolver {
     /// candidate (`proximity_score`, same-file > same-dir > cross-crate); this
     /// only adds the strict-uniqueness (tie) signal on top of that choice.
     fn disambiguate_decisive(
-        graph: &Graph,
+        reverse_identities: &ReverseIdentityIndex,
         source: NodeId,
         candidates: &[NodeId],
     ) -> Option<(NodeId, bool)> {
         if candidates.is_empty() {
             return None;
         }
-        let source_ext_id = Self::find_external_id(graph, source)?;
+        let source_ext_id = reverse_identities.get(source)?;
 
         // Only candidates that actually have an external id can be scored; seed
         // `best`/`best_score` on the FIRST scored candidate so an unscorable
@@ -578,8 +649,8 @@ impl ReferenceResolver {
         let mut best_score = 0u32;
         let mut best_count = 0usize; // how many scored candidates hold `best_score`
         for &candidate in candidates {
-            if let Some(cand_ext_id) = Self::find_external_id(graph, candidate) {
-                let score = Self::proximity_score(&source_ext_id, &cand_ext_id);
+            if let Some(cand_ext_id) = reverse_identities.get(candidate) {
+                let score = Self::proximity_score(source_ext_id, cand_ext_id);
                 match best {
                     Some(_) if score > best_score => {
                         best_score = score;
@@ -602,28 +673,12 @@ impl ReferenceResolver {
         }
     }
 
-    /// Find the node's single external identity. Anonymous and multiply-named
-    /// slots are both invalid, so neither may be collapsed to an arbitrary
-    /// HashMap iteration winner.
-    fn find_external_id(graph: &Graph, node: NodeId) -> Option<String> {
-        let mut found = None;
-        for (interned, &nid) in &graph.id_to_node {
-            if nid == node {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some(graph.strings.resolve(*interned).to_string());
-            }
-        }
-        found
-    }
-
     /// Disambiguate among multiple candidates using an import path hint.
     /// If a candidate's external ID contains path segments matching the import hint,
     /// prefer that candidate. E.g., import hint "foo.bar" matches candidate
     /// "file::foo/bar.py::class::Baz".
     fn disambiguate_with_hint(
-        graph: &Graph,
+        reverse_identities: &ReverseIdentityIndex,
         _source: NodeId,
         candidates: &[NodeId],
         import_hint: &str,
@@ -641,7 +696,7 @@ impl ReferenceResolver {
         let mut best_score = 0u32;
 
         for &candidate in candidates {
-            if let Some(cand_ext_id) = Self::find_external_id(graph, candidate) {
+            if let Some(cand_ext_id) = reverse_identities.get(candidate) {
                 let mut score = 0u32;
                 // Check if candidate's ID contains the import path segments
                 if cand_ext_id.contains(&hint_as_path) {
@@ -682,6 +737,7 @@ impl ReferenceResolver {
     /// the caller falls back to import-hint / proximity (back-compat).
     fn disambiguate_with_qualifier(
         graph: &Graph,
+        reverse_identities: &ReverseIdentityIndex,
         candidates: &[NodeId],
         qualifier: Option<&str>,
     ) -> Option<NodeId> {
@@ -714,7 +770,7 @@ impl ReferenceResolver {
         };
         let mut id_match: Option<NodeId> = None;
         for &c in pool {
-            if let Some(id) = Self::find_external_id(graph, c) {
+            if let Some(id) = reverse_identities.get(c) {
                 let hit = id.contains(&format!("::{qualifier}"))
                     || id.contains(&format!("/{qualifier}/"))
                     || id.contains(&format!("/{qualifier}."))
@@ -784,6 +840,7 @@ impl ReferenceResolver {
 
 fn resolution_decision(
     graph: &Graph,
+    reverse_identities: &ReverseIdentityIndex,
     reference: &OwnedUnresolvedReferenceV1,
     outcome: ResolutionOutcomeV1,
     resolved_target_id: Option<String>,
@@ -791,14 +848,13 @@ fn resolution_decision(
 ) -> M1ndResult<ResolutionDecisionV1> {
     let mut candidate_ids = Vec::with_capacity(candidates.len());
     for candidate in candidates {
-        let candidate_id =
-            ReferenceResolver::find_external_id(graph, *candidate).ok_or_else(|| {
-                M1ndError::IngestError(format!(
-                    "resolution candidate slot {} has no external identity",
-                    candidate.as_usize()
-                ))
-            })?;
-        candidate_ids.push(candidate_id);
+        let candidate_id = reverse_identities.get(*candidate).ok_or_else(|| {
+            M1ndError::IngestError(format!(
+                "resolution candidate slot {} has no external identity",
+                candidate.as_usize()
+            ))
+        })?;
+        candidate_ids.push(candidate_id.to_owned());
     }
     candidate_ids.sort();
     if candidate_ids.windows(2).any(|pair| pair[0] >= pair[1]) {
@@ -826,6 +882,14 @@ fn resolution_decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reset_reverse_identity_visits() {
+        REVERSE_IDENTITY_VISITS.set(0);
+    }
+
+    fn reverse_identity_visits() -> usize {
+        REVERSE_IDENTITY_VISITS.get()
+    }
     use m1nd_core::types::NodeType;
 
     fn fn_node(graph: &mut Graph, ext_id: &str, label: &str) -> NodeId {
@@ -842,6 +906,55 @@ mod tests {
             .iter()
             .find(|e| e.source == source && graph.strings.resolve(e.relation) == "calls")
             .map(|e| e.target)
+    }
+
+    #[test]
+    fn reverse_identity_map_is_traversed_at_most_once_per_resolution_call() {
+        let mut graph = Graph::new();
+        let target_id = "file::src/target.rs::fn::target";
+        fn_node(&mut graph, target_id, "target");
+        let mut unresolved = Vec::new();
+        for index in 0..64 {
+            let source_id = format!("file::src/caller_{index}.rs::fn::caller_{index}");
+            fn_node(&mut graph, &source_id, &format!("caller_{index}"));
+            unresolved.push((source_id, "ref::target".into(), "calls".into()));
+        }
+        let identity_count = graph.id_to_node.len();
+
+        reset_reverse_identity_visits();
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+        let visits = reverse_identity_visits();
+
+        println!("reverse_identity_visits={visits} identity_count={identity_count}");
+        assert_eq!(stats.resolved, unresolved.len() as u64);
+        assert!(
+            visits <= identity_count,
+            "reverse identity traversal must be linear per resolution call: {visits} visits for {identity_count} identities"
+        );
+    }
+
+    #[test]
+    fn reverse_identity_index_rejects_missing_alias_and_out_of_range_slots() {
+        let mut graph = Graph::new();
+        let unique = fn_node(&mut graph, "node::unique", "unique");
+        let missing = fn_node(&mut graph, "node::missing", "missing");
+        let alias = graph.strings.get_or_intern("node::unique-alias");
+        graph.id_to_node.insert(alias, unique);
+        let missing_id = graph
+            .strings
+            .lookup("node::missing")
+            .expect("missing id was interned");
+        graph.id_to_node.remove(&missing_id);
+
+        let index = ReverseIdentityIndex::build(&graph);
+
+        assert_eq!(index.get(unique), None, "aliased slots are invalid");
+        assert_eq!(index.get(missing), None, "anonymous slots are invalid");
+        assert_eq!(
+            index.get(NodeId::new(u32::MAX)),
+            None,
+            "out-of-range slots must not panic or resolve"
+        );
     }
 
     /// proximity_score must prefer a SAME-DIRECTORY candidate over a candidate in
@@ -1020,7 +1133,9 @@ mod tests {
         // And the TARGETED tag names the specific edge that was picked, so `why`
         // can flag exactly this edge per-path.
         let picked = calls_target(&graph, caller).expect("edge exists");
-        let picked_ext = ReferenceResolver::find_external_id(&graph, picked).expect("ext id");
+        let picked_ext = ReverseIdentityIndex::build(&graph)
+            .get_owned(picked)
+            .expect("ext id");
         assert!(
             source_has_ambiguous_edge_to(&graph, caller, &picked_ext),
             "source must carry the TARGETED ambiguous tag for the picked edge, got {:?}",
@@ -1069,7 +1184,9 @@ mod tests {
         assert_eq!(stats.ambiguous, 1, "only the `get` tie is ambiguous");
 
         // The clean unique edge must NOT be reported ambiguous …
-        let unique_ext = ReferenceResolver::find_external_id(&graph, unique).expect("ext id");
+        let unique_ext = ReverseIdentityIndex::build(&graph)
+            .get_owned(unique)
+            .expect("ext id");
         assert!(
             !source_has_ambiguous_edge_to(&graph, caller, &unique_ext),
             "the clean pack_to_budget edge must NOT carry a targeted ambiguous tag"
@@ -1326,6 +1443,26 @@ mod tests {
             &[],
         )
         .expect_err("anonymous candidate slot must fail closed");
+        assert!(error.to_string().contains("resolution candidate slot"));
+    }
+
+    #[test]
+    fn candidate_with_multiple_external_identities_is_fatal() {
+        let mut graph = Graph::new();
+        let source_id = "file::src/caller.rs::fn::caller";
+        fn_node(&mut graph, source_id, "caller");
+        let target = fn_node(&mut graph, "file::src/target.rs::fn::target", "target");
+        let alias = graph
+            .strings
+            .get_or_intern("file::src/target.rs::fn::target-alias");
+        graph.id_to_node.insert(alias, target);
+
+        let error = ReferenceResolver::resolve_owned_with_hints(
+            &mut graph,
+            &[governed_reference(source_id, "ref::target")],
+            &[],
+        )
+        .expect_err("multiply identified candidate slot must fail closed");
         assert!(error.to_string().contains("resolution candidate slot"));
     }
 }

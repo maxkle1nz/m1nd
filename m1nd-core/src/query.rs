@@ -129,14 +129,27 @@ impl QueryOrchestrator {
         cache_path: Option<&std::path::Path>,
         persist: bool,
     ) -> M1ndResult<Self> {
+        Self::build_with_cache_and_cancel(graph, cache_path, persist, None)
+    }
+
+    pub fn build_with_cache_and_cancel(
+        graph: &Graph,
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
         let engine = HybridEngine::new();
         let xlr = AdaptiveXlrEngine::with_defaults();
-        let semantic = SemanticEngine::build_with_cache(
+        let semantic = SemanticEngine::build_with_cache_and_cancel(
             graph,
             SemanticWeights::default(),
             cache_path,
             persist,
+            cancelled,
         )?;
+        if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(crate::error::M1ndError::StartupCancelled);
+        }
         let temporal = TemporalEngine::build(graph)?;
         let topology = TopologyAnalyzer::with_defaults();
         let resonance = ResonanceEngine::with_defaults();
