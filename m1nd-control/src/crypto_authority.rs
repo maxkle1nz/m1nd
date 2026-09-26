@@ -1295,7 +1295,7 @@ fn decode_lower_hex(value: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut output = Vec::with_capacity(value.len() / 2);
-    for pair in value.as_bytes().chunks_exact(2) {
+    for pair in value.as_bytes().as_chunks::<2>().0 {
         output.push((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?);
     }
     Some(output)
