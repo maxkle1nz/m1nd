@@ -9,8 +9,8 @@
 #   of the shared-process runner, and switching runners removed it. If a test
 #   flakes under nextest, we want to see it, not survive it.
 #
-# * `slow-timeout` — today a runaway test owns the job until the 90-minute CI
-#   ceiling. Outside the retrobuilder family the slowest legitimate test
+# * `slow-timeout` — a runaway test must not own the full CI job window.
+#   Outside the retrobuilder family the slowest legitimate test
 #   measured on the dev box is ~119s, so 600s leaves ~5x headroom. SLOW
 #   warnings start at 60s so the tail stays visible in every run's output.
 [profile.default]
@@ -25,13 +25,13 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # shipped a 600s ceiling calibrated on the LIB's heavy tail (119s) instead of
 # the WORKSPACE's — all four rb tests died together at 600.04s on the 4-vCPU
 # ubuntu runner. Their ceiling is their own: ~4x the dev-box worst case. A
-# genuine runaway here still dies named at 40 minutes, not the job's 90.
+# genuine runaway here still dies named at 40 minutes, not the job's ceiling.
 [[profile.default.overrides]]
 filter = 'binary_id(m1nd-core::retrobuilder_real) | binary_id(m1nd-core::retrobuilder_stress)'
 slow-timeout = { period = "300s", terminate-after = 8 }
 
 # ---------------------------------------------------------------------------
-# The CI shadow lane (see the `nextest-shadow` job in ci.yml). Inherits the
+# The manual CI shadow workflow (`.github/workflows/rust-shadow.yml`). Inherits the
 # default profile; what it adds is the concurrency cap the GATE measurement
 # demanded: on the 4-vCPU ubuntu runner the heavy families — nested-Cargo
 # compiler oracles and real-repo ingests — running fully parallel turned the
@@ -49,7 +49,7 @@ test-group = 'heavy-io'
 
 # ---------------------------------------------------------------------------
 # The LIGHTNING lane — a fast day-to-day CHECK, deliberately NOT the merge
-# gate (ratified with that exact condition, 2026-08-02). Its selector is the
+# gate (adopted for draft feedback only, 2026-09-25). Its selector is the
 # never-cut core from docs/TEST-PORTFOLIO.md §4: lifecycle, checkpoint
 # fault-injection, byte continuity, birth e2e, the runtime-exclusion gate,
 # schema/parity/seating, reception guards and the fail-closed authority

@@ -12,9 +12,27 @@ local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are 
 
 This is a **PUBLIC** repository. Everything you commit is published.
 
-## The gates (must pass — these ARE the CI)
+## The gates — feedback while draft, full proof when ready
 
-Run these before you consider any change done. The blocking gate is **ubuntu + macOS**:
+For each local edit, run the exact affected regression test first. Before
+sharing a draft, run `bash scripts/lightning_check.sh` and the affected
+crate/host tests. Do not rerun the entire workspace after every edit. A draft
+PR runs the selected lightning suite, all-target Clippy, doctests, the lean
+feature edge and formatting on Linux and Windows; UI, npm, Python, security
+and contract gates still run. Its required `Test` check **fails intentionally**:
+fast feedback cannot authorize a merge.
+
+Mark a PR ready only when the behavior is stable and no P0/P1 is known. The
+`ready_for_review` event runs the full Rust suite on Linux, macOS and Windows
+even without a new commit. Every subsequent push while ready reruns the full
+suite; convert back to draft before the next development burst. Merge queue
+and main also run full; the shadow timing job is manual, not a main-push tax.
+The branch-protected `Test` check passes only after the complete required
+matrix plus all other gates pass on this exact head. See
+`docs/TEST-PORTFOLIO.md` for coverage and change-to-test mapping.
+
+For final review or release, run these before claiming local full proof. The
+CI final blocking gate covers **ubuntu + macOS + Windows**:
 
 ```bash
 cargo nextest run --workspace --all-targets             # the LOCAL canonical runner (one process per test)
@@ -29,12 +47,13 @@ including the two deadlock-timeout tests that expire under `cargo test`'s
 shared-process load). Retries are 0 by policy — a flake goes red. Plain
 `cargo test` still works when you need `--nocapture` on one test.
 
-CI's required legs still run `cargo test`, deliberately: the same measurement
+CI's final required legs still run `cargo test`, deliberately: the same measurement
 taken ON THE GATE said no — ubuntu went 62→83 min under nextest (the
 nested-Cargo process storm on the weakest-I/O runner) while windows improved
-70→48. A `nextest-shadow` job collects gate-side timing on main pushes; the
-required legs switch only when the shadow reproduces the gate's greens and
-reds at an acceptable wall. Local green under nextest + gate green under
+70→48. The observational `nextest-shadow` runs only on explicit manual
+dispatch; required legs change only after controlled runner-side comparisons
+reproduce the same greens and reds at an acceptable wall. Local green under
+nextest + final gate green under
 `cargo test` are BOTH required truths until then — do not "fix" one by
 trusting the other.
 
