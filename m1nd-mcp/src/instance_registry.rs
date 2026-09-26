@@ -17,6 +17,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::task::JoinHandle;
@@ -187,6 +188,30 @@ impl InstanceHandle {
         registry_root: Option<&Path>,
         mode: InstanceMode,
     ) -> M1ndResult<Self> {
+        Self::acquire_with_mode_and_cancel(
+            workspace_root,
+            runtime_root,
+            graph_source,
+            plasticity_state,
+            registry_root,
+            mode,
+            None,
+        )
+    }
+
+    /// Cancellation is honored while waiting for the lease-mutation guard,
+    /// before a writer can claim ownership. Once claiming begins the caller
+    /// must finish constructing its owner and checkpoint on shutdown.
+    pub(crate) fn acquire_with_mode_and_cancel(
+        workspace_root: &Path,
+        runtime_root: &Path,
+        graph_source: &Path,
+        plasticity_state: &Path,
+        registry_root: Option<&Path>,
+        mode: InstanceMode,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Self> {
+        check_startup_cancelled(cancelled)?;
         let workspace_root = canonicalish(workspace_root)?;
         let runtime_root = canonicalish(runtime_root)?;
         let graph_source = canonicalish(graph_source)?;
@@ -236,7 +261,9 @@ impl InstanceHandle {
                 // GC may briefly probe the lifetime lock. Take the shared
                 // mutation guard first so a new owner cannot race that probe
                 // and receive a spurious AlreadyExists at startup.
-                let mutation_guard = LeaseMutationGuard::acquire(&lease_file)?;
+                let mutation_guard =
+                    LeaseMutationGuard::acquire_with_cancel(&lease_file, cancelled)?;
+                check_startup_cancelled(cancelled)?;
                 let lifetime_guard = OwnerLifetimeGuard::acquire(&lease_file)?;
                 claim_readwrite_lease(&lease_file, &entry, &mutation_guard)?;
                 (Some(lease_file), Some(lifetime_guard))
@@ -787,6 +814,14 @@ fn apply_conflicts(entries: &mut [InstanceRegistryEntry]) {
 /// same crash-released cross-process lifetime.
 static LEASE_MUTATION_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn check_startup_cancelled(cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
+    if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        Err(M1ndError::StartupCancelled)
+    } else {
+        Ok(())
+    }
+}
+
 /// Same-process ownership table for per-runtime lifetime guards. OS locking is
 /// authoritative across processes; this table closes platform-specific
 /// same-process `flock` semantics and gives every runtime exactly one local
@@ -915,9 +950,29 @@ struct LeaseMutationGuard {
 
 impl LeaseMutationGuard {
     fn acquire(lease_path: &Path) -> M1ndResult<Self> {
-        let in_process = LEASE_MUTATION_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::acquire_with_cancel(lease_path, None)
+    }
+
+    fn acquire_with_cancel(lease_path: &Path, cancelled: Option<&AtomicBool>) -> M1ndResult<Self> {
+        let in_process = if cancelled.is_some() {
+            loop {
+                check_startup_cancelled(cancelled)?;
+                match LEASE_MUTATION_MUTEX.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                        break poisoned.into_inner()
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+            }
+        } else {
+            LEASE_MUTATION_MUTEX
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        check_startup_cancelled(cancelled)?;
         let guard_path = lease_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -939,7 +994,13 @@ impl LeaseMutationGuard {
             loop {
                 // SAFETY: `file` owns a valid descriptor for the full guard
                 // lifetime; LOCK_EX has no pointer or aliasing requirements.
-                let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+                check_startup_cancelled(cancelled)?;
+                let operation = if cancelled.is_some() {
+                    libc::LOCK_EX | libc::LOCK_NB
+                } else {
+                    libc::LOCK_EX
+                };
+                let result = unsafe { libc::flock(file.as_raw_fd(), operation) };
                 if result == 0 {
                     return Ok(Self {
                         file,
@@ -947,8 +1008,12 @@ impl LeaseMutationGuard {
                     });
                 }
                 let error = std::io::Error::last_os_error();
-                if error.kind() != std::io::ErrorKind::Interrupted {
-                    return Err(M1ndError::Io(error));
+                match error.kind() {
+                    std::io::ErrorKind::Interrupted => continue,
+                    std::io::ErrorKind::WouldBlock if cancelled.is_some() => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    _ => return Err(M1ndError::Io(error)),
                 }
             }
         }
@@ -958,6 +1023,7 @@ impl LeaseMutationGuard {
             use std::os::windows::fs::OpenOptionsExt;
 
             loop {
+                check_startup_cancelled(cancelled)?;
                 match fs::OpenOptions::new()
                     .read(true)
                     .write(true)
@@ -972,7 +1038,11 @@ impl LeaseMutationGuard {
                         });
                     }
                     Err(error) if matches!(error.raw_os_error(), Some(32) | Some(33)) => {
-                        std::thread::yield_now();
+                        if cancelled.is_some() {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        } else {
+                            std::thread::yield_now();
+                        }
                     }
                     Err(error) => return Err(M1ndError::Io(error)),
                 }
@@ -1863,6 +1933,124 @@ mod tests {
         );
         assert_eq!(instances[0].status, "running");
         assert!(instances[0].owner_live.unwrap_or(false));
+    }
+
+    #[test]
+    fn cancelled_bootstrap_does_not_wait_for_held_mutation_guard_or_claim_lease() {
+        use std::sync::{atomic::AtomicBool, mpsc};
+
+        let temp = tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let registry = temp.path().join("registry");
+        let workspace = temp.path().join("workspace");
+        fs::create_dir_all(&runtime).expect("runtime");
+        fs::create_dir_all(&workspace).expect("workspace");
+        let lease_path = registry.join(LEASE_DIR_NAME).join("held.json");
+        let held = LeaseMutationGuard::acquire(&lease_path).expect("hold shared guard");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let driver_cancelled = Arc::clone(&cancelled);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            entered_tx.send(()).expect("driver entered acquire");
+            let result = InstanceHandle::acquire_with_mode_and_cancel(
+                &workspace,
+                &runtime,
+                &runtime.join("graph.json"),
+                &runtime.join("plasticity.json"),
+                Some(&registry),
+                InstanceMode::ReadWrite,
+                Some(&driver_cancelled),
+            );
+            outcome_tx.send(result).expect("driver result");
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        assert!(matches!(
+            outcome_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(held); // Release even if the assertion below fails.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
+        assert_eq!(
+            fs::read_dir(temp.path().join("registry/leases"))
+                .expect("leases")
+                .filter(|e| e
+                    .as_ref()
+                    .is_ok_and(|e| e.path().extension().is_some_and(|ext| ext == "json")))
+                .count(),
+            0
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn cancelled_bootstrap_does_not_wait_for_held_os_mutation_guard() {
+        use std::sync::{atomic::AtomicBool, mpsc};
+
+        let temp = tempdir().expect("tempdir");
+        let lease_path = temp.path().join("leases/held.json");
+        let guard_path = lease_path
+            .parent()
+            .expect("parent")
+            .join(".lease-mutations.guard");
+        fs::create_dir_all(lease_path.parent().expect("parent")).expect("leases");
+        #[cfg(unix)]
+        let held = {
+            use std::os::fd::AsRawFd;
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&guard_path)
+                .expect("open independent lock handle");
+            // SAFETY: file is a valid descriptor, held until after cancellation.
+            assert_eq!(
+                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+                0
+            );
+            file
+        };
+        #[cfg(windows)]
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .share_mode(0)
+                .open(&guard_path)
+                .expect("open exclusive lock handle")
+        };
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let driver_cancelled = Arc::clone(&cancelled);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            entered_tx.send(()).expect("driver entered acquire");
+            let result =
+                LeaseMutationGuard::acquire_with_cancel(&lease_path, Some(&driver_cancelled))
+                    .map(drop);
+            outcome_tx.send(result).expect("driver result");
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        assert!(matches!(
+            outcome_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(held); // Release even if the assertion below fails.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
     }
 
     #[test]

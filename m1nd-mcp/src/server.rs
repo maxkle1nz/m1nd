@@ -528,6 +528,25 @@ pub struct McpServer {
     shutdown_requested: Arc<AtomicBool>,
     shutdown_wake: Arc<std::sync::Mutex<Option<mpsc::SyncSender<ServerEvent>>>>,
     stopped: bool,
+    /// A failed shutdown cannot let Drop implicitly release the owner lease.
+    failed_shutdown: bool,
+}
+
+impl Drop for McpServer {
+    fn drop(&mut self) {
+        if self.failed_shutdown {
+            // Shutdown failed before complete persistence/actor stop. Keep the
+            // entire owner and actor registry alive until process exit: a mere
+            // live PID or old lease JSON is not a substitute for the OS lock.
+            // The caller still receives the original error and exits nonzero.
+            if let Some(runtime) = self.actor_runtime.take() {
+                std::mem::forget(runtime);
+            }
+            if let Some(state) = self.boot_state.take() {
+                std::mem::forget(state);
+            }
+        }
+    }
 }
 
 struct StdioActorRuntime {
@@ -8946,6 +8965,7 @@ impl McpServer {
             shutdown_requested: Arc::new(AtomicBool::new(false)),
             shutdown_wake: Arc::new(std::sync::Mutex::new(None)),
             stopped: false,
+            failed_shutdown: false,
         })
     }
 
@@ -9316,6 +9336,18 @@ impl McpServer {
 
     /// Graceful shutdown: persist state, flush writes, close connections.
     pub fn shutdown(&mut self) -> M1ndResult<()> {
+        // Arm the drop fence before starting any fallible phase. A second
+        // shutdown attempt may recover a prestart persistence error, but an
+        // unacknowledged attempt never releases ownership by implicit Drop.
+        self.failed_shutdown = true;
+        let result = self.shutdown_inner();
+        if result.is_ok() {
+            self.failed_shutdown = false;
+        }
+        result
+    }
+
+    fn shutdown_inner(&mut self) -> M1ndResult<()> {
         if self.stopped {
             return Ok(());
         }
@@ -9942,6 +9974,92 @@ mod tests {
                 .expect("list live owner")
                 .is_empty(),
             "persist failure must not release the owner lease"
+        );
+    }
+
+    #[test]
+    fn failed_actor_checkpoint_keeps_writer_owned_after_server_drop() {
+        let (_temp, mut server) = build_server();
+        server.start().expect("start actor");
+        let runtime = server.config.runtime_dir.clone().expect("runtime");
+        let registry = server.config.registry_dir.clone().expect("registry");
+        let checkpoints = runtime
+            .join(crate::brain_runtime::BRAIN_CHECKPOINT_DIRECTORY)
+            .join("checkpoints");
+        if checkpoints.is_dir() {
+            std::fs::remove_dir_all(&checkpoints).expect("remove checkpoint dir");
+        }
+        std::fs::write(&checkpoints, "not a directory").expect("obstruct checkpoint publishing");
+
+        let error = server
+            .shutdown()
+            .expect_err("checkpoint obstruction must fail shutdown");
+        assert!(
+            error.to_string().contains("checkpoint"),
+            "unexpected error: {error}"
+        );
+        let registry_ref = std::sync::Arc::downgrade(
+            &server
+                .actor_runtime
+                .as_ref()
+                .expect("actor runtime")
+                .project_brains,
+        );
+        drop(server); // main.rs returns Err here; the owner must not be dropped.
+        assert!(
+            registry_ref.upgrade().is_some(),
+            "failed checkpoint must retain the actor registry, not just an incidental worker lock"
+        );
+
+        let replacement = crate::instance_registry::InstanceHandle::acquire(
+            &runtime,
+            &runtime,
+            &runtime.join("graph.json"),
+            &runtime.join("plasticity.json"),
+            Some(&registry),
+        );
+        assert!(
+            matches!(replacement, Err(m1nd_core::error::M1ndError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::AlreadyExists),
+            "failed owner must refuse replacement as already owned: {replacement:?}"
+        );
+        assert!(!crate::instance_registry::list_instances(Some(&registry))
+            .expect("list owner")
+            .is_empty());
+    }
+
+    #[test]
+    fn failed_prestart_persist_keeps_writer_owned_after_server_drop() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        let registry = runtime.join("registry");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        let poison = temp.path().join("not-a-directory");
+        std::fs::write(&poison, "poison").expect("poison file");
+        let mut server = McpServer::new(McpConfig {
+            graph_source: poison.join("graph.json"),
+            plasticity_state: runtime.join("plasticity.json"),
+            registry_dir: Some(registry.clone()),
+            runtime_dir: Some(runtime.clone()),
+            ..McpConfig::default()
+        })
+        .expect("server");
+        assert!(
+            server.shutdown().is_err(),
+            "poisoned prestart persist must fail"
+        );
+        drop(server);
+        let replacement = crate::instance_registry::InstanceHandle::acquire(
+            &runtime,
+            &runtime,
+            &poison.join("graph.json"),
+            &runtime.join("plasticity.json"),
+            Some(&registry),
+        );
+        assert!(
+            matches!(replacement, Err(m1nd_core::error::M1ndError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::AlreadyExists),
+            "prestart failure must retain the live writer: {replacement:?}"
         );
     }
 

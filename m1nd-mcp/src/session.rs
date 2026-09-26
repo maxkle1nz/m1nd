@@ -2214,13 +2214,14 @@ impl SessionState {
         if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
             return Err(M1ndError::StartupCancelled);
         }
-        let instance = InstanceHandle::acquire_with_mode(
+        let instance = InstanceHandle::acquire_with_mode_and_cancel(
             &workspace_root,
             &runtime_root,
             &config.graph_source,
             &config.plasticity_state,
             config.registry_dir.as_deref(),
             instance_mode,
+            cancelled,
         )?;
         if config.read_only {
             eprintln!(

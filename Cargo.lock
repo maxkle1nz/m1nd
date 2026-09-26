@@ -1786,6 +1786,7 @@ dependencies = [
  "bincode",
  "cargo_metadata",
  "criterion",
+ "libc",
  "m1nd-ingest",
  "model2vec-rs",
  "parking_lot",

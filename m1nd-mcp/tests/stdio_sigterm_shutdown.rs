@@ -38,7 +38,7 @@ fn stdio_sigterm_checkpoints_and_releases_owner() {
 }
 
 #[test]
-fn stdio_sigterm_during_empty_startup_never_leaves_an_owner() {
+fn stdio_sigterm_during_empty_startup_exits_without_a_live_owner() {
     exercise_sigterm_after("[m1nd] Domain:", false, false, false);
 }
 
@@ -335,12 +335,10 @@ fn exercise_sigterm_after(
     }
     for subdir in ["leases", "instances"] {
         let dir = runtime.join("registry").join(subdir);
-        if cancelled_before_owner {
-            assert!(
-                !dir.exists(),
-                "cancelled before registry acquisition: {subdir}"
-            );
-        } else {
+        // The startup log is not a barrier: SIGTERM may be handled either
+        // before or after acquisition. A cancelled construction may have
+        // released a lease, leaving empty registry directories behind.
+        if !cancelled_before_owner {
             assert!(dir.is_dir(), "owner must have registered in {subdir}");
         }
         if dir.exists() {

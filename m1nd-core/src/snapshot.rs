@@ -830,7 +830,11 @@ fn read_graph_bytes_with_cancel(
         if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
             return Err(M1ndError::StartupCancelled);
         }
-        let count = reader.read(&mut chunk)?;
+        let count = match reader.read(&mut chunk) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
         if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
             return Err(M1ndError::StartupCancelled);
         }
@@ -1019,6 +1023,36 @@ mod tests {
         assert!(matches!(result, Err(M1ndError::StartupCancelled)));
         assert_eq!(reader.reads, 1, "no second read after cancellation");
         assert!(!reader.remaining.is_empty());
+    }
+
+    #[test]
+    fn interrupted_snapshot_read_retries_and_preserves_all_bytes() {
+        struct InterruptedOnce<'a> {
+            remaining: &'a [u8],
+            attempts: usize,
+        }
+        impl std::io::Read for InterruptedOnce<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.attempts += 1;
+                if self.attempts == 2 {
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let count = buf.len().min(self.remaining.len());
+                buf[..count].copy_from_slice(&self.remaining[..count]);
+                self.remaining = &self.remaining[count..];
+                Ok(count)
+            }
+        }
+        let expected = vec![37u8; 70 * 1024];
+        let mut reader = InterruptedOnce {
+            remaining: &expected,
+            attempts: 0,
+        };
+        assert_eq!(
+            read_graph_bytes_with_cancel(&mut reader, None).expect("EINTR is transient"),
+            expected
+        );
+        assert_eq!(reader.attempts, 4, "read first chunk, EINTR, tail, EOF");
     }
 
     #[test]

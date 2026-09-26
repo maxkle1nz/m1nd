@@ -43,6 +43,8 @@ criterion = { version = "0.8", features = ["html_reports"] }
 m1nd-ingest = { path = "../m1nd-ingest" }
 cargo_metadata = { workspace = true }
 tempfile = "3.27.0"
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
 
 [[bench]]
 name = "core_benchmarks"

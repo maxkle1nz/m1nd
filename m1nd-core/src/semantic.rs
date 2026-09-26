@@ -33,12 +33,12 @@ fn check_startup_cancelled(cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
     }
 }
 
-/// The upstream loader has no cancellation hook (including first-use fetch).
-/// Before acquiring a lease, isolate just the model load so SIGTERM can return
-/// without waiting for it. A cancelled loader owns no graph or runtime lease;
-/// process exit stops it. Non-stdio builds keep the ordinary inline path.
+/// Upstream model and cache reads have no cancellation hook. Before acquiring
+/// a lease, isolate only these read-only loads so SIGTERM can return without
+/// waiting for a blocked read. A cancelled worker owns no runtime lease or
+/// writes; process exit stops it. Non-stdio builds keep the inline path.
 #[cfg(feature = "embed")]
-fn run_cancellable_model_load<T: Send + 'static>(
+fn run_cancellable_prelease_load<T: Send + 'static>(
     cancelled: Option<&AtomicBool>,
     load: impl FnOnce() -> M1ndResult<T> + Send + 'static,
 ) -> M1ndResult<T> {
@@ -48,7 +48,7 @@ fn run_cancellable_model_load<T: Send + 'static>(
     };
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
-        .name("m1nd-cold-model-load".into())
+        .name("m1nd-cold-prelease-load".into())
         .spawn(move || {
             let _ = tx.send(load());
         })?;
@@ -62,11 +62,31 @@ fn run_cancellable_model_load<T: Send + 'static>(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(M1ndError::EmbedError(
-                    "model loader terminated without a result".into(),
+                    "pre-lease loader terminated without a result".into(),
                 ));
             }
         }
     }
+}
+
+#[cfg(feature = "embed")]
+fn load_embedding_cache_with_cancel(
+    path: Option<&std::path::Path>,
+    model_id: &str,
+    dim: u32,
+    cancelled: Option<&AtomicBool>,
+) -> M1ndResult<Option<crate::embed_cache::EmbeddingCache>> {
+    let Some(path) = path else {
+        check_startup_cancelled(cancelled)?;
+        return Ok(None);
+    };
+    let path = path.to_path_buf();
+    let model_id = model_id.to_owned();
+    run_cancellable_prelease_load(cancelled, move || {
+        Ok(crate::embed_cache::EmbeddingCache::load_compatible(
+            &path, &model_id, dim,
+        ))
+    })
 }
 
 #[cfg(all(test, feature = "embed"))]
@@ -83,7 +103,7 @@ mod startup_cancel_tests {
         let (release_tx, release_rx) = mpsc::channel();
         let (outcome_tx, outcome_rx) = mpsc::channel();
         let driver = std::thread::spawn(move || {
-            let result = run_cancellable_model_load(Some(&worker_cancelled), move || {
+            let result = run_cancellable_prelease_load(Some(&worker_cancelled), move || {
                 started_tx.send(()).expect("loader started");
                 release_rx.recv().expect("test releases loader");
                 Ok::<_, M1ndError>(42usize)
@@ -98,6 +118,64 @@ mod startup_cancel_tests {
         release_tx.send(()).expect("release blocked loader");
         driver.join().expect("join driver");
         assert!(matches!(outcome, Ok(Err(M1ndError::StartupCancelled))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_during_blocked_embedding_cache_read_returns_prelease() {
+        use std::os::fd::FromRawFd;
+        use std::os::unix::ffi::OsStrExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("embeddings_cache.bin");
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("fifo path");
+        // SAFETY: c_path is a valid, null-terminated filename in our test dir.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let read_path = path.clone();
+        let driver = std::thread::spawn(move || {
+            started_tx.send(()).expect("driver started");
+            let result = load_embedding_cache_with_cancel(
+                Some(&read_path),
+                "test-model",
+                2,
+                Some(&worker_cancelled),
+            );
+            outcome_tx.send(result).expect("driver outcome");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start");
+        // A nonblocking writer succeeds only after the cache worker has reached
+        // the FIFO reader open. Hold it idle to force the actual read to block.
+        let writer = (0..200)
+            .find_map(|_| {
+                // SAFETY: c_path is valid for this test's lifetime.
+                let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    // SAFETY: this successful open uniquely transfers ownership of fd.
+                    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+                } else {
+                    std::thread::sleep(Duration::from_millis(10));
+                    None
+                }
+            })
+            .expect("cache worker must open FIFO reader");
+        assert!(
+            matches!(
+                outcome_rx.recv_timeout(Duration::from_millis(100)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "FIFO read should be blocked, not silently treated as cache miss"
+        );
+        cancelled.store(true, Ordering::Release);
+        let result = outcome_rx.recv_timeout(Duration::from_secs(2));
+        drop(writer); // EOF releases the detached read-only worker.
+        driver.join().expect("join driver");
+        assert!(matches!(result, Ok(Err(M1ndError::StartupCancelled))));
     }
 }
 
@@ -772,7 +850,7 @@ impl SemanticEngine {
         }
 
         let embedder: std::sync::Arc<Model2VecEmbedder> =
-            match run_cancellable_model_load(cancelled, Model2VecEmbedder::from_default) {
+            match run_cancellable_prelease_load(cancelled, Model2VecEmbedder::from_default) {
                 Ok(e) => std::sync::Arc::new(e),
                 Err(M1ndError::StartupCancelled) => return Err(M1ndError::StartupCancelled),
                 Err(e) => {
@@ -787,7 +865,7 @@ impl SemanticEngine {
 
         // Warm cache: reuse vectors whose (model, text) are unchanged. Any
         // version/model/dim mismatch or corruption yields None (full recompute).
-        let warm = cache_path.and_then(|p| EmbeddingCache::load_compatible(p, &model_id, dim));
+        let warm = load_embedding_cache_with_cancel(cache_path, &model_id, dim, cancelled)?;
 
         let n = graph.num_nodes() as usize;
         let mut map: HashMap<NodeId, Box<[f32]>> = HashMap::with_capacity(n);
