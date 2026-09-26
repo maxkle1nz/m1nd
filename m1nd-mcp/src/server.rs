@@ -8761,7 +8761,19 @@ impl McpServer {
     /// 3. Build all engines from graph
     /// 4. Try to load plasticity state and import into graph
     /// 5. Fall back gracefully to empty graph on any failure
-    pub fn new(mut config: McpConfig) -> M1ndResult<Self> {
+    pub fn new(config: McpConfig) -> M1ndResult<Self> {
+        Self::new_with_cancel(config, None)
+    }
+
+    /// Stdio bootstrap may stop before acquiring a lease. Once a lease exists,
+    /// the caller joins construction and uses `shutdown()` instead of aborting it.
+    pub fn new_with_cancel(
+        mut config: McpConfig,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
+        if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(M1ndError::StartupCancelled);
+        }
         // A launcher grant authorizes derived-state preparation only inside an
         // explicit private runtime. Resolve this before reading any snapshot so
         // ambient persistence overrides can never turn the grant into an
@@ -8833,7 +8845,7 @@ impl McpServer {
 
         // Step 1: Try to load graph snapshot
         let (mut graph, graph_loaded) = if config.graph_source.exists() {
-            match m1nd_core::snapshot::load_graph(&config.graph_source) {
+            match m1nd_core::snapshot::load_graph_with_cancel(&config.graph_source, cancelled) {
                 Ok(g) => {
                     eprintln!(
                         "[m1nd] Loaded graph snapshot: {} nodes, {} edges",
@@ -8842,6 +8854,7 @@ impl McpServer {
                     );
                     (g, true)
                 }
+                Err(M1ndError::StartupCancelled) => return Err(M1ndError::StartupCancelled),
                 Err(e) => {
                     eprintln!(
                         "[m1nd] Failed to load graph snapshot ({}), starting fresh",
@@ -8867,7 +8880,8 @@ impl McpServer {
         }
 
         // Step 3: Build all engines (handled by SessionState::initialize)
-        let mut state = SessionState::initialize(graph, &config, domain_config)?;
+        let mut state =
+            SessionState::initialize_with_cancel(graph, &config, domain_config, cancelled)?;
 
         // Step 4: Try to load plasticity state
         if graph_loaded && config.plasticity_state.exists() {

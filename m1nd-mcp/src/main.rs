@@ -17,6 +17,8 @@ use clap::Parser;
 use m1nd_mcp::cli::Cli;
 use m1nd_mcp::server::{McpConfig, McpServer};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[cfg(unix)]
 fn ensure_bwrap_compat_wrapper() {
@@ -777,23 +779,65 @@ async fn run_stdio_server(
     #[cfg(not(feature = "serve"))]
     let _ = (no_gui, _port); // suppress unused warnings
 
-    let mut server = match McpServer::new(config) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[m1nd-mcp] Failed to create server: {}", e);
+    // `new` builds a populated graph synchronously. Keep signal polling on the
+    // async executor while the worker builds; never detach an owner/lease-bearing
+    // worker, even when shutdown is requested during construction.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&cancelled);
+    let mut bootstrap = tokio::task::spawn_blocking(move || {
+        let mut server = McpServer::new_with_cancel(config, Some(&worker_cancel))?;
+        // After ownership is acquired, start the actor even if SIGTERM won
+        // the race: shutdown must checkpoint before the lease is released.
+        if let Err(error) = server.start() {
+            eprintln!("[m1nd-mcp] Failed to start server: {error}");
+            if let Err(shutdown_error) = server.shutdown() {
+                eprintln!("[m1nd-mcp] Failed to shut down after startup refusal: {shutdown_error}");
+            }
+            return Err(error);
+        }
+        Ok(server)
+    });
+    let (built, signalled, watcher_failed) = tokio::select! {
+        biased;
+        signal = shutdown_signals.wait() => {
+            let watcher_failed = signal.is_err();
+            match signal {
+                Ok(signal) => eprintln!("[m1nd-mcp] {signal} received."),
+                Err(error) => eprintln!(
+                    "[m1nd-mcp] shutdown signal watcher failed; stopping fail-closed: {error}"
+                ),
+            }
+            cancelled.store(true, Ordering::Release);
+            ((&mut bootstrap).await, true, watcher_failed)
+        }
+        result = &mut bootstrap => (result, false, false)
+    };
+    let mut server = match built {
+        Ok(Ok(server)) => server,
+        Ok(Err(m1nd_core::error::M1ndError::StartupCancelled)) if signalled => {
+            eprintln!("[m1nd-mcp] Startup cancelled before serving; no owner remains.");
+            return if watcher_failed { Err(()) } else { Ok(()) };
+        }
+        Ok(Err(error)) => {
+            eprintln!("[m1nd-mcp] Failed to create server: {error}");
+            return Err(());
+        }
+        Err(error) => {
+            eprintln!("[m1nd-mcp] Bootstrap task failed: {error}");
             return Err(());
         }
     };
-
-    if let Err(e) = server.start() {
-        eprintln!("[m1nd-mcp] Failed to start server: {}", e);
-        if let Err(shutdown_error) = server.shutdown() {
-            eprintln!(
-                "[m1nd-mcp] Failed to shut down after startup refusal: {}",
-                shutdown_error
-            );
-        }
-        return Err(());
+    if signalled {
+        // Construction may have crossed lease acquisition when the signal won.
+        // Join first, then persist/checkpoint and release; never abort the task.
+        return match server.shutdown() {
+            Ok(()) if !watcher_failed => Ok(()),
+            Ok(()) => Err(()),
+            Err(error) => {
+                eprintln!("[m1nd-mcp] Failed to shut down after bootstrap signal: {error}");
+                Err(())
+            }
+        };
     }
 
     let heartbeat = match server.spawn_instance_heartbeat() {

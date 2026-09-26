@@ -2141,6 +2141,15 @@ impl SessionState {
         config: &crate::server::McpConfig,
         domain: DomainConfig,
     ) -> M1ndResult<Self> {
+        Self::initialize_with_cancel(graph, config, domain, None)
+    }
+
+    pub(crate) fn initialize_with_cancel(
+        graph: Graph,
+        config: &crate::server::McpConfig,
+        domain: DomainConfig,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
         // Resolve the runtime root up front so the embedding cache (and its
         // directory) exist before any engine build writes to them.
         let runtime_root = config.runtime_dir.clone().unwrap_or_else(|| {
@@ -2159,10 +2168,11 @@ impl SessionState {
         // Build all engines from graph (semantic reuses the embedding cache).
         // Only the writable owner persists the cache; a read-only attacher reuses
         // it but never writes (honoring the read-only "persistence disabled" contract).
-        let mut orchestrator = QueryOrchestrator::build_with_cache(
+        let mut orchestrator = QueryOrchestrator::build_with_cache_and_cancel(
             &graph,
             Some(&embeddings_cache_path),
             !config.read_only,
+            cancelled,
         )?;
         let mut temporal = TemporalEngine::build(&graph)?;
         let temporal_state_path = runtime_root.join(crate::temporal_state::TEMPORAL_STATE_FILE);
@@ -2199,6 +2209,11 @@ impl SessionState {
         } else {
             crate::instance_registry::InstanceMode::ReadWrite
         };
+        // Abort before acquiring the writer lease. After acquisition the caller
+        // must own a complete server and use its persist-before-release shutdown.
+        if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(M1ndError::StartupCancelled);
+        }
         let instance = InstanceHandle::acquire_with_mode(
             &workspace_root,
             &runtime_root,
