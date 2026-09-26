@@ -35,17 +35,39 @@ Wall-clock across runners, same suite, step `Test every target` (2026-08-02):
 | windows | 70 min | 48 min | nextest wins — awaits shadow evidence |
 | dev box (M-series) | 641–935 s | **377 s** | **nextest canonical locally** |
 
-## 1. The lanes
+## 1. The lanes (policy cut, 2026-09-25)
 
-| Lane | Where | Budget | Contents |
+| Lane | When | Rust coverage | Decision |
 |---|---|---|---|
-| **lightning** | local, on demand (`cargo nextest run -P lightning` — PROPOSED, awaits owner ratification) | ≤180s hot | the never-cut core below + touched-surface wings |
-| **merge** | CI required legs (3 OS, `cargo test`) | ≤90 min/leg hard | everything deterministic and valuable |
-| **nightly / deep** | shadow + scheduled (未 wired) | 30–60 min | stress, property wide, self-host, real-repo ingest, benchmarks |
+| **per-edit** | local, before sharing an iteration | exact changed behavior/regression test; `scripts/lightning_check.sh` once per coherent batch, plus affected host tests | feedback only, never a release receipt |
+| **draft PR** | every push while the PR is draft | lightning on Linux **and Windows**, workspace Clippy, doctests, lean feature check, formatting (40-minute job cap) | other CI gates still run; required `Test` deliberately stays red even when draft feedback passes |
+| **final PR** | `ready_for_review` and subsequent pushes while ready | original `cargo test --locked --workspace --all-targets`, doctests, Clippy, fmt, lean edge on Linux, macOS **and Windows** (120-minute cap per leg) | required `Test` may pass only if every cumulative gate passes on this head |
+| **merge queue / main** | queued ref / push to main | same full three-OS suite; release workspace build on main | protects the combined commit; no draft shortcut |
+| **shadow** | manually dispatched workflow only | `cargo nextest --profile shadow` on the hosted runner | timing experiment, never a merge gate; no more automatic 80+-minute shadow on each main push |
 
-The lightning lane is a PRODUCT DECISION (what the fast loop promises) and is
-not active until the owner ratifies its selector; nothing is excluded from any
-running lane today.
+Mark a PR ready only after its focused regressions are stable. Move it back
+to draft before another burst of edits. `ready_for_review` triggers the full
+run **without needing a new commit**. A draft's `Test` check is intentionally
+failing, not secretly skipped or green; GitHub already forbids merging drafts,
+and the required check fails closed as a second guard. The full suite remains
+the proof boundary for merge and release, not a command to rerun per edit.
+
+Change-to-test rule: choose the smallest **real** test that traverses the
+changed behavior first, then lightning. For graph/lease/persistence changes,
+exercise a populated, isolated runtime plus checkpoint/restart and ownership
+invariants; for authority/security changes, refusal **and** success paths;
+for platform-specific fs/process changes, a Windows proof; for UI changes,
+unit, lint, reproducible bundle, fixture browser **and** separate accessibility
+smoke; for host/cache changes, real native-process integration without skips.
+None of those focused tests replaces the final three-OS gate. A timeout,
+missing result, skipped job, or test under the wrong candidate is NOT PASS.
+
+Do not push another iteration merely to rerun a monolith. Keep local commits
+within a logical burst; run affected tests locally; push the batch once, while
+still draft; make it ready only when there are no known P0/P1 issues. If full
+CI finds a defect, move back to draft while repairing it. Never turn a failing
+family into `#[ignore]`, a permissive timeout, or an unrequired advisory gate
+to buy a green check.
 
 ## 2. The families
 
@@ -89,12 +111,11 @@ seating · MCP top-level schema · windows path/fs/process · the 13
 `compile_fail` doctests · lean `default-features=false` · docs coupling ·
 a11y as a separate proof · eslint actually executed · `m1nd-ui/dist` drift.
 
-## 4. The lightning lane (BUILT — canonical status awaits the owner's stamp)
+## 4. The lightning lane (draft feedback, never merge proof)
 
 Ratified 2026-08-02 (Paco) with one non-negotiable design condition, built
-and measured the same day; **taught as the day-to-day path only after the
-owner's stamp** — until then it exists and works, and nothing points agents
-at it as "the" loop.
+and measured the same day. The draft-feedback policy above now puts this
+selector on CI; its explicit exclusions remain visible on every local run.
 
 - Selector pinned as `[profile.lightning]` in `.config/nextest.toml`; the
   command is `scripts/lightning_check.sh`, which adds the two proofs nextest
@@ -114,13 +135,14 @@ at it as "the" loop.
 
 ## 5. Safe order (ratified; where we are)
 
-1. ~~Week 1 observe~~ — RUNNING: nextest prints per-test timing on every local
-   run; the `nextest-shadow` CI job collects gate-side timing on main pushes.
+1. ~~Week 1 observe~~ — local nextest prints per-test timing; the hosted
+   `nextest-shadow` experiment is now manual, not a main-push tax.
 2. **Manifest** — THIS FILE (first revision).
-3. Lightning WITHOUT deleting anything — awaits owner ratification of §4.
+3. Lightning WITHOUT deleting anything — draft feedback only; final three-OS
+   full suite unchanged.
 4. Consolidations (§6 of the verdict): compiler-fixture workspace, shared
    retrobuilder graph fixture, sleeps→events, npm decomposition, ignore retag.
-5. Shadow two weeks → promotion decision for the CI runner (see MANUAL §5).
+5. Controlled hosted shadow comparison before any runner promotion (MANUAL §5).
 6. Mutation sampling / historical-bug reverts over families with no recorded bite.
 7. Only then: delete proven redundancy, one family per PR, amendment here.
 
@@ -129,3 +151,4 @@ at it as "the" loop.
 | Date | Revision |
 |---|---|
 | 2026-08-02 | Manifest established at `94fff76f`, from the suite-audit verdict (CHANGE) confronted with resident measurements; lanes, families, the fifteen, and the lightning proposal recorded. Lightning NOT active. |
+| 2026-09-25 | CI policy candidate: short draft feedback; full required on ready PR, merge queue and main. Shadow moved to manual. No family removed; exact candidate must pass before policy can be considered active. |

@@ -120,9 +120,13 @@ stateDiagram-v2
 The agent-facing rules live in `doc:AGENTS.md` and `doc:CLAUDE.md` — this section
 indexes them, it does not restate them.
 
-- **CI gates that block merge** run on ubuntu, macOS and Windows: the workspace
-  test suite, clippy with warnings denied, and `cargo fmt --check`. Windows red
-  blocks merge.
+- **CI has a draft feedback lane and a final proof lane.** Drafts run selected
+  Rust tests, Clippy, doctests, formatting and the lean feature edge on Linux
+  and Windows; the existing UI, Node, Python, security and contract checks
+  remain. The required `Test` check stays red in a draft, even with all fast
+  signals green. Ready PRs (including the `ready_for_review` transition),
+  merge queue and main run the complete workspace test suite, Clippy, docs
+  and formatting on ubuntu, macOS and Windows. Windows red blocks merge.
 - **nextest is the LOCAL canonical runner** (`cargo nextest run --workspace
   --all-targets`) — one process per test; measured 641–935s → 377s on the dev
   box with the shared-process deadlock-timeout flakes gone. Policy in
@@ -132,8 +136,9 @@ indexes them, it does not restate them.
 - **CI's required legs still run `cargo test`, by gate-side measurement.** The
   same suite under nextest on the runners: ubuntu 62→83 min (nested-Cargo
   process storm on the weakest-I/O runner), macos 53→52, windows 70→48. The
-  `nextest-shadow` job (observational, main pushes, never in `test-status`)
-  collects gate timing with heavy-family concurrency caps in the `shadow`
+  `Rust nextest shadow (manual)` workflow (observational, explicit dispatch
+  only, never in the required `Test` check) collects gate timing with
+  heavy-family concurrency caps in the `shadow`
   profile; the required legs switch only when the shadow reproduces the
   gate's greens and reds at an acceptable wall. The shared-process harness on
   the required legs doubles as the same-process topology insurance the
@@ -146,12 +151,12 @@ indexes them, it does not restate them.
   manifest: what each family proves, its lane and budget, the fifteen
   never-cut families, and the safe order for any reduction. A test leaves the
   portfolio only through that file's registry, never through a cleanup PR.
-- **The lightning check buys ~57s by NOT proving** real-history retrieval,
+- **The lightning check buys fast feedback by NOT proving** real-history retrieval,
   compiler oracles, stress, wide properties, or any other OS — it is a
   day-to-day signal (`cmd:scripts/lightning_check.sh`), never "the tests
   passed"; the merge gate is the full suite on three OSes, and the never-cut
-  fifteen live in `doc:docs/TEST-PORTFOLIO.md` §3. (Built 2026-08-02; taught
-  as the canonical fast loop only after the owner's stamp.)
+  fifteen live in `doc:docs/TEST-PORTFOLIO.md` §3. Adopted as the draft
+  feedback loop by owner direction on 2026-09-25; never a merge receipt.
 - **The embedded UI bundle must match the source that builds it** — CI refuses a
   commit whose `dist/` is not a fresh build of its own source.
 - **Frozen contracts** (`docs/M1ND-10-PRD.md`, `docs/M1ND-10-UML.md`) are checked
@@ -251,6 +256,7 @@ an answer: run the refresh or the ingest, then say what it cost. `north` returns
 
 | Date | Revision |
 |---|---|
+| 2026-09-25 | §5: CI split into draft feedback and ready/queue/main final proof; the required `Test` remains red on drafts; nextest shadow made manual-only, not a main-push tax. Source: `.github/workflows/ci.yml`, `.github/workflows/rust-shadow.yml`, `docs/TEST-PORTFOLIO.md`. |
 | 2026-08-02 | §5+§7: the test portfolio manifest established (`docs/TEST-PORTFOLIO.md`) — lanes, families, the fifteen never-cut, lightning proposed-not-active; the fifteen added to §7 invariants. |
 | 2026-08-02 | §5: nextest adopted as the LOCAL canonical runner; CI required legs stay on `cargo test` by gate-side measurement (ubuntu 62→83 min under nextest); `nextest-shadow` observational job collects gate timing toward promotion; policy at `.config/nextest.toml`. |
 | 2026-08-01 | Manual established at `0b892874`. Sources adopted: `docs/deployment.md` (indexed, not absorbed — it remains the deployment reference), `build/README.md` (indexed for the signing surface). PR #398's earlier draft was **not** adopted: it recorded machine-specific identity (service label, uid, personal paths) which must not travel in a public repo. |
