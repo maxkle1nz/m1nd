@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+    # Drafts get a bounded feedback lane; declaring a PR ready starts the full
+    # three-OS suite even when the head SHA has not changed.
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   # Required for the merge queue: without this event the same gates never run on
   # the queued `gh-readonly-queue/*` ref, so every PR would enter the queue and
   # hang forever. The aggregator `Test` job runs here too and is the single check
@@ -24,9 +27,69 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 jobs:
+  ci-lane:
+    name: Classify CI lane
+    runs-on: ubuntu-latest
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+    steps:
+      - name: Select draft feedback or final proof
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_DRAFT" == "true" ]]; then
+            echo "lane=draft" >> "$GITHUB_OUTPUT"
+          else
+            echo "lane=full" >> "$GITHUB_OUTPUT"
+          fi
+
+  draft-rust:
+    name: Draft Rust feedback (${{ matrix.os }})
+    needs: ci-lane
+    if: needs.ci-lane.outputs.lane == 'draft'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    # lightning_check.sh honors this variable instead of selecting a separate
+    # local build-cache path. Cache restore, tests, Clippy and docs share target.
+    env:
+      CARGO_TARGET_DIR: target
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: draft-rust-${{ matrix.os }}
+      - uses: taiki-e/install-action@1beb33eee6d086258184383af9a538940be190ed # v2.85.6
+        with:
+          tool: cargo-nextest
+      - name: Run contract-critical lightning profile, not the full suite
+        shell: bash
+        run: bash scripts/lightning_check.sh
+      - name: Lint every Rust target
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run boundary compile-fail doctests
+        run: cargo test --locked --workspace --doc
+      - name: Check the lean feature edge independently
+        run: cargo check --locked -p m1nd-mcp --no-default-features
+      - name: Verify formatting
+        run: cargo fmt --all --check
+
   rust-gates:
     name: Rust gates (${{ matrix.os }})
+    needs: ci-lane
+    if: needs.ci-lane.outputs.lane == 'full'
     runs-on: ${{ matrix.os }}
+    # Runs on ready-for-review PRs, merge-queue candidates, and main pushes.
+    # Draft edits never restart three 120-minute jobs. The full job remains
+    # mandatory before a PR can be merged, via the required Test check below.
     # 120, not 90 (2026-08-02). `cargo test --workspace --all-targets` measured
     # 62 min on the ubuntu 4-vCPU runner and up to 70 on windows, and under
     # concurrent-PR runner contention it crossed the old 90-min ceiling and got
@@ -65,7 +128,7 @@ jobs:
       # 62→83 min (the suite-audit's §10 "nested-Cargo process storm", real on
       # the weakest-I/O runner), macos 53→52, windows 70→48. Locally nextest
       # IS the canonical runner (935s → 377s on the dev box — see AGENTS.md);
-      # the `nextest-shadow` job below collects gate-side timing, and this leg
+      # the manually dispatched rust-shadow.yml workflow collects gate-side timing, and this leg
       # switches only when the shadow reproduces the same greens and reds at
       # an acceptable wall — never again on dev-box numbers alone. The shared-
       # process harness here is also the same-process topology insurance the
@@ -107,61 +170,17 @@ jobs:
         if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
-  # OBSERVATIONAL, never a gate: deliberately absent from test-status's needs,
-  # so its result can go red without holding a single merge. This is the §11
-  # shadow lane from the 2026-08-02 suite-audit verdict: nextest was measured
-  # on all three legs and lost on ubuntu (62→83 min — the nested-Cargo process
-  # storm on the weakest-I/O runner) while winning on windows (70→48) and the
-  # dev box (935s→377s). Promotion to the required legs happens only when TWO
-  # WEEKS of these runs reproduce the gate's greens and reds at an acceptable
-  # wall — and the tuning that gets it there (heavy-family concurrency caps)
-  # lives in the `shadow` profile of .config/nextest.toml, so local runs stay
-  # untouched. Runs on main pushes only: enough samples to learn from, no PR
-  # queue time spent.
-  nextest-shadow:
-    name: nextest shadow (observational)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    if: github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          key: nextest-shadow
-      - uses: taiki-e/install-action@1beb33eee6d086258184383af9a538940be190ed # v2.85.6
-        with:
-          tool: cargo-nextest
-      - name: Run the suite under nextest, timed
-        run: cargo nextest run --profile shadow --locked --workspace --all-targets
-
   test-status:
     name: Test
     runs-on: ubuntu-latest
-    needs: [rust-gates, ui-gates, host-pack-gates, agent-cache-real-gates, python-gates, security-gates, contract-gates]
+    needs: [ci-lane, draft-rust, rust-gates, ui-gates, host-pack-gates, agent-cache-real-gates, python-gates, security-gates, contract-gates]
     if: always()
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - name: Require every cumulative gate
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["NEEDS_JSON"])
-          failed = {
-              name: data["result"]
-              for name, data in needs.items()
-              if data["result"] != "success"
-          }
-          if failed:
-              print(json.dumps({"status": "FAIL", "jobs": failed}, sort_keys=True))
-              sys.exit(1)
-          print(json.dumps({"status": "PASS", "jobs": sorted(needs)}, sort_keys=True))
-          PY
+        run: python3 scripts/ci_gate_status.py
 
   ui-gates:
     name: UI unit, static, build, fixture-browser, and accessibility gates

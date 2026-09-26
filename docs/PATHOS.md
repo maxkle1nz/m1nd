@@ -466,6 +466,21 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - The ceremony accepts only an empty destination. A second invocation refuses rather than rescan or
   adopt an existing graph; those are separate owner-controlled lifecycle operations.
 
+**Delta 2026-09-26 — CI-policy branch #558 supersedes the 2026-08-02 runner cadence:**
+- The old `nextest-shadow` ran automatically on main pushes; #558 moves the timing
+  experiment to a manually dispatched, nonrequired workflow. The full required
+  Rust matrix still uses `cargo test --locked --workspace --all-targets` on Linux,
+  macOS and Windows. Nextest remains the local runner, not a CI-gate replacement.
+- LIGHTNING is no longer only a proposal: #558 runs it on draft pull requests
+  (Linux and Windows) with Clippy, compile-fail doctests, the lean feature edge
+  and formatting. A draft's branch-protected `Test` check intentionally fails.
+  Marking a PR ready runs the full three-OS suite even with an unchanged head;
+  merge queue and main also run full. Do not read fast feedback as merge proof.
+- The main branch's live GitHub protection is a separate part of the contract:
+  the required `Test` check must apply to administrators and be up to date with
+  main before merge. Verify that setting in GitHub; workflow YAML alone does
+  not enforce either condition.
+
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**
   Full README rewrite in the owner's voice (definition at line 5, anti-pitch section, "If I disappear",

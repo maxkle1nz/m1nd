@@ -427,10 +427,13 @@ fn capability_context() -> CapabilityVerificationContext<'static> {
 }
 
 fn decode_hex(value: &str) -> Vec<u8> {
-    let bytes = value.as_bytes();
-    (0..bytes.len() / 2)
-        .map(|index| {
-            let pair = std::str::from_utf8(&bytes[index * 2..index * 2 + 2]).unwrap();
+    value
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).unwrap();
             u8::from_str_radix(pair, 16).unwrap()
         })
         .collect()
