@@ -1,9 +1,9 @@
 <!-- m4nual: lang=en version=1 watchlist=.github/workflows/*,scripts/*,m1nd-mcp/src/server.rs,m1nd-mcp/src/verb_usage.rs,m1nd-mcp/src/action_routes.rs,m1nd-control/src/action_catalog.rs,docs/deployment.md -->
-<!-- m4nual:mirror date=2026-08-01 commit=0b892874 -->
+<!-- m4nual:mirror date=2026-09-26 commit=2dcede12 -->
 
 # MANUAL — m1nd
 
-> Mirror of the code at `0b892874`, 2026-08-01. The code is the truth; this book
+> Mirror of the code at `2dcede12`, 2026-09-26. The code is the truth; this book
 > is its operating surface. Where they disagree, the code wins and this file is
 > wrong — fix it in the same gesture.
 
@@ -127,6 +127,12 @@ indexes them, it does not restate them.
   signals green. Ready PRs (including the `ready_for_review` transition),
   merge queue and main run the complete workspace test suite, Clippy, docs
   and formatting on ubuntu, macOS and Windows. Windows red blocks merge.
+- **The protected `Test` check must cover the final candidate.** GitHub main
+  branch protection requires `Test` from GitHub Actions, with strict/up-to-date
+  checks and enforcement for administrators. Verify those live settings before
+  merging; workflow YAML can run `merge_group` but cannot require a merge queue
+  or prevent an administrative bypass by itself. A stale check is not proof of
+  the tree after main advances.
 - **nextest is the LOCAL canonical runner** (`cargo nextest run --workspace
   --all-targets`) — one process per test; measured 641–935s → 377s on the dev
   box with the shared-process deadlock-timeout flakes gone. Policy in
@@ -256,6 +262,7 @@ an answer: run the refresh or the ingest, then say what it cost. `north` returns
 
 | Date | Revision |
 |---|---|
+| 2026-09-26 | §5: require live strict/up-to-date `Test` and admin enforcement, verified against GitHub branch protection; source: `.github/workflows/ci.yml` and the protected main settings. Refreshed mirror after the CI lane change. |
 | 2026-09-25 | §5: CI split into draft feedback and ready/queue/main final proof; the required `Test` remains red on drafts; nextest shadow made manual-only, not a main-push tax. Source: `.github/workflows/ci.yml`, `.github/workflows/rust-shadow.yml`, `docs/TEST-PORTFOLIO.md`. |
 | 2026-08-02 | §5+§7: the test portfolio manifest established (`docs/TEST-PORTFOLIO.md`) — lanes, families, the fifteen never-cut, lightning proposed-not-active; the fifteen added to §7 invariants. |
 | 2026-08-02 | §5: nextest adopted as the LOCAL canonical runner; CI required legs stay on `cargo test` by gate-side measurement (ubuntu 62→83 min under nextest); `nextest-shadow` observational job collects gate timing toward promotion; policy at `.config/nextest.toml`. |

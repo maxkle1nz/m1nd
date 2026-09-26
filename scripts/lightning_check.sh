@@ -12,7 +12,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(bash scripts/cargo_target_dir.sh)
 
 start=$SECONDS
 # The never-cut core (selector pinned in .config/nextest.toml).
-cargo nextest run --profile lightning --workspace --all-targets
+cargo nextest run --locked --profile lightning --workspace --all-targets
 # The two proofs nextest cannot carry:
 # the 13 compile_fail sentinels (the candidate boundary)…
 cargo test --locked -p m1nd-mcp --doc
