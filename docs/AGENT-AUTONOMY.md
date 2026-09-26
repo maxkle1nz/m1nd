@@ -108,7 +108,24 @@ sends SIGKILL to a writer that may still be checkpointing, nor signals an
 unrelated process. If streams remain open after that budget, the CLI reports
 a bounded failure, leaves the cache owner proof in place for supervised recovery,
 and does not claim the runtime reusable. Shutdown is complete only after the
-child `close` event has drained its stdio streams. If startup or a command fails and teardown also fails,
+child `close` event has drained its stdio streams. On direct stdio, a SIGTERM
+received during cold bootstrap now cancels snapshot reads/reconstruction,
+semantic-index loops, model loading, embedding-cache reads, and waits for the
+lease-mutation guard before acquiring a writer lease. The upstream loader and
+cache reader have no cancellation hooks, so their pre-lease workers are
+isolated and cannot hold an actor or lease; process exit ends a blocked worker.
+A stalled filesystem open itself is not interruptible. If construction has
+already acquired ownership, bootstrap is joined and the normal checkpoint-ACK
+shutdown runs before releasing the owner. A failed checkpoint does not release
+the live native owner through server Drop: it retains the owner and actor
+registry until process exit and returns an error, not a successful shutdown
+receipt. The populated-graph regression checks both SIGTERM paths with a real
+snapshot and a blocked model read; focused tests also exercise blocked cache
+reads, mutation-guard contention, interrupted snapshot reads, and failed
+checkpoint ownership. The stdio fixture requires process exit within 10 seconds
+after SIGTERM; that bound is not an all-hardware shutdown SLA after ownership or
+on arbitrarily large checkpoints. The CLI retains its bounded 120-second
+post-signal watchdog. If startup or a command fails and teardown also fails,
 the CLI reports both failures plus the captured native stderr; the teardown error
 does not replace the primary cause. Once the owned child has exited, the CLI
 releases its own lease even if that exit was not clean, so a crashed child cannot

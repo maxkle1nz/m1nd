@@ -186,18 +186,18 @@ npx -y @maxkle1nz/m1nd doctor
 # 3 · wire your host: MCP config + the session hooks that make m1nd ambient
 npx -y @maxkle1nz/m1nd hosts apply --host claude --project . --yes
 
-# 4 · optional shared/served brain — once, by you. It ingests and prints what it built.
-npx -y @maxkle1nz/m1nd init --birth .
-
-# 5 · first value: attach to an owner or prepare an isolated private graph for this repo
+# 4 · first value: attach to an owner or prepare an isolated private graph for this repo
 npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
+
+# 5 · optional shared/served brain — once, by you. It ingests and prints what it built.
+npx -y @maxkle1nz/m1nd init --birth .
 ```
 
-Step 5 requires v1.6.4 or later. Before that version reaches the public registry, the command above cannot prove the candidate's behavior; use the checked-out source and native binary for validation instead.
+Step 4 requires v1.6.4 or later. Before that version reaches the public registry, the command above cannot prove the candidate's behavior; use the checked-out source and native binary for validation instead.
 
-Step 4 is the human-only route for a shared or served brain. Minting that kind of brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
+Step 4 is the local first-value path: when no served owner covers the repo, the agent CLI grants only that exact repo and an external private runtime to its child. It prepares derived state there without invoking generic `ingest` or minting a shared brain. Missing, source-nested, or source-resolving runtime paths refuse before mutation. The optional step 5 is not a prerequisite.
 
-Step 5 is a separate local path. When no served owner covers the repo, the agent CLI grants only that exact repo and an external private runtime to its child; it can prepare derived state there without invoking generic `ingest` or minting a shared brain. Missing, source-nested, or source-resolving runtime paths refuse before mutation. For a shared/served topology, use step 4 instead.
+Step 5 is the human-only route for a shared or served brain. Minting that kind of brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
 
 Step 1 verifies the signature with [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), so install that first if it is not on your PATH. If you prefer the source registry and accept skipping verification, `cargo install m1nd-mcp` works too. Prefer to see before you write: `hosts plan` prints everything `hosts apply` would touch, and writes nothing. There is no uninstall command yet; `hosts plan` doubles as the list of what to remove by hand.
 
