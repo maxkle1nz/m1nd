@@ -52,6 +52,10 @@ the affected/dependent crate list, and the named heavy families.
 | **full** | unknown/global PR diff; main; merge-group; nightly; manual dispatch | original `cargo test --locked --workspace --all-targets`, doctests, Clippy, fmt, lean edge on Linux, macOS and Windows | integration proof; release workspace build remains main-push only |
 | **shadow** | manually dispatched `rust-shadow.yml` only | `cargo nextest --profile shadow` on the hosted runner | timing experiment, never a merge gate |
 
+The full lane runs its existing workspace Clippy check before the long test
+suite. This exposes platform-specific compile/lint failures before spending
+time on integration tests; every required gate and its command remains intact.
+
 Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
 manifests select host/cache; root `tests/test_*.py` selects Python; contributor
 launcher changes select Python/UI/cache; the Vite helper selects UI; the six

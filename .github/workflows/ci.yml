@@ -119,12 +119,12 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: rust-full-${{ matrix.os }}
+      - name: Deny clippy warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test every target
         run: cargo test --locked --workspace --all-targets
       - name: Run the compile-fail doctests --all-targets cannot reach
         run: cargo test --locked --workspace --doc
-      - name: Deny clippy warnings
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Verify formatting
         run: cargo fmt --all --check
       - name: Build the lean edge nothing else builds
