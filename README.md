@@ -384,7 +384,7 @@ Translations follow the English text with some lag. When they disagree, English 
 
 ## Contributing
 
-Contributions are welcome across extractors, adapters, MCP tooling, benchmarks, docs and graph algorithms. See [CONTRIBUTING.md](CONTRIBUTING.md). There is a live room on [CodeRooms](https://coderooms.com/github/maxkle1nz/m1nd) if you want to talk first. And if you read this far and want to try it: [four commands](#sixty-seconds).
+Contributions are welcome across extractors, adapters, MCP tooling, benchmarks, docs and graph algorithms. See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors working from source can use the checked-in [development kit](docs/DEVELOPMENT.md) for checkout-private state, guarded UI development, and portable MCP stdio. CI derives a conservative change scope for known pull requests and keeps full three-platform proof for integration candidates; [the test portfolio](docs/TEST-PORTFOLIO.md) records the exact boundary. There is a live room on [CodeRooms](https://coderooms.com/github/maxkle1nz/m1nd) if you want to talk first. And if you read this far and want to try it: [four commands](#sixty-seconds).
 
 ## License
 

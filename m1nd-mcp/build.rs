@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 mod ui_bundle_support;
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ui_bundle_support::ui_tree_identity;
@@ -49,6 +50,43 @@ fn git_identity() -> (String, bool) {
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(false);
     (commit, dirty)
+}
+
+/// Emit a rerun dependency only after Git has resolved it to an existing path.
+/// Linked worktrees keep their HEAD and index outside the worktree's `.git` file.
+fn watch_git_path(manifest_dir: &Path, pathspec: &str) {
+    let path = Command::new("git")
+        .current_dir(manifest_dir)
+        .args(["rev-parse", "--git-path", pathspec])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                manifest_dir.join(path)
+            }
+        })
+        .filter(|path| path.is_file());
+    if let Some(path) = path {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+}
+
+/// Resolve the current symbolic branch name, if HEAD is not detached.
+fn current_git_ref(manifest_dir: &Path) -> Option<String> {
+    Command::new("git")
+        .current_dir(manifest_dir)
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn main() {
@@ -134,11 +172,18 @@ fn main() {
     );
 
     // Embed the git sha so the running binary can always declare exactly what it
-    // is (version + sha) and drift-warn against stale binaries. Best-effort
-    // rerun triggers: HEAD move (commit/checkout) and index changes (staging).
-    // These paths may not exist on a non-git build — that is fine.
-    println!("cargo:rerun-if-changed=../.git/HEAD");
-    println!("cargo:rerun-if-changed=../.git/index");
+    // is (version + sha) and drift-warn against stale binaries. Worktrees use a
+    // .git indirection, so the contributor launcher changes these private
+    // invalidation inputs for the current revision and dirty bit. Their values are
+    // never read as claims: git_identity below remains the stamp authority.
+    for pathspec in ["HEAD", "index", "packed-refs"] {
+        watch_git_path(&manifest_dir, pathspec);
+    }
+    if let Some(current_ref) = current_git_ref(&manifest_dir) {
+        watch_git_path(&manifest_dir, &current_ref);
+    }
+    println!("cargo:rerun-if-env-changed=M1ND_DEVKIT_BUILD_STAMP_REVISION");
+    println!("cargo:rerun-if-env-changed=M1ND_DEVKIT_BUILD_STAMP_DIRTY");
     let (build_source_commit, build_source_dirty) = git_identity();
     let display_sha = if build_source_dirty {
         format!("{build_source_commit}-dirty")

@@ -1884,6 +1884,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "include_test_impact": { "type": "boolean", "default": true, "description": "Analyze test coverage for modified files" },
                         "include_risk_score": { "type": "boolean", "default": true, "description": "Compute composite risk score" },
+                        "max_gaps": { "type": "integer", "minimum": 0, "default": 24, "description": "Maximum gaps and suggested additions returned; values above 128 are clamped to 128" },
                         "scope": { "type": "string", "description": "Optional repo or scope path for multi-repo binding diagnostics" }
                     },
                     "required": ["agent_id", "actions"]

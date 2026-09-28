@@ -17,3 +17,14 @@ strip = true
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1
+debug = 1
+incremental = true
+lto = false
+codegen-units = 256
+
+[profile.dev-fast.package.m1nd-mcp]
+opt-level = 0

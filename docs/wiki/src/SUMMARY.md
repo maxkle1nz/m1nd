@@ -39,6 +39,7 @@
 - [Quick Start](tutorials/quickstart.md)
 - [Your First Query](tutorials/first-query.md)
 - [Multi-Agent Workflows](tutorials/multi-agent.md)
+- [Contributor development kit](tutorials/contributor-devkit.md)
 
 ---
 

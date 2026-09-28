@@ -35,22 +35,38 @@ Wall-clock across runners, same suite, step `Test every target` (2026-08-02):
 | windows | 70 min | 48 min | nextest wins — awaits shadow evidence |
 | dev box (M-series) | 641–935 s | **377 s** | **nextest canonical locally** |
 
-## 1. The lanes (policy cut, 2026-09-25)
+## 1. The lanes (scope amendment, 2026-09-28)
 
-| Lane | When | Rust coverage | Decision |
+`scripts/ci_scope.py` is the sole selector. For a pull request it validates
+the event's 40-hex base/head SHA against checked-out `HEAD`, computes the merge
+base, and reads `git diff --name-status -z -M <merge-base> <head>`. It parses
+both ends of renames and copies. Empty, unavailable, malformed, unknown or
+global results select `full`; it never makes a narrow claim from a branch name.
+The emitted `m1nd-ci-scope-v1` object has only candidate, mode, five area flags,
+the affected/dependent crate list, and the named heavy families.
+
+| Lane | When | Coverage | Decision |
 |---|---|---|---|
-| **per-edit** | local, before sharing an iteration | exact changed behavior/regression test; `scripts/lightning_check.sh` once per coherent batch, plus affected host tests | feedback only, never a release receipt |
-| **draft PR** | every push while the PR is draft | lightning on Linux **and Windows**, workspace Clippy, doctests, lean feature check, formatting (40-minute job cap) | other CI gates still run; required `Test` deliberately stays red even when draft feedback passes |
-| **final PR** | `ready_for_review` and subsequent pushes while ready | original `cargo test --locked --workspace --all-targets`, doctests, Clippy, fmt, lean edge on Linux, macOS **and Windows** (120-minute cap per leg) | required `Test` may pass only if every cumulative gate passes on this head |
-| **merge queue / main** | queued ref / push to main | same full three-OS suite; release workspace build on main | protects the combined commit; no draft shortcut |
-| **shadow** | manually dispatched workflow only | `cargo nextest --profile shadow` on the hosted runner | timing experiment, never a merge gate; no more automatic 80+-minute shadow on each main push |
+| **per-edit** | local, before sharing an iteration | exact changed behavior/regression test; LIGHTNING once per coherent Rust batch | feedback only |
+| **scoped PR** | known PR diff, draft or ready | contracts + source guard/history scan; selected UI, host, cache, Python; Rust LIGHTNING plus affected/dependent crates on Linux and Windows | `Test` passes only if selected jobs succeed and every other selectable job is skipped |
+| **full** | unknown/global PR diff; main; merge-group; nightly; manual dispatch | original `cargo test --locked --workspace --all-targets`, doctests, Clippy, fmt, lean edge on Linux, macOS and Windows | integration proof; release workspace build remains main-push only |
+| **shadow** | manually dispatched `rust-shadow.yml` only | `cargo nextest --profile shadow` on the hosted runner | timing experiment, never a merge gate |
 
-Mark a PR ready only after its focused regressions are stable. Move it back
-to draft before another burst of edits. `ready_for_review` triggers the full
-run **without needing a new commit**. A draft's `Test` check is intentionally
-failing, not secretly skipped or green; GitHub already forbids merging drafts,
-and the required check fails closed as a second guard. The full suite remains
-the proof boundary for merge and release, not a command to rerun per edit.
+Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
+manifests select host/cache; root `tests/test_*.py` selects Python; contributor
+launcher changes select Python/UI/cache; the Vite helper selects UI; the six
+Rust source/test trees select Rust/cache. Rust closure is core↔ingest, then MCP,
+runnerd and openclaw; control feeds MCP then runnerd/openclaw. CI workflows,
+`.config`, Cargo manifests/lock, `build.rs`, selector/aggregate/lightning
+scripts, security policy and marketing-demo paths are full by rule.
+
+The scoped Rust lane preserves LIGHTNING's control/core/MCP invariant set, then
+runs the affected libraries, binaries and integration tests. Outside a touched
+heavy area it excludes only `retrobuilder_real`, `retrobuilder_stress`, and
+tests named `transplant`; a matching path runs its own oracle. No ignore,
+retry, relaxed assertion or timeout is added. The 2026-09-25 draft/ready split
+below is historical: a draft may now receive a scoped `Test` pass, while GitHub
+continues to forbid draft merges. No time measurement is claimed by this cut.
 
 Change-to-test rule: choose the smallest **real** test that traverses the
 changed behavior first, then lightning. For graph/lease/persistence changes,
@@ -59,8 +75,9 @@ invariants; for authority/security changes, refusal **and** success paths;
 for platform-specific fs/process changes, a Windows proof; for UI changes,
 unit, lint, reproducible bundle, fixture browser **and** separate accessibility
 smoke; for host/cache changes, real native-process integration without skips.
-None of those focused tests replaces the final three-OS gate. A timeout,
-missing result, skipped job, or test under the wrong candidate is NOT PASS.
+None of those focused tests replaces the full three-OS gate. A timeout,
+missing result, skipped selected job, non-skipped unselected job, malformed
+scope, or test under the wrong candidate is NOT PASS.
 
 Do not push another iteration merely to rerun a monolith. Keep local commits
 within a logical burst; run affected tests locally; push the batch once, while
@@ -111,29 +128,33 @@ seating · MCP top-level schema · windows path/fs/process · the 13
 `compile_fail` doctests · lean `default-features=false` · docs coupling ·
 a11y as a separate proof · eslint actually executed · `m1nd-ui/dist` drift.
 
-## 4. The lightning lane (draft feedback, never merge proof)
+## 4. The lightning lane — historical ratification and active selector
 
 Ratified 2026-08-02 (Paco) with one non-negotiable design condition, built
-and measured the same day. The draft-feedback policy above now puts this
-selector on CI; its explicit exclusions remain visible on every local run.
+and measured the same day. The 2026-09-25 draft-feedback application is
+historical; the active scope policy in §1 runs this unchanged selector whenever
+Rust is selected. It remains feedback, never merge proof on its own.
 
 - Selector pinned as `[profile.lightning]` in `.config/nextest.toml`; the
-  command is `scripts/lightning_check.sh`, which adds the two proofs nextest
-  cannot carry (the 13 `compile_fail` sentinels, the lean
+  command is `scripts/lightning_check.sh`. Its Cargo target list is limited to
+  the pre-existing homes of the selected control/core/MCP cases; the profile's
+  test filter remains the exact selector. The script also adds the two proofs
+  nextest cannot carry (the 13 `compile_fail` sentinels, the lean
   `no-default-features` check).
 - **Measured on the dev box: 57s hot** (82 selected tests of 2,674 — the
   never-cut core is ~3% of the suite; 16.3s nextest + 0.36s doctests + lean
   check + incremental overhead). Warm-after-branch-switch: 190s. Ceiling: 180s
-  hot, per ratification.
+  hot, per ratification. This is historical measurement; the narrower target
+  list in this cut has no newly claimed duration.
 - **The design condition, verbatim in mechanism:** the script prints on EVERY
-  run that it is not the merge gate and exactly what it does not prove; the
-  merge gate remains the full suite on three OSes, unchanged; MANUAL §5
+  run that it is not the integration proof and exactly what it does not prove;
+  CI runs the full three-OS suite whenever its scope is `full`; MANUAL §5
   carries the one-line cost statement with the pointer here.
 - What it deliberately omits (all still on merge): retrobuilder over real
   history, transplant compiler oracles, 10k-op stress, wide proptests, the
   full grammar matrix, browser suites, every other OS.
 
-## 5. Safe order (ratified; where we are)
+## 5. Historical safe order (ratified)
 
 1. ~~Week 1 observe~~ — local nextest prints per-test timing; the hosted
    `nextest-shadow` experiment is now manual, not a main-push tax.
@@ -151,4 +172,5 @@ selector on CI; its explicit exclusions remain visible on every local run.
 | Date | Revision |
 |---|---|
 | 2026-08-02 | Manifest established at `94fff76f`, from the suite-audit verdict (CHANGE) confronted with resident measurements; lanes, families, the fifteen, and the lightning proposal recorded. Lightning NOT active. |
-| 2026-09-25 | CI policy candidate: short draft feedback; full required on ready PR, merge queue and main. Shadow moved to manual. No family removed; exact candidate must pass before policy can be considered active. |
+| 2026-09-25 | Historical CI policy candidate: short draft feedback; full required on ready PR, merge queue and main. Shadow moved to manual. No family removed. |
+| 2026-09-28 | Owner amendment: strict Git-diff scope for known PR changes; main, merge group, nightly, manual dispatch and global selectors stay full. Security and frozen contracts remain always-on. No duration claim until hosted evidence exists. |

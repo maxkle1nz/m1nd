@@ -12,27 +12,34 @@ local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are 
 
 This is a **PUBLIC** repository. Everything you commit is published.
 
-## The gates — feedback while draft, full proof when ready
+## The gates — verified change scope, then full integration proof
 
 For each local edit, run the exact affected regression test first. Before
-sharing a draft, run `bash scripts/lightning_check.sh` and the affected
-crate/host tests. Do not rerun the entire workspace after every edit. A draft
-PR runs the selected lightning suite, all-target Clippy, doctests, the lean
-feature edge and formatting on Linux and Windows; UI, npm, Python, security
-and contract gates still run. Its required `Test` check **fails intentionally**:
-fast feedback cannot authorize a merge.
+sharing a PR, run the smallest real proof for the behavior; Rust changes also
+run `bash scripts/lightning_check.sh`. CI independently derives a strict v1
+scope from the PR event's base/head SHAs and `git diff --name-status -z -M` at
+the checked-out candidate. Renames include both paths; deletion, empty,
+malformed, unavailable or unknown diffs select full coverage.
 
-Mark a PR ready only when the behavior is stable and no P0/P1 is known. The
-`ready_for_review` event runs the full Rust suite on Linux, macOS and Windows
-even without a new commit. Every subsequent push while ready reruns the full
-suite; convert back to draft before the next development burst. Merge queue
-and main also run full; the shadow timing job is manual, not a main-push tax.
-The branch-protected `Test` check passes only after the complete required
-matrix plus all other gates pass on this exact head. See
-`docs/TEST-PORTFOLIO.md` for coverage and change-to-test mapping.
+Known PR changes run only their affected area gates. Scoped Rust runs LIGHTNING
+plus affected crates and their explicit dependents on Linux and Windows. UI,
+host/npm, native cache and Python gates run only when their flag is selected.
+Source guard, complete-history gitleaks and frozen-contract/docs coupling always
+run. Cargo audits run for dependency/full coverage; UI audit and dependency
+review run for UI dependency changes or full coverage. `Test` passes only when
+every selected job succeeds and every unselected job is truly skipped; its pass
+line names the scope and candidate SHA. A draft may receive that scoped result,
+but GitHub still forbids merging a draft.
 
-For final review or release, run these before claiming local full proof. The
-CI final blocking gate covers **ubuntu + macOS + Windows**:
+`main`, merge-group candidates, nightly and manual dispatch always select the
+three-OS full Rust proof. Whole CI/config/Cargo/build-script/security-policy
+changes also select full. The current PR's global CI change therefore runs the
+full lane once. This amendment does not claim a measured duration yet. See
+`docs/TEST-PORTFOLIO.md` for the path mapping and the preserved history of the
+previous draft/ready policy.
+
+For final review, release, or a full-selected change, run these before claiming
+local full proof. The CI full gate covers **ubuntu + macOS + Windows**:
 
 ```bash
 cargo nextest run --workspace --all-targets             # the LOCAL canonical runner (one process per test)
@@ -73,8 +80,9 @@ don't and cost ~half of every 70-minute CI round; the signed release pipeline re
 `--release` at tag time regardless). A release-profile-only breakage is caught on the main
 push — if you suspect one, run `cargo build --release --workspace` locally before merging.
 
-**Windows is REQUIRED again (since 2026-07-29):** `windows-latest` runs in the same
-`rust-gates` matrix as ubuntu/macos and its red blocks merge. It spent 2026-07-23→29 as an
+**Windows is REQUIRED again (since 2026-07-29):** `windows-latest` runs in the full
+matrix with ubuntu/macos and in scoped Rust with Linux; its red blocks the selected
+proof. It spent 2026-07-23→29 as an
 advisory job while the phase-2 debt was diagnosed and paid (#435–#440, #444); the flip back was
 made against a fully green advisory run on main, and the scaffold is deleted. The fs/path
 contract below is load-bearing — the whole debt family was path identity and cfg-gated code the

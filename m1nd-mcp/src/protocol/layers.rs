@@ -1234,6 +1234,10 @@ pub struct ValidatePlanInput {
     /// Whether to compute composite risk score. Default: true.
     #[serde(default = "default_true")]
     pub include_risk_score: bool,
+    /// Maximum gap and suggested-addition entries returned. Defaults to 24;
+    /// values above 128 are clamped to 128 and zero returns empty lists.
+    #[serde(default)]
+    pub max_gaps: Option<usize>,
 }
 
 /// A single action in a modification plan.
@@ -1260,6 +1264,10 @@ pub struct ValidatePlanOutput {
     pub actions_unresolved: usize,
     /// Files affected but not in the plan.
     pub gaps: Vec<PlanGap>,
+    /// Number of gaps found before applying the response budget.
+    pub gaps_total: usize,
+    /// Whether the response budget omitted one or more gaps.
+    pub gaps_truncated: bool,
     /// Composite risk [0.0, 1.0].
     pub risk_score: f32,
     /// "low" (<0.3) | "medium" (<0.6) | "high" (<0.8) | "critical" (>=0.8)
@@ -1270,6 +1278,10 @@ pub struct ValidatePlanOutput {
     pub test_coverage: PlanTestCoverage,
     /// Suggested additions to the plan.
     pub suggested_additions: Vec<PlanSuggestedAction>,
+    /// Number of suggested additions found before applying the response budget.
+    pub suggested_additions_total: usize,
+    /// Whether the response budget omitted one or more suggested additions.
+    pub suggested_additions_truncated: bool,
     pub blast_radius_total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<PlanHeuristicSummary>,
