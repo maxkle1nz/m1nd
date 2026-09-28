@@ -37,6 +37,10 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 }
 
+function selectedRegistryDir(options) {
+  return options.registryDir || (options.env && options.env.M1ND_REGISTRY_DIR) || process.env.M1ND_REGISTRY_DIR;
+}
+
 /// Ask the runtime whether a live serve owner already holds this repo.
 ///
 /// The question is NOT re-implemented here: `m1nd-mcp --discover-owner` is a
@@ -51,6 +55,7 @@ function ensureDir(dir) {
 function discoverServeOwner(options) {
   const binary = options.binary;
   const repo = options.repo;
+  const registryDir = selectedRegistryDir(options);
   if (!binary || !fs.existsSync(binary)) {
     return {
       schema: OWNER_DISCOVERY_SCHEMA,
@@ -61,7 +66,7 @@ function discoverServeOwner(options) {
   }
   let probe;
   try {
-    probe = spawnSync(binary, ["--discover-owner"], {
+    probe = spawnSync(binary, ["--discover-owner", ...(registryDir ? ["--registry-dir", registryDir] : [])], {
       cwd: repo,
       input: "",
       encoding: "utf8",
@@ -106,6 +111,7 @@ class McpRuntimeClient {
     // is minted, no graph is loaded, no lease is taken.
     this.attach = options.attach || null;
     this.extraEnv = options.env || {};
+    this.registryDir = selectedRegistryDir(options);
     this.cwd = options.cwd || null;
     this.args = options.args || defaultRuntimeArgs();
     this.proc = null;
@@ -124,6 +130,7 @@ class McpRuntimeClient {
     if (this.attach) {
       const args = [...this.args];
       if (!argsHaveOption(args, "--attach")) args.push("--attach", this.attach);
+      if (this.registryDir && !argsHaveOption(args, "--registry-dir")) args.push("--registry-dir", this.registryDir);
       return {
         args,
         cwd: this.cwd || this.repo,
