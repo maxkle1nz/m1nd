@@ -2,6 +2,8 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader};
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -55,6 +57,276 @@ fn stdio_sigterm_while_model_loader_is_blocked_returns_without_a_lease() {
 #[test]
 fn stdio_sigterm_after_populated_graph_ready_checkpoints_and_releases_owner() {
     exercise_sigterm_after("Server ready", true, false, false);
+}
+
+#[test]
+fn stdio_sigterm_during_current_read_recovery_refuses_without_releasing_owner() {
+    exercise_sigterm_during_recovery("checkpoint-read-verify-entered");
+}
+
+#[test]
+fn stdio_sigterm_after_atomic_recovery_projection_refuses_without_success_ack() {
+    exercise_sigterm_during_recovery("checkpoint-projection-entered");
+}
+
+fn exercise_sigterm_during_recovery(stage: &str) {
+    let temporary = tempfile::tempdir().expect("temporary recovery runtime");
+    let runtime = temporary.path().join("runtime");
+    let home = temporary.path().join("home");
+    let temp = temporary.path().join("tmp");
+    let workspace = temporary.path().join("workspace");
+    std::fs::create_dir_all(&runtime).expect("runtime directory");
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
+        .expect("owner-private runtime directory");
+    std::fs::create_dir_all(&home).expect("home directory");
+    std::fs::create_dir_all(&temp).expect("temp directory");
+    std::fs::create_dir_all(workspace.join("src")).expect("workspace source directory");
+    std::fs::write(workspace.join("src/lib.rs"), "pub fn fixture() {}\n")
+        .expect("workspace source fixture");
+
+    let mut graph = m1nd_core::graph::Graph::with_capacity(8192, 8191);
+    for index in 0..8192 {
+        let node = graph
+            .add_node(
+                &format!("repo-alpha/src/file-{index}.rs"),
+                &format!("file-{index}"),
+                m1nd_core::types::NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("seed recovery node");
+        if index > 0 {
+            graph
+                .add_edge(
+                    m1nd_core::types::NodeId::new(index - 1),
+                    node,
+                    "references",
+                    m1nd_core::types::FiniteF32::ONE,
+                    m1nd_core::types::EdgeDirection::Forward,
+                    false,
+                    m1nd_core::types::FiniteF32::ONE,
+                )
+                .expect("seed recovery edge");
+        }
+    }
+    graph.finalize().expect("finalize recovery seed");
+    m1nd_core::snapshot::save_graph(&graph, &runtime.join("graph_snapshot.json"))
+        .expect("seed recovery snapshot");
+    std::fs::write(
+        runtime.join("ingest_roots.json"),
+        serde_json::to_vec(&vec![workspace.to_string_lossy().into_owned()])
+            .expect("encode recovery roots"),
+    )
+    .expect("seed recovery roots");
+
+    let (mut first, first_lines, first_reader) =
+        spawn_recovery_owner(&runtime, &home, &temp, &workspace, None, None);
+    wait_for_stderr_trigger(&mut first, &first_lines, "Server ready");
+    send_term(&first);
+    let first_status = wait_for_exit(&mut first);
+    let first_stderr = first_reader.join().expect("join first stderr").join("\n");
+    assert!(
+        first_status.success(),
+        "fixture boot must create a real checkpoint: {first_stderr}"
+    );
+    assert!(
+        first_stderr.contains("actor checkpoint ACK(s); owner released. Goodbye."),
+        "fixture boot must close through the real checkpoint ACK: {first_stderr}"
+    );
+
+    let store_root = runtime.join("checkpoint-store");
+    let current_path = store_root.join("CURRENT");
+    let current_before = std::fs::read(&current_path).expect("capture real CURRENT bytes");
+    let store = m1nd_mcp::checkpoint_store::CheckpointStore::open(&store_root)
+        .expect("open real checkpoint store");
+    let current_before_pointer = store.current_pointer().expect("validate initial CURRENT");
+    assert!(!current_before_pointer.current_checkpoint_id.is_empty());
+    drop(store);
+
+    let socket = temporary.path().join("stage.sock");
+    let listener = UnixListener::bind(&socket).expect("bind recovery stage socket");
+    let (stage_tx, stage_rx) = mpsc::channel();
+    let stage_reader = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept recovery stage");
+        let mut stage_name = String::new();
+        BufReader::new(stream)
+            .read_line(&mut stage_name)
+            .expect("read recovery stage");
+        stage_tx
+            .send(stage_name.trim_end().to_string())
+            .expect("report recovery stage");
+    });
+
+    let (mut second, _second_lines, second_reader) = spawn_recovery_owner(
+        &runtime,
+        &home,
+        &temp,
+        &workspace,
+        Some(&socket),
+        Some(stage),
+    );
+    let observed_stage = match stage_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(stage) => stage,
+        Err(error) => {
+            let _ = second.kill();
+            let _ = second.wait();
+            let _ = UnixStream::connect(&socket);
+            let _ = stage_reader.join();
+            let stderr = second_reader.join().expect("join recovery stderr");
+            panic!("recovery never entered {stage:?}: {error}; stderr: {stderr:#?}");
+        }
+    };
+    assert_eq!(
+        observed_stage, stage,
+        "socket must name the real recovery phase"
+    );
+    send_term(&second);
+    let second_status = wait_for_exit(&mut second);
+    let second_stderr = second_reader
+        .join()
+        .expect("join recovery stderr")
+        .join("\n");
+    stage_reader.join().expect("join recovery stage reader");
+
+    assert!(
+        second_status.code().is_some_and(|code| code != 0),
+        "post-lease recovery cancellation must return a numeric non-zero exit, got {second_status}; stderr:\n{second_stderr}"
+    );
+    assert!(
+        second_stderr.contains("SIGTERM received"),
+        "signal receipt must remain explicit: {second_stderr}"
+    );
+    assert!(
+        !second_stderr.contains("Startup cancelled before serving; no owner remains."),
+        "post-lease cancellation cannot use the clean pre-owner result: {second_stderr}"
+    );
+    assert!(
+        !second_stderr.contains("Server ready"),
+        "cancelled recovery must not publish an actor: {second_stderr}"
+    );
+    assert!(
+        !second_stderr.contains("actor checkpoint ACK(s); owner released. Goodbye."),
+        "terminal recovery refusal must not report shutdown ACK/release: {second_stderr}"
+    );
+    assert_eq!(
+        std::fs::read(&current_path).expect("read CURRENT after refusal"),
+        current_before,
+        "recovery cancellation cannot replace CURRENT"
+    );
+    let store = m1nd_mcp::checkpoint_store::CheckpointStore::open(&store_root)
+        .expect("reopen checkpoint after refusal");
+    let loaded = store
+        .load_current(&TestCheckpointValidator)
+        .expect("original CURRENT remains digest-valid");
+    let restored = m1nd_core::snapshot::decode_graph_json(
+        &loaded
+            .read_file(GRAPH_SNAPSHOT_LOGICAL_NAME)
+            .expect("original graph blob validates"),
+    )
+    .expect("original graph blob decodes");
+    assert_eq!((restored.num_nodes(), restored.num_edges()), (8192, 8191));
+}
+
+fn spawn_recovery_owner(
+    runtime: &std::path::Path,
+    home: &std::path::Path,
+    temp: &std::path::Path,
+    workspace: &std::path::Path,
+    stage_socket: Option<&std::path::Path>,
+    stage: Option<&str>,
+) -> (
+    std::process::Child,
+    mpsc::Receiver<String>,
+    std::thread::JoinHandle<Vec<String>>,
+) {
+    let mut command = Command::new(BIN);
+    command
+        .args(["--stdio", "--no-gui"])
+        .current_dir(workspace)
+        .env_remove("M1ND_PROJECT_ROOT")
+        .env_remove("M1ND_REPO_ROOT")
+        .env_remove("WORKSPACE_ROOT")
+        .env_remove("PROJECT_ROOT")
+        .env_remove("REPO_ROOT")
+        .env_remove("M1ND_GRAPH_SOURCE")
+        .env_remove("GRAPH_SNAPSHOT_PATH")
+        .env_remove("M1ND_PLASTICITY_STATE")
+        .env_remove("PLASTICITY_STATE_PATH")
+        .env("M1ND_WORKSPACE_ROOT", workspace)
+        .env("M1ND_RUNTIME_DIR", runtime)
+        .env("M1ND_REGISTRY_DIR", runtime.join("registry"))
+        .env("M1ND_NO_GUI", "1")
+        .env("M1ND_EMBED_MODEL", home)
+        .env("HOME", home)
+        .env("TMPDIR", temp)
+        .env("TMP", temp)
+        .env("TEMP", temp)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    if let (Some(socket), Some(stage)) = (stage_socket, stage) {
+        command
+            .env("M1ND_TEST_COLD_SIGTERM_STAGE_SOCKET", socket)
+            .env("M1ND_TEST_COLD_SIGTERM_STAGE", stage);
+    } else {
+        command.env_remove("M1ND_TEST_COLD_SIGTERM_STAGE_SOCKET");
+        command.env_remove("M1ND_TEST_COLD_SIGTERM_STAGE");
+    }
+    let mut child = command.spawn().expect("spawn recovery stdio owner");
+    let stderr = child.stderr.take().expect("recovery owner stderr");
+    let (lines_tx, lines_rx) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut observed = Vec::new();
+        for line in BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            observed.push(line.clone());
+            let _ = lines_tx.send(line);
+        }
+        observed
+    });
+    (child, lines_rx, reader)
+}
+
+fn wait_for_stderr_trigger(
+    child: &mut std::process::Child,
+    lines: &mpsc::Receiver<String>,
+    trigger: &str,
+) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        match lines.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) if line.contains(trigger) => return,
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("stdio owner never emitted recovery trigger {trigger:?}");
+}
+
+fn send_term(child: &std::process::Child) {
+    let status = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("send SIGTERM");
+    assert!(status.success(), "kill -TERM must succeed");
+}
+
+fn wait_for_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().expect("poll stdio owner") {
+            return status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("stdio owner did not stop after SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn exercise_sigterm_after(

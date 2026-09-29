@@ -197,6 +197,8 @@ Step 4 requires v1.6.4 or later. Before that version reaches the public registry
 
 Step 4 is the local first-value path: when no served owner covers the repo, the agent CLI grants only that exact repo and an external private runtime to its child. It prepares derived state there without invoking generic `ingest` or minting a shared brain. Missing, source-nested, or source-resolving runtime paths refuse before mutation. The optional step 5 is not a prerequisite.
 
+On Windows, isolated startup verifies native directory ownership, access rules, and path identity before creating graph or registry state. On POSIX, interrupting the agent CLI forwards the signal to its owned runtime and retains the cache lease until that child has actually closed; SIGTERM returns status 143. See [startup and shutdown behavior](docs/AGENT-AUTONOMY.md#public-npm-cli-and-process-status) for recovery and timeout limits.
+
 Step 5 is the human-only route for a shared or served brain. Minting that kind of brain writes a whole graph, so the ceremony has a human terminal ingress and accepts only an empty destination. It exits non-zero and tells you what to check if the scan finds nothing, so it can never report success over an empty graph.
 
 Step 1 verifies the signature with [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/), so install that first if it is not on your PATH. If you prefer the source registry and accept skipping verification, `cargo install m1nd-mcp` works too. Prefer to see before you write: `hosts plan` prints everything `hosts apply` would touch, and writes nothing. There is no uninstall command yet; `hosts plan` doubles as the list of what to remove by hand.

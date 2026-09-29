@@ -52,7 +52,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -349,10 +349,31 @@ impl ProjectBrainRegistry {
         S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
         Read: FnOnce(&SessionState) -> Result<S, RuntimeJobFailure> + Send + 'static,
     {
+        self.read_target_runtime_snapshot_with_cancel(
+            target,
+            selected_project_root,
+            bound,
+            read,
+            None,
+        )
+    }
+
+    pub(crate) fn read_target_runtime_snapshot_with_cancel<S, Read>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        read: Read,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<BrainReadSnapshot<S>>
+    where
+        S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+        Read: FnOnce(&SessionState) -> Result<S, RuntimeJobFailure> + Send + 'static,
+    {
         let _admission = self.enter_lifecycle()?;
         #[cfg(test)]
         let test_hook = self.read_snapshot_test_hook.lock().take();
-        self.runtime_for_target(target, selected_project_root, bound)?
+        self.runtime_for_target_with_cancel(target, selected_project_root, bound, cancelled)?
             .try_read_snapshot(move |state| {
                 #[cfg(test)]
                 if let Some(hook) = test_hook {
@@ -383,8 +404,31 @@ impl ProjectBrainRegistry {
         R: Send + 'static,
         Execute: FnOnce(&mut SessionState) -> Result<R, RuntimeJobFailure> + Send + 'static,
     {
+        self.execute_target_runtime_with_cancel(
+            target,
+            selected_project_root,
+            bound,
+            mutating,
+            execute,
+            None,
+        )
+    }
+
+    pub(crate) fn execute_target_runtime_with_cancel<R, Execute>(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        mutating: bool,
+        execute: Execute,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<R>
+    where
+        R: Send + 'static,
+        Execute: FnOnce(&mut SessionState) -> Result<R, RuntimeJobFailure> + Send + 'static,
+    {
         let _admission = self.enter_lifecycle()?;
-        self.runtime_for_target(target, selected_project_root, bound)?
+        self.runtime_for_target_with_cancel(target, selected_project_root, bound, cancelled)?
             .try_execute(mutating, execute)
             .map_err(brain_runtime_m1nd_error)
     }
@@ -1017,6 +1061,16 @@ impl ProjectBrainRegistry {
         selected_project_root: Option<&str>,
         bound: bool,
     ) -> M1ndResult<Arc<BrainActorHandle>> {
+        self.runtime_for_target_with_cancel(target, selected_project_root, bound, None)
+    }
+
+    fn runtime_for_target_with_cancel(
+        &self,
+        target: Arc<BrainSessionCell>,
+        selected_project_root: Option<&str>,
+        bound: bool,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Arc<BrainActorHandle>> {
         if bound {
             let opened = self.bound_runtime.get_or_init(|| {
                 // A previous owner of this same cell may still be releasing its
@@ -1055,7 +1109,7 @@ impl ProjectBrainRegistry {
                         identity,
                     )
                 };
-                let runtime = BrainActorHandle::start_bound(
+                let runtime = BrainActorHandle::start_bound_with_cancel(
                     project_brain_id(&format!("bound:{identity}")),
                     identity.clone(),
                     target.clone(),
@@ -1063,6 +1117,7 @@ impl ProjectBrainRegistry {
                     self.checkpoint_authority.clone(),
                     self.actor_queue_capacity,
                     None,
+                    cancelled,
                 )
                 .map_err(|error| error.to_string())?;
                 // The one seam where the OWNER's brain actor is born — both the

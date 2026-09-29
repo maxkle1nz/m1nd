@@ -62,6 +62,15 @@ Source files are inputs only. Graph snapshots, checkpoints, embeddings,
 registry state, and other derived state remain under the canonical private
 runtime directory.
 
+On Windows, launcher startup proves the runtime's native owner and concrete
+DACL, walks the original directory chain without following reparse points,
+and compares its file identity with the canonical path. The runtime leaf must
+be owned by the process user or owner; effective access and inheritance must
+remain restricted to that identity and the trusted system/administrator
+principals. Ancestors must not grant foreign users rights to replace,
+redirect, or change the directory's ownership or access rules. A missing or
+unprovable runtime refuses before graph or registry creation.
+
 The subprocess battery removes inherited graph, plasticity, read-only,
 workspace-alias, home, and temporary-directory overrides before installing its
 fixture-owned environment. It also rejects MCP `isError: true` on positive
@@ -110,13 +119,22 @@ a bounded failure, leaves the cache owner proof in place for supervised recovery
 and does not claim the runtime reusable. Shutdown is complete only after the
 child `close` event has drained its stdio streams. On direct stdio, a SIGTERM
 received during cold bootstrap now cancels snapshot reads/reconstruction,
-semantic-index loops, model loading, embedding-cache reads, and waits for the
+semantic-index loops, temporal/co-change graph construction, model loading,
+embedding-cache reads, and waits for the
 lease-mutation guard before acquiring a writer lease. The upstream loader and
 cache reader have no cancellation hooks, so their pre-lease workers are
 isolated and cannot hold an actor or lease; process exit ends a blocked worker.
-A stalled filesystem open itself is not interruptible. If construction has
-already acquired ownership, bootstrap is joined and the normal checkpoint-ACK
-shutdown runs before releasing the owner. A failed checkpoint does not release
+A stalled filesystem open itself is not interruptible. For a new runtime with
+no CURRENT checkpoint, bootstrap is joined and normal checkpoint-ACK shutdown
+runs before releasing the owner. For an existing CURRENT, recovery after
+acquiring ownership cooperatively checks cancellation while validating and
+restoring checkpoint files, reconstructing state, and checking the final
+digest. Interrupted recovery quarantines the session, preserves authoritative
+CURRENT/checkpoint evidence, and refuses without a successful shutdown ACK.
+A checkpoint written with a known legacy spelling of the same canonical root
+can be adopted and re-stamped. An unknown identity is still refused; that
+untouched refusal does not poison a later boot with the known canonical source.
+A failed checkpoint does not release
 the live native owner through server Drop: it retains the owner and actor
 registry until process exit and returns an error, not a successful shutdown
 receipt. The populated-graph regression checks both SIGTERM paths with a real
@@ -133,6 +151,14 @@ strand a cache owner. If native
 execution itself fails before a child starts (including `EACCES` or `ENOEXEC`),
 the CLI reports a normalized spawn error and releases its lease because no child
 can own the runtime.
+
+On POSIX, SIGTERM, SIGINT, and SIGHUP interrupt the agent command even while it
+is waiting for the cache lease. The CLI forwards the first signal to its owned
+child, cancels pending requests and lease waits, and prevents a new spawn after
+interruption. Exit status is 128 plus the signal number (143 for SIGTERM).
+An interrupted waiter removes only its own wait record. The active owner
+retains its cache lease until the child `close` event; if closure cannot be
+confirmed, the command reports failure and preserves that lease.
 
 Each isolated runtime also has a per-runtime Node ownership lease before the
 identity manifest is created or validated and before the native process starts.

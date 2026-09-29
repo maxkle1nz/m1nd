@@ -124,6 +124,42 @@ class McpRuntimeClient {
     this.spawned = false;
     this.spawnFailure = null;
     this.stdinFailure = null;
+    this.cancellation = options.cancellation || null;
+    this.cancelledError = null;
+    this.startAttempted = false;
+  }
+
+  interruptionError() {
+    if (this.cancelledError) return this.cancelledError;
+    if (!this.cancellation) return null;
+    if (typeof this.cancellation.error === "function") return this.cancellation.error() || null;
+    return this.cancellation.error || null;
+  }
+
+  throwIfInterrupted() {
+    const error = this.interruptionError();
+    if (error) throw error;
+  }
+
+  rejectPending(error) {
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+  }
+
+  cancel(error, signal) {
+    if (!this.cancelledError) this.cancelledError = error || this.interruptionError();
+    const interruption = this.interruptionError();
+    if (!interruption) return;
+    this.rejectPending(interruption);
+    if (
+      this.proc &&
+      !this.processClosed &&
+      this.proc.exitCode === null &&
+      this.proc.signalCode === null &&
+      typeof this.proc.kill === "function"
+    ) {
+      this.proc.kill(signal || interruption.signal || "SIGTERM");
+    }
   }
 
   launchConfig() {
@@ -186,10 +222,14 @@ class McpRuntimeClient {
   }
 
   async start() {
+    this.throwIfInterrupted();
+    if (this.startAttempted) throw new Error("m1nd-mcp runtime start was already attempted");
+    this.startAttempted = true;
     if (!this.binary || !fs.existsSync(this.binary)) {
       throw new Error(`m1nd-mcp runtime not found at ${this.binary || "unknown"}`);
     }
     const config = this.launchConfig();
+    this.throwIfInterrupted();
     this.runtimeDir = config.runtimeDir;
     try {
       this.proc = spawn(this.binary, config.args, {
@@ -201,17 +241,6 @@ class McpRuntimeClient {
       const code = error && error.code ? `${error.code}: ` : "";
       throw new Error(`m1nd-mcp spawn failed: ${code}${error.message || String(error)}`);
     }
-    if (this.proc.stdin) {
-      // ChildProcess 'error' does not cover its writable stdin. A closed pipe
-      // must reject in-flight requests rather than crash Node with an EPIPE.
-      this.proc.stdin.on("error", (error) => {
-        const code = error && error.code ? `${error.code}: ` : "";
-        const failure = new Error(`m1nd-mcp stdin failed: ${code}${error.message || String(error)}`);
-        this.stdinFailure = failure;
-        for (const pending of this.pending.values()) pending.reject(failure);
-        this.pending.clear();
-      });
-    }
     let rejectLaunch;
     const launched = new Promise((resolve, reject) => {
       rejectLaunch = reject;
@@ -220,6 +249,16 @@ class McpRuntimeClient {
         resolve();
       });
     });
+    if (this.proc.stdin) {
+      // ChildProcess 'error' does not cover its writable stdin. A closed pipe
+      // must reject in-flight requests rather than crash Node with an EPIPE.
+      this.proc.stdin.on("error", (error) => {
+        const code = error && error.code ? `${error.code}: ` : "";
+        const failure = new Error(`m1nd-mcp stdin failed: ${code}${error.message || String(error)}`);
+        this.stdinFailure = failure;
+        this.rejectPending(this.interruptionError() || failure);
+      });
+    }
     this.proc.on("error", (error) => {
       const code = error && error.code ? `${error.code}: ` : "";
       const failure = new Error(`m1nd-mcp ${this.spawned ? "process" : "spawn"} failed: ${code}${error.message || String(error)}`);
@@ -230,30 +269,39 @@ class McpRuntimeClient {
         this.processClosed = true;
         rejectLaunch(failure);
       }
-      for (const pending of this.pending.values()) pending.reject(failure);
-      this.pending.clear();
-    });
-    await launched;
-    if (!this.proc.stdin || !this.proc.stdout || !this.proc.stderr) {
-      throw new Error("m1nd-mcp spawned without the required stdio streams");
-    }
-    this.proc.stderr.on("data", (chunk) => {
-      this.stderr += chunk.toString();
-      if (this.stderr.length > 12000) this.stderr = this.stderr.slice(-12000);
+      this.rejectPending(this.interruptionError() || failure);
     });
     this.proc.on("exit", () => {
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error(`m1nd-mcp process exited; stderr=${this.stderr.trim()}`));
-      }
-      this.pending.clear();
+      this.rejectPending(
+        this.interruptionError() || new Error(`m1nd-mcp process exited; stderr=${this.stderr.trim()}`)
+      );
     });
     this.proc.on("close", (code, signal) => {
       this.processClosed = true;
       this.closeStatus = { code, signal };
     });
-    this.readline = readline.createInterface({ input: this.proc.stdout });
-    this.readline.on("line", (line) => this.handleLine(line));
+    if (this.proc.stderr) {
+      this.proc.stderr.on("data", (chunk) => {
+        this.stderr += chunk.toString();
+        if (this.stderr.length > 12000) this.stderr = this.stderr.slice(-12000);
+      });
+    }
+    if (this.proc.stdout) {
+      this.readline = readline.createInterface({ input: this.proc.stdout });
+      this.readline.on("line", (line) => this.handleLine(line));
+    }
+    try {
+      await launched;
+    } catch (error) {
+      this.throwIfInterrupted();
+      throw error;
+    }
+    if (!this.proc.stdin || !this.proc.stdout || !this.proc.stderr) {
+      throw new Error("m1nd-mcp spawned without the required stdio streams");
+    }
+    this.throwIfInterrupted();
     await this.request("initialize", {});
+    this.throwIfInterrupted();
     return this;
   }
 
@@ -277,6 +325,11 @@ class McpRuntimeClient {
   }
 
   request(method, params) {
+    try {
+      this.throwIfInterrupted();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (this.stdinFailure) return Promise.reject(this.stdinFailure);
     if (!this.proc || !this.proc.stdin || this.proc.stdin.destroyed) {
       return Promise.reject(new Error("m1nd-mcp process is not running"));
@@ -341,7 +394,7 @@ class McpRuntimeClient {
     if (this.proc.stdin && !this.proc.stdin.destroyed) this.proc.stdin.end();
     let closed = await this.waitForClose(5000);
     if (!closed && this.proc.exitCode === null && this.proc.signalCode === null) {
-      this.proc.kill("SIGTERM");
+      this.proc.kill((this.interruptionError() && this.interruptionError().signal) || "SIGTERM");
       // A cold owner can still be inside a synchronous checkpoint. Never kill
       // it and then claim that its cache is safe for another writer.
       closed = await this.waitForClose(120_000);

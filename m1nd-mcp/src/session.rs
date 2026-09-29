@@ -17,6 +17,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -2174,7 +2175,7 @@ impl SessionState {
             !config.read_only,
             cancelled,
         )?;
-        let mut temporal = TemporalEngine::build(&graph)?;
+        let mut temporal = TemporalEngine::build_with_cancel(&graph, cancelled)?;
         let temporal_state_path = runtime_root.join(crate::temporal_state::TEMPORAL_STATE_FILE);
         match crate::temporal_state::load_temporal_state(&temporal_state_path, &graph) {
             Ok(Some((primary, orchestrator_matrix))) => {
@@ -2379,14 +2380,22 @@ impl SessionState {
     }
 
     fn read_required_recovery_file(path: &Path, logical_name: &str) -> M1ndResult<Vec<u8>> {
-        crate::checkpoint_store::read_regular_checkpoint_input(path).map_err(|error| {
-            M1ndError::CorruptState {
+        Self::read_required_recovery_file_with_cancel(path, logical_name, None)
+    }
+
+    fn read_required_recovery_file_with_cancel(
+        path: &Path,
+        logical_name: &str,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<Vec<u8>> {
+        crate::checkpoint_store::read_regular_checkpoint_input_with_cancel(path, cancelled).map_err(
+            |error| M1ndError::CorruptState {
                 reason: format!(
                     "strict recovery could not read required {logical_name} '{}': {error}",
                     path.display()
                 ),
-            }
-        })
+            },
+        )
     }
 
     /// Reject fields/defaults that a compatibility-oriented serde decoder would
@@ -2415,6 +2424,13 @@ impl SessionState {
     /// acquire a discovery handle, refresh the registry, run migration/GC, load
     /// an embedding cache, create directories, or substitute friendly defaults.
     fn prepare_strict_recovery_state(&self) -> M1ndResult<StrictRecoveryState> {
+        self.prepare_strict_recovery_state_with_cancel(None)
+    }
+
+    fn prepare_strict_recovery_state_with_cancel(
+        &self,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<StrictRecoveryState> {
         let ingest_roots_path = self
             .graph_path
             .parent()
@@ -2427,33 +2443,74 @@ impl SessionState {
 
         // Read the complete fixed working set first. Required candidate files
         // are never allowed to decay into defaults during authoritative recovery.
-        let graph_bytes = Self::read_required_recovery_file(&self.graph_path, "graph_snapshot")?;
-        let ingest_roots_bytes =
-            Self::read_required_recovery_file(&ingest_roots_path, "ingest_roots")?;
-        let plasticity_bytes =
-            Self::read_required_recovery_file(&self.plasticity_path, "plasticity_state")?;
-        let antibodies_bytes =
-            Self::read_required_recovery_file(&self.antibodies_path, "antibodies")?;
-        let tremor_bytes = Self::read_required_recovery_file(&self.tremor_path, "tremor_state")?;
-        let trust_bytes = Self::read_required_recovery_file(&self.trust_path, "trust_state")?;
-        let calibration_bytes =
-            Self::read_required_recovery_file(&self.calibration_path, "calibration_state")?;
-        let temporal_bytes =
-            Self::read_required_recovery_file(&self.temporal_state_path, "temporal_state")?;
-        let daemon_state_bytes =
-            Self::read_required_recovery_file(&self.daemon_state_path, "daemon_state")?;
-        let daemon_alerts_bytes =
-            Self::read_required_recovery_file(&self.daemon_alerts_path, "daemon_alerts")?;
-        let auto_ingest_bytes =
-            Self::read_required_recovery_file(&auto_ingest_path, "auto_ingest_state")?;
-        let document_cache_bytes =
-            Self::read_required_recovery_file(&document_cache_path, "document_cache_index")?;
-        let document_artifact_inventory_bytes = Self::read_required_recovery_file(
+        let graph_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.graph_path,
+            "graph_snapshot",
+            cancelled,
+        )?;
+        let ingest_roots_bytes = Self::read_required_recovery_file_with_cancel(
+            &ingest_roots_path,
+            "ingest_roots",
+            cancelled,
+        )?;
+        let plasticity_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.plasticity_path,
+            "plasticity_state",
+            cancelled,
+        )?;
+        let antibodies_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.antibodies_path,
+            "antibodies",
+            cancelled,
+        )?;
+        let tremor_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.tremor_path,
+            "tremor_state",
+            cancelled,
+        )?;
+        let trust_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.trust_path,
+            "trust_state",
+            cancelled,
+        )?;
+        let calibration_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.calibration_path,
+            "calibration_state",
+            cancelled,
+        )?;
+        let temporal_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.temporal_state_path,
+            "temporal_state",
+            cancelled,
+        )?;
+        let daemon_state_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.daemon_state_path,
+            "daemon_state",
+            cancelled,
+        )?;
+        let daemon_alerts_bytes = Self::read_required_recovery_file_with_cancel(
+            &self.daemon_alerts_path,
+            "daemon_alerts",
+            cancelled,
+        )?;
+        let auto_ingest_bytes = Self::read_required_recovery_file_with_cancel(
+            &auto_ingest_path,
+            "auto_ingest_state",
+            cancelled,
+        )?;
+        let document_cache_bytes = Self::read_required_recovery_file_with_cancel(
+            &document_cache_path,
+            "document_cache_index",
+            cancelled,
+        )?;
+        let document_artifact_inventory_bytes = Self::read_required_recovery_file_with_cancel(
             &document_artifact_inventory_path,
             "document_artifact_inventory",
+            cancelled,
         )?;
 
-        let mut graph = m1nd_core::snapshot::decode_graph_json(&graph_bytes)?;
+        let mut graph =
+            m1nd_core::snapshot::decode_graph_json_with_cancel(&graph_bytes, cancelled)?;
         if !graph.finalized && graph.num_nodes() > 0 {
             graph.finalize()?;
         }
@@ -2500,7 +2557,8 @@ impl SessionState {
         // is the pure in-memory constructor; it neither reads nor writes working
         // files. Only the two explicitly checkpointed temporal matrices replace
         // their derived bootstrap values.
-        let mut orchestrator = QueryOrchestrator::build(&graph)?;
+        let mut orchestrator =
+            QueryOrchestrator::build_with_cache_and_cancel(&graph, None, false, cancelled)?;
         let orchestrator_applied = orchestrator
             .plasticity
             .import_state(&mut graph, &plasticity_states)?
@@ -2512,7 +2570,7 @@ impl SessionState {
                 ),
             });
         }
-        let mut temporal = TemporalEngine::build(&graph)?;
+        let mut temporal = TemporalEngine::build_with_cancel(&graph, cancelled)?;
         let (primary_temporal, orchestrator_temporal) =
             crate::temporal_state::decode_temporal_state(&temporal_bytes, &graph)?;
         temporal.co_change = primary_temporal;
@@ -2594,8 +2652,11 @@ impl SessionState {
         // round-trip through its canonical checkpoint encoder. Any missing,
         // malformed, unknown, defaulted, or concurrently replaced payload fails.
         let auto_ingest = AutoIngestState::load(&self.runtime_root);
-        let auto_ingest_after =
-            Self::read_required_recovery_file(&auto_ingest_path, "auto_ingest_state")?;
+        let auto_ingest_after = Self::read_required_recovery_file_with_cancel(
+            &auto_ingest_path,
+            "auto_ingest_state",
+            cancelled,
+        )?;
         if auto_ingest_bytes != auto_ingest_after {
             return Err(M1ndError::CorruptState {
                 reason: "auto-ingest checkpoint changed during strict recovery".into(),
@@ -2663,7 +2724,15 @@ impl SessionState {
         &mut self,
         preserve_process_state: bool,
     ) -> M1ndResult<()> {
-        let recovered = self.prepare_strict_recovery_state()?;
+        self.reload_authoritative_from_disk_with_cancel(preserve_process_state, None)
+    }
+
+    pub(crate) fn reload_authoritative_from_disk_with_cancel(
+        &mut self,
+        preserve_process_state: bool,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<()> {
+        let recovered = self.prepare_strict_recovery_state_with_cancel(cancelled)?;
 
         self.graph = Arc::new(parking_lot::RwLock::new(recovered.graph));
         self.orchestrator = recovered.orchestrator;
@@ -3203,6 +3272,13 @@ impl SessionState {
     /// checkpoint working-set envelope after rollback/reconciliation. An active
     /// stage or unresolved derived effect is refused rather than omitted.
     pub(crate) fn authoritative_checkpoint_state_digest(&self) -> M1ndResult<String> {
+        self.authoritative_checkpoint_state_digest_with_cancel(None)
+    }
+
+    pub(crate) fn authoritative_checkpoint_state_digest_with_cancel(
+        &self,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<String> {
         if let Some(active) = self.persistence_stage.get() {
             return Err(M1ndError::PersistenceFailed(format!(
                 "authoritative digest is unavailable while checkpoint transaction {} is active",
@@ -3215,7 +3291,7 @@ impl SessionState {
             ));
         }
         let files = self.checkpoint_candidate_files()?;
-        Ok(checkpoint_candidate_digest(&files))
+        checkpoint_candidate_digest_with_cancel(&files, cancelled)
     }
 
     /// Replace the live SharedGraph with a v4 encode/decode deep clone. Any Arc
@@ -4613,9 +4689,47 @@ fn refuse_non_regular_checkpoint_target(path: &Path) -> M1ndResult<()> {
 }
 
 fn checkpoint_candidate_digest(files: &[SessionCheckpointCandidateFile]) -> String {
-    fn update_field(hasher: &mut Sha256, bytes: &[u8]) {
+    checkpoint_candidate_digest_with_cancel(files, None).expect("uncancelled candidate digest")
+}
+
+fn checkpoint_candidate_digest_with_cancel(
+    files: &[SessionCheckpointCandidateFile],
+    cancelled: Option<&AtomicBool>,
+) -> M1ndResult<String> {
+    checkpoint_candidate_digest_with_cancel_and_observer(files, cancelled, |_| {})
+}
+
+fn checkpoint_candidate_digest_with_cancel_and_observer<Observe>(
+    files: &[SessionCheckpointCandidateFile],
+    cancelled: Option<&AtomicBool>,
+    mut observe_chunk: Observe,
+) -> M1ndResult<String>
+where
+    Observe: FnMut(usize),
+{
+    fn check(cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
+        crate::checkpoint_store::check_recovery_cancelled(cancelled)
+            .map_err(|error| M1ndError::PersistenceFailed(error.to_string()))
+    }
+
+    fn update_field<Observe>(
+        hasher: &mut Sha256,
+        bytes: &[u8],
+        cancelled: Option<&AtomicBool>,
+        observe_chunk: &mut Observe,
+    ) -> M1ndResult<()>
+    where
+        Observe: FnMut(usize),
+    {
+        check(cancelled)?;
         hasher.update((bytes.len() as u64).to_be_bytes());
-        hasher.update(bytes);
+        for chunk in bytes.chunks(64 * 1024) {
+            check(cancelled)?;
+            hasher.update(chunk);
+            observe_chunk(chunk.len());
+            check(cancelled)?;
+        }
+        Ok(())
     }
 
     let mut ordered = files.iter().collect::<Vec<_>>();
@@ -4628,19 +4742,39 @@ fn checkpoint_candidate_digest(files: &[SessionCheckpointCandidateFile]) -> Stri
     hasher.update(b"m1nd/session-checkpoint-candidate/v1\0");
     hasher.update((ordered.len() as u64).to_be_bytes());
     for file in ordered {
-        update_field(&mut hasher, file.logical_name.as_bytes());
-        update_field(&mut hasher, file.relative_path.as_bytes());
-        update_field(&mut hasher, file.schema_id.as_bytes());
-        update_field(&mut hasher, file.schema_version.as_bytes());
+        update_field(
+            &mut hasher,
+            file.logical_name.as_bytes(),
+            cancelled,
+            &mut observe_chunk,
+        )?;
+        update_field(
+            &mut hasher,
+            file.relative_path.as_bytes(),
+            cancelled,
+            &mut observe_chunk,
+        )?;
+        update_field(
+            &mut hasher,
+            file.schema_id.as_bytes(),
+            cancelled,
+            &mut observe_chunk,
+        )?;
+        update_field(
+            &mut hasher,
+            file.schema_version.as_bytes(),
+            cancelled,
+            &mut observe_chunk,
+        )?;
         match &file.presence {
             CheckpointCandidatePresence::Present(bytes) => {
                 hasher.update([1]);
-                update_field(&mut hasher, bytes);
+                update_field(&mut hasher, bytes, cancelled, &mut observe_chunk)?;
             }
             CheckpointCandidatePresence::Absent => hasher.update([0]),
         }
     }
-    crate::util::hex_lower(&hasher.finalize())
+    Ok(crate::util::hex_lower(&hasher.finalize()))
 }
 
 fn canonical_json_bytes<T: Serialize>(value: &T) -> M1ndResult<Vec<u8>> {
@@ -4680,8 +4814,9 @@ pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResu
 #[cfg(test)]
 mod tests {
     use super::{
-        basename_of, compare_dotted_versions, CheckpointCandidatePresence, ProofReadyMark,
-        SeekFileIndexCache, SessionState, FINGERPRINT_INGEST_ROOTS_HEAD,
+        basename_of, checkpoint_candidate_digest_with_cancel_and_observer, compare_dotted_versions,
+        CheckpointCandidatePresence, ProofReadyMark, SeekFileIndexCache,
+        SessionCheckpointCandidateFile, SessionState, FINGERPRINT_INGEST_ROOTS_HEAD,
         WORKSPACE_ROOT_ENV_CANDIDATES,
     };
     use crate::server::McpConfig;
@@ -4690,6 +4825,7 @@ mod tests {
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -6911,5 +7047,37 @@ mod tests {
         let summary = state.graph_runtime_summary();
         assert!(summary.get("ingest_roots").is_none());
         assert_eq!(summary["ingest_root_count"].as_u64(), Some(400));
+    }
+
+    #[test]
+    fn recovery_candidate_digest_stops_after_its_first_cancelled_buffer_chunk() {
+        let cancelled = AtomicBool::new(false);
+        let files = vec![SessionCheckpointCandidateFile {
+            logical_name: "large_sidecar".to_string(),
+            relative_path: "large_sidecar.json".to_string(),
+            schema_id: "m1nd-session-sidecar".to_string(),
+            schema_version: "1".to_string(),
+            presence: CheckpointCandidatePresence::Present(vec![3_u8; 128 * 1024]),
+        }];
+        let mut full_chunks = 0_usize;
+
+        let result = checkpoint_candidate_digest_with_cancel_and_observer(
+            &files,
+            Some(&cancelled),
+            |chunk_len| {
+                if chunk_len == 64 * 1024 {
+                    full_chunks += 1;
+                    if full_chunks == 1 {
+                        cancelled.store(true, Ordering::Release);
+                    }
+                }
+            },
+        );
+
+        assert!(result.is_err(), "cancelled candidate digest must refuse");
+        assert_eq!(
+            full_chunks, 1,
+            "the recovery digest must not hash the second 64 KiB chunk"
+        );
     }
 }

@@ -80,3 +80,30 @@ test("unconfirmed close fails bounded without killing the writer", async () => {
   assert.deepEqual(signals, ["SIGTERM"], "a timeout must not SIGKILL an unconfirmed owner");
   assert.equal(client.processClosed, false, "lease release still requires the close event");
 });
+
+test("interruption rejects pending requests and prevents future runtime work", async () => {
+  const interrupted = Object.assign(new Error("m1nd agent interrupted by SIGTERM"), {
+    code: "M1ND_AGENT_INTERRUPTED",
+    signal: "SIGTERM",
+    exitCode: 143,
+  });
+  const cancellation = { error: null };
+  const signals = [];
+  const client = new McpRuntimeClient({ binary: "fixture", repo: "repo-alpha", cancellation });
+  client.proc = {
+    stdin: { destroyed: false, write() {} },
+    exitCode: null,
+    signalCode: null,
+    kill(signal) { signals.push(signal); return true; },
+  };
+
+  const pending = client.request("initialize", {});
+  cancellation.error = interrupted;
+  client.cancel(interrupted, "SIGTERM");
+
+  await assert.rejects(pending, (error) => error === interrupted);
+  await assert.rejects(client.request("tools/list", {}), (error) => error === interrupted);
+  await assert.rejects(client.start(), (error) => error === interrupted);
+  assert.deepEqual(signals, ["SIGTERM"]);
+  assert.equal(client.processClosed, false, "forwarding a signal is not evidence that the child closed");
+});
