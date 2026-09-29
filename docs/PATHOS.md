@@ -2,6 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
+
+**Developer tools delta — 2026-09-28:** scripts/m1nd-dev is a checked-in, portable contributor entrypoint. It derives a private, per-checkout runtime and canonical Cargo target, preserves exact native identity checks, and offers guarded loopback Vite development. The new focused fixture and real-Vite tests prove only the launcher and proxy contracts; no real native m1nd runtime proof is claimed here. See docs/DEVELOPMENT.md.
+
+**Startup/shutdown delta — 2026-09-28:** cancellation now covers temporal construction and post-lease checkpoint recovery. Interrupted existing-state recovery quarantines rather than baselining interrupted data; an untouched identity refusal still allows a later same-root legacy adoption. The POSIX agent CLI forwards termination and keeps its cache lease until actual child closure. Windows launcher startup uses native owner/DACL, reparse, and directory-identity checks instead of unconditional refusal. Local focused proof passed 73 identity/recovery/launcher cases and seven real SIGTERM processes; the Windows helper and actual guard function passed MSVC lint/type checks. This is a local source candidate: native Windows execution, current full CI, integration, and v1.6.4 publication remain pending. See docs/AGENT-AUTONOMY.md.
 > Last checkpoint: 2026-08-01 (**checkpoint 39 — THE PIVOT: THE PRODUCT HAD NO FIRST-VALUE PATH AT ALL, AND THE LADDER STOPPED SO THE MENU COULD FIT ON ONE SCREEN**).
 > Checkpoint 39, condensed: the owner turned the program around and the measurement backed him. **(1) m1nd could not be used by anyone new — measured, not suspected.** A virgin repo, empty graph, fresh agent calling `ingest`: `generic_action_authority_required, authority_floor=POSITIVE_SOVEREIGN`. And the human door, which this session had *pointed at without testing*, exited 0 and produced **0 nodes**: `m1nd init --birth` minted a project brain under `project-brains/<key>/` that only a served owner's HTTP routing reads, while the next stdio session read `runtime.session` — the ceremony filled one brain and the next session opened another. Fixed in #520 (home-birth gated on NODE COUNT, not root coverage, because a virgin runtime demotes `workspace_root` to `<repo>/.m1nd` and the coverage guard misses); `birth_produced_empty_graph` now refuses a ceremony that would exit successfully with nothing; every refusal on that path names `m1nd init --birth <repo>` — an experienced external agent had hit FOUR refusals, none of which mentioned the door, and concluded in a written report that the product could not be used. **(2) The measurement that turned the program.** Six weeks of host transcripts, deduplicated: **458 distinct calls / 157 sessions / 34 verbs of 141**. 57% of sessions call m1nd exactly ONCE and never again; 71% never make two calls in a row; the two commonest actions after a m1nd verb are Bash and Read — the agent goes and fetches by hand what m1nd just pointed at. Narrated in 76% of north calls, ACTED ON in 32%. The verbs that exist to close that second hop were at zero (`surgical_context`: 1 call in six weeks — and ranked top-3 by an external evaluator told to exercise everything). Answer shipped: #517 folds the code into `north` (5,576 → 8,116 chars, ~25% of the hard ceiling), #514 gives m1nd its first usage telemetry (verb names and counts only, privacy enforced by mechanism — caller text cannot reach the file), #518 makes the first minute find the served owner, #516 stops every ingest from erasing the Hebbian counters (73,332 edges, ALL zero in production — the signature feature had never accumulated anything because the graph is replaced wholesale and nothing re-imported the sidecar). **(3) The menu now fits on one screen (#521).** 141 advertised → 15 served (the owner's ratified 12 plus `help`/`doctor`/`recovery_playbook`, which the honest surface mechanically requires); 127 hidden, ZERO removed — proven on the wire by calling a hidden verb by name and getting an answer. Discovery three ways: `help` reads the FULL registry (it was reading the tier-gated list — a documented gap), the menu's help entry carries a computed hidden count, `tool_surface_contract` gained `hidden_tool_count`/`hidden_tools_are_callable`/`discovery_rule`. Mechanism not list: `CORE_TOOLS ∪ HOST_BINDING_REQUIRED_TOOLS` bounded by a COMPILE-TIME assert. **A confounder found in passing: the owner's serve carries `M1ND_TOOL_TIER=full`, which is exactly why the six-week audit observed 141 advertised — that number was an artefact of the development machine's config, not the product's default.** Ratified: the variable stays (the machine that builds the product is not an adoption sample). **(4) Floors, measured before touching:** the catalog holds **166 actions, 111 above Ordinary, and 3 with any written justification** — and the three are the same comment. Cross-referenced against 242 letters: **12 describe REAL damage**, and the ones that sustain a floor are one family — cross-brain writes ("moved this repo's memories into the WRONG brain's store"). That family is frozen forever. The rest were inherited BY NEIGHBOURHOOD IN THE CATALOG — the section dividers are visible in the source (`// Durable trails, perspectives, locks…`), so a section comment became security policy. Same defect shape as the first-value bug: `ingest` with no `mode` fell into `replace`'s classification by lazy classification, not by decision. Floors await small lots with a declared denominator per lot; nothing was touched. **(5) The custody chain closed at G9's door and stopped there.** The Apple wall fell (a Developer-ID bundle with an embedded provisioning profile launches with the restricted entitlement — measured, not inferred), the ceremony bundle ships (#512), and the owner's OWN first `provision-seats` found the bug no test could: the never-open-or-create duplicate guard treated `errSecItemNotFound` as fatal, so on a fresh ceremony — the only time provisioning is legitimate — the question "does this seat exist?" aborted. #519. The software fake returns `Ok(None)` cleanly; fake and Apple diverge at exactly that line. **The ceremony is unblocked but unrun: it needs a v1.6.3 to carry the fix into a signed, entitled bundle.**
 >
@@ -480,6 +484,33 @@ Update this list in the same PR that closes one; a front that dies silently is a
   the required `Test` check must apply to administrators and be up to date with
   main before merge. Verify that setting in GitHub; workflow YAML alone does
   not enforce either condition.
+
+**Owner amendment 2026-09-28 — CI by proved change scope:**
+- The 2026-09-25 draft/ready split remains historical evidence, not the active
+  selector. `scripts/ci_scope.py` validates PR event base/head SHAs against the
+  checked-out candidate and classifies a complete NUL-delimited merge-base diff,
+  including both rename paths. Empty, malformed, unavailable, unknown and
+  global paths select full. The v1 scope JSON is closed: candidate, mode,
+  Rust/UI/host/cache/Python flags, crates and named heavy families only.
+- Known PR changes can pass `Test` at scoped coverage whether draft or ready;
+  GitHub's draft-merge prohibition remains the UI rule. The aggregate refuses a
+  missing classifier, malformed scope, cancelled/failed selected job,
+  non-skipped unselected job, or any unexpected job. Its pass line records
+  scope and candidate SHA.
+- Full three-OS `cargo test` remains mandatory for main, merge-group, nightly,
+  manual dispatch and every global selector (Cargo, build script, CI/config,
+  classifier/aggregator/lightning, security policy and unknown paths). The
+  release workflow still has an Ubuntu-only proof surface; no release guarantee
+  follows from scoped PR checks.
+- Source guard and complete-history gitleaks remain mandatory for every run.
+  Cargo audit runs on full/Cargo dependency coverage; UI audit and dependency
+  review run for UI dependency changes or full coverage. Scoped Rust keeps
+  LIGHTNING plus its declared crate closure on Linux/Windows, excluding only
+  retrobuilder real/stress and transplant outside their own touched areas.
+- Limits, stated before measurement: no hosted wall-clock result is claimed,
+  the static crate closure needs revalidation if Cargo topology changes (which
+  itself selects full), and scheduled execution becomes live only after this
+  workflow lands on the default branch.
 
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**

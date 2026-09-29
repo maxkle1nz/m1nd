@@ -333,11 +333,29 @@ function tryAcquireAgentRuntimeLease(runtimeDir, token) {
   return { runtimeDir, ownerDir, token };
 }
 
+function cancellationError(cancellation) {
+  if (!cancellation) return null;
+  if (typeof cancellation === "function") return cancellation() || null;
+  if (typeof cancellation.error === "function") return cancellation.error() || null;
+  if (cancellation.error) return cancellation.error;
+  if (typeof cancellation.isCancelled === "function" && cancellation.isCancelled()) {
+    return new Error("agent runtime cache lease acquisition cancelled");
+  }
+  return null;
+}
+
+function throwIfCancelled(cancellation) {
+  const error = cancellationError(cancellation);
+  if (error) throw error;
+}
+
 function waitStep() {
   return new Promise((resolve) => setTimeout(resolve, 25));
 }
 
-async function acquireAgentRuntimeLease(runtimeDir) {
+async function acquireAgentRuntimeLease(runtimeDir, options = {}) {
+  const cancellation = options.cancellation || options.cancel || null;
+  throwIfCancelled(cancellation);
   const waitMs = cacheOwnerWaitMs();
   fs.mkdirSync(path.dirname(runtimeDir), { recursive: true, mode: 0o700 });
   let identityCreationAllowed = false;
@@ -350,6 +368,7 @@ async function acquireAgentRuntimeLease(runtimeDir) {
     identityCreationAllowed = fs.readdirSync(runtimeDir).length === 0;
   }
   assertCacheDirectory(runtimeDir, "runtime directory");
+  throwIfCancelled(cancellation);
   const token = crypto.randomBytes(24).toString("hex");
   const immediate = tryAcquireAgentRuntimeLease(runtimeDir, token);
   if (immediate) return { ...immediate, identityCreationAllowed };
@@ -362,6 +381,7 @@ async function acquireAgentRuntimeLease(runtimeDir) {
   const deadline = Date.now() + waitMs;
   try {
     while (Date.now() < deadline) {
+      throwIfCancelled(cancellation);
       const lease = tryAcquireAgentRuntimeLease(runtimeDir, token);
       if (lease) return { ...lease, identityCreationAllowed };
       await waitStep();

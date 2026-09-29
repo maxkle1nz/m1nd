@@ -788,7 +788,7 @@ async fn run_stdio_server(
         let mut server = McpServer::new_with_cancel(config, Some(&worker_cancel))?;
         // After ownership is acquired, start the actor even if SIGTERM won
         // the race: shutdown must checkpoint before the lease is released.
-        if let Err(error) = server.start() {
+        if let Err(error) = server.start_with_cancel(Some(&worker_cancel)) {
             eprintln!("[m1nd-mcp] Failed to start server: {error}");
             if let Err(shutdown_error) = server.shutdown() {
                 eprintln!("[m1nd-mcp] Failed to shut down after startup refusal: {shutdown_error}");

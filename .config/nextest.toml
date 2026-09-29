@@ -59,14 +59,15 @@ test-group = 'heavy-io'
 
 # ---------------------------------------------------------------------------
 # The LIGHTNING lane — a fast day-to-day CHECK, deliberately NOT the merge
-# gate (adopted for draft feedback only, 2026-09-25). Its selector is the
-# never-cut core from docs/TEST-PORTFOLIO.md §4: lifecycle, checkpoint
-# fault-injection, byte continuity, birth e2e, the runtime-exclusion gate,
-# schema/parity/seating, reception guards and the fail-closed authority
-# family. Run it through `scripts/lightning_check.sh`, which adds the two
+# gate. Its selector is the ratified never-cut core from
+# docs/TEST-PORTFOLIO.md §4: lifecycle, checkpoint fault-injection, byte
+# continuity, birth e2e, runtime exclusion, schema/parity/seating, reception
+# guards and the fail-closed authority family. The Rust command narrows only
+# its compiled target set; this filter remains the exact test contract. Run it
+# through `scripts/lightning_check.sh`, which adds the two
 # proofs nextest cannot carry (the compile_fail doctest leg and the lean
 # no-default-features check) and prints, on every run, what this lane does
-# NOT prove. The merge gate remains the FULL suite on three OSes, always.
+# NOT prove. A CI `full` scope runs the three-OS integration suite.
 [profile.lightning]
 default-filter = '''
 binary_id(m1nd-mcp::persist_runtime_root)

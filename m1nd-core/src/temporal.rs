@@ -124,11 +124,34 @@ impl CoChangeMatrix {
     /// Bootstrap co-change from graph structure (BFS depth 3 from each node).
     /// Replaces: temporal_v2.py CoChangeMatrix.bootstrap()
     pub fn bootstrap(graph: &Graph, budget: u64) -> M1ndResult<Self> {
+        Self::bootstrap_with_cancel(graph, budget, None)
+    }
+
+    /// Bootstrap co-change from graph structure, optionally observing startup
+    /// cancellation at bounded traversal points.
+    pub fn bootstrap_with_cancel(
+        graph: &Graph,
+        budget: u64,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
+        Self::bootstrap_with_cancel_checker(graph, budget, |_| check_startup_cancelled(cancelled))
+    }
+
+    fn bootstrap_with_cancel_checker<Check>(
+        graph: &Graph,
+        budget: u64,
+        mut check_cancelled: Check,
+    ) -> M1ndResult<Self>
+    where
+        Check: FnMut(BootstrapCancelPoint) -> M1ndResult<()>,
+    {
+        check_cancelled(BootstrapCancelPoint::Bootstrap)?;
         let n = graph.num_nodes() as usize;
         let mut rows = vec![Vec::new(); n];
         let mut total_entries = 0u64;
 
         for start in 0..n {
+            check_cancelled(BootstrapCancelPoint::Origin)?;
             if total_entries >= budget {
                 break;
             }
@@ -143,12 +166,14 @@ impl CoChangeMatrix {
             let mut entries: Vec<CoChangeEntry> = Vec::new();
 
             while let Some((node, depth, strength)) = queue.pop_front() {
+                check_cancelled(BootstrapCancelPoint::QueuePop)?;
                 if depth >= 3 {
                     continue;
                 }
 
                 let range = graph.csr.out_range(node);
                 for j in range {
+                    check_cancelled(BootstrapCancelPoint::Edge)?;
                     let tgt = graph.csr.targets[j];
                     let tgt_idx = tgt.as_usize();
                     if tgt_idx >= n || visited[tgt_idx] {
@@ -1222,6 +1247,22 @@ impl ImpactRadiusCalculator {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BootstrapCancelPoint {
+    Bootstrap,
+    Origin,
+    QueuePop,
+    Edge,
+}
+
+fn check_startup_cancelled(cancelled: Option<&std::sync::atomic::AtomicBool>) -> M1ndResult<()> {
+    if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+        Err(M1ndError::StartupCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImpactDirection {
     Forward,
     Reverse,
@@ -1246,7 +1287,16 @@ impl TemporalEngine {
     /// Build from graph with default parameters.
     /// Replaces: temporal_v2.py TemporalPredictor.__init__()
     pub fn build(graph: &Graph) -> M1ndResult<Self> {
-        let co_change = CoChangeMatrix::bootstrap(graph, DEFAULT_MATRIX_BUDGET)?;
+        Self::build_with_cancel(graph, None)
+    }
+
+    /// Build from graph while carrying an optional cold-start cancellation token.
+    pub fn build_with_cancel(
+        graph: &Graph,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> M1ndResult<Self> {
+        let co_change =
+            CoChangeMatrix::bootstrap_with_cancel(graph, DEFAULT_MATRIX_BUDGET, cancelled)?;
         let chain_detector = CausalChainDetector::with_defaults();
         let decay_scorer = TemporalDecayScorer::new(PosF32::new(DEFAULT_HALF_LIFE_HOURS).unwrap());
         let impact_calculator = ImpactRadiusCalculator::new(5, FiniteF32::new(0.01));
@@ -1349,4 +1399,130 @@ fn hex_lower(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+#[cfg(test)]
+mod temporal_cancellation_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn bootstrap_graph() -> Graph {
+        let mut graph = Graph::with_capacity(3, 2);
+        let first = graph
+            .add_node("file::first.rs", "first", NodeType::File, &[], 0.0, 0.0)
+            .expect("first fixture node");
+        let second = graph
+            .add_node("file::second.rs", "second", NodeType::File, &[], 0.0, 0.0)
+            .expect("second fixture node");
+        let third = graph
+            .add_node("file::third.rs", "third", NodeType::File, &[], 0.0, 0.0)
+            .expect("third fixture node");
+        graph
+            .add_edge(
+                first,
+                second,
+                "references",
+                FiniteF32::ONE,
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::ONE,
+            )
+            .expect("first fixture edge");
+        graph
+            .add_edge(
+                second,
+                third,
+                "references",
+                FiniteF32::ONE,
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::ONE,
+            )
+            .expect("second fixture edge");
+        graph.finalize().expect("finalize fixture graph");
+        graph
+    }
+
+    #[test]
+    fn temporal_build_with_cancel_refuses_a_precancelled_bootstrap() {
+        let graph = bootstrap_graph();
+        let cancelled = AtomicBool::new(true);
+
+        let result = TemporalEngine::build_with_cancel(&graph, Some(&cancelled));
+
+        assert!(
+            matches!(result, Err(M1ndError::StartupCancelled)),
+            "a pre-cancelled cold build must not construct temporal state"
+        );
+    }
+
+    #[test]
+    fn cochange_bootstrap_observes_cancellation_from_an_inner_bfs_edge_check() {
+        let graph = bootstrap_graph();
+        let cancelled = AtomicBool::new(false);
+        let mut inner_edge_checks = 0usize;
+
+        let result = CoChangeMatrix::bootstrap_with_cancel_checker(&graph, 128, |point| {
+            if point == BootstrapCancelPoint::Edge {
+                inner_edge_checks += 1;
+                if inner_edge_checks == 1 {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
+            check_startup_cancelled(Some(&cancelled))
+        });
+
+        assert!(
+            inner_edge_checks > 0,
+            "fixture must trip the cancellation check from inside the BFS edge loop"
+        );
+        assert!(
+            cancelled.load(Ordering::Acquire),
+            "the deterministic inner-edge probe must set the production token"
+        );
+        assert!(
+            matches!(result, Err(M1ndError::StartupCancelled)),
+            "a cancellation raised from the BFS edge loop must stop bootstrap"
+        );
+    }
+
+    #[test]
+    fn temporal_build_without_a_token_matches_the_chain_bootstrap_oracle() {
+        let graph = bootstrap_graph();
+
+        let temporal =
+            TemporalEngine::build_with_cancel(&graph, None).expect("uncancelled temporal build");
+
+        assert_eq!(
+            temporal.co_change.rows[0],
+            vec![
+                CoChangeEntry {
+                    target: NodeId::new(1),
+                    strength: FiniteF32::new(0.285),
+                    co_count: 0,
+                },
+                CoChangeEntry {
+                    target: NodeId::new(2),
+                    strength: FiniteF32::new(0.081225),
+                    co_count: 0,
+                },
+            ]
+        );
+        assert_eq!(
+            temporal.co_change.rows[1],
+            vec![CoChangeEntry {
+                target: NodeId::new(2),
+                strength: FiniteF32::new(0.285),
+                co_count: 0,
+            }]
+        );
+        assert!(temporal.co_change.rows[2].is_empty());
+        assert_eq!(temporal.co_change.node_counts, vec![0, 0, 0]);
+        assert_eq!(temporal.co_change.total_entries, 3);
+        assert_eq!(temporal.co_change.budget, 500_000);
+        assert!(
+            !temporal.co_change.is_learned,
+            "structural bootstrap must not claim learned co-change observations"
+        );
+    }
 }

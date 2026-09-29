@@ -5317,6 +5317,8 @@ pub fn handle_validate_plan(
             actions_resolved: 0,
             actions_unresolved: 0,
             gaps: vec![],
+            gaps_total: 0,
+            gaps_truncated: false,
             risk_score: 0.0,
             risk_level: "low".into(),
             proof_state: "blocked".into(),
@@ -5327,6 +5329,8 @@ pub fn handle_validate_plan(
                 coverage_ratio: 1.0,
             },
             suggested_additions: vec![],
+            suggested_additions_total: 0,
+            suggested_additions_truncated: false,
             blast_radius_total: 0,
             heuristic_summary: None,
             next_suggested_tool: None,
@@ -5678,16 +5682,28 @@ pub fn handle_validate_plan(
         );
     }
 
+    // Keep every analysis decision grounded in the complete ranked result.
+    // The response budget applies only after risk, proof state, suggestions,
+    // heuristics, and the next-step handoff have all been computed.
+    let response_budget = l6_vp_response_budget(input.max_gaps);
+    let (gaps_total, gaps_truncated) = l6_vp_apply_response_budget(&mut gaps, response_budget);
+    let (suggested_additions_total, suggested_additions_truncated) =
+        l6_vp_apply_response_budget(&mut suggested_additions, response_budget);
+
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
         actions_resolved,
         actions_unresolved,
         gaps,
+        gaps_total,
+        gaps_truncated,
         risk_score,
         risk_level,
         proof_state,
         test_coverage,
         suggested_additions,
+        suggested_additions_total,
+        suggested_additions_truncated,
         blast_radius_total,
         heuristic_summary,
         next_suggested_tool,
@@ -5697,6 +5713,22 @@ pub fn handle_validate_plan(
         recovery,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+const L6_VALIDATE_PLAN_DEFAULT_RESPONSE_BUDGET: usize = 24;
+const L6_VALIDATE_PLAN_MAX_RESPONSE_BUDGET: usize = 128;
+
+fn l6_vp_response_budget(max_gaps: Option<usize>) -> usize {
+    max_gaps
+        .unwrap_or(L6_VALIDATE_PLAN_DEFAULT_RESPONSE_BUDGET)
+        .min(L6_VALIDATE_PLAN_MAX_RESPONSE_BUDGET)
+}
+
+fn l6_vp_apply_response_budget<T>(entries: &mut Vec<T>, response_budget: usize) -> (usize, bool) {
+    let total = entries.len();
+    let truncated = total > response_budget;
+    entries.truncate(response_budget);
+    (total, truncated)
 }
 
 fn l6_vp_proof_state(
@@ -5723,13 +5755,14 @@ fn l6_vp_proof_state(
 }
 
 fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidatePlanInput) {
+    let mut warmed_roots = std::collections::HashSet::new();
     for action in &input.actions {
         if action.action_type == "create" || action.action_type == "delete" {
             continue;
         }
 
         let resolved_path = l6_vp_resolve_disk_path(&action.file_path, &state.ingest_roots);
-        if !resolved_path.exists() {
+        if !resolved_path.is_file() {
             continue;
         }
 
@@ -5743,8 +5776,23 @@ fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidateP
             continue;
         }
 
+        // A leaf merge would add the leaf itself to `ingest_roots`, which changes
+        // the persisted binding and makes a later launcher-root check refuse the
+        // otherwise healthy graph. Only re-ingest a visible file through an
+        // already declared directory root. Hidden paths remain unresolved because
+        // the default code scanner excludes them; widening that scan here would
+        // silently change its source policy.
+        let Some(ingest_root) =
+            l6_vp_declared_ingest_root_for_file(&resolved_path, &state.ingest_roots)
+        else {
+            continue;
+        };
+        if warmed_roots.contains(&ingest_root) {
+            continue;
+        }
+
         let ingest_input = crate::protocol::IngestInput {
-            path: resolved_path_str,
+            path: ingest_root.clone(),
             agent_id: input.agent_id.clone(),
             mode: "merge".to_string(),
             incremental: true,
@@ -5754,8 +5802,33 @@ fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidateP
             dotfile_patterns: Vec::new(),
             project_root: None,
         };
-        let _ = crate::tools::handle_ingest(state, ingest_input);
+        if crate::tools::handle_ingest(state, ingest_input).is_ok() {
+            warmed_roots.insert(ingest_root);
+        }
     }
+}
+
+fn l6_vp_declared_ingest_root_for_file(
+    file: &std::path::Path,
+    ingest_roots: &[String],
+) -> Option<String> {
+    let canonical_file = std::fs::canonicalize(file).ok()?;
+
+    ingest_roots.iter().rev().find_map(|root| {
+        let root_path = std::path::Path::new(root);
+        if !root_path.is_dir() {
+            return None;
+        }
+        let canonical_root = std::fs::canonicalize(root_path).ok()?;
+        let relative = canonical_file.strip_prefix(&canonical_root).ok()?;
+        let has_hidden_component = relative.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|name| name.starts_with('.'))
+        });
+        (!has_hidden_component).then(|| root.clone())
+    })
 }
 
 // =========================================================================
@@ -11139,7 +11212,7 @@ mod tests {
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
-    use m1nd_core::graph::Graph;
+    use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
     use std::collections::HashMap;
 
@@ -11619,6 +11692,103 @@ mod tests {
         state.ingest_roots = vec![root.to_string_lossy().to_string()];
         state.workspace_root = Some(root.to_string_lossy().to_string());
         state
+    }
+
+    fn build_layer_state_with_plan_gaps(root: &std::path::Path, gap_count: usize) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let core = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        graph.set_node_provenance(
+            core,
+            NodeProvenanceInput {
+                source_path: Some("src/core.rs"),
+                canonical: true,
+                ..Default::default()
+            },
+        );
+        for index in 0..gap_count {
+            let gap_path = format!("src/gap_{index}.rs");
+            let gap = graph
+                .add_node(
+                    &format!("file::{gap_path}"),
+                    &format!("gap_{index}.rs"),
+                    NodeType::File,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add gap node");
+            graph.set_node_provenance(
+                gap,
+                NodeProvenanceInput {
+                    source_path: Some(&gap_path),
+                    canonical: true,
+                    ..Default::default()
+                },
+            );
+            graph
+                .add_edge(
+                    core,
+                    gap,
+                    "imports",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.8),
+                )
+                .expect("add core-to-gap edge");
+        }
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn validate_plan_input_with_budget(max_gaps: Option<usize>) -> ValidatePlanInput {
+        ValidatePlanInput {
+            agent_id: "test".into(),
+            actions: vec![PlannedAction {
+                action_type: "modify".into(),
+                file_path: "src/core.rs".into(),
+                description: Some("budget check".into()),
+                depends_on: vec![],
+            }],
+            scope: None,
+            include_test_impact: false,
+            include_risk_score: true,
+            max_gaps,
+        }
+    }
+
+    fn run_validate_plan_with_gap_budget(
+        root: &std::path::Path,
+        gap_count: usize,
+        max_gaps: Option<usize>,
+    ) -> crate::protocol::layers::ValidatePlanOutput {
+        let mut state = build_layer_state_with_plan_gaps(root, gap_count);
+        handle_validate_plan(&mut state, validate_plan_input_with_budget(max_gaps))
+            .expect("validate_plan should succeed")
     }
 
     fn build_layer_state_with_manifest_gap(root: &std::path::Path) -> SessionState {
@@ -13446,6 +13616,7 @@ mod tests {
                 scope: None,
                 include_test_impact: false,
                 include_risk_score: false,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should succeed")
@@ -14759,6 +14930,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 scope: None,
                 include_test_impact: false,
                 include_risk_score: false,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should succeed");
@@ -14786,6 +14958,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 scope: None,
                 include_test_impact: true,
                 include_risk_score: true,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should succeed");
@@ -14822,6 +14995,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 scope: Some(other.join("src").to_string_lossy().to_string()),
                 include_test_impact: false,
                 include_risk_score: false,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should return structured recovery");
@@ -14899,6 +15073,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 scope: None,
                 include_test_impact: true,
                 include_risk_score: true,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should succeed");
@@ -14975,6 +15150,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 scope: None,
                 include_test_impact: false,
                 include_risk_score: true,
+                max_gaps: None,
             },
         )
         .expect("validate_plan should succeed");
@@ -14990,6 +15166,253 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .all(|item| item.file_path != "Cargo.toml"),
             "suggested additions should not reintroduce suppressed manifest noise"
         );
+    }
+
+    #[test]
+    fn validate_plan_response_budget_preserves_complete_analysis_before_truncating() {
+        const GAP_COUNT: usize = 100;
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        // 128 is large enough to retain the full analysis result and serves as
+        // the oracle for response-budgeted calls below.
+        let full = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, Some(128));
+        assert_eq!(full.gaps_total, GAP_COUNT);
+        assert_eq!(full.gaps.len(), GAP_COUNT);
+        assert!(!full.gaps_truncated);
+        assert_eq!(full.suggested_additions_total, GAP_COUNT);
+        assert_eq!(full.suggested_additions.len(), GAP_COUNT);
+        assert!(!full.suggested_additions_truncated);
+
+        let default = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, None);
+        let zero = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, Some(0));
+        let explicit = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, Some(7));
+
+        assert_eq!(default.gaps.len(), 24, "the default response budget is 24");
+        assert_eq!(default.suggested_additions.len(), 24);
+        assert!(default.gaps_truncated);
+        assert!(default.suggested_additions_truncated);
+
+        assert!(zero.gaps.is_empty(), "zero is a valid response budget");
+        assert!(zero.suggested_additions.is_empty());
+        assert!(zero.gaps_truncated);
+        assert!(zero.suggested_additions_truncated);
+
+        assert_eq!(explicit.gaps.len(), 7);
+        assert_eq!(explicit.suggested_additions.len(), 7);
+        assert!(explicit.gaps_truncated);
+        assert!(explicit.suggested_additions_truncated);
+
+        let full_heuristics = full.heuristic_summary.as_ref().map(|summary| {
+            (
+                summary.heuristic_risk,
+                summary.hotspot_count,
+                summary.low_trust_hotspots,
+                summary.tremor_hotspots,
+                summary.antibody_hotspots,
+                summary.hotspots.len(),
+            )
+        });
+        for output in [&default, &zero, &explicit] {
+            assert_eq!(output.gaps_total, full.gaps_total);
+            assert_eq!(
+                output.suggested_additions_total,
+                full.suggested_additions_total
+            );
+            assert_eq!(output.risk_score, full.risk_score);
+            assert_eq!(output.risk_level, full.risk_level);
+            assert_eq!(output.proof_state, full.proof_state);
+            assert_eq!(output.blast_radius_total, full.blast_radius_total);
+            assert_eq!(
+                output.next_suggested_tool.as_deref(),
+                full.next_suggested_tool.as_deref()
+            );
+            assert_eq!(
+                output.next_suggested_target.as_deref(),
+                full.next_suggested_target.as_deref()
+            );
+            assert_eq!(
+                output.next_step_hint.as_deref(),
+                full.next_step_hint.as_deref()
+            );
+            assert_eq!(
+                output.heuristic_summary.as_ref().map(|summary| (
+                    summary.heuristic_risk,
+                    summary.hotspot_count,
+                    summary.low_trust_hotspots,
+                    summary.tremor_hotspots,
+                    summary.antibody_hotspots,
+                    summary.hotspots.len(),
+                )),
+                full_heuristics,
+                "response budget must not alter heuristic analysis"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_plan_response_budget_caps_large_requests_and_keeps_empty_plans_honest() {
+        const GAP_COUNT: usize = 200;
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let at_cap = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, Some(128));
+        let above_cap = run_validate_plan_with_gap_budget(temp.path(), GAP_COUNT, Some(999));
+        for output in [&at_cap, &above_cap] {
+            assert_eq!(output.gaps_total, GAP_COUNT);
+            assert_eq!(output.gaps.len(), 128, "response budget must cap at 128");
+            assert!(output.gaps_truncated);
+            assert_eq!(output.suggested_additions_total, GAP_COUNT);
+            assert_eq!(output.suggested_additions.len(), 128);
+            assert!(output.suggested_additions_truncated);
+        }
+        assert_eq!(above_cap.risk_score, at_cap.risk_score);
+        assert_eq!(above_cap.proof_state, at_cap.proof_state);
+        assert_eq!(
+            above_cap.next_suggested_tool.as_deref(),
+            at_cap.next_suggested_tool.as_deref()
+        );
+
+        let parsed: ValidatePlanInput = serde_json::from_value(serde_json::json!({
+            "agent_id": "test",
+            "actions": []
+        }))
+        .expect("max_gaps should default when omitted");
+        assert_eq!(parsed.max_gaps, None);
+
+        let mut state = build_layer_state(temp.path());
+        let empty = handle_validate_plan(&mut state, parsed).expect("empty plan should succeed");
+        assert_eq!(empty.gaps_total, 0);
+        assert!(!empty.gaps_truncated);
+        assert!(empty.gaps.is_empty());
+        assert_eq!(empty.suggested_additions_total, 0);
+        assert!(!empty.suggested_additions_truncated);
+        assert!(empty.suggested_additions.is_empty());
+    }
+
+    #[test]
+    fn validate_plan_autowarm_reingests_declared_root_and_survives_restart() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("repo");
+        let source_dir = repo.join("src");
+        std::fs::create_dir_all(&source_dir).expect("source dir");
+        std::fs::write(
+            source_dir.join("missing.rs"),
+            "pub fn missing_from_graph() {}\n",
+        )
+        .expect("write source");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph.finalize().expect("finalize empty graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        let declared_root = repo.to_string_lossy().to_string();
+        state.ingest_roots = vec![declared_root.clone()];
+        state.workspace_root = Some(declared_root.clone());
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: "src/missing.rs".into(),
+                    description: None,
+                    depends_on: vec![],
+                }],
+                scope: None,
+                include_test_impact: false,
+                include_risk_score: true,
+                max_gaps: None,
+            },
+        )
+        .expect("validate_plan should autowarm the declared root");
+
+        assert_eq!(output.actions_resolved, 1);
+        assert_eq!(output.actions_unresolved, 0);
+        assert_eq!(state.ingest_roots, vec![declared_root.clone()]);
+        assert!(
+            state
+                .graph
+                .read()
+                .resolve_id("file::src/missing.rs")
+                .is_some(),
+            "the visible leaf must be present after its declared root is re-ingested"
+        );
+
+        state.persist().expect("persist autowarmed graph and roots");
+        drop(state);
+
+        let restored_graph =
+            m1nd_core::snapshot::load_graph(&config.graph_source).expect("load persisted graph");
+        let restored = SessionState::initialize(restored_graph, &config, DomainConfig::code())
+            .expect("restart initialize");
+        assert_eq!(restored.ingest_roots, vec![declared_root.clone()]);
+        assert!(restored.covers_root(&declared_root));
+        assert!(
+            restored
+                .graph
+                .read()
+                .resolve_id("file::src/missing.rs")
+                .is_some(),
+            "the persisted graph must retain the autowarmed source leaf"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_plan_autowarm_skips_outside_symlink_without_changing_roots() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("repo");
+        let source_dir = repo.join("src");
+        std::fs::create_dir_all(&source_dir).expect("source dir");
+        let outside = temp.path().join("outside.rs");
+        std::fs::write(&outside, "pub fn outside_bound_root() {}\n").expect("write outside source");
+        std::os::unix::fs::symlink(&outside, source_dir.join("outside_link.rs"))
+            .expect("create outside symlink");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph.finalize().expect("finalize empty graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        let declared_root = repo.to_string_lossy().to_string();
+        state.ingest_roots = vec![declared_root.clone()];
+        state.workspace_root = Some(declared_root.clone());
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: "src/outside_link.rs".into(),
+                    description: None,
+                    depends_on: vec![],
+                }],
+                scope: None,
+                include_test_impact: false,
+                include_risk_score: true,
+                max_gaps: None,
+            },
+        )
+        .expect("validate_plan should leave the outside leaf unresolved");
+
+        assert_eq!(output.actions_resolved, 0);
+        assert_eq!(output.actions_unresolved, 1);
+        assert_eq!(state.ingest_roots, vec![declared_root]);
+        assert_eq!(state.graph.read().num_nodes(), 0);
     }
 
     // -------------------------------------------------------------------------

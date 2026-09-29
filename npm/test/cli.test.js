@@ -2305,6 +2305,7 @@ const ownerDiscoveryNone = JSON.stringify({
 });
 
 const agentAttachArgvLog = path.join(mkTmpDir(), "argv.log");
+const agentDiscoveryRegistry = path.join(mkTmpDir(), "registry");
 const agentFirstMinuteAttached = spawnSync(
   process.execPath,
   [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture", "--binary", fakeMcp, "--json"],
@@ -2317,6 +2318,7 @@ const agentFirstMinuteAttached = spawnSync(
       M1ND_FAKE_TRUST: "needs_ingest",
       M1ND_FAKE_OWNER_DISCOVERY: ownerDiscoveryFound,
       M1ND_FAKE_ARGV_LOG: agentAttachArgvLog,
+      M1ND_REGISTRY_DIR: agentDiscoveryRegistry,
     },
   }
 );
@@ -2343,10 +2345,18 @@ assert(
   agentAttachArgv.some((line) => line.includes("--discover-owner")),
   "the CLI must ask the runtime's own discovery probe instead of a second discovery"
 );
+assert(
+  agentAttachArgv.some((line) => line.includes(`--discover-owner --registry-dir ${agentDiscoveryRegistry}`)),
+  "owner discovery must pass the selected registry to the native probe"
+);
 const agentAttachBridgeArgv = agentAttachArgv.find((line) => line.includes("--attach"));
 assert(
   agentAttachBridgeArgv && agentAttachBridgeArgv.includes("--attach auto"),
   `the runtime must be launched as a bridge to the discovered owner: ${agentAttachArgv.join(" | ")}`
+);
+assert(
+  agentAttachBridgeArgv.includes(`--registry-dir ${agentDiscoveryRegistry}`),
+  "the attached bridge must use the registry selected for owner discovery"
 );
 assert(
   !agentAttachBridgeArgv.includes("--runtime-dir"),

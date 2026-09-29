@@ -803,6 +803,9 @@ pub enum BrainRuntimeError {
         observed: u64,
     },
     Checkpoint(CheckpointError),
+    /// SIGTERM observed after this actor claimed the session. This is terminal
+    /// for the process: it must not cross `main` as clean StartupCancelled.
+    RecoveryCancelled,
     CheckpointCommittedUnconfirmed {
         checkpoint_id: String,
         detail: String,
@@ -829,6 +832,7 @@ impl BrainRuntimeError {
             Self::BrainBindingMismatch { .. } => "brain_binding_mismatch",
             Self::SnapshotRevisionMismatch { .. } => "brain_snapshot_revision_mismatch",
             Self::Checkpoint(error) => error.code(),
+            Self::RecoveryCancelled => "brain_recovery_cancelled",
             Self::CheckpointCommittedUnconfirmed { .. } => "brain_checkpoint_committed_unconfirmed",
             Self::CheckpointBoundaryIndeterminate { .. } => {
                 "brain_checkpoint_boundary_indeterminate"
@@ -915,6 +919,9 @@ impl fmt::Display for BrainRuntimeError {
                 "runtime job snapshot revision mismatch: expected {expected}, observed {observed}"
             ),
             Self::Checkpoint(error) => write!(formatter, "brain checkpoint failed: {error}"),
+            Self::RecoveryCancelled => formatter.write_str(
+                "brain recovery cancelled after actor ownership; session remains quarantined",
+            ),
             Self::CheckpointCommittedUnconfirmed {
                 checkpoint_id,
                 detail,
@@ -955,6 +962,21 @@ impl From<CheckpointError> for BrainRuntimeError {
     fn from(error: CheckpointError) -> Self {
         Self::Checkpoint(error)
     }
+}
+
+fn recovery_cancelled_error(error: BrainRuntimeError) -> BrainRuntimeError {
+    match error {
+        BrainRuntimeError::Checkpoint(CheckpointError::RecoveryCancelled) => {
+            BrainRuntimeError::RecoveryCancelled
+        }
+        error => error,
+    }
+}
+
+fn check_recovery_cancelled(cancelled: Option<&AtomicBool>) -> Result<(), BrainRuntimeError> {
+    crate::checkpoint_store::check_recovery_cancelled(cancelled)
+        .map_err(BrainRuntimeError::Checkpoint)
+        .map_err(recovery_cancelled_error)
 }
 
 type ActorOperation = Box<dyn FnOnce(&mut BrainActorState) + Send + 'static>;
@@ -1007,7 +1029,27 @@ impl BrainActorHandle {
         queue_capacity: usize,
         recovery: Option<BrainBootRecovery>,
     ) -> Result<Arc<Self>, BrainRuntimeError> {
-        Self::start_with_faults(
+        Self::start_with_cancel(
+            brain_id,
+            session,
+            checkpoint_root,
+            authority,
+            queue_capacity,
+            recovery,
+            None,
+        )
+    }
+
+    pub(crate) fn start_with_cancel(
+        brain_id: String,
+        session: Arc<BrainSessionCell>,
+        checkpoint_root: PathBuf,
+        authority: Arc<dyn BrainCheckpointAuthority>,
+        queue_capacity: usize,
+        recovery: Option<BrainBootRecovery>,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<Arc<Self>, BrainRuntimeError> {
+        Self::start_with_faults_with_cancel(
             brain_id,
             None,
             session,
@@ -1016,6 +1058,7 @@ impl BrainActorHandle {
             queue_capacity,
             recovery,
             Arc::new(NoCheckpointFaults),
+            cancelled,
         )
     }
 
@@ -1040,7 +1083,33 @@ impl BrainActorHandle {
         queue_capacity: usize,
         recovery: Option<BrainBootRecovery>,
     ) -> Result<Arc<Self>, BrainRuntimeError> {
-        Self::start_with_faults(
+        Self::start_bound_with_cancel(
+            brain_id,
+            identity_source,
+            session,
+            checkpoint_root,
+            authority,
+            queue_capacity,
+            recovery,
+            None,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserves the explicit bound startup API while adding cancellation"
+    )]
+    pub(crate) fn start_bound_with_cancel(
+        brain_id: String,
+        identity_source: String,
+        session: Arc<BrainSessionCell>,
+        checkpoint_root: PathBuf,
+        authority: Arc<dyn BrainCheckpointAuthority>,
+        queue_capacity: usize,
+        recovery: Option<BrainBootRecovery>,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<Arc<Self>, BrainRuntimeError> {
+        Self::start_with_faults_with_cancel(
             brain_id,
             Some(identity_source),
             session,
@@ -1049,6 +1118,7 @@ impl BrainActorHandle {
             queue_capacity,
             recovery,
             Arc::new(NoCheckpointFaults),
+            cancelled,
         )
     }
 
@@ -1062,6 +1132,31 @@ impl BrainActorHandle {
         queue_capacity: usize,
         recovery: Option<BrainBootRecovery>,
         checkpoint_faults: Arc<dyn CheckpointFaultInjector>,
+    ) -> Result<Arc<Self>, BrainRuntimeError> {
+        Self::start_with_faults_with_cancel(
+            brain_id,
+            identity_source,
+            session,
+            checkpoint_root,
+            authority,
+            queue_capacity,
+            recovery,
+            checkpoint_faults,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn start_with_faults_with_cancel(
+        brain_id: String,
+        identity_source: Option<String>,
+        session: Arc<BrainSessionCell>,
+        checkpoint_root: PathBuf,
+        authority: Arc<dyn BrainCheckpointAuthority>,
+        queue_capacity: usize,
+        recovery: Option<BrainBootRecovery>,
+        checkpoint_faults: Arc<dyn CheckpointFaultInjector>,
+        cancelled: Option<&AtomicBool>,
     ) -> Result<Arc<Self>, BrainRuntimeError> {
         let activation = session.claim_actor()?;
         let had_provided_recovery = recovery.is_some();
@@ -1081,12 +1176,6 @@ impl BrainActorHandle {
                 .unwrap_or_default(),
         );
         let mut boot_state = session.checkout()?;
-        // Callers may have cloned interior Arcs before moving SessionState into
-        // the cell. Detach them at the ownership handoff so no pre-actor graph
-        // capability can mutate the actor's future baseline out of band.
-        boot_state
-            .rebind_detached_graph()
-            .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
         let heartbeat_permit = boot_state.instance.heartbeat_permit();
         match heartbeat_permit.heartbeat() {
             Ok(true) => {}
@@ -1102,18 +1191,21 @@ impl BrainActorHandle {
             }
         }
         let mut boot_files_touched = false;
+        let mut untouched_identity_refusal = false;
         // Reconcile recovery only after this actor owns the checkpoint-store
         // writer lock. A receipt obtained before `start` is advisory: CURRENT
         // may have advanced in the gap. Conversely, `None` must never baseline
         // canonical bytes when an existing CURRENT proves this is a restart.
         let start_result = (|| {
             let validator = AuthorityValidatorAdapter(authority.as_ref());
-            let observed = store.load_with_fallback(
+            let observed = store.load_with_fallback_with_cancel(
                 &validator,
                 now_unix_ms().map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?,
+                cancelled,
             );
             let recovery = match observed {
                 Ok(loaded) => {
+                    check_recovery_cancelled(cancelled)?;
                     if loaded.manifest.brain_id != brain_id {
                         // One root, one identity. When we know the canonical
                         // source this id derives from, a checkpoint stamped
@@ -1140,6 +1232,7 @@ impl BrainActorHandle {
                                 loaded.manifest.brain_id
                             );
                         } else {
+                            untouched_identity_refusal = true;
                             return Err(BrainRuntimeError::BrainBindingMismatch {
                                 expected: brain_id.clone(),
                                 observed: loaded.manifest.brain_id,
@@ -1147,21 +1240,40 @@ impl BrainActorHandle {
                             });
                         }
                     }
-                    let verified_working_set = verified_working_set(&loaded)?;
+                    // A typed identity refusal above has not changed the
+                    // session. Detach only after accepting this checkpoint;
+                    // cancellation on either side still quarantines recovery.
+                    check_recovery_cancelled(cancelled)?;
+                    boot_state
+                        .rebind_detached_graph()
+                        .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
+                    check_recovery_cancelled(cancelled)?;
+                    let verified_working_set = verified_working_set_with_cancel(&loaded, cancelled)?;
                     let expected_candidate_digest =
                         verified_working_set.candidate_state_digest.clone();
                     let legacy_working_set = expected_candidate_digest.is_none();
                     let mut managed_working_paths = verified_working_set.paths;
-                    managed_working_paths.extend(rejected_current_working_paths(
+                    check_recovery_cancelled(cancelled)?;
+                    managed_working_paths.extend(rejected_current_working_paths_with_cancel(
                         &store,
                         &loaded,
                         &validator,
+                        cancelled,
                     )?);
+                    check_recovery_cancelled(cancelled)?;
                     if legacy_working_set {
                         managed_working_paths
-                            .extend(predecessor_working_paths(&store, &loaded.manifest)?);
+                            .extend(predecessor_working_paths_with_cancel(
+                                &store,
+                                &loaded.manifest,
+                                cancelled,
+                            )?);
+                        check_recovery_cancelled(cancelled)?;
                     }
-                    let live_candidate = checkpoint_candidate_snapshot(&mut boot_state)?;
+                    check_recovery_cancelled(cancelled)?;
+                    let live_candidate =
+                        checkpoint_candidate_snapshot_with_cancel(&mut boot_state, cancelled)?;
+                    check_recovery_cancelled(cancelled)?;
                     let mut live_files = candidate_present_inputs(&live_candidate);
                     live_files.push(build_working_set_input(
                         &live_candidate,
@@ -1169,17 +1281,22 @@ impl BrainActorHandle {
                     )?);
                     let preserve_process_state = inventory_matches(&loaded.manifest, &live_files);
                     boot_files_touched = true;
-                    restore_checkpoint(
+                    restore_checkpoint_with_cancel(
                         &boot_state.runtime_root,
                         &loaded,
                         &managed_working_paths,
+                        cancelled,
                     )?;
                     boot_state
-                        .reload_authoritative_from_disk(preserve_process_state)
+                        .reload_authoritative_from_disk_with_cancel(
+                            preserve_process_state,
+                            cancelled,
+                        )
                         .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
+                    check_recovery_cancelled(cancelled)?;
                     if let Some(expected) = expected_candidate_digest {
                         let rebuilt = boot_state
-                            .authoritative_checkpoint_state_digest()
+                            .authoritative_checkpoint_state_digest_with_cancel(cancelled)
                             .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
                         if rebuilt != expected {
                             return Err(BrainRuntimeError::Persistence(format!(
@@ -1188,6 +1305,7 @@ impl BrainActorHandle {
                             )));
                         }
                     }
+                    check_recovery_cancelled(cancelled)?;
                     Some(BrainBootRecovery {
                         receipt: BrainRecoveryV1 {
                             schema: BRAIN_RECOVERY_SCHEMA.to_string(),
@@ -1200,21 +1318,43 @@ impl BrainActorHandle {
                         managed_working_paths,
                     })
                 }
-                Err(CheckpointError::PointerMissing) if !had_provided_recovery => None,
+                Err(CheckpointError::PointerMissing) if !had_provided_recovery => {
+                    // Fresh ownership has no authoritative predecessor to
+                    // recover. Preserve the existing actor bootstrap/ACK path
+                    // even when SIGTERM already set the token.
+                    boot_state
+                        .rebind_detached_graph()
+                        .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
+                    None
+                }
                 Err(CheckpointError::PointerMissing) => {
                     return Err(BrainRuntimeError::Persistence(
                         "checkpoint recovery receipt exists but CURRENT disappeared before actor start"
                             .to_string(),
                     ))
                 }
-                Err(error) => return Err(BrainRuntimeError::Checkpoint(error)),
+                Err(error) => {
+                    return Err(recovery_cancelled_error(BrainRuntimeError::Checkpoint(error)))
+                }
             };
             Ok(recovery)
         })();
         let recovery = match start_result {
             Ok(recovery) => recovery,
             Err(error) => {
-                if boot_files_touched {
+                let error = recovery_cancelled_error(error);
+                // Identity refusal happens before detach or file restoration.
+                // Keep the untouched session available for a later boot with
+                // its known canonical source. Recovery failures and cancelled
+                // post-lease work must still remain quarantined.
+                if boot_files_touched
+                    || (!untouched_identity_refusal
+                        && (had_provided_recovery
+                            || !matches!(
+                                error,
+                                BrainRuntimeError::Checkpoint(CheckpointError::PointerMissing)
+                            )))
+                {
                     let detail = error.to_string();
                     boot_state.quarantine(detail);
                 }
@@ -3525,12 +3665,22 @@ fn predecessor_working_paths(
     store: &CheckpointStore,
     manifest: &CheckpointManifestV1,
 ) -> Result<BTreeSet<String>, BrainRuntimeError> {
+    predecessor_working_paths_with_cancel(store, manifest, None)
+}
+
+fn predecessor_working_paths_with_cancel(
+    store: &CheckpointStore,
+    manifest: &CheckpointManifestV1,
+    cancelled: Option<&AtomicBool>,
+) -> Result<BTreeSet<String>, BrainRuntimeError> {
+    check_recovery_cancelled(cancelled)?;
     let Some(previous_checkpoint_id) = manifest.previous_checkpoint_id.as_deref() else {
         return Ok(BTreeSet::new());
     };
     let previous = store
-        .read_verified_manifest(previous_checkpoint_id)
+        .read_verified_manifest_with_cancel(previous_checkpoint_id, cancelled)
         .map_err(BrainRuntimeError::Checkpoint)?;
+    check_recovery_cancelled(cancelled)?;
     Ok(previous
         .file_inventory
         .into_iter()
@@ -3550,6 +3700,16 @@ fn rejected_current_working_paths(
     loaded: &LoadedCheckpointV1,
     validator: &dyn CheckpointAuthorityValidator,
 ) -> Result<BTreeSet<String>, BrainRuntimeError> {
+    rejected_current_working_paths_with_cancel(store, loaded, validator, None)
+}
+
+fn rejected_current_working_paths_with_cancel(
+    store: &CheckpointStore,
+    loaded: &LoadedCheckpointV1,
+    validator: &dyn CheckpointAuthorityValidator,
+    cancelled: Option<&AtomicBool>,
+) -> Result<BTreeSet<String>, BrainRuntimeError> {
+    check_recovery_cancelled(cancelled)?;
     if loaded.disposition != CheckpointLoadDisposition::DegradedFallback {
         return Ok(BTreeSet::new());
     }
@@ -3564,12 +3724,14 @@ fn rejected_current_working_paths(
         ));
     }
     let (rejected, bytes) = store
-        .read_authorized_manifest_file(
+        .read_authorized_manifest_file_with_cancel(
             &receipt.requested_checkpoint_id,
             WORKING_SET_LOGICAL_NAME,
             validator,
+            cancelled,
         )
         .map_err(BrainRuntimeError::Checkpoint)?;
+    check_recovery_cancelled(cancelled)?;
     if rejected.brain_id != loaded.manifest.brain_id {
         return Err(BrainRuntimeError::BrainBindingMismatch {
             expected: loaded.manifest.brain_id.clone(),
@@ -3601,6 +3763,16 @@ fn restore_checkpoint(
     loaded: &LoadedCheckpointV1,
     predecessor_paths: &BTreeSet<String>,
 ) -> Result<(), BrainRuntimeError> {
+    restore_checkpoint_with_cancel(runtime_root, loaded, predecessor_paths, None)
+}
+
+fn restore_checkpoint_with_cancel(
+    runtime_root: &Path,
+    loaded: &LoadedCheckpointV1,
+    predecessor_paths: &BTreeSet<String>,
+    cancelled: Option<&AtomicBool>,
+) -> Result<(), BrainRuntimeError> {
+    check_recovery_cancelled(cancelled)?;
     let authoritative_paths = loaded
         .manifest
         .file_inventory
@@ -3615,15 +3787,23 @@ fn restore_checkpoint(
     );
     managed_paths.extend(predecessor_paths.iter().map(String::as_str));
     for relative_path in managed_paths {
+        check_recovery_cancelled(cancelled)?;
         validate_relative_path(relative_path)?;
         if !authoritative_paths.contains(relative_path) {
             remove_regular_working_file_if_present(runtime_root, relative_path)?;
         }
     }
     for file in &loaded.manifest.file_inventory {
+        check_recovery_cancelled(cancelled)?;
         validate_relative_path(&file.relative_path)?;
-        let bytes = loaded.read_file(&file.logical_name)?;
+        let bytes = loaded.read_file_with_cancel(&file.logical_name, cancelled)?;
         atomic_restore_file(runtime_root, &file.relative_path, &bytes)?;
+        crate::checkpoint_store::cold_sigterm_test_probe(
+            cancelled,
+            "checkpoint-projection-entered",
+        )
+        .map_err(BrainRuntimeError::Checkpoint)?;
+        check_recovery_cancelled(cancelled)?;
     }
     Ok(())
 }
@@ -3903,7 +4083,15 @@ struct VerifiedWorkingSetV1 {
 fn verified_working_set(
     loaded: &LoadedCheckpointV1,
 ) -> Result<VerifiedWorkingSetV1, BrainRuntimeError> {
-    let bytes = match loaded.read_file(WORKING_SET_LOGICAL_NAME) {
+    verified_working_set_with_cancel(loaded, None)
+}
+
+fn verified_working_set_with_cancel(
+    loaded: &LoadedCheckpointV1,
+    cancelled: Option<&AtomicBool>,
+) -> Result<VerifiedWorkingSetV1, BrainRuntimeError> {
+    check_recovery_cancelled(cancelled)?;
+    let bytes = match loaded.read_file_with_cancel(WORKING_SET_LOGICAL_NAME, cancelled) {
         Ok(bytes) => bytes,
         Err(CheckpointError::UnknownLogicalFile(name)) if name == WORKING_SET_LOGICAL_NAME => {
             return Ok(VerifiedWorkingSetV1 {
@@ -3921,6 +4109,7 @@ fn verified_working_set(
         }
         Err(error) => return Err(BrainRuntimeError::Checkpoint(error)),
     };
+    check_recovery_cancelled(cancelled)?;
     verified_working_set_bytes(&loaded.manifest, &bytes)
 }
 
@@ -4016,6 +4205,14 @@ fn verified_working_set_paths(
 fn checkpoint_candidate_snapshot(
     state: &mut SessionState,
 ) -> Result<SessionCheckpointCandidate, BrainRuntimeError> {
+    checkpoint_candidate_snapshot_with_cancel(state, None)
+}
+
+fn checkpoint_candidate_snapshot_with_cancel(
+    state: &mut SessionState,
+    cancelled: Option<&AtomicBool>,
+) -> Result<SessionCheckpointCandidate, BrainRuntimeError> {
+    check_recovery_cancelled(cancelled)?;
     let stage = state
         .begin_checkpoint_staging()
         .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
@@ -4034,7 +4231,10 @@ fn checkpoint_candidate_snapshot(
         ))),
     };
     match (candidate, close) {
-        (Ok(candidate), Ok(_)) => Ok(candidate),
+        (Ok(candidate), Ok(_)) => {
+            check_recovery_cancelled(cancelled)?;
+            Ok(candidate)
+        }
         (Err(error), Ok(_)) => Err(error),
         (Ok(_), Err(error)) => Err(error),
         (Err(candidate_error), Err(close_error)) => Err(BrainRuntimeError::Persistence(format!(
@@ -4636,6 +4836,11 @@ mod tests {
         fail_validation: Arc<AtomicBool>,
     }
 
+    struct CancelDuringCurrentValidationAuthority {
+        cancelled: Arc<AtomicBool>,
+        validation_calls: AtomicU64,
+    }
+
     struct RejectOneCheckpointAuthority {
         rejected: Arc<Mutex<Option<String>>>,
     }
@@ -4659,6 +4864,27 @@ mod tests {
                 UnboundBrainCheckpointAuthority
                     .validate_checkpoint(manifest, external_authority_refs_digest)
             }
+        }
+    }
+
+    impl BrainCheckpointAuthority for CancelDuringCurrentValidationAuthority {
+        fn snapshot_refs(
+            &self,
+            brain_id: &str,
+        ) -> Result<CheckpointExternalAuthorityRefsV1, String> {
+            UnboundBrainCheckpointAuthority.snapshot_refs(brain_id)
+        }
+
+        fn validate_checkpoint(
+            &self,
+            manifest: &CheckpointManifestV1,
+            external_authority_refs_digest: &str,
+        ) -> Result<CheckpointAuthorityValidationReceiptV1, String> {
+            self.validation_calls.fetch_add(1, Ordering::SeqCst);
+            let receipt = UnboundBrainCheckpointAuthority
+                .validate_checkpoint(manifest, external_authority_refs_digest)?;
+            self.cancelled.store(true, Ordering::Release);
+            Ok(receipt)
         }
     }
 
@@ -5086,6 +5312,128 @@ mod tests {
     }
 
     #[test]
+    fn rejected_current_identity_mismatch_after_detach_quarantines_recovery() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let checkpoint_root = runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY);
+        let canonical = runtime_root.to_string_lossy().into_owned();
+        let legacy_id = project_brain_id(&format!("bound:{canonical}/."));
+        let canonical_id = project_brain_id(&format!("bound:{canonical}"));
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let legacy = BrainActorHandle::start(
+            legacy_id.clone(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("seed a real legacy checkpoint");
+        legacy.stop().expect("stop legacy owner");
+        drop(legacy);
+
+        let canonical_actor = BrainActorHandle::start_bound(
+            canonical_id.clone(),
+            canonical,
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("adopt the same root's legacy identity");
+        canonical_actor
+            .try_execute_with_checkpoint_ack(|state| {
+                state.graph_generation = state.graph_generation.saturating_add(1);
+                Ok::<(), RuntimeJobFailure>(())
+            })
+            .expect("publish canonical successor with legacy fallback");
+        canonical_actor.stop().expect("stop canonical owner");
+        drop(canonical_actor);
+
+        let validator = AuthorityValidatorAdapter(&UnboundBrainCheckpointAuthority);
+        let store = CheckpointStore::open(&checkpoint_root).expect("inspect canonical CURRENT");
+        let current = store
+            .load_current(&validator)
+            .expect("load intact successor");
+        assert_eq!(current.manifest.brain_id, canonical_id);
+        let rejected_id = current.manifest.checkpoint_id.clone();
+        let corrupt_target = current
+            .manifest
+            .file_inventory
+            .iter()
+            .find(|file| file.logical_name == GRAPH_SNAPSHOT_LOGICAL_NAME)
+            .map(|file| current.directory().join(&file.blob_path))
+            .expect("successor graph blob");
+        drop(current);
+        drop(store);
+        std::fs::write(&corrupt_target, b"rejected successor graph")
+            .expect("invalidate graph while preserving the authorized working-set");
+        let pointer_before = std::fs::read(checkpoint_root.join("CURRENT"))
+            .expect("capture CURRENT before refused recovery");
+
+        let store = CheckpointStore::open(&checkpoint_root).expect("inspect real fallback");
+        let fallback = store
+            .load_with_fallback(&validator, now_unix_ms().expect("fixture timestamp"))
+            .expect("load the intact legacy fallback");
+        assert_eq!(
+            fallback.disposition,
+            CheckpointLoadDisposition::DegradedFallback
+        );
+        assert_eq!(fallback.manifest.brain_id, legacy_id);
+        assert_eq!(
+            fallback
+                .fallback_receipt
+                .as_ref()
+                .map(|receipt| receipt.requested_checkpoint_id.as_str()),
+            Some(rejected_id.as_str())
+        );
+        drop(fallback);
+        drop(store);
+
+        let error = match BrainActorHandle::start(
+            legacy_id.clone(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        ) {
+            Ok(actor) => {
+                let _ = actor.stop();
+                panic!("rejected CURRENT identity must refuse recovery")
+            }
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            BrainRuntimeError::BrainBindingMismatch { ref expected, ref observed, expected_source: None }
+                if expected == &legacy_id && observed == &canonical_id
+        ));
+        assert!(
+            session.quarantine_detail().is_some(),
+            "post-detach identity failure must quarantine"
+        );
+        assert!(
+            session.read().is_err(),
+            "altered recovery state must not be readable"
+        );
+        assert!(
+            session.checkout().is_err(),
+            "altered recovery state must not be republished"
+        );
+        assert!(!session.is_actor_active());
+        assert_eq!(
+            std::fs::read(checkpoint_root.join("CURRENT")).expect("read refused CURRENT"),
+            pointer_before
+        );
+        assert_eq!(
+            std::fs::read(corrupt_target).expect("retain rejected evidence"),
+            b"rejected successor graph"
+        );
+    }
+
+    #[test]
     fn dropping_last_handle_delegates_in_doubt_recovery_to_a_guardian() {
         let temporary = tempfile::tempdir().expect("temporary runtime");
         let runtime_root = temporary.path().join("runtime");
@@ -5336,6 +5684,119 @@ mod tests {
         )
         .expect("same cell retries after authority snapshot recovers");
         actor.stop().expect("stop authority-retried actor");
+    }
+
+    #[test]
+    fn recovery_cancel_during_current_validation_quarantines_without_fallback() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let checkpoint_root = runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY);
+        let brain_id = "cancel-before-recovery-projection".to_string();
+
+        let first_session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let first = BrainActorHandle::start(
+            brain_id.clone(),
+            Arc::clone(&first_session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("seed actor with a real CURRENT");
+        first
+            .try_execute_with_checkpoint_ack(|state| {
+                state.graph_generation = state.graph_generation.saturating_add(1);
+                Ok::<(), RuntimeJobFailure>(())
+            })
+            .expect("publish successor with fallback");
+        first.stop().expect("stop seed actor");
+        drop(first);
+        drop(first_session);
+
+        let store = CheckpointStore::open(&checkpoint_root).expect("open seeded store");
+        let pointer_before = store.current_pointer().expect("seed CURRENT");
+        assert!(
+            pointer_before.fallback_checkpoint_id.is_some(),
+            "fixture requires an actual fallback that cancellation must not visit"
+        );
+        let current_before = std::fs::read(checkpoint_root.join("CURRENT"))
+            .expect("capture immutable CURRENT bytes");
+        drop(store);
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let authority = Arc::new(CancelDuringCurrentValidationAuthority {
+            cancelled: Arc::clone(&cancelled),
+            validation_calls: AtomicU64::new(0),
+        });
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let error = match BrainActorHandle::start_with_cancel(
+            brain_id,
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            authority.clone(),
+            2,
+            None,
+            Some(&cancelled),
+        ) {
+            Ok(actor) => {
+                let _ = actor.stop();
+                panic!("CURRENT validation cancellation must refuse recovery")
+            }
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, BrainRuntimeError::RecoveryCancelled));
+        assert_eq!(error.code(), "brain_recovery_cancelled");
+        assert_eq!(
+            authority.validation_calls.load(Ordering::SeqCst),
+            1,
+            "cancelled CURRENT validation must not attempt fallback validation"
+        );
+        assert!(session.quarantine_detail().is_some());
+        assert!(
+            session.read().is_err(),
+            "quarantined state must not be readable"
+        );
+        assert!(
+            session.checkout().is_err(),
+            "quarantined state must not be checked out for a second recovery"
+        );
+        assert_eq!(
+            std::fs::read(checkpoint_root.join("CURRENT")).expect("read CURRENT after refusal"),
+            current_before,
+            "pre-mutation cancellation must not replace CURRENT"
+        );
+    }
+
+    #[test]
+    fn fresh_pointer_missing_with_a_marked_token_still_bootstraps_and_releases() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let checkpoint_root = runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY);
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let cancelled = AtomicBool::new(true);
+
+        let actor = BrainActorHandle::start_with_cancel(
+            "fresh-pointer-missing-cancelled".to_string(),
+            Arc::clone(&session),
+            checkpoint_root.clone(),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+            Some(&cancelled),
+        )
+        .expect("PointerMissing fresh owner must retain the normal bootstrap path");
+        assert!(
+            checkpoint_root.join("CURRENT").is_file(),
+            "fresh actor must publish its bootstrap checkpoint before release"
+        );
+        actor
+            .stop()
+            .expect("release fresh actor after bootstrap ACK");
+        assert!(
+            session.read().is_ok(),
+            "fresh shutdown must republish its session"
+        );
     }
 
     #[test]

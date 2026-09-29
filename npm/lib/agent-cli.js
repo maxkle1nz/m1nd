@@ -20,6 +20,51 @@ const RETROBUILDER_TOOLS = [
   "refactor_plan",
   "runtime_overlay",
 ];
+const AGENT_INTERRUPTED_CODE = "M1ND_AGENT_INTERRUPTED";
+const AGENT_INTERRUPTED_EXIT_CODES = Object.freeze({
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+});
+
+function agentInterruptedError(signal) {
+  const exitCode = AGENT_INTERRUPTED_EXIT_CODES[signal];
+  const error = new Error(`m1nd agent interrupted by ${signal}`);
+  error.code = AGENT_INTERRUPTED_CODE;
+  error.signal = signal;
+  error.exitCode = exitCode;
+  return error;
+}
+
+function isAgentInterrupted(error) {
+  const expected = error && AGENT_INTERRUPTED_EXIT_CODES[error.signal];
+  return Boolean(
+    error &&
+    error.code === AGENT_INTERRUPTED_CODE &&
+    Number.isInteger(expected) &&
+    expected === error.exitCode
+  );
+}
+
+function createInterruptionController() {
+  let error = null;
+  return {
+    get error() {
+      return error;
+    },
+    interrupt(signal) {
+      if (!error) error = agentInterruptedError(signal);
+      return error;
+    },
+  };
+}
+
+function appendInterruptionDiagnostic(error, label, detail) {
+  if (!detail) return error;
+  const message = detail.message || String(detail);
+  error.message = `${error.message}; ${label}: ${message}`;
+  return error;
+}
 
 function safeJsonParse(text) {
   try {
@@ -1115,6 +1160,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
   const runtimeDir = plan.attach || args["shared-runtime"]
     ? null
     : explicitRuntimeDir || (ambientHasRuntimeDir ? null : cacheTarget.runtimeDir);
+  const interruption = createInterruptionController();
   const client = new McpRuntimeClient({
     binary,
     repo,
@@ -1122,56 +1168,89 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     attach: plan.attach ? "auto" : null,
     runtimeDir,
     runtimeDirExplicit: Boolean(explicitRuntimeDir),
+    cancellation: interruption,
   });
-  const cacheLease = runtimeDir ? await acquireAgentRuntimeLease(runtimeDir) : null;
+  let handlersRemoved = false;
+  const onSignal = (signal) => {
+    const error = interruption.interrupt(signal);
+    client.cancel(error, error.signal);
+  };
+  const signalHandlers = new Map(
+    Object.keys(AGENT_INTERRUPTED_EXIT_CODES).map((signal) => [signal, () => onSignal(signal)])
+  );
+  for (const [signal, listener] of signalHandlers) process.on(signal, listener);
+  const removeSignalHandlers = () => {
+    if (handlersRemoved) return;
+    handlersRemoved = true;
+    for (const [signal, listener] of signalHandlers) process.removeListener(signal, listener);
+  };
+  let cacheLease = null;
   let result;
   let primaryError = null;
   try {
-    if (cacheTarget) {
-      // Identity can be written before the first graph bootstrap succeeds.
-      // Only a persisted graph is eligible for the warm exact-root refresh;
-      // an identity-only directory must retain the cold bootstrap path.
-      client.reusedRuntimeCache = fs.existsSync(path.join(runtimeDir, "graph_snapshot.json"));
-      ensureAgentRuntimeIdentity(cacheLease, cacheTarget.identity);
-    }
-    await client.start();
-    result = applyBootPlan(await fn(client, binary), plan, repo);
-  } catch (error) {
-    primaryError = error;
-  }
-  let cleanupError = null;
-  try {
-    await client.close();
-  } catch (error) {
-    cleanupError = error;
-  }
-  let leaseReleaseError = null;
-  // An unsuccessful close is not proof that the native writer stopped. A
-  // failed spawn and a witnessed child `close` are safe; otherwise leave the
-  // owner proof in place so contenders fail busy rather than overlap writers.
-  if (cacheLease && (!client.spawned || client.processClosed)) {
     try {
-      releaseAgentRuntimeLease(cacheLease);
+      if (interruption.error) throw interruption.error;
+      cacheLease = runtimeDir
+        ? await acquireAgentRuntimeLease(runtimeDir, { cancellation: interruption })
+        : null;
+      if (interruption.error) throw interruption.error;
+      if (cacheTarget) {
+        // Identity can be written before the first graph bootstrap succeeds.
+        // Only a persisted graph is eligible for the warm exact-root refresh;
+        // an identity-only directory must retain the cold bootstrap path.
+        client.reusedRuntimeCache = fs.existsSync(path.join(runtimeDir, "graph_snapshot.json"));
+        ensureAgentRuntimeIdentity(cacheLease, cacheTarget.identity);
+      }
+      if (interruption.error) throw interruption.error;
+      await client.start();
+      if (interruption.error) throw interruption.error;
+      result = applyBootPlan(await fn(client, binary), plan, repo);
+      if (interruption.error) throw interruption.error;
     } catch (error) {
-      leaseReleaseError = error;
+      primaryError = error;
     }
+    let cleanupError = null;
+    try {
+      await client.close();
+    } catch (error) {
+      cleanupError = error;
+    }
+    let leaseReleaseError = null;
+    // An unsuccessful close is not proof that the native writer stopped. A
+    // failed spawn and a witnessed child `close` are safe; otherwise leave the
+    // owner proof in place so contenders fail busy rather than overlap writers.
+    if (cacheLease && (!client.spawned || client.processClosed)) {
+      try {
+        releaseAgentRuntimeLease(cacheLease);
+      } catch (error) {
+        leaseReleaseError = error;
+      }
+    }
+    if (!cleanupError && leaseReleaseError) cleanupError = leaseReleaseError;
+    else if (cleanupError && leaseReleaseError) {
+      cleanupError = new Error(
+        `m1nd-mcp cleanup failure: ${cleanupError.message || String(cleanupError)}; cache lease release failure: ${leaseReleaseError.message || String(leaseReleaseError)}`,
+        { cause: cleanupError }
+      );
+    }
+    if (interruption.error && !isAgentInterrupted(primaryError)) {
+      const priorPrimary = primaryError;
+      primaryError = interruption.error;
+      if (priorPrimary) appendInterruptionDiagnostic(primaryError, "primary failure", priorPrimary);
+    }
+    if (primaryError && cleanupError) {
+      if (isAgentInterrupted(primaryError)) throw appendInterruptionDiagnostic(primaryError, "cleanup failure", cleanupError);
+      throw new Error(
+        `m1nd-mcp primary failure: ${primaryError.message || String(primaryError)}; cleanup failure: ${cleanupError.message || String(cleanupError)}`,
+        { cause: primaryError }
+      );
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+    return result;
+  } finally {
+    removeSignalHandlers();
   }
-  if (!cleanupError && leaseReleaseError) cleanupError = leaseReleaseError;
-  else if (cleanupError && leaseReleaseError) {
-    cleanupError = new Error(
-      `m1nd-mcp cleanup failure: ${cleanupError.message || String(cleanupError)}; cache lease release failure: ${leaseReleaseError.message || String(leaseReleaseError)}`,
-      { cause: cleanupError }
-    );
-  }
-  if (primaryError && cleanupError) {
-    throw new Error(
-      `m1nd-mcp primary failure: ${primaryError.message || String(primaryError)}; cleanup failure: ${cleanupError.message || String(cleanupError)}`,
-      { cause: primaryError }
-    );
-  }
-  if (primaryError) throw primaryError;
-  if (cleanupError) throw cleanupError;
-  return result;
 }
 
 async function withClient(args, deps, repo, fn) {
@@ -1180,6 +1259,7 @@ async function withClient(args, deps, repo, fn) {
   try {
     return await runBootPlan(args, deps, repo, fn, binary, plan);
   } catch (error) {
+    if (isAgentInterrupted(error)) throw error;
     if (!plan.attach) throw error;
     // The owner was found and then could not be reached: an unreadable
     // credential, or a listener that stopped answering between the probe and
@@ -2073,6 +2153,7 @@ async function agentKickstart(args, deps) {
       };
     });
   } catch (err) {
+    if (isAgentInterrupted(err)) throw err;
     const totalMs = Date.now() - t0;
     return {
       schema: KICKSTART_SCHEMA,

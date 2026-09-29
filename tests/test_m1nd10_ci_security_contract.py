@@ -102,7 +102,7 @@ class CiSecurityContractTests(unittest.TestCase):
         security = self.job(".github/workflows/ci.yml", "security-gates")
         tag_guard = self.job(".github/workflows/release.yml", "tag-guard")
         self.assertIn("fetch-depth: 0", security)
-        self.assertIn('--revision "${GITHUB_SHA}"', security)
+        self.assertIn('--revision "$CANDIDATE"', security)
         self.assertIn("fetch-depth: 0", tag_guard)
         self.assertIn('--revision "${GITHUB_SHA}"', tag_guard)
 

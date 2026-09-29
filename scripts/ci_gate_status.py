@@ -1,70 +1,65 @@
 #!/usr/bin/env python3
-"""Fail-closed required-check aggregator for CI draft/final lanes.
-
-The Test check is branch-protected. Draft feedback is deliberately NOT a
-release-quality receipt: a draft can pass its short lane, but Test cannot pass
-until the full three-platform Rust suite has run on this exact head.
-"""
+"""Fail-closed aggregate for the strict, change-scoped CI workflow."""
 
 from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import sys
 from typing import Any
 
-ALWAYS_REQUIRED = frozenset(
-    {
-        "ci-lane",
-        "ui-gates",
-        "host-pack-gates",
-        "agent-cache-real-gates",
-        "python-gates",
-        "security-gates",
-        "contract-gates",
-    }
-)
-RUST_JOBS = frozenset({"rust-gates", "draft-rust"})
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_scope import valid_scope  # noqa: E402
 
 
-def evaluate(needs: dict[str, Any]) -> tuple[int, str]:
-    """Return (exit code, human explanation) for the GitHub `needs` object."""
-    expected = ALWAYS_REQUIRED | RUST_JOBS
-    missing = sorted(expected - needs.keys())
-    if missing:
-        return 1, f"FAIL: missing required jobs: {', '.join(missing)}"
+ALWAYS = frozenset({"ci-scope", "security-gates", "contract-gates"})
+AREA_JOBS = {
+    "ui": "ui-gates",
+    "host": "host-pack-gates",
+    "cache": "agent-cache-real-gates",
+    "python": "python-gates",
+}
+RUST_JOBS = frozenset({"rust-scoped", "rust-full"})
+EXPECTED = ALWAYS | frozenset(AREA_JOBS.values()) | RUST_JOBS
 
-    lane_job = needs["ci-lane"]
-    lane = (lane_job.get("outputs") or {}).get("lane") if isinstance(lane_job, dict) else None
-    if lane not in ("draft", "full"):
-        return 1, "FAIL: CI lane missing or unrecognized (no implicit pass)"
 
+def evaluate(needs: dict[str, Any], scope_json: str) -> tuple[int, str]:
+    """Require every selected job to succeed and every unselected job to skip."""
+    try:
+        selected = json.loads(scope_json)
+    except (TypeError, json.JSONDecodeError) as error:
+        return 1, f"FAIL: malformed scope output ({error})"
+    if not valid_scope(selected):
+        return 1, "FAIL: classifier scope fails strict m1nd-ci-scope-v1 validation"
+    if set(needs) != EXPECTED:
+        return 1, "FAIL: CI needs differ from the closed gate set: " + json.dumps(
+            {"missing": sorted(EXPECTED - set(needs)), "extra": sorted(set(needs) - EXPECTED)}, sort_keys=True
+        )
     results = {
         name: data.get("result") if isinstance(data, dict) else None
         for name, data in needs.items()
     }
-    required = ALWAYS_REQUIRED | {"draft-rust" if lane == "draft" else "rust-gates"}
-    skipped = {"rust-gates" if lane == "draft" else "draft-rust"}
-    bad = {name: results[name] for name in sorted(required) if results[name] != "success"}
-    unexpected = {name: results[name] for name in skipped if results[name] != "skipped"}
-    # New dependencies must not hide failures if this script is extended without
-    # its policy tests. Unknown successes are harmless; unknown skipped jobs fail.
-    extra = {
-        name: result
-        for name, result in results.items()
-        if name not in expected and result != "success"
-    }
-    if bad or unexpected or extra:
-        return 1, "FAIL: gate result mismatch: " + json.dumps(
-            {"required": bad, "other_lane": unexpected, "extra": extra}, sort_keys=True
-        )
+    required = set(ALWAYS)
+    skipped: set[str] = set()
+    for flag, job in AREA_JOBS.items():
+        (required if selected[flag] else skipped).add(job)
+    if selected["mode"] == "full":
+        required.add("rust-full")
+        skipped.add("rust-scoped")
+    elif selected["rust"]:
+        required.add("rust-scoped")
+        skipped.add("rust-full")
+    else:
+        skipped.update(RUST_JOBS)
 
-    if lane == "draft":
-        return 1, (
-            "Draft feedback passed, but Test cannot certify a merge: convert PR "
-            "to ready for review to run the full Rust matrix on this head."
+    failures = {name: results[name] for name in sorted(required) if results[name] != "success"}
+    unexpected = {name: results[name] for name in sorted(skipped) if results[name] != "skipped"}
+    if failures or unexpected:
+        return 1, "FAIL: gate result mismatch: " + json.dumps(
+            {"required": failures, "unselected": unexpected}, sort_keys=True
         )
-    return 0, "PASS: full three-OS Rust matrix and every cumulative gate succeeded"
+    return 0, f"PASS: scope={selected['mode']} candidate={selected['candidate']}"
 
 
 def main() -> int:
@@ -72,7 +67,7 @@ def main() -> int:
         needs = json.loads(os.environ["NEEDS_JSON"])
         if not isinstance(needs, dict):
             raise ValueError("needs is not an object")
-        code, message = evaluate(needs)
+        code, message = evaluate(needs, os.environ["SCOPE_JSON"])
     except (KeyError, ValueError, TypeError) as error:
         code, message = 1, f"FAIL: missing or malformed CI inputs ({error})"
     print(message)
@@ -80,4 +75,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

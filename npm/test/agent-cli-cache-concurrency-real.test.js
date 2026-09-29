@@ -7,7 +7,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const test = require("node:test");
-const { agentRuntimeCacheTarget } = require("../lib/agent-runtime-cache");
+const {
+  acquireAgentRuntimeLease,
+  agentRuntimeCacheTarget,
+  releaseAgentRuntimeLease,
+} = require("../lib/agent-runtime-cache");
 
 const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
@@ -501,7 +505,8 @@ test(
       await waitForContenderArrival(signals, env.M1ND_AGENT_CACHE_DIR);
       interruptedLoser.child.kill("SIGTERM");
       const interrupted = await interruptedLoser.completed;
-      assert.equal(interrupted.signal, "SIGTERM");
+      assert.equal(interrupted.signal, null, interrupted.stderr);
+      assert.equal(interrupted.code, 143, "interrupted cache waiter must normalize SIGTERM to status 143");
       assert.equal(winner.child.exitCode, null, "interrupting the loser terminated the winner");
       assert.equal(sha256(ownerManifest), ownerBefore, "interrupting the loser modified the owner's proof");
 
@@ -510,6 +515,404 @@ test(
       assert.equal(fs.existsSync(path.dirname(ownerManifest)), false, "the proven owner did not release its lease");
     } finally {
       await settleOwnedChildren(children);
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  }
+);
+
+function privateSigtermDir(directory) {
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  return directory;
+}
+
+function writeSigtermFixture(repo) {
+  privateSigtermDir(path.join(repo, "src"));
+  fs.writeFileSync(
+    path.join(repo, "package.json"),
+    `${JSON.stringify({ name: "sigterm-agent-fixture", version: "0.0.0" }, null, 2)}\n`
+  );
+  fs.writeFileSync(path.join(repo, "src", "entry.js"), "export const sigtermFixture = true;\n");
+}
+
+function sigtermFixtureEnv(fixture, signals) {
+  const home = privateSigtermDir(path.join(fixture, "home"));
+  const temp = privateSigtermDir(path.join(fixture, "tmp"));
+  const cache = privateSigtermDir(path.join(fixture, "cache"));
+  const registry = privateSigtermDir(path.join(fixture, "registry"));
+  const env = {
+    HOME: home,
+    TMPDIR: temp,
+    TMP: temp,
+    TEMP: temp,
+    PATH: process.env.PATH || "/usr/bin:/bin",
+    XDG_CACHE_HOME: cache,
+    M1ND_AGENT_CACHE_DIR: cache,
+    M1ND_REGISTRY_DIR: registry,
+    M1ND_AGENT_CACHE_OWNER_WAIT_MS: "1000",
+    M1ND_SIGTERM_FIXTURE_SIGNALS: signals,
+    M1ND_TEST_BINARY: BINARY,
+    NPM_CONFIG_OFFLINE: "true",
+    NPM_CONFIG_UPDATE_NOTIFIER: "false",
+  };
+  if (process.env.M1ND_TEST_EMBED_MODEL) env.M1ND_EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL;
+  return env;
+}
+
+function writeSigtermInitializeHoldingRuntime(wrapper) {
+  fs.writeFileSync(
+    wrapper,
+    `#!${process.execPath}
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const readline = require("node:readline");
+const { spawn } = require("node:child_process");
+
+const signals = process.env.M1ND_SIGTERM_FIXTURE_SIGNALS;
+const release = path.join(signals, "release-child-by-eof");
+const forceCleanup = path.join(signals, "force-fixture-cleanup");
+
+function mark(name, value = String(process.pid)) {
+  try {
+    fs.writeFileSync(path.join(signals, name), value, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+}
+
+const countFile = path.join(signals, "runtime-launch-count");
+const count = fs.existsSync(countFile) ? Number(fs.readFileSync(countFile, "utf8")) : 0;
+fs.writeFileSync(countFile, String(count + 1), { mode: 0o600 });
+const child = spawn(process.env.M1ND_TEST_BINARY, process.argv.slice(2), {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: ["pipe", "pipe", "pipe"],
+});
+mark("runtime-pid", String(child.pid));
+
+let initializeResponseHeld = false;
+let stdinEnded = false;
+let teardownStarted = false;
+let childClosed = false;
+
+function maybeCloseChild() {
+  if (childClosed || teardownStarted || !initializeResponseHeld || !fs.existsSync(release)) return;
+  teardownStarted = true;
+  mark("release-observed");
+  child.stdin.end();
+}
+
+process.stdin.on("data", (chunk) => {
+  if (!child.stdin.destroyed) child.stdin.write(chunk);
+});
+process.stdin.on("end", () => {
+  stdinEnded = true;
+  mark("parent-pipe-closed");
+  maybeCloseChild();
+});
+process.stdin.on("error", (error) => mark("parent-pipe-error", error.message));
+
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(signal, () => {
+    mark("forwarded-" + signal);
+    maybeCloseChild();
+  });
+}
+
+const lines = readline.createInterface({ input: child.stdout });
+lines.on("line", (line) => {
+  let payload = null;
+  try {
+    payload = JSON.parse(line);
+  } catch (_) {
+    // Native stderr remains available for diagnostics; MCP stdout must be JSON.
+  }
+  if (!initializeResponseHeld && payload && payload.id === 1) {
+    initializeResponseHeld = true;
+    mark("initialize-response-held");
+    maybeCloseChild();
+    return;
+  }
+  process.stdout.write(line + "\\n");
+});
+child.stderr.pipe(process.stderr);
+child.on("error", (error) => {
+  mark("runtime-error", error.message);
+  process.exitCode = 1;
+});
+child.on("close", (code, signal) => {
+  childClosed = true;
+  mark("runtime-closed", JSON.stringify({ code, signal, stdinEnded }));
+  process.exitCode = code === null ? 1 : code;
+});
+
+const cleanupTimer = setInterval(() => {
+  maybeCloseChild();
+  if (fs.existsSync(forceCleanup) && !childClosed) {
+    mark("forced-cleanup");
+    child.kill("SIGTERM");
+  }
+}, 10);
+cleanupTimer.unref();
+`,
+    { mode: 0o700 }
+  );
+  fs.chmodSync(wrapper, 0o700);
+}
+
+function spawnSigtermFirstMinute(repo, binary, env) {
+  const child = spawn(
+    process.execPath,
+    [
+      CLI,
+      "agent",
+      "first-minute",
+      "--repo",
+      repo,
+      "--binary",
+      binary,
+      "--query",
+      "sigterm_fixture_anchor",
+      "--no-attach",
+      "--json",
+    ],
+    { cwd: repo, env, stdio: ["ignore", "pipe", "pipe"] }
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  let outcome = null;
+  let settled = false;
+  const completed = new Promise((resolve) => {
+    const settle = (next) => {
+      if (settled) return;
+      settled = true;
+      outcome = next;
+      resolve(next);
+    };
+    child.once("exit", (code, signal) => settle({ code, signal, stdout, stderr }));
+    child.once("error", (error) => settle({ code: null, signal: null, stdout, stderr, error }));
+  });
+  return { child, completed, outcome: () => outcome, output: () => ({ stdout, stderr }) };
+}
+
+function waitForSigtermMarker(signals, name, timeoutMs = 15_000, invocation = null) {
+  const marker = path.join(signals, name);
+  if (fs.existsSync(marker)) return Promise.resolve(fs.readFileSync(marker, "utf8"));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interval);
+      clearTimeout(timer);
+      callback(value);
+    };
+    const poll = () => {
+      if (fs.existsSync(marker)) {
+        return finish(resolve, fs.readFileSync(marker, "utf8"));
+      }
+      if (!invocation) return;
+      const runtimeClosed = path.join(signals, "runtime-closed");
+      if (fs.existsSync(runtimeClosed)) {
+        return finish(
+          reject,
+          new Error(
+            `fixture runtime closed before marker ${name}: ${fs.readFileSync(runtimeClosed, "utf8")}`
+          )
+        );
+      }
+      const parentOutcome = invocation.outcome();
+      if (parentOutcome || invocation.child.exitCode !== null || invocation.child.signalCode !== null) {
+        return finish(
+          reject,
+          new Error(
+            `CLI exited before fixture marker ${name}: ${JSON.stringify(parentOutcome || invocation.output())}`
+          )
+        );
+      }
+    };
+    const interval = setInterval(poll, 10);
+    const timer = setTimeout(() => {
+      finish(reject, new Error(`timed out waiting for fixture marker ${name}`));
+    }, timeoutMs);
+    poll();
+  });
+}
+
+async function waitForSigtermForwardOrParentExit(signals, invocation) {
+  const marker = path.join(signals, "forwarded-SIGTERM");
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interval);
+      clearTimeout(timer);
+      callback(value);
+    };
+    const poll = () => {
+      if (fs.existsSync(marker)) return finish(resolve);
+      const parentOutcome = invocation.outcome();
+      if (parentOutcome || invocation.child.exitCode !== null || invocation.child.signalCode !== null) {
+        return finish(
+          reject,
+          new Error(
+            `CLI exited before forwarding SIGTERM to its owned runtime: ${JSON.stringify(parentOutcome || invocation.output())}`
+          )
+        );
+      }
+    };
+    const interval = setInterval(poll, 10);
+    const timer = setTimeout(
+      () => finish(reject, new Error("timed out waiting for CLI to forward SIGTERM to its owned runtime")),
+      15_000
+    );
+    poll();
+  });
+  assert.equal(invocation.child.exitCode, null, "CLI exited before its runtime child closed");
+  assert.equal(invocation.child.signalCode, null, "CLI was terminated by SIGTERM instead of coordinating shutdown");
+}
+
+function sigtermOwnerManifest(target) {
+  return path.join(target.runtimeDir, ".agent-cache-owner-v1", "owner.json");
+}
+
+function readSigtermOwner(target) {
+  return JSON.parse(fs.readFileSync(sigtermOwnerManifest(target), "utf8"));
+}
+
+function waitForSigtermParentExit(invocation, timeoutMs = 5_000) {
+  if (!invocation) return Promise.resolve(null);
+  const known = invocation.outcome();
+  if (known || invocation.child.exitCode !== null || invocation.child.signalCode !== null) {
+    return invocation.completed;
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      invocation.child.removeListener("exit", onExit);
+      invocation.child.removeListener("error", onError);
+      callback(value);
+    };
+    const onExit = (code, signal) => finish(resolve, { code, signal });
+    const onError = (error) => finish(reject, error);
+    const timer = setTimeout(
+      () => finish(reject, new Error("timed out collecting CLI parent after private runtime close")),
+      timeoutMs
+    );
+    invocation.child.once("exit", onExit);
+    invocation.child.once("error", onError);
+  });
+}
+
+async function releaseSigtermFixture(signals, invocation) {
+  const release = path.join(signals, "release-child-by-eof");
+  if (!fs.existsSync(release)) fs.writeFileSync(release, "release\n", { flag: "wx", mode: 0o600 });
+  let runtimeClosed = false;
+  try {
+    await waitForSigtermMarker(signals, "runtime-closed", 10_000);
+    runtimeClosed = true;
+  } catch (_) {
+    // This path only prevents a failed RED run from leaving a private fixture
+    // process behind. The assertion path accepts a close only before this marker
+    // exists, after the real runtime observed EOF.
+    const forceCleanup = path.join(signals, "force-fixture-cleanup");
+    if (!fs.existsSync(forceCleanup)) fs.writeFileSync(forceCleanup, "cleanup\n", { flag: "wx", mode: 0o600 });
+    try {
+      await waitForSigtermMarker(signals, "runtime-closed", 5_000);
+      runtimeClosed = true;
+    } catch (_) {
+      // The test is already failing; retain its original oracle failure.
+    }
+  }
+  if (!runtimeClosed || !invocation) return;
+  try {
+    await waitForSigtermParentExit(invocation);
+  } catch (_) {
+    // The native child is already closed. This collects only an abandoned
+    // fixture parent and cannot satisfy any success assertion.
+    if (invocation.child.exitCode === null && invocation.child.signalCode === null) {
+      invocation.child.kill("SIGTERM");
+    }
+    try {
+      await waitForSigtermParentExit(invocation, 2_000);
+    } catch (_) {
+      if (invocation.child.exitCode === null && invocation.child.signalCode === null) {
+        invocation.child.kill("SIGKILL");
+      }
+      await waitForSigtermParentExit(invocation, 2_000).catch(() => {});
+    }
+  }
+}
+
+test(
+  "agent first-minute keeps its cache lease until a SIGTERM-interrupted runtime closes",
+  { skip: !BINARY || !fs.existsSync(BINARY), timeout: 90_000 },
+  async () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-sigterm-"));
+    fs.chmodSync(fixture, 0o700);
+    const signals = privateSigtermDir(path.join(fixture, "signals"));
+    let invocation = null;
+    let target = null;
+    try {
+      const repo = path.join(fixture, "repo");
+      const wrapper = path.join(fixture, "runtime-proxy.js");
+      writeSigtermFixture(repo);
+      writeSigtermInitializeHoldingRuntime(wrapper);
+      const env = sigtermFixtureEnv(fixture, signals);
+      target = agentRuntimeCacheTarget(repo, env);
+
+      invocation = spawnSigtermFirstMinute(repo, wrapper, env);
+      await waitForSigtermMarker(signals, "initialize-response-held", 75_000, invocation);
+      assert.equal(fs.existsSync(sigtermOwnerManifest(target)), true, "runtime reached initialize without acquiring the cache lease");
+      const ownerBefore = readSigtermOwner(target);
+      assert.equal(typeof ownerBefore.token, "string");
+      assert.ok(ownerBefore.token.length > 0);
+
+      invocation.child.kill("SIGTERM");
+      await waitForSigtermForwardOrParentExit(signals, invocation);
+      await waitForSigtermMarker(signals, "parent-pipe-closed");
+
+      assert.deepEqual(readSigtermOwner(target), ownerBefore, "SIGTERM changed the owner token before runtime close");
+      assert.equal(fs.existsSync(sigtermOwnerManifest(target)), true, "SIGTERM released the lease before runtime close");
+      assert.equal(fs.readFileSync(path.join(signals, "runtime-launch-count"), "utf8"), "1");
+
+      const blockedContender = spawnSigtermFirstMinute(repo, wrapper, env);
+      const blocked = await blockedContender.completed;
+      assert.equal(blocked.error, undefined, blocked.error && blocked.error.message);
+      assert.equal(blocked.signal, null, blocked.stderr);
+      assert.notEqual(blocked.code, 0, "a contender acquired a lease while the original runtime still held its pipes");
+      assert.match(blocked.stderr, /cache is busy.*lock and state were preserved/i);
+      assert.equal(fs.readFileSync(path.join(signals, "runtime-launch-count"), "utf8"), "1", "busy contender launched a second runtime");
+
+      fs.writeFileSync(path.join(signals, "release-child-by-eof"), "release\n", { flag: "wx", mode: 0o600 });
+      const runtimeClose = JSON.parse(await waitForSigtermMarker(signals, "runtime-closed"));
+      assert.equal(runtimeClose.signal, null, `fixture runtime did not close from EOF: ${JSON.stringify(runtimeClose)}`);
+      assert.equal(runtimeClose.code, 0, `fixture runtime did not complete cleanly after EOF: ${JSON.stringify(runtimeClose)}`);
+      assert.equal(runtimeClose.stdinEnded, true, "CLI did not close the proxy stdin before runtime teardown");
+
+      const completed = await invocation.completed;
+      assert.equal(completed.error, undefined, completed.error && completed.error.message);
+      assert.equal(completed.signal, null, completed.stderr);
+      assert.equal(typeof completed.code, "number", `CLI status was not numeric: ${JSON.stringify(completed)}`);
+      assert.equal(completed.code, 143, `SIGTERM must produce normalized status 143: ${JSON.stringify(completed)}`);
+      assert.equal(fs.existsSync(sigtermOwnerManifest(target)), false, "owner lease remained after the CLI observed child close");
+
+      const successor = await acquireAgentRuntimeLease(target.runtimeDir);
+      try {
+        assert.equal(fs.existsSync(sigtermOwnerManifest(target)), true, "post-close contender did not acquire the released lease");
+      } finally {
+        releaseAgentRuntimeLease(successor);
+      }
+    } finally {
+      await releaseSigtermFixture(signals, invocation);
       fs.rmSync(fixture, { recursive: true, force: true });
     }
   }

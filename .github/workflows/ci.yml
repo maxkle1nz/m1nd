@@ -4,16 +4,12 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master]
-    # Drafts get a bounded feedback lane; declaring a PR ready starts the full
-    # three-OS suite even when the head SHA has not changed.
+    branches: [main, master, feat/agent-autonomy]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-  # Required for the merge queue: without this event the same gates never run on
-  # the queued `gh-readonly-queue/*` ref, so every PR would enter the queue and
-  # hang forever. The aggregator `Test` job runs here too and is the single check
-  # the queue waits on. (2026-07-24 — restoring throughput without strict serial
-  # rebasing.)
   merge_group:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,32 +23,52 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 jobs:
-  ci-lane:
-    name: Classify CI lane
+  ci-scope:
+    name: Classify CI scope
     runs-on: ubuntu-latest
     outputs:
-      lane: ${{ steps.classify.outputs.lane }}
+      scope: ${{ steps.classify.outputs.scope }}
+      dependencies: ${{ steps.dependencies.outputs.changed }}
     steps:
-      - name: Select draft feedback or final proof
-        id: classify
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - id: classify
+        name: Classify the candidate from the complete Git diff
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          EVENT_PATH: ${{ github.event_path }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [[ "$EVENT_NAME" == "pull_request" && "$PR_DRAFT" == "true" ]]; then
-            echo "lane=draft" >> "$GITHUB_OUTPUT"
-          else
-            echo "lane=full" >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/ci_scope.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --event-name "$EVENT_NAME" \
+            --event-path "$EVENT_PATH" \
+            --candidate "$CANDIDATE" \
+            --github-output "$GITHUB_OUTPUT"
+      - id: dependencies
+        name: Detect dependency-manifest changes for the audit gates
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          changed="$(python3 scripts/ci_scope.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --event-name "$EVENT_NAME" \
+            --event-path "$EVENT_PATH" \
+            --candidate "$CANDIDATE" \
+            --dependency-domain any || printf 'true')"
+          case "$changed" in true|false) ;; *) exit 1 ;; esac
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-  draft-rust:
-    name: Draft Rust feedback (${{ matrix.os }})
-    needs: ci-lane
-    if: needs.ci-lane.outputs.lane == 'draft'
+  rust-scoped:
+    name: Scoped Rust invariants and affected crates (${{ matrix.os }})
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).mode == 'scoped' && fromJSON(needs.ci-scope.outputs.scope).rust }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # lightning_check.sh honors this variable instead of selecting a separate
-    # local build-cache path. Cache restore, tests, Clippy and docs share target.
     env:
       CARGO_TARGET_DIR: target
     strategy:
@@ -61,129 +77,66 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: draft-rust-${{ matrix.os }}
+          key: rust-scoped-${{ matrix.os }}
       - uses: taiki-e/install-action@1beb33eee6d086258184383af9a538940be190ed # v2.85.6
         with:
           tool: cargo-nextest
-      - name: Run contract-critical lightning profile, not the full suite
+      - name: Run the invariant lightning contract
         shell: bash
         run: bash scripts/lightning_check.sh
-      - name: Lint every Rust target
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Run boundary compile-fail doctests
-        run: cargo test --locked --workspace --doc
-      - name: Check the lean feature edge independently
-        run: cargo check --locked -p m1nd-mcp --no-default-features
+      - name: Run affected libraries, binaries and integration tests
+        env:
+          SCOPE: ${{ needs.ci-scope.outputs.scope }}
+        shell: bash
+        run: python3 scripts/rust_pr_check.py --scope "$SCOPE"
       - name: Verify formatting
         run: cargo fmt --all --check
 
-  rust-gates:
-    name: Rust gates (${{ matrix.os }})
-    needs: ci-lane
-    if: needs.ci-lane.outputs.lane == 'full'
+  rust-full:
+    name: Full Rust gates (${{ matrix.os }})
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).mode == 'full' }}
     runs-on: ${{ matrix.os }}
-    # Runs on ready-for-review PRs, merge-queue candidates, and main pushes.
-    # Draft edits never restart three 120-minute jobs. The full job remains
-    # mandatory before a PR can be merged, via the required Test check below.
-    # 120, not 90 (2026-08-02). `cargo test --workspace --all-targets` measured
-    # 62 min on the ubuntu 4-vCPU runner and up to 70 on windows, and under
-    # concurrent-PR runner contention it crossed the old 90-min ceiling and got
-    # cancelled — a timeout, not a test failure. The measured fix is more
-    # headroom for the runner the suite already fits on, NOT swapping to nextest,
-    # which the same gate-side measurement showed is SLOWER here (ubuntu 62→83
-    # min: the nested-Cargo I/O storm on a weak-I/O runner). nextest stays the
-    # local canonical runner and the shadow lane; the required legs stay on
-    # `cargo test` with room to finish. Revisit with a per-crate split if the
-    # wall keeps climbing.
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        # windows-latest is REQUIRED again (2026-07-29). It left on 2026-07-23 as
-        # an advisory job while the phase-2 debt was diagnosed and paid down —
-        # source-edit path-canon (#435), the transplant harness (#436), runnerd
-        # fixtures (#437), cfg(windows)-only clippy (#438, #440), wall-clock
-        # budgets (#444). The flip was made against a fully green advisory run on
-        # main (run 30426528487), not a hopeful one. The scaffold is deleted; if
-        # Windows regresses now, it blocks merge — which is the point.
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: rust-gates-${{ matrix.os }}
-      # No standalone `cargo check`: clippy type-checks every target on its way
-      # to linting, so a separate check pass was a full redundant compile.
-      #
-      # Still `cargo test`, on purpose (2026-08-02). nextest was measured on
-      # all three legs before being allowed here, and the gate said no: ubuntu
-      # 62→83 min (the suite-audit's §10 "nested-Cargo process storm", real on
-      # the weakest-I/O runner), macos 53→52, windows 70→48. Locally nextest
-      # IS the canonical runner (935s → 377s on the dev box — see AGENTS.md);
-      # the manually dispatched rust-shadow.yml workflow collects gate-side timing, and this leg
-      # switches only when the shadow reproduces the same greens and reds at
-      # an acceptable wall — never again on dev-box numbers alone. The shared-
-      # process harness here is also the same-process topology insurance the
-      # suite-audit verdict demands: production is one process over shared
-      # statics and locks, and so is this run.
-      - name: Test every target
-        run: cargo test --locked --workspace --all-targets
-      # `--all-targets` EXCLUDES doctests by construction, so the step above has
-      # never executed one. That is not a documentation detail here: all 13 of
-      # this workspace's doctests are `compile_fail` sentinels, and they are the
-      # only thing asserting that the candidate boundary stays shut — each one
-      # pins a symbol that must NOT be reachable from outside its crate. Being
-      # asserted and never run is how two of them rotted through the whole
-      # transplant era and were caught by a release audit instead of a PR
-      # (#505: `server::McpServer` and `session::SessionState::initialize` both
-      # reported "compiled successfully, but it's marked compile_fail"). This
-      # leg reuses the artifacts the step above already built — a rustdoc pass,
-      # not a compile — measured at ~10s wall, 0.12s of which is the tests.
-      - name: Run the doctests --all-targets cannot reach
-        run: cargo test --locked --workspace --doc
+          key: rust-full-${{ matrix.os }}
       - name: Deny clippy warnings
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test every target
+        run: cargo test --locked --workspace --all-targets
+      - name: Run the compile-fail doctests --all-targets cannot reach
+        run: cargo test --locked --workspace --doc
       - name: Verify formatting
         run: cargo fmt --all --check
-      # `--workspace` UNIFIES features, so every gate above builds m1nd-mcp with
-      # `serve` on no matter who asked for it. That hid a real break: m1nd-runnerd
-      # declares `default-features = false`, and m1nd-mcp had not compiled that way
-      # since an ungated `getrandom` call entered `external_mutation_service` — it
-      # only linked because a sibling in the same build widened it. A declared lean
-      # edge that nothing builds is not an edge. This is the one gate that asks for
-      # a crate ALONE, and it is cheap (~20s) precisely because nothing else does.
       - name: Build the lean edge nothing else builds
         run: cargo check --locked -p m1nd-mcp --no-default-features
-      # Release-profile build runs on main pushes only (2026-07-24): on a PR it
-      # proved nothing tests+clippy don't, at ~half the round's wall-clock, and
-      # the signed release pipeline rebuilds --release at tag time anyway. A
-      # release-profile-only breakage is now caught on the main push instead.
-      - name: Build the complete release workspace
+      - name: Build the complete release workspace on main
         if: github.event_name == 'push'
         run: cargo build --locked --release --workspace
 
-  test-status:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: [ci-lane, draft-rust, rust-gates, ui-gates, host-pack-gates, agent-cache-real-gates, python-gates, security-gates, contract-gates]
-    if: always()
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - name: Require every cumulative gate
-        env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
-        run: python3 scripts/ci_gate_status.py
-
   ui-gates:
-    name: UI unit, static, build, fixture-browser, and accessibility gates
+    name: UI unit, static, browser and accessibility gates
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).ui }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -191,73 +144,39 @@ jobs:
         working-directory: m1nd-ui
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: m1nd-ui/package-lock.json
       - run: npm ci
+      - name: Guarded Vite proxy fixture
+        run: node --test ../scripts/devkit/ui-dev.test.mjs
       - name: Unit tests
         run: npm test
       - name: Semantic and icon lint
         run: npm run lint:soft
-      # `npm run lint` (eslint) was NEVER a step here, and that is the whole
-      # reason the linter could sit broken across many green PRs: #418 added a
-      # `brace-expansion@5` override to clear an audit, eslint 9 pulled the CJS
-      # `minimatch@3` that does `require('brace-expansion')` expecting a
-      # function, and every invocation died with `TypeError: expand is not a
-      # function` while CI reported the UI healthy. Same blind-spot shape as the
-      # dist gate below: a proof nothing was running is a proof that cannot go
-      # red. Warnings do not fail (no `--max-warnings`) — the config keeps
-      # `react-refresh/only-export-components` as a signal on purpose.
       - name: ESLint
         run: npm run lint
       - name: Production build
         run: npm run build
-      # `m1nd-ui/dist` is TRACKED on purpose (.gitignore:21 — rust-embed compiles
-      # it into every m1nd-mcp binary), so it can silently fall behind its own
-      # source, and NOTHING in the organism manifest can see that: the build
-      # digest, the runtime digest and the ui_bundle authority all hash the SAME
-      # committed tree, so a stale shell reports COHERENT. Measured 2026-07-29
-      # (mailbox letter 84fde5e4da2e): dist last built at 70598733 while src had
-      # moved twice and the lockfile three times — five commits of drift that
-      # every existing gate called healthy. The build above ran from a clean
-      # checkout; if it dirtied the tree, the committed bundle is no longer what
-      # this source produces. Byte-reproducibility was verified before shipping
-      # this gate: three consecutive host builds and a linux/amd64 node:22
-      # container all emit the identical tree (digest c2dd7d47…), so a red here
-      # is drift, not nondeterminism.
       - name: Committed bundle matches the source that built it
         run: |
-          # `--ignored=matching` because the repo ignores `*.json` wholesale
-          # (.gitignore:23): a JSON asset emitted into dist — a webmanifest, a
-          # locale, a shiki theme chunk — would otherwise be invisible to BOTH
-          # the commit and this gate, which is the same blind spot one level down.
-          DRIFT="$(git status --porcelain --ignored=matching -- dist)"
-          if [ -n "${DRIFT}" ]; then
-            echo "m1nd-ui/dist no longer matches what m1nd-ui/src builds:"
-            echo "${DRIFT}"
-            echo "Fix: (cd m1nd-ui && npm ci && npm run build) then commit m1nd-ui/dist."
-            exit 1
-          fi
-          echo "m1nd-ui/dist is byte-identical to a fresh build of this commit."
+          drift="$(git status --porcelain --ignored=matching -- dist)"
+          test -z "$drift" || { echo "$drift"; exit 1; }
       - name: Install fixture-browser runtime
         run: npx playwright install --with-deps chromium
-      - name: Fixture browser tests (not a live-owner proof)
+      - name: Fixture browser tests
         run: npm run test:e2e
-      # G7 requirement #6 — the PRD asks for "UI unit · accessibility · browser
-      # fixture · browser LIVE" as FOUR SEPARATE proofs, and the ceremony
-      # (docs/benchmarks/G7-LIVE-CEREMONY.md §5, §7) measured the accessibility one
-      # at a literal zero on the m1nd side. Its own step, its own config, its own
-      # result line: merged into `test:e2e` it would prove nothing separately.
-      # Scoped as a smoke — landmarks, names, current-door, keyboard reach — never
-      # claimed as WCAG conformance. Hand-rolled on Playwright's own role/name
-      # engine rather than axe: see the spec header and the PR body.
-      - name: Accessibility smoke (separate proof, not a WCAG audit)
+      - name: Accessibility smoke
         run: npm run test:e2e:a11y
 
   host-pack-gates:
-    name: npm host, pack, update, and rollback gates (${{ matrix.os }})
+    name: npm host, pack, update and rollback gates (${{ matrix.os }})
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).host }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -266,21 +185,26 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
       - run: npm test
       - run: npm run m1nd:pack-check
       - run: npm run m1nd:pack-routing-check
-      - name: Prove the publish file set is packable
-        run: npm pack --dry-run
+      - run: npm pack --dry-run
 
   agent-cache-real-gates:
-    name: Agent cache against native runtime (no skipped real tests)
+    name: Agent cache against native runtime
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).cache }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -298,14 +222,12 @@ jobs:
           cd "$MODEL_DIR"
           base='https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23'
           for file in config.json model.safetensors tokenizer.json; do
-            curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --retry 3 \
-              --output "$file" "$base/$file"
+            curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --retry 3 --output "$file" "$base/$file"
           done
           printf '%s\n' \
             '2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553  config.json' \
             'f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2  model.safetensors' \
-            'e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50  tokenizer.json' \
-            | sha256sum --check --strict
+            'e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50  tokenizer.json' | sha256sum --check --strict
       - name: Run native cache and lease integration tests without skips
         env:
           M1ND_TEST_AGENT_CACHE_BINARY: ${{ github.workspace }}/target/debug/m1nd-mcp
@@ -313,26 +235,29 @@ jobs:
         run: |
           set -o pipefail
           test -x "$M1ND_TEST_AGENT_CACHE_BINARY"
-          node --test --test-concurrency=1 \
-            npm/test/agent-cli-cache-real.test.js \
-            npm/test/agent-cli-cache-concurrency-real.test.js \
-            | tee agent-cache-real.tap
+          node --test --test-concurrency=1 npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js | tee agent-cache-real.tap
           grep -qx '# skipped 0' agent-cache-real.tap
           grep -Eq '^# tests [1-9][0-9]*$' agent-cache-real.tap
 
   python-gates:
     name: Python proof harnesses
+    needs: ci-scope
+    if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).python }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 
   security-gates:
-    name: Dependency and supply-chain gates
+    name: Source guard, history secret scan and dependency audits
+    needs: ci-scope
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -341,39 +266,35 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Refuse private, operator-only, secret, or cache paths in the candidate commit
-        run: |
-          python3 scripts/m1nd10_candidate_source_guard.py \
-            --repo . \
-            --revision "${GITHUB_SHA}"
-      - name: Scan the complete candidate history for secrets
+      - name: Refuse private, operator-only, secret or cache paths in the candidate
+        env:
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/m1nd10_candidate_source_guard.py --repo . --revision "$CANDIDATE"
+      - name: Scan complete candidate history for secrets
         env:
           GITLEAKS_VERSION: 8.30.1
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail \
-            --output gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --output gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
           tar --extract --gzip --file gitleaks.tar.gz gitleaks
           ./gitleaks git --redact --no-banner --exit-code 1 .
-          rm -f gitleaks gitleaks.tar.gz
-      - name: Audit dependency advisories with pinned cargo-audit
+      - name: Audit Cargo dependencies on full coverage
+        if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).mode == 'full' }}
         run: |
           cargo install cargo-audit --locked --version 0.22.2
           cargo audit --file ./Cargo.lock
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Root wrapper must remain dependency-free
+      - name: Root wrapper remains dependency-free
         run: |
           node - <<'NODE'
           const pkg = require('./package.json');
           for (const key of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-            if (pkg[key] && Object.keys(pkg[key]).length) {
-              throw new Error('root package unexpectedly has ' + key);
-            }
+            if (pkg[key] && Object.keys(pkg[key]).length) throw new Error('root package unexpectedly has ' + key);
           }
           NODE
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -381,36 +302,59 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: m1nd-ui/package-lock.json
-      - name: UI package high/critical audit
-        working-directory: m1nd-ui
-        run: npm audit --audit-level=high
-      - name: Review dependency changes
-        if: github.event_name == 'pull_request'
+      - name: Audit UI dependencies when they changed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+          SCOPE: ${{ needs.ci-scope.outputs.scope }}
+        run: |
+          mode="$(python3 -c 'import json, os; print(json.loads(os.environ.get("SCOPE", "{}" )).get("mode", "full"))')"
+          ui_deps="$(python3 scripts/ci_scope.py --repo "$GITHUB_WORKSPACE" --event-name "$EVENT_NAME" --event-path "$EVENT_PATH" --candidate "$CANDIDATE" --dependency-domain ui || printf 'true')"
+          if [ "$mode" = full ] || [ "$ui_deps" = true ]; then (cd m1nd-ui && npm audit --audit-level=high); else echo 'UI dependency manifest unchanged; audit not selected.'; fi
+      - name: Review dependency changes on pull requests
+        if: ${{ github.event_name == 'pull_request' && needs.ci-scope.result == 'success' && needs.ci-scope.outputs.dependencies == 'true' }}
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+      - name: Remove downloaded secret-scanner binary
+        if: always()
+        run: rm -f gitleaks gitleaks.tar.gz
 
   contract-gates:
     name: Frozen contracts and documentation coupling
+    needs: ci-scope
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - name: Verify ratified M1ND-10 contract bytes
         shell: bash
         run: |
           printf '%s  %s\n' \
-            '2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b' \
-            'docs/M1ND-10-PRD.md' \
-            'd5bc29776f516c300cb1a0668f0a53844286f75395fd0ad1e875b52ea3a067a5' \
-            'docs/M1ND-10-UML.md' | sha256sum --check --strict
+            '2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b' 'docs/M1ND-10-PRD.md' \
+            'd5bc29776f516c300cb1a0668f0a53844286f75395fd0ad1e875b52ea3a067a5' 'docs/M1ND-10-UML.md' | sha256sum --check --strict
       - name: Ensure base ref is present
         if: github.event_name == 'pull_request'
         run: git fetch --no-tags origin "${{ github.base_ref }}"
       - name: Enforce agent-workflow documentation coupling
         if: github.event_name == 'pull_request'
-        run: |
-          python3 scripts/agent_docs_gate.py \
-            --base-ref "${{ github.base_ref }}" \
-            --event-path "${{ github.event_path }}"
+        run: python3 scripts/agent_docs_gate.py --base-ref "${{ github.base_ref }}" --event-path "${{ github.event_path }}"
+
+  test-status:
+    name: Test
+    needs: [ci-scope, rust-scoped, rust-full, ui-gates, host-pack-gates, agent-cache-real-gates, python-gates, security-gates, contract-gates]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Require scope-consistent cumulative gates
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          SCOPE_JSON: ${{ needs.ci-scope.outputs.scope }}
+        run: python3 scripts/ci_gate_status.py

@@ -19,7 +19,7 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use m1nd_control::digest_canonical;
@@ -177,6 +177,16 @@ pub(crate) fn preview_checkpoint_manifest(
 /// fatal to checkpoint completeness.
 pub(crate) fn read_regular_checkpoint_input(path: &Path) -> Result<Vec<u8>, CheckpointError> {
     read_regular_file_no_follow(path, None)
+}
+
+/// Read one authoritative recovery input while carrying the bound owner's
+/// cooperative stop token. The `None` wrapper remains the normal API for
+/// callers outside cold actor recovery.
+pub(crate) fn read_regular_checkpoint_input_with_cancel(
+    path: &Path,
+    cancelled: Option<&AtomicBool>,
+) -> Result<Vec<u8>, CheckpointError> {
+    read_regular_file_no_follow_with_cancel(path, None, cancelled)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -369,6 +379,14 @@ impl LoadedCheckpointV1 {
     }
 
     pub fn read_file(&self, logical_name: &str) -> Result<Vec<u8>, CheckpointError> {
+        self.read_file_with_cancel(logical_name, None)
+    }
+
+    pub fn read_file_with_cancel(
+        &self,
+        logical_name: &str,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<Vec<u8>, CheckpointError> {
         let _operation = self.store.operation_lock()?;
         let file = self
             .manifest
@@ -377,12 +395,13 @@ impl LoadedCheckpointV1 {
             .find(|file| file.logical_name == logical_name)
             .ok_or_else(|| CheckpointError::UnknownLogicalFile(logical_name.to_string()))?;
         let path = self.io_directory.join(&file.blob_path);
-        let bytes = read_regular_file_no_follow(&path, None)?;
-        if bytes.len() as u64 != file.byte_len || sha256_bytes(&bytes) != file.content_digest {
+        let bytes = read_regular_file_no_follow_with_cancel(&path, None, cancelled)?;
+        let observed = sha256_bytes_with_cancel(&bytes, cancelled)?;
+        if bytes.len() as u64 != file.byte_len || observed != file.content_digest {
             return Err(CheckpointError::DigestMismatch {
                 path,
                 expected: file.content_digest.clone(),
-                observed: sha256_bytes(&bytes),
+                observed,
             });
         }
         Ok(bytes)
@@ -597,6 +616,9 @@ pub enum CheckpointError {
     SymlinkRefused(PathBuf),
     PointerMissing,
     PointerCorrupt(String),
+    /// Cancellation after actor ownership is not a clean startup cancellation:
+    /// the caller must preserve the lease and quarantine the checked-out state.
+    RecoveryCancelled,
     OccConflict {
         expected: Option<String>,
         observed: Option<String>,
@@ -639,6 +661,7 @@ impl CheckpointError {
             Self::SymlinkRefused(_) => "checkpoint_symlink_refused",
             Self::PointerMissing => "checkpoint_pointer_missing",
             Self::PointerCorrupt(_) => "checkpoint_pointer_corrupt",
+            Self::RecoveryCancelled => "checkpoint_recovery_cancelled",
             Self::OccConflict { .. } => "checkpoint_occ_conflict",
             Self::DigestMismatch { .. } => "checkpoint_digest_mismatch",
             Self::CheckpointCollision(_) => "checkpoint_id_collision",
@@ -674,6 +697,9 @@ impl fmt::Display for CheckpointError {
             Self::PointerMissing => formatter.write_str("checkpoint CURRENT pointer is absent"),
             Self::PointerCorrupt(detail) => {
                 write!(formatter, "checkpoint CURRENT pointer is corrupt: {detail}")
+            }
+            Self::RecoveryCancelled => {
+                formatter.write_str("checkpoint recovery cancelled after actor ownership")
             }
             Self::OccConflict { expected, observed } => write!(
                 formatter,
@@ -1080,14 +1106,24 @@ impl CheckpointStore {
         &self,
         validator: &dyn CheckpointAuthorityValidator,
     ) -> Result<LoadedCheckpointV1, CheckpointError> {
+        self.load_current_with_cancel(validator, None)
+    }
+
+    pub fn load_current_with_cancel(
+        &self,
+        validator: &dyn CheckpointAuthorityValidator,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<LoadedCheckpointV1, CheckpointError> {
         let _operation = self.operation_lock()?;
-        let pointer = self.read_current_required()?;
-        self.load_checkpoint(
+        check_recovery_cancelled(cancelled)?;
+        let pointer = self.read_current_required_with_cancel(cancelled)?;
+        self.load_checkpoint_with_cancel(
             &pointer.current_checkpoint_id,
             CheckpointLoadDisposition::ExactCurrent,
             Some(&pointer),
             validator,
             None,
+            cancelled,
         )
     }
 
@@ -1137,8 +1173,16 @@ impl CheckpointStore {
         &self,
         checkpoint_id: &str,
     ) -> Result<CheckpointManifestV1, CheckpointError> {
+        self.read_verified_manifest_with_cancel(checkpoint_id, None)
+    }
+
+    pub(crate) fn read_verified_manifest_with_cancel(
+        &self,
+        checkpoint_id: &str,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<CheckpointManifestV1, CheckpointError> {
         let _operation = self.operation_lock()?;
-        self.validate_checkpoint_directory(checkpoint_id)
+        self.validate_checkpoint_directory_with_cancel(checkpoint_id, cancelled)
     }
 
     /// Authenticate one content-addressed manifest and read exactly one of its
@@ -1152,13 +1196,26 @@ impl CheckpointStore {
         logical_name: &str,
         validator: &dyn CheckpointAuthorityValidator,
     ) -> Result<(CheckpointManifestV1, Vec<u8>), CheckpointError> {
+        self.read_authorized_manifest_file_with_cancel(checkpoint_id, logical_name, validator, None)
+    }
+
+    pub(crate) fn read_authorized_manifest_file_with_cancel(
+        &self,
+        checkpoint_id: &str,
+        logical_name: &str,
+        validator: &dyn CheckpointAuthorityValidator,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<(CheckpointManifestV1, Vec<u8>), CheckpointError> {
         let _operation = self.operation_lock()?;
-        let manifest = self.validate_content_addressed_manifest(checkpoint_id)?;
+        check_recovery_cancelled(cancelled)?;
+        let manifest =
+            self.validate_content_addressed_manifest_with_cancel(checkpoint_id, cancelled)?;
         let refs_digest = external_authority_refs_digest(&manifest.external_authority_refs)?;
         let receipt = validator
             .validate(&manifest, &refs_digest)
             .map_err(CheckpointError::AuthorityValidation)?;
         validate_authority_receipt(&receipt, &manifest, &refs_digest)?;
+        check_recovery_cancelled(cancelled)?;
         let file = manifest
             .file_inventory
             .iter()
@@ -1167,8 +1224,8 @@ impl CheckpointStore {
         let path = self
             .io_checkpoint_directory(checkpoint_id)
             .join(&file.blob_path);
-        let bytes = read_regular_file_no_follow(&path, None)?;
-        let observed = sha256_bytes(&bytes);
+        let bytes = read_regular_file_no_follow_with_cancel(&path, None, cancelled)?;
+        let observed = sha256_bytes_with_cancel(&bytes, cancelled)?;
         if bytes.len() as u64 != file.byte_len || observed != file.content_digest {
             return Err(CheckpointError::DigestMismatch {
                 path,
@@ -1184,18 +1241,35 @@ impl CheckpointStore {
         validator: &dyn CheckpointAuthorityValidator,
         issued_at_unix_ms: u64,
     ) -> Result<LoadedCheckpointV1, CheckpointError> {
+        self.load_with_fallback_with_cancel(validator, issued_at_unix_ms, None)
+    }
+
+    pub fn load_with_fallback_with_cancel(
+        &self,
+        validator: &dyn CheckpointAuthorityValidator,
+        issued_at_unix_ms: u64,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<LoadedCheckpointV1, CheckpointError> {
         let _operation = self.operation_lock()?;
+        // Discover whether this owner has a durable predecessor before making
+        // cancellation terminal. A fresh owner with no CURRENT still follows
+        // the ordinary bootstrap/ACK path; only an existing recovery is
+        // quarantined on SIGTERM.
         let pointer = self.read_current_required()?;
-        match self.load_checkpoint(
+        check_recovery_cancelled(cancelled)?;
+        match self.load_checkpoint_with_cancel(
             &pointer.current_checkpoint_id,
             CheckpointLoadDisposition::ExactCurrent,
             Some(&pointer),
             validator,
             None,
+            cancelled,
         ) {
             Ok(loaded) => Ok(loaded),
+            Err(error @ CheckpointError::RecoveryCancelled) => Err(error),
             Err(current_error @ CheckpointError::PointerCorrupt(_)) => Err(current_error),
             Err(current_error) => {
+                check_recovery_cancelled(cancelled)?;
                 let Some(fallback_id) = pointer.fallback_checkpoint_id.clone() else {
                     return Err(CheckpointError::NoUsableCheckpoint {
                         current_error: current_error.to_string(),
@@ -1210,17 +1284,24 @@ impl CheckpointStore {
                     &current_error.to_string(),
                     issued_at_unix_ms,
                 )?;
-                self.load_checkpoint(
+                match self.load_checkpoint_with_cancel(
                     &fallback_id,
                     CheckpointLoadDisposition::DegradedFallback,
                     None,
                     validator,
                     Some(receipt),
-                )
-                .map_err(|fallback_error| CheckpointError::NoUsableCheckpoint {
-                    current_error: current_error.to_string(),
-                    fallback_error: fallback_error.to_string(),
-                })
+                    cancelled,
+                ) {
+                    Ok(loaded) => {
+                        check_recovery_cancelled(cancelled)?;
+                        Ok(loaded)
+                    }
+                    Err(error @ CheckpointError::RecoveryCancelled) => Err(error),
+                    Err(fallback_error) => Err(CheckpointError::NoUsableCheckpoint {
+                        current_error: current_error.to_string(),
+                        fallback_error: fallback_error.to_string(),
+                    }),
+                }
             }
         }
     }
@@ -1481,7 +1562,27 @@ impl CheckpointStore {
         validator: &dyn CheckpointAuthorityValidator,
         fallback_receipt: Option<CheckpointFallbackReceiptV1>,
     ) -> Result<LoadedCheckpointV1, CheckpointError> {
-        let manifest = self.validate_checkpoint_directory(checkpoint_id)?;
+        self.load_checkpoint_with_cancel(
+            checkpoint_id,
+            disposition,
+            pointer_binding,
+            validator,
+            fallback_receipt,
+            None,
+        )
+    }
+
+    fn load_checkpoint_with_cancel(
+        &self,
+        checkpoint_id: &str,
+        disposition: CheckpointLoadDisposition,
+        pointer_binding: Option<&CheckpointCurrentV1>,
+        validator: &dyn CheckpointAuthorityValidator,
+        fallback_receipt: Option<CheckpointFallbackReceiptV1>,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<LoadedCheckpointV1, CheckpointError> {
+        check_recovery_cancelled(cancelled)?;
+        let manifest = self.validate_checkpoint_directory_with_cancel(checkpoint_id, cancelled)?;
         if let Some(pointer) = pointer_binding {
             validate_pointer_manifest_binding(pointer, &manifest)?;
         }
@@ -1490,6 +1591,10 @@ impl CheckpointStore {
             .validate(&manifest, &refs_digest)
             .map_err(CheckpointError::AuthorityValidation)?;
         validate_authority_receipt(&authority_receipt, &manifest, &refs_digest)?;
+        // Validation can be the point that observes SIGTERM in a test or a
+        // slow external verifier. Do not turn that post-CURRENT cancellation
+        // into a fallback attempt.
+        check_recovery_cancelled(cancelled)?;
         Ok(LoadedCheckpointV1 {
             directory: self.checkpoint_directory(checkpoint_id),
             io_directory: self.io_checkpoint_directory(checkpoint_id),
@@ -1505,7 +1610,17 @@ impl CheckpointStore {
         &self,
         checkpoint_id: &str,
     ) -> Result<CheckpointManifestV1, CheckpointError> {
-        let manifest = self.validate_content_addressed_manifest(checkpoint_id)?;
+        self.validate_checkpoint_directory_with_cancel(checkpoint_id, None)
+    }
+
+    fn validate_checkpoint_directory_with_cancel(
+        &self,
+        checkpoint_id: &str,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<CheckpointManifestV1, CheckpointError> {
+        check_recovery_cancelled(cancelled)?;
+        let manifest =
+            self.validate_content_addressed_manifest_with_cancel(checkpoint_id, cancelled)?;
         let directory = self.io_checkpoint_directory(checkpoint_id);
 
         let mut root_entries = BTreeSet::new();
@@ -1549,8 +1664,9 @@ impl CheckpointStore {
             ));
         }
         for file in &manifest.file_inventory {
+            check_recovery_cancelled(cancelled)?;
             let path = directory.join(&file.blob_path);
-            let (digest, byte_len) = hash_regular_file_no_follow(&path)?;
+            let (digest, byte_len) = hash_regular_file_no_follow_with_cancel(&path, cancelled)?;
             if digest != file.content_digest || byte_len != file.byte_len {
                 return Err(CheckpointError::DigestMismatch {
                     path,
@@ -1566,6 +1682,15 @@ impl CheckpointStore {
         &self,
         checkpoint_id: &str,
     ) -> Result<CheckpointManifestV1, CheckpointError> {
+        self.validate_content_addressed_manifest_with_cancel(checkpoint_id, None)
+    }
+
+    fn validate_content_addressed_manifest_with_cancel(
+        &self,
+        checkpoint_id: &str,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<CheckpointManifestV1, CheckpointError> {
+        check_recovery_cancelled(cancelled)?;
         validate_digest("checkpoint_id", checkpoint_id)?;
         let directory = self.io_checkpoint_directory(checkpoint_id);
         let metadata = fs::symlink_metadata(&directory)?;
@@ -1580,7 +1705,11 @@ impl CheckpointStore {
         }
 
         let manifest_path = directory.join(MANIFEST_FILE);
-        let manifest_bytes = read_regular_file_no_follow(&manifest_path, Some(MAX_MANIFEST_BYTES))?;
+        let manifest_bytes = read_regular_file_no_follow_with_cancel(
+            &manifest_path,
+            Some(MAX_MANIFEST_BYTES),
+            cancelled,
+        )?;
         let manifest: CheckpointManifestV1 = serde_json::from_slice(&manifest_bytes)?;
         validate_manifest(&manifest)?;
         if manifest.checkpoint_id != checkpoint_id {
@@ -1606,6 +1735,14 @@ impl CheckpointStore {
     }
 
     fn read_current_optional(&self) -> Result<Option<CheckpointCurrentV1>, CheckpointError> {
+        self.read_current_optional_with_cancel(None)
+    }
+
+    fn read_current_optional_with_cancel(
+        &self,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<Option<CheckpointCurrentV1>, CheckpointError> {
+        check_recovery_cancelled(cancelled)?;
         let path = self.inner.namespace_root.join(CURRENT_FILE);
         match fs::symlink_metadata(&path) {
             Ok(metadata) => {
@@ -1616,7 +1753,8 @@ impl CheckpointStore {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         }
-        let bytes = read_regular_file_no_follow(&path, Some(MAX_POINTER_BYTES))?;
+        let bytes =
+            read_regular_file_no_follow_with_cancel(&path, Some(MAX_POINTER_BYTES), cancelled)?;
         let pointer: CheckpointCurrentV1 = serde_json::from_slice(&bytes)
             .map_err(|error| CheckpointError::PointerCorrupt(error.to_string()))?;
         validate_pointer(&pointer)?;
@@ -1624,7 +1762,14 @@ impl CheckpointStore {
     }
 
     fn read_current_required(&self) -> Result<CheckpointCurrentV1, CheckpointError> {
-        self.read_current_optional()?
+        self.read_current_required_with_cancel(None)
+    }
+
+    fn read_current_required_with_cancel(
+        &self,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<CheckpointCurrentV1, CheckpointError> {
+        self.read_current_optional_with_cancel(cancelled)?
             .ok_or(CheckpointError::PointerMissing)
     }
 }
@@ -2046,6 +2191,15 @@ fn read_regular_file_no_follow(
     path: &Path,
     max_bytes: Option<u64>,
 ) -> Result<Vec<u8>, CheckpointError> {
+    read_regular_file_no_follow_with_cancel(path, max_bytes, None)
+}
+
+fn read_regular_file_no_follow_with_cancel(
+    path: &Path,
+    max_bytes: Option<u64>,
+    cancelled: Option<&AtomicBool>,
+) -> Result<Vec<u8>, CheckpointError> {
+    check_recovery_cancelled(cancelled)?;
     let metadata = fs::symlink_metadata(path)?;
     if metadata_is_link_or_reparse(&metadata) || !metadata.is_file() {
         return Err(CheckpointError::SymlinkRefused(path.to_path_buf()));
@@ -2057,34 +2211,155 @@ fn read_regular_file_no_follow(
         ));
     }
     let mut file = open_read_no_follow(path)?;
+    read_to_end_with_cancel(&mut file, cancelled)
+}
+
+fn read_to_end_with_cancel<R: Read>(
+    reader: &mut R,
+    cancelled: Option<&AtomicBool>,
+) -> Result<Vec<u8>, CheckpointError> {
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        check_recovery_cancelled(cancelled)?;
+        let read = loop {
+            match reader.read(&mut buffer) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    check_recovery_cancelled(cancelled)?;
+                    continue;
+                }
+                result => break result?,
+            }
+        };
+        check_recovery_cancelled(cancelled)?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        cold_sigterm_test_probe(cancelled, "checkpoint-read-verify-entered")?;
+        check_recovery_cancelled(cancelled)?;
+    }
     Ok(bytes)
 }
 
 fn hash_regular_file_no_follow(path: &Path) -> Result<(String, u64), CheckpointError> {
+    hash_regular_file_no_follow_with_cancel(path, None)
+}
+
+fn hash_regular_file_no_follow_with_cancel(
+    path: &Path,
+    cancelled: Option<&AtomicBool>,
+) -> Result<(String, u64), CheckpointError> {
+    check_recovery_cancelled(cancelled)?;
     let metadata = fs::symlink_metadata(path)?;
     if metadata_is_link_or_reparse(&metadata) || !metadata.is_file() {
         return Err(CheckpointError::SymlinkRefused(path.to_path_buf()));
     }
     let file = open_read_no_follow(path)?;
     let mut reader = BufReader::new(file);
+    hash_reader_with_cancel(&mut reader, cancelled)
+}
+
+fn hash_reader_with_cancel<R: Read>(
+    reader: &mut R,
+    cancelled: Option<&AtomicBool>,
+) -> Result<(String, u64), CheckpointError> {
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = reader.read(&mut buffer)?;
+        check_recovery_cancelled(cancelled)?;
+        let read = loop {
+            match reader.read(&mut buffer) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    check_recovery_cancelled(cancelled)?;
+                    continue;
+                }
+                result => break result?,
+            }
+        };
+        check_recovery_cancelled(cancelled)?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
         total = total.saturating_add(read as u64);
+        cold_sigterm_test_probe(cancelled, "checkpoint-read-verify-entered")?;
+        check_recovery_cancelled(cancelled)?;
     }
     Ok((hex_lower(&hasher.finalize()), total))
 }
 
 fn sha256_bytes(bytes: &[u8]) -> String {
-    hex_lower(&Sha256::digest(bytes))
+    // This wrapper preserves all existing content-address calculations for
+    // non-recovery callers.
+    sha256_bytes_with_cancel(bytes, None).expect("uncancelled buffer hash")
+}
+
+fn sha256_bytes_with_cancel(
+    bytes: &[u8],
+    cancelled: Option<&AtomicBool>,
+) -> Result<String, CheckpointError> {
+    check_recovery_cancelled(cancelled)?;
+    let mut hasher = Sha256::new();
+    for chunk in bytes.chunks(64 * 1024) {
+        check_recovery_cancelled(cancelled)?;
+        hasher.update(chunk);
+        check_recovery_cancelled(cancelled)?;
+    }
+    check_recovery_cancelled(cancelled)?;
+    Ok(hex_lower(&hasher.finalize()))
+}
+
+pub(crate) fn check_recovery_cancelled(
+    cancelled: Option<&AtomicBool>,
+) -> Result<(), CheckpointError> {
+    if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        Err(CheckpointError::RecoveryCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(debug_assertions, unix))]
+pub(crate) fn cold_sigterm_test_probe(
+    cancelled: Option<&AtomicBool>,
+    stage: &str,
+) -> Result<(), CheckpointError> {
+    use std::io::Write as _;
+    use std::os::unix::net::UnixStream;
+
+    let Some(cancelled) = cancelled else {
+        return Ok(());
+    };
+    let Some(socket) = std::env::var_os("M1ND_TEST_COLD_SIGTERM_STAGE_SOCKET") else {
+        return Ok(());
+    };
+    let expected = std::env::var("M1ND_TEST_COLD_SIGTERM_STAGE").ok();
+    if expected.as_deref() != Some(stage) {
+        return Ok(());
+    }
+    // The one phase observation is made before SIGTERM. Once that same token
+    // is set, later chunks must continue into the production refusal path and
+    // never require another harness connection.
+    if cancelled.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let mut stream = UnixStream::connect(socket)?;
+    stream.write_all(stage.as_bytes())?;
+    stream.write_all(b"\n")?;
+    while !cancelled.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
+    Ok(())
+}
+
+#[cfg(not(all(debug_assertions, unix)))]
+pub(crate) fn cold_sigterm_test_probe(
+    _cancelled: Option<&AtomicBool>,
+    _stage: &str,
+) -> Result<(), CheckpointError> {
+    Ok(())
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -2635,4 +2910,166 @@ fn replace_path(_source: &Path, _destination: &Path) -> Result<(), CheckpointErr
     Err(CheckpointError::PlatformNotProven(
         "durable CURRENT replacement requires a reviewed platform primitive",
     ))
+}
+
+#[cfg(test)]
+mod recovery_cancellation_tests {
+    use super::*;
+
+    struct CancelAfterFirstChunk<'a> {
+        remaining: &'a [u8],
+        cancelled: &'a AtomicBool,
+        reads: usize,
+    }
+
+    impl Read for CancelAfterFirstChunk<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            let count = buffer.len().min(self.remaining.len());
+            buffer[..count].copy_from_slice(&self.remaining[..count]);
+            self.remaining = &self.remaining[count..];
+            if self.reads == 1 {
+                self.cancelled.store(true, Ordering::Release);
+            }
+            Ok(count)
+        }
+    }
+
+    struct CancelAtEof<'a> {
+        remaining: &'a [u8],
+        cancelled: &'a AtomicBool,
+        reads: usize,
+    }
+
+    impl Read for CancelAtEof<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            if self.remaining.is_empty() {
+                self.cancelled.store(true, Ordering::Release);
+                return Ok(0);
+            }
+            let count = buffer.len().min(self.remaining.len());
+            buffer[..count].copy_from_slice(&self.remaining[..count]);
+            self.remaining = &self.remaining[count..];
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn recovery_boundary_read_cancellation_at_eof_refuses_success() {
+        let cancelled = AtomicBool::new(false);
+        let mut reader = CancelAtEof {
+            remaining: b"abc",
+            cancelled: &cancelled,
+            reads: 0,
+        };
+        let result = read_to_end_with_cancel(&mut reader, Some(&cancelled));
+        assert!(matches!(result, Err(CheckpointError::RecoveryCancelled)));
+        assert_eq!(reader.reads, 2, "cancellation occurs in the EOF read");
+    }
+
+    #[test]
+    fn recovery_boundary_hash_cancellation_at_eof_refuses_success() {
+        let cancelled = AtomicBool::new(false);
+        let mut reader = CancelAtEof {
+            remaining: b"abc",
+            cancelled: &cancelled,
+            reads: 0,
+        };
+        let result = hash_reader_with_cancel(&mut reader, Some(&cancelled));
+        assert!(matches!(result, Err(CheckpointError::RecoveryCancelled)));
+        assert_eq!(reader.reads, 2, "cancellation occurs in the EOF read");
+    }
+
+    #[test]
+    fn recovery_boundary_empty_buffer_hash_observes_precancellation() {
+        let cancelled = AtomicBool::new(true);
+        assert!(matches!(
+            sha256_bytes_with_cancel(b"", Some(&cancelled)),
+            Err(CheckpointError::RecoveryCancelled)
+        ));
+        assert_eq!(
+            sha256_bytes_with_cancel(b"", None).expect("uncancelled empty buffer"),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn recovery_read_stops_after_the_first_cancelled_64k_chunk() {
+        let cancelled = AtomicBool::new(false);
+        let bytes = [7_u8; 128 * 1024];
+        let mut reader = CancelAfterFirstChunk {
+            remaining: &bytes,
+            cancelled: &cancelled,
+            reads: 0,
+        };
+
+        let result = read_to_end_with_cancel(&mut reader, Some(&cancelled));
+
+        assert!(matches!(result, Err(CheckpointError::RecoveryCancelled)));
+        assert_eq!(reader.reads, 1, "cancelled read must not consume chunk two");
+        assert!(!reader.remaining.is_empty());
+    }
+
+    #[test]
+    fn recovery_hash_stops_after_the_first_cancelled_64k_chunk() {
+        let cancelled = AtomicBool::new(false);
+        let bytes = [9_u8; 128 * 1024];
+        let mut reader = CancelAfterFirstChunk {
+            remaining: &bytes,
+            cancelled: &cancelled,
+            reads: 0,
+        };
+
+        let result = hash_reader_with_cancel(&mut reader, Some(&cancelled));
+
+        assert!(matches!(result, Err(CheckpointError::RecoveryCancelled)));
+        assert_eq!(reader.reads, 1, "cancelled hash must not consume chunk two");
+        assert!(!reader.remaining.is_empty());
+    }
+
+    #[test]
+    fn uncancelled_read_and_hash_preserve_fixed_bytes_and_digest() {
+        let bytes = b"abc";
+        let mut reader = &bytes[..];
+        let observed = read_to_end_with_cancel(&mut reader, None).expect("uncancelled read");
+        assert_eq!(observed, bytes);
+
+        let mut reader = &bytes[..];
+        let (digest, byte_len) =
+            hash_reader_with_cancel(&mut reader, None).expect("uncancelled hash");
+        assert_eq!(byte_len, 3);
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn interrupted_recovery_read_retries_without_losing_bytes() {
+        struct InterruptedOnce {
+            attempts: usize,
+        }
+
+        impl Read for InterruptedOnce {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.attempts += 1;
+                if self.attempts == 1 {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                if self.attempts == 2 {
+                    buffer[..3].copy_from_slice(b"abc");
+                    return Ok(3);
+                }
+                Ok(0)
+            }
+        }
+
+        let mut reader = InterruptedOnce { attempts: 0 };
+        assert_eq!(
+            read_to_end_with_cancel(&mut reader, None).expect("retry interrupted read"),
+            b"abc"
+        );
+        assert_eq!(reader.attempts, 3);
+    }
 }

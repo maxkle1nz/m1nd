@@ -27,6 +27,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+// This is the caller's bounded tolerance for a live actor to produce its
+// shutdown checkpoint ACK. A healthy shutdown returns as soon as the last ACK
+// lands; no owner release is reachable without one.
+const STDIO_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
+
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
 // automatically understand how to use m1nd effectively.
@@ -1884,6 +1889,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "include_test_impact": { "type": "boolean", "default": true, "description": "Analyze test coverage for modified files" },
                         "include_risk_score": { "type": "boolean", "default": true, "description": "Compute composite risk score" },
+                        "max_gaps": { "type": "integer", "minimum": 0, "default": 24, "description": "Maximum gaps and suggested additions returned; values above 128 are clamped to 128" },
                         "scope": { "type": "string", "description": "Optional repo or scope path for multi-repo binding diagnostics" }
                     },
                     "required": ["agent_id", "actions"]
@@ -8395,14 +8401,29 @@ impl McpServer {
             });
         }
 
-        // The launcher will subsequently create predictable graph checkpoint
-        // names below this directory. Accepting a missing, shared, or symlinked
-        // runtime would leave a TOCTOU window in which another local principal
-        // could replace that name with a link before the first checkpoint. The
-        // Node cache creates this root privately before it launches us; direct
-        // launcher users must do the same rather than asking this process to
-        // manufacture a trust boundary from an ambient path.
-        let raw_metadata = std::fs::symlink_metadata(runtime).map_err(|error| {
+        #[cfg(windows)]
+        {
+            crate::windows_durable_fs::canonical_private_runtime(runtime).map_err(|error| {
+                M1ndError::InvalidParams {
+                    tool: "agent_workspace_bootstrap".to_string(),
+                    detail: format!(
+                        "launcher_workspace_runtime_not_private: Windows native owner/DACL proof for private runtime '{}' failed: {error}; no graph or source mutation was attempted",
+                        runtime.display()
+                    ),
+                }
+            })
+        }
+
+        #[cfg(not(windows))]
+        {
+            // The launcher will subsequently create predictable graph checkpoint
+            // names below this directory. Accepting a missing, shared, or symlinked
+            // runtime would leave a TOCTOU window in which another local principal
+            // could replace that name with a link before the first checkpoint. The
+            // Node cache creates this root privately before it launches us; direct
+            // launcher users must do the same rather than asking this process to
+            // manufacture a trust boundary from an ambient path.
+            let raw_metadata = std::fs::symlink_metadata(runtime).map_err(|error| {
             M1ndError::InvalidParams {
                 tool: "agent_workspace_bootstrap".to_string(),
                 detail: format!(
@@ -8411,16 +8432,16 @@ impl McpServer {
                 ),
             }
         })?;
-        if raw_metadata.file_type().is_symlink() || !raw_metadata.is_dir() {
-            return Err(M1ndError::InvalidParams {
+            if raw_metadata.file_type().is_symlink() || !raw_metadata.is_dir() {
+                return Err(M1ndError::InvalidParams {
                 tool: "agent_workspace_bootstrap".to_string(),
                 detail: format!(
                     "launcher_workspace_runtime_not_private: private runtime '{}' must be a real directory, not a symlink or non-directory; no graph or source mutation was attempted",
                     runtime.display()
                 ),
             });
-        }
-        let canonical = std::fs::canonicalize(runtime).map_err(|error| M1ndError::InvalidParams {
+            }
+            let canonical = std::fs::canonicalize(runtime).map_err(|error| M1ndError::InvalidParams {
             tool: "agent_workspace_bootstrap".to_string(),
             detail: format!(
                 "launcher_workspace_runtime_not_private: private runtime '{}' cannot be canonicalized: {error}; no graph or source mutation was attempted",
@@ -8428,14 +8449,14 @@ impl McpServer {
             ),
         })?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-            let current_uid = unsafe { libc::geteuid() };
-            let mut current = canonical.as_path();
-            loop {
-                let metadata = std::fs::symlink_metadata(current).map_err(|error| {
+                let current_uid = unsafe { libc::geteuid() };
+                let mut current = canonical.as_path();
+                loop {
+                    let metadata = std::fs::symlink_metadata(current).map_err(|error| {
                     M1ndError::InvalidParams {
                         tool: "agent_workspace_bootstrap".to_string(),
                         detail: format!(
@@ -8444,19 +8465,19 @@ impl McpServer {
                         ),
                     }
                 })?;
-                let mode = metadata.permissions().mode() & 0o1777;
-                if !metadata.is_dir() || metadata.file_type().is_symlink() {
-                    return Err(M1ndError::InvalidParams {
+                    let mode = metadata.permissions().mode() & 0o1777;
+                    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                        return Err(M1ndError::InvalidParams {
                         tool: "agent_workspace_bootstrap".to_string(),
                         detail: format!(
                             "launcher_workspace_runtime_not_private: runtime component '{}' must remain a real directory; no graph or source mutation was attempted",
                             current.display()
                         ),
                     });
-                }
-                if current == canonical {
-                    if metadata.uid() != current_uid || mode & 0o077 != 0 {
-                        return Err(M1ndError::InvalidParams {
+                    }
+                    if current == canonical {
+                        if metadata.uid() != current_uid || mode & 0o077 != 0 {
+                            return Err(M1ndError::InvalidParams {
                             tool: "agent_workspace_bootstrap".to_string(),
                             detail: format!(
                                 "launcher_workspace_runtime_not_private: private runtime '{}' must be owned by effective uid {current_uid} and inaccessible to group or other users (observed uid {} mode {mode:o}); no graph or source mutation was attempted",
@@ -8464,9 +8485,10 @@ impl McpServer {
                                 metadata.uid()
                             ),
                         });
-                    }
-                } else if !Self::runtime_ancestor_is_trusted(current_uid, metadata.uid(), mode) {
-                    return Err(M1ndError::InvalidParams {
+                        }
+                    } else if !Self::runtime_ancestor_is_trusted(current_uid, metadata.uid(), mode)
+                    {
+                        return Err(M1ndError::InvalidParams {
                         tool: "agent_workspace_bootstrap".to_string(),
                         detail: format!(
                             "launcher_workspace_runtime_not_private: ancestor '{}' of private runtime '{}' must be owned by effective uid {current_uid} or root and cannot be group/other-writable unless trusted sticky (observed uid {} mode {mode:o}); no graph or source mutation was attempted",
@@ -8475,26 +8497,27 @@ impl McpServer {
                             metadata.uid(),
                         ),
                     });
-                }
+                    }
 
-                let Some(parent) = current.parent() else {
-                    break;
-                };
-                if parent == current {
-                    break;
+                    let Some(parent) = current.parent() else {
+                        break;
+                    };
+                    if parent == current {
+                        break;
+                    }
+                    current = parent;
                 }
-                current = parent;
             }
-        }
-        #[cfg(not(unix))]
-        {
-            return Err(M1ndError::InvalidParams {
+            #[cfg(not(unix))]
+            {
+                return Err(M1ndError::InvalidParams {
                 tool: "agent_workspace_bootstrap".to_string(),
                 detail: "launcher_workspace_runtime_not_private: launcher preparation currently requires a POSIX owner-private runtime; no graph or source mutation was attempted".to_string(),
             });
-        }
+            }
 
-        Ok(canonical)
+            Ok(canonical)
+        }
     }
 
     /// Prepare an empty stdio owner's graph from the launcher's explicit root.
@@ -8509,6 +8532,20 @@ impl McpServer {
         session: Arc<BrainSessionCell>,
         project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
     ) -> M1ndResult<()> {
+        Self::prepare_launcher_workspace_for_transport_with_cancel(
+            config,
+            session,
+            project_brains,
+            None,
+        )
+    }
+
+    pub(crate) fn prepare_launcher_workspace_for_transport_with_cancel(
+        config: &McpConfig,
+        session: Arc<BrainSessionCell>,
+        project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<()> {
         let Some(granted_root) = Self::canonical_launcher_workspace(config)? else {
             return Ok(());
         };
@@ -8519,24 +8556,31 @@ impl McpServer {
             .unwrap_or_else(|| "config:launcher_workspace_root".to_string());
 
         let (node_count, known_roots, read_only, runtime_root) = project_brains
-            .execute_target_runtime(Arc::clone(&session), None, true, false, |state| {
-                let node_count = state.graph.read().num_nodes();
-                let mut roots = state.ingest_roots.clone();
-                // `workspace_root` is normally inferred during this very boot. It
-                // is identity evidence only when a persisted project-brain manifest
-                // supplied it; otherwise a new launcher grant could validate itself.
-                if state.workspace_root_source.as_deref() == Some("project_brain_manifest") {
-                    if let Some(root) = state.workspace_root.clone() {
-                        roots.push(root);
+            .execute_target_runtime_with_cancel(
+                Arc::clone(&session),
+                None,
+                true,
+                false,
+                |state| {
+                    let node_count = state.graph.read().num_nodes();
+                    let mut roots = state.ingest_roots.clone();
+                    // `workspace_root` is normally inferred during this very boot. It
+                    // is identity evidence only when a persisted project-brain manifest
+                    // supplied it; otherwise a new launcher grant could validate itself.
+                    if state.workspace_root_source.as_deref() == Some("project_brain_manifest") {
+                        if let Some(root) = state.workspace_root.clone() {
+                            roots.push(root);
+                        }
                     }
-                }
-                Ok((
-                    node_count,
-                    roots,
-                    state.read_only,
-                    state.runtime_root.clone(),
-                ))
-            })?;
+                    Ok((
+                        node_count,
+                        roots,
+                        state.read_only,
+                        state.runtime_root.clone(),
+                    ))
+                },
+                cancelled,
+            )?;
 
         // A legitimate `memorize` merge declares one auxiliary root: this
         // state's own `<runtime_root>/agent-memory` store. Derive that identity
@@ -8623,11 +8667,19 @@ impl McpServer {
     }
 
     fn prepare_launcher_workspace(&self) -> M1ndResult<()> {
+        self.prepare_launcher_workspace_with_cancel(None)
+    }
+
+    fn prepare_launcher_workspace_with_cancel(
+        &self,
+        cancelled: Option<&AtomicBool>,
+    ) -> M1ndResult<()> {
         let runtime = self.actor_runtime()?;
-        Self::prepare_launcher_workspace_for_transport(
+        Self::prepare_launcher_workspace_for_transport_with_cancel(
             &self.config,
             Arc::clone(&runtime.session),
             Arc::clone(&runtime.project_brains),
+            cancelled,
         )?;
 
         // Direct stdio has no request-scoped header seam. Its caller identity
@@ -9080,6 +9132,10 @@ impl McpServer {
     /// 6. Register MCP tools (13 tools)
     /// 7. Ready for connections
     pub fn start(&mut self) -> M1ndResult<()> {
+        self.start_with_cancel(None)
+    }
+
+    pub fn start_with_cancel(&mut self, cancelled: Option<&AtomicBool>) -> M1ndResult<()> {
         if self.actor_runtime.is_none() {
             let state = self.boot_state.take().ok_or_else(|| {
                 M1ndError::PersistenceFailed(
@@ -9098,20 +9154,23 @@ impl McpServer {
             });
         }
 
-        self.prepare_launcher_workspace()?;
+        self.prepare_launcher_workspace_with_cancel(cancelled)?;
 
         let runtime = self.actor_runtime()?;
-        let snapshot = runtime.project_brains.read_target_runtime_snapshot(
-            Arc::clone(&runtime.session),
-            None,
-            true,
-            |state| {
-                Ok((
-                    state.graph.read().num_nodes(),
-                    state.graph.read().num_edges(),
-                ))
-            },
-        )?;
+        let snapshot = runtime
+            .project_brains
+            .read_target_runtime_snapshot_with_cancel(
+                Arc::clone(&runtime.session),
+                None,
+                true,
+                |state| {
+                    Ok((
+                        state.graph.read().num_nodes(),
+                        state.graph.read().num_edges(),
+                    ))
+                },
+                cancelled,
+            )?;
         eprintln!(
             "[m1nd-mcp] Server ready. {} nodes, {} edges",
             snapshot.value.0, snapshot.value.1,
@@ -9358,7 +9417,9 @@ impl McpServer {
             // A failed checkpoint/actor stop is NOT a release condition. Keep
             // the unique process lease alive so an unacked postimage can never
             // race a replacement writer.
-            let acks = runtime.project_brains.shutdown(Duration::from_secs(5))?;
+            let acks = runtime
+                .project_brains
+                .shutdown(STDIO_ACTOR_SHUTDOWN_GRACE)?;
             {
                 let mut state = runtime.session.lock_mut_before_actor().map_err(|error| {
                     M1ndError::PersistenceFailed(format!(
@@ -9617,7 +9678,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn launcher_workspace_rejects_runtime_without_posix_privacy_proof() {
+    fn launcher_workspace_accepts_native_private_runtime_under_real_runner_parent() {
         let temp = tempfile::tempdir().expect("tempdir");
         let workspace = temp.path().join("workspace");
         let runtime = temp.path().join("private-runtime");
@@ -9632,19 +9693,60 @@ mod tests {
             ..McpConfig::default()
         };
 
+        let server = McpServer::new(config).expect(
+            "real Windows runner parent and owner-private leaf must pass native owner/DACL proof",
+        );
+        assert_eq!(
+            server.config.runtime_dir,
+            Some(std::fs::canonicalize(&runtime).expect("canonical runtime")),
+            "native launcher runtime did not retain its proven canonical identity"
+        );
+        assert_eq!(
+            server.config.graph_source,
+            std::fs::canonicalize(&runtime)
+                .expect("canonical runtime")
+                .join("graph_snapshot.json")
+        );
+        assert_eq!(
+            server.config.registry_dir,
+            Some(
+                std::fs::canonicalize(&runtime)
+                    .expect("canonical runtime")
+                    .join("registry")
+            )
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launcher_workspace_refuses_missing_native_runtime_before_state_mutation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("missing-private-runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            launcher_workspace_root: Some(workspace),
+            launcher_workspace_root_source: Some("test".to_string()),
+            ..McpConfig::default()
+        };
+
         let error = match McpServer::new(config) {
-            Ok(_) => panic!("launcher runtime without a POSIX privacy proof must fail"),
+            Ok(_) => panic!("a missing Windows runtime must fail the native privacy proof"),
             Err(error) => error,
         };
         assert!(
             error
                 .to_string()
                 .contains("launcher_workspace_runtime_not_private"),
-            "unexpected error: {error}"
+            "missing native runtime must surface the privacy guard: {error}"
         );
-        assert!(!runtime.join("graph_snapshot.json").exists());
-        assert!(!runtime.join("registry").exists());
-        assert!(!workspace.join("registry").exists());
+        assert!(
+            !runtime.exists(),
+            "native privacy failure must precede runtime, graph, registry, and lease creation"
+        );
     }
 
     #[cfg(unix)]

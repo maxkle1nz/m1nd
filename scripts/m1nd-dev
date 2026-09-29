@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Repository-local contributor entrypoint. It derives its root from this file.
+set -euo pipefail
+
+script_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+exec "$script_dir/devkit/dev.sh" "$@"

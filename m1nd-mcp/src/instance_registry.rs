@@ -2023,6 +2023,7 @@ mod tests {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .share_mode(0)
                 .open(&guard_path)
                 .expect("open exclusive lock handle")

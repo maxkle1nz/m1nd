@@ -150,7 +150,7 @@ impl QueryOrchestrator {
         if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
             return Err(crate::error::M1ndError::StartupCancelled);
         }
-        let temporal = TemporalEngine::build(graph)?;
+        let temporal = TemporalEngine::build_with_cancel(graph, cancelled)?;
         let topology = TopologyAnalyzer::with_defaults();
         let resonance = ResonanceEngine::with_defaults();
         let plasticity = PlasticityEngine::new(graph, PlasticityConfig::default());

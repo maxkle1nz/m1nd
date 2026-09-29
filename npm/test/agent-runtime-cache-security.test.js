@@ -119,6 +119,46 @@ test("runtime cache rejects a symlinked runtime directory without writing throug
   }
 });
 
+test("cancelled cache waiter removes its waiter proof without acquiring another owner", async () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-cancelled-waiter-"));
+  const runtimeDir = path.join(fixture, "runtime");
+  const holder = await acquireAgentRuntimeLease(runtimeDir);
+  const ownerProof = path.join(holder.ownerDir, "owner.json");
+  const ownerBefore = fs.readFileSync(ownerProof, "utf8");
+  const interrupted = Object.assign(new Error("m1nd agent interrupted by SIGTERM"), {
+    code: "M1ND_AGENT_INTERRUPTED",
+    signal: "SIGTERM",
+    exitCode: 143,
+  });
+  const cancellation = { error: null };
+  const originalSetTimeout = global.setTimeout;
+  let waiterObserved = false;
+  try {
+    global.setTimeout = (callback, delay, ...args) => {
+      if (delay === 25 && !waiterObserved) {
+        waiterObserved = true;
+        cancellation.error = interrupted;
+      }
+      return originalSetTimeout(callback, delay, ...args);
+    };
+    await assert.rejects(
+      acquireAgentRuntimeLease(runtimeDir, { cancellation }),
+      (error) => error === interrupted
+    );
+    assert.equal(waiterObserved, true, "fixture did not reach the real lease waiter");
+    assert.equal(fs.readFileSync(ownerProof, "utf8"), ownerBefore, "cancelled waiter modified the proven owner");
+    assert.deepEqual(
+      fs.readdirSync(runtimeDir).filter((name) => name.startsWith(".agent-cache-waiter-v1-")),
+      [],
+      "cancelled waiter left ownership state behind"
+    );
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    releaseAgentRuntimeLease(holder);
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("runtime cache refuses a preexisting symlinked owner directory", symlinkTestOptions, async () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-owner-symlink-"));
   try {
