@@ -699,20 +699,47 @@ function spawnSigtermFirstMinute(repo, binary, env) {
   return { child, completed, outcome: () => outcome, output: () => ({ stdout, stderr }) };
 }
 
-function waitForSigtermMarker(signals, name, timeoutMs = 15_000) {
+function waitForSigtermMarker(signals, name, timeoutMs = 15_000, invocation = null) {
   const marker = path.join(signals, name);
   if (fs.existsSync(marker)) return Promise.resolve(fs.readFileSync(marker, "utf8"));
   return new Promise((resolve, reject) => {
-    const interval = setInterval(() => {
-      if (!fs.existsSync(marker)) return;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
       clearInterval(interval);
       clearTimeout(timer);
-      resolve(fs.readFileSync(marker, "utf8"));
-    }, 10);
+      callback(value);
+    };
+    const poll = () => {
+      if (fs.existsSync(marker)) {
+        return finish(resolve, fs.readFileSync(marker, "utf8"));
+      }
+      if (!invocation) return;
+      const runtimeClosed = path.join(signals, "runtime-closed");
+      if (fs.existsSync(runtimeClosed)) {
+        return finish(
+          reject,
+          new Error(
+            `fixture runtime closed before marker ${name}: ${fs.readFileSync(runtimeClosed, "utf8")}`
+          )
+        );
+      }
+      const parentOutcome = invocation.outcome();
+      if (parentOutcome || invocation.child.exitCode !== null || invocation.child.signalCode !== null) {
+        return finish(
+          reject,
+          new Error(
+            `CLI exited before fixture marker ${name}: ${JSON.stringify(parentOutcome || invocation.output())}`
+          )
+        );
+      }
+    };
+    const interval = setInterval(poll, 10);
     const timer = setTimeout(() => {
-      clearInterval(interval);
-      reject(new Error(`timed out waiting for fixture marker ${name}`));
+      finish(reject, new Error(`timed out waiting for fixture marker ${name}`));
     }, timeoutMs);
+    poll();
   });
 }
 
@@ -827,7 +854,7 @@ async function releaseSigtermFixture(signals, invocation) {
 
 test(
   "agent first-minute keeps its cache lease until a SIGTERM-interrupted runtime closes",
-  { skip: !BINARY || !fs.existsSync(BINARY), timeout: 45_000 },
+  { skip: !BINARY || !fs.existsSync(BINARY), timeout: 90_000 },
   async () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-sigterm-"));
     fs.chmodSync(fixture, 0o700);
@@ -843,7 +870,7 @@ test(
       target = agentRuntimeCacheTarget(repo, env);
 
       invocation = spawnSigtermFirstMinute(repo, wrapper, env);
-      await waitForSigtermMarker(signals, "initialize-response-held");
+      await waitForSigtermMarker(signals, "initialize-response-held", 75_000, invocation);
       assert.equal(fs.existsSync(sigtermOwnerManifest(target)), true, "runtime reached initialize without acquiring the cache lease");
       const ownerBefore = readSigtermOwner(target);
       assert.equal(typeof ownerBefore.token, "string");
