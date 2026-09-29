@@ -33,6 +33,14 @@ impl CheckpointAuthorityValidator for TestCheckpointValidator {
 }
 
 const BIN: &str = env!("CARGO_BIN_EXE_m1nd-mcp");
+// Recovery is socket-gated before SIGTERM, so this bounds only a stalled child:
+// a healthy cancellation returns immediately. The Ubuntu runner exceeded the
+// old 10s observation window under load; 30s preserves a visible limit while
+// retaining stderr from the real recovery stage on timeout.
+const SIGTERM_RECOVERY_EXIT_BUDGET: Duration = Duration::from_secs(30);
+// A ready owner may use the production 60s checkpoint grace. The extra 10s
+// observes process teardown; healthy ACK shutdowns return immediately.
+const SIGTERM_READY_OWNER_EXIT_BUDGET: Duration = Duration::from_secs(70);
 
 #[test]
 fn stdio_sigterm_checkpoints_and_releases_owner() {
@@ -124,7 +132,7 @@ fn exercise_sigterm_during_recovery(stage: &str) {
         spawn_recovery_owner(&runtime, &home, &temp, &workspace, None, None);
     wait_for_stderr_trigger(&mut first, &first_lines, "Server ready");
     send_term(&first);
-    let first_status = wait_for_exit(&mut first);
+    let first_status = wait_for_exit(&mut first, &first_lines, SIGTERM_READY_OWNER_EXIT_BUDGET);
     let first_stderr = first_reader.join().expect("join first stderr").join("\n");
     assert!(
         first_status.success(),
@@ -158,7 +166,7 @@ fn exercise_sigterm_during_recovery(stage: &str) {
             .expect("report recovery stage");
     });
 
-    let (mut second, _second_lines, second_reader) = spawn_recovery_owner(
+    let (mut second, second_lines, second_reader) = spawn_recovery_owner(
         &runtime,
         &home,
         &temp,
@@ -182,7 +190,7 @@ fn exercise_sigterm_during_recovery(stage: &str) {
         "socket must name the real recovery phase"
     );
     send_term(&second);
-    let second_status = wait_for_exit(&mut second);
+    let second_status = wait_for_exit(&mut second, &second_lines, SIGTERM_RECOVERY_EXIT_BUDGET);
     let second_stderr = second_reader
         .join()
         .expect("join recovery stderr")
@@ -314,8 +322,12 @@ fn send_term(child: &std::process::Child) {
     assert!(status.success(), "kill -TERM must succeed");
 }
 
-fn wait_for_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
-    let deadline = Instant::now() + Duration::from_secs(10);
+fn wait_for_exit(
+    child: &mut std::process::Child,
+    lines: &mpsc::Receiver<String>,
+    exit_budget: Duration,
+) -> std::process::ExitStatus {
+    let deadline = Instant::now() + exit_budget;
     loop {
         if let Some(status) = child.try_wait().expect("poll stdio owner") {
             return status;
@@ -323,7 +335,14 @@ fn wait_for_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("stdio owner did not stop after SIGTERM");
+            let mut stderr = Vec::new();
+            while let Ok(line) = lines.recv_timeout(Duration::from_millis(100)) {
+                stderr.push(line);
+            }
+            panic!(
+                "stdio owner did not stop after SIGTERM within {exit_budget:?}; \
+                 stderr after SIGTERM: {stderr:#?}"
+            );
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -516,7 +535,12 @@ fn exercise_sigterm_after(
         .expect("send SIGTERM");
     assert!(kill_status.success(), "kill -TERM must succeed");
 
-    let exit_deadline = Instant::now() + Duration::from_secs(10);
+    let exit_budget = if cancel_during_boot {
+        Duration::from_secs(10)
+    } else {
+        SIGTERM_READY_OWNER_EXIT_BUDGET
+    };
+    let exit_deadline = Instant::now() + exit_budget;
     let status = loop {
         if let Some(status) = child.try_wait().expect("poll owner") {
             break status;
@@ -531,7 +555,7 @@ fn exercise_sigterm_after(
                 holder.join().expect("join fixture writer after kill");
             }
             let observed = reader.join().expect("join stderr reader");
-            panic!("stdio owner did not stop after SIGTERM: {observed:#?}");
+            panic!("stdio owner did not stop after SIGTERM within {exit_budget:?}: {observed:#?}");
         }
         std::thread::sleep(Duration::from_millis(20));
     };

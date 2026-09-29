@@ -27,6 +27,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+// This is the caller's bounded tolerance for a live actor to produce its
+// shutdown checkpoint ACK. A healthy shutdown returns as soon as the last ACK
+// lands; no owner release is reachable without one.
+const STDIO_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
+
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
 // automatically understand how to use m1nd effectively.
@@ -9412,7 +9417,9 @@ impl McpServer {
             // A failed checkpoint/actor stop is NOT a release condition. Keep
             // the unique process lease alive so an unacked postimage can never
             // race a replacement writer.
-            let acks = runtime.project_brains.shutdown(Duration::from_secs(5))?;
+            let acks = runtime
+                .project_brains
+                .shutdown(STDIO_ACTOR_SHUTDOWN_GRACE)?;
             {
                 let mut state = runtime.session.lock_mut_before_actor().map_err(|error| {
                     M1ndError::PersistenceFailed(format!(
