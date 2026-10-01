@@ -839,15 +839,27 @@ impl OwnershipCollectorV1 {
         let bidirectional_mirrors_valid = csr_shape_valid && bidirectional_mirrors_valid(graph);
         let reverse_csr_valid = csr_shape_valid && reverse_csr_valid(graph);
         let source_projection_digest = source_projection_digest(graph)?;
+        // Strictly-sorted receipt contract: the verifier (`resolution_decisions_valid_for`)
+        // rejects any adjacent-equal entry, so a mere sort is not enough — the seal must
+        // also dedup. At scale the same import resolves in many crates and lands the exact
+        // same input/hint/decision more than once (nushell built 143,298 resolution inputs
+        // with duplicates), which fails the contract, yields an Incomplete receipt, and
+        // `require_complete` then discards the whole graph — a 0-node birth. Deduping here
+        // restores the contract and nushell births 31,691 nodes.
         self.resolution_inputs.sort();
+        self.resolution_inputs.dedup();
         let resolution_inputs = self.resolution_inputs;
         let resolution_input_digest =
             digest_json(&(CODE_RESOLUTION_INPUT_DIGEST_DOMAIN, &resolution_inputs))?;
         self.resolution_hints.sort();
+        // Hints share the verifier key (source_id + target_label); collapse on that key.
+        self.resolution_hints
+            .dedup_by(|a, b| a.source_id == b.source_id && a.target_label == b.target_label);
         let resolution_hints = self.resolution_hints;
         let resolution_hint_digest =
             digest_json(&(CODE_RESOLUTION_HINT_DIGEST_DOMAIN, &resolution_hints))?;
         self.resolution_decisions.sort();
+        self.resolution_decisions.dedup();
         let resolution_decisions = self.resolution_decisions;
         let resolution_digest =
             digest_json(&(CODE_RESOLUTION_DIGEST_DOMAIN, &resolution_decisions))?;
@@ -1947,6 +1959,81 @@ mod tests {
         assert_eq!(manifest.coverage, OwnershipCoverageV1::Incomplete);
         assert_eq!(manifest.orphan_node_slots, vec![node.as_usize() as u32]);
         assert!(!manifest.verify_receipt().unwrap());
+    }
+
+    #[test]
+    fn seal_dedups_duplicate_resolution_entries_at_scale() {
+        // At scale the same import resolves in many crates, so the collector records the
+        // exact same resolution input — and a same-key hint — more than once. The receipt
+        // contract demands a STRICTLY sorted (no adjacent-equal) sequence, so the seal must
+        // dedup; otherwise the receipt turns Incomplete and `require_complete` discards the
+        // whole graph (the 0-node birth measured on nushell). This locks the seal's dedup.
+        let mut graph = Graph::new();
+        let source = graph
+            .add_node("node::source", "source", NodeType::File, &[], 0.0, 0.0)
+            .unwrap();
+        let target = graph
+            .add_node("node::target", "target", NodeType::Function, &[], 0.0, 0.0)
+            .unwrap();
+        graph
+            .add_edge(
+                source,
+                target,
+                "contains",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::ZERO,
+            )
+            .unwrap();
+        graph.finalize().unwrap();
+
+        let mut collector = OwnershipCollectorV1::default();
+        collector.set_pipeline_receipt(super::CodePipelineReceiptV1::test_default(1));
+        collector.claim_node("a.rs", "node::source");
+        collector.claim_node("a.rs", "node::target");
+        collector.claim_edge(OwnedEdgeClaimV1::forward(
+            "a.rs",
+            "node::source",
+            "node::target",
+            "contains",
+        ));
+
+        // Byte-identical inputs — the scale duplicate.
+        let input = super::ResolutionInputV1 {
+            source_key: "a.rs".into(),
+            source_id: "node::source".into(),
+            target_label: "target".into(),
+            relation: "calls".into(),
+        };
+        collector.record_resolution_inputs([input.clone(), input.clone()]);
+        // Two hints sharing the verifier key (source_id + target_label), differing only in
+        // import_path — the verifier forbids that pair to repeat, so the seal collapses them.
+        let hint = super::ResolutionHintV1 {
+            source_id: "node::source".into(),
+            target_label: "target".into(),
+            import_path: "crate::target".into(),
+        };
+        let hint2 = super::ResolutionHintV1 {
+            import_path: "self::target".into(),
+            ..hint.clone()
+        };
+        collector.record_resolution_hints([hint, hint2]);
+
+        let manifest = collector
+            .audit(
+                &graph,
+                "/managed/root".into(),
+                None,
+                None,
+                BTreeMap::from([("a.rs".into(), "digest-a".into())]),
+            )
+            .unwrap();
+
+        // The seal collapsed both duplicates and kept the strictly-sorted contract.
+        assert_eq!(manifest.resolution_inputs, vec![input]);
+        assert_eq!(manifest.resolution_hints.len(), 1);
+        assert!(manifest.resolution_inputs.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]
