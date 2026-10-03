@@ -56,7 +56,7 @@ tree-sitter-rust = "0.24"
 
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }
-tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"], optional = true }
+tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip"], optional = true }
 rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
