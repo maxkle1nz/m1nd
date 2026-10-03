@@ -1159,7 +1159,7 @@ localizado"), never a silent plain chip.
 ### 5.1 The decided shape
 
 Evolve `m1nd-ui/` in place. It is already the served app: React 18 + `@xyflow/react` 12 +
-`dagre` + `zustand` + Tailwind 3 + Vite 8 (`m1nd-ui/package.json`), built to
+`dagre` + `zustand` + Tailwind 4 + Vite 8 (`m1nd-ui/package.json`), built to
 `m1nd-ui/dist/` and rust-embedded into the binary (`UiAssets`, `http_server.rs:270`),
 served by `--serve` on loopback `127.0.0.1:1337` (`cli.rs:22-28`), with `--dev` for
 disk-served frontend iteration. IDE extensions, a standalone cockpit, and a greenfield SPA

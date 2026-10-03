@@ -1233,7 +1233,7 @@ fn parse_captured_timestamp(field: &str, value: &str) -> Result<u64, SeedError> 
         std::str::from_utf8(&bytes[start..end])
             .ok()
             .and_then(|part| part.parse::<i64>().ok())
-            .ok_or_else(&invalid)
+            .ok_or_else(invalid)
     };
     let year = number(0, 4)?;
     let month = number(5, 7)?;
@@ -1259,7 +1259,7 @@ fn parse_captured_timestamp(field: &str, value: &str) -> Result<u64, SeedError> 
     let seconds = days
         .checked_mul(86_400)
         .and_then(|base| base.checked_add(hour * 3_600 + minute * 60 + second))
-        .ok_or_else(&invalid)?;
+        .ok_or_else(invalid)?;
     u64::try_from(seconds)
         .ok()
         .and_then(|seconds| seconds.checked_mul(1000))
