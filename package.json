@@ -1,6 +1,6 @@
 {
   "name": "@maxkle1nz/m1nd",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "mcpName": "io.github.maxkle1nz/m1nd",
   "description": "Universal installer and agent pack for the m1nd MCP runtime.",
   "license": "MIT",
@@ -32,17 +32,18 @@
     "docs/M1ND-GUARDIAN-METHOD.md",
     "docs/MCP-HOST-REFRESH.md",
     "docs/IDE-INTEGRATIONS.md",
+    "docs/AGENT-AUTONOMY.md",
     "README.md",
     "EXAMPLES.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test npm/test/cli.test.js",
+    "test": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js",
     "m1nd:doctor": "node npm/bin/m1nd.js doctor",
-    "m1nd:pack-check": "node npm/bin/m1nd.js pack-check",
+    "m1nd:pack-check": "node npm/bin/m1nd.js pack-check && node npm/lib/pack-contents-check.js",
     "m1nd:pack-routing-check": "node npm/bin/m1nd.js pack-routing-check",
     "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project .",
-    "test:npm": "node --test npm/test/cli.test.js"
+    "test:npm": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js"
   },
   "engines": {
     "node": ">=18"

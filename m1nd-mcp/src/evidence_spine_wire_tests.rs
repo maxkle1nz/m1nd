@@ -437,6 +437,18 @@ async fn canonical_g3_projection_is_queryable_read_only_over_rest_and_streamable
             assert!(is_error, "{legacy}");
             assert_eq!(refusal["code"], "legacy_direct_mutation_refused");
         }
+        // Restart only after the first actor has ACKed its checkpoint and
+        // released its unique owner. Dropping AppState alone hands shutdown to
+        // an asynchronous guardian and does not establish that ordering.
+        app.project_brains
+            .shutdown(std::time::Duration::from_secs(5))
+            .expect("first G5 actor checkpoint ACK before restart");
+        app.session
+            .lock_mut_before_actor()
+            .expect("first G5 actor returned its session")
+            .instance
+            .release()
+            .expect("first G5 owner released before restart");
         rest_core
     };
 

@@ -70,6 +70,10 @@ pub enum M1ndError {
     #[error("ingestion cancelled")]
     IngestionCancelled,
 
+    /// Cooperative stdio cold-bootstrap cancellation, before a writer lease is acquired.
+    #[error("startup cancelled")]
+    StartupCancelled,
+
     /// FM-ING-002: Ingestion exceeded node count budget.
     #[error("ingestion node budget exhausted: {budget} nodes")]
     IngestionNodeBudget { budget: u64 },

@@ -4,9 +4,10 @@ use crate::error::{M1ndError, M1ndResult};
 use crate::graph::{Graph, NodeProvenanceInput, ResolvedNodeProvenance};
 use crate::plasticity::SynapticState;
 use crate::types::*;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Snapshot — JSON graph persistence
@@ -402,6 +403,14 @@ fn restore_edge_slot(
 }
 
 fn graph_from_snapshot_v4(snapshot: GraphSnapshotV4) -> M1ndResult<Graph> {
+    graph_from_snapshot_v4_with_check(snapshot, &mut || Ok(()))
+}
+
+fn graph_from_snapshot_v4_with_check(
+    snapshot: GraphSnapshotV4,
+    check: &mut impl FnMut() -> M1ndResult<()>,
+) -> M1ndResult<Graph> {
+    check()?;
     if snapshot.version != SNAPSHOT_VERSION {
         return Err(M1ndError::CorruptState {
             reason: format!(
@@ -422,11 +431,13 @@ fn graph_from_snapshot_v4(snapshot: GraphSnapshotV4) -> M1ndResult<Graph> {
     }
 
     for edge in &snapshot.edges {
+        check()?;
         validate_v4_edge(edge)?;
     }
 
     let mut graph = Graph::with_capacity(snapshot.nodes.len(), snapshot.edges.len());
     for node in &snapshot.nodes {
+        check()?;
         if !node.last_modified.is_finite() || !node.change_frequency.is_finite() {
             return Err(M1ndError::CorruptState {
                 reason: format!("non-finite node state for {}", node.external_id),
@@ -455,6 +466,7 @@ fn graph_from_snapshot_v4(snapshot: GraphSnapshotV4) -> M1ndResult<Graph> {
     }
 
     for edge in &snapshot.edges {
+        check()?;
         let source = graph
             .resolve_id(&edge.source_id)
             .ok_or_else(|| M1ndError::CorruptState {
@@ -479,12 +491,15 @@ fn graph_from_snapshot_v4(snapshot: GraphSnapshotV4) -> M1ndResult<Graph> {
             FiniteF32::new(edge.causal_strength),
         )?;
     }
+    check()?;
     graph.finalize()?;
+    check()?;
 
     let sources = edge_slot_sources(&graph)?;
     let mut queues = edge_slot_queues(&graph, &sources)?;
     let mut consumed = vec![false; graph.csr.num_edges()];
     for edge in &snapshot.edges {
+        check()?;
         let source = graph
             .resolve_id(&edge.source_id)
             .ok_or_else(|| M1ndError::CorruptState {
@@ -541,6 +556,7 @@ fn graph_from_snapshot_v4(snapshot: GraphSnapshotV4) -> M1ndResult<Graph> {
         }
     }
 
+    check()?;
     Ok(graph)
 }
 
@@ -685,6 +701,21 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
 /// Decode strict snapshot-v4 JSON, with the explicit v3 compatibility path,
 /// without reading or writing a filesystem path.
 pub fn decode_graph_json(data: &[u8]) -> M1ndResult<Graph> {
+    decode_graph_json_with_cancel(data, None)
+}
+
+pub fn decode_graph_json_with_cancel(
+    data: &[u8],
+    cancelled: Option<&AtomicBool>,
+) -> M1ndResult<Graph> {
+    let check = || {
+        if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            Err(M1ndError::StartupCancelled)
+        } else {
+            Ok(())
+        }
+    };
+    check()?;
     #[derive(serde::Deserialize)]
     struct VersionPeek {
         version: u32,
@@ -720,14 +751,98 @@ pub fn decode_graph_json(data: &[u8]) -> M1ndResult<Graph> {
             });
         }
     };
-    graph_from_snapshot_v4(snapshot)
+    graph_from_snapshot_v4_with_check(snapshot, &mut || check())
 }
 
 /// Load full graph from JSON snapshot. Reconstructs the complete graph
 /// with all nodes, edges, CSR, and PageRank.
 pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
-    let data = std::fs::read(path)?;
-    decode_graph_json(&data)
+    load_graph_with_cancel(path, None)
+}
+
+/// Stdio cold bootstrap checks for shutdown while reading and rebuilding a
+/// snapshot. The snapshot is read-only until an actor later acquires ownership.
+pub fn load_graph_with_cancel(path: &Path, cancelled: Option<&AtomicBool>) -> M1ndResult<Graph> {
+    if let Some(cancelled) = cancelled {
+        let path = path.to_path_buf();
+        return run_prelease_snapshot_load(cancelled, move |worker_cancel| {
+            load_graph_inner(&path, Some(&worker_cancel))
+        });
+    }
+    load_graph_inner(path, None)
+}
+
+// Snapshot reads/JSON deserialization can block without a cancellation hook.
+// Isolate the entire read-only, pre-lease load: the stdio bootstrap joins its
+// worker, but may leave this worker to die with the process on SIGTERM. The
+// inner flag still stops normal reads and reconstruction at their checkpoints.
+fn run_prelease_snapshot_load(
+    cancelled: &AtomicBool,
+    load: impl FnOnce(Arc<AtomicBool>) -> M1ndResult<Graph> + Send + 'static,
+) -> M1ndResult<Graph> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(M1ndError::StartupCancelled);
+    }
+    let inner_cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&inner_cancel);
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("m1nd-cold-snapshot-load".into())
+        .spawn(move || {
+            let _ = tx.send(load(worker_cancel));
+        })?;
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            inner_cancel.store(true, Ordering::Release);
+            return Err(M1ndError::StartupCancelled);
+        }
+        match rx.recv_timeout(std::time::Duration::from_millis(20)) {
+            Ok(result) => {
+                if cancelled.load(Ordering::Acquire) {
+                    inner_cancel.store(true, Ordering::Release);
+                    return Err(M1ndError::StartupCancelled);
+                }
+                return result;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(M1ndError::CorruptState {
+                    reason: "snapshot loader terminated without a result".into(),
+                });
+            }
+        }
+    }
+}
+
+fn load_graph_inner(path: &Path, cancelled: Option<&AtomicBool>) -> M1ndResult<Graph> {
+    let mut file = std::fs::File::open(path)?;
+    let data = read_graph_bytes_with_cancel(&mut file, cancelled)?;
+    decode_graph_json_with_cancel(&data, cancelled)
+}
+
+fn read_graph_bytes_with_cancel(
+    reader: &mut impl Read,
+    cancelled: Option<&AtomicBool>,
+) -> M1ndResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(M1ndError::StartupCancelled);
+        }
+        let count = match reader.read(&mut chunk) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(M1ndError::StartupCancelled);
+        }
+        if count == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -850,6 +965,114 @@ pub fn load_co_change_matrix(
 mod tests {
     use super::*;
     use crate::temporal::{CoChangeMatrix, CoChangeMatrixStateV1};
+
+    #[test]
+    fn cancelled_prelease_snapshot_load_returns_while_read_is_blocked() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&cancelled);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let driver = std::thread::spawn(move || {
+            let result = run_prelease_snapshot_load(&worker_cancel, move |_| {
+                entered_tx.send(()).expect("read entered");
+                release_rx.recv().expect("release blocked read");
+                Ok(Graph::new())
+            });
+            outcome_tx.send(result).expect("driver outcome");
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("snapshot worker started");
+        cancelled.store(true, Ordering::Release);
+        let outcome = outcome_rx.recv_timeout(Duration::from_secs(2));
+        release_tx.send(()).expect("release snapshot worker");
+        driver.join().expect("join driver");
+        assert!(matches!(outcome, Ok(Err(M1ndError::StartupCancelled))));
+    }
+
+    #[test]
+    fn cancelled_snapshot_read_stops_between_chunks_without_consuming_input() {
+        struct CancelAfterFirstRead<'a> {
+            remaining: &'a [u8],
+            cancelled: &'a std::sync::atomic::AtomicBool,
+            reads: usize,
+        }
+        impl std::io::Read for CancelAfterFirstRead<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.reads += 1;
+                let n = self.remaining.len().min(buf.len());
+                buf[..n].copy_from_slice(&self.remaining[..n]);
+                self.remaining = &self.remaining[n..];
+                self.cancelled.store(true, Ordering::Release);
+                Ok(n)
+            }
+        }
+
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let bytes = [7u8; 128 * 1024];
+        let mut reader = CancelAfterFirstRead {
+            remaining: &bytes,
+            cancelled: &cancelled,
+            reads: 0,
+        };
+        let result = read_graph_bytes_with_cancel(&mut reader, Some(&cancelled));
+        assert!(matches!(result, Err(M1ndError::StartupCancelled)));
+        assert_eq!(reader.reads, 1, "no second read after cancellation");
+        assert!(!reader.remaining.is_empty());
+    }
+
+    #[test]
+    fn interrupted_snapshot_read_retries_and_preserves_all_bytes() {
+        struct InterruptedOnce<'a> {
+            remaining: &'a [u8],
+            attempts: usize,
+        }
+        impl std::io::Read for InterruptedOnce<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.attempts += 1;
+                if self.attempts == 2 {
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let count = buf.len().min(self.remaining.len());
+                buf[..count].copy_from_slice(&self.remaining[..count]);
+                self.remaining = &self.remaining[count..];
+                Ok(count)
+            }
+        }
+        let expected = vec![37u8; 70 * 1024];
+        let mut reader = InterruptedOnce {
+            remaining: &expected,
+            attempts: 0,
+        };
+        assert_eq!(
+            read_graph_bytes_with_cancel(&mut reader, None).expect("EINTR is transient"),
+            expected
+        );
+        assert_eq!(reader.attempts, 4, "read first chunk, EINTR, tail, EOF");
+    }
+
+    #[test]
+    fn cancelled_snapshot_reconstruction_stops_inside_node_loop() {
+        let mut graph = graph_with_nodes(8);
+        graph.finalize().expect("finalize fixture");
+        let bytes = encode_graph_json(&graph).expect("encode fixture");
+        let snapshot: GraphSnapshotV4 = serde_json::from_slice(&bytes).expect("parse fixture");
+        let mut checks = 0;
+        let result = graph_from_snapshot_v4_with_check(snapshot, &mut || {
+            checks += 1;
+            if checks == 5 {
+                Err(M1ndError::StartupCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(result, Err(M1ndError::StartupCancelled)));
+        assert_eq!(checks, 5, "cancelled inside reconstruction, not after it");
+    }
 
     fn graph_with_nodes(n: usize) -> Graph {
         let mut g = Graph::new();

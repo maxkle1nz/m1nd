@@ -516,6 +516,14 @@ async fn c1_write_then_seek() {
         found_para = rp.is_some();
         (rank_para, score_para) = rp.map(|(r, s)| (r as i64, s)).unwrap_or((-1, 0.0));
         emb_para = s_para["embeddings_used"].as_bool().unwrap_or(false);
+        // An actor's Drop delegates its stop to a guardian thread. A restart
+        // must wait for the old owner's checkpoint/stop ACK before claiming the
+        // same runtime; scope exit alone is not a shutdown barrier.
+        owner
+            .app
+            .project_brains
+            .shutdown(std::time::Duration::from_secs(5))
+            .expect("checkpoint and stop the first owner before restart");
     }
 
     // Reload: a brand-new owner on the SAME runtime dir (agent memory auto-loads

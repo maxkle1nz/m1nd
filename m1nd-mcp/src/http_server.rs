@@ -573,6 +573,66 @@ fn withdraw_background_endpoint(app_state: &Arc<AppState>) -> m1nd_core::error::
     )
 }
 
+fn prepare_then_publish_http_endpoint<Prepare>(
+    config: &McpConfig,
+    session: Arc<BrainSessionCell>,
+    project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
+    bind: String,
+    port: u16,
+    owner_is_medulla: bool,
+    prepare: Prepare,
+) -> Result<
+    crate::instance_registry::InstanceHeartbeatPermit,
+    crate::owner_security_config::OwnerAuthorityAssemblyError,
+>
+where
+    Prepare: FnOnce(
+        &McpConfig,
+        Arc<BrainSessionCell>,
+        Arc<crate::project_brains::ProjectBrainRegistry>,
+    ) -> m1nd_core::error::M1ndResult<()>,
+{
+    prepare(config, Arc::clone(&session), Arc::clone(&project_brains)).map_err(|error| {
+        boot_http_lifecycle_error("owner_http_workspace_preparation_failed", error.to_string())
+    })?;
+
+    // Preparation starts the single-writer actor, so endpoint publication must
+    // use that actor-backed route. No pre-actor session lock is legal here.
+    project_brains
+        .execute_target_m1nd(session, None, true, false, move |owner| {
+            let publication = (|| {
+                owner
+                    .instance
+                    .set_running_endpoint(bind, port)
+                    .map_err(|error| {
+                        let cleanup = owner.instance.clear_running_endpoint();
+                        boot_endpoint_publication_error(
+                            "owner_endpoint_publication_failed",
+                            error,
+                            cleanup,
+                        )
+                    })?;
+                // The served owner IS the medulla — stamp its on-disk registry
+                // entry only after the workspace is ready for discovery.
+                if owner_is_medulla {
+                    owner.instance.set_brain_kind("medulla").map_err(|error| {
+                        let cleanup = owner.instance.clear_running_endpoint();
+                        boot_endpoint_publication_error(
+                            "owner_brain_kind_publication_failed",
+                            error,
+                            cleanup,
+                        )
+                    })?;
+                }
+                Ok(owner.instance.heartbeat_permit())
+            })();
+            Ok(publication)
+        })
+        .map_err(|error| {
+            boot_http_lifecycle_error("owner_endpoint_actor_publication_failed", error.to_string())
+        })?
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -888,6 +948,10 @@ pub async fn run_with_owner_authority(
         boot_http_lifecycle_error("owner_http_session_boot_failed", error.to_string())
     })?;
 
+    // Use the boot-validated registry identity, not the ambient HTTP input:
+    // launcher grants confine all derived state to the private runtime.
+    let registry_dir = server.config_registry_dir();
+
     // 2. Extract SessionState into the actor-compatible shared cell.
     let session_state = server.into_session_state();
     let owner_runtime_root = session_state.runtime_root.clone();
@@ -922,7 +986,7 @@ pub async fn run_with_owner_authority(
     let project_brains = Arc::new(
         crate::project_brains::ProjectBrainRegistry::new(
             owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-            config.registry_dir.clone(),
+            registry_dir.clone(),
         )
         .with_runnerd_naming(naming_handle),
     );
@@ -936,7 +1000,7 @@ pub async fn run_with_owner_authority(
         tool_schemas_cache,
         event_tx: event_tx.clone(),
         event_log_path: event_log_path.clone(),
-        registry_dir: config.registry_dir.clone(),
+        registry_dir: registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
         runnerd,
@@ -997,33 +1061,16 @@ pub async fn run_with_owner_authority(
         http_security.token_path().display()
     );
 
-    let heartbeat_permit = {
-        let mut owner = app_state
-            .session
-            .lock_mut_before_actor()
-            .map_err(boot_session_fence_error)?;
-        owner
-            .instance
-            .set_running_endpoint(effective_addr.ip().to_string(), effective_addr.port())
-            .map_err(|error| {
-                let cleanup = owner.instance.clear_running_endpoint();
-                boot_endpoint_publication_error("owner_endpoint_publication_failed", error, cleanup)
-            })?;
-        // The served owner IS the medulla — stamp its on-disk registry entry so a
-        // sibling owner listing it reads the honest kind (the self-listing path
-        // stamps it too, but only THIS process can label its own entry on disk).
-        if owner_is_medulla {
-            owner.instance.set_brain_kind("medulla").map_err(|error| {
-                let cleanup = owner.instance.clear_running_endpoint();
-                boot_endpoint_publication_error(
-                    "owner_brain_kind_publication_failed",
-                    error,
-                    cleanup,
-                )
-            })?;
-        }
-        owner.instance.heartbeat_permit()
-    };
+    let heartbeat_permit = prepare_then_publish_http_endpoint(
+        &config,
+        Arc::clone(&session),
+        Arc::clone(&app_state.project_brains),
+        effective_addr.ip().to_string(),
+        effective_addr.port(),
+        owner_is_medulla,
+        crate::server::McpServer::prepare_launcher_workspace_for_transport,
+    )?;
+
     let heartbeat = spawn_heartbeat(heartbeat_permit);
     let app_state = Arc::new(app_state);
 
@@ -5136,6 +5183,145 @@ fn embedded_ui_identity() -> Result<crate::ui_bundle_support::UiTreeIdentity, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn http_publication_fixture() -> (
+        tempfile::TempDir,
+        McpConfig,
+        Arc<BrainSessionCell>,
+        Arc<crate::project_brains::ProjectBrainRegistry>,
+        std::path::PathBuf,
+    ) {
+        let temporary = tempfile::tempdir().expect("temporary publication fixture");
+        let runtime = temporary.path().join("runtime");
+        let registry_dir = runtime.join("registry");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            registry_dir: Some(registry_dir.clone()),
+            ..Default::default()
+        };
+        let state = crate::server::McpServer::new(config.clone())
+            .expect("boot publication fixture owner")
+            .into_session_state();
+        let session = Arc::new(BrainSessionCell::new(state));
+        let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+            runtime.join(crate::project_brains::PROJECT_BRAINS_DIR),
+            Some(registry_dir.clone()),
+        ));
+        (temporary, config, session, project_brains, registry_dir)
+    }
+
+    fn release_publication_fixture(
+        session: &Arc<BrainSessionCell>,
+        project_brains: &crate::project_brains::ProjectBrainRegistry,
+    ) {
+        project_brains
+            .shutdown(Duration::from_secs(5))
+            .expect("publication fixture actor shutdown");
+        session
+            .lock_mut_before_actor()
+            .expect("publication fixture session returned")
+            .instance
+            .release()
+            .expect("release publication fixture instance");
+    }
+
+    #[test]
+    fn foreground_endpoint_is_published_only_after_workspace_preparation() {
+        let (_temporary, config, session, project_brains, registry_dir) =
+            http_publication_fixture();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let task_session = Arc::clone(&session);
+        let task_registry = Arc::clone(&project_brains);
+
+        let task = std::thread::spawn(move || {
+            prepare_then_publish_http_endpoint(
+                &config,
+                task_session,
+                task_registry,
+                "127.0.0.1".to_string(),
+                43123,
+                false,
+                move |_config, _session, _registry| {
+                    entered_tx.send(()).expect("signal blocked preparation");
+                    release_rx.recv().expect("release blocked preparation");
+                    Ok(())
+                },
+            )
+        });
+
+        entered_rx.recv().expect("preparation started");
+        let while_preparing = crate::instance_registry::list_instances(Some(&registry_dir))
+            .expect("read registry while preparation is blocked");
+        let endpoint_was_published = while_preparing
+            .iter()
+            .any(|entry| entry.bind.is_some() || entry.port.is_some() || entry.status == "running");
+        release_tx.send(()).expect("release preparation");
+        let heartbeat_permit = task
+            .join()
+            .expect("publication task joined")
+            .expect("publication succeeded");
+
+        assert!(
+            !endpoint_was_published,
+            "the registry must remain starting with no endpoint while preparation is blocked"
+        );
+        let after = crate::instance_registry::list_instances(Some(&registry_dir))
+            .expect("read registry after preparation");
+        assert_eq!(after.len(), 1, "one owner entry must be published");
+        assert_eq!(after[0].status, "running");
+        assert_eq!(after[0].bind.as_deref(), Some("127.0.0.1"));
+        assert_eq!(after[0].port, Some(43123));
+
+        drop(heartbeat_permit);
+        release_publication_fixture(&session, &project_brains);
+    }
+
+    #[test]
+    fn foreground_preparation_failure_never_publishes_and_can_shutdown_actor() {
+        let (_temporary, config, session, project_brains, registry_dir) =
+            http_publication_fixture();
+        let error = prepare_then_publish_http_endpoint(
+            &config,
+            Arc::clone(&session),
+            Arc::clone(&project_brains),
+            "127.0.0.1".to_string(),
+            43124,
+            false,
+            |_config, target, registry| {
+                registry.execute_target_m1nd(target, None, true, true, |_owner| {
+                    Err(m1nd_core::error::M1ndError::PersistenceFailed(
+                        "controlled workspace preparation failure".to_string(),
+                    ))
+                })
+            },
+        )
+        .expect_err("controlled preparation must fail startup");
+        assert!(
+            error
+                .to_string()
+                .contains("controlled workspace preparation failure"),
+            "startup must preserve the preparation failure: {error}"
+        );
+        let after = crate::instance_registry::list_instances(Some(&registry_dir))
+            .expect("read registry after preparation failure");
+        assert_eq!(after.len(), 1);
+        assert!(after[0].bind.is_none());
+        assert!(after[0].port.is_none());
+        assert!(
+            crate::instance_registry::discover_serve_owner(
+                config.runtime_dir.as_deref().expect("fixture runtime"),
+                None,
+                Some(&registry_dir),
+            )
+            .is_err(),
+            "failed preparation must not leave an attachable HTTP owner"
+        );
+
+        release_publication_fixture(&session, &project_brains);
+    }
 
     #[test]
     fn authority_http_statuses_preserve_auth_overload_and_integrity_classes() {

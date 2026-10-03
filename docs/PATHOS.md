@@ -2,6 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
+
+**Developer tools delta — 2026-09-28:** scripts/m1nd-dev is a checked-in, portable contributor entrypoint. It derives a private, per-checkout runtime and canonical Cargo target, preserves exact native identity checks, and offers guarded loopback Vite development. The new focused fixture and real-Vite tests prove only the launcher and proxy contracts; no real native m1nd runtime proof is claimed here. See docs/DEVELOPMENT.md.
+
+**Startup/shutdown delta — 2026-09-28:** cancellation now covers temporal construction and post-lease checkpoint recovery. Interrupted existing-state recovery quarantines rather than baselining interrupted data; an untouched identity refusal still allows a later same-root legacy adoption. The POSIX agent CLI forwards termination and keeps its cache lease until actual child closure. Windows launcher startup uses native owner/DACL, reparse, and directory-identity checks instead of unconditional refusal. Local focused proof passed 73 identity/recovery/launcher cases and seven real SIGTERM processes; the Windows helper and actual guard function passed MSVC lint/type checks. This is a local source candidate: native Windows execution, current full CI, integration, and v1.6.4 publication remain pending. See docs/AGENT-AUTONOMY.md.
 > Last checkpoint: 2026-08-01 (**checkpoint 39 — THE PIVOT: THE PRODUCT HAD NO FIRST-VALUE PATH AT ALL, AND THE LADDER STOPPED SO THE MENU COULD FIT ON ONE SCREEN**).
 > Checkpoint 39, condensed: the owner turned the program around and the measurement backed him. **(1) m1nd could not be used by anyone new — measured, not suspected.** A virgin repo, empty graph, fresh agent calling `ingest`: `generic_action_authority_required, authority_floor=POSITIVE_SOVEREIGN`. And the human door, which this session had *pointed at without testing*, exited 0 and produced **0 nodes**: `m1nd init --birth` minted a project brain under `project-brains/<key>/` that only a served owner's HTTP routing reads, while the next stdio session read `runtime.session` — the ceremony filled one brain and the next session opened another. Fixed in #520 (home-birth gated on NODE COUNT, not root coverage, because a virgin runtime demotes `workspace_root` to `<repo>/.m1nd` and the coverage guard misses); `birth_produced_empty_graph` now refuses a ceremony that would exit successfully with nothing; every refusal on that path names `m1nd init --birth <repo>` — an experienced external agent had hit FOUR refusals, none of which mentioned the door, and concluded in a written report that the product could not be used. **(2) The measurement that turned the program.** Six weeks of host transcripts, deduplicated: **458 distinct calls / 157 sessions / 34 verbs of 141**. 57% of sessions call m1nd exactly ONCE and never again; 71% never make two calls in a row; the two commonest actions after a m1nd verb are Bash and Read — the agent goes and fetches by hand what m1nd just pointed at. Narrated in 76% of north calls, ACTED ON in 32%. The verbs that exist to close that second hop were at zero (`surgical_context`: 1 call in six weeks — and ranked top-3 by an external evaluator told to exercise everything). Answer shipped: #517 folds the code into `north` (5,576 → 8,116 chars, ~25% of the hard ceiling), #514 gives m1nd its first usage telemetry (verb names and counts only, privacy enforced by mechanism — caller text cannot reach the file), #518 makes the first minute find the served owner, #516 stops every ingest from erasing the Hebbian counters (73,332 edges, ALL zero in production — the signature feature had never accumulated anything because the graph is replaced wholesale and nothing re-imported the sidecar). **(3) The menu now fits on one screen (#521).** 141 advertised → 15 served (the owner's ratified 12 plus `help`/`doctor`/`recovery_playbook`, which the honest surface mechanically requires); 127 hidden, ZERO removed — proven on the wire by calling a hidden verb by name and getting an answer. Discovery three ways: `help` reads the FULL registry (it was reading the tier-gated list — a documented gap), the menu's help entry carries a computed hidden count, `tool_surface_contract` gained `hidden_tool_count`/`hidden_tools_are_callable`/`discovery_rule`. Mechanism not list: `CORE_TOOLS ∪ HOST_BINDING_REQUIRED_TOOLS` bounded by a COMPILE-TIME assert. **A confounder found in passing: the owner's serve carries `M1ND_TOOL_TIER=full`, which is exactly why the six-week audit observed 141 advertised — that number was an artefact of the development machine's config, not the product's default.** Ratified: the variable stays (the machine that builds the product is not an adoption sample). **(4) Floors, measured before touching:** the catalog holds **166 actions, 111 above Ordinary, and 3 with any written justification** — and the three are the same comment. Cross-referenced against 242 letters: **12 describe REAL damage**, and the ones that sustain a floor are one family — cross-brain writes ("moved this repo's memories into the WRONG brain's store"). That family is frozen forever. The rest were inherited BY NEIGHBOURHOOD IN THE CATALOG — the section dividers are visible in the source (`// Durable trails, perspectives, locks…`), so a section comment became security policy. Same defect shape as the first-value bug: `ingest` with no `mode` fell into `replace`'s classification by lazy classification, not by decision. Floors await small lots with a declared denominator per lot; nothing was touched. **(5) The custody chain closed at G9's door and stopped there.** The Apple wall fell (a Developer-ID bundle with an embedded provisioning profile launches with the restricted entitlement — measured, not inferred), the ceremony bundle ships (#512), and the owner's OWN first `provision-seats` found the bug no test could: the never-open-or-create duplicate guard treated `errSecItemNotFound` as fatal, so on a fresh ceremony — the only time provisioning is legitimate — the question "does this seat exist?" aborted. #519. The software fake returns `Ok(None)` cleanly; fake and Apple diverge at exactly that line. **The ceremony is unblocked but unrun: it needs a v1.6.3 to carry the fix into a signed, entitled bundle.**
 >
@@ -211,6 +215,96 @@ Update this list in the same PR that closes one; a front that dies silently is a
 - **The Hebbian layer had never accumulated anything in production (measured 2026-07-31, fixed on the ingest path).** The served owner's `plasticity_state.json` held 73,332 synaptic rows with **zero** carrying a `strengthen_count`, a `weaken_count`, an LTP/LTD flag or a `last_used_query`. Not dead code: `activate` reaches step 8 and writes them. The ingest erased them — `finalize_ingest_with_inventory` installs a graph whose `edge_plasticity` arrays are born zeroed, nothing on that path re-imported the sidecar, and the `state.persist()` at the end of the same function published the zeros. The mechanism to survive already existed and was already documented (label-triple matching, built precisely for a re-ingest that renumbers nodes); it was simply never called there. The ingest now carries the learning across the replacement, preferring the running session over the file and failing open on a bad sidecar. **Residual debt, named not fixed:** two other seams still install a graph without restoring learning — `AutoIngest::replace_graph` (`m1nd-mcp/src/auto_ingest.rs:499`, the document lane's own tick) and the `persist` `load` action (`m1nd-mcp/src/persist_handlers.rs:113`). And the deeper product question, filed as a letter, not decided here: only 2 of ~141 verbs (`activate`, `missing`) reach step 8 at all, so the graph learns from one retrieval path.
 - **Machine-side residuals:** G6 provider executable; shadow/canary producer; runtime half of the bundle blind spot; m1nd-ui eslint PAID (ESLint 10 — the break was never eslint itself but the `brace-expansion@5` override from #418 landing under the CJS `minimatch@3` that eslint 9 pulled, and `npm run lint` was not a CI step so nothing saw it — now wired as its own `ui-gates` step, so it can go red again; one residual named in its place: the `eslint-plugin-react-hooks` 7 React Compiler family is held OFF at pre-migration strength with 31 findings open — `set-state-in-effect` ×21, `purity` ×5, `refs` ×5 — whose fixes change render behaviour and belong in their own proven change); the dependabot react 18→19 pair #453/#454 is mutually deadlocked — each PR is the other's missing half, so neither can ever go green alone and they need one combined React 19 PR or closure; serve binary refresh onto this arc's code once the tray lands (then the lifecycle re-proof); `default_registry_root()` cannot see a per-host registry (letter filed, owner's wiring call); PATHOS consolidation pass (the 07-24 list below + the checkpoint-27 Current State narrative both await it).
 
+**Delta 2026-09-18 — automatic first value, slice 1A (direct stdio only):**
+- A launcher can now grant an exact workspace with `M1ND_WORKSPACE_ROOT` (or the explicit config
+  field `launcher_workspace_root`) while placing derived state in a separate writable runtime.
+  An empty direct-stdio owner prepares the code graph through the existing actor/checkpoint seam
+  before serving its first public query; `north` and `search` then retrieve a real source symbol.
+  The same session and a clean restart reuse the persisted graph. Read-only source remains usable.
+- The grant is captured before session state exists and remains separate from mutable/inferred
+  `workspace_root`. Prompt text, tool `scope`/paths, request headers, cwd and editor aliases do not
+  authorize preparation. A populated brain bound to a different root refuses with
+  `launcher_workspace_conflicts_with_bound_graph`; it is never silently replaced or merged.
+- No `HumanOrigin` is fabricated, the old ceremony is not impersonated, and the generic ingest
+  floor is unchanged. The earlier birth mechanism below remains historical truth and a legacy
+  path for launchers outside this explicit contract.
+- Proof is the real-binary stdio battery in `m1nd-mcp/tests/agent_autonomy_bootstrap.rs`: eleven
+  cases cover first retrieval + restart, sibling prompt/tool text, read-only source with external
+  cache, wrong-root refusal, populated snapshots without persisted identity, empty snapshots with
+  incompatible persisted identity, nonzero invalid/empty
+  startup refusals with transactional recovery, and hostile inherited persistence overrides. The
+  review corrections make reuse require a non-empty persisted identity whose every root canonicalizes
+  to the exact grant (foreign or unresolvable extras refuse before ingest; exact duplicates remain valid), move the zero-node
+  check inside actor rollback, propagate startup failure to process status, and confine every test
+  subprocess to fixture-owned graph/plasticity/runtime/home/temp paths. Honest limit: authenticated HTTP, npm CLI, interprocess races,
+  symlink/parent/child/worktree overlap, exclusions and advanced access remain unproved.
+
+**Follow-up 2026-09-18 — sequential public CLI cache reuse:**
+- The isolated `m1nd agent` path now derives one external runtime from the canonical workspace root
+  plus Git branch and HEAD when available. A root-bound manifest refuses ambiguous or mismatched
+  state; separate worktrees remain separate because canonical path identity is part of the key.
+  Attach discovery, shared-runtime mode and explicit runtime selection remain separate paths.
+- A real-binary Node tracer ran `agent first-minute` in two distinct processes for one fixture and
+  once for a second fixture. The first pair reused one runtime and an unchanged snapshot digest,
+  independently retained the exact persisted root, and retrieved the real symbol after restart.
+  The second root received a different runtime and neither structured match array crossed roots;
+  both source trees remained byte- and permission-identical. The child is now closed by EOF and
+  awaited, with bounded signal escalation only for the owned process.
+- The key prevents a different Git branch or HEAD revision from being served as the current one,
+  but this is not broad freshness: dirty working-tree edits and non-Git source changes do not alter
+  the identity. Concurrent single-flight, automatic refresh and broader overlap policy remain later
+  slices rather than hidden claims.
+
+**Follow-up 2026-09-20 — warm-cache freshness through the existing public door:**
+- Direct stdio now registers its canonical caller root only from the explicit launcher grant,
+  after the shared bootstrap seam completes. HTTP is untouched by that process-local binding and
+  keeps caller identity per MCP session/request. No prompt, tool argument, query, `agent_id`, cwd,
+  or header can grant the stdio root.
+- A reused automatic npm agent cache calls the existing exact-root public refresh while holding
+  its current Node lease, before trust/orientation/retrieval. Non-Git and dirty-Git real-binary
+  fixtures keep the same runtime (and Git branch/HEAD where applicable) while the persisted
+  snapshot replaces OLD with NEW. This pays a real rescan on warm commands; it is not a watcher or
+  an inventory-derived freshness claim.
+- Refresh MCP errors and application refusals stop with `ok:false`, exit 1, and expose
+  `isError`/`action`/`refused`/`reason`; trust remains `not_evaluated`. The public shrink floor,
+  unknown/foreign/subdirectory refusals, root invariance, and replace/merge floors remain intact.
+  Local stdio and predicate batteries are green; the loopback HTTP regression is compiled but its
+  execution in this sandbox is `BLOCKED_SANDBOX` because binding `127.0.0.1:0` returns `EPERM`.
+- **01j correction to 01i:** the earlier statement that unknown was never summarized as fresh was
+  too broad: it proved refresh refusals, but missed `am_i_stale`'s unknown-only summary. The public
+  regression now requires unknown to remain explicit uncertainty; only a non-empty checked set with
+  no stale and no unknown may claim all-fresh, and mixed stale+unknown keeps both warnings.
+
+**Follow-up to slice 1A — cold public CLI and honest process status:**
+- The matching native build also prepared a virgin source fixture through the public npm
+  `agent first-minute` command: a real retrieval and independent snapshot read found its
+  symbol, with no source-tree changes, human ceremony, or generic ingest call. This is the
+  isolated stdio-backed CLI path. That earlier probe did not establish hosted HTTP or
+  cross-invocation cache reuse; the later follow-ups in this checkpoint prove those boundaries
+  separately.
+- `npm/lib/cli.js` propagates an agent envelope's explicit `ok: false` to process exit 1,
+  retaining the JSON body. `npm/test/cli.test.js` covers refusal and successful paths. A real
+  public context refusal returned `ok: false`/exit 1; an empty-source startup refused with
+  exit 1 and its cause on stderr. The separate kickstart contract is unchanged.
+
+**Follow-up to slice 1A — authenticated HTTP transport verified on macOS:**
+- The foreground loopback HTTP owner calls the same actor-backed exact-root preparation seam as
+  stdio before admitting requests. Real execution caught an actor-start ordering defect: authority,
+  bearer security and endpoint setup now finish before preparation starts the actor. Preparation
+  failure withdraws the endpoint before refusing. No caller header, payload or `HumanOrigin` grants
+  a workspace; bearer middleware and generic authority floors remain unchanged.
+- Both real-binary HTTP cases passed: first retrieval, unauthenticated 401, header/payload-only sibling
+  refusal, independent snapshot/root readback, and preservation on a conflicting warm-root launch.
+  Search assertions require actual matches, not the echoed query. The stdio-bootstrap,
+  capability-contract, legacy-birth, and router-authentication regression batteries also passed;
+  Clippy and fmt passed.
+  The implementing sandbox's earlier socket `EPERM` remains an environmental limit, not its own PASS.
+- An independent public-protocol probe found the fixture symbol, preserved source trees and the exact
+  persisted root, rejected unauthenticated access and terminated its owner gracefully. This proves the
+  explicit-grant foreground path, not hosted cross-root birth, concurrent owners, overlap matrices
+  or model-backed retrieval. CLI cache reuse has its own separate proof above. Protected agent-guide
+  synchronization remains pending.
+
 **Delta 2026-08-01 — THE FIRST GRAPH CAN BE BORN: the product had no first-value path, on either side of the room:**
 - **Measured on 1.6.2, in a virgin repo with an empty runtime, both actors dead-ended.** (a) An agent
   calling `ingest` with only `agent_id` on an EMPTY graph is refused
@@ -390,6 +484,33 @@ Update this list in the same PR that closes one; a front that dies silently is a
   the required `Test` check must apply to administrators and be up to date with
   main before merge. Verify that setting in GitHub; workflow YAML alone does
   not enforce either condition.
+
+**Owner amendment 2026-09-28 — CI by proved change scope:**
+- The 2026-09-25 draft/ready split remains historical evidence, not the active
+  selector. `scripts/ci_scope.py` validates PR event base/head SHAs against the
+  checked-out candidate and classifies a complete NUL-delimited merge-base diff,
+  including both rename paths. Empty, malformed, unavailable, unknown and
+  global paths select full. The v1 scope JSON is closed: candidate, mode,
+  Rust/UI/host/cache/Python flags, crates and named heavy families only.
+- Known PR changes can pass `Test` at scoped coverage whether draft or ready;
+  GitHub's draft-merge prohibition remains the UI rule. The aggregate refuses a
+  missing classifier, malformed scope, cancelled/failed selected job,
+  non-skipped unselected job, or any unexpected job. Its pass line records
+  scope and candidate SHA.
+- Full three-OS `cargo test` remains mandatory for main, merge-group, nightly,
+  manual dispatch and every global selector (Cargo, build script, CI/config,
+  classifier/aggregator/lightning, security policy and unknown paths). The
+  release workflow still has an Ubuntu-only proof surface; no release guarantee
+  follows from scoped PR checks.
+- Source guard and complete-history gitleaks remain mandatory for every run.
+  Cargo audit runs on full/Cargo dependency coverage; UI audit and dependency
+  review run for UI dependency changes or full coverage. Scoped Rust keeps
+  LIGHTNING plus its declared crate closure on Linux/Windows, excluding only
+  retrobuilder real/stress and transplant outside their own touched areas.
+- Limits, stated before measurement: no hosted wall-clock result is claimed,
+  the static crate closure needs revalidation if Cargo topology changes (which
+  itself selects full), and scheduled execution becomes live only after this
+  workflow lands on the default branch.
 
 **Copy / positioning**
 - **README + site copy rewrite (branch `copy/human-voice`, 2026-07-29) — LANDED HERE, awaiting owner review.**
