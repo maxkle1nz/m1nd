@@ -1,17 +1,17 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# Run from your repository. Requires Node.js 18+ and cosign.
-npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json`;
+const STEP_INSTALL = `# First follow the signed native 1.6.3 installation guide linked below.
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --version`;
 
-const STEP_CONFIG = `# Check doctor reports native 1.6.3. From the repo, in a POSIX shell:
+const STEP_CONFIG = `# Check the selected binary reports native 1.6.3. From the repo, in a POSIX shell:
 export M1ND_RUNTIME_DIR="$(pwd -P)/.m1nd"
 # A person runs this once for an empty runtime:
-npx -y @maxkle1nz/m1nd@1.6.3 init --birth .
+npx -y @maxkle1nz/m1nd@1.6.3 init --birth . --binary "$M1ND_BINARY"
 
 # Replace claude with your host; complete the printed setup steps.
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project .
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --yes`;
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project . --binary "$M1ND_BINARY"
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --binary "$M1ND_BINARY" --yes`;
 
 const STEP_QUERY = `Ask your connected agent:
 
@@ -92,7 +92,7 @@ export function InstallSection() {
       num: "01",
       label: "Install",
       title: "Install and check the runtime",
-      desc: "This recipe pins the 1.6.3 wrapper. Install cosign first for signed verification. The npm wrapper and native runtime are separate; doctor checks runtime visibility.",
+      desc: "Follow the signed installation guide below to pin native 1.6.3. The updater follows the registry channel even with a pinned wrapper, so this recipe selects the verified binary explicitly.",
       code: STEP_INSTALL,
       lang: "bash",
     },
@@ -161,7 +161,7 @@ export function InstallSection() {
             style={{ color: "#00f5ff" }}
           >
             see the full host-integration matrix ↗
-          </a>.
+          </a>. <a href="https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.3.md" target="_blank" rel="noreferrer" className="underline underline-offset-2">Install the signed native 1.6.3 artifact ↗</a>.
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-20">

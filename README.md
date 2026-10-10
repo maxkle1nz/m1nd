@@ -35,29 +35,29 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 
 ### Published 1.6.3: install, prepare, connect
 
-You need **Node.js 18+**, an MCP host, a repository, and [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/) on `PATH` for signed binary verification. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
+You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
 
 ```bash
-# Install the signed native runtime, then check that the wrapper can find it.
-npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json
+# After the signed installation guide, select the exact native binary.
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --version
 
-# Confirm doctor reports native 1.6.3 before continuing.
+# Confirm this binary reports native 1.6.3 before continuing.
 # Bind the human ceremony and host to the same explicit repository runtime.
 export M1ND_RUNTIME_DIR="$(pwd -P)/.m1nd"
 # Run this yourself in a terminal, once for an empty runtime.
-npx -y @maxkle1nz/m1nd@1.6.3 init --birth .
+npx -y @maxkle1nz/m1nd@1.6.3 init --birth . --binary "$M1ND_BINARY"
 
 # Preview your host configuration before applying it.
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project .
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --yes
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project . --binary "$M1ND_BINARY"
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --binary "$M1ND_BINARY" --yes
 ```
 
 Replace `claude` with your host, such as `codex` or `cursor`. Follow the printed instructions: some host-managed configuration and hooks are **printed for you to install**, not written automatically. Restart or reconnect the host after configuration changes. See the [host integration matrix](docs/HOST-INTEGRATION-MATRIX.md) for host-specific behavior.
 
 Before reconnecting, add `M1ND_RUNTIME_DIR` to the generated MCP server environment with the **same absolute path** printed by `echo "$M1ND_RUNTIME_DIR"`. Keep the generated `M1ND_WORKSPACE_ROOT`. `hosts apply` does not add the runtime selector for you; without it, a host launched elsewhere can open a different graph.
 
-This recipe targets native **1.6.3**. If `doctor` reports a different version, check that release's setup contract before continuing. The birth command is a human terminal step, not an agent tool call. Its receipt must report `brain: "owner_bound_graph"`, the intended `born_root`, the exact runtime in `store_dir`, and `node_count > 0`. If it refuses, follow its diagnostic rather than replacing another runtime or forcing `ingest`. For source builds, use the separate contributor path below.
+This recipe targets native **1.6.3**. Pinning the npm wrapper alone does not pin `update apply`; that command follows the registry channel and is intentionally excluded here. If the selected binary reports a different version, check that release's setup contract before continuing. The birth command is a human terminal step, not an agent tool call. Its receipt must report `brain: "owner_bound_graph"`, the intended `born_root`, the exact runtime in `store_dir`, and `node_count > 0`. If it refuses, follow its diagnostic rather than replacing another runtime or forcing `ingest`. For source builds, use the separate contributor path below.
 
 ### Your first useful result
 
@@ -109,9 +109,10 @@ See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [too
 After a person has prepared the repository's runtime, use the exact `store_dir` from that receipt (shown below as `/absolute/path/to/project/.m1nd`) to start one owner and attach clients to it:
 
 ```bash
-m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /absolute/path/to/project/.m1nd
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --serve --no-gui --port 1337 --runtime-dir /absolute/path/to/project/.m1nd
 # Run each client from the repository it should query:
-m1nd-mcp --attach auto --stdio
+"$M1ND_BINARY" --attach auto --stdio
 ```
 
 The owner holds the graph; attached clients do not load another copy or take its writer lease. Auto-discovery must find an owner that already covers the caller's repository. It does not authorize a new shared brain. The served owner can also render the web UI. Follow [deployment](docs/deployment.md) before configuring multiple repositories or persistent startup.

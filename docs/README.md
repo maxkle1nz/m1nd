@@ -2,6 +2,8 @@
 
 ## Get a first useful result
 
+- [Signed native 1.6.3 installation](INSTALL-1.6.3.md): exact artifact, signature verification, and explicit binary selection
+
 - [README](../README.md#get-started): what m1nd does, published setup, and source-preview differences
 - [Quick Start](wiki/src/tutorials/quickstart.md): connect a host and recover common failures
 - [First query](wiki/src/tutorials/first-query.md): orient → find → inspect → remember

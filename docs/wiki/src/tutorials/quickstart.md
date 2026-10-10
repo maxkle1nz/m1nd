@@ -11,14 +11,14 @@ This wiki follows the `1.6.4` source line. At the documentation refresh, `1.6.3`
 
 ## Install the published release
 
-Prerequisites: Node.js 18+, an MCP host, a repository you can read, and [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) on `PATH` for signed binary verification. The 1.6.3 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. This POSIX-shell walkthrough pins the wrapper; run it from your repository:
+Prerequisites: Node.js 18+, an MCP host, and a repository you can read. First follow the [signed native 1.6.3 installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.3.md), which pins the exact artifact and verifies its signature with cosign. The 1.6.3 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. This POSIX-shell walkthrough pins the wrapper; run it from your repository:
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --version
 ```
 
-The npm package is a wrapper; the native `m1nd-mcp` runtime is separate. `doctor` must find native **1.6.3** for this recipe. If it reports another version, check that release's setup contract before proceeding. The signed updater verifies its release before installation and refuses verification failures. For source builds, use the [contributor path](contributor-devkit.md) with a current stable Rust toolchain and a matching wrapper/binary.
+The npm package is a wrapper; the native `m1nd-mcp` runtime is separate. The selected binary must report **1.6.3** for this recipe. If it reports another version, check that release's setup contract before proceeding. The pinned installation guide verifies the exact asset. Do not substitute `update apply`: its target follows the registry channel even with a pinned wrapper. For source builds, use the [contributor path](contributor-devkit.md) with a current stable Rust toolchain and a matching wrapper/binary.
 
 ## Prepare the repository, then connect your host
 
@@ -26,7 +26,7 @@ A person runs the following once, in a terminal, for an empty repository runtime
 
 ```bash
 export M1ND_RUNTIME_DIR="$(pwd -P)/.m1nd"
-npx -y @maxkle1nz/m1nd@1.6.3 init --birth .
+npx -y @maxkle1nz/m1nd@1.6.3 init --birth . --binary "$M1ND_BINARY"
 ```
 
 Read the receipt: require `brain: "owner_bound_graph"`, the intended `born_root`, `store_dir` equal to the absolute runtime above, and `node_count > 0`. A refusal is not a request to delete state or bypass an authority gate. Agents must not run the human-only ceremony or substitute generic MCP `ingest`.
@@ -34,8 +34,8 @@ Read the receipt: require `brain: "owner_bound_graph"`, the intended `born_root`
 Preview and apply the host setup:
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project .
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --yes
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project . --binary "$M1ND_BINARY"
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --binary "$M1ND_BINARY" --yes
 ```
 
 Replace `claude` with your host, such as `codex` or `cursor`. Some host-managed settings are printed rather than written; complete the printed steps and restart or reconnect your host. Hook support varies by host and OS. Use the [host matrix](https://github.com/maxkle1nz/m1nd/blob/main/docs/HOST-INTEGRATION-MATRIX.md) for the exact recipe. Before reconnecting, add `M1ND_RUNTIME_DIR` to the generated MCP server environment using the exact absolute value from `echo "$M1ND_RUNTIME_DIR"`; keep the generated `M1ND_WORKSPACE_ROOT`. `hosts apply` does not add this runtime selector. Without it, a host launched from a different working directory can open a different graph.
@@ -68,7 +68,7 @@ No example node count, result score, or latency is a target. Your repository det
 
 | Symptom | Next step |
 |---|---|
-| Native binary missing | Re-run `doctor`; verify the updater succeeded and the selected binary is visible. |
+| Native binary missing | Verify the pinned installation succeeded and `$M1ND_BINARY --version` identifies 1.6.3; pass that path to the setup commands. |
 | Host has no m1nd tools | Complete the printed configuration, reconnect, then inspect the host's MCP logs. |
 | Only a small tool menu appears | This is intentional. `help` discovers the full registry; hidden tools are not necessarily removed. |
 | `needs_ingest` / `needs_authority` | Check your installed version and binding. Use the appropriate published or source-preview path above. |

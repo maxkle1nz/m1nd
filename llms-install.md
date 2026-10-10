@@ -22,31 +22,22 @@ This source line is `1.6.4`; the latest published release at this refresh is `1.
 - **Node.js ≥ 18** and **npm** (for the installer/agent-pack; the installer is pure JS).
 - The native runtime is **`m1nd-mcp`** (Rust). The npm package installs the agent
   doctrine + host adapters and tells you whether the native binary is visible; `doctor`
-  reports the gap and how to close it. A prebuilt binary or `cargo install m1nd-mcp`
-  provides the runtime.
+  reports general runtime visibility. Use the [signed 1.6.3 native installation](docs/INSTALL-1.6.3.md)
+  for this released recipe.
 - **macOS or Linux** for session-start hooks that inject context (some hosts are
   hook-gated to those platforms — noted per host in the matrix). MCP itself works
   everywhere.
 
-## 1. Fastest path — npx, no clone
+## 1. Pin the native runtime, then select it
+
+Follow [the signed native 1.6.3 installation guide](docs/INSTALL-1.6.3.md). It selects a platform asset from the exact release and verifies its signature before installation. Pinning `npx @maxkle1nz/m1nd@1.6.3` alone does **not** pin `update apply`; the updater follows the npm registry channel. Do not use it to reproduce this versioned recipe.
 
 ```bash
-# Prove the runtime is installed and visible (JSON verdict; no build, no config)
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --version
 ```
 
-- `status: "ok"` with a `runtime`/version block → the native `m1nd-mcp` is visible; skip to §3.
-- If it reports the runtime is missing, install it the verified way:
-  `npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes` (downloads and signature-verifies the
-  native binary; needs [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
-  on `PATH`). If you accept skipping verification, `cargo install m1nd-mcp` works too.
-  Re-run `doctor` until it is visible.
-
-Global install alternative (gives you the `m1nd` command directly):
-
-```bash
-npm install -g @maxkle1nz/m1nd     # then: m1nd doctor
-```
+Require `m1nd-mcp 1.6.3` before continuing. Pass this absolute binary path to the setup commands below. `doctor` remains a general runtime-visibility diagnostic, not a version selector. Automatic isolated preparation belongs to the matching newer source-preview wrapper/binary, not this pinned released route.
 
 ## 2. Wire your host — plan, then apply
 
@@ -58,10 +49,10 @@ Cline / Kiro).
 
 ```bash
 # See exactly what will be wired for your host (writes nothing):
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host <host> --project /abs/path/to/project
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY"
 
 # Apply it (opt-in mutation; dry-run without --yes):
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host <host> --project /abs/path/to/project --yes
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY" --yes
 ```
 
 `<host>` is one of: `codex`, `claude`, `gemini`, `antigravity`, `generic`, `qwen`,
@@ -72,7 +63,7 @@ The two lower-level commands `apply` composes, if you want them by hand:
 
 ```bash
 npx -y @maxkle1nz/m1nd@1.6.3 install-skills <host> --project /abs/path   # the agent pack (5 protocols)
-npx -y @maxkle1nz/m1nd@1.6.3 mcp-config <host> --project /abs/path        # the MCP server registration
+npx -y @maxkle1nz/m1nd@1.6.3 mcp-config <host> --project /abs/path --binary "$M1ND_BINARY" # the MCP server registration
 ```
 
 For the published 1.6.3 direct-stdio path, the human birth and the host MUST use the same explicit absolute runtime inside the repository. Add `M1ND_RUNTIME_DIR` (for example `/absolute/path/to/project/.m1nd`) to the generated MCP environment, retaining `M1ND_WORKSPACE_ROOT`; `hosts apply` does not supply that selector. Check the birth receipt's `store_dir`. Do not combine this nested-runtime recipe with the newer source-preview automatic launcher grant.
@@ -133,9 +124,12 @@ Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` 
 {
   "mcpServers": {
     "m1nd": {
-      "command": "m1nd-mcp",
+      "command": "/absolute/path/to/the/verified/m1nd-mcp",
       "args": ["--stdio", "--no-gui"],
-      "env": { "M1ND_RUNTIME_DIR": "/absolute/path/to/project/.m1nd" }
+      "env": {
+        "M1ND_WORKSPACE_ROOT": "/absolute/path/to/project",
+        "M1ND_RUNTIME_DIR": "/absolute/path/to/project/.m1nd"
+      }
     }
   }
 }
@@ -145,11 +139,12 @@ Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` 
 
 ```toml
 [mcp_servers.m1nd]
-command = "m1nd-mcp"
+command = "/absolute/path/to/the/verified/m1nd-mcp"
 args = ["--stdio", "--no-gui"]
 
 [mcp_servers.m1nd.env]
-M1ND_RUNTIME_DIR = "/abs/path/to/project/.m1nd"
+M1ND_WORKSPACE_ROOT = "/absolute/path/to/project"
+M1ND_RUNTIME_DIR = "/absolute/path/to/project/.m1nd"
 ```
 
 **Shared owner, many agents (recommended for real work).** Run one owner that holds the
@@ -157,11 +152,11 @@ live graph, and point every host at it as a thin bridge (loads no graph, takes n
 
 ```bash
 # once, per project — the owner (add --open, and drop --no-gui, to open the served web UI):
-m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
+"$M1ND_BINARY" --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
 ```
 
 ```json
-{ "mcpServers": { "m1nd": { "command": "m1nd-mcp", "args": ["--attach", "auto", "--stdio"] } } }
+{ "mcpServers": { "m1nd": { "command": "/absolute/path/to/the/verified/m1nd-mcp", "args": ["--attach", "auto", "--stdio"], "env": {"M1ND_WORKSPACE_ROOT":"/absolute/path/to/project", "M1ND_RUNTIME_DIR":"/absolute/path/to/project/.m1nd"} } } }
 ```
 
 `--attach auto` auto-discovers the live owner — no hardcoded port (the default is 1337, but
@@ -184,7 +179,8 @@ always-on launchd/systemd owner.
 ## 5. Verify
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json     # binding, graph, runtime, stale-binding symptoms
+"$M1ND_BINARY" --version                     # require the selected 1.6.3 runtime
+npx -y @maxkle1nz/m1nd@1.6.3 doctor --json     # general visibility; may find a different runtime
 ```
 
 Then, inside a live MCP session, confirm the front door answers:
@@ -201,7 +197,7 @@ stop; do not try to mint a brain through the agent transport:
 
 ```bash
 M1ND_RUNTIME_DIR=/absolute/path/to/project/.m1nd \
-  npx -y @maxkle1nz/m1nd@1.6.3 init --birth /absolute/path/to/project
+  npx -y @maxkle1nz/m1nd@1.6.3 init --birth /absolute/path/to/project --binary "$M1ND_BINARY"
 ```
 
 The ceremony accepts only an empty destination. It ingests the repo and prints what it
@@ -221,7 +217,7 @@ python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 Outside a host entirely, the published first-value command below can attach to an already prepared covering owner. Automatic isolated preparation requires the separate matching source-preview wrapper/binary:
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 agent first-minute --repo . --query "map this repo" --json
+npx -y @maxkle1nz/m1nd@1.6.3 agent first-minute --repo . --query "map this repo" --binary "$M1ND_BINARY" --json
 ```
 
 It asks `m1nd-mcp --discover-owner` first (read-only, no lease — `--attach auto`'s two
@@ -237,8 +233,7 @@ concluding the machine has no graph; `--no-attach` forces the isolated runtime.
 ## 6. Troubleshooting
 
 - **`doctor` says the runtime is not visible** → the npm package is installed but the
-  native `m1nd-mcp` binary is not on `PATH`. Install the release binary or
-  `cargo install m1nd-mcp`, then re-run `doctor`.
+  general diagnostic may not see your version-specific binary. Follow the [pinned signed installation](docs/INSTALL-1.6.3.md), check `"$M1ND_BINARY" --version`, and pass the same `--binary` path to setup commands. Do not substitute an unpinned installation for this recipe.
 - **"Failed to connect" / lease held** → m1nd is single-instance per `runtime_root`. If
   an owner already holds the lease (another session, or a `--serve` owner), that message
   is **normal** — attach instead of taking a second lease: `--attach auto` or

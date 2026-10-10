@@ -3,9 +3,10 @@
 Use one served owner for a repository that has already been prepared through [Quick Start](quickstart.md). Use the exact `store_dir` returned by the birth receipt as the owner's `--runtime-dir` (the placeholder below is the nested runtime from the published quick start). Attach each agent from that repository rather than starting several writers against the same runtime directory.
 
 ```bash
-m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /absolute/path/to/project/.m1nd
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+"$M1ND_BINARY" --serve --no-gui --port 1337 --runtime-dir /absolute/path/to/project/.m1nd
 # Each MCP client, launched from the intended repository:
-m1nd-mcp --attach auto --stdio
+"$M1ND_BINARY" --attach auto --stdio
 ```
 
 The owner holds the graph and writer lease. Attached clients share its context and memory; they do not load independent mutable copies of its persisted state. Auto-discovery must find an owner that already covers the caller's repository. A mismatch is a reason to stop writes and reconnect, not to replace another graph.
