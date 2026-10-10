@@ -56,6 +56,16 @@ The full lane runs its existing workspace Clippy check before the long test
 suite. This exposes platform-specific compile/lint failures before spending
 time on integration tests; every required gate and its command remains intact.
 
+The scoped Rust job has a **60-minute wall-clock budget** (2026-10-10).
+In [PR #568's cold-cache Linux run](https://github.com/maxkle1nz/m1nd/actions/runs/38060493814/job/114237639131),
+89 LIGHTNING tests, 13 doctests and all 2,495 affected tests passed, but the
+40-minute job limit cancelled Clippy about 13 seconds after it started. The
+affected tests alone took 31m04s; setup, LIGHTNING and builds consumed the remaining
+budget. Raising only the job ceiling leaves test timeouts, retries, selectors,
+assertions, caching and required gates unchanged. The full lane remains at
+120 minutes. This is headroom for completing the existing proof, not a claim
+that the 60-minute scoped lane has already passed.
+
 Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
 manifests select host/cache; root `tests/test_*.py` selects Python; contributor
 launcher changes select Python/UI/cache; the Vite helper selects UI; the six
