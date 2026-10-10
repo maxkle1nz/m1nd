@@ -215,6 +215,11 @@ def classify_paths(candidate: str, paths: Iterable[str]) -> dict[str, object]:
             continue
         return full(candidate)
 
+    # Real-repository ingestion exceeded the scoped nextest job budget. Keep
+    # that heavy family on the existing full cargo-test lane, not a new runner.
+    if "retrobuilder" in heavy:
+        return full(candidate)
+
     if not any((rust, ui, host, cache, python)):
         # A docs-only PR keeps the invariant/security gates but runs no selected
         # area gate. This is still a scoped result, never an implicit full pass.

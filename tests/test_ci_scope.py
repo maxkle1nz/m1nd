@@ -76,6 +76,59 @@ class CiScopeTest(unittest.TestCase):
         self.assertEqual(ci_scope.classify_paths(candidate, [])["mode"], "full")
         self.assertIsNone(ci_scope.parse_name_status(b"R100\0only-one-path\0"))
 
+    def test_retrobuilder_paths_select_the_existing_full_lane(self):
+        candidate = "a" * 40
+        for paths in (
+            ["m1nd-core/src/retrobuilder.rs"],
+            ["m1nd-core/tests/retrobuilder_real.rs"],
+            ["m1nd-core/tests/retrobuilder_stress.rs"],
+            ["m1nd-core/tests/support/retrobuilder_fixture.rs"],
+            ["m1nd-core/tests/retrobuilder_fixture_contract.rs"],
+            ["m1nd-core/tests/retrobuilder_real.rs", "m1nd-mcp/src/transplant.rs"],
+        ):
+            with self.subTest(paths=paths):
+                self.assertEqual(ci_scope.classify_paths(candidate, paths), ci_scope.full(candidate))
+
+    def test_retrobuilder_rename_keeps_the_old_path_in_full_scope(self):
+        base = self.commit({"m1nd-core/tests/retrobuilder_real.rs": "same"})
+        old = self.repo / "m1nd-core/tests/retrobuilder_real.rs"
+        old.rename(self.repo / "m1nd-core/tests/retrieval.rs")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "--quiet", "-m", "rename")
+        head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.classify_from(base), ci_scope.full(head))
+
+    def test_retrobuilder_deletion_still_selects_full(self):
+        base = self.commit({"m1nd-core/tests/retrobuilder_real.rs": "same"})
+        (self.repo / "m1nd-core/tests/retrobuilder_real.rs").unlink()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "--quiet", "-m", "delete")
+        head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.classify_from(base), ci_scope.full(head))
+
+    def test_other_core_and_transplant_changes_keep_their_scoped_closure(self):
+        candidate = "a" * 40
+        crates = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw", "m1nd-runnerd"]
+        for path, heavy in (
+            ("m1nd-core/src/graph.rs", []),
+            ("m1nd-core/src/transplant.rs", ["transplant"]),
+        ):
+            with self.subTest(path=path):
+                expected = ci_scope.scope(
+                    candidate, "scoped", rust=True, ui=False, host=False,
+                    cache=True, python=False, crates=crates, heavy=heavy,
+                )
+                self.assertEqual(ci_scope.classify_paths(candidate, [path]), expected)
+
+    def test_retrobuilder_documentation_does_not_select_rust(self):
+        candidate = "a" * 40
+        expected = ci_scope.scope(
+            candidate, "scoped", rust=False, ui=False, host=False, cache=False, python=False,
+        )
+        self.assertEqual(
+            ci_scope.classify_paths(candidate, ["docs/retrobuilder.md"]), expected,
+        )
+
     def test_event_candidate_or_head_mismatch_falls_back_to_actual_head(self):
         base = self.commit({"docs/one.md": "one"})
         self.commit({"docs/two.md": "two"})

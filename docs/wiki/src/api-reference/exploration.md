@@ -23,6 +23,13 @@ Unlike `activate` (which propagates signal through edges), `seek` scores every n
 | `min_score` | `number` | No | `0.1` | Minimum combined score threshold. Range: 0.0 to 1.0. |
 | `graph_rerank` | `boolean` | No | `true` | Whether to run graph re-ranking (PageRank weighting) on candidates. Disable for pure text matching. |
 
+**Filters are eligibility gates.** `scope` and `node_types` apply before lexical scoring,
+symbolic-semantic candidate limits, and static-embedding recall. Excluded nodes cannot
+re-enter the ranked pool or consume the semantic overfetch budget. Type matching is
+case-insensitive; an empty type list allows every type. If no node passes the filters,
+`results` is empty, `total_candidates_scanned` and `relevance_clearing_total` are zero,
+and the response explains the exclusion with `sufficiency.state = "saturated"`.
+
 ### Scoring Formula
 
 ```

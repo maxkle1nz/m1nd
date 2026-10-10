@@ -66,6 +66,18 @@ assertions, caching and required gates unchanged. The full lane remains at
 120 minutes. This is headroom for completing the existing proof, not a claim
 that the 60-minute scoped lane has already passed.
 
+**Retrobuilder fallback (2026-10-10):** Rust source/test paths classified as
+`retrobuilder` select the existing full lane. In [PR #571's Linux job](https://github.com/maxkle1nz/m1nd/actions/runs/38069676160/job/114264476750),
+all 22 retrobuilder cases and six fixture contracts passed, but the 60-minute
+job limit left 183 of 2,511 selected cases unfinished and Clippy unstarted.
+The heavy family occupied four nextest slots for about 26m46s. The full lane
+uses the established shared-process `cargo test` runner on all three OSes,
+with its unchanged 120-minute job ceiling and all existing gates. This costs
+the extra OS and unrelated full-selected checks; it avoids a new scheduler,
+weaker assertions or another scoped-budget increase. Shared-process fixture
+reuse can benefit that runner, but its hosted savings are not yet measured.
+Other known scopes, including transplant-only changes, keep their selection.
+
 Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
 manifests select host/cache; root `tests/test_*.py` selects Python; contributor
 launcher changes select Python/UI/cache; the Vite helper selects UI; the six
