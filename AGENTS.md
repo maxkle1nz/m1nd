@@ -33,7 +33,9 @@ but GitHub still forbids merging a draft.
 
 `main`, merge-group candidates, nightly and manual dispatch always select the
 three-OS full Rust proof. Whole CI/config/Cargo/build-script/security-policy
-changes also select full. The current PR's global CI change therefore runs the
+changes also select full. Retrobuilder source/test paths select that same full
+lane: real-repository ingestion exceeded the scoped nextest job budget.
+The current PR's global CI change therefore runs the
 full lane once. This amendment does not claim a measured duration yet. See
 `docs/TEST-PORTFOLIO.md` for the path mapping and the preserved history of the
 previous draft/ready policy.
