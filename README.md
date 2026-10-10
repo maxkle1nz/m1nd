@@ -227,7 +227,7 @@ This is why I built m1nd. Retrieval layers are good at answering. Almost none of
 }
 ```
 
-A `seek` hit carries a sufficiency readout and a trust envelope. When no calibration has been measured yet, the envelope caps its own verdict at `reverify` instead of overclaiming. `predict`'s gate is tuned for coverage (α=0.10); on this repo's history that lands at roughly a third precision in the `act` band, and most of the time it abstains, which is the honest output of a weak signal. `abstain` tells the agent to stop. `insufficient_evidence` means no evidence at all, which is a different thing from medium risk, and the API keeps the two apart.
+`seek` honors `scope` and `node_types` across lexical search and semantic recall; filters that exclude all nodes produce an explained empty result. A `seek` hit carries a sufficiency readout and a trust envelope. When no calibration has been measured yet, the envelope caps its own verdict at `reverify` instead of overclaiming. `predict`'s gate is tuned for coverage (α=0.10); on this repo's history that lands at roughly a third precision in the `act` band, and most of the time it abstains, which is the honest output of a weak signal. `abstain` tells the agent to stop. `insufficient_evidence` means no evidence at all, which is a different thing from medium risk, and the API keeps the two apart.
 
 Two tools, `savings` and `resonate`, were deleted outright in beta (handlers, types and state files, all gone) because they returned a win on every input I gave them, and a tool that never loses has stopped measuring. That is the bar every claim in this file is held to.
 
