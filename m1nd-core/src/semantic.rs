@@ -327,6 +327,15 @@ impl CharNgramIndex {
     /// Uses inverted index for candidate generation (FM-SEM-003 fix).
     /// Replaces: semantic_v2.py CharNgramEmbedder.query()
     pub fn query_top_k(&self, query: &str, top_k: usize) -> Vec<(NodeId, FiniteF32)> {
+        self.query_top_k_filtered(query, top_k, |_| true)
+    }
+
+    fn query_top_k_filtered(
+        &self,
+        query: &str,
+        top_k: usize,
+        eligible: impl Fn(NodeId) -> bool,
+    ) -> Vec<(NodeId, FiniteF32)> {
         let qvec = self.query_vector(query);
         if qvec.is_empty() {
             return Vec::new();
@@ -343,7 +352,9 @@ impl CharNgramIndex {
         for (&hash, &q_weight) in &qvec {
             if let Some(postings) = self.inverted.get(&hash) {
                 for &(node, norm_weight) in postings {
-                    *scores.entry(node.0).or_insert(0.0) += q_weight.get() * norm_weight.get();
+                    if eligible(node) {
+                        *scores.entry(node.0).or_insert(0.0) += q_weight.get() * norm_weight.get();
+                    }
                 }
             }
         }
@@ -585,6 +596,15 @@ impl CoOccurrenceIndex {
     /// Score a query node against all nodes. Returns top_k.
     /// Replaces: semantic_v2.py CoOccurrenceEmbedder.query()
     pub fn query_top_k(&self, query_node: NodeId, top_k: usize) -> Vec<(NodeId, FiniteF32)> {
+        self.query_top_k_filtered(query_node, top_k, |_| true)
+    }
+
+    fn query_top_k_filtered(
+        &self,
+        query_node: NodeId,
+        top_k: usize,
+        eligible: impl Fn(NodeId) -> bool,
+    ) -> Vec<(NodeId, FiniteF32)> {
         let idx = query_node.as_usize();
         if idx >= self.vectors.len() || self.vectors[idx].is_empty() {
             return Vec::new();
@@ -595,7 +615,7 @@ impl CoOccurrenceIndex {
             .vectors
             .iter()
             .enumerate()
-            .filter(|(i, v)| *i != idx && !v.is_empty())
+            .filter(|(i, v)| *i != idx && !v.is_empty() && eligible(NodeId::new(*i as u32)))
             .map(|(i, v)| {
                 let sim = Self::cosine_similarity(query_vec, v);
                 (NodeId::new(i as u32), sim)
@@ -1015,8 +1035,22 @@ impl SemanticEngine {
         query: &str,
         top_k: usize,
     ) -> M1ndResult<Vec<(NodeId, FiniteF32)>> {
+        self.query_filtered(graph, query, top_k, |_| true)
+    }
+
+    /// Score only eligible nodes, applying eligibility before every candidate
+    /// limit so excluded nodes cannot consume the retrieval budget.
+    pub fn query_filtered(
+        &self,
+        graph: &Graph,
+        query: &str,
+        top_k: usize,
+        eligible: impl Fn(NodeId) -> bool,
+    ) -> M1ndResult<Vec<(NodeId, FiniteF32)>> {
         // Phase 1: n-gram scores
-        let ngram_scores = self.ngram.query_top_k(query, top_k * 5);
+        let ngram_scores =
+            self.ngram
+                .query_top_k_filtered(query, top_k.saturating_mul(5), &eligible);
 
         // Build combined score map
         let mut scores: HashMap<u32, f32> = HashMap::new();
@@ -1027,7 +1061,11 @@ impl SemanticEngine {
         // Phase 2: co-occurrence boost for top candidates
         // (only if we have seed nodes from ngram phase)
         if let Some(&(first_node, _)) = ngram_scores.first() {
-            let cooc_scores = self.cooccurrence.query_top_k(first_node, top_k * 3);
+            let cooc_scores = self.cooccurrence.query_top_k_filtered(
+                first_node,
+                top_k.saturating_mul(3),
+                &eligible,
+            );
             for (node, score) in cooc_scores {
                 *scores.entry(node.0).or_insert(0.0) +=
                     score.get() * self.weights.cooccurrence.get();
@@ -1056,6 +1094,9 @@ impl SemanticEngine {
         // Boost nodes whose labels match expanded synonyms (not original tokens)
         let synonym_weight = self.weights.synonym.get();
         for i in 0..graph.num_nodes() as usize {
+            if !eligible(NodeId::new(i as u32)) {
+                continue;
+            }
             let label = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
             for expanded in &expanded_tokens {
                 if !tokens.contains(expanded) && label.contains(expanded.as_str()) {

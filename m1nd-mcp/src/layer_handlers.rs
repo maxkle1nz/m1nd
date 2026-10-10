@@ -861,6 +861,21 @@ pub fn handle_seek(
             node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
         }
     }
+    // Eligibility is independent of relevance: lexical, semantic and embedding
+    // recall must all honor the same scope/type contract before ranking.
+    let eligible_nodes: Vec<bool> = (0..n)
+        .map(|i| {
+            l2_node_is_in_scope(
+                i,
+                &node_to_ext,
+                normalized_scope.as_ref(),
+                &state.ingest_roots,
+            ) && (type_filter.is_empty()
+                || type_filter
+                    .iter()
+                    .any(|kind| kind == l2_node_type_str(&graph.nodes.node_type[i])))
+        })
+        .collect();
     let graph_generation = state.graph_generation;
     let index_is_stale = state
         .seek_file_index
@@ -903,26 +918,12 @@ pub fn handle_seek(
     // Phase 1: Score every node (keyword match + trigram + provenance path matching)
     let mut keyword_scores: Vec<f32> = vec![0.0; n];
     let mut trigram_scores: Vec<f32> = vec![0.0; n];
-    let mut candidates_scanned = 0usize;
+    let candidates_scanned = eligible_nodes.iter().filter(|&&eligible| eligible).count();
 
     for i in 0..n {
-        let nt = &graph.nodes.node_type[i];
-        let nt_str = l2_node_type_str(nt);
-
-        // Scope filter: check external_id prefix
-        if let Some(ref scope) = normalized_scope {
-            let ext = l7_normalize_path_hint(&node_to_ext[i], &state.ingest_roots);
-            if !ext.is_empty() && !ext.starts_with(scope.as_str()) {
-                continue;
-            }
-        }
-
-        // Node type filter
-        if !type_filter.is_empty() && !type_filter.iter().any(|f| f == nt_str) {
+        if !eligible_nodes[i] {
             continue;
         }
-
-        candidates_scanned += 1;
 
         let label = graph.strings.resolve(graph.nodes.label[i]);
         let label_lower = label.to_lowercase();
@@ -974,7 +975,17 @@ pub fn handle_seek(
         let sem_results = state
             .orchestrator
             .semantic
-            .query(&graph, &input.query, input.top_k * 5)
+            .query_filtered(
+                &graph,
+                &input.query,
+                input.top_k.saturating_mul(5),
+                |node| {
+                    eligible_nodes
+                        .get(node.as_usize())
+                        .copied()
+                        .unwrap_or(false)
+                },
+            )
             .unwrap_or_default();
         sem_results
             .into_iter()
@@ -1028,6 +1039,9 @@ pub fn handle_seek(
 
     let mut base_ranked: Vec<BaseRankedNode> = Vec::new();
     for i in 0..n {
+        if !eligible_nodes[i] {
+            continue;
+        }
         let kw = keyword_scores[i];
         let tri = trigram_scores[i];
         let legacy_sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
@@ -1134,7 +1148,9 @@ pub fn handle_seek(
             file_only,
         )
         .into_iter()
-        .filter(|group| group.fused_score >= input.min_score)
+        .filter(|group| {
+            eligible_nodes[group.representative_idx] && group.fused_score >= input.min_score
+        })
         .map(|group| BaseRankedNode {
             idx: group.representative_idx,
             base_score: group.fused_score,
@@ -11198,6 +11214,10 @@ fn generate_dot(
     out.push_str("}\n");
     out
 }
+
+#[cfg(test)]
+#[path = "internal_tests/seek_filter_contract.rs"]
+mod seek_filter_contract_tests;
 
 #[cfg(test)]
 mod tests {
