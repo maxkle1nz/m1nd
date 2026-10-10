@@ -128,6 +128,34 @@ to buy a green check.
 | npm host monolith (3,021-line serial script) | c | install/update/rollback truth; needs decomposition into real cases (§6) | merge | — | resident |
 | 30 `#[ignore]` | e | four mixed natures; retag to manual/future/bench/tooling pending | none | — | resident |
 
+### Retrobuilder fixture preparation (2026-10-10)
+
+The five `retrobuilder_real` and seventeen `retrobuilder_stress` cases retain
+all their algorithm assertions, real-source inputs, Git-history behavior,
+synthetic adversarial graphs and existing time budgets. Each integration
+binary prepares its real-repository seed once per process, then gives every
+case a complete independent in-memory graph. The real-family size assertions
+still run for each copy. The seed is private because even an immutable graph
+reference exposes atomic weight updates; no case receives that reference.
+
+The test-only copier preserves all node, forward/reverse CSR, interned-string,
+provenance, learning, activation, generation and PageRank/finalization state.
+It neither serializes nor re-finalizes the graph. Exhaustive storage literals
+make added graph fields a compile error until the helper is updated. Six
+fixture-contract cases cover field equality before/after finalization, sibling
+and seed isolation after mutations, concurrent Rayon callers, and failed
+initialization, plus the direct nextest path and runtime mode selection. No shared files, live runtime, or persistent fixture cache is
+introduced.
+
+The required full CI lane uses `cargo test`, which shares preparation within
+each binary. Local nextest still runs every case in its own process, so it
+performs one real ingest per selected real-graph case as before. The documented
+`NEXTEST_EXECUTION_MODE=process-per-test` marker bypasses the cache entirely,
+returning the directly ingested graph without an extra copy or retained seed.
+No nextest speedup is claimed. This changes test preparation only, not runner selection,
+coverage, retries, timeouts or product behavior. Hosted timing and three-OS
+validation must be measured on the exact candidate before claiming CI savings.
+
 ## 3. Never cut — the fifteen
 
 Ratified 2026-08-02 (owner side: Paco, from the suite-audit verdict; the
