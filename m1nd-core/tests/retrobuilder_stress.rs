@@ -19,22 +19,29 @@ use std::time::Instant;
 // Helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+#[path = "support/retrobuilder_fixture.rs"]
+mod retrobuilder_fixture;
+
+static FIXTURE: retrobuilder_fixture::GraphFixture = retrobuilder_fixture::GraphFixture::new();
+
 fn ingest_m1nd() -> Graph {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let config = IngestConfig {
-        root,
-        ..Default::default()
-    };
-    let (graph, _stats) = Ingestor::new(config).ingest().unwrap();
-    eprintln!(
-        "[STRESS] Ingested: {} nodes, {} edges",
-        graph.num_nodes(),
-        graph.num_edges()
-    );
-    graph
+    FIXTURE.graph(|| {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let config = IngestConfig {
+            root,
+            ..Default::default()
+        };
+        let (graph, _stats) = Ingestor::new(config).ingest().unwrap();
+        eprintln!(
+            "[STRESS] Ingested: {} nodes, {} edges",
+            graph.num_nodes(),
+            graph.num_edges()
+        );
+        graph
+    })
 }
 
 /// Build a dense graph with N nodes where every node connects to every other.
