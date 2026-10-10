@@ -1,48 +1,30 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# install the signed native runtime (needs cosign; rollback included)
-npx -y @maxkle1nz/m1nd update apply --yes
-npx -y @maxkle1nz/m1nd doctor
+const STEP_INSTALL = `# Run from your repository. Requires Node.js 18+ and cosign.
+npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes
+npx -y @maxkle1nz/m1nd@1.6.3 doctor --json`;
 
-# on the official MCP Registry:
-#   io.github.maxkle1nz/m1nd  ·  registry.modelcontextprotocol.io
+const STEP_CONFIG = `# Check doctor reports native 1.6.3. From the repo, in a POSIX shell:
+export M1ND_RUNTIME_DIR="$(pwd -P)/.m1nd"
+# A person runs this once for an empty runtime:
+npx -y @maxkle1nz/m1nd@1.6.3 init --birth .
 
-# works with 22 hosts. print your host's recipe:
-m1nd hosts plan
+# Replace claude with your host; complete the printed setup steps.
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project .
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --yes`;
 
-# source-registry alternative (unverified build):
-cargo install m1nd-mcp`;
+const STEP_QUERY = `Ask your connected agent:
 
-const STEP_CONFIG = `{
-  "mcpServers": {
-    "m1nd": {
-      "command": "m1nd-mcp",
-      "env": {
-        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
-        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
-      }
-    }
-  }
-}`;
-
-const STEP_INGEST = `// first session: ingest your codebase
-{
-  "tool": "ingest",
-  "arguments": {
-    "agent_id": "your-agent",
-    "path": "./src",
-    "adapter": "code",
-    "mode": "replace"
-  }
-}
-
-// graph is now live. every later query runs against it, not the filesystem`;
+Use m1nd to orient on this repository.
+Find where configuration is loaded.
+Show real source locations and what still needs checking.
+Do not edit files.`;
 
 const PLAYBOOK = [
   {
-    rule: "Always activate before searching",
-    tool: "activate",
-    detail: "Spreading activation finds structurally relevant nodes in µs, before any grep or file read.",
+    rule: "Orient before investigating",
+    tool: "north",
+    detail: "Check repository binding, task context, prior memory, and gaps before relying on retrieval.",
     color: "#00f5ff",
   },
   {
@@ -109,26 +91,26 @@ export function InstallSection() {
     {
       num: "01",
       label: "Install",
-      title: "One command, on the official registry",
-      desc: "One npx line installs the signed native runtime, verified with cosign before a byte lands, with rollback kept. The same package carries the agent doctrine and diagnostics, and m1nd hosts plan prints the right recipe for any of 22 hosts.",
+      title: "Install and check the runtime",
+      desc: "This recipe pins the 1.6.3 wrapper. Install cosign first for signed verification. The npm wrapper and native runtime are separate; doctor checks runtime visibility.",
       code: STEP_INSTALL,
       lang: "bash",
     },
     {
       num: "02",
       label: "Configure",
-      title: "Add to your MCP config",
-      desc: "Drop it into your host's MCP server list. Claude Code, Cursor, Windsurf, GitHub Copilot coding agent, Zed, Continue, and Antigravity all have an entrypoint.",
+      title: "Prepare and connect",
+      desc: "For native 1.6.3, a person prepares the graph. Add the same absolute M1ND_RUNTIME_DIR to the generated host environment; hosts apply does not add it. Check the birth receipt and finish printed setup before reconnecting.",
       code: STEP_CONFIG,
-      lang: "json · mcp config",
+      lang: "bash",
     },
     {
       num: "03",
-      label: "Ingest",
-      title: "Ingest your codebase",
-      desc: "Your agent calls m1nd.ingest once. The graph is live. Every subsequent query runs against memory, not the filesystem.",
-      code: STEP_INGEST,
-      lang: "json · first tool call",
+      label: "Ask",
+      title: "Check a real source location",
+      desc: "Start read-only. A useful result has the correct repository binding and source you can inspect. A reverify verdict asks for evidence; a wrong binding needs recovery.",
+      code: STEP_QUERY,
+      lang: "agent prompt",
     },
   ];
 
@@ -150,11 +132,11 @@ export function InstallSection() {
             installation
           </div>
           <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-4">
-            Up and running in a few minutes.
+            Start with one useful answer.
           </h2>
           <p className="text-muted-foreground font-mono max-w-xl mx-auto text-sm">
-            One binary. One config entry. One ingest call.{" "}
-            <span className="text-green-400/80">Then the graph is live.</span>
+            Published setup first. Source-preview features are versioned.{" "}
+            <span className="text-green-400/80">Read the current quick start before upgrading.</span>
           </p>
         </motion.div>
 
@@ -166,11 +148,11 @@ export function InstallSection() {
           className="mb-10 rounded-xl border border-primary/15 px-5 py-4 font-mono text-xs text-muted-foreground/70"
           style={{ background: "rgba(0,245,255,0.03)" }}
         >
-          Works with <span style={{ color: "#00f5ff" }}>22 hosts</span>: <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
+          Host recipes include <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Codex</span>, <span style={{ color: "#00f5ff" }}>Cursor</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Windsurf</span>, <span style={{ color: "#00f5ff" }}>GitHub Copilot</span>,{" "}
           <span style={{ color: "#00f5ff" }}>Zed</span>, <span style={{ color: "#00f5ff" }}>Continue</span>,{" "}
-          <span style={{ color: "#00ff88" }}>Antigravity</span> and more. <code style={{ color: "#00f5ff" }}>m1nd hosts plan</code> emits the strongest channel each host actually ships.{" "}
+          <span style={{ color: "#00ff88" }}>Antigravity</span> and more. <code style={{ color: "#00f5ff" }}>m1nd hosts plan</code> shows each host’s configuration and hook support.{" "}
           <a
             href="https://github.com/maxkle1nz/m1nd/blob/main/docs/HOST-INTEGRATION-MATRIX.md"
             target="_blank"
@@ -283,13 +265,13 @@ export function InstallSection() {
                   className="text-[10px] font-mono px-2 py-0.5 rounded"
                   style={{ background: "#ffb70010", color: "#ffb700", border: "1px solid #ffb70025" }}
                 >
-                  m1nd.help
+                  help
                 </span>
                 <span className="text-xs font-mono text-muted-foreground/50">in-context guidance</span>
               </div>
               <p className="text-sm text-muted-foreground">
                 m1nd ships a full in-context help system. If your agent is ever uncertain which tool to call,{" "}
-                <code className="text-amber-400/80 font-mono text-xs">m1nd.help</code> returns the right next step with examples, including use-case-specific guidance for whatever the agent is trying to do.
+                <code className="text-amber-400/80 font-mono text-xs">help</code> returns the right next step with examples, including use-case-specific guidance for whatever the agent is trying to do.
               </p>
             </div>
             <div className="flex-shrink-0">
@@ -305,7 +287,7 @@ export function InstallSection() {
                 <br />
                 <span style={{ color: "#ffb700" }}>{"  \"tool\""}</span>
                 <span style={{ color: "#7a8faa" }}>: </span>
-                <span style={{ color: "#00ff88" }}>{'"m1nd.help"'}</span>
+                <span style={{ color: "#00ff88" }}>{'"help"'}</span>
                 <span style={{ color: "#7a8faa" }}>,</span>
                 <br />
                 <span style={{ color: "#ffb700" }}>{"  \"arguments\""}</span>

@@ -1,358 +1,73 @@
 # Frequently Asked Questions
 
-## General
+## What is m1nd for?
 
-### What is m1nd?
+m1nd is a local code graph and evidence-linked memory for MCP coding agents. It helps find connected code, prepare changes, and carry findings between sessions. It is most useful when understanding relationships costs more than finding one exact string.
 
-m1nd is a local MCP runtime for coding agents. It turns repos, docs, history, and runtime-adjacent signals into a graph-backed operational model and exposes that model through MCP for structure, impact, connected context, continuity, audit, document grounding, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
+## Does it replace grep, an LSP, or tests?
 
-The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
+No. Text search is good at exact matches; an LSP and compiler have language semantics the graph may not capture; tests and runtime probes check executed behavior. m1nd adds graph relationships, continuity, and explicit trust/gap signals. Use these tools together.
 
-### How is m1nd different from grep / ripgrep?
+## How does it relate to RAG or other code-search tools?
 
-Grep finds *text*. m1nd finds *structure and relationships*.
+m1nd represents relationships as graph edges and combines retrieval with local memory, temporal signals, and trust envelopes. Retrieval and memory systems vary; there is no claim here that competitors cannot represent relationships or retain context. Evaluate the workflow on your own repository.
 
-Grep tells you which files contain the word "authentication". m1nd tells you which modules are structurally connected to authentication, which ones are likely co-changed when auth changes, which hidden dependencies exist between auth and seemingly unrelated modules, and what would break if you removed the auth module.
+## Does my code leave my machine?
 
-Grep is fast and essential. m1nd answers questions that grep cannot even formulate.
+m1nd processes its graph locally and does not require an LLM API key for queries. This is not a promise of zero network traffic: installation and updates fetch packages; the default embedding feature may download a model on first use; optional document providers can contact external services. Your MCP host may send tool results to its model provider under its own policy. Review those settings separately.
 
-### How is m1nd different from RAG?
+## Can I work offline?
 
-RAG (Retrieval-Augmented Generation) embeds code chunks into vectors and retrieves the top-K most similar chunks for each query. Each retrieval is independent -- RAG has no memory of previous queries and no understanding of relationships between results.
+Plan ahead: install the runtime and any required model assets, then avoid network-backed document providers. Optional features and local model configuration affect what is available. Do not infer offline readiness just from a successful package install.
 
-m1nd maintains a persistent graph where relationships are first-class citizens. The graph learns from feedback, remembers investigations across sessions, and can answer structural questions ("what breaks if I delete X?", "does A depend on B at runtime?") that RAG cannot.
+## Which platforms and Rust versions are supported?
 
-RAG is useful for semantic similarity search. m1nd is useful for structural reasoning. They are complementary, not competing.
+Use a current stable Rust toolchain for source builds; the workspace does not declare a minimum supported Rust version. CI covers Linux, macOS, and Windows. Prebuilt release availability is narrower: inspect the [release assets](https://github.com/maxkle1nz/m1nd/releases) for your exact OS and architecture. At the `1.6.3` release, native artifacts cover Linux x86_64 and macOS x86_64/ARM64. Binary size depends on target and enabled features; a fixed 8 MB claim is not current.
 
-### How is m1nd different from static analysis tools (tree-sitter, ast-grep, Sourcegraph)?
+## Which version should I install?
 
-Static analysis tools parse code into ASTs and compute call graphs, type hierarchies, and cross-references. These are accurate but frozen -- they represent the code at a single point in time and cannot answer "what if?" questions.
+The wiki follows the `1.6.4` source line; the latest published release at this refresh is `1.6.3`. Follow [Quick Start](tutorials/quickstart.md) for the published path. Use a matching source wrapper and binary when testing source-preview automatic preparation; an updated README does not publish a package.
 
-m1nd uses similar structural information as a starting point but adds three things static analysis cannot: (1) Hebbian learning that adapts the graph based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.
+## Why is the npm package not enough?
 
-Sourcegraph is a search engine. m1nd is a reasoning engine.
+It is an installer, CLI wrapper, and agent pack. The native `m1nd-mcp` binary runs the graph. `doctor` checks runtime visibility; the signed updater needs `cosign` for verification. See [Quick Start](tutorials/quickstart.md).
 
-### Do I need an LLM to use m1nd?
+## Why did hosts apply print configuration instead of installing it?
 
-No. m1nd makes zero LLM calls. It is pure Rust computation: graph algorithms, spreading activation, Hebbian plasticity. No API keys, no network calls, no token costs.
+Some settings are managed by the host and are intentionally printed for you to install. Read the output, complete the host-specific steps, and reconnect. Hook support differs by host and OS. The [host integration matrix](https://github.com/maxkle1nz/m1nd/blob/main/docs/HOST-INTEGRATION-MATRIX.md) is the detailed reference.
 
-m1nd is designed to *work alongside* LLMs (as an MCP tool that agents call), but the graph engine itself is completely self-contained.
+## Why can I see only a few tools?
 
-### What languages does m1nd support?
+The default `tools/list` is a core menu. `help` discovers the full registry, and `health.tool_surface_contract` reports the surface contract. `M1ND_TOOL_TIER=full` expands the advertised menu. Tools still enforce their own input, proof, and authority requirements.
 
-m1nd currently has:
+## Why does ingest refuse?
 
-- native/manual extractors for Python, Rust, TypeScript/JavaScript, Go, and Java
-- 22 additional tree-sitter-backed languages across Tier 1 and Tier 2
-- a generic fallback extractor for unsupported text files
+Generic `replace` and `merge` are policy-disabled for clients. A person prepares a shared/served brain through the terminal birth command. Current source also supports a narrower isolated startup under an explicit launcher grant. Public `mode: "refresh"` can only re-scan an already declared exact root; it cannot create a brain or move its binding. Do not force a different root into an existing runtime.
 
-Language breadth is broad, but semantic depth still varies by language. Python and Rust currently have more specialized handling than many of the tree-sitter-backed languages.
+## Does a trust verdict prove the answer is correct?
 
-### Is m1nd open source?
+No. It reports the evidence state. `reverify` calls for a direct check, `abstain` does not support acting on the signal, and `insufficient_evidence` means the evidence is inadequate. Uncalibrated behavior and approximate extraction are real limits. Use source, compiler, test, and runtime evidence as appropriate.
 
-Yes. MIT license. Source at [github.com/maxkle1nz/m1nd](https://github.com/maxkle1nz/m1nd).
+## Does write verification run my test suite?
 
----
+Graph/static verification is not test execution. Dynamic verification must use the appropriate isolated execution lane and a valid receipt; inspect `NOT_RUN` and other non-claims. Never treat a static check as a green build. Advanced authority-required paths can remain unavailable until their separate prerequisites are satisfied.
 
-## Installation
+## What language and repository sizes work well?
 
-### What platforms does m1nd support?
+See [language coverage](https://github.com/maxkle1nz/m1nd#language-coverage). Extractor coverage does not imply compiler-grade name resolution; qualified, dynamic, macro-generated, and external references can be incomplete. Runtime memory and ingestion cost depend on graph size, enabled features, and corpus shape. This guide does not extrapolate a synthetic node benchmark into a maximum repository-size guarantee.
 
-Any platform where Rust compiles. Tested on:
+## Can I add documents to the graph?
 
-- macOS (ARM64 and x86_64)
-- Linux (x86_64, ARM64)
-- Windows (x86_64)
+The ingest engine has document adapters, including ordinary text and scholarly formats. Availability and dependencies vary. The public MCP `merge` door is not a document-import workaround; use an authorized setup path and inspect provider health. Existing document nodes can be queried and inspected through the relevant reference tools.
 
-### What is the minimum Rust version?
+## Can several agents share memory?
 
-Rust 1.75 or later. The project uses the 2021 edition.
+Yes, through one local served owner with attached clients. Its repository binding matters: an owner must already cover the requested repository. Overlap warnings help coordination but do not lock source files. See [multi-agent workflows](tutorials/multi-agent.md).
 
-### How large is the binary?
+## Can I expose the HTTP server publicly?
 
-Approximately 8MB for a release build. No runtime dependencies, no shared libraries. The binary is fully self-contained.
+The runtime refuses non-loopback binds. Loopback does not authenticate other local processes. See [deployment and security](https://github.com/maxkle1nz/m1nd/blob/main/docs/deployment.md) before using any tunnel or shared machine; do not bypass the bind gate.
 
-### Can I install from crates.io?
+## Is it open source?
 
-Yes: `cargo install m1nd-mcp` for the current runtime.
-
----
-
-## Usage
-
-### How many files can m1nd handle?
-
-Tested up to 10,000+ files. At ~2MB of memory for 10,000 nodes, a 100K-file codebase would need roughly 20MB for the graph. This is well within modern machine capacity.
-
-At 400K+ files, the in-memory graph starts to become a consideration (~80MB), but it still works. m1nd was optimized for codebases in the 100 to 50,000 file range.
-
-### Does it work with non-code files?
-
-Yes. The current ingestion surface is not code-only.
-
-m1nd can now ingest:
-
-- structured data through `json`
-- text corpora through `memory`
-- `L1GHT` specs through `light`
-- native document adapters for patents, articles, BibTeX, CrossRef, and RFCs
-- best-effort ordinary documents through `universal`
-
-The universal lane can normalize markdown, HTML/wiki pages, office documents, and PDFs into canonical local artifacts and graph-native document structure. That is what powers `document_resolve`, `document_bindings`, `document_drift`, and the document `auto_ingest_*` runtime.
-
-### How much memory does m1nd use?
-
-The graph itself is compact: ~2MB for a 10,000-node graph with 26,000 edges (Compressed Sparse Row format). The MCP server process uses additional memory for the JSON-RPC layer, perspective state, lock baselines, and trail storage. A typical production instance serving a 335-file codebase uses under 50MB total.
-
-### Can I ingest multiple codebases into one graph?
-
-Yes. If you already know the repo list, use `federate`. If the current workspace only contains explicit path evidence to sibling repos, use `federate_auto` first and let m1nd suggest the namespace plan for you.
-
-Direct federation:
-
-```jsonc
-{"method":"tools/call","params":{"name":"federate","arguments":{
-  "agent_id":"dev",
-  "repos":[
-    {"name":"backend","path":"/project/backend"},
-    {"name":"frontend","path":"/project/frontend"}
-  ]
-}}}
-```
-
-Auto-discovery first:
-
-```jsonc
-{"method":"tools/call","params":{"name":"federate_auto","arguments":{
-  "agent_id":"dev",
-  "scope":"docs",
-  "execute":false
-}}}
-```
-
-### Can I do incremental ingests?
-
-Yes. Pass `"incremental": true` to the `ingest` tool. Incremental ingest only re-processes files that changed since the last ingest, preserving learned edge weights for unchanged regions.
-
----
-
-## Architecture
-
-### Where is the graph stored?
-
-In memory during runtime. Optionally persisted to JSON files on disk via the `M1ND_GRAPH_SOURCE` and `M1ND_PLASTICITY_STATE` environment variables.
-
-A relative persist path (the defaults are `./graph_snapshot.json` / `./plasticity_state.json`) is anchored on the configured runtime dir (`--runtime-dir` / `M1ND_RUNTIME_DIR`) when one is set, so a managed owner persists into its always-writable runtime dir regardless of its working directory — never against `cwd`. An explicit absolute path is used exactly as given.
-
-Without persistence configured, the graph is lost when the process exits. Always configure persistence for production use.
-
-### How often does it persist?
-
-By default, every 50 queries. Also on shutdown. The `auto_persist_interval` configuration parameter controls this.
-
-### Can I export the graph?
-
-The persisted graph state is a JSON file (`graph_snapshot.json`). You can read, copy, and process it with standard JSON tools. The format includes all nodes, edges, PageRank scores, and metadata.
-
-The plasticity state is a separate JSON file (`plasticity_state.json`) containing per-edge synaptic records (learned weights).
-
-### What is the graph format?
-
-Compressed Sparse Row (CSR) with forward and reverse adjacency lists. Each node has an external ID (e.g., `file::auth.py`), a type (file, class, function, module), metadata, and a PageRank score. Each edge has a type (imports, calls, inherits, co_change), a base weight, and an optional plasticity weight.
-
-### What is XLR noise cancellation?
-
-Borrowed from professional audio engineering. Like a balanced XLR cable, m1nd transmits the activation signal on two inverted channels and subtracts common-mode noise at the receiver. This reduces false positives in activation queries by cancelling out signals that propagate through generic hub nodes (like `config.py` or `utils.py`) rather than through meaningful structural paths.
-
-XLR is enabled by default. Pass `"xlr": false` to `activate` to disable it for a single query.
-
----
-
-## MCP Protocol
-
-### What MCP clients work with m1nd?
-
-Any client that speaks MCP over stdio. Tested and verified:
-
-- Claude Code
-- Cursor
-- Windsurf
-- Zed
-- Cline
-- Roo Code
-- Continue
-- OpenCode
-- GitHub Copilot (MCP mode)
-- Amazon Q Developer
-
-### Can I use m1nd without MCP?
-
-The server speaks JSON-RPC over stdio, which is the MCP transport. You can send raw JSON-RPC from any program that can write to stdin and read from stdout. No MCP client library is required -- the protocol is just JSON over pipes.
-
-### What MCP protocol version does m1nd implement?
-
-Protocol version `2024-11-05`. The server reports this in the `initialize` response.
-
-### Does m1nd support MCP notifications?
-
-Yes. The server silently ignores incoming notifications per the MCP specification.
-
----
-
-## Performance
-
-### How fast is spreading activation?
-
-31-77ms for a 9,767-node graph, returning 15-20 ranked results. The variance depends on query specificity and graph density around the activated region.
-
-### How fast is ingest?
-
-910ms for 335 Python files producing 9,767 nodes and 26,557 edges. This includes parsing, reference resolution, edge creation, and PageRank computation.
-
-### How fast is learning?
-
-Sub-millisecond. A `learn` call with feedback on 2-3 nodes adjusts hundreds of edges in under 1ms.
-
-### What about 100K files?
-
-Ingest would take roughly 30-45 seconds (linear scaling from the 335-file benchmark). Activation would be 100-200ms. The graph would occupy ~20MB in memory. These are estimates -- actual performance depends on code density and language.
-
-### What is the lock diff speed?
-
-0.08 microseconds (80 nanoseconds). Lock diff is a constant-time operation -- it compares fingerprints, not individual nodes. It is essentially free.
-
-### Full benchmark table
-
-All numbers from real execution against a production Python backend (335 files, ~52K lines):
-
-| Operation | Time | Scale |
-|-----------|------|-------|
-| Full ingest | 910ms | 335 files, 9,767 nodes, 26,557 edges |
-| Spreading activation | 31-77ms | 15 results from 9,767 nodes |
-| Blast radius (depth=3) | 5-52ms | Up to 4,271 affected nodes |
-| Stacktrace analysis | 3.5ms | 5 frames, 4 suspects ranked |
-| Plan validation | 10ms | 7 files, 43,152 blast radius |
-| Counterfactual cascade | 3ms | Full BFS on 26,557 edges |
-| Hypothesis testing | 58ms | 25,015 paths explored |
-| Pattern scan (all 8) | 38ms | 335 files, 50 findings per pattern |
-| Multi-repo federation | 1.3s | 11,217 nodes, 18,203 cross-repo edges |
-| Lock diff | 0.08us | 1,639-node subgraph comparison |
-| Trail merge | 1.2ms | 5 hypotheses, 3 conflicts detected |
-
----
-
-## Plasticity and Learning
-
-### How does Hebbian learning work?
-
-"Neurons that fire together wire together." When you call `learn` with `feedback: "correct"` and a list of node IDs, m1nd identifies all edges on paths between those nodes and increases their weights (Long-Term Potentiation, LTP). When you call with `feedback: "wrong"`, it decreases weights on paths leading to the marked nodes (Long-Term Depression, LTD).
-
-The `strength` parameter (default 0.2) controls how aggressively weights shift. The `learning_rate` server configuration (default 0.08) provides a global scaling factor.
-
-### Can I reset learned weights?
-
-Yes. Delete the `plasticity_state.json` file and restart the server. Alternatively, re-ingest the codebase, which rebuilds the graph from scratch (but does not clear the plasticity state file -- you need to delete it separately or pass `"incremental": false` and delete the plasticity file).
-
-### Does the graph overfit?
-
-Hebbian learning includes homeostatic normalization to prevent runaway weight amplification. Edge weights are bounded and periodically normalized so that heavily-used paths do not completely dominate. The `decay_rate` parameter (default 0.005) provides a slow decay toward baseline weights over time.
-
-In practice, overfitting requires thousands of feedback signals consistently reinforcing the same narrow paths. Normal usage produces a well-distributed weight landscape.
-
-### What is "partial" feedback?
-
-The `learn` tool accepts three feedback types:
-
-- `correct` -- strengthen paths (LTP)
-- `wrong` -- weaken paths (LTD)
-- `partial` -- mixed signal. Applies a mild strengthening (half the LTP strength) to acknowledged nodes while slightly weakening peripheral paths.
-
----
-
-## Perspectives
-
-### What are perspectives?
-
-A perspective is a stateful navigation session through the graph. You start one with a query or anchor node, and m1nd synthesizes a "route surface" -- a ranked set of paths you can follow. As you navigate (follow, back, branch), the perspective maintains breadcrumb history and updates the route surface.
-
-Think of it as a browser for the code graph. You have a current "page" (focus node), links (routes), history (back button), and bookmarks (branches).
-
-### How many perspectives can be open simultaneously?
-
-There is no hard limit. Each perspective occupies a small amount of memory (proportional to the number of visited nodes). In practice, 10-20 concurrent perspectives per agent is typical. Close perspectives you are done with to free memory.
-
-### Do perspectives persist across sessions?
-
-Perspectives are in-memory only and are lost when the server restarts. For persistent investigation state, use the trail system (`trail.save` / `trail.resume`).
-
-### Can I branch a perspective?
-
-Yes. `perspective.branch` forks the current navigation state into a new independent perspective. Both the original and the branch have the same history up to the branch point, and diverge afterward. This is useful for exploring "what if I go this way instead?" without losing your current position.
-
----
-
-## Comparison
-
-### m1nd vs tree-sitter
-
-tree-sitter is a parser. It produces ASTs from source code. m1nd uses structural information similar to what tree-sitter extracts, but builds a *weighted, learning graph* on top of it. tree-sitter tells you what the code *is*. m1nd tells you what the code *means* in context, what changed, what might break, and what is missing.
-
-They are complementary. tree-sitter integration is planned for m1nd to expand language support.
-
-### m1nd vs ast-grep
-
-ast-grep is a structural search tool -- it finds code patterns using AST matching. m1nd does not do pattern matching on syntax trees. Instead, it does graph-level reasoning: spreading activation, hypothesis testing, counterfactual simulation, learning. ast-grep answers "where does this pattern appear?" m1nd answers "what is connected to this, what breaks if it changes, and what am I missing?"
-
-### m1nd vs RAG (Retrieval-Augmented Generation)
-
-RAG embeds code into vectors and retrieves similar chunks. Each retrieval is independent and stateless. m1nd maintains a persistent graph with relationships, learning, and investigation state. RAG cannot answer structural questions, simulate deletions, or learn from feedback.
-
-RAG costs LLM tokens per query. m1nd costs zero tokens per query.
-
-### m1nd vs Sourcegraph / CodeGraph / SCIP
-
-Sourcegraph provides cross-repository code search and navigation based on SCIP (Source Code Intelligence Protocol) indexing. It produces accurate, language-server-quality code intelligence.
-
-m1nd is not a code search engine. It is a reasoning engine. Sourcegraph tells you "function X is defined here and called here." m1nd tells you "if you change function X, here are the 4,189 nodes in the cascade, and the graph predicts these 3 files probably need changes too."
-
-Sourcegraph is a hosted SaaS product. m1nd is a local binary with zero cost per query.
-
-### m1nd vs GitHub Copilot context
-
-Copilot uses a mix of embeddings and heuristics to select context files for the LLM. It does not maintain a persistent graph, does not learn from feedback, and does not support structural queries.
-
-m1nd can be used *alongside* Copilot -- through MCP, Copilot can call m1nd tools to get smarter context before generating code.
-
----
-
-## Contributing
-
-### How do I contribute?
-
-See [CONTRIBUTING.md](https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md). Fork the repo, create a branch, make your changes with tests, and open a PR.
-
-### What is the test suite?
-
-```bash
-cargo test --all
-```
-
-Tests cover the core graph engine, plasticity, spreading activation, hypothesis engine, all MCP tool handlers, and the JSON-RPC protocol layer.
-
-### What are the code style requirements?
-
-- `cargo fmt` before committing
-- `cargo clippy --all -- -D warnings` must pass
-- No `unsafe` without an explanatory comment
-- All new code needs tests
-
-### What areas need the most help?
-
-1. **Language extractors**: Adding tree-sitter integration or new language-specific extractors
-2. **Graph algorithms**: Community detection, better decay functions, embedding-based semantic scoring
-3. **Benchmarks**: Running m1nd on diverse codebases and reporting real-world performance numbers
-4. **Documentation**: Tutorials, examples, and translations
-
-### Where do I report bugs?
-
-GitHub Issues at [github.com/maxkle1nz/m1nd/issues](https://github.com/maxkle1nz/m1nd/issues). Use the `bug` label.
+Yes, [MIT licensed](https://github.com/maxkle1nz/m1nd/blob/main/LICENSE). Graph state and memory live on disk. The [benchmark guide](benchmarks.md) explains evidence limits, and [contributing](https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md) explains development checks.

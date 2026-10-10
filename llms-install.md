@@ -4,14 +4,18 @@
 m1nd is a local-first, MCP-native code-graph runtime. Once wired, your first move each
 session is `north(task)`: one call that returns binding trust, task focus + PageRank
 anchors, prior cross-session memory, a sufficiency signal, and `honest_gaps`. Nothing
-leaves the machine.
+is sent to an LLM by the graph engine. Installation/model downloads can use the network, optional document providers may transmit documents to a configured endpoint, and the MCP host has its own data policy.
 
 This file is the machine-legible install path. The human-facing version is the README
-[Quick Start](README.md#quick-start); the exhaustive per-host reference is
+[Quick Start](README.md#get-started); the exhaustive per-host reference is
 [`docs/HOST-INTEGRATION-MATRIX.md`](docs/HOST-INTEGRATION-MATRIX.md) (its §3 holds the
 copy-pasteable recipes referenced below — read it, do not duplicate it).
 
 ---
+
+## Version boundary
+
+This source line is `1.6.4`; the latest published release at this refresh is `1.6.3`. The npx commands below pin the published wrapper; require native 1.6.3 for the direct-stdio recipe. The automatic isolated first-workspace path is source-preview until publication. Use matching wrapper/native versions. Generic client `replace`/`merge` remain refused; the newer launcher path is not a shared-brain authority grant.
 
 ## 0. Prerequisites
 
@@ -28,12 +32,12 @@ copy-pasteable recipes referenced below — read it, do not duplicate it).
 
 ```bash
 # Prove the runtime is installed and visible (JSON verdict; no build, no config)
-npx -y @maxkle1nz/m1nd doctor --json
+npx -y @maxkle1nz/m1nd@1.6.3 doctor --json
 ```
 
 - `status: "ok"` with a `runtime`/version block → the native `m1nd-mcp` is visible; skip to §3.
 - If it reports the runtime is missing, install it the verified way:
-  `npx -y @maxkle1nz/m1nd update apply --yes` (downloads and signature-verifies the
+  `npx -y @maxkle1nz/m1nd@1.6.3 update apply --yes` (downloads and signature-verifies the
   native binary; needs [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
   on `PATH`). If you accept skipping verification, `cargo install m1nd-mcp` works too.
   Re-run `doctor` until it is visible.
@@ -54,10 +58,10 @@ Cline / Kiro).
 
 ```bash
 # See exactly what will be wired for your host (writes nothing):
-npx -y @maxkle1nz/m1nd hosts plan --host <host> --project /abs/path/to/project
+npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host <host> --project /abs/path/to/project
 
 # Apply it (opt-in mutation; dry-run without --yes):
-npx -y @maxkle1nz/m1nd hosts apply --host <host> --project /abs/path/to/project --yes
+npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host <host> --project /abs/path/to/project --yes
 ```
 
 `<host>` is one of: `codex`, `claude`, `gemini`, `antigravity`, `generic`, `qwen`,
@@ -67,9 +71,11 @@ npx -y @maxkle1nz/m1nd hosts apply --host <host> --project /abs/path/to/project 
 The two lower-level commands `apply` composes, if you want them by hand:
 
 ```bash
-npx -y @maxkle1nz/m1nd install-skills <host> --project /abs/path   # the agent pack (5 protocols)
-npx -y @maxkle1nz/m1nd mcp-config <host> --project /abs/path        # the MCP server registration
+npx -y @maxkle1nz/m1nd@1.6.3 install-skills <host> --project /abs/path   # the agent pack (5 protocols)
+npx -y @maxkle1nz/m1nd@1.6.3 mcp-config <host> --project /abs/path        # the MCP server registration
 ```
+
+For the published 1.6.3 direct-stdio path, the human birth and the host MUST use the same explicit absolute runtime inside the repository. Add `M1ND_RUNTIME_DIR` (for example `/absolute/path/to/project/.m1nd`) to the generated MCP environment, retaining `M1ND_WORKSPACE_ROOT`; `hosts apply` does not supply that selector. Check the birth receipt's `store_dir`. Do not combine this nested-runtime recipe with the newer source-preview automatic launcher grant.
 
 ## 2a. Make the ambient north hook work — and verify it fired
 
@@ -129,7 +135,7 @@ Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` 
     "m1nd": {
       "command": "m1nd-mcp",
       "args": ["--stdio", "--no-gui"],
-      "env": { "M1ND_RUNTIME_DIR": "${workspaceFolder}/.m1nd" }
+      "env": { "M1ND_RUNTIME_DIR": "/absolute/path/to/project/.m1nd" }
     }
   }
 }
@@ -178,7 +184,7 @@ always-on launchd/systemd owner.
 ## 5. Verify
 
 ```bash
-npx -y @maxkle1nz/m1nd doctor --json     # binding, graph, runtime, stale-binding symptoms
+npx -y @maxkle1nz/m1nd@1.6.3 doctor --json     # binding, graph, runtime, stale-binding symptoms
 ```
 
 Then, inside a live MCP session, confirm the front door answers:
@@ -190,16 +196,17 @@ north({ "agent_id": "install-check", "task": "orient" })
 A healthy response carries `binding.trust_mode` (e.g. `full_trust`), a `context` block
 with `focus_nodes` + `anchors`, and `honest_gaps`. If the graph is empty it returns
 `needs: "needs_ingest"`, and its `next_move` carries the door: **you do not ingest.**
-Minting a brain is the human's one-time terminal gesture. Offer this command and
+For the published shared/served setup, minting a brain is the human's one-time terminal gesture. Offer this command and
 stop; do not try to mint a brain through the agent transport:
 
 ```bash
-npx -y @maxkle1nz/m1nd init --birth /abs/path/to/project
+M1ND_RUNTIME_DIR=/absolute/path/to/project/.m1nd \
+  npx -y @maxkle1nz/m1nd@1.6.3 init --birth /absolute/path/to/project
 ```
 
 The ceremony accepts only an empty destination. It ingests the repo and prints what it
-built (`node_count`, `edge_count`); it exits non-zero if the scan produced nothing, so
-it never reports success over an empty graph. Calling `ingest` yourself is refused on every transport
+built (`node_count`, `edge_count`). For direct stdio, require `brain: "owner_bound_graph"`, the intended `born_root`, and `store_dir` matching the exact runtime configured in the host; it exits non-zero if the scan produced nothing, so
+it never reports success over an empty graph. Calling generic `ingest` with default/`replace` or `merge` is refused on every transport
 (`generic_action_authority_required`) — the refusal names this same command. Once the
 graph exists, `ingest({ "mode": "refresh" })` from that exact root is the agent's own
 door for keeping it fresh.
@@ -211,17 +218,19 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
-Outside a host entirely, the first-value packet for a repo:
+Outside a host entirely, the published first-value command below can attach to an already prepared covering owner. Automatic isolated preparation requires the separate matching source-preview wrapper/binary:
 
 ```bash
-npx -y @maxkle1nz/m1nd agent first-minute --repo . --query "map this repo" --json
+npx -y @maxkle1nz/m1nd@1.6.3 agent first-minute --repo . --query "map this repo" --json
 ```
 
 It asks `m1nd-mcp --discover-owner` first (read-only, no lease — `--attach auto`'s two
 questions) and bridges to a live serve owner whose declared ingest roots cover the repo,
 so on a machine with a served owner it reads that owner's real graph. With no covering
-owner it runs an isolated runtime, and if that brain has no graph it answers
-`needs_authority` / `NOT_PROVEN` **naming why no owner was reached**. Read `runtime.boot`
+owner, published older builds may report `needs_authority` / `NOT_PROVEN`. The matching
+1.6.4 source wrapper/native runtime can instead prepare an isolated graph for the exact
+launcher-granted repo in an external private cache. It cannot mint a shared brain or move
+a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md) for the precise source contract. Read `runtime.boot`
 (`attached_serve_owner` | `isolated_runtime`) and `runtime.owner_discovery` before
 concluding the machine has no graph; `--no-attach` forces the isolated runtime.
 

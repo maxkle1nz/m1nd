@@ -108,17 +108,17 @@ export function Hero() {
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            m1nd gives your coding agent a live graph of your codebase, on your machine. Every answer carries a verdict: <strong className="text-foreground/90 font-semibold">act</strong>, <strong className="text-foreground/90 font-semibold">reverify</strong>, or <strong className="text-foreground/90 font-semibold">abstain</strong>, because <span className="text-primary/90">"insufficient evidence" is a real answer</span>. Memory is anchored to the code it cites, so when the code moves on, the memory flags itself instead of quietly lying.
+            m1nd gives your coding agent a local code graph and evidence-linked memory. Retrieval exposes trust signals such as <strong className="text-foreground/90 font-semibold">act</strong>, <strong className="text-foreground/90 font-semibold">reverify</strong>, or <strong className="text-foreground/90 font-semibold">abstain</strong>, with explicit gaps. Inspect cited source before acting, and check remembered findings when their evidence changes.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href="https://github.com/maxkle1nz/m1nd" target="_blank" rel="noreferrer" className="w-full sm:w-auto">
+            <a href="https://github.com/maxkle1nz/m1nd#get-started" target="_blank" rel="noreferrer" className="w-full sm:w-auto">
               <button className="w-full sm:w-auto px-8 py-4 bg-primary text-primary-foreground font-bold rounded-md hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(0,245,255,0.3)] hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]">
                 Install the MCP server
               </button>
             </a>
             <a
-              href="https://github.com/maxkle1nz/m1nd#when-not-to-use-m1nd"
+              href="https://github.com/maxkle1nz/m1nd#what-it-does-and-does-not-prove"
               target="_blank"
               rel="noreferrer"
               className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium"

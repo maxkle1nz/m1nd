@@ -19,10 +19,10 @@ import { HowItWorksSection } from "@/components/HowItWorksSection";
 import { FAQSection } from "@/components/FAQSection";
 
 const METRICS = [
-  { value: "1.36µs", label: "graph activation", sub: "1,000 nodes" },
-  { value: "0",      label: "files opened",     sub: "queries hit memory" },
-  { value: "543ns",  label: "blast radius",      sub: "depth=3" },
-  { value: "0.18s",  label: "full code analysis", sub: "end-to-end" },
+  { value: "Graph", label: "connected code", sub: "inspect relationships" },
+  { value: "MCP",    label: "agent interface",  sub: "your existing host" },
+  { value: "MIT", label: "open source", sub: "read the implementation" },
+  { value: "Local",  label: "graph and memory", sub: "inspect the evidence" },
 ];
 
 function MetricsStrip() {
@@ -48,7 +48,7 @@ export default function Landing() {
     <main className="w-full min-h-screen bg-background">
       <SEO
         title="m1nd · Memory that knows when it's wrong"
-        description="A local code graph for coding agents, served over MCP. Every answer carries a trust verdict: act, reverify, or abstain. Memory anchored to real code flags itself when the code changes. Local-first, written in Rust."
+        description="A local code graph for coding agents, served over MCP. Retrieval includes trust signals and explicit gaps. Memory anchored to real code flags itself when the code changes. Local-first, written in Rust."
         canonicalPath="/"
       />
       <NavBar />

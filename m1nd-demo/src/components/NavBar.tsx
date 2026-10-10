@@ -39,7 +39,7 @@ export function NavBar() {
               Documentation
             </Button>
           </a>
-          <a href="https://github.com/maxkle1nz/m1nd" target="_blank" rel="noreferrer">
+          <a href="https://github.com/maxkle1nz/m1nd#get-started" target="_blank" rel="noreferrer">
             <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
               Get Started
             </Button>
@@ -137,7 +137,7 @@ export function NavBar() {
                     Documentation
                   </Button>
                 </a>
-                <a href="https://github.com/maxkle1nz/m1nd" target="_blank" rel="noreferrer" onClick={close}>
+                <a href="https://github.com/maxkle1nz/m1nd#get-started" target="_blank" rel="noreferrer" onClick={close}>
                   <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
                     Get Started
                   </Button>

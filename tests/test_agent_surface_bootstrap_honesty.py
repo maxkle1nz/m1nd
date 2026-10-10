@@ -12,6 +12,7 @@ disagree silently.
 """
 
 import pathlib
+import re
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -81,6 +82,23 @@ class AgentSurfaceBootstrapHonesty(unittest.TestCase):
             "schema carries neither `project_root` nor `allow_overlap`:\n  "
             + "\n  ".join(offences),
         )
+
+    def test_first_contact_examples_do_not_teach_generic_ingest(self):
+        # A schema can describe policy-disabled modes, but a first-use code
+        # block must not send a newcomer to default replace or merge.
+        surfaces = [
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "EXAMPLES.md",
+            *sorted((REPO_ROOT / "docs/wiki/src/tutorials").glob("*.md")),
+        ]
+        for path in surfaces:
+            for block in re.findall(r"```(?:json|jsonc)\n(.*?)```", path.read_text(), re.S):
+                if re.search(r'"(?:name|tool)"\s*:\s*"ingest"', block):
+                    self.assertRegex(
+                        block,
+                        r'"mode"\s*:\s*"refresh"',
+                        f"{path.relative_to(REPO_ROOT)} teaches policy-disabled bootstrap",
+                    )
 
     def test_the_historical_record_keeps_its_superseded_banner(self):
         changelog = REPO_ROOT / HISTORICAL_RECORD

@@ -1,6 +1,6 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest through the live MCP tool surface over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime. Use `tools/list` for the exact count in your current build.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest through the live MCP tool surface over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime. Use `tools/list` for the selected menu; `help` discovers the full registry.
 
 Source: `m1nd-mcp/src/`
 
@@ -93,7 +93,7 @@ Responses:
 }
 ```
 
-The `tools/list` method returns the live tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client. Use it as the source of truth for exact names and count in your current build.
+The `tools/list` method returns selected-menu schemas with full `inputSchema` per MCP spec. Use `help` for full-registry discovery and `health.tool_surface_contract` for menu/registry counts.
 
 ### HTTP Serve Surface & Live Events
 
@@ -211,7 +211,7 @@ The atomic write pattern (temp file + rename) ensures that even if shutdown is i
 - `description`: Human-readable purpose
 - `inputSchema`: JSON Schema with `properties`, `required`, `type`, defaults
 
-Some clients may display transport-prefixed compatibility aliases, but the live registry returned by `tools/list` uses the bare tool names.
+Some clients may display transport-prefixed compatibility aliases, but the menu schemas returned by `tools/list` uses the bare tool names.
 
 The current surface now includes a document runtime in addition to the code graph runtime:
 
@@ -250,7 +250,7 @@ Example schema entry:
 
 ### Tool Categories
 
-The live tool surface is organized into functional groups. Use `tools/list` for the exhaustive registry in your current build.
+The live tool surface is organized into functional groups. Use `tools/list` for the selected menu and `help` for the full registry.
 
 **Core Query Tools**:
 
@@ -266,7 +266,6 @@ The live tool surface is organized into functional groups. Use `tools/list` for 
 | `fingerprint` | Equivalence detection | `target_node` |
 | `drift` | Weight changes since baseline | `since` |
 | `learn` | Hebbian feedback | `feedback` (correct/wrong) |
-| `resonate` | Standing wave analysis | `query`, `frequencies`, `num_harmonics` |
 | `seek` | Seed-level node lookup | `query` |
 | `scan` | Full graph summary | (none) |
 

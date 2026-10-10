@@ -5,23 +5,23 @@ const speedStats = [
   {
     value: "1.36µs",
     label: "activate 1K nodes",
-    sublabel: "in-memory Rust · no GC, no pauses",
+    sublabel: "historical synthetic engine fixture",
     color: "#00f5ff",
-    detail: "cargo bench -p m1nd-core reproduces it.",
+    detail: "Run the benchmark on your hardware; not an end-to-end SLA.",
   },
   {
     value: "543ns",
     label: "blast radius",
     sublabel: "impact depth=3, nanosecond scale",
     color: "#00ff88",
-    detail: "computed before your first edit is typed.",
+    detail: "Historical engine measurement; actual request latency varies.",
   },
   {
-    value: "0",
-    label: "files opened per query",
-    sublabel: "navigation answers from the warm graph",
+    value: "Local",
+    label: "graph-backed navigation",
+    sublabel: "source inspection still matters",
     color: "#ffb700",
-    detail: "ingest reads the repo once. queries read memory.",
+    detail: "Some tools read source files; graph results still need verification.",
   },
   {
     value: "Calibrated",
@@ -139,13 +139,13 @@ export function SpeedSection() {
               backgroundClip: "text",
             }}
           >
-            m1nd finds the cut before the model even finishes reading.
+            Fast graph operations. Checkable source evidence.
           </blockquote>
 
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Pure Rust. In-memory graph. Navigation answered locally, in nanoseconds.
+            Rust graph operations run locally. Engine timings are only one part of a real workflow.
             <br className="hidden md:block" />
-            The graph already knows what's up. Your agent just asks.
+            Include ingestion, retrieval, source inspection, and verification when measuring value.
           </p>
         </motion.div>
 
@@ -168,9 +168,9 @@ export function SpeedSection() {
             grep reads files &nbsp;·&nbsp; m1nd reads the graph
           </div>
           <p className="text-sm text-muted-foreground/70 max-w-sm">
-            No file wandering. Instant connection to anywhere in the code.
+            Use graph relationships to choose what to inspect next.
             <br />
-            <span className="text-primary/80 font-medium">Structure over scanning: the graph, not the filesystem.</span>
+            <span className="text-primary/80 font-medium">Graph navigation and source verification work together.</span>
           </p>
         </motion.div>
       </div>

@@ -91,90 +91,22 @@ binding is stale — not the default front door.
 <a id="m1ndingest"></a>
 
 ## `ingest`
-Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the graph. This is the primary way to load data into m1nd. It now supports code-first, structured-document, and universal document adapters.
 
-### Parameters
+The engine supports several ingestion modes and adapters, but the public tool is constrained by authority. **Default/`replace` and `merge` are policy-disabled for clients.** A schema describing a mode is not permission to call it. Do not use this tool to bootstrap a missing graph, attach another repository, or merge documents.
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | `string` | Yes | -- | Filesystem path to the source root or memory corpus. |
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
-| `incremental` | `boolean` | No | `false` | Incremental ingest (code adapter only). Only re-processes files that changed since the last ingest. |
-| `adapter` | `string` | No | `"code"` | Adapter to use for parsing. Values include `"code"`, `"json"`, `"memory"`, `"light"`, `"patent"`, `"article"`, `"bibtex"`, `"rfc"`, `"crossref"`, `"universal"`, and `"auto"` / `"document"` for format detection. |
-| `mode` | `string` | No | `"replace"` | How to handle the existing graph. Values: `"replace"` (clear and rebuild), `"merge"` (add new nodes/edges into existing graph). |
-| `namespace` | `string` | No | -- | Optional namespace tag for non-code nodes. Used by `memory` and `json` adapters to prefix node external_ids. |
+For first setup, use [Quick Start](../tutorials/quickstart.md). A person prepares a shared/served brain in a terminal. The current source-preview isolated path uses an explicit launcher workspace grant before serving tools; it is not a generic ingest exception.
 
-### Example Request
+### Refresh an already declared exact root
 
 ```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "ingest",
-    "arguments": {
-      "agent_id": "agent-1",
-      "path": "/path/to/project-f/backend",
-      "adapter": "code",
-      "mode": "replace",
-      "incremental": false
-    }
-  }
-}
+{"method":"tools/call","params":{"name":"ingest","arguments":{"agent_id":"dev","path":"/absolute/path/to/already-declared-repo","mode":"refresh"}}}
 ```
 
-### Example Response
+`refresh` requires the caller's exact canonical root to already be declared by the selected brain. It refuses unresolved paths, subdirectory/root mismatches, overlapping refreshes, changed root sets, and a candidate graph below the shrink guard. It does not mint or rebind a brain. The graph mutation can be expensive; read its result instead of assuming the current graph is fresh.
 
-```json
-{
-  "files_processed": 335,
-  "nodes_created": 9767,
-  "edges_created": 26557,
-  "languages": { "python": 335 },
-  "elapsed_ms": 910.0
-}
-```
+Inspect the installed schema for supported adapter and payload fields. Document-engine capabilities include code, structured data, memory, and universal/document adapters, but their existence does not expose public `merge` authority. For existing document nodes, see the read-oriented document tools below.
 
-### Adapters
-
-| Adapter | Input | Node Types | Edge Types |
-|---------|-------|------------|------------|
-| `code` | Source code directory | file, class, function, struct, module | imports, calls, registers, configures, tests, inherits |
-| `json` | Graph snapshot JSON | (preserved from snapshot) | (preserved from snapshot) |
-| `memory` | Markdown files | document, concept, entity | references, relates_to |
-| `light` | L1GHT protocol markdown | document, section, entity, typed semantic nodes | explicit semantic edges from frontmatter and markers |
-| `patent` / `article` / `bibtex` / `rfc` / `crossref` | Structured document formats | document, section, citation, entity | citation and cross-domain edges |
-| `universal` | Best-effort document canonicalization | document, section, block, table, citation, entity, claim | document containment, references, bindings, supports |
-| `auto` / `document` | Format detection wrapper | routes to the strongest detected adapter | adapter-specific |
-
-### Mode Behavior
-
-| Mode | Behavior |
-|------|----------|
-| `replace` | Clears the existing graph, ingests fresh, finalizes (PageRank + CSR). All perspectives and locks are invalidated. |
-| `merge` | Adds new nodes and edges into the existing graph. Existing nodes are updated if they share the same external_id. Graph is re-finalized after merge. |
-
-### When to Use
-
-- **Session start** -- ingest the codebase if the graph is empty or stale
-- **After code changes** -- re-ingest incrementally to update the graph
-- **Multi-source** -- merge a memory corpus into a code graph for cross-domain queries
-- **Federation preparation** -- use `federate` instead for multi-repo ingestion
-
-### Side Effects
-
-- **replace mode**: clears all graph state, invalidates all perspectives and locks, marks lock baselines as stale
-- **merge mode**: adds to graph, increments graph generation, triggers watcher events on affected locks
-
-### Related Tools
-
-- [`health`](#m1ndhealth) -- check graph status before deciding to ingest
-- [`doctor`](#m1nddoctor) -- diagnose graph/session continuity when retrieval looks stale
-- [`drift`](memory.md#m1nddrift) -- see what changed since last session
-- [`federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
-- [`document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
-- [`auto_ingest_start`](#m1ndauto_ingest_start) -- keep document roots synchronized after ingest
+Related: [`health`](#m1ndhealth), [`doctor`](#m1nddoctor), and [agent autonomy](https://github.com/maxkle1nz/m1nd/blob/main/docs/AGENT-AUTONOMY.md).
 
 ---
 

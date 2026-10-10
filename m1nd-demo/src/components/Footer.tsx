@@ -25,7 +25,7 @@ export function Footer() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mb-24">
-          <a href="https://github.com/maxkle1nz/m1nd" target="_blank" rel="noreferrer" className="w-full sm:w-auto">
+          <a href="https://github.com/maxkle1nz/m1nd#get-started" target="_blank" rel="noreferrer" className="w-full sm:w-auto">
             <Button size="lg" className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-lg px-8 shadow-[0_0_20px_rgba(0,245,255,0.3)]">
               Get m1nd
             </Button>
