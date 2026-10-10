@@ -161,7 +161,7 @@ export function SurgicalFeature() {
     <FeatureSection
       title="Edit One Node. Touch Nothing Else."
       subtitle="Surgical Edit"
-      description="When your agent edits handleAuth(), m1nd provides exactly what it needs: the function itself, its 2 callers, its 3 callees, and its tests. Not the full file. Not adjacent functions. A precise context slice that prevents hallucination and eliminates token waste."
+      description="Load a focused source slice with connected callers and callees. Inspect the returned evidence and run your normal tests before relying on a change."
       align="left"
     >
       <SurgicalScene />

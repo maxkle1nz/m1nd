@@ -120,8 +120,9 @@ stateDiagram-v2
     note right of ReadyToEdit
         marks are ephemeral session
         intent (SessionState.proof_ready),
-        never persisted, and never expire
-        within a session -> stale-mark GAP
+        never persisted; bound to agent, target,
+        graph generation and SHA-256 digest;
+        expire after five minutes; one use
     end note
 ```
 
@@ -154,15 +155,15 @@ flowchart TD
 - read-only attach denies exactly the on-disk-writing verbs (ingest/apply/apply_batch/edit_commit/...); search/glob/seek/activate/surgical_context/v2/view/batch_view/edit_preview ambiently legal (server.rs:2597-2623).
 - surgical_context_v2 records proof-ready only for the PRIMARY file, never connected context files (surgical_handlers.rs:2947-2953).
 - re-ingest failure is non-fatal — the on-disk write already succeeded; graph update is best-effort and logged (surgical_handlers.rs:2633-2641).
-- proof_ready marks are ephemeral session intent — kept only on SessionState.proof_ready, never persisted (session.rs:126-127).
+- Proof permits are ephemeral session state, never persisted; each is bound to the agent, canonical target, graph generation, SHA-256 digest, five-minute TTL, and one-time consumption.
 
 ## Gaps
 
 - **[high]** Incremental re-ingest never prunes: merge_graphs is an additive union keyed by external_id; a single-file re-ingest after an edit that DELETES a function leaves the deleted symbol's node and edges in the live graph. Over a session the graph drifts to over-count symbols/callers until a full replace ingest (merge.rs:344-423; consumed via finalize_ingest merge arm, all apply/view auto_ingest call with mode=merge/incremental).
 - **[medium]** Semantic-mode and non-count literal/regex search iterate every node and read matching files from disk line-by-line; there is no index for content grep, so cost scales O(nodes + bytes-on-disk) per call. collect_limit caps rows but not files scanned — dominant latency on very large repos (search_handlers.rs:361-395, 945; seek scores all n nodes layer_handlers.rs:309-515).
-- **[medium]** Proof-ready marks are per-(agent, normalized-target) and never expire within a session; a target proved ready_to_edit early stays writable the rest of the session even if the file/heuristics later change. edit_commit's hash check catches on-disk drift, but a direct apply relies only on the stale mark + path safety (session.rs:2250-2285; gate admits any is_proof_ready target server.rs:3964).
+- **Resolved:** Proof permits now bind canonical target, agent, graph generation, SHA-256 file digest, and a five-minute TTL, and are consumed once. Stale generation/content, expiration, wrong agent, and reuse refuse (`session.rs`: `PROOF_READY_TTL_MS`, `proof_target_digest`, and `validate_proof_mark`). This closes the former session-long stale-mark gap.
 - **[low]** apply_batch re-ingest is per-file (N merges), not the "single bulk re-ingest" its doc-comment and phase label claim (surgical_handlers.rs:3141 vs loop 3518-3542).
-- **[low]** content_hash for preview/commit uses std DefaultHasher (SipHash, 64-bit, non-cryptographic) — adequate for accidental-change detection but no adversarial collision resistance; also the commit concurrency guard (surgical_handlers.rs:1103-1107).
+- **[low]** The legacy edit-preview/commit `content_hash` uses std DefaultHasher (SipHash, 64-bit, non-cryptographic) — adequate for accidental-change detection but no adversarial collision resistance; this is separate from the SHA-256 proof/transaction-permit layer.
 - **[low]** diff_summary counts added/removed by whole-line set-membership, so it miscounts moved/duplicated identical lines — a cosmetic summary, not a true LCS diff (surgical_handlers.rs:1092-1101).
 - **[low]** Auto-ingest-on-scope inside search can trigger a full directory ingest as a side effect of a read call, coupling a nominally read-only verb to a graph mutation; refused on a read-only attach only because ingest is separately denied, not because search self-limits (search_handlers.rs:785-838; server.rs:2598).
 
@@ -171,7 +172,7 @@ flowchart TD
 - No test proves the additive-merge stale-node behavior on re-ingest (deleted symbol's node/edges after edit + incremental re-ingest).
 - No test that apply_batch reflects a multi-file edit as a single consistent graph state (only any_ingested becomes true).
 - No concurrency/race test for two agents previewing+committing the same file (A previews, B commits, A commits).
-- No test that a proof-ready mark can go stale within a session yet still admits a direct apply.
+- Proof-permit tests cover expiry, generation/content drift, agent binding, and one-time consumption; inspect the current `session.rs` tests rather than the historical stale-mark gap.
 - No large-repo performance/scaling test for search Phase-2 disk grep or seek's all-node scan.
 - Semantic-recall quality of the default embed path is not asserted by a handler-level test here — only embeddings_used truthfulness.
 - No test that search auto_ingest side-effecting a full ingest is correctly refused/allowed under a read-only attach.

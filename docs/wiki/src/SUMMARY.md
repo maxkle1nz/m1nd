@@ -4,6 +4,15 @@
 
 ---
 
+# Getting started
+
+- [Quick Start](tutorials/quickstart.md)
+- [Your First Query](tutorials/first-query.md)
+- [Multi-Agent Workflows](tutorials/multi-agent.md)
+- [Contributor development kit](tutorials/contributor-devkit.md)
+
+---
+
 # Architecture
 
 - [System Overview](architecture/overview.md)
@@ -22,7 +31,7 @@
 
 ---
 
-# API Reference — 93 Tools
+# API Reference
 
 - [Overview](api-reference/overview.md)
 - [Activation & Queries](api-reference/activation.md)
@@ -31,15 +40,6 @@
 - [Exploration & Discovery](api-reference/exploration.md)
 - [Perspective Navigation](api-reference/perspectives.md)
 - [Lifecycle & Administration](api-reference/lifecycle.md)
-
----
-
-# Tutorials
-
-- [Quick Start](tutorials/quickstart.md)
-- [Your First Query](tutorials/first-query.md)
-- [Multi-Agent Workflows](tutorials/multi-agent.md)
-- [Contributor development kit](tutorials/contributor-devkit.md)
 
 ---
 

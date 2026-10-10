@@ -349,13 +349,13 @@ const useCases = [
     number: "01",
     title: "Find the Auth Refresh Flow",
     subtitle: "Orientation",
-    description: "An AI agent needs to understand how token refresh works. Instead of opening 8 files and reconstructing the flow by hand, it fires a single m1nd query and gets the complete subgraph back in one response.",
+    description: "An agent needs to understand token refresh. Start with orientation, find candidate code, then verify the flow in source.",
     steps: [
-      "m1nd activates from AuthService and propagates through the import graph in 1.36µs",
-      "TokenRefresher, JWTValidator, and SessionStore returned with function signatures attached",
-      "5 nodes, 4 edges, 0 files opened: the complete auth flow in one tool call",
-      "Callers and dependencies already included: no follow-up queries needed",
-      "From question to complete map: 0.18s and 3 tool calls total",
+      "north establishes the repository binding, task context, and honest gaps",
+      "seek retrieves candidates related to token refresh",
+      "Open the returned source locations and inspect callers and dependencies",
+      "Follow unresolved edges or missing evidence with focused source and test checks",
+      "Record the verified finding with evidence for the next session",
     ],
     color: "#00f5ff",
     align: "left",
@@ -364,13 +364,13 @@ const useCases = [
     number: "02",
     title: "Blast Radius Before Refactoring",
     subtitle: "Impact Analysis",
-    description: "Before touching worker_pool.py, the agent needs to know exactly what will break. m1nd computes the full impact cone before a single line changes, sorted by coupling risk.",
+    description: "Before touching worker_pool.py, the agent needs to inspect which connected code may be affected. m1nd computes a graph impact cone before a single line changes, sorted by coupling risk.",
     steps: [
       "WorkerPool identified as the epicenter: full impact analysis begins immediately",
       "4 direct callers returned in the first ring with call frequency attached",
       "4 indirect consumers expanded into the second ring, sorted by blast distance",
       "Each dependency flagged: stable, fragile, or critical. Actionable, not just informational",
-      "The agent has a safe refactor plan before writing a single line of code",
+      "The agent has a review surface; source, compiler, and tests still validate the plan",
     ],
     color: "#ff6b00",
     align: "right",
@@ -379,13 +379,13 @@ const useCases = [
     number: "03",
     title: "Trace a Runtime Error to Root Cause",
     subtitle: "Error Tracing",
-    description: "A production crash surfaces at UnhandledError. The agent traces the call graph backwards in one pass: no log scanning, no trial and error, no hallucinated fixes.",
+    description: "A crash surfaces at UnhandledError. The agent uses the graph to rank places to inspect, then checks logs, source, and runtime evidence.",
     steps: [
       "UnhandledError is the entry point, so m1nd begins a backwards traversal immediately",
       "PromiseChain → NetworkLayer → ConfigLoader traced in one graph walk",
-      "Missing environment variable identified at EnvValidator: the actual root cause",
+      "EnvValidator is a candidate to inspect; confirm the environment and executed failure path",
       "Full ancestry returned: 4 nodes, 3 edges, 1 root-cause candidate",
-      "From crash report to fix location: one backward traversal, zero file reads",
+      "Use the ranked candidates to focus source reads and reproduction",
     ],
     color: "#ff00aa",
     align: "left",
@@ -397,10 +397,10 @@ const useCases = [
     description: "Before applying 9 changes across 5 files, the agent validates the plan against the live graph, catching structural conflicts before any code runs.",
     steps: [
       "All 5 target files evaluated simultaneously against the current graph state",
-      "4 files check out clean against the graph: their changes will not cascade unexpectedly",
+      "4 files have no detected graph conflict; this does not rule out runtime effects",
       "Circular import conflict detected in sessionStore.ts before the first edit runs",
-      "Verdict returned: one conflict to resolve before the plan is safe to apply",
-      "Your agent ships a clean PR instead of discovering the problem in production",
+      "Verdict returned: one graph conflict to investigate before implementation",
+      "Run the relevant compiler and tests, then request independent review",
     ],
     color: "#00ff88",
     align: "right",
@@ -639,7 +639,7 @@ export default function UseCases() {
     <main className="w-full min-h-screen bg-background">
       <SEO
         title="Use Cases · m1nd"
-        description="13 real scenarios where m1nd gives coding agents surgical precision: impact analysis, race conditions, antibody immunity, hypothesis testing, epidemic modeling, predictive breakage, and more. All in under 0.30s."
+        description="Illustrative workflows for graph-backed navigation, change preparation, memory, and analysis. Check source evidence, tool availability, and authority for your installed version."
         canonicalPath="/use-cases"
       />
       <NavBar />
@@ -661,7 +661,7 @@ export default function UseCases() {
             What Your Agent Can Do
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Thirteen scenarios, one per tool family. The tools are real and shipping; the walkthroughs below use illustrative mock data, so read them for the shape of the work, not the numbers.
+            Illustrative scenarios with mock data, not live measurements or correctness guarantees. Tool availability and authority depend on your installed version. Use these to understand the workflow, then verify findings in source.
           </p>
         </motion.div>
       </div>

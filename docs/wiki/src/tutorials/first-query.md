@@ -1,404 +1,48 @@
-# First Query: The Full Cycle
+# Your First Query: Find, Check, Remember
 
-This tutorial walks you through the core m1nd workflow: ingest, activate, learn, and observe the graph getting smarter. Then we explore structural holes and counterfactual simulation.
+Complete [Quick Start](quickstart.md) first. Your session must already have a graph for the intended repository. These are MCP `tools/call` payloads; your host supplies JSON-RPC framing and request IDs.
 
-**Prerequisites**: You have completed the [Quick Start](quickstart.md) and have m1nd running with a codebase ingested.
-
-All examples use the JSON-RPC wire format. If you are working through an MCP client (Claude Code, Cursor, etc.), the client sends these calls for you when you invoke the tools by name.
-
-## Step 1: Ingest Your Codebase
-
-If you have not already ingested, do it now:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "ingest",
-    "arguments": {
-      "path": "/your/project",
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-Response:
+## 1. Orient before reading or editing
 
 ```json
-{
-  "files_processed": 335,
-  "nodes_created": 9767,
-  "edges_created": 26557,
-  "languages": {"python": 335},
-  "elapsed_ms": 910
-}
+{"method":"tools/call","params":{"name":"north","arguments":{"agent_id":"dev","task":"find where configuration is loaded"}}}
 ```
 
-The graph now contains structural nodes (files, classes, functions) and edges (imports, calls, inheritance, co-change patterns). PageRank has been computed, giving each node a centrality score.
+Read the binding, task context, prior memory, `next_move`, and `honest_gaps`. If the packet names another root or reports `needs_ingest`, stop and follow [setup recovery](quickstart.md#if-the-first-result-is-not-useful). Do not call generic `ingest` to replace the graph.
 
-## Step 2: First Activation
-
-Ask the graph about session pool management:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "activate",
-    "arguments": {
-      "query": "session pool management",
-      "agent_id": "dev",
-      "top_k": 5
-    }
-  }
-}
-```
-
-Response:
+## 2. Find candidates
 
 ```json
-{
-  "activated": [
-    {
-      "node_id": "file::session_pool.py",
-      "score": 0.89,
-      "dimension_scores": {
-        "structural": 0.92,
-        "semantic": 0.95,
-        "temporal": 0.78,
-        "causal": 0.71
-      }
-    },
-    {"node_id": "file::session_pool.py::class::SessionPool", "score": 0.84},
-    {"node_id": "file::worker_pool.py", "score": 0.61},
-    {"node_id": "file::session_pool.py::fn::acquire", "score": 0.58},
-    {"node_id": "file::process_manager.py", "score": 0.45}
-  ],
-  "ghost_edges": [
-    {
-      "from": "file::session_pool.py",
-      "to": "file::healing_manager.py",
-      "confidence": 0.34
-    }
-  ]
-}
+{"method":"tools/call","params":{"name":"seek","arguments":{"agent_id":"dev","query":"configuration loading"}}}
 ```
 
-**Reading the results**:
+Use a question that actually fits your repository. `seek` returns candidates, not a verified explanation. Its scope and node-type filters are applied to lexical and semantic candidates in the current source. Overly narrow filters can legitimately produce an explained empty result.
 
-- **`score`**: Combined 4-dimensional activation score (0.0 to 1.0)
-- **`dimension_scores`**: Breakdown by structural (graph distance, PageRank), semantic (token overlap), temporal (co-change history), and causal (suspiciousness)
-- **`ghost_edges`**: Connections the graph inferred but that are not explicit in code. Here, `session_pool.py` and `healing_manager.py` are structurally unconnected but co-activate together -- a hidden dependency worth investigating.
+Read the returned source locations. Follow the suggested tool or inspect the file directly. Use node IDs from the actual response when calling `impact`, `why`, or `surgical_context`; do not invent an ID from an example.
 
-Note the scores. We will come back to this query after teaching the graph.
+## 3. Verify the finding
 
-## Step 3: Teach the Graph (Hebbian Learning)
+Check the source and the relevant tests. For a proposed change, inspect callers and run the repository's real compiler/test checks. A graph edge may be approximate or unresolved; a trust verdict does not replace execution proof.
 
-The top two results (`session_pool.py` and the `SessionPool` class) were exactly what we needed. Tell the graph:
+- `reverify`: validate the result against direct evidence.
+- `abstain`: the signal does not support acting on the prediction.
+- `insufficient_evidence`: there is no adequate evidence for that conclusion.
+- `caller_root_mismatch`: this session is not bound to the repository you meant.
 
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "learn",
-    "arguments": {
-      "query": "session pool management",
-      "agent_id": "dev",
-      "feedback": "correct",
-      "node_ids": [
-        "file::session_pool.py",
-        "file::session_pool.py::class::SessionPool"
-      ],
-      "strength": 0.2
-    }
-  }
-}
-```
+If retrieval is blocked or empty, use its returned recovery arguments when available, or ask `doctor` for the diagnostic path. Repeating a refused write is not recovery.
 
-Response:
+## 4. Preserve only what you checked
+
+After verifying a durable finding, the agent can store a claim with a repo-relative evidence path. This is an illustrative payload: replace the path and claim with facts from your repository before calling it.
 
 ```json
-{
-  "edges_strengthened": 740,
-  "edges_weakened": 0,
-  "plasticity_records": 740,
-  "learning_type": "hebbian_ltp"
-}
+{"method":"tools/call","params":{"name":"memorize","arguments":{"agent_id":"dev","node_label":"ConfigurationLoading","claims":[{"label":"ConfigurationEntry","text":"Configuration is loaded by the entry point identified in this source file.","confidence":"high","evidence":["src/config.rs"]}]}}}
 ```
 
-**What happened**: Hebbian Long-Term Potentiation (LTP) strengthened 740 edges along paths connecting the confirmed-useful nodes. "Neurons that fire together wire together." The next time anyone queries this region of the graph, those paths carry more signal.
+`memorize` is a state-changing call, not part of the read-only setup check. Stored claims retain provenance; `cross_verify` can check cited files for staleness. At the next session, review recalled evidence rather than assuming memory is still true.
 
-Now suppose `worker_pool.py` (score 0.61) was not actually relevant. Mark it wrong:
+## 5. Go deeper only when the task needs it
 
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "learn",
-    "arguments": {
-      "query": "session pool management",
-      "agent_id": "dev",
-      "feedback": "wrong",
-      "node_ids": ["file::worker_pool.py"],
-      "strength": 0.2
-    }
-  }
-}
-```
+Use `help` to discover the full registry. The default `tools/list` is a small menu, not the complete API. Tools such as `trail_resume`, `impact`, and `why` may help with a longer investigation; advanced writes have separate proof and authority requirements.
 
-Response:
-
-```json
-{
-  "edges_strengthened": 0,
-  "edges_weakened": 312,
-  "plasticity_records": 1052,
-  "learning_type": "hebbian_ltd"
-}
-```
-
-Long-Term Depression (LTD) weakened 312 edges leading to `worker_pool.py` from this query region. The graph now knows: for session pool queries, `worker_pool.py` is noise.
-
-## Step 4: Activate Again -- See the Improvement
-
-Run the exact same query:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "activate",
-    "arguments": {
-      "query": "session pool management",
-      "agent_id": "dev",
-      "top_k": 5
-    }
-  }
-}
-```
-
-Expected changes:
-
-```json
-{
-  "activated": [
-    {"node_id": "file::session_pool.py", "score": 0.93},
-    {"node_id": "file::session_pool.py::class::SessionPool", "score": 0.88},
-    {"node_id": "file::session_pool.py::fn::acquire", "score": 0.65},
-    {"node_id": "file::process_manager.py", "score": 0.47},
-    {"node_id": "file::healing_manager.py", "score": 0.39}
-  ]
-}
-```
-
-Compare with Step 2:
-
-| Node | Before | After | Change |
-|------|--------|-------|--------|
-| `session_pool.py` | 0.89 | 0.93 | +0.04 (strengthened) |
-| `SessionPool` class | 0.84 | 0.88 | +0.04 (strengthened) |
-| `worker_pool.py` | 0.61 | dropped | Pushed below top-5 (weakened) |
-| `healing_manager.py` | ghost only | 0.39 | Promoted from ghost to main results |
-
-The graph learned. `worker_pool.py` fell out of the top results. `healing_manager.py`, previously only a ghost edge, got promoted because the strengthened paths through `session_pool.py` now carry more signal to its neighborhood.
-
-**This is the core value proposition of m1nd**: every interaction makes the graph smarter. No other code intelligence tool does this.
-
-## Step 5: Structural Hole Detection
-
-Ask the graph what is *missing* around a topic:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "missing",
-    "arguments": {
-      "query": "database connection pooling",
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "holes": [
-    {
-      "region": "connection lifecycle",
-      "adjacent_nodes": 4,
-      "description": "No dedicated connection pool abstraction"
-    },
-    {
-      "region": "pool metrics",
-      "adjacent_nodes": 3,
-      "description": "No pool health monitoring"
-    },
-    {
-      "region": "graceful drain",
-      "adjacent_nodes": 2,
-      "description": "No connection drain on shutdown"
-    }
-  ],
-  "total_holes": 9
-}
-```
-
-**What happened**: m1nd activated the "database connection pooling" region of the graph and looked for *gaps* -- areas where the graph's structure predicts a node should exist but none does. These are structural holes: places where other codebases of similar shape would have components but yours does not.
-
-This is not a linter or rule-based checker. It is topology-based gap detection. The graph's shape implies these components should exist, based on the relationships between the nodes that do exist.
-
-## Step 6: Counterfactual Simulation
-
-Before deleting or rewriting a module, simulate the consequences:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "counterfactual",
-    "arguments": {
-      "node_ids": ["file::spawner.py"],
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "cascade": [
-    {"depth": 1, "affected": 23},
-    {"depth": 2, "affected": 456},
-    {"depth": 3, "affected": 3710}
-  ],
-  "total_affected": 4189,
-  "orphaned_count": 0,
-  "pct_activation_lost": 0.41
-}
-```
-
-**Reading the results**:
-
-- **Depth 1**: 23 nodes directly depend on `spawner.py`
-- **Depth 2**: 456 more nodes depend on those 23
-- **Depth 3**: 3,710 more -- a cascade explosion
-- **Total**: 4,189 nodes affected out of ~9,767 (42.9% of the graph)
-- **Activation lost**: 41% of the graph's total activation capacity would be disrupted
-
-Compare this with removing `config.py`:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "counterfactual",
-    "arguments": {
-      "node_ids": ["file::config.py"],
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "cascade": [
-    {"depth": 1, "affected": 89},
-    {"depth": 2, "affected": 1234},
-    {"depth": 3, "affected": 1208}
-  ],
-  "total_affected": 2531,
-  "orphaned_count": 3,
-  "pct_activation_lost": 0.28
-}
-```
-
-Despite `config.py` having more direct dependents (89 vs 23), its total cascade is smaller (2,531 vs 4,189). `spawner.py` sits at a structural chokepoint where downstream nodes have more transitive dependencies. This insight is impossible to get from `grep` or import analysis alone -- it requires full graph traversal.
-
-## Step 7: Hypothesis Testing (Bonus)
-
-Test a structural claim against the graph:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "hypothesize",
-    "arguments": {
-      "claim": "worker_pool depends on whatsapp_manager at runtime",
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "verdict": "likely_true",
-  "confidence": 0.72,
-  "paths_explored": 25015,
-  "evidence": [
-    {
-      "path": [
-        "file::worker_pool.py",
-        "file::process_manager.py::fn::cancel",
-        "file::whatsapp_manager.py"
-      ],
-      "hops": 2
-    }
-  ],
-  "note": "2-hop dependency via cancel function -- invisible to grep"
-}
-```
-
-The hypothesis engine explored 25,015 paths in 58ms and found a 2-hop dependency that no text search could reveal: the worker pool reaches the WhatsApp manager through a cancel function in the process manager. This is the kind of hidden coupling that causes production incidents.
-
-## Summary: The Learning Loop
-
-The core m1nd workflow is a feedback loop:
-
-```
-ingest  -->  activate  -->  use results  -->  learn  -->  activate again
-  |                                              |
-  |              (graph gets smarter)            |
-  +----------------------------------------------+
-```
-
-Every `learn` call shifts edge weights. Every subsequent `activate` benefits from accumulated learning. Over sessions, the graph adapts to how *your team* thinks about *your codebase*.
-
-Additional tools layer on top of this foundation:
-
-| Tool | When to Use |
-|------|-------------|
-| `missing` | Before designing new features -- find what your codebase lacks |
-| `counterfactual` | Before deleting or rewriting -- simulate the blast radius |
-| `hypothesize` | When debugging -- test assumptions about hidden dependencies |
-| `impact` | Before modifying a file -- understand the blast radius |
-| `predict` | After modifying a file -- which other files probably need changes too |
-| `trace` | When an error occurs -- map stacktraces to structural root causes |
-
-### Two habits that wrap the loop
-
-The learning loop above sits inside a larger operating loop:
-
-- **Pre-orient first.** Before this whole cycle, call `north(task)` — the
-  in-session front door that returns binding trust, task context, prior
-  cross-session memory, and `honest_gaps` in one round-trip. Ingest first only
-  when `north` reports `needs_ingest`.
-- **Read the verdicts, then capture.** Retrieval and prediction carry calibrated
-  verdicts — `act` / `reverify` / `abstain` (`abstain` = insufficient evidence,
-  a STOP), `closure` on `why`, a `trust_envelope` on `seek`. Obey them instead
-  of guessing. When you finish, `memorize` durable findings with `confidence`
-  and repo-relative `evidence` paths so the next agent inherits what you proved.
-
-Next: [Multi-Agent Tutorial](multi-agent.md) -- how multiple agents share one graph.
+Next: [multi-agent workflows](multi-agent.md), [API overview](../api-reference/overview.md), or [evidence and benchmarks](../benchmarks.md).

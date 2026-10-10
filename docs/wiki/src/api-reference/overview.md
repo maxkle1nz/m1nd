@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. Use `tools/list` for the exact count in your current build.
+m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. `tools/list` returns the selected menu, not the entire registry. Use `help` and `health.tool_surface_contract` for full discovery; `M1ND_TOOL_TIER=full` expands the advertised menu.
 
 The grouped pages below still keep historical prefixed anchors for stable links, but executable `tools/call` examples use the canonical bare names returned by `tools/list`.
 
@@ -15,6 +15,10 @@ That matters for how you integrate m1nd into an agent loop: treat many responses
 
 Two doctrine points frame the whole surface. First, [`north`](lifecycle.md#m1ndnorth) is the in-session front door — call it before reading or editing to pre-orient in one round-trip; it composes `trust_selftest` + `orient` + `boot_memory` + `focus`, and the `trust_selftest` / `session_handshake` / `recovery_playbook` trio is the degraded/recovery lane, not the default entry. Second, retrieval and prediction return calibrated verdicts you should obey rather than override: `act` / `reverify` / `abstain` (`abstain` = uncalibrated or insufficient — a STOP), `why` carries a `closure` verdict (`blocked` = the path rests on an unresolved edge), `seek` carries a `trust_envelope` + sufficiency stop-signal, and `trust_band: insufficient_evidence` means no evidence, not medium risk.
 
+## Authority and version boundaries
+
+Examples on grouped reference pages describe payload shapes, not permission to mutate. Generic `ingest` default/`replace` and `merge` are policy-disabled for clients; only the narrow exact-root `refresh` door is available. Follow [Quick Start](../tutorials/quickstart.md) for bootstrap. Write tools enforce additional proof/authority checks, and hardware-dependent paths may remain unavailable. The removed `resonate` and `savings` tools are not current public APIs. Historical anchors may remain for compatibility.
+
 ## Tool Index
 
 ### Core Activation
@@ -23,7 +27,6 @@ Two doctrine points frame the whole surface. First, [`north`](lifecycle.md#m1ndn
 |------|-------------|
 | [`activate`](activation.md#m1ndactivate) | Spreading activation query across the graph |
 | [`warmup`](activation.md#m1ndwarmup) | Task-based warmup and priming |
-| [`resonate`](activation.md#m1ndresonate) | Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies |
 
 ### Analysis
 

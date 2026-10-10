@@ -181,7 +181,9 @@ Applies temporary priming boosts to node activations. These boosts decay natural
 
 ---
 
-## `resonate`
+## `resonate` (removed)
+
+**Historical reference only.** This tool was removed from the public runtime. The example below is retained as history and must not be used as a current tool call. Use the installed runtime's `help` for supported tools.
 
 Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement.
 

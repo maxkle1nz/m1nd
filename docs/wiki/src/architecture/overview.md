@@ -9,21 +9,21 @@ m1nd is a local MCP runtime for coding agents. Internally it is still built on a
 - observable multi-file writes through `apply_batch`
 - repair-friendly errors when a tool call goes wrong
 
-The workspace exposes the live MCP tool surface over JSON-RPC stdio, with an HTTP/UI surface in the default build. Use `tools/list` for the exact count in your current build.
+The workspace exposes the live MCP tool surface over JSON-RPC stdio, with an HTTP/UI surface in the default build. `tools/list` exposes the selected menu; use `help` and `health.tool_surface_contract` for full-registry discovery.
 
-## Four-Crate Workspace
+## Six-Crate Workspace
 
-The system is organized as a Cargo workspace with three core crates plus one auxiliary bridge crate:
+The system is organized as a Cargo workspace with six members: three core crates, a control crate, an execution daemon, and an auxiliary bridge:
 
 ```toml
 [workspace]
-members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"]
+members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-control", "m1nd-runnerd", "m1nd-openclaw"]
 resolver = "2"
 
 [workspace.dependencies]
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 smallvec = { version = "1.13", features = ["serde"] }
 parking_lot = "0.12"
 rayon = "1.10"
@@ -35,9 +35,11 @@ static_assertions = "1"
 | **m1nd-core** | Graph engine, activation, plasticity, XLR, resonance, temporal, semantic | `parking_lot`, `smallvec`, `static_assertions` |
 | **m1nd-ingest** | File walking, language-specific extraction, reference resolution, diff | `rayon`, `walkdir`, `regex` |
 | **m1nd-mcp** | JSON-RPC transport, tool dispatch, session management, persistence | `tokio`, `serde_json` |
+| **m1nd-control** | Shared control-plane contracts | See its Cargo manifest |
+| **m1nd-runnerd** | Isolated execution lane; process spawning belongs here | See its Cargo manifest |
 | **m1nd-openclaw** | Auxiliary OpenClaw bridge and transport integration | `m1nd-core`, `m1nd-mcp` |
 
-Dependencies flow strictly downward: `m1nd-mcp` depends on both `m1nd-core` and `m1nd-ingest`; `m1nd-ingest` depends on `m1nd-core`; `m1nd-core` has no internal crate dependencies.
+The core production dependency direction is: `m1nd-mcp` depends on both `m1nd-core` and `m1nd-ingest`; `m1nd-ingest` depends on `m1nd-core`; `m1nd-core` has no production dependency on the other workspace crates (its tests use `m1nd-ingest`).
 
 ## Data Flow
 
@@ -87,7 +89,7 @@ graph TD
     SESSION -->|impact/predict| TEMP
     SESSION -->|learn| PLAST
     SESSION -->|activate+xlr| XLR
-    SESSION -->|resonate| RES
+    SESSION -->|internal engine| RES
 
     ACT --> GRAPH
     ACT --> SEM

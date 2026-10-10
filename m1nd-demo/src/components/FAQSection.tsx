@@ -13,19 +13,19 @@ const FAQS: FAQ[] = [
     q: "How is m1nd different from Copilot, Cursor, or semantic search?",
     a: (
       <>
-        Copilot and Cursor are agent hosts and editors. m1nd is the layer those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. Ask it what a change touches, what moves with it, and what should be verified next.
+        Copilot and Cursor are agent hosts and editors. m1nd is the layer those agents call before they search, edit, review, or change a system. Semantic search finds conceptually related content; m1nd also uses graph relationships across code, docs, and change. Ask it what a change touches, what moves with it, and what should be verified next.
       </>
     ),
   },
   {
     tag: "languages",
     q: "Does it work with any language, or only Python?",
-    a: "m1nd ships dedicated extractors for more than twenty languages, routed by file extension: Python, TypeScript, JavaScript, Rust, Go, Java, C, C++, C#, Kotlin, Ruby, PHP, Swift, Scala, Bash, SQL, Lua, R, Elixir, Dart, Zig, Haskell and OCaml. The stricter claim (call-graph edges plus cross-file import resolution, proven end to end) covers 12 of them; the rest fall back to file-level structure. Mixed codebases land in one graph: a Python API and a TypeScript frontend get indexed together and cross-linked.",
+    a: "Dedicated extractors cover more than twenty languages, with varying semantic depth. Mixed-language repositories can share a graph, but qualified, dynamic, macro-generated, and external references may be incomplete. Consult the README language table for extraction coverage; it is not compiler-grade resolution.",
   },
   {
     tag: "privacy",
     q: "Does my code get sent to an external server?",
-    a: "No. m1nd is local-first and always will be. The binary runs on your machine, the graph lives in memory on your machine, and every query is answered locally. There is no telemetry, no account, and no API key. It also means there is no second copy of your code sitting in someone else's index, going stale on its own schedule.",
+    a: "Graph processing and memory are local, with no LLM API key required for queries. Installation, updates, and initial model downloads can use the network. Optional document providers may send documents to a configured endpoint. Your MCP host has its own data policy.",
   },
   {
     tag: "model support",
@@ -44,8 +44,8 @@ const FAQS: FAQ[] = [
   },
   {
     tag: "how it works",
-    q: "How does m1nd pick the 4 nodes it returns from a whole graph?",
-    a: "seek scores every node three ways: exact keyword match, trigram similarity, and a PageRank-style centrality prior that is gated so a well-connected hub can never outrank an actually relevant hit. Compile the optional embed feature and a small local embedding model joins the mix (fetched once, then fully offline). Spreading activation then expands from the top candidates along typed edges, and the survivors come back with their callers, callees and test references attached.",
+    q: "How does m1nd choose which code to return?",
+    a: "seek combines lexical and graph/semantic signals, with local embeddings enabled in the default build. Scope and node-type filters constrain eligible candidates. Results and counts depend on the query and graph; inspect returned source and trust information rather than treating a rank as proof.",
   },
   {
     tag: "m1nd vs l1ght",
@@ -64,7 +64,7 @@ const FAQS: FAQ[] = [
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: "A few minutes. Run npx -y @maxkle1nz/m1nd update apply --yes to install the signed native runtime (it needs cosign on your PATH; cargo install m1nd-mcp is the unverified alternative). Confirm with npx -y @maxkle1nz/m1nd doctor, then m1nd hosts plan --host claude prints the exact MCP config for your host. Paste it, restart your agent, and its first north call orients on its own, ingesting the repo if the graph is empty. The ingest runs once; the graph stays warm after that.",
+    a: "Follow the versioned quick start: install the exact signed 1.6.3 native artifact with cosign verification, select that binary explicitly, then have a person run init --birth for an empty repository runtime. Preview and apply your host setup, complete printed configuration, and reconnect. Pinning the wrapper alone does not pin the updater’s native target. The 1.6.4 source preview adds a narrower automatic isolated path; do not assume the published 1.6.3 binary has it.",
   },
 ];
 

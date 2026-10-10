@@ -1,149 +1,42 @@
-# Introduction
+# m1nd: A Checkable Map for Your Coding Agent
 
-m1nd is a local MCP runtime for coding agents. It ingests a repository into a graph-backed operational model so an agent can ask for structure, impact, connected context, continuity, and likely risk instead of reconstructing the repo from raw files every time.
+m1nd gives an MCP coding agent a local graph of your repository and memory linked to evidence. It helps answer three practical questions:
 
-The current public shape of the product is not just “graph search.” It is a guided runtime with:
+- Where is the code relevant to this task?
+- What is connected to it before I change it?
+- What did an earlier session learn, and should I still trust it?
 
-- graph-grounded retrieval and impact analysis
-- `proof_state` on the main structural flows
-- `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
-- actionable continuity through `trail_resume`
-- observable multi-file writes through `apply_batch`
-- recovery loops that teach the next valid move when a tool is used badly
+Start with [Quick Start](tutorials/quickstart.md), then [your first query](tutorials/first-query.md). You do not need the full API or architecture first.
 
-m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The exported schema exposes the live MCP tool surface for your current build; use `tools/list` for the exact count.
+## Who it helps
 
-## The Problem
+Use m1nd when structural navigation or repeated context-building is a meaningful part of the work: entering an unfamiliar repository, planning a multi-file change, resuming an investigation, or coordinating agents on one local owner. A file read or text search may be simpler for a small, exact task.
 
-Most agent loops still waste time in the same place: navigation.
+## The working loop
 
-An LLM can reason about a file once it has the file. The expensive part is getting the right file, the right neighbors, and enough proof to act without reopening half the repo.
+1. **Orient:** `north` combines repository binding, task context, prior memory, a next move, and explicit gaps.
+2. **Find and inspect:** `seek` retrieves candidates; `impact` and `why` expose graph relationships. Open the source before relying on a claim.
+3. **Verify:** use the compiler, tests, and runtime checks your task requires. Trust bands describe evidence quality; they do not certify correctness.
+4. **Remember:** `memorize` stores verified claims with evidence paths so later sessions can recall and check them.
 
-Without a structural layer, the loop usually looks like this:
+A served local owner can share its graph across attached clients. Presence and overlapping-work notices are advisory; agents must still coordinate edits.
 
-1. grep for a symbol or phrase
-2. open a file
-3. grep for callers, callees, or related paths
-4. open more files
-5. repeat until the subsystem shape becomes clear
+## Read the right version
 
-That cost shows up as:
+This wiki follows the `1.6.4` source line. The latest published release at this refresh is `1.6.3`; [releases](https://github.com/maxkle1nz/m1nd/releases) tell you what has shipped. Automatic isolated first-workspace preparation requires the matching newer source until publication. The [quick start](tutorials/quickstart.md) separates these paths.
 
-- more file reads than necessary
-- more token burn on repo reconstruction
-- weaker stopping rules during triage
-- more false starts before editing
-- more friction resuming prior investigations
+The default `tools/list` is a small advertised menu. Use `help` for full discovery and the installed runtime's schemas for exact arguments. A tool's existence does not remove its authority requirements. Historical changelog entries describe past behavior; PRDs are design documents, not current setup instructions.
 
-## What m1nd Changes
+## Local processing and honest limits
 
-m1nd keeps the graph local and lets an agent ask for structure directly:
+Graph queries do not require an LLM API key. Code and graph state are processed locally; installation, updates, initial model downloads, and optional network document providers may use the network. Your MCP host's data handling is separate.
 
-- `trace` maps stacktraces to likely suspects
-- `impact` inspects blast radius before edits
-- `seek` and `activate` find intent and connected structure
-- `document_resolve`, `document_bindings`, and `document_drift` connect docs/specs to likely code targets and surface stale links
-- `document_provider_health` and `auto_ingest_*` expose the local-first document runtime
-- `validate_plan` and `surgical_context_v2` prepare safer multi-file changes
-- `trail_resume` restores investigations with next-focus and next-tool hints
-- `apply_batch` exposes progress, phases, and final handoff signals
+Extraction is approximate and differs by language. Graph/static checks do not execute your tests. Hardware-backed and human-only authority boundaries remain separate from ordinary retrieval. See the [FAQ](faq.md), [API reference](api-reference/overview.md), and [benchmark evidence guide](benchmarks.md).
 
-The result is less context churn and better decision quality per step.
+## Go deeper
 
-## Documents And Knowledge Artifacts
-
-The public shape of m1nd is no longer just code plus optional markdown memory.
-
-The merged universal lane can ingest and operationalize:
-
-- markdown notes
-- HTML/wiki pages
-- office documents
-- scholarly PDFs
-- structured standards and citation corpora
-
-When a document enters through the universal lane, m1nd can preserve canonical local artifacts, bind that document to likely code, and surface document/code drift when the implementation moves faster than the docs.
-
-One recorded benchmark capture (2026-03-24, single corpus; read it as a snapshot, not a promise):
-
-- `10518 -> 5182` aggregate token proxy
-- `50.73%` aggregate reduction
-- `14 -> 0` false starts
-- `39` guided follow-throughs
-- `12` successful recovery loops
-
-Not every scenario is a token win. Some wins are continuity, recovery, or execution clarity. That is part of the product truth too.
-
-## Core Runtime Ideas
-
-### Graph-grounded retrieval
-
-The graph is still the foundation. Activation, semantic retrieval, path search, temporal history, and blast-radius analysis all sit on top of a shared structural model rather than a stateless grep loop.
-
-### The operating loop
-
-m1nd is meant to be used in a loop, not as one-shot search:
-
-1. **Pre-orient** — call `north(task)` first, before reading or editing. It is
-   the in-session front door: one round-trip returning binding trust, task
-   context, prior cross-session memory, a sufficiency signal, one `next_move`,
-   and `honest_gaps`. `north` composes `trust_selftest` + `orient` +
-   `boot_memory` + `focus`.
-2. **Act on verdicts** — retrieval and prediction carry calibrated verdicts
-   (`act` / `reverify` / `abstain`; `why` carries `closure`; `seek` carries a
-   `trust_envelope`). `abstain` and `insufficient_evidence` are honest STOPs,
-   not weak yeses — do not guess past them.
-3. **Post-capture** — before ending, `memorize` durable findings with
-   `confidence` and repo-relative `evidence` paths so knowledge lives in the
-   same activation space as code and self-flags stale when that code changes.
-
-### Guided handoff
-
-Several high-value tools now return more than raw results. They can expose:
-
-- `proof_state`
-- `next_suggested_tool`
-- `next_suggested_target`
-- `next_step_hint`
-
-That turns the server from a catalog of answers into a layer that helps the agent decide what to do next.
-
-### Continuity
-
-`trail_resume` is no longer just bookmark restore. It can return compact resume hints, reactivated nodes, the next focus node, the next open question, and the likely next tool. This is one of the main reasons the benchmark corpus now records fewer false starts.
-
-### Observable execution
-
-`apply_batch` is now an observable write surface:
-
-- `status_message`
-- `proof_state`
-- lifecycle phases such as `validate`, `write`, `reingest`, `verify`, and `done`
-- coarse progress fields like `progress_pct`
-- structured `progress_events`
-- live SSE progress in serve mode
-
-### Recovery loops
-
-Common failures no longer have to be dead ends. Many invalid calls now return hints, examples, and a suggested next step so the agent can repair the call instead of rediscovering the workflow from scratch.
-
-## Who This Is For
-
-- agent builders who want a local structural layer for navigation and edit prep
-- MCP client users who want better triage, continuity, and connected context
-- multi-agent systems that need shared graph truth without shipping code to an API
-- teams that want safer workflow around stacktrace triage, blast radius, and multi-file changes
-
-m1nd is not a compiler, debugger, or test runner replacement. It is best when the real bottleneck is structural understanding and repo navigation.
-
-## How To Read This Wiki
-
-**[Architecture](architecture/overview.md)** explains how the core crates and auxiliary bridge surfaces fit together and how the MCP server turns graph truth into agent-facing runtime behavior.
-
-**[Concepts](concepts/spreading-activation.md)** covers the underlying graph ideas such as activation, plasticity, and structural holes.
-
-**[API Reference](api-reference/overview.md)** documents the current MCP surface, including underscore-based canonical tool names, guided outputs, and transport behavior.
-
-**[Tutorials](tutorials/quickstart.md)** walks through the main workflows from first ingest to connected edit prep.
-
-The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history through the current `1.2.0` OMEGA-era line.
+- [Tutorials](tutorials/quickstart.md): first result and common recovery paths
+- [Architecture](architecture/overview.md): the six-crate workspace and runtime boundaries
+- [Concepts](concepts/spreading-activation.md): activation, learning, and structural signals
+- [API reference](api-reference/overview.md): tool families and contracts
+- [Changelog](changelog.md): historical changes, not an installation recipe

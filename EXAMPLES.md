@@ -4,49 +4,19 @@ These examples are meant to show when `m1nd` is practically useful, not just wha
 
 All payloads below use the canonical MCP tool names from the live registry, without the optional client transport prefix.
 
-## 0. One-minute agent demo
+## Before the examples
 
-Install the agent pack first when you are setting up a new host:
+Follow the [versioned quick start](README.md#get-started) to prepare the correct repository and connect your host. This source line is `1.6.4`; a published older package may not include its automatic isolated startup. Generic `ingest` default/`replace` and `merge` are policy-disabled for clients, so these examples do not bootstrap a graph.
 
-```bash
-npm install -g .
-m1nd install-skills codex
-m1nd doctor
+Payloads illustrate tool shapes, not authority grants. Inspect the installed runtime's `help` and schema before advanced operations. Mutation tools require their own proof/authority conditions, and graph/static verification does not execute your test suite. Replace example paths, node IDs, and claims with evidence from your repository.
+
+## 1. Start with orientation
+
+```json
+{"method":"tools/call","params":{"name":"north","arguments":{"agent_id":"dev","task":"find where configuration is loaded"}}}
 ```
 
-Run the real agent trust path before reading examples by hand:
-
-```bash
-cargo build -p m1nd-mcp
-python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
-```
-
-That command checks `trust_selftest`, ingests the repo, runs retrieval, asks for
-tool guidance, calls `doctor`, and verifies that empty retrieval returns a
-recovery path. Use `--json` when a client or CI job should consume the summary.
-
-## 1. First ingest
-
-```jsonc
-{"method":"tools/call","params":{"name":"ingest","arguments":{
-  "agent_id":"dev",
-  "path":"/project/backend"
-}}}
-```
-
-Illustrative response shape:
-
-```jsonc
-{
-  "files_processed": 335,
-  "nodes_created": 9767,
-  "edges_created": 26557,
-  "languages": {"python": 335},
-  "elapsed_ms": 910
-}
-```
-
-Use this once before asking structural questions about the repo.
+Check repository binding, returned source context, prior memory, and honest gaps. Continue with a source-backed question; if the graph is missing or mismatched, follow the quick-start recovery path rather than forcing ingestion.
 
 ## 2. Search vs glob vs seek
 
@@ -500,42 +470,9 @@ Illustrative response shape:
 
 This is the quickest way to turn “what were we doing here?” into recent commit proof plus likely co-changed files.
 
-## 14. Ingest code and docs together
+## 14. Code and documents in one graph
 
-### Memory adapter
-
-```jsonc
-{"method":"tools/call","params":{"name":"ingest","arguments":{
-  "agent_id":"dev",
-  "path":"/project/docs",
-  "adapter":"memory",
-  "namespace":"docs",
-  "mode":"merge"
-}}}
-```
-
-### JSON adapter
-
-```jsonc
-{"method":"tools/call","params":{"name":"ingest","arguments":{
-  "agent_id":"dev",
-  "path":"/project/domain.json",
-  "adapter":"json"
-}}}
-```
-
-### L1GHT adapter
-
-```jsonc
-{"method":"tools/call","params":{"name":"ingest","arguments":{
-  "agent_id":"dev",
-  "path":"/project/specs",
-  "adapter":"light",
-  "mode":"merge"
-}}}
-```
-
-This is useful when the right answer lives across implementation and docs, not only in code.
+The engine includes memory, JSON, L1GHT, and universal adapters. Public client `replace`/`merge` ingestion is policy-disabled, so adapter support is not a usable bootstrap/import command. Use an authorized setup path and query document nodes that are already present. See the [ingest authority boundary](docs/wiki/src/api-reference/lifecycle.md#m1ndingest).
 
 ## 15. Honest boundary: when not to use m1nd
 
@@ -545,28 +482,9 @@ If the question is a compiler error with an exact span, the compiler and test ru
 
 If the question is “where did this spec land in code?” or “which docs got stale after this edit?”, that is where the new document surfaces matter.
 
-## 16. Ingest a document through the universal lane
+## 16. Understand universal document artifacts
 
-Use the universal lane when the source is not authored in `L1GHT` but you still want it inside the graph.
-
-```jsonc
-{"method":"tools/call","params":{"name":"ingest","arguments":{
-  "agent_id":"dev",
-  "path":"/project/specs/session-contract.md",
-  "adapter":"universal",
-  "mode":"merge"
-}}}
-```
-
-This writes canonical local artifacts for the document and merges the resulting document graph into the current graph.
-
-Typical outputs to expect from the resulting cache entry:
-
-- original source copy
-- `canonical.md`
-- `canonical.json`
-- `claims.json`
-- `metadata.json`
+An authorized universal ingest can preserve canonical local artifacts, including `canonical.md`, `canonical.json`, `claims.json`, and metadata. Optional providers have their own dependencies and data-transmission behavior. The public `merge` tool door remains refused; the following example inspects an existing artifact instead.
 
 ## 17. Resolve canonical document artifacts
 
