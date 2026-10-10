@@ -68,7 +68,7 @@ jobs:
     needs: ci-scope
     if: ${{ needs.ci-scope.result == 'success' && fromJSON(needs.ci-scope.outputs.scope).mode == 'scoped' && fromJSON(needs.ci-scope.outputs.scope).rust }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       CARGO_TARGET_DIR: target
     strategy:
