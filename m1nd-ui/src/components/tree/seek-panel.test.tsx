@@ -50,12 +50,37 @@ test('§4A.10: the panel renders the trust_envelope verdict as a VerdictChip', (
     <SeekPanel query={seek.query} result={seek} loading={false} error={null} knownPaths={knownPaths} onOpenHit={noop} onClose={noop} />,
   );
   assert.match(out, new RegExp(`data-verdict="${seek.trust_envelope.verdict}"`), 'the real verdict drives the chip');
-  // The uncalibrated cap notice (calibrated:false → capped at reverify).
+  // A false runtime-qualification flag calls for source/test inspection.
   if (seek.trust_envelope.calibrated === false) {
     const text = visible(
       <SeekPanel query={seek.query} result={seek} loading={false} error={null} knownPaths={knownPaths} onOpenHit={noop} onClose={noop} />,
     );
-    assert.match(text, /not measured on this repo yet/, 'the uncalibrated cap is stated');
+    assert.match(text, /no runtime-qualified evidence/, 'the qualification gap is stated');
+    assert.match(text, /inspect source and tests/, 'the next step is independent inspection');
+    assert.doesNotMatch(text, /calibrate in the Hall|not measured on this repo yet/);
+  }
+});
+
+test('§4A.10: unqualified evidence preserves an unprovable verdict and the engine scores', () => {
+  const unqualified: SeekOutput = {
+    ...seek,
+    trust_envelope: {
+      ...seek.trust_envelope,
+      calibrated: false,
+      verdict: 'unprovable',
+      reasons: ['legacy_evidence_unqualified'],
+    },
+  };
+  const out = renderToStaticMarkup(
+    <SeekPanel query={seek.query} result={unqualified} loading={false} error={null} knownPaths={knownPaths} onOpenHit={noop} onClose={noop} />,
+  );
+  const text = decode(out.replace(/<[^>]+>/g, ' '));
+  assert.match(out, /data-verdict="unprovable"/);
+  assert.match(text, /no runtime-qualified evidence/);
+  assert.match(text, /inspect source and tests/);
+  assert.doesNotMatch(text, /answers stay at "worth a second look"|calibrate in the Hall/);
+  for (const hit of seek.results) {
+    if (hit.score != null) assert.ok(text.includes(hit.score.toFixed(3)), 'scores remain visible');
   }
 });
 

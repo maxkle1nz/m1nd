@@ -144,7 +144,7 @@ merit; facts, never estimated savings (G1).
 
 | term | what it really means |
 |---|---|
-| `abstain` | a calibrated answer ("not enough evidence to act") — never a failure |
+| `abstain` | an evidence-limited answer ("not enough evidence to act") — never a failure |
 | `insufficient_evidence` | ZERO evidence, the honest cold start — never "medium risk" |
 | `merge_wait` | waiting for the HUMAN stamp — never stuck or blocked |
 | stale (receipt) | aged since it was earned — never invalid |
@@ -208,11 +208,12 @@ this loop by default:
    `wrong_workspace_binding` means rebind, intentional ingest, or real
    federation; it is not stale graph proof.
 3. Follow the `next_move`, or route focused questions through `search`, `seek`,
-   or `activate`. Obey the calibrated verdict — do not override it:
-   `act`/`reverify`/`abstain` (abstain = STOP, not a weak yes; the prediction gate
-   is armed by `calibrate_predict` and the seek trust envelope by
-   `calibrate_envelope`, else each verdict caps at `reverify`); `why`
-   carries a `closure` verdict (`blocked` = the path rests on an unresolved
+   or `activate`. Obey the evidence verdict — do not override it. All v1
+   calibration rows are `legacy_evidence_unqualified`: prediction abstains and
+   the seek envelope stays at `reverify` or `unprovable`, with scores and
+   rankings retained. `calibrate_predict` and `calibrate_envelope` remain
+   diagnostic handlers and do not enable `act`. `abstain` = STOP, not a weak
+   yes. `why` carries a `closure` verdict (`blocked` = the path rests on an unresolved
    edge); `seek` carries a `trust_envelope` + a sufficiency signal (`sufficient`
    = stop gathering); `trust_band: insufficient_evidence` means NO evidence, not
    medium risk.

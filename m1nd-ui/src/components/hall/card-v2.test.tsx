@@ -79,19 +79,25 @@ test('§4A.3.1 G4 (R14 partition): the count is THIS brain\'s own — no "across
   assert.doesNotMatch(text, /this session/, 'the retired "this session" copy overclaimed per-brain scope');
 });
 
-test('§4A.3.1 G2: an uncalibrated open card shows [Calibrate once] + the engine cap; calibrated shows measured ✓', () => {
+test('§4A.3.1 G2: unqualified evidence offers a diagnostic without promising runtime qualification', () => {
   // Calibrated (the real fixture) → "measured here ✓", no Calibrate button.
   const cal = renderToStaticMarkup(React.createElement(BrainCardGold, { ...gold, onCalibrate: noop }));
   if (predict.calibration.calibrated) {
     assert.match(decode(cal.replace(/<[^>]+>/g, ' ')), /measured here ✓/);
     assert.doesNotMatch(cal, /data-role="calibrate"/, 'no calibrate button when already measured');
   }
-  // Uncalibrated → the button + the verbatim cap.
+  // Unqualified → diagnostic-only action plus the runtime evidence limit.
   const unc = renderToStaticMarkup(
     React.createElement(BrainCardGold, { ...gold, g2: calibrationG2({ calibrated: false }), onCalibrate: noop }),
   );
-  assert.match(unc, /data-role="calibrate"/, 'the Calibrate once action is offered');
-  assert.match(decode(unc.replace(/<[^>]+>/g, ' ')), /capped at reverify \(act UNREACHABLE\)/);
+  assert.match(unc, /data-role="calibrate"/, 'the existing diagnostic action remains available');
+  assert.match(unc, /does not qualify runtime evidence/, 'the action tooltip names the limit');
+  const text = decode(unc.replace(/<[^>]+>/g, ' '));
+  assert.match(text, /Run diagnostic/);
+  assert.match(text, /no runtime-qualified evidence/);
+  assert.match(text, /predict abstains/);
+  assert.match(text, /inspect source and tests/);
+  assert.doesNotMatch(text, /Calibrate once|not measured on this repo yet/);
 });
 
 test('§4A.3.1 G1: a changed-since-read card offers [Re-read]; all-current does not', () => {

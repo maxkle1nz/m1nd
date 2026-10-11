@@ -177,16 +177,17 @@ pub struct TrustEnvelope {
     /// Weighted score in [0,1] — a reliability WEIGHTING, NOT a probability.
     /// Absent/meaningless when `verdict == "unprovable"` (reported as 0.0 then).
     pub score: f32,
-    /// Whether an `envelope` calibration row backed the verdict. `false` ⇒ the
+    /// Whether runtime-qualified evidence backed the verdict. Legacy v1 rows
+    /// never qualify. `false` ⇒ the
     /// verdict is capped at `reverify` and `act` is unreachable.
     pub calibrated: bool,
-    /// Present iff a finite, bounded persisted `envelope` calibration row armed
-    /// this verdict.  Its absence mechanically keeps `act` unreachable.
+    /// Historical receipt wire shape, retained for compatibility. No current
+    /// receipt is emitted for absent, invalid or legacy-unqualified evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calibration_receipt: Option<SeekCalibrationReceipt>,
     /// The per-factor breakdown the score was weighted from (known and unknown).
     pub factors: Vec<TrustFactor>,
-    /// Plain-English reasons for the verdict, phrased for an agent reader.
+    /// Qualification reason code plus plain-English diagnostic explanation.
     pub reasons: Vec<String>,
     /// A named repair call to make when `verdict != "act"` (e.g. "cross_verify",
     /// "trust_selftest", "recovery_playbook"). `None` when the verdict is `act`.

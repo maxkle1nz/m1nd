@@ -164,6 +164,6 @@ export function nextMoveButtonLabel(nextMove: string | null | undefined): string
   if (!nextMove) return 'Double-check';
   if (/ingest/i.test(nextMove)) return 'Read the repo';
   if (/surgical_context|surgical/i.test(nextMove)) return 'Ground it first';
-  if (/calibrate/i.test(nextMove)) return 'Calibrate once';
+  if (/calibrate/i.test(nextMove)) return 'Run diagnostic';
   return 'Do the next step';
 }

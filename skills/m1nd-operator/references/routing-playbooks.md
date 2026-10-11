@@ -9,9 +9,10 @@ This file is the operational map: which `m1nd` tools to choose for each kind of 
   focus in one round-trip; `needs_ingest` -> `ingest` -> `north` again.
   `trust_selftest`/`session_handshake`/`recovery_playbook` are the
   degraded/recovery route, not the default first move.
-- Obey verdicts: retrieval/prediction return `act`/`reverify`/`abstain`
-  (`abstain` = stop, not weak-yes; each caps at `reverify` until its writer runs —
-  `calibrate_predict` for prediction, `calibrate_envelope` for the seek envelope);
+- Obey verdicts: all v1 calibration rows are `legacy_evidence_unqualified`.
+  Prediction abstains; the seek envelope stays at `reverify` or `unprovable`.
+  Scores and rankings remain inspectable, but running `calibrate_predict` or
+  `calibrate_envelope` does not enable `act`. `abstain` means stop, not weak-yes.
   `why` carries `closure` (`blocked` = unresolved
   edge); `seek` carries `trust_envelope` + sufficiency; `insufficient_evidence` =
   NO evidence, not medium risk.

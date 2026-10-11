@@ -20,9 +20,12 @@ The general agent pack carries the trained-agent loop measured in internal bug-h
 `north(task)` as the in-session front door (one round-trip for trust, task
 context, prior memory, sufficiency, and one `next_move`; `needs_ingest` → follow
 the `recovery_playbook`, which names `ingest` only where the mutation policy
-allows it → re-north), then act on the calibrated verdicts (`act`/`reverify`/`abstain`,
-`closure`, `trust_envelope`, `insufficient_evidence`), prove final truth
-directly, and `memorize` the durable finding at close. Recovery before absence,
+allows it → re-north), then respect the evidence limits (`closure`,
+`trust_envelope`, `insufficient_evidence`), prove final truth directly, and
+`memorize` the durable finding at close. Under the current
+[calibration containment](../docs/CALIBRATION-QUALIFICATION.md), all v1 rows are
+unqualified: prediction abstains, the seek envelope stays at `reverify` or
+`unprovable`, and running calibration does not enable `act`. Recovery before absence,
 workspace-binding clarity, and evidence logging stay part of the loop.
 
 Use the npm installer from the repo root to install the right shape:

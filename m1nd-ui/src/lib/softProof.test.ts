@@ -98,6 +98,11 @@ test('next_move from real north maps to an action button label', () => {
   assert.doesNotMatch(label.toLowerCase(), /surgical_context|abstain|binding/);
 });
 
+test('legacy calibration next moves are labeled diagnostic, not a runtime-qualification fix', () => {
+  assert.equal(nextMoveButtonLabel('calibrate_predict'), 'Run diagnostic');
+  assert.equal(nextMoveButtonLabel('calibrate_envelope'), 'Run diagnostic');
+});
+
 // ── INV-04 against the real seek envelope: a code hit with no author stays unknown
 test('INV-04: a real seek code-node hit without source_agent renders unknown state', () => {
   const seek = load<SeekOutput>('seek.json');

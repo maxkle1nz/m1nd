@@ -3948,14 +3948,15 @@ impl SessionState {
         self.start_time.elapsed().as_secs_f64()
     }
 
-    /// Whether this brain's `predict` calibration is armed — a measured conformal
-    /// τ exists for this repo (TWO-TIER §9.5.1 card field G2). Uncalibrated brains
-    /// cap `predict` verdicts at `abstain` (`tools.rs`), so the Hall renders "not
-    /// measured on this repo yet". A cheap per-brain read for the R14 partition.
+    /// Whether prediction evidence qualifies for runtime action. Existing v1
+    /// diagnostic rows remain readable but do not arm HTTP/Hall/brain projections.
     pub fn calibration_armed(&self) -> bool {
-        self.calibration_table
-            .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
-            .is_some()
+        m1nd_core::calibration::runtime_qualification(
+            m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT,
+            self.calibration_table
+                .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT),
+        )
+        .is_armed()
     }
 
     /// Track an agent session. Creates a new session if first contact,
@@ -5740,6 +5741,48 @@ mod tests {
         assert!(graph_path.exists());
         assert!(daemon_path.exists());
         assert!(auto_ingest_path.exists());
+    }
+
+    #[test]
+    fn legacy_calibration_checkpoint_recovers_exact_bytes_without_arming() {
+        let (_temp, runtime, _registry, mut state) = strict_recovery_fixture();
+        let row = m1nd_core::calibration::CalibrationRow {
+            tau: 0.0,
+            target_alpha: 0.1,
+            measured_precision: 1.0,
+            coverage: 1.0,
+            n: 1_000_000,
+            calibrated_at_ms: 1_790_000_000_123,
+        };
+        state.calibration_table.set("predict", row.clone());
+        state.calibration_table.set("envelope", row);
+        let expected =
+            m1nd_core::calibration::encode_calibration_state_json(&state.calibration_table)
+                .expect("encode historical table");
+        let stage = state.begin_checkpoint_staging().expect("stage");
+        let candidate = state.checkpoint_candidate(&stage).expect("candidate");
+        project_candidate_for_test(&runtime, &candidate);
+        state.finish_checkpoint_staging(stage).expect("finish");
+        assert_eq!(
+            std::fs::read(&state.calibration_path).expect("checkpoint bytes"),
+            expected
+        );
+        let runtime_before = snapshot_regular_files(&runtime);
+        state.calibration_table = m1nd_core::calibration::CalibrationTable::new();
+        state
+            .reload_authoritative_from_disk(false)
+            .expect("strict recovery");
+        assert_eq!(
+            m1nd_core::calibration::encode_calibration_state_json(&state.calibration_table)
+                .expect("recovered table"),
+            expected
+        );
+        assert!(!state.calibration_armed());
+        assert_eq!(
+            snapshot_regular_files(&runtime),
+            runtime_before,
+            "recovery must not migrate diagnostic bytes"
+        );
     }
 
     #[test]

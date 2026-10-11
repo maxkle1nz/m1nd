@@ -2,7 +2,9 @@
 
 Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.
 
-**Source clock contract:** envelope calibration evaluates defect age in Unix seconds, matching `learn`, while calibration receipts retain epoch milliseconds. This repair does not reopen the policy-disabled generic `learn` or calibration routes, change feedback meanings, or qualify their statistical accuracy. See [the clock contract and regression scope](../../../LEARNING-TIME-UNITS.md).
+**Current source limits:** all v1 calibration rows are `legacy_evidence_unqualified`. Prediction abstains; the seek envelope stays at `reverify` or `unprovable`, retaining scores and rankings but emitting no current calibration receipt. Diagnostic `calibrate_predict` and `calibrate_envelope` handlers can persist historical rows without enabling `act`. Generic `learn` and calibration routes remain policy-disabled. See [calibration qualification](../../../CALIBRATION-QUALIFICATION.md).
+
+**Source clock contract:** envelope calibration evaluates defect age in Unix seconds, matching `learn`, while row and historical receipt timestamps retain epoch milliseconds. This repair does not change feedback meanings or establish statistical accuracy. See [the clock contract and regression scope](../../../LEARNING-TIME-UNITS.md).
 
 ---
 

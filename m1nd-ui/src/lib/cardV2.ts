@@ -43,7 +43,10 @@ export function freshnessG1(result: AmIStaleOutput | null): FreshnessG1 | null {
 // ── G2 — calibration chip (predict.calibration) ───────────────────────────────
 
 export interface CalibrationBlock {
+  /** Runtime qualification, not the presence of a measured diagnostic row. */
   calibrated: boolean;
+  reason?: string;
+  diagnostic_available?: boolean;
   tau?: number;
   measured_precision?: number;
   coverage?: number;
@@ -59,16 +62,16 @@ export interface CalibrationG2 {
 }
 
 /**
- * The G2 calibration chip. Uncalibrated → the engine's law verbatim: capped at
- * `reverify` (`act` UNREACHABLE). Calibrated → "measured here ✓" + the exact
- * row in the receipt.
+ * The G2 predict calibration chip. Without runtime-qualified evidence, predict
+ * abstains; legacy diagnostic statistics do not become a current receipt. The
+ * positive branch preserves rendering compatibility with older server responses.
  */
 export function calibrationG2(cal: CalibrationBlock | null): CalibrationG2 | null {
   if (!cal) return null;
   if (!cal.calibrated) {
     return {
       measured: false,
-      caption: "not measured on this repo yet — capped at reverify (act UNREACHABLE)",
+      caption: 'no runtime-qualified evidence — predict abstains; inspect source and tests',
       receipt: null,
     };
   }

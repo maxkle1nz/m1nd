@@ -1,7 +1,7 @@
 /*
  * BrainCardGold — the card-v2 GOLD fields for the OPEN brain (HUMAN-LAYER-PRD
  * §4A.3.1). Four calm stats rows on the bound brain's face: G1 freshness-vs-git
- * (+ [Re-read]), G2 calibration chip (+ [Calibrate once]), G3 the compounding
+ * (+ [Re-read]), G2 calibration chip (+ [Run diagnostic]), G3 the compounding
  * meter, G4 aliveness. Each is one line (icon · label · value), tabular (INV-13).
  *
  * A hosted brain shows these ABSENT-honest (this component renders only for the
@@ -63,9 +63,9 @@ export default function BrainCardGold({ g1, g2, g3, g4, onReread, onCalibrate }:
                 onCalibrate();
               }}
               className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-ink/15 text-ink-soft hover:text-ink hover:shadow-contact shrink-0"
-              title="measure calibration on this repo once"
+              title="run a legacy calibration diagnostic; this does not qualify runtime evidence"
             >
-              <Icon name="calibration" size={14} decorative /> Calibrate once
+              <Icon name="calibration" size={14} decorative /> Run diagnostic
             </button>
           )}
         </div>

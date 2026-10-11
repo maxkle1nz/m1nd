@@ -59,12 +59,21 @@ test('§4A.3.1 G2: a calibrated block → "measured here ✓" + the exact receip
   }
 });
 
-test('§4A.3.1 G2: an uncalibrated block states the engine law VERBATIM (capped at reverify, act UNREACHABLE)', () => {
-  const g2 = calibrationG2({ calibrated: false });
-  assert.ok(g2);
-  assert.equal(g2!.measured, false);
-  assert.match(g2!.caption, /capped at reverify \(act UNREACHABLE\)/, 'the engine law is stated verbatim');
-  assert.equal(g2!.receipt, null, 'no exact row when uncalibrated (nothing to show)');
+test('§4A.3.1 G2: absent or legacy evidence keeps predict abstained and hides the current receipt', () => {
+  for (const cal of [
+    { calibrated: false },
+    { ...predict.calibration, calibrated: false, reason: 'legacy_evidence_unqualified' },
+  ]) {
+    const g2 = calibrationG2(cal);
+    assert.ok(g2);
+    assert.equal(g2.measured, false);
+    assert.match(g2.caption, /no runtime-qualified evidence/);
+    assert.match(g2.caption, /predict abstains/);
+    assert.match(g2.caption, /inspect source and tests/);
+    assert.doesNotMatch(g2.caption, /not measured on this repo yet|calibrate once/i);
+    assert.equal(g2.receipt, null, 'legacy diagnostic statistics are not a current receipt');
+  }
+  assert.equal(calibrationG2(null), null, 'not-yet-checked remains absent');
 });
 
 // ── G3 — the compounding meter ────────────────────────────────────────────────

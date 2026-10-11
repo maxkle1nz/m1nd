@@ -118,7 +118,7 @@ export default function SeekPanel({
             </div>
             {result.trust_envelope.calibrated === false && (
               <div className="text-[10px] text-ink-soft/70 italic">
-                not measured on this repo yet — answers stay at "worth a second look" (calibrate in the Hall)
+                no runtime-qualified evidence — inspect source and tests before relying on these results
               </div>
             )}
             {textFallback && (

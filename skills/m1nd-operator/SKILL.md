@@ -99,13 +99,14 @@ trust looks off, retrieval is `blocked`/empty unexpectedly, a
 `wrong_workspace_binding` as rebind/intentional-ingest/federation, never as
 graph staleness.
 
-Verdict semantics — trust the calibration:
+Verdict semantics — respect evidence qualification:
 
-- Retrieval and prediction return **`act` / `reverify` / `abstain`**. `abstain`
-  = uncalibrated OR insufficient evidence: a STOP, not a weak yes — do not guess
-  past it. The prediction gate is armed per-repo by `calibrate_predict` and the
-  seek trust envelope by `calibrate_envelope` (from the ledger's learn outcomes);
-  until each is armed its verdict caps at `reverify`, never `act`.
+- Current source treats every v1 calibration row as
+  `legacy_evidence_unqualified`: prediction returns `abstain`, and the seek
+  trust envelope stays at `reverify` or `unprovable`. Scores and rankings remain
+  available for inspection. `calibrate_predict` and `calibrate_envelope` are
+  diagnostic handlers; running them does not enable `act`. `abstain` is a STOP,
+  not a weak yes; use direct evidence rather than guessing past it.
 - `why` carries a `closure` verdict — `blocked` means the path rests on an
   unresolved (guessed/dropped) edge: verify that edge before relying on the path.
 - `seek` carries a `trust_envelope` + a sufficiency stop-signal — `sufficient` =
@@ -647,9 +648,10 @@ source reads, tests, runtime probes, or CI evidence.
 - Smells like missing validation, abstraction, cleanup, or lock: use `missing`.
 - Have a stacktrace or runtime error text: use `trace`.
 - Need blast radius before editing: use `impact`.
-- Need co-change follow-through after editing: use `predict` — obey
-  `act`/`reverify`/`abstain` (`abstain` = stop; verdicts cap at `reverify` until
-  `calibrate_predict` has armed the gate once).
+- Need co-change follow-through after editing: use `predict` for ranked
+  candidates to inspect. Its current verdicts abstain because all v1
+  calibration rows are unqualified; running `calibrate_predict` does not arm
+  the gate. Check the proposed coupling against source and executed evidence.
 - Need plan completeness and missing tests before implementation or review: use `validate_plan`.
 - Need graph-native specs, design notes, or KB docs authored in `L1GHT`: ingest with `adapter: "light"` and usually `mode: "merge"`.
 - Need regular spec/wiki/PDF/doc alignment with code: ingest with `adapter: "universal"` or `auto`, then use `document_resolve`, `document_bindings`, and `document_drift`.
@@ -879,7 +881,7 @@ merit; facts, never estimated savings (G1).
 
 | term | what it really means |
 |---|---|
-| `abstain` | a calibrated answer ("not enough evidence to act") — never a failure |
+| `abstain` | an evidence-limited answer ("not enough evidence to act") — never a failure |
 | `insufficient_evidence` | ZERO evidence, the honest cold start — never "medium risk" |
 | `merge_wait` | waiting for the HUMAN stamp — never stuck or blocked |
 | stale (receipt) | aged since it was earned — never invalid |
