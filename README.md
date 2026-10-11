@@ -99,7 +99,7 @@ See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [too
 
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
 - **Extraction is approximate.** Language support varies, macro-generated and dynamic references can be missed, and external imports may remain unresolved. A graph is not a compiler's semantic model.
-- **Trust is conditional.** Uncalibrated retrieval can cap at `reverify`; prediction can abstain. Run the actual compiler, tests, and runtime checks needed for your change.
+- **Trust is conditional.** Uncalibrated retrieval can cap at `reverify`; prediction can abstain. Run the actual compiler, tests, and runtime checks needed for your change. Source calibration keeps [ledger seconds and receipt milliseconds distinct](docs/LEARNING-TIME-UNITS.md); that clock correction does not establish statistical quality.
 - **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
 - **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).
 - **Advanced capabilities are not setup prerequisites.** Document adapters, structural heuristics, transplant, missions, and hardware-backed authority have their own limits. PRDs describe design intent and are not evidence that a release supports every path.

@@ -10055,10 +10055,12 @@ pub fn handle_calibrate_predict(
 fn calibrate_envelope_from_ledger(
     ledger: &m1nd_core::trust::TrustLedger,
     alpha: f32,
-    now: f64,
+    calibrated_at_ms: u64,
 ) -> Option<CalibrationOutcome> {
     use m1nd_core::calibration::{conformal_quantile, CalibrationRow};
 
+    // Learn records Unix seconds; keep receipt milliseconds out of trust decay.
+    let now_seconds = calibrated_at_ms as f64 / 1000.0;
     let mut labeled: Vec<LabeledPrediction> = Vec::new();
     for (external_id, entry) in ledger.entries() {
         // Only nodes whose history expresses an act/no-act outcome are labels:
@@ -10074,7 +10076,7 @@ fn calibrate_envelope_from_ledger(
         // SAME [0,1] scale the envelope folds. `insufficient_evidence` maps to
         // None (no band evidence) — but such a node has no defect/false_alarm
         // history, so it was already skipped above.
-        let score = ledger.compute_trust(external_id, now);
+        let score = ledger.compute_trust(external_id, now_seconds);
         let band = m1nd_core::trust::trust_band(score.tier);
         let confidence = match crate::trust_envelope::trust_band_reliability(band) {
             Some(r) => r,
@@ -10113,7 +10115,7 @@ fn calibrate_envelope_from_ledger(
         measured_precision,
         coverage,
         n: labeled.len(),
-        calibrated_at_ms: now as u64,
+        calibrated_at_ms,
     };
 
     Some(CalibrationOutcome {
@@ -10143,9 +10145,9 @@ pub fn handle_calibrate_envelope(
     let alpha = input
         .alpha
         .unwrap_or(m1nd_core::calibration::DEFAULT_TARGET_ALPHA);
-    let now = crate::util::now_ms() as f64;
+    let calibrated_at_ms = crate::util::now_ms();
 
-    let outcome = calibrate_envelope_from_ledger(&state.trust_ledger, alpha, now);
+    let outcome = calibrate_envelope_from_ledger(&state.trust_ledger, alpha, calibrated_at_ms);
 
     let outcome = match outcome {
         Some(o) => o,
@@ -12203,13 +12205,13 @@ mod tests {
     /// Seed `n_hits` false-alarm-dominant (high-trust) nodes and `n_misses`
     /// confirmed-defect-dominant (low-trust, recent) nodes into the ledger.
     fn seed_envelope_corpus(state: &mut SessionState, n_hits: usize, n_misses: usize) {
-        let now = crate::util::now_ms() as f64;
+        let now_seconds = crate::util::now_ms() as f64 / 1000.0;
         for i in 0..n_hits {
             let id = format!("file::hit_{i}.rs");
             // Repeated false alarms, zero confirmed defects → defect_density 0 →
             // high trust → band `low` → reliability 0.8 (a hit at high confidence).
             for _ in 0..5 {
-                state.trust_ledger.record_false_alarm(&id, now);
+                state.trust_ledger.record_false_alarm(&id, now_seconds);
             }
         }
         for i in 0..n_misses {
@@ -12217,9 +12219,80 @@ mod tests {
             // Repeated recent confirmed defects → defect_density 1 → low trust →
             // band `high` → reliability 0.2 (a miss at low confidence).
             for _ in 0..5 {
-                state.trust_ledger.record_defect(&id, now);
+                state.trust_ledger.record_defect(&id, now_seconds);
             }
         }
+    }
+
+    #[test]
+    fn calibrate_envelope_clock_uses_seconds_for_trust_decay() {
+        // Real learn events use Unix seconds; calibration receipts use millis.
+        // Keep the corpus deterministic, with enough misses to expose the
+        // confidence band's change without the small-sample tau=1 fallback.
+        let event_ms = 1_790_000_000_123_u64;
+        let event_seconds = event_ms as f64 / 1000.0;
+        let mut ledger = m1nd_core::trust::TrustLedger::new();
+        for i in 0..20 {
+            let id = format!("file::module_{i}.rs");
+            for _ in 0..3 {
+                ledger.record_defect(&id, event_seconds);
+            }
+            ledger.record_false_alarm(&id, event_seconds);
+        }
+        for (age_days, expected_band_reliability) in [(0, 0.2_f32), (30, 0.5), (120, 0.8)] {
+            let calibrated_at_ms = event_ms + age_days * 86_400_000;
+            let outcome = super::calibrate_envelope_from_ledger(&ledger, 0.1, calibrated_at_ms)
+                .expect("labeled corpus");
+            assert_eq!(outcome.curve.len(), 1);
+            assert_eq!(
+                outcome.curve[0].threshold, expected_band_reliability,
+                "age {age_days} days must use seconds-based defect decay"
+            );
+            assert_eq!(outcome.row.tau, expected_band_reliability);
+            assert_eq!(outcome.row.calibrated_at_ms, calibrated_at_ms);
+        }
+        let halfway = ledger.compute_trust("file::module_0.rs", event_seconds + 30.0 * 86_400.0);
+        assert!((halfway.recency_factor - 0.5).abs() < 1e-6);
+        assert!((halfway.trust_score - 0.5125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calibrate_envelope_clock_preserves_learn_age_and_receipt_millis() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        crate::tools::handle_learn(
+            &mut state,
+            crate::protocol::LearnInput {
+                query: "confirmed defect in core".into(),
+                agent_id: "clock-test".into(),
+                feedback: "correct".into(),
+                node_ids: vec!["file::src/core.rs".into()],
+                strength: 0.2,
+            },
+        )
+        .expect("record defect through the real learn producer");
+        let before_ms = crate::util::now_ms();
+        let out = handle_calibrate_envelope(
+            &mut state,
+            crate::protocol::layers::CalibrateEnvelopeInput {
+                agent_id: "clock-test".into(),
+                alpha: Some(0.1),
+            },
+        )
+        .expect("calibrate seconds-based learn history");
+        let after_ms = crate::util::now_ms();
+        let threshold = out["precision_coverage_curve"][0]["threshold"]
+            .as_f64()
+            .expect("one confidence band");
+        assert!(
+            (threshold - 0.2).abs() < 1e-6,
+            "a fresh confirmed defect must not look ancient: {out}"
+        );
+        let row = state.calibration_table.get("envelope").expect("row");
+        assert!((before_ms..=after_ms).contains(&row.calibrated_at_ms));
+        let reloaded = m1nd_core::calibration::load_calibration_state(&state.calibration_path)
+            .expect("reload calibration");
+        assert_eq!(reloaded.get("envelope"), Some(row));
     }
 
     #[test]

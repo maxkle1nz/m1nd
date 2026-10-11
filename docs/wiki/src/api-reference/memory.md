@@ -2,6 +2,8 @@
 
 Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.
 
+**Source clock contract:** envelope calibration evaluates defect age in Unix seconds, matching `learn`, while calibration receipts retain epoch milliseconds. This repair does not reopen the policy-disabled generic `learn` or calibration routes, change feedback meanings, or qualify their statistical accuracy. See [the clock contract and regression scope](../../../LEARNING-TIME-UNITS.md).
+
 ---
 
 <a id="m1ndlearn"></a>
