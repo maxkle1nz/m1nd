@@ -28,6 +28,14 @@ update the graph. An empty graph diff does not establish unchanged source text.
 Snapshots and watches are session-local and lost on restart; they are not a
 resume/learning feature or durable investigation journal.
 
+In this unreleased source build, graph-linked `search` results from a single-file
+ingest root retain the graph's basename ID, including when the filesystem uses a
+canonical Windows path. Check `graph_linked`: disk-only fallback rows are not
+proof of graph membership. If distinct ingest roots make one relative graph ID
+ambiguous, search omits the ambiguous file-content mapping rather than choosing
+one root. This does not authorize the file's parent or siblings; existing
+workspace/ingest read-root checks still apply.
+
 `help(intent: "track changes in the graph")` offers this sequence. Help exposes
 the full registry, but help text does not register tools in a host. If a host
 cannot call an unadvertised tool, use `investigate` and confirm its actual
