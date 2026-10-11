@@ -6,14 +6,45 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+## [1.6.5] — release candidate
+
+Not published yet. This candidate skips the existing `v1.6.4` tag rather than
+moving it. The latest published release remains 1.6.3 until the signed release
+pipeline completes. All published crates receive fresh versions, including
+`m1nd-control` 0.2.3; package bytes and their source identity are immutable.
+
+### Changed
+
+- Prediction and seek calibration remain contained: all v1 calibration rows are
+  unqualified evidence. Prediction abstains; seek stays at `reverify` or
+  `unprovable`. Scores and ranking remain available. Running calibration does
+  not enable `act` or establish statistical learning quality.
+- Learning/plasticity timestamps use their declared units consistently. This
+  repairs clock behavior, not calibration validity.
+- Documentation separates matching source/runtime preparation from the pinned
+  signed 1.6.3 installation route; npm wrapper pinning alone does not pin the
+  updater's native target.
+
+### Fixed
+
+- Reused isolated agent caches refresh the exact declared source root before
+  retrieval, preserving root identity and failure semantics.
+- Reference resolution avoids repeatedly traversing the reverse identity map;
+  release-profile first-use measurements remain corpus-specific.
+- Graph-linked search preserves canonical node IDs for single-file ingest
+  roots and omits ambiguous file mappings.
+
 ### Added
+
+- The `investigate` tool tier extends the core menu with session-local graph
+  snapshot/change-tracking tools; these are not durable git history.
 
 - Launcher-granted `agent first-minute` bootstrap for an exact workspace in an
   isolated private runtime, with reuse keyed by canonical repository identity.
 - Deterministic Node coverage for cache symlink refusal, async/sync spawn
   failures, and published-tarball contents.
 
-### Fixed
+### Startup hardening
 
 - Launcher persistence now canonicalizes the private runtime and forces graph,
   plasticity, and registry state beneath it; source-resolving symlink paths and

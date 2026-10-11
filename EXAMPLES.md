@@ -6,7 +6,7 @@ All payloads below use the canonical MCP tool names from the live registry, with
 
 ## Before the examples
 
-Follow the [versioned quick start](README.md#get-started) to prepare the correct repository and connect your host. This source line is `1.6.4`; a published older package may not include its automatic isolated startup. Generic `ingest` default/`replace` and `merge` are policy-disabled for clients, so these examples do not bootstrap a graph.
+Follow the [versioned quick start](README.md#get-started) to prepare the correct repository and connect your host. This source line is `1.6.5`; a published older package may not include its automatic isolated startup. Generic `ingest` default/`replace` and `merge` are policy-disabled for clients, so these examples do not bootstrap a graph.
 
 Payloads illustrate tool shapes, not authority grants. Inspect the installed runtime's `help` and schema before advanced operations. Mutation tools require their own proof/authority conditions, and graph/static verification does not execute your test suite. Replace example paths, node IDs, and claims with evidence from your repository.
 

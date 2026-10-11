@@ -6,12 +6,12 @@
     "url": "https://github.com/maxkle1nz/m1nd",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "1.6.5",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@maxkle1nz/m1nd",
-      "version": "1.5.0",
+      "version": "1.6.5",
       "transport": {
         "type": "stdio"
       },

@@ -23,7 +23,7 @@ A served local owner can share its graph across attached clients. Presence and o
 
 ## Read the right version
 
-This wiki follows the `1.6.4` source line. The latest published release at this refresh is `1.6.3`; [releases](https://github.com/maxkle1nz/m1nd/releases) tell you what has shipped. Automatic isolated first-workspace preparation requires the matching newer source until publication. The [quick start](tutorials/quickstart.md) separates these paths.
+This wiki follows the `1.6.5` source line. The latest published release at this refresh is `1.6.3`; [releases](https://github.com/maxkle1nz/m1nd/releases) tell you what has shipped. Automatic isolated first-workspace preparation requires the matching newer source until publication. The [quick start](tutorials/quickstart.md) separates these paths.
 
 The default `tools/list` is a small advertised menu. Use `help` for full discovery and the installed runtime's schemas for exact arguments. A tool's existence does not remove its authority requirements. Historical changelog entries describe past behavior; PRDs are design documents, not current setup instructions.
 

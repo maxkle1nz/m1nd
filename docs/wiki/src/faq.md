@@ -26,7 +26,7 @@ Use a current stable Rust toolchain for source builds; the workspace does not de
 
 ## Which version should I install?
 
-The wiki follows the `1.6.4` source line; the latest published release at this refresh is `1.6.3`. Follow [Quick Start](tutorials/quickstart.md) for the published path. Use a matching source wrapper and binary when testing source-preview automatic preparation; an updated README does not publish a package.
+The wiki follows the `1.6.5` source line; the latest published release at this refresh is `1.6.3`. Follow [Quick Start](tutorials/quickstart.md) for the published path. Use a matching source wrapper and binary when testing source-preview automatic preparation; an updated README does not publish a package.
 
 ## Why is the npm package not enough?
 

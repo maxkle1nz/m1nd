@@ -64,7 +64,7 @@ const FAQS: FAQ[] = [
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: "Follow the versioned quick start: install the exact signed 1.6.3 native artifact with cosign verification, select that binary explicitly, then have a person run init --birth for an empty repository runtime. Preview and apply your host setup, complete printed configuration, and reconnect. Pinning the wrapper alone does not pin the updater’s native target. The 1.6.4 source preview adds a narrower automatic isolated path; do not assume the published 1.6.3 binary has it.",
+    a: "Follow the versioned quick start: install the exact signed 1.6.3 native artifact with cosign verification, select that binary explicitly, then have a person run init --birth for an empty repository runtime. Preview and apply your host setup, complete printed configuration, and reconnect. Pinning the wrapper alone does not pin the updater’s native target. The 1.6.5 source preview adds a narrower automatic isolated path; do not assume the published 1.6.3 binary has it.",
   },
 ];
 

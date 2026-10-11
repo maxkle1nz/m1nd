@@ -4,7 +4,7 @@ Start with a read-only question about a real repository. You do not need to unde
 
 ## Choose the version you are using
 
-This wiki follows the `1.6.4` source line. At the documentation refresh, `1.6.3` is the latest published release. Check the [release list](https://github.com/maxkle1nz/m1nd/releases) before assuming a source feature is in your installed package.
+This wiki follows the `1.6.5` source line. At the documentation refresh, `1.6.3` is the latest published release. Check the [release list](https://github.com/maxkle1nz/m1nd/releases) before assuming a source feature is in your installed package.
 
 - **Published release:** a person prepares the repository with the terminal birth command, then connects an MCP host.
 - **Current source preview:** the matching npm wrapper and native binary can prepare an isolated graph under an explicit workspace grant. See [agent autonomy](https://github.com/maxkle1nz/m1nd/blob/main/docs/AGENT-AUTONOMY.md).
@@ -46,7 +46,7 @@ For example, the environment portion of a JSON host config should contain both a
 {"M1ND_WORKSPACE_ROOT":"/absolute/path/to/project","M1ND_RUNTIME_DIR":"/absolute/path/to/project/.m1nd"}
 ```
 
-This is a 1.6.3 direct-stdio recipe. The 1.6.4 source-preview launcher has a different external-private-runtime contract; do not mix its automatic grant with this nested runtime setup.
+This is a 1.6.3 direct-stdio recipe. The 1.6.5 source-preview launcher has a different external-private-runtime contract; do not mix its automatic grant with this nested runtime setup.
 
 Do not copy a shared `/tmp/graph.json` configuration between repositories. Managed runtime state belongs to the selected runtime directory; persistence is not generally disabled just because `M1ND_GRAPH_SOURCE` is unset.
 

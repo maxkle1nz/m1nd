@@ -31,6 +31,6 @@
 
 ## Read status labels before following a document
 
-The current source line is `1.6.4`; publication is separate. PRDs, UML gap ledgers, dated benchmark captures, and release-process notes can describe design intent or historical state. They are not interchangeable with current setup instructions. Consult installed schemas and explicit runtime refusals when a historical example disagrees.
+The current source line is `1.6.5`; publication is separate. PRDs, UML gap ledgers, dated benchmark captures, and release-process notes can describe design intent or historical state. They are not interchangeable with current setup instructions. Consult installed schemas and explicit runtime refusals when a historical example disagrees.
 
 Maintainer-facing design/history belongs under `internal/` where practical. This documentation refresh does not relocate historical records or expose any sealed benchmark material. The public guides above are the entry points for users.
