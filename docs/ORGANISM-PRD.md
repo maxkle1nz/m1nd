@@ -1,5 +1,7 @@
 # THE m1nd ORGANISM — the constitution
 
+> **Current feedback scope — 2026-10-11:** The historical designs below do not authorize generic learning. Internal `learn(correct|wrong)` adjusts retrieval relevance only; `partial` refuses without mutation. It creates no defect adjudication, observed co-change, automatic antibodies, or claim-state demotion. Public learning/debrief/calibration floors remain blocked, and no new verified-defect ingress is installed. This scoped clarification supersedes contrary feedback passages below, while retaining their design history. See [the current event contract](LEARNING-EVENT-SEMANTICS.md).
+
 > **Mandate:** close the PRD + UML for every system and subsystem, so it can be implemented
 > cleanly — no spaghetti code — connecting with what has already been mapped, but going deep first
 > to find still more useful connections that can genuinely close this loop.
@@ -260,10 +262,10 @@ census collapses to:
 > **The agent remembers ONE ritual; the machine owns five; the repo owns the gate.**
 
 - **THE agent ritual — "leave it warmer"** (session close, one composite motion):
-  `memorize` durable claims + `learn(correct|wrong|partial)` retrieval grades + **one letter only
+  `memorize` durable claims + internal `learn(correct|wrong)` relevance grades (only with existing authority; `partial` refuses) + **one letter only
   if m1nd misbehaved**. `mission_close(write_light_memory: true)` **is this same motion in its
   with-mission form** — never an additional ritual. (`M1ND_INSTRUCTIONS` §3 already teaches
-  exactly these three acts; the owed edit is the one sentence naming them ONE motion — rides the
+  these three categories, subject to the current feedback scope above; the historical owed edit is the one sentence naming them ONE motion — rides the
   next instructions-touching slice under the era-coherence gate.)
 - **THE mechanical gate — the landing gate** (PR/CI): battery green + doc-gate + agent-docs gate +
   PATHOS at checkpoints. Already mechanized (#229 family); the only moment with a hard enforcement

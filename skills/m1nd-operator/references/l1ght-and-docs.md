@@ -236,7 +236,7 @@ proposal, but it cannot authorize the crossing. A maker may memorize “candidat
 for promotion”; only the future typed G2 consumer may authorize public promotion.
 `Promoted-By` remains provenance, not a security boundary.
 
-**Demotion (un-share, never destroy):** `learn wrong` on the MEDULLA copy (kills its trust, marks it for the consolidation pass) or a superseding medulla `memorize` (e.g. a `moved_to:` back-pointer when a "cross-project" finding turns out to be one repo's quirk). Demotion NEVER touches the project witness — the local truth that was and remains correct at home is preserved.
+**Correction is not demotion by relevance feedback:** `learn wrong` only weakens graph relevance; it does not alter defect-ledger trust, un-share a medulla claim, or authorize a cross-store write. Record the correction with evidence in the permitted project memory path and propose any shared-doctrine change through its existing authority boundary. Preserve the project witness; no public demotion consumer is introduced by the learning correction.
 
 ### Boot auto-load
 

@@ -735,6 +735,24 @@ async fn debrief_grades_touched_paths_and_appends_one_ledger_row() {
         .await;
     let id = packet["delegation_id"].as_str().unwrap().to_string();
 
+    let evidence_snapshot = || {
+        owner.app.project_brains.read_runtime_snapshot(&root.to_string_lossy(), |state| {
+            let graph = state.graph.read();
+            let mut observations: Vec<_> = graph.id_to_node.values().flat_map(|node| {
+                state.temporal.co_change.predict(*node, usize::MAX).into_iter()
+                    .filter(|entry| entry.co_count > 0)
+                    .map(move |entry| (node.as_usize(), entry.target.as_usize(), entry.co_count))
+            }).collect();
+            observations.sort_unstable();
+            Ok::<_, RuntimeJobFailure>(json!({
+                "trust": m1nd_core::trust::encode_trust_state_json(&state.trust_ledger).unwrap(),
+                "observations": observations,
+                "antibodies": serde_json::to_value(&state.antibodies).unwrap(),
+            }))
+        }).expect("snapshot evidence stores").value
+    };
+    let evidence_before = evidence_snapshot();
+
     // The subagent touched an in-scope file, a known dependent, AND a path the
     // packet could not have predicted.
     let debrief = owner
@@ -754,6 +772,31 @@ async fn debrief_grades_touched_paths_and_appends_one_ledger_row() {
             }),
         )
         .expect("owner-internal debrief domain dispatch");
+
+    assert_eq!(
+        evidence_snapshot(),
+        evidence_before,
+        "dependency contact and unpredicted teaching cannot manufacture verified evidence"
+    );
+    assert!(
+        debrief["conformance"]["counts"]["dependent_contact"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "fixture must exercise dependency contact: {debrief}"
+    );
+    let taught = debrief["learned"]["taught"]
+        .as_array()
+        .expect("teaching outcomes");
+    assert!(taught
+        .iter()
+        .any(|row| row["feedback"] == "correct" && row["ok"] == true));
+    assert!(taught.iter().any(|row| row["feedback"] == "partial"
+        && row["ok"] == false
+        && row["refusal"]
+            .as_str()
+            .unwrap_or("")
+            .contains("partial_feedback_requires_explicit_attribution")));
 
     assert_eq!(debrief["schema"], "m1nd-debrief-v0", "{debrief}");
     // worst-of verdict carries fence existence honestly.

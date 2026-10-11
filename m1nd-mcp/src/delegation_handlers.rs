@@ -1491,9 +1491,9 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
         }));
     }
 
-    // (7) TEACH asymmetrically via learn. unpredicted → learn(partial); a
-    //     dependent that WAS contacted → learn(correct). Untouched dependents are
-    //     NEVER punished (§O.12.6 step 7).
+    // (7) Generic teaching is relevance-only. Unpredicted partial attribution
+    // is explicitly refused; dependency contact may reinforce relevance but
+    // never adjudicates a defect or records an observed co-change.
     let mut taught: Vec<Value> = Vec::new();
     let seed_node = expected_change.first().cloned();
     for c in &classified {
@@ -1501,8 +1501,8 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
         let path = c.get("path").and_then(|v| v.as_str()).unwrap_or("");
         match class {
             "unpredicted" => {
-                // Plant the co-change signal predict consumes next round: nearest
-                // seed ↔ touched, partial credit.
+                // Retain the legacy teaching request, but surface its explicit
+                // refusal instead of assigning credit from an arbitrary split.
                 let mut node_ids = Vec::new();
                 if let Some(seed) = &seed_node {
                     node_ids.push(seed.clone());
@@ -1520,6 +1520,8 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                 taught.push(json!({
                     "path": path, "feedback": "partial",
                     "ok": out.is_ok(),
+                    "feedback_semantics": "retrieval_relevance",
+                    "refusal": out.as_ref().err().map(|error| error.to_string()),
                 }));
             }
             "dependent_contact" => {
@@ -1537,6 +1539,8 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                 taught.push(json!({
                     "path": path, "feedback": "correct",
                     "ok": out.is_ok(),
+                    "feedback_semantics": "retrieval_relevance",
+                    "refusal": out.as_ref().err().map(|error| error.to_string()),
                 }));
             }
             _ => {}

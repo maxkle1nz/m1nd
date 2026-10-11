@@ -83,13 +83,14 @@ classDiagram
 
 ## Sequence
 
-Internal WRITE paths below retain their historical feedback interpretation and diagnostic row format. Generic public `learn` and calibration routes remain policy-disabled; this diagram does not grant access. READ paths retain prediction ranking, seek live re-rank, and the advisory envelope, but all v1 rows fail runtime qualification.
+Internal `learn` writes relevance weights only; it no longer writes the defect ledger, observed co-change, or automatic antibodies. Ambiguous `partial` feedback is refused before mutation. Core `TrustLedger` recording methods above and historical stores remain separate from generic feedback; no newly authorized defect ingress is introduced. Diagnostic calibration retains its historical row format. Generic public `learn` and calibration routes remain policy-disabled; this diagram does not grant access. READ paths retain prediction ranking, seek live re-rank, and the advisory envelope, but all v1 rows fail runtime qualification. See [the event boundary](../LEARNING-EVENT-SEMANTICS.md).
 
 ```mermaid
 sequenceDiagram
     participant Ag as Agent
-    participant L as handle_learn (tools.rs:2736)
-    participant TL as TrustLedger
+    participant L as handle_learn (tools.rs)
+    participant G as Graph relevance weights
+    participant TL as TrustLedger (existing history)
     participant TR as TremorRegistry
     participant CP as handle_calibrate_predict (layer_handlers.rs:9023)
     participant P as predict handler (tools.rs:2391)
@@ -98,17 +99,19 @@ sequenceDiagram
 
     Note over Ag,TR: INTERNAL WRITE PATH (existing authority required)
     Ag->>L: learn(query, feedback)
-    L->>L: validate feedback before mutation
-    alt feedback == wrong
-        L->>TL: record_false_alarm
-    else feedback == partial
-        L->>TL: record_partial
-    else feedback == correct
-        L->>TL: record_defect
+    L->>L: validate feedback and finite nonnegative strength
+    alt feedback == partial or invalid input
+        L-->>Ag: refuse before mutation (partial requires attribution)
+    else strength == 0
+        L-->>Ag: no_op (zero learning events)
+    else correct or wrong, positive strength
+        L->>G: strengthen or weaken existing edges
+        opt actual weight change
+            L->>TR: record relevance weight-change observation
+        end
+        L-->>Ag: retrieval_relevance (zero trust/co-change writes, no antibody)
     end
-    opt weight or edge changed
-        L->>TR: record_observation
-    end
+    Note over TL: Core record methods and historical stores retained; no new defect ingress
 
     Note over Ag,CP: DIAGNOSTIC CALIBRATION (existing authority required)
     Ag->>CP: calibrate_predict
@@ -143,7 +146,11 @@ stateDiagram-v2
     [*] --> ColdStart : no evidence
     ColdStart : trust_score=0.5, tier=Unknown
     ColdStart : band=insufficient_evidence
-    ColdStart --> Evidenced : learn feedback accrues
+    ColdStart --> Evidenced : existing or direct core defect history
+    note right of Evidenced
+        Generic learn cannot create defect evidence.
+        Core recording methods are not a public ingress.
+    end note
     Evidenced : recency-weighted score, risk multiplier, tier
 
     state PredictVerdict {
@@ -169,6 +176,8 @@ stateDiagram-v2
 
 ## Invariantes
 
+- Generic `correct`/`wrong` is relevance-only and never writes `TrustLedger`, observed co-change, or automatic antibodies. `partial` and invalid inputs refuse before mutation; zero strength is a no-op. Historical stores and direct core recording methods remain unchanged.
+
 - Cold start with no evidence to trust_score=0.5, tier=Unknown, risk_multiplier=1.0, band=insufficient_evidence (never a bare 0.5 quoted as confidence) (trust.rs:266-287, l78-85).
 - trust_score clamped GE 0.05 (never 0); risk_multiplier capped at RISK_MULTIPLIER_CAP=3.0 (trust.rs:304-307).
 - Recency decay: old defects decay toward RECENCY_FLOOR=0.3 (never to zero) — an old bug still contributes 30% (trust.rs:301).
@@ -187,22 +196,22 @@ stateDiagram-v2
 
 - **[high]** Evidence qualification is open. The diagnostic calibration writers persist rows, but row presence, threshold arithmetic, and reported metrics do not establish a statistical error bound. All v1 rows are contained as `legacy_evidence_unqualified`; running either writer cannot enable `act`.
 - **[medium]** The trust envelope is DARK/advisory — attached to SeekOutput but does not gate or alter results; an agent must voluntarily honor it (protocol/layers.rs:147-148; layer_handlers.rs:904).
-- **[medium]** Evidence supply is entirely manual: the only production writer of ledger + tremor is handle_learn; the daemon does not autonomously record defects/tremor. With no learn traffic every node stays cold-start, so trust/tremor contribute ~nothing to re-rank (all other record_* sites are #[cfg(test)]).
+- **[high]** Authorized verified-defect ingress remains missing. Source audit found generic `handle_learn` was the sole live MCP defect-ledger writer before this separation; other direct recording call sites were fixtures. The core methods remain, but this correction installs no newly authorized adjudication producer. Existing defect history can still affect ranking; relevance weight-change telemetry is a separate signal.
 - **[medium]** Envelope diagnostics use trust-band reliability values, while the runtime envelope combines several weighted factors. Sharing a numeric range does not qualify the evidence or establish that the diagnostic corpus represents the runtime decision. The current containment makes no such claim.
 - **[low]** Stale doc comment: tremor.rs:180 says record_observation is called from handle_learn AND handle_activate, but handle_activate does not call it (tools.rs:918+).
 - **[low]** seek_binding_band can only return needs_ingest or full_trust, so the degraded/stale_binding bands (reliability 0.15) that binding_reliability supports are never exercised on the seek path — a genuinely degraded host is invisible to the seek envelope (session.rs:706-716).
-- **[medium]** Feedback interpretation remains unchanged: valid `correct` feedback records a defect and `wrong` records a false alarm. Relevance feedback is not independently verified defect evidence; qualification remains open. Invalid feedback is rejected before mutation (`tools.rs::handle_learn`).
+- **[medium]** Historical-label audit and quality qualification remain open. Removing generic relevance writes does not identify or cleanse earlier ledger entries, independently verify labels, or qualify a calibration corpus.
 
 ## Proof gaps (from map proof_missing)
 
 - Runtime containment must hold before and after diagnostic calibration, persistence/reload, and current receipt projection: no v1 row may enable `act`. A synthetic test that previously reached `act` is not statistical qualification.
-- The invalid-feedback regression checks rejection before mutation; it does not qualify the meaning of valid feedback as defect evidence.
-- No end-to-end learn to seek test asserting accrued defects/tremor actually change seek result ORDER.
+- Event-boundary regressions separate relevance from defect/co-change/antibody stores and reject ambiguous or invalid feedback; they do not establish a verified adjudication ingress or label quality.
+- End-to-end defect-history-to-seek ordering proof is separate from relevance feedback; generic `learn` no longer accrues defects.
 - No test that the seek envelope observes a DEGRADED binding on the seek path specifically.
 - No calibration-drift/recalibration test (calibrated_at_ms stored, staleness never asserted).
 - No independent qualification of the threshold, labels, held-out evaluation, or correspondence between diagnostic and runtime scores is established by this containment.
-- No concurrency/property test on ledger/registry under interleaved learn writes + seek reads.
+- No concurrency/property proof is established here for direct ledger updates or relevance/tremor writes interleaved with seek reads.
 
 ## MCP verbs
 
-learn (internal feedback write path; public generic route policy-disabled) - trust - tremor - predict (ranked candidates; verdicts abstain) - calibrate_predict (git-history diagnostics; does not arm) - calibrate_envelope (ledger diagnostics; does not arm; `envelope_uncalibrated` when no corpus) - seek (live re-rank + advisory envelope at `reverify` or `unprovable`) - trust_selftest (binding self-check). Calibration authority floors remain unchanged.
+learn (internal relevance-only write path; partial refused; public generic route policy-disabled) - trust - tremor - predict (ranked candidates; verdicts abstain) - calibrate_predict (git-history diagnostics; does not arm) - calibrate_envelope (ledger diagnostics; does not arm; `envelope_uncalibrated` when no corpus) - seek (live re-rank + advisory envelope at `reverify` or `unprovable`) - trust_selftest (binding self-check). Calibration authority floors remain unchanged.

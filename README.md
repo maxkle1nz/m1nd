@@ -31,9 +31,9 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 <a id="sixty-seconds"></a>
 <a id="quick-start"></a>
 
-**Version matters:** this branch contains the `1.6.5` source line. At this documentation refresh, the latest published release is `1.6.3`. The automatic isolated first-workspace path below is a **source-preview feature** until `1.6.5` is published. Check [releases](https://github.com/maxkle1nz/m1nd/releases) for shipped versions.
+**Version matters:** [GitHub/native 1.6.5](https://github.com/maxkle1nz/m1nd/releases/tag/v1.6.5) and crates.io packages are published from immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm 1.6.5 remains pending. The learning-event fix in this PR is **Unreleased**, not part of those sealed artifacts, even though source package versions still say 1.6.5. The pinned 1.6.3 recipe below remains a separate installation route; check [releases](https://github.com/maxkle1nz/m1nd/releases) for shipped versions.
 
-### Published 1.6.3: install, prepare, connect
+### Pinned published 1.6.3: install, prepare, connect
 
 You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
 
@@ -69,14 +69,17 @@ The agent should call `north` first, then use `seek` and source inspection as ne
 
 [Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors. [Your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
 
-### Source preview: isolated first workspace (1.6.5)
+### Unreleased source: isolated first workspace
 
-For contributors testing the current source, use the matching wrapper and native runtime, rather than combining this checkout's wrapper with a published older binary. Use a clean shell without the published recipe's runtime override; the source CLI selects an external private cache:
+For contributors testing the unreleased learning fix, select PR580's source explicitly and use its matching wrapper and native runtime. A default clone or a version string alone does not establish that the fix is present. Use a clean shell without the pinned recipe's runtime override; the source CLI selects an external private cache:
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
+git fetch origin refs/pull/580/head
+git checkout --detach FETCH_HEAD
 cargo build --release -p m1nd-mcp
+./target/release/m1nd-mcp --version
 node npm/bin/m1nd.js agent first-minute --repo /absolute/path/to/your/repo \
   --binary ./target/release/m1nd-mcp --query "map this repo" --json
 ```
@@ -100,6 +103,7 @@ See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [too
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
 - **Extraction is approximate.** Language support varies, macro-generated and dynamic references can be missed, and external imports may remain unresolved. A graph is not a compiler's semantic model.
 - **Trust is conditional.** Current source treats all v1 calibration rows as [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md): prediction abstains and the seek envelope stays at `reverify` or `unprovable`, while scores and rankings remain available. Running calibration does not enable `act`. Use source, compiler, tests, and runtime checks for your change. The [clock repair](docs/LEARNING-TIME-UNITS.md) does not establish statistical quality.
+- **Unreleased learning feedback is relevance-only.** In this PR's source, internal `learn(correct|wrong)` adjusts graph relevance weights; it records no defect, false alarm, observed co-change, or automatic antibody. Ambiguous `partial` feedback is refused without mutation, and zero strength is a no-op. Public learning and calibration authority floors remain blocked. See [the event boundary](docs/LEARNING-EVENT-SEMANTICS.md).
 - **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
 - **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).
 - **Advanced capabilities are not setup prerequisites.** Document adapters, structural heuristics, transplant, missions, and hardware-backed authority have their own limits. PRDs describe design intent and are not evidence that a release supports every path.

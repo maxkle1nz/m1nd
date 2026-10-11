@@ -19,8 +19,12 @@ correct model is:
    recovery state.
 2. Use direct files, tests, compiler/runtime output, logs, and focused probes
    for final execution truth.
-3. Feed confirmed or rejected graph results back with `learn` when the result
-   materially shaped the investigation.
+3. Preserve durable findings with `memorize`. Generic `learn` remains
+   authority-blocked. Its existing internal `correct`/`wrong` path changes
+   relevance weights only, with no defect ledger, observed co-change, or
+   automatic antibodies. `partial` refuses without mutation; strength must be
+   finite/nonnegative and zero is a no-op. Learning steps below refer only to
+   that authorized internal path, never a bypass of public floors.
 
 Non-claims:
 
@@ -358,7 +362,7 @@ seek(purpose)
 activate(topic)
 why(source,target) when relationships matter
 batch_view(top files)
-learn(correct|partial|wrong)
+learn(correct|wrong) only in an authorized internal path
 ```
 
 Deliverable: exact files/functions, route rationale, and confidence boundary.
@@ -528,7 +532,8 @@ Before ending, close the loop:
   mission? `mission_close(write_light_memory:true)` persists verified claims in
   one step.
 - Then ONE field-telemetry signal, keep working (report, never detour): when a
-  retrieval was right/wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF
+  retrieval was right/wrong, relevance-only `learn(correct|wrong)` in an
+  authorized internal path (public calls remain blocked); when m1nd ITSELF
   misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was
   wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl`
   (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`)

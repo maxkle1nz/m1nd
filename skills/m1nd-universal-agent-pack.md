@@ -226,9 +226,11 @@ this loop by default:
 6. Before edits or reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
 7. Close warmer than you found it: `memorize` every durable finding (with
-   `confidence` and repo-relative `evidence` paths), then, if a retrieval was
-   plainly right or wrong, tell m1nd with `learn(correct|wrong|partial)` so the
-   next agent inherits the correction. Out-of-scope findings you should not fix
+   `confidence` and repo-relative `evidence` paths). Generic `learn` stays
+   authority-blocked; its internal `correct`/`wrong` path changes relevance
+   weights only, never defect history, observed co-change, or automatic
+   antibodies. `partial` refuses without mutation; strength must be finite
+   and nonnegative, and zero is a no-op. Out-of-scope findings you should not fix
    now become a letter in the project's box. Letters distribute LOCALLY into
    per-project boxes (`<repo>/.m1nd/inbox.jsonl`, git-travelling) + a medulla box
    for projectless letters; triage is `m1nd-mcp --inbox-sweep` / `GET /api/inbox_sweep`

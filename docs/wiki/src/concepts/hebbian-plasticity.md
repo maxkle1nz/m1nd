@@ -106,25 +106,20 @@ The query, its seeds, and its activated nodes are recorded in a bounded ring buf
 
 ## How learn works
 
-The automatic plasticity cycle runs on every `activate` call. But agents can also provide explicit feedback via `learn`:
+The automatic `activate` plasticity cycle is separate from explicit relevance
+feedback. Generic `learn` remains authority-blocked. Its existing internal path
+resolves the supplied nodes and their direct `contains` children, then adjusts
+existing edges among them: `correct` adds strength and `wrong` subtracts it,
+subject to the existing weight bounds. It does not replay the activation cycle
+or establish a verified defect.
 
-### Positive feedback: `learn(feedback="correct", node_ids=[...])`
-
-When an agent confirms that specific nodes were useful:
-
-1. The edges connecting those nodes are strengthened with an **amplified** Hebbian update (the activation values are set to 1.0 for the confirmed nodes, producing maximum `delta_w`).
-2. The strengthen counters increment, moving edges closer to the LTP threshold.
-3. Query memory records the confirmed nodes with high weight, boosting them in future priming signals.
-
-### Negative feedback: `learn(feedback="wrong", node_ids=[...])`
-
-When an agent marks results as irrelevant:
-
-1. The edges connecting those nodes receive **decay** as if they were inactive, even though they were activated.
-2. The weaken counters increment, moving edges closer to the LTD threshold.
-3. Query memory records the rejection, reducing the priming signal for those nodes.
-
-This feedback loop is what makes m1nd adaptive. A team that mostly works on the payment system will gradually strengthen all paths around payment-related modules. An agent investigating authentication will produce different results than an agent investigating billing -- even on the same codebase -- because their feedback histories have shaped different edge weight landscapes.
+`partial` is refused without mutation because the payload does not identify
+which nodes deserve positive or negative feedback. Strength must be finite and
+nonnegative; zero is a no-op. Relevance feedback records no defect-ledger entry,
+observed co-change, or automatic antibody. Weight-change telemetry is not
+source-change evidence. Historical stores and direct verified/observed
+producers are retained. See the [event contract](../../../LEARNING-EVENT-SEMANTICS.md)
+and [memory API limits](../api-reference/memory.md#m1ndlearn).
 
 ## Plasticity state persistence
 

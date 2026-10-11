@@ -2,26 +2,31 @@
 
 Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.
 
-**Current source limits:** all v1 calibration rows are `legacy_evidence_unqualified`. Prediction abstains; the seek envelope stays at `reverify` or `unprovable`, retaining scores and rankings but emitting no current calibration receipt. Diagnostic `calibrate_predict` and `calibrate_envelope` handlers can persist historical rows without enabling `act`. Generic `learn` and calibration routes remain policy-disabled. See [calibration qualification](../../../CALIBRATION-QUALIFICATION.md).
+**Current source limits:** all v1 calibration rows are `legacy_evidence_unqualified`. Prediction abstains; the seek envelope stays at `reverify` or `unprovable`, retaining scores and rankings but emitting no current calibration receipt. Diagnostic `calibrate_predict` and `calibrate_envelope` handlers can persist historical rows without enabling `act`. Generic `learn`, `debrief`, and calibration routes remain policy-disabled. See [calibration qualification](../../../CALIBRATION-QUALIFICATION.md).
 
-**Source clock contract:** envelope calibration evaluates defect age in Unix seconds, matching `learn`, while row and historical receipt timestamps retain epoch milliseconds. This repair does not change feedback meanings or establish statistical accuracy. See [the clock contract and regression scope](../../../LEARNING-TIME-UNITS.md).
+**Source clock contract:** envelope calibration evaluates direct `TrustLedger::record_defect` history in Unix seconds, while row and historical receipt timestamps retain epoch milliseconds. Generic relevance feedback no longer writes that history. The unit repair does not establish statistical accuracy. See [the clock contract and regression scope](../../../LEARNING-TIME-UNITS.md).
 
 ---
 
 <a id="m1ndlearn"></a>
 
 ## `learn`
-Explicit feedback-based edge adjustment. After using `activate` or other query tools, call `learn` to tell m1nd whether the results were correct, wrong, or partial. This applies Hebbian learning to strengthen or weaken edges between the query seeds and the reported nodes.
+Internal relevance-feedback edge adjustment. `correct` strengthens and `wrong` weakens existing edges among the resolved nodes and their direct `contains` children. Neither declares a defect, false alarm, or observed co-change. `partial` is refused without mutation because its single node list does not attribute the mixed feedback.
+
+`partial` returns `partial_feedback_requires_explicit_attribution`; a zero-strength
+`correct`/`wrong` response has `status: "no_op"` and zero learning event counts.
+
+The generic MCP/REST route remains policy-disabled. The request below documents its payload; it is not a public call recipe. See [the learning event contract](../../../LEARNING-EVENT-SEMANTICS.md).
 
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | `string` | Yes | -- | The original query this feedback relates to. Must match the query used in the activation. |
+| `query` | `string` | Yes | -- | Context for the relevance feedback; it does not supply verified defect evidence. |
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
-| `feedback` | `string` | Yes | -- | Feedback type. Values: `"correct"` (strengthen edges), `"wrong"` (weaken edges), `"partial"` (strengthen confirmed nodes only). |
+| `feedback` | `string` | Yes | -- | Feedback type. Values: `"correct"` (relevance strengthening), `"wrong"` (relevance weakening). `"partial"` is recognized but refused without mutation; unknown values are also refused. |
 | `node_ids` | `string[]` | Yes | -- | Node identifiers to apply feedback to. For `"correct"`, these are the relevant results. For `"wrong"`, these are the irrelevant ones. |
-| `strength` | `number` | No | `0.2` | Feedback strength for edge adjustment. Range: 0.0 to 1.0. Higher = stronger plasticity effect. |
+| `strength` | `number` | No | `0.2` | Finite, nonnegative adjustment magnitude; zero is a no-op. Existing edge-weight bounds apply. |
 
 ### Example Request
 
@@ -43,28 +48,33 @@ Explicit feedback-based edge adjustment. After using `activate` or other query t
 }
 ```
 
-### Example Response
+### Illustrative Internal Response
 
 ```json
 {
   "query": "session pool management",
   "feedback": "correct",
-  "edges_adjusted": 8,
-  "nodes_affected": 2,
-  "plasticity_delta": 0.3,
-  "elapsed_ms": 2.1
+  "feedback_semantics": "retrieval_relevance",
+  "nodes_found": 2,
+  "nodes_expanded": 4,
+  "edges_modified": 8,
+  "strength": 0.3,
+  "trust_records_updated": 0,
+  "co_change_observations_recorded": 0,
+  "tremor_observations_recorded": 2,
+  "antibody_added": false
 }
 ```
 
-### When to Use
+### Interpretation
 
-- **After every activate where results were used** -- always provide feedback to improve future results
-- **After investigation** -- report which activated nodes were actually relevant
-- **Continuous improvement** -- the graph learns from your feedback over time
+- Relevant and irrelevant results can guide graph weighting in an authorized internal path.
+- Generic calls remain authority-blocked; do not retry a floor refusal.
+- A useful result does not prove a defect, a source change, or statistical calibration.
 
 ### Side Effects
 
-Modifies edge weights in the graph. Changes are persisted on the next auto-persist cycle (every 50 queries) and on shutdown.
+Positive-strength `correct`/`wrong` feedback can modify existing graph relevance weights and their weight-change telemetry. It does not write defect/false-alarm/partial ledger entries, observed co-change, or automatic antibodies. `partial`, invalid inputs, and zero strength leave learning state unchanged. Existing persistence formats and independently verified/observed producers are retained.
 
 ### Related Tools
 

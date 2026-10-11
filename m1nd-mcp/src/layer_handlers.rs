@@ -9253,7 +9253,7 @@ pub fn handle_trust(
         trust_out.as_object_mut().unwrap().insert(
             "note".into(),
             serde_json::json!(
-                "No defect history yet (insufficient_evidence) — trust is an actuarial model of CONFIRMED defects, populated by `learn` feedback (feedback='wrong'/'partial') and cross_verify findings, NOT by code churn. mean_trust is null because there is no computed score to report — run learn/cross_verify to populate, or ingest if the graph is empty."
+                "No defect history yet (insufficient_evidence). Trust requires verified defect adjudication; generic learn relevance, dependency contact and code churn do not populate this ledger. mean_trust is null because there is no computed score to report. No new adjudication authority route is provided."
             ),
         );
     }
@@ -12363,20 +12363,16 @@ mod tests {
     }
 
     #[test]
-    fn calibrate_envelope_clock_preserves_learn_age_and_receipt_millis() {
+    fn calibrate_envelope_clock_preserves_verified_event_age_and_receipt_millis() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut state = build_layer_state(temp.path());
-        crate::tools::handle_learn(
-            &mut state,
-            crate::protocol::LearnInput {
-                query: "confirmed defect in core".into(),
-                agent_id: "clock-test".into(),
-                feedback: "correct".into(),
-                node_ids: vec!["file::src/core.rs".into()],
-                strength: 0.2,
-            },
-        )
-        .expect("record defect through the real learn producer");
+        let verified_event_seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        state
+            .trust_ledger
+            .record_defect("file::src/core.rs", verified_event_seconds);
         let before_ms = crate::util::now_ms();
         let out = handle_calibrate_envelope(
             &mut state,
@@ -12385,7 +12381,7 @@ mod tests {
                 alpha: Some(0.1),
             },
         )
-        .expect("calibrate seconds-based learn history");
+        .expect("calibrate seconds-based verified defect history");
         let after_ms = crate::util::now_ms();
         let threshold = out["precision_coverage_curve"][0]["threshold"]
             .as_f64()

@@ -1,5 +1,7 @@
 # m1nd Human Layer — PRD
 
+> **Current feedback scope — 2026-10-11:** The historical designs below do not authorize generic learning. Internal `learn(correct|wrong)` adjusts retrieval relevance only; `partial` refuses without mutation. It creates no defect adjudication, observed co-change, automatic antibodies, or claim-state demotion. Public learning/debrief/calibration floors remain blocked, and no new verified-defect ingress is installed. This scoped clarification supersedes contrary feedback passages below, while retaining their design history. See [the current event contract](LEARNING-EVENT-SEMANTICS.md).
+
 **The Living Tree · the Post-it Memory · the Pre-Flight Hero (vision → spec)**
 
 > Grounded in `main` @ `c1c458f` (v1.2.1 era). Every data contract below cites a real
@@ -590,9 +592,12 @@ two different truths sit side-by-side in the tree drawer and must never borrow e
 word.
 - **Memory** = the L1GHT anchors an agent *left* on a node (`grounded_in` post-its, `evidence:`
   in the engine). Surfaced as "memories anchored here" (the drawer's post-it panel; §3.3, G3).
-- **Feedback** = whether an agent later *confirmed or corrected* an answer about that node (the
-  learn-history / trust verdict: `defect_count` / `false_alarm_count` / `total_learn_events`,
-  `TrustNodeOutput`). Surfaced as the drawer's feedback chip + line.
+- **Feedback** = an agent's retrieval-relevance grade about a node. It is not a
+  defect adjudication. The historical drawer associated its chip with
+  `TrustNodeOutput` counters (`defect_count`, `false_alarm_count`,
+  `total_learn_events`); those fields retain historical ledger data, not current
+  generic learn grades. The rendering history below does not establish that the
+  counters measure relevance feedback.
 
 The retired drawer copy "I haven't seen evidence either way yet" collided the two — `evidence`
 is memory's word, so on a file with feedback-but-no-memory it read as "no memories" and confused

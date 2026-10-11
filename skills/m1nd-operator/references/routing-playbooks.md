@@ -27,6 +27,11 @@ This file is the operational map: which `m1nd` tools to choose for each kind of 
 - Use `document_*` when docs, wiki pages, PDFs, or specs must stay grounded in code.
 - Use daemon, alerts, trails, and locks when the session is long-lived or multi-agent.
 
+Generic `learn` remains authority-blocked. Where an existing internal path is
+authorized, `correct`/`wrong` adjusts relevance weights only; `partial` is
+refused without mutation. Strength must be finite/nonnegative and zero is a
+no-op. No defect ledger, observed co-change, or automatic antibody is inferred.
+
 ## Workflow 1: First Contact With An Unfamiliar Repo
 
 1. `north(task)` — one round-trip trust + context + prior memory + sufficiency +
@@ -46,7 +51,7 @@ subsystem-shaped, and `seek` when it is intent-shaped.
 1. `seek`
 2. `view` or `batch_view`
 3. `activate` if the best result needs neighborhood expansion
-4. `learn` after the result was actually useful
+4. Record durable findings with `memorize`; relevance feedback is internal-only as above
 
 Use this instead of `activate` when you know the job and want a specific implementation surface, not a cluster.
 
@@ -56,7 +61,7 @@ Use this instead of `activate` when you know the job and want a specific impleme
 2. `activate`
 3. `why` for specific dependencies
 4. `resonate` when you need coherent clusters or refactor boundaries
-5. `learn` after useful results
+5. Record durable findings with `memorize`; relevance feedback is internal-only as above
 
 Use `include_structural_holes` in `activate` or call `missing` separately if the question smells like absence rather than presence.
 

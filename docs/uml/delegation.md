@@ -6,6 +6,13 @@ real diff against that packet's static map, teaching the graph through existing 
 (`debrief`). Every delegation is meant to make the next packet smarter — but the
 calibration flywheel is not yet wired to consume the outcomes it records.
 
+The generic `debrief` route remains authority-blocked. Its existing internal
+learning calls carry relevance feedback only: dependency contact can use
+`correct`, while unpredicted-path `partial` teaching is explicitly refused
+without learning mutation. Findings, map-miss memory, and outcome capture are
+retained. Outcome `partial` remains valid and is distinct from learning
+feedback `partial`; neither is a verified defect. See [the event contract](../LEARNING-EVENT-SEMANTICS.md).
+
 ## Class
 
 ```mermaid
@@ -145,7 +152,9 @@ sequenceDiagram
     DB->>DB: re-read graph.nodes.count -> graph_drifted if != packet_generation
     DB->>DB: resolve_touched_set, classify each path (4 classes, worst-of verdict)
     DB->>DB: memorize findings under subagent_id, lesson under grader (if unpredicted>0)
-    DB->>DB: learn: unpredicted->partial, dependent_contact->correct (untouched deps NEVER punished)
+    DB->>DB: dependent_contact -> relevance-only learn(correct)
+    DB->>DB: unpredicted -> explicit partial teaching refusal (no learning mutation)
+    Note over DB: untouched dependents NEVER punished; finding/outcome capture retained
     DB->>DB: flip record debriefed, append EXACTLY one outcomes.jsonl row
     DB-->>O: m1nd-debrief-v0
 ```
@@ -190,7 +199,7 @@ stateDiagram-v2
     unpredicted --> Verdict
 
     Verdict --> stayed : unpredicted == 0 ("no ratified boundaries existed")
-    Verdict --> unpredicted_verdict : unpredicted > 0 (map feedback -> learn partial)
+    Verdict --> unpredicted_verdict : unpredicted > 0 (partial teaching refused)
     note right of Verdict
       breach is UNREACHABLE this slice:
       no ratified must_not_touch fence exists,
@@ -213,7 +222,7 @@ stateDiagram-v2
 - **delegation_id must be a generated dlg_* id with only [A-Za-z0-9_-]** (no path separators) — gates both save and load.
 - **Unknown delegation_id on debrief is a hard error** — no guessing.
 - **breach is UNREACHABLE in this slice**: with no ratified must_not_touch fence the worst-of verdict is at most 'unpredicted'.
-- **Untouched dependents are NEVER punished** — learn(correct) fires only for dependents actually contacted.
+- **Untouched dependents are NEVER punished** — relevance-only `learn(correct)` fires only for dependents actually contacted. Unpredicted-path `partial` teaching is explicitly refused; `taught[]` records its failure and reason without discarding findings or outcomes. No defect-ledger, observed co-change, or automatic-antibody entry is inferred.
 - **Clean runs memorize NOTHING and teach nothing** — no filler memories.
 - **A self-reported outcome with no attached evidence is stamped outcome_unverified**; `calibration.calibrated` is derived from the ledger — `false` below N ≥ 30, `true` at/above (hardening wave 4: `calibration_metrics_from_rows`; the hardcoded `false` is gone). The three quality numbers print ONLY once calibrated (bands/counts only below the floor).
 - **Exactly ONE outcomes.jsonl row is appended per debrief** (append_outcome_row — verified: at :1617).
@@ -229,4 +238,4 @@ stateDiagram-v2
 - **[low] static_dependents grounds the entire dependents pass on a SINGLE top focus node** (focus[0]); expected_change is likewise just that one node. If the true blast center is the 2nd+ anchor, the map is 'one anchor too tight' by construction — surfaced only reactively as an unpredicted lesson (delegation_handlers.rs:812-822 — verified: static_dependents at :806).
 - **[low] Debrief never physically re-ingests the edited files**: conformance is graded against a possibly-stale graph; graph_drifted only compares node COUNT, so an edit changing bodies/edges without changing node count reads as not-drifted (reingest_skipped hardcoded).
 - **[low] Registry has no eviction/GC**: every delegate writes a dlg_*.json forever; live_sibling_records reads the WHOLE directory each debrief (O(N-files) scan); expired packets (>4h TTL) never pruned (verified: recall_memory_slice at :685 is the memory feed; PACKET_TTL_MS advisory only).
-- **[low] Sibling-overlap and outcome_unverified are advisory, not gates**: a same-worktree contaminated diff or an evidence-free outcome still writes a full ledger row and teaches learn signals — the calibration substrate can be polluted with no downweighting.
+- **[low] Sibling-overlap and outcome_unverified are advisory, not gates**: a same-worktree contaminated diff or an evidence-free outcome still writes an outcome-ledger row and can teach relevance signals. Those self-reports can bias delegation diagnostics; they do not write verified defect history or qualify prediction/seek calibration.

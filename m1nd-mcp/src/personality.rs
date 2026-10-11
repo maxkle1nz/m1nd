@@ -977,11 +977,11 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "learn",
             category: "Foundation",
             glyph: GLYPH_CONNECTION,
-            one_liner: "Hebbian feedback -- correct/wrong/partial strengthens edges",
+            one_liner: "Relevance feedback -- correct strengthens, wrong weakens; partial refuses",
             params: &[
                 ("query", "Original query", true),
                 ("agent_id", "Calling agent identifier", true),
-                ("feedback", "correct | wrong | partial", true),
+                ("feedback", "correct | wrong (relevance); partial refuses", true),
                 ("node_ids", "Nodes to apply feedback to", true),
             ],
             returns: "Updated edge weights, plasticity state",

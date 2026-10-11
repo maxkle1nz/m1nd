@@ -52,8 +52,16 @@ prediction satisfies the selected error budget. A timestamp, a successful
 handler call, a persistence round-trip, or a receipt digest cannot establish
 that claim.
 
-This containment does not repair the interpretation of `learn` feedback,
-establish independently held-out labels, qualify the threshold algorithm, or
-introduce a new qualified calibration format. Those require separate design
-and evidence. It makes no precision, coverage, accuracy, or statistical error
-bound claim.
+The subsequent [learning event separation](LEARNING-EVENT-SEMANTICS.md) corrects
+generic `learn`: `correct`/`wrong` is relevance-only, `partial` refuses without
+mutation, and feedback no longer creates defect, false-alarm, co-change, or
+automatic-antibody evidence. That separation does not qualify calibration.
+
+No newly authorized verified-defect ingress is introduced. The source audit
+found generic `learn` was the sole live MCP defect-ledger writer; the direct
+core recording methods remain, while other direct call sites were fixtures.
+An authorized verified adjudication producer, historical-label audit,
+independently held-out evaluation, threshold qualification, and a qualified
+calibration format still require separate design and evidence. Historical
+records remain readable without being certified as clean. No precision,
+coverage, accuracy, or statistical error bound is claimed.
