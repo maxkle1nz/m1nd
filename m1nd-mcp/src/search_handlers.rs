@@ -2915,5 +2915,5 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "search_handlers/single_file_identity_tests.rs"]
+#[path = "internal_tests/search_single_file_identity.rs"]
 mod single_file_identity_tests;
