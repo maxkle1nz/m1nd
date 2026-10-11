@@ -526,31 +526,15 @@ pub(crate) fn needs_ingest_next_move(state: &SessionState, agent_id: &str, then:
 }
 
 fn note_learn_node_effect(
-    weight_deltas: &mut HashMap<NodeId, f32>,
+    weight_deltas: &mut HashMap<NodeId, f64>,
     edge_events: &mut HashMap<NodeId, u16>,
     node: NodeId,
-    delta: f32,
+    delta: f64,
     edge_count: u16,
 ) {
     *weight_deltas.entry(node).or_insert(0.0) += delta;
     let entry = edge_events.entry(node).or_insert(0);
     *entry = entry.saturating_add(edge_count);
-}
-
-fn maybe_store_auto_antibody(
-    antibodies: &mut Vec<m1nd_core::antibody::Antibody>,
-    candidate: m1nd_core::antibody::Antibody,
-) -> bool {
-    let is_duplicate = antibodies.iter().any(|existing| {
-        m1nd_core::antibody::pattern_similarity(&existing.pattern, &candidate.pattern)
-            >= m1nd_core::antibody::DUPLICATE_SIMILARITY_THRESHOLD
-    });
-    if is_duplicate {
-        false
-    } else {
-        antibodies.push(candidate);
-        true
-    }
 }
 
 fn extension_language(ext: Option<&str>) -> String {
@@ -3268,21 +3252,24 @@ pub fn handle_drift(state: &mut SessionState, input: DriftInput) -> M1ndResult<s
 /// Handle m1nd.learn (03-MCP Section 2.10).
 /// Replaces: targeted edge strengthen/weaken bypass of Hebbian cycle
 pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<serde_json::Value> {
-    // Validate the feedback verb BEFORE any mutation. Exactly `correct | wrong |
-    // partial` are meaningful; any other value (a typo like "corect", a stray
-    // "neutral") must be refused, never silently mapped. The old catch-alls sent
-    // an unrecognized verb to `record_defect`, accruing a defect against innocent
-    // nodes, and to the edge path's "treat as correct" fallback — both wrong.
+    // Generic feedback describes retrieval relevance, never defect adjudication
+    // or observed joint edits. Refuse ambiguous attribution before any mutation.
     match input.feedback.as_str() {
-        "correct" | "wrong" | "partial" => {}
-        other => {
-            return Err(m1nd_core::error::M1ndError::InvalidParams {
-                tool: "learn".into(),
-                detail: format!(
-                    "unknown feedback '{other}': expected one of correct | wrong | partial"
-                ),
-            });
-        }
+        "correct" | "wrong" => {}
+        "partial" => return Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "learn".into(),
+            detail: "partial_feedback_requires_explicit_attribution: submit separate correct/wrong node sets; partial never infers a first-half split".into(),
+        }),
+        other => return Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "learn".into(),
+            detail: format!("unknown feedback '{other}': expected correct | wrong; partial requires explicit attribution"),
+        }),
+    }
+    if !input.strength.is_finite() || input.strength < 0.0 {
+        return Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "learn".into(),
+            detail: "invalid_feedback_strength: strength must be finite and nonnegative".into(),
+        });
     }
 
     let mut graph = state.graph.write();
@@ -3309,6 +3296,17 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         }));
     }
 
+    if input.strength == 0.0 {
+        return Ok(serde_json::json!({
+            "query": input.query, "feedback": input.feedback,
+            "feedback_semantics": "retrieval_relevance", "status": "no_op",
+            "nodes_found": nodes.len(), "nodes_expanded": nodes.len(),
+            "edges_modified": 0, "strength": input.strength,
+            "trust_records_updated": 0, "co_change_observations_recorded": 0,
+            "tremor_observations_recorded": 0, "antibody_added": false,
+        }));
+    }
+
     // Expand the node set to include direct children (outgoing "contains"
     // edges).  This ensures that learn(["file::a.rs", "file::b.rs"]) also
     // strengthens/weakens edges between functions/structs contained in those
@@ -3330,13 +3328,12 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
 
     let strength = input.strength;
     let mut edges_modified = 0u32;
-    let mut node_weight_deltas: HashMap<NodeId, f32> = HashMap::new();
+    let mut node_weight_deltas: HashMap<NodeId, f64> = HashMap::new();
     let mut node_edge_events: HashMap<NodeId, u16> = HashMap::new();
 
     // Determine which node pairs to strengthen/weaken based on feedback type.
     // "correct"  → strengthen edges between all given nodes (Hebbian: fire together, wire together)
     // "wrong"    → weaken edges between all given nodes
-    // "partial"  → strengthen edges among first half, weaken edges between first half and rest
     //
     // Uses the expanded set (specified nodes + their children) so that
     // cross-file function/struct edges are included.
@@ -3363,75 +3360,65 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
                 }
                 (Vec::new(), pairs)
             }
-            "partial" => {
-                let mid = expanded.len().div_ceil(2); // first half (rounded up)
-                let first_half = &expanded[..mid];
-                let rest = &expanded[mid..];
-                // Strengthen edges among first half
-                let mut s_pairs = Vec::new();
-                for i in 0..first_half.len() {
-                    for j in (i + 1)..first_half.len() {
-                        s_pairs.push((first_half[i], first_half[j]));
-                    }
-                }
-                // Weaken edges between first half and rest
-                let mut w_pairs = Vec::new();
-                for &a in first_half {
-                    for &b in rest {
-                        w_pairs.push((a, b));
-                    }
-                }
-                (s_pairs, w_pairs)
-            }
             other => {
                 // Unreachable: `input.feedback` was validated to be one of
-                // correct | wrong | partial at the top of this function. This arm
+                // correct | wrong at the top of this function. This arm
                 // exists only so a future variant is a loud panic in tests, never
                 // a silent "treat as correct".
                 unreachable!("unvalidated learn feedback reached edge match: {other}")
             }
         };
 
-    // Helper closure: modify edge weight between src→tgt (if edge exists)
+    // Count successful changes, not attempted writes. Use realized post-clamp
+    // deltas in a wide accumulator, never the unbounded requested strength.
     let apply_delta =
-        |graph: &mut m1nd_core::graph::Graph, src: NodeId, tgt: NodeId, delta: f32| -> u32 {
+        |graph: &mut m1nd_core::graph::Graph, src: NodeId, tgt: NodeId, delta: f32| -> (u32, f64) {
             let mut count = 0u32;
-            let range = graph.csr.out_range(src);
-            for k in range {
-                if graph.csr.targets[k] == tgt {
-                    let edge_idx = EdgeIdx::new(k as u32);
-                    let current = graph.csr.read_weight(edge_idx).get();
-                    let new_weight = (current + delta).clamp(0.05, 3.0);
-                    let _ = graph
-                        .csr
-                        .atomic_write_weight(edge_idx, FiniteF32::new(new_weight), 64);
-                    if k < graph.edge_plasticity.current_weight.len() {
-                        graph.edge_plasticity.current_weight[k] = FiniteF32::new(new_weight);
-                    }
-                    count += 1;
+            let mut realized_delta = 0.0_f64;
+            for k in graph.csr.out_range(src) {
+                if graph.csr.targets[k] != tgt {
+                    continue;
                 }
+                let edge_idx = EdgeIdx::new(k as u32);
+                let current = graph.csr.read_weight(edge_idx).get();
+                let new_weight = (current + delta).clamp(0.05, 3.0);
+                if new_weight == current {
+                    continue;
+                }
+                if graph
+                    .csr
+                    .atomic_write_weight(edge_idx, FiniteF32::new(new_weight), 64)
+                    .is_err()
+                {
+                    continue;
+                }
+                if k < graph.edge_plasticity.current_weight.len() {
+                    graph.edge_plasticity.current_weight[k] = FiniteF32::new(new_weight);
+                }
+                count += 1;
+                realized_delta += f64::from(new_weight) - f64::from(current);
             }
-            count
+            (count, realized_delta)
         };
 
     // Strengthen pairs
     for &(a, b) in &strengthen_set {
-        let forward = apply_delta(&mut graph, a, b, strength);
-        let reverse = apply_delta(&mut graph, b, a, strength);
+        let (forward, forward_delta) = apply_delta(&mut graph, a, b, strength);
+        let (reverse, reverse_delta) = apply_delta(&mut graph, b, a, strength);
         let edge_count = (forward + reverse).min(u16::MAX as u32) as u16;
         if edge_count > 0 {
             note_learn_node_effect(
                 &mut node_weight_deltas,
                 &mut node_edge_events,
                 a,
-                strength,
+                forward_delta + reverse_delta,
                 edge_count,
             );
             note_learn_node_effect(
                 &mut node_weight_deltas,
                 &mut node_edge_events,
                 b,
-                strength,
+                forward_delta + reverse_delta,
                 edge_count,
             );
         }
@@ -3440,22 +3427,22 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
 
     // Weaken pairs
     for &(a, b) in &weaken_set {
-        let forward = apply_delta(&mut graph, a, b, -strength);
-        let reverse = apply_delta(&mut graph, b, a, -strength);
+        let (forward, forward_delta) = apply_delta(&mut graph, a, b, -strength);
+        let (reverse, reverse_delta) = apply_delta(&mut graph, b, a, -strength);
         let edge_count = (forward + reverse).min(u16::MAX as u32) as u16;
         if edge_count > 0 {
             note_learn_node_effect(
                 &mut node_weight_deltas,
                 &mut node_edge_events,
                 a,
-                -strength,
+                forward_delta + reverse_delta,
                 edge_count,
             );
             note_learn_node_effect(
                 &mut node_weight_deltas,
                 &mut node_edge_events,
                 b,
-                -strength,
+                forward_delta + reverse_delta,
                 edge_count,
             );
         }
@@ -3466,54 +3453,19 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
-    let auto_antibody = if input.feedback == "correct" && nodes.len() >= 2 {
-        let antibody_name = format!("auto-learn-{}", now as u64);
-        m1nd_core::antibody::extract_antibody_from_learn(
-            &graph,
-            &nodes,
-            &antibody_name,
-            &input.query,
-            &input.agent_id,
-        )
-    } else {
-        None
-    };
-
-    // Drop graph write-lock before accessing temporal (co_change needs &mut self)
+    // Relevance is not evidence of a defect, a false alarm, or joint edits.
+    // Historical ledger, observed co-change and antibody stores are untouched.
     drop(graph);
-
-    // Record co-change for all pairs of input nodes (feeds the predict tool).
-    // The learned node set is one co-change event: note each node's appearance
-    // once (the smoothed-Jaccard marginal count), then record the pairs.
-    for &node in &nodes {
-        state.temporal.co_change.note_node_appearance(node);
-    }
-    for i in 0..nodes.len() {
-        for j in (i + 1)..nodes.len() {
-            let _ = state
-                .temporal
-                .co_change
-                .record_co_change(nodes[i], nodes[j], now);
-            let _ = state
-                .temporal
-                .co_change
-                .record_co_change(nodes[j], nodes[i], now);
-        }
-    }
 
     let mut tremor_observations_recorded = 0u32;
     for (node, external_id) in &resolved_nodes {
-        match input.feedback.as_str() {
-            "wrong" => state.trust_ledger.record_false_alarm(external_id, now),
-            "partial" => state.trust_ledger.record_partial(external_id, now),
-            // Only "correct" remains (validated at the top). A defect is recorded
-            // ONLY for an explicit "wrong"/"partial"; a typo can no longer reach
-            // `record_defect` and accuse an innocent node.
-            "correct" => state.trust_ledger.record_defect(external_id, now),
-            other => unreachable!("unvalidated learn feedback reached ledger match: {other}"),
-        }
-
-        let weight_delta = node_weight_deltas.get(node).copied().unwrap_or(0.0);
+        // The stored telemetry field is f32. Preserve finite representation
+        // even for a graph whose pre-existing finite weights exceed our bounds.
+        let weight_delta = node_weight_deltas
+            .get(node)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32;
         let edge_events = node_edge_events.get(node).copied().unwrap_or(0);
         if edge_events > 0 || weight_delta.abs() > f32::EPSILON {
             state
@@ -3522,10 +3474,6 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
             tremor_observations_recorded += 1;
         }
     }
-
-    let antibody_added = auto_antibody
-        .map(|candidate| maybe_store_auto_antibody(&mut state.antibodies, candidate))
-        .unwrap_or(false);
 
     state.bump_plasticity_generation();
     state.invalidate_all_perspectives();
@@ -3539,9 +3487,11 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         "nodes_expanded": expanded.len(),
         "edges_modified": edges_modified,
         "strength": strength,
-        "trust_records_updated": resolved_nodes.len(),
+        "feedback_semantics": "retrieval_relevance",
+        "trust_records_updated": 0,
+        "co_change_observations_recorded": 0,
         "tremor_observations_recorded": tremor_observations_recorded,
-        "antibody_added": antibody_added,
+        "antibody_added": false,
     }))
 }
 
@@ -5674,6 +5624,224 @@ mod tests {
         (state, "file::hub.rs".to_string())
     }
 
+    fn learning_evidence_snapshot(state: &SessionState) -> serde_json::Value {
+        let graph = state.graph.read();
+        serde_json::json!({
+            "trust": m1nd_core::trust::encode_trust_state_json(&state.trust_ledger).unwrap(),
+            "co_change": state.temporal.co_change.export_state(&graph).unwrap(),
+            "antibodies": serde_json::to_value(&state.antibodies).unwrap(),
+        })
+    }
+
+    fn learning_mutation_snapshot(state: &SessionState) -> serde_json::Value {
+        let graph = state.graph.read();
+        serde_json::json!({
+            "evidence": learning_evidence_snapshot(state),
+            "weights": (0..graph.csr.targets.len()).map(|i| graph.csr.read_weight(m1nd_core::types::EdgeIdx::new(i as u32)).get().to_bits()).collect::<Vec<_>>(),
+            "generation": state.plasticity_generation,
+            "tremor": m1nd_core::tremor::encode_tremor_state_json(&state.tremor_registry).unwrap(),
+        })
+    }
+
+    #[test]
+    fn learning_events_max_strength_records_realized_deltas_and_saturation() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut state, hub) = build_star_graph(temp.path(), 3);
+        {
+            let mut graph = state.graph.write();
+            let a = graph.resolve_id("file::leaf_0.rs").unwrap();
+            let b = graph.resolve_id(&hub).unwrap();
+            graph
+                .add_edge(
+                    a,
+                    b,
+                    "imports",
+                    FiniteF32::new(2.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.5),
+                )
+                .unwrap();
+            graph.finalize().unwrap();
+        }
+        let nodes = vec![
+            hub,
+            "file::leaf_0.rs".into(),
+            "file::leaf_1.rs".into(),
+            "file::leaf_2.rs".into(),
+        ];
+        for verb in ["correct", "wrong"] {
+            let input = || crate::protocol::LearnInput {
+                query: "relevance".into(),
+                agent_id: "test".into(),
+                feedback: verb.into(),
+                node_ids: nodes.clone(),
+                strength: f32::MAX,
+            };
+            let out = super::handle_learn(&mut state, input()).unwrap();
+            assert_eq!(out["edges_modified"], 4);
+            let encoded = m1nd_core::tremor::encode_tremor_state_json(&state.tremor_registry)
+                .expect("max finite strength must leave finite persisted telemetry");
+            let json: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+            let delta = json["nodes"]["file::hub.rs"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()["weight_delta"]
+                .as_f64()
+                .unwrap();
+            let expected = if verb == "correct" { 7.0 } else { -11.8 };
+            assert!(
+                (delta - expected).abs() < 1e-5,
+                "realized forward/reverse sum {delta}, expected {expected}"
+            );
+            state
+                .persist()
+                .expect("persist after max finite relevance adjustment");
+            let saturated = super::handle_learn(&mut state, input()).unwrap();
+            assert_eq!(
+                saturated["edges_modified"], 0,
+                "saturated arcs did not change"
+            );
+            assert_eq!(saturated["tremor_observations_recorded"], 0);
+            assert_eq!(
+                m1nd_core::tremor::encode_tremor_state_json(&state.tremor_registry).unwrap(),
+                encoded
+            );
+        }
+    }
+
+    #[test]
+    fn learning_events_saturated_arcs_emit_no_tremor() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut state, hub) = build_star_graph(temp.path(), 2);
+        let input = || crate::protocol::LearnInput {
+            query: "relevance".into(),
+            agent_id: "test".into(),
+            feedback: "correct".into(),
+            node_ids: vec![
+                hub.clone(),
+                "file::leaf_0.rs".into(),
+                "file::leaf_1.rs".into(),
+            ],
+            strength: 5.0,
+        };
+        super::handle_learn(&mut state, input()).unwrap();
+        let before = m1nd_core::tremor::encode_tremor_state_json(&state.tremor_registry).unwrap();
+        let out = super::handle_learn(&mut state, input()).unwrap();
+        assert_eq!(out["edges_modified"], 0);
+        assert_eq!(out["tremor_observations_recorded"], 0);
+        assert_eq!(
+            m1nd_core::tremor::encode_tremor_state_json(&state.tremor_registry).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn learning_events_relevance_preserves_verified_stores_and_observed_changes() {
+        for verb in ["correct", "wrong"] {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut state, hub) = build_star_graph(temp.path(), 3);
+            state.trust_ledger.record_defect(&hub, 1_790_000_000.0);
+            let ids: Vec<String> = {
+                let graph = state.graph.read();
+                graph
+                    .id_to_node
+                    .keys()
+                    .map(|id| graph.strings.resolve(*id).to_string())
+                    .collect()
+            };
+            let (hub_node, leaf_node, before_weight) = {
+                let graph = state.graph.read();
+                (
+                    graph.resolve_id(&hub).unwrap(),
+                    graph.resolve_id("file::leaf_0.rs").unwrap(),
+                    graph
+                        .csr
+                        .read_weight(m1nd_core::types::EdgeIdx::new(0))
+                        .get(),
+                )
+            };
+            state.temporal.co_change.note_node_appearance(hub_node);
+            state.temporal.co_change.note_node_appearance(leaf_node);
+            state
+                .temporal
+                .co_change
+                .record_co_change(hub_node, leaf_node, 1_790_000_000.0)
+                .unwrap();
+            let before = learning_evidence_snapshot(&state);
+            let out = super::handle_learn(
+                &mut state,
+                crate::protocol::LearnInput {
+                    query: "relevant dependency".into(),
+                    agent_id: "test".into(),
+                    feedback: verb.into(),
+                    node_ids: ids,
+                    strength: 0.2,
+                },
+            )
+            .unwrap();
+            assert!(out["edges_modified"].as_u64().unwrap() > 0);
+            let after_weight = state
+                .graph
+                .read()
+                .csr
+                .read_weight(m1nd_core::types::EdgeIdx::new(0))
+                .get();
+            if verb == "correct" {
+                assert!(after_weight > before_weight);
+            } else {
+                assert!(after_weight < before_weight);
+            }
+            assert_eq!(out["trust_records_updated"], 0);
+            assert_eq!(out["antibody_added"], false);
+            assert_eq!(
+                learning_evidence_snapshot(&state),
+                before,
+                "{verb} must not adjudicate defects or observe changes"
+            );
+            state.persist().unwrap();
+            let reloaded = m1nd_core::trust::load_trust_state(&state.trust_path).unwrap();
+            assert_eq!(
+                serde_json::json!(m1nd_core::trust::encode_trust_state_json(&reloaded).unwrap()),
+                before["trust"]
+            );
+        }
+    }
+
+    #[test]
+    fn learning_events_refusals_and_zero_strength_do_not_mutate() {
+        for (verb, strength) in [
+            ("partial", 0.2),
+            ("correct", -0.1),
+            ("wrong", f32::NAN),
+            ("correct", f32::INFINITY),
+            ("wrong", f32::NEG_INFINITY),
+            ("correct", 0.0),
+            ("wrong", -0.0),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut state, hub) = build_star_graph(temp.path(), 3);
+            let before = learning_mutation_snapshot(&state);
+            let out = super::handle_learn(
+                &mut state,
+                crate::protocol::LearnInput {
+                    query: "q".into(),
+                    agent_id: "test".into(),
+                    feedback: verb.into(),
+                    node_ids: vec![hub],
+                    strength,
+                },
+            );
+            if strength == 0.0 {
+                assert_eq!(out.unwrap()["edges_modified"], 0);
+            } else {
+                assert!(out.is_err(), "{verb} {strength:?} must refuse");
+            }
+            assert_eq!(learning_mutation_snapshot(&state), before);
+        }
+    }
+
     #[test]
     fn learn_rejects_typo_feedback_without_accusing_a_defect() {
         // Regression (trust-calibration ledger #6): a mislabeled feedback verb —
@@ -5718,10 +5886,9 @@ mod tests {
     }
 
     #[test]
-    fn learn_accepts_the_three_valid_feedback_verbs() {
-        // The complement: the exact set correct | wrong | partial is accepted (a
-        // guard that the up-front validation did not over-reject).
-        for verb in ["correct", "wrong", "partial"] {
+    fn learn_accepts_unambiguous_relevance_feedback_verbs() {
+        // Explicit positive/negative relevance remains wire-compatible.
+        for verb in ["correct", "wrong"] {
             let temp = tempfile::tempdir().expect("tempdir");
             let (mut state, hub_id) = build_star_graph(temp.path(), 3);
             let out = super::handle_learn(

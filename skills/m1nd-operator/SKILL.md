@@ -682,7 +682,9 @@ When you conclude something durable — a verified finding, a design decision, w
 
 `memorize` is the POST-CAPTURE close: before ending, memorize every durable finding with `confidence` + repo-relative `evidence` paths so it lives in the same activation space as code and self-flags stale via `cross_verify(check:["evidence_freshness"])`.
 
-Then one field-telemetry signal, keep working (report, never detour): when a retrieval was right/wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl` (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) — LOCAL-ONLY, never phones home. A memory-delivery fault (a claim leaked across brains, a false absence, a write to the wrong store) is `class:"memory_misdelivery"` + `kind:leak|false_absence|wrong_store_write|misattribution|vanished`. NEVER fix m1nd mid-mission; work around, note the workaround, report.
+Generic `learn` remains authority-blocked. In an authorized internal path, `correct`/`wrong` is relevance-only: no defect ledger, observed co-change, or automatic antibody; `partial` refuses without mutation, strength must be finite/nonnegative, and zero is a no-op. Do not turn a relevance judgment into a defect report. See `docs/LEARNING-EVENT-SEMANTICS.md`.
+
+For field telemetry, keep working (report, never detour): when m1nd ITSELF misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl` (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) — LOCAL-ONLY, never phones home. A memory-delivery fault (a claim leaked across brains, a false absence, a write to the wrong store) is `class:"memory_misdelivery"` + `kind:leak|false_absence|wrong_store_write|misattribution|vanished`. NEVER fix m1nd mid-mission; work around, note the workaround, report.
 
 The mailbox (MEDULLA §9.2, slice M7b): the spool is the ONE write slot; letters distribute LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl` — born local behind a consent-deferred `.gitignore`; the repo's own `m1nd init` is the ONE consent moment that flips it to committed and lets it travel with git, so do NOT assume a box is shared) + the medulla box for projectless letters — a letter naming a project NEVER lands in the medulla. Triage with `m1nd-mcp --inbox-sweep` (CLI) or `GET /api/inbox_sweep` (union of spool + every box, each letter once); read one project's box via `GET /api/mailbox?brain=<root>` (the §4A.9 selector, `served_brain` echo). Fates are derived from `answers[]` (`wet_ink`/`in_flight`/`fired_clay`/`external`); "abertas" = `wet_ink + in_flight`. These are CLI/REST surfaces — NOT MCP tools (never in the loop).
 
@@ -754,17 +756,21 @@ always with evidence + a `next_move`, never a bare no. It is PROJECT-TIER: no
 `all-brains` fan-out, and no predict/trust/tremor/xray enrichment yet; each
 omission is stated in `non_claims`, never hidden.
 
-When the subagent returns, `debrief {agent_id, delegation_id, outcome,
-diff|touched_paths, findings}` grades its real diff against the packet and TEACHES
-the graph — the ONLY mutation, through `memorize`/`learn`. It classifies each
+The generic `debrief` route remains authority-blocked. Its existing internal
+`debrief {agent_id, delegation_id, outcome, diff|touched_paths, findings}` path
+grades the real diff against the packet and records findings through
+`memorize`. Contacted dependencies receive relevance-only `learn(correct)`;
+unpredicted-path `partial` teaching is explicitly refused without learning
+mutation. Finding, map-miss memory, and outcome capture remain available in
+that internal path. It classifies each
 touched path (`in_scope | expected_change | dependent_contact | unpredicted`)
 with a worst-of verdict that carries fence existence ("stayed — no ratified
 boundaries existed"), memorizes the subagent's findings under the SUBAGENT's id
 and any map-miss lessons under YOURS (a clean run memorizes nothing), and appends
 one `outcomes.jsonl` row stamped `outcome_unverified` unless you attach
 `evidence`. Conformance grades PATHS, never code quality — it never says
-merge-safe. Every debrief deposits memory the next `delegate` surfaces, so
-skipping it wastes knowledge.
+merge-safe. Inspect the recorded findings and teaching refusals; a clean
+debrief need not deposit new memory.
 
 Subagent report protocol (what the child returns to you): a one-line header
 `[m1nd dlg_<id>] landed <brain> · <N> anchors · <M> memory` (or the abstain +

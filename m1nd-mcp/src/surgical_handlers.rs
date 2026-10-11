@@ -159,7 +159,7 @@ fn build_proactive_insights(
                     severity: "warning".into(),
                     kind: "trust_drop".into(),
                     message:
-                        "No defect history for this file — trust is unproven (insufficient_evidence), not benign. Run learn/cross_verify to populate it."
+                        "No verified defect history for this file — trust is unproven (insufficient_evidence), not benign. Generic relevance feedback cannot adjudicate defects."
                             .into(),
                     confidence: 0.5,
                     evidence: vec!["trust_band=insufficient_evidence".into()],

@@ -154,7 +154,7 @@ pub struct DriftInput {
 pub struct LearnInput {
     pub query: String,
     pub agent_id: String,
-    pub feedback: String, // "correct", "wrong", or "partial"
+    pub feedback: String, // relevance: "correct" or "wrong"; ambiguous "partial" refuses
     pub node_ids: Vec<String>,
     #[serde(default = "default_feedback_strength")]
     pub strength: f32,

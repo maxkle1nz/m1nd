@@ -116,18 +116,18 @@ sequenceDiagram
     H-->>D: JSON value
 ```
 
-Feedback loop (learn closes two RB subsystems):
+Relevance feedback boundary (generic `learn` no longer supplies either RB
+evidence store; public authority floors are unchanged):
 
 ```mermaid
 sequenceDiagram
     participant Ag as Agent
-    participant L as handle_learn (tools.rs:2921)
-    participant T as TemporalEngine.co_change
-    participant AB as antibody::extract_antibody_from_learn
-    Ag->>L: learn(feedback=correct, >=2 nodes)
-    L->>T: record co-change pairs (predict reads later)
-    L->>AB: mint antibody pattern (specificity GE 0.4)
-    AB-->>L: new Antibody (future antibody_scan matches)
+    participant L as handle_learn (tools.rs)
+    participant G as Graph relevance weights
+    Ag->>L: internal learn(correct or wrong, nodes, positive strength)
+    L->>G: adjust existing edges for relevance
+    L-->>Ag: retrieval_relevance (zero co-change writes, antibody_added=false)
+    Note over L,G: partial refuses before mutation; zero strength is a no-op
 ```
 
 ## State/Flow
@@ -160,12 +160,12 @@ stateDiagram-v2
 - Entry seeds carry maximal taint: a boundary node coinciding with an injection seed is reported hit with prob 1.0, not miss 0.0 (taint.rs:265-297).
 - Counterfactual removal never mutates or clones the graph: RemovalMask is a bitset; propagate_with_mask skips removed nodes/edges (counterfactual.rs:27-91,237-331).
 - Antibody persistence atomic-with-backup: save writes temp+rename and backs up prior; load falls back to .json.bak then empty (antibody.rs:1338-1414).
-- Auto-extracted antibodies must clear MIN_AUTO_EXTRACT_SPECIFICITY=0.4 or are dropped; near-duplicates above DUPLICATE_SIMILARITY_THRESHOLD=0.9 rejected (antibody.rs:1192; tools.rs:90-91).
+- Generic `learn` no longer invokes antibody extraction or temporal co-change recording. Historical stores, core extraction helpers, and independently observed-change producers remain separate; this correction creates no new public producer. See [learning event semantics](../LEARNING-EVENT-SEMANTICS.md).
 - Ghost edges are strictly the complement of static structure: a co-change pair becomes a ghost edge only if has_static_edge is false in both directions (git_history.rs:227,253-270).
 
 ## Gaps
 
-- **[high]** Temporal co-change state (CoChangeMatrix) is NOT persisted — rebuilt from graph structure on every session load and graph rebuild, so all ghost_edges git-history injection and all learn()-recorded co-change is ephemeral and silently lost across restarts/re-ingests; only the structural BFS bootstrap survives (temporal.rs:73 no Serialize; session.rs:1558/1927 rebuild. Contrast antibodies + epidemic DO persist).
+- **[high]** Temporal co-change state (CoChangeMatrix) is NOT persisted — rebuilt from graph structure on every session load and graph rebuild, so ghost_edges git-history injection is ephemeral across restarts/re-ingests; generic learn no longer records co-change; only the structural BFS bootstrap survives (temporal.rs:73 no Serialize; session.rs:1558/1927 rebuild. Contrast antibodies + epidemic DO persist).
 - **[medium]** Boundary/lock/read-only/entry-point detection across flow and taint is pure case-insensitive substring matching on labels/excerpts — real boundaries with unconventional names are missed (false negatives) and unrelated names containing a token are false positives (taint.rs:132/399, flow.rs:405-418).
 - **[medium]** find_keystones runs a single seed-trial per candidate so impact_std is always 0.0 despite KeystoneEntry advertising a standard deviation — the statistic is misleading (counterfactual.rs:611-626).
 - **[medium]** Several counterfactual outputs are structurally present but unpopulated: communities_split always 0, antifragility most_redundant/least_redundant empty — callers (incl refactor risk) get a zero where a real value is implied (counterfactual.rs:532, 810-811).
@@ -187,4 +187,4 @@ stateDiagram-v2
 
 ## MCP verbs
 
-ghost_edges (RB-01) - taint_trace (RB-02) - twins (RB-03) - refactor_plan (RB-04) - runtime_overlay (RB-05) - flow_simulate - epidemic - counterfactual - antibody_scan/list/create - predict (reads temporal) - learn (writes co-change + auto-extracts antibodies).
+ghost_edges (RB-01) - taint_trace (RB-02) - twins (RB-03) - refactor_plan (RB-04) - runtime_overlay (RB-05) - flow_simulate - epidemic - counterfactual - antibody_scan/list/create - predict (reads temporal) - learn (internal relevance weights only; no co-change or automatic antibodies; public generic route policy-disabled).

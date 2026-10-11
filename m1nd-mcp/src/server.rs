@@ -196,7 +196,7 @@ it with a `moved_to:` medulla `memorize` — this never touches the project witn
 never destroy).
 
 Then leave ONE field-telemetry signal and keep working (report, never detour): when a \
-retrieval was right or wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves \
+retrieval was right or wrong, `learn(correct|wrong)` (relevance only; ambiguous partial refuses); when m1nd ITSELF misbehaves \
 (a bug, friction, or an honesty miss — it claimed fresh/closed/act and was wrong), append \
 one JSON line to `~/.m1nd/field-reports.jsonl` \
 (`{ts,agent,repo,tool,class:\"bug|honesty|friction|win\",what,expected,snippet}`) — \
@@ -1039,7 +1039,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "debrief",
-                "description": "Grade a spawned subagent's real diff against the packet it was handed, and teach the graph — the ONLY mutation in the delegation layer, and it mutates only through existing verbs (memorize/learn). Load the registry record by delegation_id (unknown id is a hard error, no guessing), re-check staleness (a graph_drifted caveat when the graph moved under the packet), resolve the touched set (diff `+++ b/` headers or touched_paths), classify each path (in_scope | expected_change | dependent_contact | unpredicted) with a worst-of verdict that ALWAYS carries fence existence ('stayed — no ratified boundaries existed'), memorize findings under the subagent's id (breach/unpredicted lessons under the grader's id; clean runs memorize nothing), teach asymmetrically (unpredicted → learn partial, dependent-contact → learn correct; untouched dependents never punished), flip the record to debriefed, and append ONE outcomes.jsonl row (stamped outcome_unverified unless evidence is attached). Conformance grades PATHS, never code quality — it never says merge-safe. NOT read-only.",
+                "description": "Grade a spawned subagent's real diff against the packet it was handed, and teach the graph — the ONLY mutation in the delegation layer, and it mutates only through existing verbs (memorize/learn). Load the registry record by delegation_id (unknown id is a hard error, no guessing), re-check staleness (a graph_drifted caveat when the graph moved under the packet), resolve the touched set (diff `+++ b/` headers or touched_paths), classify each path (in_scope | expected_change | dependent_contact | unpredicted) with a worst-of verdict that ALWAYS carries fence existence ('stayed — no ratified boundaries existed'), memorize findings under the subagent's id (breach/unpredicted lessons under the grader's id; clean runs memorize nothing), teach relevance only (unpredicted partial attribution explicitly refuses; dependent-contact may reinforce relevance but never manufactures defect adjudication, observed co-change or antibodies; untouched dependents never punished), flip the record to debriefed, and append ONE outcomes.jsonl row (stamped outcome_unverified unless evidence is attached). Conformance grades PATHS, never code quality — it never says merge-safe. NOT read-only.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1246,7 +1246,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "learn",
-                "description": "Explicit feedback-based edge adjustment",
+                "description": "Authority-restricted retrieval-relevance edge adjustment only. No defect adjudication, observed co-change or automatic antibodies; existing authority floors remain unchanged.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1255,14 +1255,14 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "feedback": {
                             "type": "string",
                             "enum": ["correct", "wrong", "partial"],
-                            "description": "Feedback type: correct, wrong, or partial"
+                            "description": "correct/wrong label retrieval relevance; ambiguous partial is explicitly refused without mutation"
                         },
                         "node_ids": {
                             "type": "array",
                             "items": { "type": "string" },
                             "description": "Node identifiers to apply feedback to"
                         },
-                        "strength": { "type": "number", "default": 0.2, "description": "Feedback strength for edge adjustment" }
+                        "strength": { "type": "number", "minimum": 0, "default": 0.2, "description": "Finite nonnegative relevance adjustment; zero is a no-op" }
                     },
                     "required": ["query", "agent_id", "feedback", "node_ids"]
                 }
