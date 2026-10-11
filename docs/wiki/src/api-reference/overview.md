@@ -261,3 +261,13 @@ graph baselines. They are discoverable through full help and listed together by
 `M1ND_TOOL_TIER=investigate`. Node, subgraph and explicit path scopes are supported;
 query-neighborhood and periodic watching are not. They provide no filesystem
 exclusion or extra authority. See [the recipe](../../../GRAPH-CHANGE-TRACKING.md).
+
+### Single-file search identity (unreleased source build)
+
+For an ingested single-file root, graph-linked literal/regex `search` rows retain
+that file's canonical graph ID, including when its filesystem path is in native
+Windows canonical form. `graph_linked: false` identifies disk fallback, not proof
+that a returned ID belongs to the graph. Ambiguous relative identities across
+distinct roots omit the file-content mapping; identical canonical root aliases
+deduplicate. This correction grants no parent/sibling access and changes no lock
+or mutation authority. See [the limits and workflow](../../../GRAPH-CHANGE-TRACKING.md).

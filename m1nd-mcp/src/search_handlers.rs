@@ -1045,6 +1045,14 @@ fn collect_search_files(
     let mut seen: HashSet<PathBuf> = candidates.iter().map(|c| c.full_path.clone()).collect();
 
     for candidate in collect_disk_fallback_files(state, scope, filename_glob, &seen) {
+        // A graph identity omitted above (for example, an ambiguous basename)
+        // must not be relabelled as an unrelated disk fallback with that ID.
+        if graph
+            .resolve_id(&format!("file::{}", candidate.rel_path))
+            .is_some()
+        {
+            continue;
+        }
         seen.insert(candidate.full_path.clone());
         candidates.push(candidate);
     }
@@ -1088,7 +1096,10 @@ fn collect_graph_files(
                 seen_files.push(SearchFileCandidate {
                     rel_path: path.to_string(),
                     full_path: match crate::scope::authorize_existing_path(
-                        &resolve_full_path(state, path),
+                        &match resolve_full_path(state, path) {
+                            Some(path) => path,
+                            None => continue,
+                        },
                         &state.ingest_roots,
                         state.workspace_root.as_deref(),
                         "m1nd_search",
@@ -1250,13 +1261,19 @@ fn build_disk_fallback_candidate(
         return None;
     }
 
-    let rel_path = full_path
-        .strip_prefix(&authorized.root)
-        .ok()
-        .map(|path| normalize_path_text(&path.to_string_lossy()))
-        .filter(|path| !path.is_empty())
-        .or_else(|| relativize_against_ingest_roots_slice(&state.ingest_roots, &full_path))
-        .unwrap_or_else(|| full_path.to_string_lossy().to_string());
+    let rel_path = if authorized.root.is_file() {
+        // Single-file ingestion uses the basename as its graph identity, even
+        // when the authorized filesystem path has a Windows verbatim prefix.
+        normalize_path_text(full_path.file_name()?.to_str()?)
+    } else {
+        full_path
+            .strip_prefix(&authorized.root)
+            .ok()
+            .map(|path| normalize_path_text(&path.to_string_lossy()))
+            .filter(|path| !path.is_empty())
+            .or_else(|| relativize_against_ingest_roots_slice(&state.ingest_roots, &full_path))
+            .unwrap_or_else(|| full_path.to_string_lossy().to_string())
+    };
 
     if !scope_matches_path(&rel_path, scope, &state.ingest_roots)
         && !scope_matches_path(&full_path.to_string_lossy(), scope, &state.ingest_roots)
@@ -1288,7 +1305,10 @@ fn relativize_against_ingest_roots_slice(
     for root in ingest_roots {
         let root_path = Path::new(root);
         if let Ok(rel) = full_path.strip_prefix(root_path) {
-            return Some(normalize_path_text(&rel.to_string_lossy()));
+            let relative = normalize_path_text(&rel.to_string_lossy());
+            if !relative.is_empty() {
+                return Some(relative);
+            }
         }
     }
 
@@ -1441,20 +1461,37 @@ fn is_symbol_subnode(node_id: &str) -> bool {
 }
 
 /// Resolve a relative graph path to a full filesystem path using ingest roots.
-fn resolve_full_path(state: &SessionState, rel_path: &str) -> std::path::PathBuf {
+fn resolve_full_path(state: &SessionState, rel_path: &str) -> Option<PathBuf> {
     let path = Path::new(rel_path);
     if path.is_absolute() {
-        return path.to_path_buf();
+        return Some(path.to_path_buf());
     }
 
+    let mut candidates = HashSet::new();
     for root in &state.ingest_roots {
-        let candidate = canonicalize_path_hint(rel_path, std::slice::from_ref(root));
-        if candidate.exists() {
-            return candidate;
+        let root_path = Path::new(root);
+        let candidate = if root_path.is_file() {
+            // A file root authorizes that exact file, never its parent. Ingest
+            // names it by basename, not by joining another path onto the file.
+            if path.components().count() != 1 || path.file_name() != root_path.file_name() {
+                continue;
+            }
+            root_path.to_path_buf()
+        } else {
+            canonicalize_path_hint(rel_path, std::slice::from_ref(root))
+        };
+        if let Ok(canonical) = candidate.canonicalize() {
+            candidates.insert(canonical);
         }
     }
 
-    PathBuf::from(rel_path)
+    match candidates.len() {
+        0 => Some(path.to_path_buf()),
+        1 => candidates.into_iter().next(),
+        // Two roots with the same relative identity cannot safely select one
+        // file's contents for a graph node. Canonical aliases count only once.
+        _ => None,
+    }
 }
 
 /// Extract file path and line number from a node's external_id / provenance.
@@ -1495,7 +1532,9 @@ fn get_context_lines(
     }
 
     // Try to read the file
-    let resolved = resolve_full_path(state, file_path);
+    let Some(resolved) = resolve_full_path(state, file_path) else {
+        return (vec![], vec![]);
+    };
     let authorized = match crate::scope::authorize_existing_path(
         &resolved,
         &state.ingest_roots,
@@ -2874,3 +2913,7 @@ mod tests {
             .contains("confirm content-level relevance"));
     }
 }
+
+#[cfg(test)]
+#[path = "search_handlers/single_file_identity_tests.rs"]
+mod single_file_identity_tests;
