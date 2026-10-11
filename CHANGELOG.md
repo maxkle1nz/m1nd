@@ -6,12 +6,22 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-## [1.6.5] — release candidate
+### Fixed
 
-Not published yet. This candidate skips the existing `v1.6.4` tag rather than
-moving it. The latest published release remains 1.6.3 until the signed release
-pipeline completes. All published crates receive fresh versions, including
-`m1nd-control` 0.2.3; package bytes and their source identity are immutable.
+- Internal learning feedback is relevance-only: `learn(correct|wrong)` changes
+  graph weights without recording defects, false alarms, observed co-change or
+  automatic antibodies. Ambiguous `partial` feedback refuses without mutation;
+  zero strength is a no-op. See [learning event semantics](docs/LEARNING-EVENT-SEMANTICS.md).
+  This post-release fix is not part of the sealed 1.6.5 artifacts.
+
+## [1.6.5] — 2026-10-11
+
+GitHub/native artifacts and crates.io packages are published from immutable
+commit `363bc97f2336c73e90802916804dccd2109c5746`; npm 1.6.5 publication remains
+pending. This release skips the existing `v1.6.4` tag rather than moving it.
+Published crates carry fresh versions, including `m1nd-control` 0.2.3; package
+bytes and their source identity are immutable. Later source changes belong to
+Unreleased, even while their package version strings still say 1.6.5.
 
 ### Changed
 
