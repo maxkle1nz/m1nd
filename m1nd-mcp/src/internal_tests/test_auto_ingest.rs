@@ -101,19 +101,27 @@ fn search_count(state: &mut SessionState, query: &str) -> usize {
     .unwrap_or(0)
 }
 
-fn search_first_node_id(state: &mut SessionState, query: &str) -> String {
-    call(
-        state,
-        "search",
-        json!({"agent_id":"tester","query":query,"mode":"literal"}),
-    )
-    .get("results")
-    .and_then(|value| value.as_array())
-    .and_then(|value| value.first())
-    .and_then(|value| value.get("node_id"))
-    .and_then(|value| value.as_str())
-    .unwrap_or("")
-    .to_string()
+// Literal search can rank a disk-only file:: row ahead of Light document
+// nodes. This watcher fixture needs the actual ingested Light file identity.
+fn light_file_node_id(state: &SessionState, file_name: &str) -> String {
+    let graph = state.graph.read();
+    let ids: Vec<_> = graph
+        .id_to_node
+        .iter()
+        .filter(|(external, node)| {
+            graph.strings.resolve(**external).starts_with("light::")
+                && graph.nodes.node_type[node.as_usize()] == m1nd_core::types::NodeType::File
+                && graph.strings.resolve(graph.nodes.label[node.as_usize()]) == file_name
+        })
+        .map(|(external, _)| graph.strings.resolve(*external).to_string())
+        .collect();
+    assert_eq!(
+        ids.len(),
+        1,
+        "fixture must contain exactly one ingested Light file: {ids:?}"
+    );
+    assert!(graph.resolve_id(&ids[0]).is_some());
+    ids.into_iter().next().unwrap()
 }
 
 fn search_file_paths(state: &mut SessionState, query: &str) -> Vec<String> {
@@ -434,8 +442,7 @@ fn auto_ingest_lock_watch_observes_ingest_mutations() {
         json!({"agent_id":"tester","roots":[docs_root.to_string_lossy().to_string()],"formats":["light"],"debounce_ms":0}),
     );
 
-    let node_id = search_first_node_id(&mut state, "WatchedNode");
-    assert!(!node_id.is_empty(), "watched node result");
+    let node_id = light_file_node_id(&state, "watch.md");
 
     let created = call(
         &mut state,
@@ -454,9 +461,22 @@ fn auto_ingest_lock_watch_observes_ingest_mutations() {
         json!({"agent_id":"tester","lock_id":lock_id,"strategy":"on_ingest"}),
     );
 
+    let generation_before = state.graph_generation;
     write(&file, &light_doc("WatchedNodeV2", "10.1000/watch"));
     wait_for_queue(&mut state, 1);
     call(&mut state, "auto_ingest_tick", json!({"agent_id":"tester"}));
+    assert!(state.graph_generation > generation_before);
+    {
+        let graph = state.graph.read();
+        assert!(
+            graph
+                .nodes
+                .label
+                .iter()
+                .any(|label| graph.strings.resolve(*label).contains("WatchedNodeV2")),
+            "auto-ingest must publish the edited document into the graph"
+        );
+    }
 
     let diff = call(
         &mut state,
