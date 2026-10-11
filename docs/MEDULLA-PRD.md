@@ -1,5 +1,7 @@
 # The Medulla — PRD
 
+> **Current feedback scope — 2026-10-11:** The historical designs below do not authorize generic learning. Internal `learn(correct|wrong)` adjusts retrieval relevance only; `partial` refuses without mutation. It creates no defect adjudication, observed co-change, automatic antibodies, or claim-state demotion. Public learning/debrief/calibration floors remain blocked, and no new verified-defect ingress is installed. This scoped clarification supersedes contrary feedback passages below, while retaining their design history. See [the current event contract](LEARNING-EVENT-SEMANTICS.md).
+
 **The antifragile memory layer across brains · states, promotion, pull-only recall, delegation inheritance (Two-Tier Slices 5–7, spec'd whole)**
 
 > **Status:** OFFICIAL — approved direction, designed 2026-07-05 as the deep spec for the Two-Tier ladder's "medulla split (Slices 5–7)" block (`docs/TWO-TIER-BRAIN-PRD.md` §9.5.5 "still open" list, §14). This document does not replace the Two-Tier PRD; it makes its memory layer implementable. Where Two-Tier already decided something (Q1–Q6, B1–B10, TT-INV-1..12, §7 hygiene, §8 promotion direction), this PRD **inherits the decision and deepens the mechanics** — it never silently re-decides.
@@ -92,7 +94,7 @@ A **claim** is one `.light.md` node (one label in one store). Its lifecycle stat
 |---|---|---|---|
 | ∅ → `project_private` | `memorize` (routed to the caller's brain) | any agent | frontmatter `Created`, `Source-Agent`, `Origin-Brain` (§6) |
 | `project_private` → `promoted` | `promote` verb (§7) — copy-with-provenance into the medulla + witness stamp | `*:orchestrator` or `human:maintainer` (etiquette-by-provenance, TT-INV-7) | medulla copy: `Origin-Brain`, `Origin-Claim`, `Promoted-By`, `Promotion-Reason`; witness: `Promoted-To` |
-| `promoted` → demoted (medulla copy superseded) | `learn wrong` on the medulla copy, or the §6 consolidation pass, or an explicit superseding `memorize` on the medulla | orchestrator/maintainer | medulla `.history/` entry; **the project witness is untouched** — demotion un-shares, it never destroys the local truth |
+| `promoted` → demoted (medulla copy superseded) | the §6 consolidation design or an explicitly authorized superseding `memorize` on the medulla; generic learn is not a demotion mechanism | orchestrator/maintainer | medulla `.history/` entry; **the project witness is untouched** — demotion un-shares, it never destroys the local truth |
 | any live → `superseded` | same-label `memorize` at ≥ strength (else `WouldDowngrade` refusal — the weaker write bounces, live today) | any agent (in that brain) | `.history/<slug>.<ts>.light.md` `State: outdated`; new file `Supersedes:` |
 | live ↔ `aged` overlay | nothing — computed at every read | time | `stale`/`aged_out` flags on recall rows and `cross_verify` output |
 | doctrine birth (the ONE exception) | `memorize` executed **against the medulla store itself** (explicit `tier:"medulla"` write target, orchestrator/maintainer etiquette) — for claims that are doctrine at birth (a maintainer preference stated directly) and have no project origin | orchestrator/maintainer | `Origin-Brain: medulla` — honest: it never had a project witness |
@@ -105,7 +107,7 @@ stateDiagram-v2
     [*] --> PP: memorize (routed)
     [*] --> PR: doctrine-born (explicit medulla write, orchestrator or maintainer)
     PP --> PR: promote — EXPLICIT act, Promoted-By + Promotion-Reason recorded
-    PR --> PR: demotion (learn wrong / consolidation) supersedes the medulla copy — witness UNTOUCHED
+    PR --> PR: explicit supersession / consolidation design, not generic learn, changes the medulla copy — witness UNTOUCHED
     PP --> SU: same-label memorize at greater-or-equal strength (weaker write REFUSED, WouldDowngrade)
     PR --> SU: supersession runs per store, independently — no tier edits the other
     SU --> [*]
@@ -252,7 +254,7 @@ promote { agent_id, brain: <project_root>, claim: <slug>, reason: <one line> }
 
 **Who may promote (inherited, TT-INV-7):** any agent proposes (a claim text saying "candidate for promotion" is just a claim); only `*:orchestrator` / `human:maintainer` execute `promote`. This is **etiquette enforced by provenance audit, not a security boundary** — `agent_id` is self-declared; violations are auditable (`Promoted-By` is on every copy), not preventable. Delegation packets instruct makers accordingly (§8).
 
-**Demotion:** `learn wrong` on the medulla copy (kills its trust and marks it for the consolidation pass) or a superseding medulla `memorize` (e.g. `moved_to:` back-pointer when a "cross-project" finding turns out to be one repo's quirk). The project witness is never touched by demotion — un-sharing must not destroy the local truth that was and remains correct at home. `memorize --promote` (write-through at memorize time, V2 in TT §15) remains V2: it needs the federated-write client; the M6 verb is owner-local and ships without it.
+**Demotion:** the earlier learn-wrong proposal is not current behavior: generic relevance feedback changes neither claim state nor trust history. Use an explicitly authorized superseding medulla `memorize` (e.g. `moved_to:` back-pointer when a "cross-project" finding turns out to be one repo's quirk). The project witness is never touched by demotion — un-sharing must not destroy the local truth that was and remains correct at home. `memorize --promote` (write-through at memorize time, V2 in TT §15) remains V2: it needs the federated-write client; the M6 verb is owner-local and ships without it.
 
 ---
 
@@ -304,7 +306,7 @@ Memory misdelivery becomes a first-class, countable event. The write path stays 
 | `misattribution` | provenance/counters attributed to the wrong brain or agent | 2026-07-04 23:55 (owner-global counters on per-brain cards) |
 | `vanished` | a store on disk invisible to a listing/recall surface | 2026-07-04 17:20 + 18:40 (Hall) |
 
-Reporting stays a **doctrine act by agents/humans** — the `[KILLED: auto-field-report-on-corruption]` decision is inherited; what M7b adds is the vocabulary, the counter, and the loop. A `memory_feedback` verb is deliberately NOT added (`[REFINED]` against the sketch's option): `learn(correct|wrong|partial)` already grades retrieval quality per-claim and feeds trust; the mailbox already carries free-form events; a third channel would split the signal. The loop is: **mailbox row → triage sweep (existing doctrine) → battery case BEFORE the fix (existing doctrine) → new MED-INV if a law was missing.**
+Reporting stays a **doctrine act by agents/humans** — the `[KILLED: auto-field-report-on-corruption]` decision is inherited; what M7b adds is the vocabulary, the counter, and the loop. A `memory_feedback` verb is deliberately NOT added (`[REFINED]` against the sketch's option): internal `learn(correct|wrong)` grades retrieval relevance only, `partial` refuses, and no trust/co-change/antibody evidence follows; this does not install a public feedback consumer; the mailbox already carries free-form events; a third channel would split the signal. The loop is: **mailbox row → triage sweep (existing doctrine) → battery case BEFORE the fix (existing doctrine) → new MED-INV if a law was missing.**
 
 ### 9.2 The mailbox becomes boxes — each project its own box (B3 amended, approved 2026-07-05)
 
@@ -339,7 +341,7 @@ Each event that survives triage adds its case to the battery of the brain it bit
 ## 10. Honesty invariants (MED-INV — additive to the TT-INV floor, all 12 of which bind here)
 
 1. **MED-INV-1 · The no-leak law.** No claim from brain Y surfaces in brain X's default beat unless it is a medulla claim (promoted or doctrine-born). The default beat reads exactly two stores; `all-brains` is explicit, labeled, never default.
-2. **MED-INV-2 · Every state transition is an explicit recorded act** — memorize, promote, supersede, learn-wrong. Nothing moves a claim silently; `aged` is computed from the immutable `Created`, never stored.
+2. **MED-INV-2 · Every state transition is an explicit recorded act** — memorize, promote, supersede. The historical learn-wrong demotion proposal is superseded; generic relevance feedback is not a claim-state transition. Nothing moves a claim silently; `aged` is computed from the immutable `Created`, never stored.
 3. **MED-INV-3 · Promotion elevates, never moves; demotion un-shares, never destroys.** The project witness outlives every medulla decision about its copy. No tier edits the other's files — composition and labels only (TT §8 conflict table inherited).
 4. **MED-INV-4 · Provenance or honest absence.** Every surfaced memory row carries `origin_brain` + `source_agent` + age, or renders the absence as unknown — never backfilled, never faked (extends TT-INV-2 to the brain axis).
 5. **MED-INV-5 · Promotion gating is etiquette-by-provenance** (TT-INV-7 restated for the verb): `Promoted-By` makes violations auditable; nothing stronger is claimed.
@@ -404,7 +406,7 @@ Each event that survives triage adds its case to the battery of the brain it bit
 - **Battery:** the probe repro (this PRD's §2.2, mechanized as the seed case) · no-leak permutation matrix · false-absence case · default-unchanged golden.
 
 ### M6 — The promotion verb + audit trail — [SHIPPED 2026-07-05]
-- **Scope:** `promote` verb per §7 (load → hygiene floor → medulla copy with the four provenance stamps → witness stamp → cap report); demotion documented as `learn wrong` + consolidation (no new verb); the conflict-composition table (TT §8) wired into the composed beat's rendering (conflicting pairs labeled, ranked, never silently resolved); agent-workflow surfaces in the SAME PR (`M1ND_INSTRUCTIONS` promotion etiquette paragraph, agent-pack/skills text, host rule files — the era-coherence gate).
+- **Scope:** `promote` verb per §7 (load → hygiene floor → medulla copy with the four provenance stamps → witness stamp → cap report); historical demotion design used learn-wrong + consolidation, but generic learn is not current demotion (see the current feedback scope above); the conflict-composition table (TT §8) wired into the composed beat's rendering (conflicting pairs labeled, ranked, never silently resolved); agent-workflow surfaces in the SAME PR (`M1ND_INSTRUCTIONS` promotion etiquette paragraph, agent-pack/skills text, host rule files — the era-coherence gate).
 - **RED:** no promotion surface exists (grep-proven @ `99006f6`); a cross-project finding cannot reach another brain's beat by any recorded act (assert: memorize in Y, full `north` in X, absent; no verb closes the gap).
 - **GREEN:** promote → the claim appears in X's next default beat under `tier: medulla` with the full chain readable ("learned in Y by A, promoted by B, reason R"); maker-id promote lands but is auditably attributed (etiquette, not enforcement — the test asserts the audit, honestly not a block); `WouldDowngrade` bounces a weaker re-promotion; witness untouched by a medulla-side demotion.
 - **Battery:** promote-then-recall case · provenance-chain render case · downgrade-bounce case · demotion-preserves-witness case · secret-in-claim refused at the promotion hygiene floor.

@@ -758,7 +758,8 @@ to the machine-global mailbox `~/.m1nd/field-reports.jsonl`
 (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) and keep working.
 Report-never-fix mid-mission is the rule. The `honesty` class is the most valuable — it is
 calibration ground truth (m1nd overclaimed and was wrong). When retrieval was simply right/wrong,
-prefer the built-in `learn` verb (correct/wrong/partial). Triage closes the loop: every improvement
+use internal `learn(correct|wrong)` only with existing authority for relevance; `partial`
+refuses, and no defect/co-change/antibody evidence follows. Public learning remains blocked. Triage closes the loop: every improvement
 session STARTS by sweeping the mailbox (+ `seek` for field memories), and a confirmed field bug
 becomes a battery case/test BEFORE the fix. The mailbox is local-only — m1nd never phones home.
 

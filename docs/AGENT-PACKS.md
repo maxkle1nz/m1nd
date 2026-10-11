@@ -88,7 +88,8 @@ portable pack therefore teaches every host this default sequence:
    or reviews.
 8. Close warmer than you found it: `memorize` every durable finding (with
    `confidence` and repo-relative `evidence` paths), then leave one
-   field-telemetry signal — `learn(correct|wrong|partial)`, or one JSON line in
+   field-telemetry signal — internal `learn(correct|wrong)` relevance feedback only when
+   already authorized (`partial` refuses; public learning remains blocked), or one JSON line in
    `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves (local-only; never
    fix m1nd mid-mission — report). Record tool calls, recovery paths, files
    inspected, and commands run.

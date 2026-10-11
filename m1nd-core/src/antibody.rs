@@ -51,8 +51,9 @@ pub enum AntibodySeverity {
 
 /// A structural bug pattern stored as an immune memory entry.
 ///
-/// Antibodies are created from confirmed bug reports (via `learn("correct")`)
-/// and used to scan future graph states for recurrences of the same pattern.
+/// Antibodies represent caller-supplied bug patterns and support recurrence scans.
+/// Construction does not verify a bug report. Generic MCP relevance feedback
+/// does not create antibodies; explicit producers need their own evidence and authority.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Antibody {
@@ -1079,7 +1080,11 @@ pub fn scan_antibodies(
     }
 }
 
-/// Extract an antibody pattern from a set of graph nodes (learn feedback).
+/// Extract a candidate pattern from explicitly supplied bug-pattern nodes.
+///
+/// The historical function name is retained for API compatibility; generic MCP
+/// `learn` does not invoke it. The caller must establish evidence and authority;
+/// extraction alone does not confirm a defect.
 ///
 /// Returns `None` if specificity is below `MIN_AUTO_EXTRACT_SPECIFICITY`.
 ///
@@ -1088,7 +1093,7 @@ pub fn scan_antibodies(
 /// - `node_ids`: nodes that exhibited the bug pattern
 /// - `name`: human-readable name for the extracted antibody
 /// - `query`: original query that produced these nodes
-/// - `agent_id`: agent that provided the learn feedback
+/// - `agent_id`: caller-attributed provenance, not proof of verification or authority
 pub fn extract_antibody_from_learn(
     graph: &Graph,
     node_ids: &[NodeId],

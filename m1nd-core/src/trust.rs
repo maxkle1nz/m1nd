@@ -27,17 +27,19 @@ pub const PRIOR_CAP: f32 = 0.95;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustEntry {
-    /// Number of confirmed defects (from `learn("correct")`).
+    /// Recorded defect adjudications supplied to `record_defect`, not generic MCP relevance feedback.
+    /// Historical entries are retained; this counter does not verify their provenance.
     pub defect_count: u32,
-    /// Number of false alarms (from `learn("wrong")`).
+    /// Recorded false-alarm adjudications, not generic MCP `learn("wrong")` relevance grades.
     pub false_alarm_count: u32,
-    /// Number of partial matches (from `learn("partial")`).
+    /// Legacy partial-adjudication counter. Generic MCP partial feedback is refused.
     pub partial_count: u32,
     /// Unix timestamp (seconds) of the most recent confirmed defect.
     pub last_defect_timestamp: f64,
     /// Unix timestamp (seconds) of the first confirmed defect.
     pub first_defect_timestamp: f64,
-    /// Total learn events (defect + false_alarm + partial).
+    /// Total recorded ledger events (defect + false_alarm + partial).
+    /// The persisted field name is retained for compatibility, not a generic learn connection.
     pub total_learn_events: u32,
 }
 
@@ -175,7 +177,9 @@ impl std::str::FromStr for TrustSortBy {
 /// Actuarial defect ledger that maps node external IDs to their defect histories.
 ///
 /// Accumulates `record_defect`, `record_false_alarm`, and `record_partial` events
-/// as learn feedback arrives, then computes time-weighted trust scores on demand.
+/// from explicit caller-supplied ledger operations, then computes time-weighted scores.
+/// These primitives do not authenticate callers or verify evidence; generic MCP
+/// learn does not call them, and no new authorized adjudication ingress is implied.
 #[derive(Clone, Debug, Default)]
 pub struct TrustLedger {
     entries: HashMap<String, TrustEntry>,
@@ -189,7 +193,8 @@ impl TrustLedger {
         }
     }
 
-    /// Record a defect (from learn("correct")).
+    /// Record a caller-supplied defect adjudication; verification is the caller's responsibility.
+    /// Generic MCP relevance feedback must not be converted into this event.
     pub fn record_defect(&mut self, external_id: &str, timestamp: f64) {
         let entry = self
             .entries
@@ -210,7 +215,7 @@ impl TrustLedger {
         }
     }
 
-    /// Record a false alarm (from learn("wrong")).
+    /// Record a caller-supplied false-alarm adjudication, not a relevance grade.
     pub fn record_false_alarm(&mut self, external_id: &str, timestamp: f64) {
         let entry = self
             .entries
@@ -228,7 +233,8 @@ impl TrustLedger {
         let _ = timestamp; // false alarms don't update defect timestamps
     }
 
-    /// Record a partial match (from learn("partial")).
+    /// Retain the explicit legacy partial-adjudication primitive for compatibility.
+    /// This is not the ambiguous generic MCP partial-feedback path, which refuses.
     pub fn record_partial(&mut self, external_id: &str, timestamp: f64) {
         let entry = self
             .entries
