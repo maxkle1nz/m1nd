@@ -15,7 +15,7 @@ copy-pasteable recipes referenced below — read it, do not duplicate it).
 
 ## Version boundary
 
-This source line is `1.6.4`; the latest published release at this refresh is `1.6.3`. The npx commands below pin the published wrapper; require native 1.6.3 for the direct-stdio recipe. The automatic isolated first-workspace path is source-preview until publication. Use matching wrapper/native versions. Generic client `replace`/`merge` remain refused; the newer launcher path is not a shared-brain authority grant.
+This source line is `1.6.5`; the latest published release at this refresh is `1.6.3`. The npx commands below pin the published wrapper; require native 1.6.3 for the direct-stdio recipe. The automatic isolated first-workspace path is source-preview until publication. Use matching wrapper/native versions. Generic client `replace`/`merge` remain refused; the newer launcher path is not a shared-brain authority grant.
 
 ## 0. Prerequisites
 
@@ -224,7 +224,7 @@ It asks `m1nd-mcp --discover-owner` first (read-only, no lease — `--attach aut
 questions) and bridges to a live serve owner whose declared ingest roots cover the repo,
 so on a machine with a served owner it reads that owner's real graph. With no covering
 owner, published older builds may report `needs_authority` / `NOT_PROVEN`. The matching
-1.6.4 source wrapper/native runtime can instead prepare an isolated graph for the exact
+1.6.5 source wrapper/native runtime can instead prepare an isolated graph for the exact
 launcher-granted repo in an external private cache. It cannot mint a shared brain or move
 a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md) for the precise source contract. Read `runtime.boot`
 (`attached_serve_owner` | `isolated_runtime`) and `runtime.owner_discovery` before

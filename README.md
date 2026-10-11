@@ -31,7 +31,7 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 <a id="sixty-seconds"></a>
 <a id="quick-start"></a>
 
-**Version matters:** this branch contains the `1.6.4` source line. At this documentation refresh, the latest published release is `1.6.3`. The automatic isolated first-workspace path below is a **source-preview feature** until `1.6.4` is published. Check [releases](https://github.com/maxkle1nz/m1nd/releases) for shipped versions.
+**Version matters:** this branch contains the `1.6.5` source line. At this documentation refresh, the latest published release is `1.6.3`. The automatic isolated first-workspace path below is a **source-preview feature** until `1.6.5` is published. Check [releases](https://github.com/maxkle1nz/m1nd/releases) for shipped versions.
 
 ### Published 1.6.3: install, prepare, connect
 
@@ -69,7 +69,7 @@ The agent should call `north` first, then use `seek` and source inspection as ne
 
 [Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors. [Your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
 
-### Source preview: isolated first workspace (1.6.4)
+### Source preview: isolated first workspace (1.6.5)
 
 For contributors testing the current source, use the matching wrapper and native runtime, rather than combining this checkout's wrapper with a published older binary. Use a clean shell without the published recipe's runtime override; the source CLI selects an external private cache:
 

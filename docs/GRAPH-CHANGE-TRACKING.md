@@ -2,7 +2,7 @@
 
 Unreleased source-build recovery: five existing `lock_*` handlers are discoverable again.
 The published signed 1.6.3 release does not include this menu restoration; the
-1.6.4 source candidate is not a release or a promise about an installed binary.
+1.6.5 source candidate is not a release or a promise about an installed binary.
 The default MCP menu remains 15 tools. Set `M1ND_TOOL_TIER=investigate` in the
 **server's launch environment**, then restart/reconnect the MCP host. Its
 `tools/list` advertises the core plus these five tools (20 total):
