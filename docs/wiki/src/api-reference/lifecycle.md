@@ -908,328 +908,80 @@ Validate a proposed modification plan against the code graph. Detects gaps (affe
 <a id="m1ndlockcreate"></a>
 
 ## `lock_create`
-Pin a subgraph region and capture a baseline snapshot for change monitoring. Locks are used to track what changes in a region of the graph while you work. The baseline is compared against the current state when you call `lock.diff`.
 
-### Parameters
+**Unreleased source-build restoration.** These five graph-tracking tools are in
+full registry/help discovery and the opt-in `M1ND_TOOL_TIER=investigate` menu.
+The released 1.6.3 menu does not include this restoration. Restart/reconnect the
+host after changing its server environment. Default core remains unchanged.
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. Lock is owned by this agent. |
-| `scope` | `string` | Yes | -- | Scope type. Values: `"node"` (single nodes only), `"subgraph"` (BFS expansion from roots), `"query_neighborhood"` (nodes matching a query), `"path"` (ordered node list). |
-| `root_nodes` | `string[]` | Yes | -- | Root nodes for the lock scope. Non-empty. Matched by external_id (exact), then label, then substring. |
-| `radius` | `integer` | No | -- | BFS radius for `subgraph` scope. Range: 1 to 4. Required for subgraph scope. |
-| `query` | `string` | No | -- | Query string for `query_neighborhood` scope. |
-| `path_nodes` | `string[]` | No | -- | Ordered node list for `path` scope. |
+Capture an ephemeral graph baseline; this is not a filesystem lock, reservation,
+source-content diff, or mutual exclusion. All calls use the same `agent_id` and
+running session. Copy live canonical node IDs from `seek`/`search`, then save the
+returned `lock_id`. Baselines do not survive restart.
 
-### Scope Types
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier; owns the baseline. |
+| `scope` | `string` | Yes | `node`, `subgraph`, or `path`. |
+| `root_nodes` | `string[]` | Yes | Nonempty exact canonical IDs or unique exact labels. Unknown/ambiguous IDs refuse. |
+| `radius` | `integer` | No | Subgraph only: outgoing BFS depth 1–4, default 2. |
+| `path_nodes` | `string[]` | No | Path only: additional explicit nodes. Does not calculate or validate connectivity. |
 
-| Scope | Description |
-|-------|-------------|
-| `node` | Lock only the specified root nodes |
-| `subgraph` | BFS expansion from root nodes up to `radius` hops |
-| `query_neighborhood` | Nodes matching a query activation |
-| `path` | An ordered list of nodes forming a path |
-
-### Example Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 4,
-  "method": "tools/call",
-  "params": {
-    "name": "lock_create",
-    "arguments": {
-      "agent_id": "agent-1",
-      "scope": "subgraph",
-      "root_nodes": ["file::chat_handler.py"],
-      "radius": 2
-    }
-  }
-}
-```
-
-### Example Response
-
-```json
-{
-  "lock_id": "lock_agent1_001",
-  "scope": "subgraph",
-  "baseline_nodes": 1639,
-  "baseline_edges": 707,
-  "graph_generation": 42,
-  "created_at_ms": 1710300000000
-}
-```
-
-### Limits
-
-- Max locks per agent: configurable (default: 10)
-- Max baseline nodes: configurable (default: 5000)
-- Max baseline edges: configurable (default: 10000)
-- Total memory budget shared with perspectives
-
-### When to Use
-
-- **Change monitoring** -- lock a region before making changes, then diff to see what changed
-- **Multi-agent coordination** -- lock regions to detect when other agents' changes affect your work
-- **Regression detection** -- lock a stable region and watch for unexpected changes
-
-### Related Tools
-
-- [`lock_watch`](#m1ndlockwatch) -- set automatic change detection
-- [`lock_diff`](#m1ndlockdiff) -- compute what changed since baseline
-- [`lock_release`](#m1ndlockrelease) -- release the lock when done
-
----
+`query_neighborhood` and `query` refuse. `node` uses the explicit roots;
+`subgraph` expands them; `path` combines roots and optional path nodes. The
+snapshot observes scoped nodes and every incident edge, including incoming and
+outgoing boundary edges. `baseline_edges` counts directed CSR arcs, so a bidirectional logical edge counts
+twice. Parallel arcs use deterministic weight-sorted multiset pairing, not
+persistent edge-instance attribution. Treat edge keys as opaque JSON tuples.
+Output includes `lock_id`, scope, baseline counts, generation and creation time.
+See the [beginner and advanced recipe](../../../GRAPH-CHANGE-TRACKING.md).
 
 <a id="m1ndlockwatch"></a>
 
 ## `lock_watch`
-Set a watcher strategy on a lock. Watchers determine when the lock automatically detects changes. Without a watcher, you must manually call `lock.diff`.
 
-### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. Must own the lock. |
-| `lock_id` | `string` | Yes | -- | Lock to set the watcher on. |
-| `strategy` | `string` | Yes | -- | Watcher strategy. Values: `"manual"` (no automatic detection), `"on_ingest"` (detect after every ingest), `"on_learn"` (detect after every learn call). Note: `"periodic"` is not supported in V1. |
-
-### Example Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 5,
-  "method": "tools/call",
-  "params": {
-    "name": "lock_watch",
-    "arguments": {
-      "agent_id": "agent-1",
-      "lock_id": "lock_agent1_001",
-      "strategy": "on_ingest"
-    }
-  }
-}
-```
-
-### Example Response
-
-```json
-{
-  "lock_id": "lock_agent1_001",
-  "strategy": "on_ingest",
-  "previous_strategy": null
-}
-```
-
-### When to Use
-
-- **Automatic monitoring** -- set `on_ingest` to detect changes after every code re-ingest
-- **Learning feedback** -- set `on_learn` to detect when learning shifts edge weights in your region
-- **Manual control** -- set `manual` to disable automatic detection
-
-### Related Tools
-
-- [`lock_diff`](#m1ndlockdiff) -- manually trigger a diff (always available regardless of strategy)
-- [`lock_create`](#m1ndlockcreate) -- create the lock first
-
----
+Required: `agent_id`, returned `lock_id`, and `strategy`.
+`manual` buffers no notifications; `on_ingest` and `on_learn` buffer coalesced
+trigger notifications. They do not run a background scheduler, watch source
+files, or authorize graph updates. `periodic` refuses. In particular, configuring
+`on_learn` does not make an authority-gated `learn` call executable.
+Output includes the strategy and the previous strategy when one was replaced.
 
 <a id="m1ndlockdiff"></a>
 
 ## `lock_diff`
-Compute what changed in a locked region since the baseline was captured. Returns new/removed nodes, new/removed edges, weight changes, and watcher event counts. Fast-path: if the graph generation has not changed, returns immediately with `no_changes: true`.
 
-### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. Must own the lock. |
-| `lock_id` | `string` | Yes | -- | Lock to diff. |
-
-### Example Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 6,
-  "method": "tools/call",
-  "params": {
-    "name": "lock_diff",
-    "arguments": {
-      "agent_id": "agent-1",
-      "lock_id": "lock_agent1_001"
-    }
-  }
-}
-```
-
-### Example Response (changes detected)
-
-```json
-{
-  "diff": {
-    "lock_id": "lock_agent1_001",
-    "no_changes": false,
-    "new_nodes": ["file::chat_handler.py::fn::new_method"],
-    "removed_nodes": [],
-    "new_edges": ["chat_handler.py|new_method->stream_parser.py|calls"],
-    "removed_edges": [],
-    "boundary_edges_added": [],
-    "boundary_edges_removed": [],
-    "weight_changes": [
-      { "edge_key": "chat_handler.py|stream_parser.py|imports", "old_weight": 0.5, "new_weight": 0.72 }
-    ],
-    "baseline_stale": false,
-    "elapsed_ms": 0.08
-  },
-  "watcher_events_drained": 2,
-  "rebase_suggested": null
-}
-```
-
-### Example Response (no changes)
-
-```json
-{
-  "diff": {
-    "lock_id": "lock_agent1_001",
-    "no_changes": true,
-    "new_nodes": [],
-    "removed_nodes": [],
-    "new_edges": [],
-    "removed_edges": [],
-    "boundary_edges_added": [],
-    "boundary_edges_removed": [],
-    "weight_changes": [],
-    "baseline_stale": false,
-    "elapsed_ms": 0.001
-  },
-  "watcher_events_drained": 0,
-  "rebase_suggested": null
-}
-```
-
-### When to Use
-
-- **After ingest** -- check if your locked region was affected
-- **After learning** -- check if feedback shifted weights in your region
-- **Periodic check** -- poll for changes during long sessions
-- **Before committing** -- verify no unexpected changes in the region
-
-### Related Tools
-
-- [`lock_rebase`](#m1ndlockrebase) -- re-capture baseline after acknowledging changes
-- [`lock_watch`](#m1ndlockwatch) -- set automatic change detection
-
----
+Required: `agent_id` and returned `lock_id`.
+Compares the current scoped graph against the baseline. Reports canonical node
+additions/removals, internal and boundary edge additions/removals, weight changes,
+and generation staleness. Weight changes require an absolute delta greater than
+0.001; `no_changes` means no detected change above that tolerance.
+`diff_truncated` flags capped added-node, added-internal-edge and
+added-boundary-edge previews only. `no_changes` is computed before those caps. It drains pending watcher notifications but does not
+advance the baseline. `watcher_events_drained` counts coalesced notification
+batches, not mutations. An empty diff is not proof that source text is unchanged:
+source changes only appear here after an independently authorized graph update.
 
 <a id="m1ndlockrebase"></a>
 
 ## `lock_rebase`
-Re-capture the lock baseline from the current graph without releasing the lock. Use this after calling `lock.diff` and acknowledging the changes -- the new baseline becomes the reference for future diffs.
 
-### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. Must own the lock. |
-| `lock_id` | `string` | Yes | -- | Lock to rebase. |
-
-### Example Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 7,
-  "method": "tools/call",
-  "params": {
-    "name": "lock_rebase",
-    "arguments": {
-      "agent_id": "agent-1",
-      "lock_id": "lock_agent1_001"
-    }
-  }
-}
-```
-
-### Example Response
-
-```json
-{
-  "lock_id": "lock_agent1_001",
-  "previous_generation": 42,
-  "new_generation": 45,
-  "baseline_nodes": 1645,
-  "baseline_edges": 712,
-  "watcher_preserved": true
-}
-```
-
-### When to Use
-
-- **After acknowledging changes** -- rebase after reviewing a diff to reset the baseline
-- **After stale warning** -- when `lock.diff` returns `baseline_stale: true`, rebase to fix it
-- **Periodic refresh** -- rebase periodically in long sessions to keep baselines current
-
-### Related Tools
-
-- [`lock_diff`](#m1ndlockdiff) -- the diff that triggers a rebase
-- [`lock_create`](#m1ndlockcreate) -- creating a new lock is an alternative to rebasing
-
----
+Required: `agent_id` and returned `lock_id`.
+After reviewing the diff, replace the comparison point with the current scoped
+graph. Watch configuration is preserved. Output includes previous/new generations,
+baseline counts and `watcher_preserved`. Rebasing discards the old comparison
+point; it does not grant permission to modify files or ingest roots. If the
+entire observed scope has vanished, rebase refuses and preserves the old baseline
+for inspecting removals or releasing it.
 
 <a id="m1ndlockrelease"></a>
 
 ## `lock_release`
-Release a lock and free its resources. Removes the lock state, cleans up pending watcher events, and frees memory. Irreversible.
 
-### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_id` | `string` | Yes | -- | Calling agent identifier. Must own the lock. |
-| `lock_id` | `string` | Yes | -- | Lock to release. |
-
-### Example Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 8,
-  "method": "tools/call",
-  "params": {
-    "name": "lock_release",
-    "arguments": {
-      "agent_id": "agent-1",
-      "lock_id": "lock_agent1_001"
-    }
-  }
-}
-```
-
-### Example Response
-
-```json
-{
-  "lock_id": "lock_agent1_001",
-  "released": true
-}
-```
-
-### When to Use
-
-- **Done monitoring** -- release when you no longer need change detection
-- **Memory pressure** -- locks consume memory proportional to baseline size
-- **Session end** -- release all locks before ending a session
-- **Automatic**: locks are also cascade-released when their associated perspective is closed via `perspective.close`
-
-### Related Tools
-
-- [`lock_create`](#m1ndlockcreate) -- create a new lock
-- [`perspective_close`](perspectives.md#m1ndperspectiveclose) -- cascade-releases associated locks
+Required: `agent_id` and returned `lock_id`.
+Discard the baseline, watcher and queued notifications. Output includes the ID
+and `released`. All five operations retain existing authority checks; ownership
+by agent ID is not authentication against a caller choosing another agent ID.
 
 ---
 

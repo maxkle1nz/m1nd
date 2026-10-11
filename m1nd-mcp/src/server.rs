@@ -67,8 +67,8 @@ escape hatch exists — the sovereign consumer is human-gated, and the human's c
 
 **THE MENU IS A CORE, NOT THE SURFACE.** By default `tools/list` advertises about fifteen verbs \
 — the handful six weeks of real traffic showed agents actually reach for, plus the host-binding \
-floor. That is the shop window, not the shop: ~127 more verbs are registered and fully callable, \
-and naming one works exactly as if it were listed. Nothing was removed. **`help` is the door**: \
+floor. That is the shop window, not the shop: additional verbs are registered but not advertised, \
+and server dispatch accepts their names subject to authority checks. Some hosts require tools to be listed. **`help` is the door**: \
 `help(intent)` or `help(stage)` routes you to the right verb for what you are doing, and \
 `help(tool_name)` returns any verb's full schema — `help` catalogs the WHOLE registry, never just \
 the menu, so it can name and explain a verb you cannot see. `health.tool_surface_contract` \
@@ -795,9 +795,19 @@ pub fn core_menu_tool_names() -> Vec<&'static str> {
     names
 }
 
+/// Additional graph change-tracking tools in the opt-in investigation menu.
+pub const INVESTIGATE_TOOLS: &[&str] = &[
+    "lock_create",
+    "lock_watch",
+    "lock_diff",
+    "lock_rebase",
+    "lock_release",
+];
+
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
 ///
 /// - `full` (case-insensitive) → `"full"`: every registered verb is advertised.
+/// - `investigate` → core plus the five graph snapshot tools.
 /// - Anything else, including unset and the historical `essential` →
 ///   `"core"`: the shop window of [`core_menu_tool_names`].
 ///
@@ -814,6 +824,7 @@ pub fn active_tool_tier() -> &'static str {
         .as_str()
     {
         "full" => "full",
+        "investigate" => "investigate",
         _ => "core",
     }
 }
@@ -871,13 +882,16 @@ pub fn tool_schemas() -> serde_json::Value {
 /// Returns the tool list for the given tier string. Tests call this directly to
 /// avoid racing on the process-wide env var.
 ///
-/// `tier`: `"full"` → the whole registry; anything else → the core menu.
+/// `tier`: `"full"` → registry; `"investigate"` → core plus graph snapshots; otherwise core.
 pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
     let all = all_tool_schemas_inner();
     if tier.eq_ignore_ascii_case("full") {
         return all;
     }
-    let menu: std::collections::HashSet<&str> = core_menu_tool_names().into_iter().collect();
+    let mut menu: std::collections::HashSet<&str> = core_menu_tool_names().into_iter().collect();
+    if tier.eq_ignore_ascii_case("investigate") {
+        menu.extend(INVESTIGATE_TOOLS.iter().copied());
+    }
     let all_count = all["tools"].as_array().map(Vec::len).unwrap_or(0);
     let mut filtered: Vec<serde_json::Value> = all["tools"]
         .as_array()
@@ -922,11 +936,11 @@ fn annotate_core_menu_discovery(tools: &mut [serde_json::Value], hidden: usize) 
     let annotated = format!(
         "{description} \
          [{CORE_MENU_DISCOVERY_MARKER}] The m1nd tools you can see are a curated core, not the \
-         whole surface: {hidden} more verbs are registered, callable, and simply not advertised — \
-         calling one by name works exactly as if it were listed. `help` knows every one of them: \
+         whole surface: {hidden} more verbs are registered but not advertised. \
+         Availability depends on authority checks and host support for calling unlisted tools. `help` knows every one of them: \
          `help(intent)` or `help(stage)` routes you to the right verb, and `help(tool_name)` \
          returns its full schema. To see them all in tools/list instead, set M1ND_TOOL_TIER=full \
-         on the m1nd server."
+         on the m1nd server. M1ND_TOOL_TIER=investigate adds only the five graph change-tracking tools to the core menu."
     );
     help["description"] = serde_json::Value::String(annotated);
 }
@@ -3368,8 +3382,54 @@ fn all_tool_schemas_inner() -> serde_json::Value {
     tools.push(authority_session_challenge_tool_schema());
     tools.push(authority_session_authenticate_tool_schema());
     tools.push(authority_authorize_tool_schema());
+    tools.extend(lock_tool_schemas());
     annotate_floor_gated_descriptions(tools);
     registry
+}
+
+/// Session-local graph snapshots, not filesystem locks or an authority grant.
+fn lock_tool_schemas() -> Vec<serde_json::Value> {
+    let mut schemas = vec![serde_json::json!({
+        "name": "lock_create",
+        "description": "Capture a session-local graph baseline for change tracking, not filesystem locking or mutual exclusion. Supports node, outgoing-BFS subgraph, and explicit path node-set scopes. Use live canonical node IDs (or unique labels). query_neighborhood is unsupported. Lost when the session ends.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Calling agent identifier; must match for later operations"},
+                "scope": {"type": "string", "enum": ["node", "subgraph", "path"]},
+                "root_nodes": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Nonempty live canonical node IDs or unambiguous exact labels"},
+                "radius": {"type": "integer", "minimum": 1, "maximum": 4, "description": "Outgoing BFS radius; defaults to 2 for subgraph only. Supplying radius for node or path scope is refused"},
+                "path_nodes": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Optional additional explicit nodes, path scope only; does not find or validate a connected path"}
+            },
+            "required": ["agent_id", "scope", "root_nodes"]
+        }
+    })];
+    for (name, description) in [
+        ("lock_watch", "Configure manual, on_ingest, or on_learn event buffering for a graph baseline. No background polling, filesystem watching, or mutation permission. Periodic is unsupported."),
+        ("lock_diff", "Compare the current graph with a fixed baseline: canonical node IDs, internal and boundary edge changes, weight changes, and generation staleness. Drains buffered watcher events without advancing the baseline."),
+        ("lock_rebase", "Replace a graph baseline with the current scoped graph after reviewing its diff; preserve the watcher configuration. This does not edit source files."),
+        ("lock_release", "Discard this agent's session-local graph baseline and watcher. Does not release any filesystem lock or grant authority."),
+    ] {
+        let mut schema = serde_json::json!({
+            "name": name, "description": description,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Same calling agent identifier used by lock_create"},
+                    "lock_id": {"type": "string", "description": "Exact lock_id returned by lock_create in this session"}
+                },
+                "required": ["agent_id", "lock_id"]
+            }
+        });
+        if name == "lock_watch" {
+            schema["inputSchema"]["properties"]["strategy"] = serde_json::json!({
+                "type": "string", "enum": ["manual", "on_ingest", "on_learn"]
+            });
+            schema["inputSchema"]["required"].as_array_mut().unwrap().push(serde_json::json!("strategy"));
+        }
+        schemas.push(schema);
+    }
+    schemas
 }
 
 /// Prefix every floor-gated verb's description with the house POLICY-DISABLED
@@ -17581,3 +17641,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "lock_discovery_tests.rs"]
+mod lock_discovery_tests;

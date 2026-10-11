@@ -505,7 +505,7 @@ Generated as `persp_{agent_prefix}_{counter:03}`. Each agent has an independent 
 
 ## Lock System
 
-Locks capture a baseline snapshot of graph state for change tracking.
+Locks capture session-local graph baselines for change tracking, not filesystem exclusion. They are lost on restart. The unreleased source restoration offers them in the opt-in `investigate` menu.
 
 ### Lock Lifecycle
 
@@ -528,9 +528,9 @@ stateDiagram-v2
 - **lock_diff**: Compares current state against baseline. Reports weight changes, new/removed edges. Non-destructive.
 - **lock_rebase**: Updates baseline to current state. Clears staleness flag.
 - **lock_release**: Frees the lock.
-- **lock_watch**: Returns pending watcher events (changes that occurred since last check).
+- **lock_watch**: Configures manual/on_ingest/on_learn notification buffering. Notifications are coalesced per lock and trigger, then drained by `lock_diff`; there is no background scheduler.
 
-When a graph mutation occurs (ingest, learn), all locks are marked `baseline_stale = true`. `lock_diff` reports this staleness and suggests `lock_rebase`.
+`lock_diff` compares the captured graph generation with the current generation for staleness and also compares incident edges, including incoming/outgoing boundaries. Watch configuration does not authorize ingest or learning.
 
 ## Engine Operations (Perspective Synthesis)
 

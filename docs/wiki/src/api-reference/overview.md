@@ -253,3 +253,11 @@ Then list available tools:
 ```
 
 This returns the full schema for the live tool surface with `inputSchema` for each entry. Treat `tools/list` as the source of truth for the exact count in your current build.
+
+## Graph change tracking (source preview)
+
+The five `lock_*` tools capture, watch, compare, rebase and release session-local
+graph baselines. They are discoverable through full help and listed together by
+`M1ND_TOOL_TIER=investigate`. Node, subgraph and explicit path scopes are supported;
+query-neighborhood and periodic watching are not. They provide no filesystem
+exclusion or extra authority. See [the recipe](../../../GRAPH-CHANGE-TRACKING.md).

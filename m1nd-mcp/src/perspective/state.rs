@@ -419,9 +419,9 @@ pub struct PerspectiveState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LockScopeConfig {
     pub scope_type: LockScope,
-    /// Root nodes for the scope. Non-empty for Subgraph, Node. Resolved for QueryNeighborhood.
+    /// Canonical external IDs retained from nonempty caller roots.
     pub root_nodes: Vec<String>,
-    /// BFS radius for Subgraph scope. Min 1, max 4. Exactly 0 for Node scope.
+    /// Outgoing BFS radius for Subgraph scope, 1–4. Absent for other scopes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub radius: Option<u32>,
     /// Query string for QueryNeighborhood scope.
@@ -437,14 +437,14 @@ pub struct LockScopeConfig {
 pub struct LockSnapshot {
     /// Set of node external_ids in scope.
     pub nodes: HashSet<String>,
-    /// Edges by content-addressable key (Theme 4).
+    /// Incident directed CSR arcs by collision-safe external-ID tuple key.
     pub edges: HashMap<String, EdgeSnapshotEntry>,
     /// Graph generation at capture time.
     pub graph_generation: u64,
     /// Capture timestamp (u64 epoch-ms).
     pub captured_at_ms: u64,
     /// Key format version for future migration.
-    pub key_format: String, // "v1_content_addr"
+    pub key_format: String, // "v2_directed_external" for current snapshots
 }
 
 /// A single edge in a lock baseline snapshot.
@@ -470,7 +470,7 @@ pub struct WatchConfig {
 /// Limits: max 10 per agent, max 2000 baseline nodes, max 10000 baseline edges.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LockState {
-    /// Unique lock ID: `lock_{agent_id_short}_{counter}` (max 20 chars).
+    /// Unique runtime-local lock ID: Unicode-safe agent prefix plus counter.
     pub lock_id: String,
     /// Owning agent ID. Checked on every operation.
     pub agent_id: String,

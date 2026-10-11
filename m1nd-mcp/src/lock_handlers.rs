@@ -2,7 +2,6 @@
 // Handlers for the 5 lock MCP tools.
 // Split from server.rs dispatch (Theme 8).
 
-use crate::perspective::keys::{edge_content_key, normalize_bidi_endpoints};
 use crate::perspective::state::*;
 use crate::protocol::lock::*;
 use crate::session::SessionState;
@@ -37,197 +36,238 @@ fn require_lock<'a>(
     Ok(lock)
 }
 
-/// Capture a baseline snapshot of a subgraph region.
-/// Returns (nodes, edges) for the lock scope.
+/// Resolve caller names once. A lock keeps canonical external IDs so a later
+/// rename or a new node with the same label cannot silently retarget its scope.
+fn canonical_scope(state: &SessionState, input: &LockCreateInput) -> M1ndResult<LockScopeConfig> {
+    let invalid = |detail: String| M1ndError::InvalidParams {
+        tool: "lock_create".into(),
+        detail,
+    };
+    if input.agent_id.trim().is_empty() {
+        return Err(invalid("agent_id must not be empty".into()));
+    }
+    if input.scope == LockScope::QueryNeighborhood || input.query.is_some() {
+        return Err(invalid("query_neighborhood is not supported; use seek to resolve external IDs, then node, subgraph, or path scope".into()));
+    }
+    if input.root_nodes.is_empty() {
+        return Err(invalid(
+            "root_nodes must contain at least one existing node".into(),
+        ));
+    }
+    let radius = match input.scope {
+        LockScope::Subgraph => {
+            let radius = input.radius.unwrap_or(2);
+            if !(1..=state.perspective_limits.max_lock_subgraph_radius).contains(&radius) {
+                return Err(invalid(format!(
+                    "subgraph radius must be between 1 and {}",
+                    state.perspective_limits.max_lock_subgraph_radius
+                )));
+            }
+            Some(radius)
+        }
+        _ => {
+            if input.radius.is_some() {
+                return Err(invalid("radius applies only to subgraph scope".into()));
+            }
+            None
+        }
+    };
+    if input.scope != LockScope::Path && input.path_nodes.is_some() {
+        return Err(invalid("path_nodes applies only to path scope".into()));
+    }
+    if input.path_nodes.as_ref().is_some_and(Vec::is_empty) {
+        return Err(invalid("path_nodes must not be empty when supplied".into()));
+    }
+    let supplied = input.root_nodes.len() + input.path_nodes.as_ref().map_or(0, Vec::len);
+    if supplied > state.perspective_limits.max_lock_baseline_nodes {
+        return Err(M1ndError::LockScopeTooLarge {
+            node_count: supplied,
+            cap: state.perspective_limits.max_lock_baseline_nodes,
+        });
+    }
+    let graph = state.graph.read();
+    let resolve = |name: &str| -> M1ndResult<String> {
+        if graph.resolve_id(name).is_some() {
+            return Ok(name.to_owned());
+        }
+        let matches: Vec<String> = graph
+            .id_to_node
+            .iter()
+            .filter(|(_, nid)| graph.strings.resolve(graph.nodes.label[nid.as_usize()]) == name)
+            .map(|(ext, _)| graph.strings.resolve(*ext).to_owned())
+            .collect();
+        match matches.as_slice() {
+            [id] => Ok(id.clone()),
+            [] => Err(invalid(format!(
+                "node `{name}` not found; use an exact external ID or unique label"
+            ))),
+            _ => Err(invalid(format!(
+                "node label `{name}` is ambiguous; use an exact external ID"
+            ))),
+        }
+    };
+    let root_nodes = input
+        .root_nodes
+        .iter()
+        .map(|name| resolve(name))
+        .collect::<M1ndResult<Vec<_>>>()?;
+    let path_nodes = input
+        .path_nodes
+        .as_ref()
+        .map(|nodes| {
+            nodes
+                .iter()
+                .map(|name| resolve(name))
+                .collect::<M1ndResult<Vec<_>>>()
+        })
+        .transpose()?;
+    Ok(LockScopeConfig {
+        scope_type: input.scope.clone(),
+        root_nodes,
+        radius,
+        query: None,
+        path_nodes,
+    })
+}
+
+/// Snapshot canonical nodes plus every incident edge. Boundary edges are
+/// classified against this snapshot's node set when diffing. No label is an ID.
+/// Missing canonical roots on a later scan are removals, never new label lookups.
 fn capture_baseline(
     state: &SessionState,
     scope: &LockScopeConfig,
-) -> (HashSet<String>, HashMap<String, EdgeSnapshotEntry>) {
+) -> M1ndResult<(HashSet<String>, HashMap<String, EdgeSnapshotEntry>)> {
     let graph = state.graph.read();
-    let mut nodes = HashSet::new();
-    let mut edges = HashMap::new();
-
-    // Collect root nodes: (usize_index, label) with 3-tier lookup
-    let root_nids: Vec<(usize, String)> = scope
+    let mut ids = vec![None; graph.num_nodes() as usize];
+    for (ext, nid) in &graph.id_to_node {
+        ids[nid.as_usize()] = Some(graph.strings.resolve(*ext));
+    }
+    let mut selected = HashSet::new();
+    let mut frontier = std::collections::VecDeque::new();
+    for name in scope
         .root_nodes
         .iter()
-        .filter_map(|root| {
-            // Tier 1: exact external_id match
-            graph
-                .id_to_node
-                .iter()
-                .find_map(|(interned, &nid)| {
-                    let ext_id = graph.strings.resolve(*interned);
-                    if ext_id == root.as_str() {
-                        Some((nid.as_usize(), ext_id.to_string()))
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    // Tier 2: match by node label
-                    for idx in 0..graph.num_nodes() as usize {
-                        if idx < graph.nodes.label.len() {
-                            let lbl = graph.strings.resolve(graph.nodes.label[idx]);
-                            if lbl == root.as_str() {
-                                return Some((idx, lbl.to_string()));
-                            }
-                        }
-                    }
-                    None
-                })
-                .or_else(|| {
-                    // Tier 3: substring match on external_id
-                    graph.id_to_node.iter().find_map(|(interned, &nid)| {
-                        let ext_id = graph.strings.resolve(*interned);
-                        if ext_id.contains(root.as_str()) {
-                            Some((nid.as_usize(), ext_id.to_string()))
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
+        .chain(scope.path_nodes.iter().flatten())
+    {
+        if let Some(nid) = graph.resolve_id(name) {
+            if selected.insert(nid.as_usize()) {
+                frontier.push_back((nid.as_usize(), 0));
+            }
+        }
+    }
+    if scope.scope_type == LockScope::Subgraph && graph.finalized {
+        let radius = scope.radius.unwrap_or(2);
+        while let Some((idx, depth)) = frontier.pop_front() {
+            if depth >= radius {
+                continue;
+            }
+            for edge_pos in graph.csr.offsets[idx] as usize..graph.csr.offsets[idx + 1] as usize {
+                let target = graph.csr.targets[edge_pos].as_usize();
+                if selected.insert(target) {
+                    frontier.push_back((target, depth + 1));
+                }
+                if selected.len() > state.perspective_limits.max_lock_baseline_nodes {
+                    return Err(M1ndError::LockScopeTooLarge {
+                        node_count: selected.len(),
+                        cap: state.perspective_limits.max_lock_baseline_nodes,
+                    });
+                }
+            }
+        }
+    }
+    if selected.len() > state.perspective_limits.max_lock_baseline_nodes {
+        return Err(M1ndError::LockScopeTooLarge {
+            node_count: selected.len(),
+            cap: state.perspective_limits.max_lock_baseline_nodes,
+        });
+    }
+    let nodes = selected
+        .iter()
+        .filter_map(|idx| ids[*idx].map(str::to_owned))
         .collect();
-
-    match scope.scope_type {
-        LockScope::Node => {
-            for (_, label) in &root_nids {
-                nodes.insert(label.clone());
-            }
-        }
-        LockScope::Subgraph => {
-            let radius = scope.radius.unwrap_or(2);
-            let mut frontier: Vec<(usize, u32)> =
-                root_nids.iter().map(|(idx, _)| (*idx, 0u32)).collect();
-            let mut visited: HashSet<usize> = root_nids.iter().map(|(idx, _)| *idx).collect();
-
-            for (_, label) in &root_nids {
-                nodes.insert(label.clone());
-            }
-
-            while let Some((idx, depth)) = frontier.pop() {
-                if depth >= radius || !graph.finalized {
-                    continue;
-                }
-                if idx >= graph.num_nodes() as usize {
-                    continue;
-                }
-                let start = if idx == 0 {
-                    0
-                } else {
-                    graph.csr.offsets[idx] as usize
-                };
-                let end = graph.csr.offsets[idx + 1] as usize;
-
-                for edge_pos in start..end {
-                    if edge_pos >= graph.csr.targets.len() {
-                        break;
-                    }
-                    let target_nid = graph.csr.targets[edge_pos];
-                    let target_idx = target_nid.as_usize();
-                    if target_idx >= graph.num_nodes() as usize {
-                        continue;
-                    }
-
-                    let target_label = graph
-                        .strings
-                        .resolve(graph.nodes.label[target_idx])
-                        .to_string();
-                    nodes.insert(target_label.clone());
-
-                    if !visited.contains(&target_idx) {
-                        visited.insert(target_idx);
-                        frontier.push((target_idx, depth + 1));
-                    }
-                }
-            }
-        }
-        LockScope::QueryNeighborhood => {
-            for (_, label) in &root_nids {
-                nodes.insert(label.clone());
-            }
-        }
-        LockScope::Path => {
-            if let Some(ref path) = scope.path_nodes {
-                for node in path {
-                    nodes.insert(node.clone());
-                }
-            }
-            for (_, label) in &root_nids {
-                nodes.insert(label.clone());
-            }
-        }
-    }
-
-    // Capture edges between nodes in scope
+    let mut groups: HashMap<(String, String, String, u8, bool), Vec<f32>> = HashMap::new();
+    let mut observed_edges = 0;
     if graph.finalized {
-        for node_label in &nodes {
-            let node_nid = graph.id_to_node.iter().find_map(|(interned, &nid)| {
-                let label = graph.strings.resolve(*interned);
-                if label == node_label.as_str() {
-                    Some(nid)
-                } else {
-                    None
-                }
-            });
-
-            if let Some(nid) = node_nid {
-                let idx = nid.as_usize();
-                if idx >= graph.num_nodes() as usize {
+        for src in 0..graph.num_nodes() as usize {
+            for edge_pos in graph.csr.offsets[src] as usize..graph.csr.offsets[src + 1] as usize {
+                let dst = graph.csr.targets[edge_pos].as_usize();
+                if !selected.contains(&src) && !selected.contains(&dst) {
                     continue;
                 }
-                let start = if idx == 0 {
-                    0
-                } else {
-                    graph.csr.offsets[idx] as usize
+                let (Some(source), Some(target)) = (ids[src], ids[dst]) else {
+                    continue;
                 };
-                let end = graph.csr.offsets[idx + 1] as usize;
-
-                for edge_pos in start..end {
-                    if edge_pos >= graph.csr.targets.len() {
-                        break;
-                    }
-                    let target_nid = graph.csr.targets[edge_pos];
-                    let target_idx = target_nid.as_usize();
-                    if target_idx >= graph.num_nodes() as usize {
-                        continue;
-                    }
-
-                    let target_label = graph
-                        .strings
-                        .resolve(graph.nodes.label[target_idx])
-                        .to_string();
-
-                    // Only include edges where both endpoints are in scope
-                    if nodes.contains(&target_label) {
-                        let relation = if edge_pos < graph.csr.relations.len() {
-                            graph
-                                .strings
-                                .resolve(graph.csr.relations[edge_pos])
-                                .to_string()
-                        } else {
-                            "unknown".to_string()
-                        };
-
-                        let weight = graph.csr.read_weight(EdgeIdx::new(edge_pos as u32)).get();
-
-                        let (lo, hi) = normalize_bidi_endpoints(node_label, &target_label);
-                        let key = edge_content_key(lo, hi, &relation);
-
-                        edges.entry(key).or_insert(EdgeSnapshotEntry {
-                            source: node_label.clone(),
-                            target: target_label,
-                            relation,
-                            weight,
-                        });
-                    }
+                let relation = graph.strings.resolve(graph.csr.relations[edge_pos]);
+                let direction = graph.csr.directions[edge_pos] as u8;
+                let inhibitory = graph.csr.inhibitory[edge_pos];
+                // Preserve directed CSR arcs, including both halves of a
+                // bidirectional relation and every genuine parallel edge.
+                groups
+                    .entry((
+                        source.to_owned(),
+                        target.to_owned(),
+                        relation.to_owned(),
+                        direction,
+                        inhibitory,
+                    ))
+                    .or_default()
+                    .push(graph.csr.read_weight(EdgeIdx::new(edge_pos as u32)).get());
+                observed_edges += 1;
+                if observed_edges > state.perspective_limits.max_lock_baseline_edges {
+                    return Err(M1ndError::LockScopeTooLarge {
+                        node_count: observed_edges,
+                        cap: state.perspective_limits.max_lock_baseline_edges,
+                    });
                 }
             }
         }
     }
+    let mut edges = HashMap::new();
+    for ((source, target, relation, direction, inhibitory), mut weights) in groups {
+        weights.sort_by(f32::total_cmp);
+        for (occurrence, weight) in weights.into_iter().enumerate() {
+            let key = serde_json::to_string(&(
+                &source, &target, &relation, direction, inhibitory, occurrence,
+            ))
+            .map_err(M1ndError::Serde)?;
+            edges.insert(
+                key,
+                EdgeSnapshotEntry {
+                    source: source.clone(),
+                    target: target.clone(),
+                    relation: relation.clone(),
+                    weight,
+                },
+            );
+        }
+    }
+    Ok((nodes, edges))
+}
 
-    (nodes, edges)
+fn edge_keys<'a>(
+    nodes: &HashSet<String>,
+    edges: &'a HashMap<String, EdgeSnapshotEntry>,
+    boundary: bool,
+) -> HashSet<&'a String> {
+    edges
+        .iter()
+        .filter_map(|(key, edge)| {
+            let is_boundary = !(nodes.contains(&edge.source) && nodes.contains(&edge.target));
+            (is_boundary == boundary).then_some(key)
+        })
+        .collect()
+}
+
+fn sorted_difference<T: std::hash::Hash + Eq + AsRef<str>>(
+    left: &HashSet<T>,
+    right: &HashSet<T>,
+) -> Vec<String> {
+    let mut diff: Vec<String> = left
+        .difference(right)
+        .map(|key| key.as_ref().to_owned())
+        .collect();
+    diff.sort();
+    diff
 }
 
 fn lock_create_contract(lock_id: &str) -> (String, Option<String>, Option<String>, Option<String>) {
@@ -235,7 +275,7 @@ fn lock_create_contract(lock_id: &str) -> (String, Option<String>, Option<String
         "triaging".into(),
         Some("lock_diff".into()),
         Some(lock_id.into()),
-        Some("Capture a diff against this lock after graph activity to see whether the protected region changed.".into()),
+        Some("Capture a diff against this lock after graph activity to see whether the observed region changed.".into()),
     )
 }
 
@@ -247,7 +287,7 @@ fn lock_diff_contract(
             "proving".into(),
             Some("lock_rebase".into()),
             Some(diff.lock_id.clone()),
-            Some("The baseline is stale. Rebase the lock before trusting this diff.".into()),
+            Some("The graph changed since the baseline. Review this diff first. Rebase only after accepting the new baseline.".into()),
         );
     }
 
@@ -313,16 +353,10 @@ pub fn handle_lock_create(
         });
     }
 
-    let scope = LockScopeConfig {
-        scope_type: input.scope.clone(),
-        root_nodes: input.root_nodes.clone(),
-        radius: input.radius,
-        query: input.query,
-        path_nodes: input.path_nodes,
-    };
+    let scope = canonical_scope(state, &input)?;
 
     // Capture baseline
-    let (nodes, edges) = capture_baseline(state, &scope);
+    let (nodes, edges) = capture_baseline(state, &scope)?;
 
     // Check scope size
     if nodes.len() > state.perspective_limits.max_lock_baseline_nodes {
@@ -353,7 +387,7 @@ pub fn handle_lock_create(
             edges,
             graph_generation: state.graph_generation,
             captured_at_ms: ts,
-            key_format: "v1_content_addr".into(),
+            key_format: "v2_directed_external".into(),
         },
         watcher: None,
         baseline_stale: false,
@@ -421,7 +455,7 @@ pub fn handle_lock_watch(
         next_suggested_tool: Some("lock_diff".into()),
         next_suggested_target: Some(lock_id),
         next_step_hint: Some(
-            "Watcher armed. Run `lock_diff` after ingest or learn events to inspect the protected scope."
+            "Watcher armed. Run `lock_diff` after ingest or learn events to inspect the observed scope."
                 .into(),
         ),
     };
@@ -449,68 +483,23 @@ pub fn handle_lock_diff(
     let baseline = &lock.baseline;
     let baseline_stale = lock.baseline_stale;
 
-    // If graph hasn't changed since baseline, fast-path: no changes
-    if baseline.graph_generation == state.graph_generation && !baseline_stale {
-        let diff = LockDiffResult {
-            lock_id: input.lock_id.clone(),
-            no_changes: true,
-            new_nodes: vec![],
-            removed_nodes: vec![],
-            new_edges: vec![],
-            removed_edges: vec![],
-            boundary_edges_added: vec![],
-            boundary_edges_removed: vec![],
-            weight_changes: vec![],
-            baseline_stale: false,
-            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-        };
-
-        // Drain watcher events for this lock
-        let drained = drain_watcher_events(state, &input.lock_id);
-
-        // Update last_diff_ms
-        if let Some(l) = state.locks.get_mut(&input.lock_id) {
-            l.last_diff_ms = now_ms();
-        }
-
-        let output = LockDiffOutput {
-            diff,
-            watcher_events_drained: drained,
-            rebase_suggested: None,
-            proof_state: "ready_to_edit".into(),
-            next_suggested_tool: None,
-            next_suggested_target: None,
-            next_step_hint: Some("The lock scope is unchanged relative to its baseline.".into()),
-        };
-        return serde_json::to_value(output).map_err(M1ndError::Serde);
-    }
-
     // Capture current state for the same scope
     let scope = lock.scope.clone();
-    let (current_nodes, current_edges) = capture_baseline(state, &scope);
+    let (current_nodes, current_edges) = capture_baseline(state, &scope)?;
 
-    // Compute diffs
-    let new_nodes: Vec<String> = current_nodes
-        .difference(&baseline.nodes)
-        .take(state.perspective_limits.max_lock_diff_new_nodes)
-        .cloned()
-        .collect();
-
-    let removed_nodes: Vec<String> = baseline.nodes.difference(&current_nodes).cloned().collect();
-
+    // Compute complete sorted differences before applying output preview caps.
+    let mut new_nodes = sorted_difference(&current_nodes, &baseline.nodes);
+    let removed_nodes = sorted_difference(&baseline.nodes, &current_nodes);
+    let current_internal = edge_keys(&current_nodes, &current_edges, false);
+    let baseline_internal = edge_keys(&baseline.nodes, &baseline.edges, false);
+    let mut new_edges = sorted_difference(&current_internal, &baseline_internal);
+    let removed_edges = sorted_difference(&baseline_internal, &current_internal);
+    let current_boundary = edge_keys(&current_nodes, &current_edges, true);
+    let baseline_boundary = edge_keys(&baseline.nodes, &baseline.edges, true);
+    let mut boundary_edges_added = sorted_difference(&current_boundary, &baseline_boundary);
+    let boundary_edges_removed = sorted_difference(&baseline_boundary, &current_boundary);
     let current_edge_keys: HashSet<&String> = current_edges.keys().collect();
     let baseline_edge_keys: HashSet<&String> = baseline.edges.keys().collect();
-
-    let new_edges: Vec<String> = current_edge_keys
-        .difference(&baseline_edge_keys)
-        .take(state.perspective_limits.max_lock_diff_new_edges)
-        .map(|k| (*k).clone())
-        .collect();
-
-    let removed_edges: Vec<String> = baseline_edge_keys
-        .difference(&current_edge_keys)
-        .map(|k| (*k).clone())
-        .collect();
 
     // Weight changes for shared edges
     let mut weight_changes = Vec::new();
@@ -527,24 +516,32 @@ pub fn handle_lock_diff(
         }
     }
 
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-
+    weight_changes.sort_by(|a, b| a.edge_key.cmp(&b.edge_key));
+    let no_changes = new_nodes.is_empty()
+        && removed_nodes.is_empty()
+        && new_edges.is_empty()
+        && removed_edges.is_empty()
+        && boundary_edges_added.is_empty()
+        && boundary_edges_removed.is_empty()
+        && weight_changes.is_empty();
+    let diff_truncated = new_nodes.len() > state.perspective_limits.max_lock_diff_new_nodes
+        || new_edges.len() > state.perspective_limits.max_lock_diff_new_edges
+        || boundary_edges_added.len() > state.perspective_limits.max_lock_diff_new_edges;
+    new_nodes.truncate(state.perspective_limits.max_lock_diff_new_nodes);
+    new_edges.truncate(state.perspective_limits.max_lock_diff_new_edges);
+    boundary_edges_added.truncate(state.perspective_limits.max_lock_diff_new_edges);
     let diff = LockDiffResult {
         lock_id: input.lock_id.clone(),
-        no_changes: new_nodes.is_empty()
-            && removed_nodes.is_empty()
-            && new_edges.is_empty()
-            && removed_edges.is_empty()
-            && weight_changes.is_empty(),
+        no_changes,
         new_nodes,
         removed_nodes,
         new_edges,
         removed_edges,
-        boundary_edges_added: vec![], // V1: simplified
-        boundary_edges_removed: vec![],
+        boundary_edges_added,
+        boundary_edges_removed,
         weight_changes,
         baseline_stale,
-        elapsed_ms,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     };
 
     // Drain watcher events
@@ -556,7 +553,10 @@ pub fn handle_lock_diff(
     }
 
     let rebase_suggested = if baseline_stale {
-        Some("Baseline is stale. Call lock.rebase to re-capture.".into())
+        Some(
+            "Review the reported changes, then call lock_rebase only if accepting a new baseline."
+                .into(),
+        )
     } else {
         None
     };
@@ -566,6 +566,7 @@ pub fn handle_lock_diff(
     let output = LockDiffOutput {
         diff,
         watcher_events_drained: drained,
+        diff_truncated,
         rebase_suggested,
         proof_state,
         next_suggested_tool,
@@ -606,7 +607,13 @@ pub fn handle_lock_rebase(
     let watcher = lock.watcher.clone();
 
     // Capture new baseline
-    let (nodes, edges) = capture_baseline(state, &scope);
+    let (nodes, edges) = capture_baseline(state, &scope)?;
+    if nodes.is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: "lock_rebase".into(),
+            detail: "The observed scope no longer exists. Inspect the removal diff, then release this lock or create a new scope.".into(),
+        });
+    }
     let ts = now_ms();
     let baseline_nodes = nodes.len();
     let baseline_edges = edges.len();
@@ -631,7 +638,7 @@ pub fn handle_lock_rebase(
         edges,
         graph_generation: state.graph_generation,
         captured_at_ms: ts,
-        key_format: "v1_content_addr".into(),
+        key_format: "v2_directed_external".into(),
     };
     lock.baseline_stale = false;
     lock.last_diff_ms = ts;
@@ -680,7 +687,7 @@ pub fn handle_lock_release(
         next_suggested_tool: Some("lock_create".into()),
         next_suggested_target: None,
         next_step_hint: Some(
-            "Create a new lock before the next coordinated edit if you still need a guarded region."
+            "Create a new lock before the next coordinated edit if you still need a observed region."
                 .into(),
         ),
     };
@@ -737,3 +744,6 @@ mod tests {
         assert!(hint.unwrap().contains("file::src/lib.rs"));
     }
 }
+
+#[cfg(test)]
+mod regression_tests;

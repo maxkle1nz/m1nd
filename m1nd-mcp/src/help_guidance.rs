@@ -958,6 +958,34 @@ fn tool_recovery_steps(entry: &HelpCatalogEntry, input: &HelpInput) -> Vec<Strin
 }
 
 fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
+    let intent = input.intent.as_deref().unwrap_or_default().to_lowercase();
+    if (intent.contains("graph") && (intent.contains("change") || intent.contains("watch")))
+        || intent.contains("track changes")
+    {
+        if let Some(entry) = catalog_entry("lock_create") {
+            let mut guidance = tool_guidance(&entry, input);
+            guidance.decision_type = if workflow { "workflow" } else { "route" }.into();
+            guidance.recommended_tools =
+                vec!["seek".into(), "lock_create".into(), "lock_diff".into()];
+            guidance.recommended_sequence = [
+                ("seek", "Resolve a live canonical node ID before creating a baseline."),
+                ("lock_create", "Capture a session-local node/subgraph/path baseline using that ID."),
+                ("lock_watch", "Optionally buffer on_ingest or on_learn events; this does not authorize those mutations."),
+                ("lock_diff", "After an independently authorized graph update, inspect internal and boundary changes."),
+                ("lock_rebase", "Only after reviewing the diff, accept the current graph as the new baseline."),
+                ("lock_release", "Discard the baseline when the investigation ends."),
+            ].into_iter().map(|(tool, reason)| HelpSequenceStep { tool: tool.into(), reason: reason.into() }).collect();
+            guidance.minimal_calls = vec![HelpMinimalCall {
+                tool: "seek".into(),
+                arguments: json!({"agent_id": input.agent_id, "query": input.intent}),
+            }];
+            guidance.missing_context = vec!["A live canonical root node ID from seek/search; subsequent calls must reuse the returned lock_id and agent_id.".into()];
+            guidance.why = "Graph change tracking uses ephemeral snapshots, not filesystem locks, source-text diffs, or mutual exclusion.".into();
+            guidance.recovery_steps = vec!["Use M1ND_TOOL_TIER=investigate on the server and reconnect if your host can call only listed tools. Help alone does not register a host tool.".into()];
+            guidance.next_step = Some("Resolve the target with seek, then use help(tool_name=lock_create) for the exact schema.".into());
+            return guidance;
+        }
+    }
     let stage = input
         .stage
         .or_else(|| infer_stage_from_intent(input.intent.as_deref()))
