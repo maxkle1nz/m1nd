@@ -74,9 +74,11 @@ portable pack therefore teaches every host this default sequence:
 3. Classify partial bindings: `nested_workspace_binding` means subtree-only
    truth, and `file_level_binding` means docs/PRD/L1GHT truth only.
 4. Follow the `next_move`, or use `search`, `seek`, or `activate` for focused
-   discovery. Obey the calibrated verdict: `act`/`reverify`/`abstain` (abstain =
-   STOP, not a weak yes; the gate is armed by `calibrate_predict` once, else caps
-   at `reverify`); `why` carries a `closure` verdict (`blocked` = the path rests
+   discovery. Respect [calibration qualification](CALIBRATION-QUALIFICATION.md):
+   prediction abstains and the seek envelope stays at `reverify` or `unprovable`
+   for all v1 rows. Running calibration does not enable `act`; scores and
+   rankings remain inspectable. `abstain` = STOP, not a weak yes.
+   `why` carries a `closure` verdict (`blocked` = the path rests
    on an unresolved edge); `seek` carries a `trust_envelope` + sufficiency signal;
    `trust_band: insufficient_evidence` means NO evidence, not medium risk.
 5. Read runtime envelopes before trusting empty results.
@@ -404,8 +406,10 @@ context, prior memory, sufficiency, one `next_move`, and `honest_gaps`. If it
 returns `needs_ingest`, `ingest` the target repo or docs, then `north` again.
 Then use `search`, `glob`, `seek`, `activate`, `trace`, `impact`,
 `validate_plan`, and `surgical_context_v2` before broad manual search — obeying
-the calibrated verdicts (`act`/`reverify`/`abstain`, `closure`, `trust_envelope`,
-`insufficient_evidence`).
+the evidence limits (`closure`, `trust_envelope`, `insufficient_evidence`).
+Prediction abstains and seek envelopes stay at `reverify` or `unprovable` under
+[the current calibration containment](CALIBRATION-QUALIFICATION.md); diagnostic
+calibration calls cannot enable `act`.
 
 Drop to the trust-only recovery sub-checks when the binding looks degraded:
 

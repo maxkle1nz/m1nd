@@ -2913,25 +2913,21 @@ pub fn handle_predict(
         None
     };
 
-    // OMEGA Move 0: gate each prediction with a calibrated act|reverify|abstain
-    // verdict. The co-change model signal here is `coupling_strength`; we bin it
-    // against the stored conformal threshold τ for the "predict" signal.
-    //
-    // HONESTY INVARIANT: a band is NEVER quoted as a probability — only the
-    // binned verdict. With no calibration row, the gate is `uncalibrated` and
-    // EVERY verdict is honestly `abstain`, never a fake-high `act`.
+    // Keep ranking and diagnostic evidence, but v1 aggregate rows do not
+    // qualify the production predictor for action. No row value can arm it.
     let predict_calibration = state
         .calibration_table
         .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
         .cloned();
 
+    let qualification = m1nd_core::calibration::runtime_qualification(
+        m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT,
+        predict_calibration.as_ref(),
+    );
     let prediction_output: Vec<serde_json::Value> = ranked_predictions
         .iter()
         .map(|prediction| {
-            let verdict = match &predict_calibration {
-                Some(row) => row.verdict(prediction.coupling_strength),
-                None => m1nd_core::calibration::VERDICT_ABSTAIN,
-            };
+            let verdict = m1nd_core::calibration::VERDICT_ABSTAIN;
             serde_json::json!({
                 "node_id": prediction.external_id,
                 "label": prediction.label,
@@ -2959,9 +2955,12 @@ pub fn handle_predict(
     // Top-level calibration state for the gate, so the agent can see WHETHER the
     // verdicts are measured or honestly uncalibrated.
     let calibration_block = match &predict_calibration {
-        Some(row) => serde_json::json!({
+        Some(row) if row.validate_for_signal("predict").is_ok() => serde_json::json!({
             "signal": "predict",
-            "calibrated": true,
+            "calibrated": false,
+            "diagnostic_available": true,
+            "reason": qualification.reason(),
+            "verdict": "abstain",
             "tau": row.tau,
             "tau_reverify_floor": row.tau_low(),
             "target_alpha": row.target_alpha,
@@ -2969,11 +2968,13 @@ pub fn handle_predict(
             "coverage": row.coverage,
             "n": row.n,
         }),
-        None => serde_json::json!({
+        _ => serde_json::json!({
             "signal": "predict",
             "calibrated": false,
+            "diagnostic_available": false,
+            "reason": qualification.reason(),
             "verdict": "abstain",
-            "note": "predict is not calibrated yet — run `calibrate_predict` to measure precision-at-coverage and a conformal τ from this repo's git history. Until then every verdict is honestly `abstain`, never `act`.",
+            "note": "predict has no runtime-qualified calibration evidence. Diagnostic calibration does not arm action; inspect source and executed evidence.",
         }),
     };
 

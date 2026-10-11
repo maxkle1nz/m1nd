@@ -65,7 +65,7 @@ Ask your connected agent:
 
 > Use m1nd to orient on this repository. Find where configuration is loaded, show the relevant source locations, and tell me what you still need to verify. Do not edit files.
 
-The agent should call `north` first, then use `seek` and source inspection as needed. **Success means the response covers the correct repository and points to real code you can open.** A `reverify` verdict can be normal on an uncalibrated graph: inspect the evidence. A missing graph or wrong-workspace binding needs recovery; an empty result may need a different query.
+The agent should call `north` first, then use `seek` and source inspection as needed. **Success means the response covers the correct repository and points to real code you can open.** A `reverify` verdict is expected under the current calibration containment: inspect the evidence. A missing graph or wrong-workspace binding needs recovery; an empty result may need a different query.
 
 [Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors. [Your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
 
@@ -99,7 +99,7 @@ See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [too
 
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
 - **Extraction is approximate.** Language support varies, macro-generated and dynamic references can be missed, and external imports may remain unresolved. A graph is not a compiler's semantic model.
-- **Trust is conditional.** Uncalibrated retrieval can cap at `reverify`; prediction can abstain. Run the actual compiler, tests, and runtime checks needed for your change. Source calibration keeps [ledger seconds and receipt milliseconds distinct](docs/LEARNING-TIME-UNITS.md); that clock correction does not establish statistical quality.
+- **Trust is conditional.** Current source treats all v1 calibration rows as [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md): prediction abstains and the seek envelope stays at `reverify` or `unprovable`, while scores and rankings remain available. Running calibration does not enable `act`. Use source, compiler, tests, and runtime checks for your change. The [clock repair](docs/LEARNING-TIME-UNITS.md) does not establish statistical quality.
 - **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
 - **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).
 - **Advanced capabilities are not setup prerequisites.** Document adapters, structural heuristics, transplant, missions, and hardware-backed authority have their own limits. PRDs describe design intent and are not evidence that a release supports every path.

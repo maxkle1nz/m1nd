@@ -37,7 +37,7 @@ const STDIO_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
 // automatically understand how to use m1nd effectively.
 // ---------------------------------------------------------------------------
 const M1ND_INSTRUCTIONS: &str = "\
-m1nd is a neuro-symbolic code graph over this repo. It answers with calibrated \
+m1nd is a neuro-symbolic code graph over this repo. It answers with bounded \
 trust, not vibes: absent / null / abstain / insufficient_evidence are REAL answers — \
 prefer them over guessing. Every tool call needs an `agent_id`. Knowledge is shared: \
 what one agent proves and memorizes, the next agent reads. Operate in a loop.
@@ -144,14 +144,15 @@ EXPLICIT cross-project fan-out that reads every hosted brain, each hit labeled b
 `all-brains` is one argument away and never ambient; don't reach for it unless you actually need \
 another project's knowledge.
 
-## 2. ACT ON VERDICTS — trust the calibration, don't override it
+## 2. ACT ON VERDICTS — respect qualification, don't override it
 
-Retrieval and prediction return a calibrated verdict; obey it:
-- **`act` / `reverify` / `abstain`** — `abstain` means uncalibrated or insufficient \
-evidence: do NOT guess past it. The prediction gate is armed per-repo by running \
-`calibrate_predict` ONCE, and the seek trust envelope by running `calibrate_envelope` \
-(from the ledger's learn outcomes); until each is armed its verdict caps at `reverify`, \
-never `act`.
+Retrieval and prediction return advisory verdicts; obey their limits:
+- **`act` / `reverify` / `abstain`** — `abstain` means unqualified or insufficient \
+evidence: do NOT guess past it. Existing v1 calibration rows are \
+`legacy_evidence_unqualified`: `predict` abstains, while the `seek` envelope stays \
+`reverify` or `unprovable`, with its score preserved and no current calibration receipt. \
+`calibrate_predict` and `calibrate_envelope` measure diagnostic aggregates only; \
+they cannot arm `act`, and their existing authority restrictions still apply.
 - **`why` answers carry a `closure` verdict** — `blocked` means the path rests on an \
 unresolved (guessed/dropped) edge: verify that edge before you rely on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** — `sufficient` \
@@ -2119,12 +2120,12 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "calibrate_predict",
-                "description": "OMEGA Move 0: calibrate predict/co-change from this repo's own git history. Date-splits commits, measures precision-at-coverage on held-out commits, derives a split-conformal threshold τ against a risk budget α, and persists it so predict can gate each result with an act|reverify|abstain verdict.",
+                "description": "Measure diagnostic co-change statistics from a chronological split of this repo's git history and persist the legacy row. This does not qualify the production predictor or guarantee an error budget: calibrated=false, reason legacy_evidence_unqualified, predictions remain abstain.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated predictions" },
+                        "alpha": { "type": "number", "default": 0.1, "description": "Diagnostic miss-quantile parameter; not a guaranteed error budget or permission to act" },
                         "top_k": { "type": "integer", "default": 10, "description": "Top-k predictions to score per held-out node" }
                     },
                     "required": ["agent_id"]
@@ -2132,12 +2133,12 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "calibrate_envelope",
-                "description": "OMEGA Move 1: calibrate the seek TRUST ENVELOPE from the trust ledger's real learn outcomes. Each node with learn history is a label — a confirmed defect (learn `correct`) means trusting it would have been WRONG (a miss), a false alarm (learn `wrong`) means trusting it was RIGHT (a hit) — scored by the reliability the envelope assigns its trust band. Derives a split-conformal τ (on the envelope's own [0,1] scale) + precision-at-coverage and persists it under the `envelope` signal, so the seek envelope can reach `act`. With no labeled ledger corpus it stays honestly uncalibrated (reason `envelope_uncalibrated`, capped at `reverify`), never a fabricated `act`.",
+                "description": "Measure diagnostic statistics from legacy trust-ledger aggregates and persist the envelope row. These labels are not independently verified seek outcomes and cannot arm act: calibrated=false, reason legacy_evidence_unqualified, envelope remains reverify or unprovable without a current calibration receipt. An empty ledger stays envelope_uncalibrated.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated envelope decisions" }
+                        "alpha": { "type": "number", "default": 0.1, "description": "Diagnostic miss-quantile parameter; not a guaranteed error budget or permission to act" }
                     },
                     "required": ["agent_id"]
                 }
@@ -12212,15 +12213,18 @@ mod tests {
             s.contains("needs_ingest"),
             "instructions must document the needs_ingest state"
         );
-        // 2. ACT ON VERDICTS: the calibrated gate and its honest answers.
+        // 2. ACT ON VERDICTS: the qualification boundary and honest answers.
         assert!(
             s.contains("abstain"),
             "instructions must document the act/reverify/abstain verdict"
         );
         assert!(
             s.contains("calibrate_predict"),
-            "instructions must document arming the gate with calibrate_predict"
+            "instructions must document diagnostic calibration"
         );
+        assert!(s.contains("legacy_evidence_unqualified"));
+        assert!(s.contains("they cannot arm `act`"));
+        assert!(!s.contains("`calibrate_predict` ONCE"));
         assert!(
             s.contains("insufficient_evidence"),
             "instructions must distinguish insufficient_evidence from a risk band"
@@ -16146,7 +16150,7 @@ mod tests {
             .is_empty());
     }
 
-    /// The calibrated states answer exactly as they did. A code payload must
+    /// The diagnostic states answer exactly as they did. A code payload must
     /// never appear where the packet's own contract says the graph cannot
     /// answer: an empty/unbound graph is `needs_ingest` with NO code.
     #[test]

@@ -202,7 +202,7 @@ The floor is not an exception to the core — it is why the core can be small. `
 ## Routing Rules
 
 1. Pre-orient with `north` before reading or editing. It is the in-session front door; `audit` is the deeper structural pass once you are oriented, and the `trust_selftest` / `session_handshake` / `recovery_playbook` trio is the degraded/recovery lane.
-2. Obey the calibrated verdicts instead of overriding them: `act` / `reverify` / `abstain` on retrieval and prediction (`abstain` = insufficient or uncalibrated — a STOP), `closure: blocked` on `why` (unresolved edge), the `trust_envelope` + sufficiency stop-signal on `seek`, and `trust_band: insufficient_evidence` (no evidence, not medium risk).
+2. Respect [calibration qualification](../../CALIBRATION-QUALIFICATION.md): all v1 rows are unqualified, prediction abstains, and the seek envelope stays at `reverify` or `unprovable`. Calibration calls do not enable `act`; scores and rankings remain inspectable. Also respect `closure: blocked` on `why` (unresolved edge), the sufficiency stop-signal on `seek`, and `trust_band: insufficient_evidence` (no evidence, not medium risk).
 3. Prefer the cheapest tool that preserves structural truth.
 4. Use `search` / `glob` / `view` for exact known targets; use `seek` / `activate` when the question is semantic or subsystem-shaped.
 5. Use `impact`, `predict`, `validate_plan`, and the surgical tools before risky edits.

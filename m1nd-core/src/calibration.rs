@@ -1,21 +1,12 @@
 // === m1nd-core/src/calibration.rs ===
 //
-// Conformal calibration table for m1nd retrieval signals.
+// Diagnostic calibration table for retrieval signals.
 //
-// Turns an uncalibrated model `confidence` into a MEASURED, abstention-gated
-// verdict. The first (and currently only) calibrated signal is `predict`
-// (co-change): the repo's own git history is a FREE labeled corpus, so a
-// date-split harness can measure precision-at-coverage on held-out commits and
-// derive a split-conformal abstention threshold τ against an operator risk
-// budget α (split-conformal abstention, arXiv 2405.01563).
-//
-// Design mirrors `trust.rs`: a `HashMap`-backed table with the SAME atomic
-// (temp file + rename) versioned-JSON persistence. No new dependency — the
-// conformal math is hand-rolled (`conformal_quantile`).
-//
-// HONESTY INVARIANT: a band is NEVER quoted as a probability anywhere — only
-// the binned verdict (`act` | `reverify` | `abstain`) is emitted. A signal with
-// no calibration row is honestly `abstain`/uncalibrated, never `act`.
+// Historical v1 rows and threshold arithmetic remain byte-compatible. They
+// record corpus statistics, not independently verified production-score
+// qualification or a conditional error guarantee. Runtime consumers use
+// runtime_qualification; all v1 evidence is unqualified for action.
+// Persistence remains versioned atomic JSON with no migration in this change.
 
 use crate::error::{M1ndError, M1ndResult};
 use serde::{Deserialize, Serialize};
@@ -24,19 +15,14 @@ use std::path::Path;
 
 // ── Constants ──
 
-/// Default operator risk budget (target miscoverage). 0.1 = "I will accept at
-/// most a 10% error rate among predictions the gate lets through as `act`".
+/// Default diagnostic quantile parameter. It is not a verified error budget.
 pub const DEFAULT_TARGET_ALPHA: f32 = 0.1;
 
-/// Signal name for the calibrated `predict`/co-change verdict. Stable key into
-/// `calibration_state.json` and the contract the harness + predict gate share.
+/// Stable key for diagnostic predict/co-change statistics.
 pub const CALIBRATION_SIGNAL_PREDICT: &str = "predict";
 
-/// Signal name for the calibrated trust-envelope verdict (OMEGA Move 1). Sibling
-/// of `CALIBRATION_SIGNAL_PREDICT`: the `envelope` row's τ/τ_low bins the
-/// weighted trust score into the final `act`/`reverify`/`abstain` decision. No
-/// `envelope` row ⇒ the envelope is honestly uncalibrated (capped at `reverify`,
-/// `act` unreachable).
+/// Stable key for diagnostic envelope statistics. Legacy threshold bins do not
+/// qualify runtime decisions; consumers must check runtime_qualification.
 pub const CALIBRATION_SIGNAL_ENVELOPE: &str = "envelope";
 
 /// Verdict strings — house style is stringly-typed verdicts (mirrors
@@ -45,26 +31,65 @@ pub const VERDICT_ACT: &str = "act";
 pub const VERDICT_REVERIFY: &str = "reverify";
 pub const VERDICT_ABSTAIN: &str = "abstain";
 
+/// Runtime eligibility is separate from structural validity and diagnostic math.
+/// V1 aggregates contain no independently verified production-score evidence.
+/// There is intentionally no qualified variant or caller-controlled escape hatch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CalibrationQualification {
+    Absent,
+    Invalid,
+    LegacyEvidenceUnqualified,
+}
+
+impl CalibrationQualification {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Absent => "calibration_absent",
+            Self::Invalid => "calibration_invalid",
+            Self::LegacyEvidenceUnqualified => "legacy_evidence_unqualified",
+        }
+    }
+
+    pub fn is_armed(self) -> bool {
+        match self {
+            Self::Absent | Self::Invalid | Self::LegacyEvidenceUnqualified => false,
+        }
+    }
+}
+
+/// Classify existing evidence without changing persisted bytes or historical
+/// receipt verification. A valid row is diagnostic, never proof of an error budget.
+pub fn runtime_qualification(
+    signal: &str,
+    row: Option<&CalibrationRow>,
+) -> CalibrationQualification {
+    match row {
+        None => CalibrationQualification::Absent,
+        Some(row) if row.validate_for_signal(signal).is_err() => CalibrationQualification::Invalid,
+        Some(_) => CalibrationQualification::LegacyEvidenceUnqualified,
+    }
+}
+
 // ── Row ──
 
-/// A calibrated decision row for ONE signal (e.g. "predict").
+/// A historical diagnostic row for ONE signal (e.g. "predict").
 ///
-/// `tau` is the split-conformal threshold: a live confidence at or above `tau`
-/// clears the operator's risk budget `target_alpha` on held-out data. The
+/// `tau` is a diagnostic threshold, not runtime qualification or a demonstrated
+/// conditional error bound. The
 /// remaining fields are the measured evidence behind that threshold, kept so a
 /// recalled row can self-describe its standing instead of being a bare number.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CalibrationRow {
-    /// Conformal threshold τ: live confidence ≥ τ ⇒ `act`.
+    /// Diagnostic threshold τ; it cannot independently authorize runtime `act`.
     pub tau: f32,
-    /// Operator risk budget α the threshold was computed against.
+    /// Diagnostic quantile parameter α; not a proven selective-risk budget.
     pub target_alpha: f32,
-    /// Measured precision among predictions kept at `act` coverage (held-out).
+    /// Measured diagnostic precision on the recorded corpus at this threshold.
     pub measured_precision: f32,
-    /// Fraction of held-out predictions that cleared `tau` (coverage at `act`).
+    /// Fraction of recorded corpus predictions that cleared `tau`.
     pub coverage: f32,
-    /// Number of labeled held-out (prediction, confidence) pairs measured.
+    /// Number of labeled corpus examples measured; not qualification by itself.
     pub n: usize,
     /// Wall-clock (epoch millis) the row was calibrated.
     pub calibrated_at_ms: u64,
@@ -73,25 +98,20 @@ pub struct CalibrationRow {
 impl CalibrationRow {
     /// Validate this row as calibrated evidence for `signal`.
     ///
-    /// A row that cannot be represented as a finite bounded calibration result
-    /// is not allowed to arm a runtime decision gate.  This is public so wire
-    /// projections can apply the exact same fail-closed rule as persistence.
+    /// This checks structural integrity only. Passing cannot arm a runtime
+    /// decision gate; use runtime_qualification separately. Historical wire
+    /// projections and persistence share this unchanged structural rule.
     pub fn validate_for_signal(&self, signal: &str) -> M1ndResult<()> {
         validate_calibration_row(signal, self)
     }
 
-    /// The lower band edge: below this, the gate `abstain`s. Predictions in
-    /// `[tau_low, tau)` are the borderline band → `reverify`. We anchor the band
-    /// width to a fraction of the conformal threshold so the `reverify` zone
-    /// scales with the model's own confidence units (no second magic constant).
+    /// Historical diagnostic lower band edge, retained for row/receipt compatibility.
+    /// This arithmetic does not establish a production error bound.
     pub fn tau_low(&self) -> f32 {
-        // Reverify band = the lower half of the conformal threshold. A live
-        // confidence between half-τ and τ is "close but not clearing the risk
-        // budget" → ask the agent to re-verify rather than abstain outright.
         self.tau * 0.5
     }
 
-    /// Bin a live `confidence` into the honest verdict for this row.
+    /// Bin a diagnostic `confidence`; runtime consumers must separately check qualification.
     ///
     /// Never returns a probability — only the binned verdict string.
     pub fn verdict(&self, confidence: f32) -> &'static str {
@@ -99,9 +119,10 @@ impl CalibrationRow {
     }
 }
 
-/// Bin a live `confidence` against a high (`tau`) and low (`tau_low`) threshold.
+/// Bin a diagnostic `confidence` using historical threshold arithmetic.
+/// Runtime eligibility must be checked separately.
 ///
-/// - `act`      when `confidence >= tau` (clears the risk budget),
+/// - `act`      when `confidence >= tau` (diagnostic bin only),
 /// - `reverify` when `tau_low <= confidence < tau` (borderline),
 /// - `abstain`  when `confidence < tau_low` (or no/NaN signal).
 ///
@@ -126,15 +147,16 @@ pub fn verdict_for(confidence: f32, tau: f32, tau_low: f32) -> &'static str {
 /// budget `alpha`.
 ///
 /// `scores` are the model confidences assigned to predictions that did NOT hold
-/// (the misses) — feeding the misses' confidence distribution yields the
-/// confidence level above which the held-out error rate is bounded by `alpha`.
+/// (the misses) — feeding the misses' confidence distribution yields
+/// an empirical miss-confidence quantile, not a bound on error among admitted predictions.
 /// Returns the empirical `ceil((n+1)*(1-alpha))/n` quantile (the finite-sample
 /// split-conformal correction). For an empty slice there is no evidence, so the
-/// honest threshold is `1.0` (nothing clears it → the gate abstains by default).
+/// diagnostic threshold is `1.0`; equality may clear the arithmetic threshold,
+/// so this sentinel must never be mistaken for runtime abstention.
 pub fn conformal_quantile(scores: &[f32], alpha: f32) -> f32 {
     let n = scores.len();
     if n == 0 {
-        // No miss evidence → maximally conservative: nothing can clear τ.
+        // No miss evidence: diagnostic fallback only, not runtime qualification.
         return 1.0;
     }
     let mut sorted: Vec<f32> = scores.iter().copied().filter(|s| s.is_finite()).collect();
@@ -149,7 +171,7 @@ pub fn conformal_quantile(scores: &[f32], alpha: f32) -> f32 {
     let rank = (((m + 1) as f32) * (1.0 - alpha)).ceil() as usize;
     if rank >= m {
         // Quantile lands past the largest observed miss-confidence: no finite
-        // threshold is justified → 1.0 (abstain-by-default, honest under-data).
+        // threshold is justified → diagnostic fallback 1.0; runtime stays unqualified.
         return 1.0;
     }
     // `rank` is 1-based; index into the sorted misses.
@@ -384,6 +406,56 @@ mod tests {
             coverage: 0.4,
             n: 100,
             calibrated_at_ms: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn legacy_calibration_qualification_is_not_structural_validation() {
+        assert_eq!(
+            runtime_qualification("predict", None),
+            CalibrationQualification::Absent
+        );
+        let mut row = sample_row();
+        for (tau, alpha, precision, coverage, n) in [
+            (0.0, 0.0, 1.0, 1.0, usize::MAX),
+            (1.0, 1.0, 1.0, 0.0, 1),
+            (0.8, 0.1, 0.0, 1.0, 100),
+        ] {
+            row.tau = tau;
+            row.target_alpha = alpha;
+            row.measured_precision = precision;
+            row.coverage = coverage;
+            row.n = n;
+            for signal in [CALIBRATION_SIGNAL_PREDICT, CALIBRATION_SIGNAL_ENVELOPE] {
+                assert!(row.validate_for_signal(signal).is_ok());
+                let qualification = runtime_qualification(signal, Some(&row));
+                assert_eq!(qualification.reason(), "legacy_evidence_unqualified");
+                assert!(!qualification.is_armed());
+            }
+        }
+        row.n = 0;
+        assert_eq!(
+            runtime_qualification("predict", Some(&row)),
+            CalibrationQualification::Invalid
+        );
+        row.n = 1;
+        row.tau = f32::NAN;
+        assert_eq!(
+            runtime_qualification("predict", Some(&row)).reason(),
+            "calibration_invalid"
+        );
+    }
+
+    #[test]
+    fn legacy_calibration_empty_and_tied_misses_cannot_arm_action() {
+        for scores in [vec![], vec![0.8; 100], vec![1.0; 100]] {
+            let mut row = sample_row();
+            row.tau = conformal_quantile(&scores, 0.1);
+            // Arithmetic remains historically compatible, including inclusive
+            // ties. It is diagnostic only, and never runtime qualification.
+            assert_eq!(row.verdict(1.0), VERDICT_ACT);
+            assert!(!runtime_qualification("predict", Some(&row)).is_armed());
+            assert!(!runtime_qualification("envelope", Some(&row)).is_armed());
         }
     }
 

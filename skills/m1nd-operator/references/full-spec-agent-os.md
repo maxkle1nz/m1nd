@@ -91,13 +91,13 @@ available for custom multi-tool sequences.
 
 ## Verdict Discipline
 
-Retrieval and prediction return a calibrated verdict; obey it, do not override.
+Retrieval and prediction expose evidence limits; obey them, do not override.
 
-- **`act` / `reverify` / `abstain`** on retrieval and prediction. `abstain` =
-  uncalibrated OR insufficient evidence: a STOP, not a weak yes. The prediction
-  gate is armed by `calibrate_predict` and the seek trust envelope by
-  `calibrate_envelope` (from the ledger's learn outcomes); until each is armed its
-  verdict caps at `reverify`, never `act`.
+- All v1 calibration rows are **`legacy_evidence_unqualified`** for current
+  runtime use. Prediction abstains; the seek trust envelope stays at `reverify`
+  or `unprovable`. Scores and rankings remain available for inspection.
+  `calibrate_predict` and `calibrate_envelope` are diagnostic handlers and do
+  not enable `act`. `abstain` is a STOP, not a weak yes.
 - **`why` carries a `closure` verdict** — `blocked` means the path rests on an
   unresolved (guessed/dropped) edge; verify that edge before relying on the path.
 - **`seek` carries a `trust_envelope` + a sufficiency stop-signal** —

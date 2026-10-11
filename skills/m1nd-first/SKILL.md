@@ -103,11 +103,13 @@ this loop by default:
    absence. `wrong_workspace_binding` means rebind, intentional ingest, or real
    federation; it is not stale graph proof.
 3. Follow the `next_move`, or route focused questions through
-   `search`/`seek`/`activate`. Obey the calibrated verdict — do not override it:
-   - retrieval/prediction return **`act` / `reverify` / `abstain`**; `abstain`
-     means uncalibrated or insufficient evidence — a STOP, not a weak yes. The
-     prediction gate is armed by `calibrate_predict` and the seek trust envelope
-     by `calibrate_envelope`; until each is armed its verdict caps at `reverify`.
+   `search`/`seek`/`activate`. Obey the evidence verdict — do not override it:
+   - current source treats every v1 calibration row as
+     `legacy_evidence_unqualified`: prediction returns `abstain`, and the seek
+     trust envelope stays at `reverify` or `unprovable`. Scores and rankings
+     remain available for inspection. `calibrate_predict` and
+     `calibrate_envelope` are diagnostic handlers; running them does not enable
+     `act`. `abstain` is a STOP, not a weak yes.
    - `why` carries a **`closure`** verdict — `blocked` means the path rests on an
      unresolved (guessed/dropped) edge; verify that edge before relying on it.
    - `seek` carries a **`trust_envelope`** + a sufficiency stop-signal —
@@ -286,7 +288,7 @@ merit; facts, never estimated savings (G1).
 
 | term | what it really means |
 |---|---|
-| `abstain` | a calibrated answer ("not enough evidence to act") — never a failure |
+| `abstain` | an evidence-limited answer ("not enough evidence to act") — never a failure |
 | `insufficient_evidence` | ZERO evidence, the honest cold start — never "medium risk" |
 | `merge_wait` | waiting for the HUMAN stamp — never stuck or blocked |
 | stale (receipt) | aged since it was earned — never invalid |

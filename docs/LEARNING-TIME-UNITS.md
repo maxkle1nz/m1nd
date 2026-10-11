@@ -2,7 +2,7 @@
 
 The envelope calibration path consumes defect history recorded by `learn`.
 `TrustEntry` defect timestamps and `TrustLedger::compute_trust` use Unix seconds;
-`CalibrationRow::calibrated_at_ms` and seek calibration receipts use Unix
+`CalibrationRow::calibrated_at_ms` and historical seek calibration receipts use Unix
 milliseconds.
 
 The calibration core accepts one integer millisecond timestamp, converts it to
@@ -31,8 +31,15 @@ not rewritten on load. A subsequent authorized calibration recomputes from the
 recorded ledger using the corrected clock; this change does not add a public
 calibration or learning consumer or relax an authority floor.
 
-The feedback vocabulary, label interpretation, threshold algorithm, and `act`
-gating are unchanged. Correct clock units do not establish that relevance
-feedback is a verified defect, that the corpus is independently held out, or
-that a calibration threshold satisfies a statistical error budget. Those are
-separate pending quality repairs; continue checking code and executed evidence.
+The clock repair itself leaves feedback vocabulary, label interpretation,
+and the threshold algorithm unchanged. Correct clock units do not establish
+that relevance feedback is a verified defect, that the corpus is independently
+held out, or that a calibration threshold satisfies a statistical error budget.
+
+The subsequent [calibration qualification containment](CALIBRATION-QUALIFICATION.md)
+keeps all v1 rows structurally readable but marks their runtime evidence
+`legacy_evidence_unqualified`. Prediction abstains, and the seek envelope stays
+at `reverify` or `unprovable`; running a diagnostic calibration does not enable
+`act`. Scores, ranking, persistence, and historical receipt digest compatibility
+are retained. Current envelopes emit no calibration receipt from these rows.
+Continue checking code and executed evidence.

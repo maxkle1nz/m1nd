@@ -1566,8 +1566,8 @@ pub fn handle_seek(
     // OMEGA Move 1 — the trust-gated answer envelope (ships DARK: advisory only).
     // Compose ONLY the cheap/available factors here (worst-of-top trust_band +
     // the cheap in-memory binding band); the rest are deferred honestly inside
-    // `compose_seek_trust_envelope`. The verdict bins the weighted score through
-    // the `envelope` calibration row — capped at `reverify` when uncalibrated.
+    // `compose_seek_trust_envelope`. The diagnostic score is preserved; legacy rows
+    // cannot qualify runtime decisions, so the envelope cannot recommend `act`.
     let top_trust_bands: Vec<String> = results
         .iter()
         .take(3)
@@ -9934,7 +9934,7 @@ fn median_commit_timestamp(commits: &[m1nd_core::git_history::GitCommit]) -> Opt
 }
 
 /// OMEGA Move 0: calibrate `predict` from the repo's own git history and persist
-/// the resulting `CalibrationRow` to `calibration_state.json`.
+/// a diagnostic `CalibrationRow` to `calibration_state.json`, without runtime qualification.
 pub fn handle_calibrate_predict(
     state: &mut SessionState,
     input: layers::CalibratePredictInput,
@@ -9993,7 +9993,11 @@ pub fn handle_calibrate_predict(
 
     let row = &outcome.row;
     Ok(serde_json::json!({
-        "calibrated": true,
+        "calibrated": false,
+        "diagnostic_available": true,
+        "reason": m1nd_core::calibration::runtime_qualification(
+            CALIBRATION_SIGNAL_PREDICT, Some(row)
+        ).reason(),
         "signal": CALIBRATION_SIGNAL_PREDICT,
         "tau": row.tau,
         "target_alpha": row.target_alpha,
@@ -10016,7 +10020,7 @@ pub fn handle_calibrate_predict(
             })
             .collect::<Vec<_>>(),
         "summary": format!(
-            "predict/co-change: at {:.0}% coverage, `act` is {:.0}% precise on {} held-out predictions (τ={:.3}, α={:.2})",
+            "predict/co-change: at {:.0}% coverage, diagnostic threshold precision is {:.0}% on {} held-out predictions (τ={:.3}, α={:.2})",
             row.coverage * 100.0,
             row.measured_precision * 100.0,
             row.n,
@@ -10129,10 +10133,9 @@ fn calibrate_envelope_from_ledger(
 }
 
 /// OMEGA Move 1 (calibration): calibrate the trust ENVELOPE from the ledger's
-/// real learn outcomes and persist the resulting `CalibrationRow` under the
-/// `envelope` signal, so `seek`'s trust envelope can reach `act` on a genuinely
-/// calibrated basis (previously the `envelope` signal had NO production writer,
-/// so the envelope was structurally capped at `reverify`).
+/// legacy learn aggregates and persist a diagnostic `CalibrationRow` under the
+/// `envelope` signal. These labels do not qualify the production seek scorer;
+/// persisting the row never enables `act`.
 ///
 /// With no usable labeled corpus, the envelope stays HONESTLY uncalibrated:
 /// `calibrated:false`, reason `envelope_uncalibrated`, and the seek envelope
@@ -10156,7 +10159,7 @@ pub fn handle_calibrate_envelope(
                 "calibrated": false,
                 "signal": m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
                 "reason": "envelope_uncalibrated",
-                "detail": "no labeled corpus for the trust envelope: the ledger has no learn outcomes (learn `correct`/`wrong`) that express an act/no-act label. Record verified vs refuted seek hits via `learn`, then re-run. Until then the seek envelope is honestly capped at `reverify` — `act` unreachable.",
+                "detail": "no labeled corpus for the trust envelope: the ledger has no learn outcomes (learn `correct`/`wrong`) that express an act/no-act label. The envelope remains unqualified; legacy learn labels and diagnostic calibration do not enable `act`.",
                 "ledger_nodes": state.trust_ledger.entry_count(),
                 "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
             }));
@@ -10173,7 +10176,11 @@ pub fn handle_calibrate_envelope(
 
     let row = &outcome.row;
     Ok(serde_json::json!({
-        "calibrated": true,
+        "calibrated": false,
+        "diagnostic_available": true,
+        "reason": m1nd_core::calibration::runtime_qualification(
+            m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE, Some(row)
+        ).reason(),
         "signal": m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
         "tau": row.tau,
         "target_alpha": row.target_alpha,
@@ -10194,7 +10201,7 @@ pub fn handle_calibrate_envelope(
             })
             .collect::<Vec<_>>(),
         "summary": format!(
-            "envelope: at {:.0}% coverage, `act` is {:.0}% precise on {} labeled node(s) (τ={:.3}, α={:.2}); the seek trust envelope can now reach `act` when the weighted reliability clears τ",
+            "envelope: at {:.0}% coverage, diagnostic threshold precision is {:.0}% on {} labeled node(s) (τ={:.3}, α={:.2}); legacy evidence does not qualify the runtime action gate",
             row.coverage * 100.0,
             row.measured_precision * 100.0,
             row.n,
@@ -12047,11 +12054,9 @@ mod tests {
         );
     }
 
-    /// A clean bound+ingested graph with a real top result and a seeded `envelope`
-    /// calibration row → the trust envelope must reach `verdict == "act"` (the
-    /// binding factor is `full_trust` ⇒ reliability 1.0, cleanly above τ).
+    /// Clean binding preserves score 1.0 but a legacy row cannot qualify act.
     #[test]
-    fn seek_trust_envelope_acts_on_clean_bound_ingested_graph() {
+    fn seek_trust_envelope_legacy_row_keeps_clean_graph_unqualified() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut state = build_layer_state(temp.path());
         seed_envelope_calibration(&mut state);
@@ -12074,20 +12079,11 @@ mod tests {
 
         let env = &out.trust_envelope;
         assert!(!out.results.is_empty(), "precondition: real results");
-        assert!(env.calibrated, "seeded envelope row ⇒ calibrated");
-        let receipt = env
-            .calibration_receipt
-            .as_ref()
-            .expect("calibrated seek carries receipt");
-        assert_eq!(receipt.status, "calibrated");
-        assert_eq!(receipt.signal, "envelope");
-        assert_eq!(receipt.sample_size, 100);
-        assert_eq!(
-            env.verdict, "act",
-            "clean binding + seeded calibration must reach `act`, got {:?} (score {})",
-            env.verdict, env.score
-        );
-        assert!(env.next_repair_call.is_none(), "act ⇒ no repair call");
+        assert!(!env.calibrated);
+        assert!(env.calibration_receipt.is_none());
+        assert_eq!(env.score, 1.0);
+        assert_eq!(env.verdict, "reverify");
+        assert!(env.next_repair_call.is_some());
         // The binding factor must be present and known; trust_band is honestly
         // deferred (cold-start nodes have no trust evidence → known:false).
         assert!(env.factors.iter().any(|f| f.name == "binding" && f.known));
@@ -12135,7 +12131,7 @@ mod tests {
         .expect("seek ok");
 
         let env = &out.trust_envelope;
-        assert!(env.calibrated, "seeded row ⇒ calibrated");
+        assert!(!env.calibrated, "legacy row remains unqualified");
         assert_ne!(
             env.verdict, "act",
             "a degraded binding must not reach `act`, got score {}",
@@ -12199,8 +12195,7 @@ mod tests {
     // high reliability) and several confirmed-defect-dominant nodes (learn
     // `correct` — trusting them would have been WRONG ⇒ misses, low reliability).
     // handle_calibrate_envelope must derive a real split-conformal τ on the
-    // envelope's own reliability scale and persist an `envelope` row so a clean
-    // seek can THEN reach `act` — impossible before this fix.
+    // envelope diagnostic scale and persist a row without qualifying runtime act.
 
     /// Seed `n_hits` false-alarm-dominant (high-trust) nodes and `n_misses`
     /// confirmed-defect-dominant (low-trust, recent) nodes into the ledger.
@@ -12222,6 +12217,117 @@ mod tests {
                 state.trust_ledger.record_defect(&id, now_seconds);
             }
         }
+    }
+
+    #[test]
+    fn legacy_calibration_keeps_predict_results_but_never_arms_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        let input = || crate::protocol::PredictInput {
+            changed_node: "file::src/core.rs".into(),
+            agent_id: "qualification-test".into(),
+            top_k: 10,
+            include_velocity: false,
+            min_co_change_count: None,
+        };
+        let before = crate::tools::handle_predict(&mut state, input()).expect("baseline predict");
+        assert!(!before["predictions"]
+            .as_array()
+            .expect("predictions")
+            .is_empty());
+        seed_envelope_calibration(&mut state);
+        let mut row = state
+            .calibration_table
+            .get("envelope")
+            .expect("row")
+            .clone();
+        row.tau = 0.0;
+        row.measured_precision = 1.0;
+        row.coverage = 1.0;
+        row.n = 1_000_000;
+        let mut invalid_row = row.clone();
+        invalid_row.n = 0;
+        state.calibration_table.set("predict", invalid_row);
+        let invalid = crate::tools::handle_predict(&mut state, input()).expect("invalid predict");
+        assert_eq!(before["predictions"], invalid["predictions"]);
+        assert_eq!(invalid["calibration"]["calibrated"], false);
+        assert_eq!(invalid["calibration"]["reason"], "calibration_invalid");
+        assert!(!state.calibration_armed());
+        state.calibration_table.set("predict", row);
+        let encoded =
+            m1nd_core::calibration::encode_calibration_state_json(&state.calibration_table)
+                .expect("encode legacy rows");
+        let after = crate::tools::handle_predict(&mut state, input()).expect("legacy predict");
+        assert_eq!(
+            before["predictions"], after["predictions"],
+            "ranking and result scores stay intact"
+        );
+        assert_eq!(after["calibration"]["calibrated"], false);
+        assert_eq!(
+            after["calibration"]["reason"],
+            "legacy_evidence_unqualified"
+        );
+        assert!(!state.calibration_armed());
+        state.persist().expect("persist diagnostic rows");
+        drop(state);
+        let restarted = build_layer_state(temp.path());
+        assert!(!restarted.calibration_armed());
+        assert_eq!(
+            encoded,
+            m1nd_core::calibration::encode_calibration_state_json(&restarted.calibration_table)
+                .expect("recover exact historical rows")
+        );
+    }
+
+    #[test]
+    fn legacy_calibration_public_seek_is_unqualified_and_writes_stay_denied() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        seed_envelope_calibration(&mut state);
+        let out = crate::server::dispatch_generic_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({"agent_id":"qualification-test", "query":"core"}),
+        )
+        .expect("ordinary public seek");
+        assert!(!out["results"].as_array().expect("results").is_empty());
+        assert_eq!(out["trust_envelope"]["score"], 1.0);
+        assert_eq!(out["trust_envelope"]["verdict"], "reverify");
+        assert_eq!(out["trust_envelope"]["calibrated"], false);
+        assert!(out["trust_envelope"].get("calibration_receipt").is_none());
+        let before =
+            m1nd_core::calibration::encode_calibration_state_json(&state.calibration_table)
+                .expect("before");
+        for tool in [
+            "learn",
+            "debrief",
+            "calibrate_predict",
+            "calibrate_envelope",
+        ] {
+            for name in [
+                tool.to_string(),
+                format!("m1nd.{tool}"),
+                format!("m1nd_{tool}"),
+            ] {
+                let error = crate::server::dispatch_generic_tool(
+                    &mut state,
+                    &name,
+                    &serde_json::json!({"agent_id":"qualification-test"}),
+                )
+                .expect_err("elevated route remains denied");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("generic_action_authority_required"),
+                    "{error}"
+                );
+            }
+        }
+        assert_eq!(
+            before,
+            m1nd_core::calibration::encode_calibration_state_json(&state.calibration_table)
+                .expect("after")
+        );
     }
 
     #[test]
@@ -12296,7 +12402,7 @@ mod tests {
     }
 
     #[test]
-    fn calibrate_envelope_from_ledger_produces_row_that_enables_act() {
+    fn calibrate_envelope_from_ledger_is_diagnostic_not_armed() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut state = build_layer_state(temp.path());
         assert!(
@@ -12338,8 +12444,8 @@ mod tests {
         .expect("calibrate_envelope ok");
         assert_eq!(
             out["calibrated"],
-            serde_json::json!(true),
-            "corpus present ⇒ calibrated"
+            serde_json::json!(false),
+            "legacy corpus is diagnostic only"
         );
         let tau = out["tau"].as_f64().expect("tau present");
         assert!(
@@ -12351,8 +12457,7 @@ mod tests {
             "an `envelope` row must now be set (production writer)"
         );
 
-        // After calibration: the SAME clean seek can now reach `act` (the clean
-        // binding factor's reliability 1.0 clears the measured τ).
+        // Diagnostic measurement must not turn the same clean seek into act.
         let after = handle_seek(
             &mut state,
             SeekInput {
@@ -12369,12 +12474,12 @@ mod tests {
         )
         .expect("seek ok");
         assert!(
-            after.trust_envelope.calibrated,
-            "after calibrate_envelope the seek envelope is calibrated"
+            !after.trust_envelope.calibrated,
+            "diagnostic calibration does not qualify the seek envelope"
         );
         assert_eq!(
-            after.trust_envelope.verdict, "act",
-            "a calibrated envelope on a clean graph MUST be able to reach `act` (was impossible before FIX 1); score {}",
+            after.trust_envelope.verdict, "reverify",
+            "legacy diagnostics cannot enable act; score {}",
             after.trust_envelope.score
         );
     }
@@ -12447,7 +12552,14 @@ mod tests {
             },
         )
         .expect("calibrate ok");
-        assert_eq!(out["calibrated"], serde_json::json!(true));
+        assert_eq!(out["calibrated"], serde_json::json!(false));
+        assert_eq!(out["diagnostic_available"], true);
+        assert_eq!(out["reason"], "legacy_evidence_unqualified");
+        let first_row = state
+            .calibration_table
+            .get("envelope")
+            .expect("row")
+            .clone();
 
         let first_seek = handle_seek(
             &mut state,
@@ -12464,10 +12576,8 @@ mod tests {
             },
         )
         .expect("seek after calibration");
-        let first_receipt = first_seek
-            .trust_envelope
-            .calibration_receipt
-            .expect("receipt after calibration");
+        assert!(!first_seek.trust_envelope.calibrated);
+        assert!(first_seek.trust_envelope.calibration_receipt.is_none());
 
         // Reload the persisted table from disk and confirm the envelope row and
         // its canonical receipt binding survived exactly.
@@ -12476,10 +12586,7 @@ mod tests {
         let reloaded_row = reloaded
             .get("envelope")
             .expect("the envelope calibration row must be persisted");
-        assert!(crate::trust_envelope::verify_seek_calibration_receipt(
-            &first_receipt,
-            reloaded_row,
-        ));
+        assert_eq!(reloaded_row, &first_row);
 
         drop(state);
         let mut restarted = build_layer_state(temp.path());
@@ -12503,18 +12610,10 @@ mod tests {
             },
         )
         .expect("seek after restart");
-        let restarted_receipt = restarted_seek
-            .trust_envelope
-            .calibration_receipt
-            .expect("restart seek receipt");
-        assert_eq!(
-            restarted_receipt.receipt_digest, first_receipt.receipt_digest,
-            "the exact persisted row must reproduce the same receipt digest"
-        );
-        assert!(crate::trust_envelope::verify_seek_calibration_receipt(
-            &restarted_receipt,
-            &restarted_row,
-        ));
+        assert_eq!(restarted_row, first_row);
+        assert!(!restarted_seek.trust_envelope.calibrated);
+        assert!(restarted_seek.trust_envelope.calibration_receipt.is_none());
+        assert_ne!(restarted_seek.trust_envelope.verdict, "act");
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that
@@ -16335,9 +16434,9 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         .expect("calibrate ok");
 
         assert_eq!(
-            out["calibrated"],
+            out["diagnostic_available"],
             serde_json::json!(true),
-            "real-repo calibration must produce a number: {out}"
+            "real-repo diagnostic calibration must produce a number: {out}"
         );
         // A row must have been stored for the predict signal.
         assert!(state

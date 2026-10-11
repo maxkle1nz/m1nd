@@ -186,9 +186,9 @@ export default function HallView({
   const calibrate = useCallback(async () => {
     try {
       await api.tool('calibrate_predict', {});
-      addToast('calibrating on this repo…', 'measuring precision once', 'info');
+      addToast('calibration diagnostic finished', 'runtime evidence remains unqualified; inspect source and tests', 'info');
     } catch (err) {
-      setError(errorDetail(err, 'Calibrate failed'));
+      setError(errorDetail(err, 'Calibration diagnostic failed'));
     }
   }, [addToast]);
 

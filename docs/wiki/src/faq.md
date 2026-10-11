@@ -46,7 +46,7 @@ Generic `replace` and `merge` are policy-disabled for clients. A person prepares
 
 ## Does a trust verdict prove the answer is correct?
 
-No. It reports the evidence state. `reverify` calls for a direct check, `abstain` does not support acting on the signal, and `insufficient_evidence` means the evidence is inadequate. Uncalibrated behavior and approximate extraction are real limits. Use source, compiler, test, and runtime evidence as appropriate.
+No. It reports the evidence state. `reverify` calls for a direct check, `abstain` does not support acting on the signal, and `insufficient_evidence` means the evidence is inadequate. Current source treats all v1 calibration rows as [unqualified](../../CALIBRATION-QUALIFICATION.md): prediction abstains and seek envelopes stay at `reverify` or `unprovable`. Running calibration does not enable `act`. Scores and rankings remain useful for inspection; use source, compiler, test, and runtime evidence as appropriate.
 
 ## Does write verification run my test suite?
 

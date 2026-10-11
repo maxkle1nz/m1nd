@@ -1,31 +1,15 @@
 // === m1nd-mcp/src/trust_envelope.rs ===
 //
-// OMEGA Move 1 — the TRUST-GATED ANSWER ENVELOPE (first slice, on `seek`).
+// Diagnostic trust envelope for seek.
 //
-// Wraps every `seek` answer in a per-answer trust RECEIPT so an agent can
-// mechanically decide to ACT on it, re-verify it, abstain, or treat it as
-// unprovable — in one round-trip, without re-deriving the evidence by hand.
+// Preserve the weighted factor score while keeping runtime qualification
+// separate. Absent, invalid and legacy v1 calibration evidence cannot emit act
+// or a current calibrated receipt. Historical receipt digest and verification
+// functions below remain compatible; authenticity is not qualification.
 //
-// The verdict is a CALIBRATED WEIGHTING over the available trust factors, NOT an
-// any-red AND-fold. The critic's hard rule (§O.3 #1 / §O.10 Move 1): an AND over
-// noisy probes spuriously abstains ~23% of the time, so agents route around the
-// gate and the moat dies. Here a single red factor never forces abstention if
-// the weighted majority is clean.
-//
-// REUSE-FIRST: the final decision reuses `calibration::verdict_for` (the same
-// conformal τ/τ_low binning `predict` uses) over the `envelope` calibration row.
-// The only net-new code is the two band→reliability maps and the ~one pure
-// weighting function below — no new dependency, no new engine.
-//
-// HONESTY INVARIANTS (all enforced + unit-tested):
-//   * `known:false` factors drop from BOTH numerator and denominator — never
-//     counted as a pass OR a fail.
-//   * A single red factor must NOT force `abstain` when the weighted majority is
-//     clean (the anti-AND property).
-//   * No `envelope` calibration row ⇒ verdict capped at `reverify`, `act`
-//     UNREACHABLE, `calibrated:false`.
-//   * ALL factors unknown (or a zero/degenerate weighted denominator, or a
-//     non-finite score) ⇒ `unprovable` — never a fake number, never `act`.
+// Unknown factors drop from both sums. Empty/degenerate/nonfinite folds remain
+// unprovable; all other unqualified scores require reverify. No authority floor
+// or existing retrieval ranking changes here.
 
 use crate::protocol::layers::{SeekCalibrationReceipt, TrustEnvelope, TrustFactor};
 use m1nd_control::digest_canonical;
@@ -65,6 +49,7 @@ pub fn seek_calibration_receipt_digest(row: &CalibrationRow) -> Option<String> {
     .ok()
 }
 
+#[cfg(test)]
 fn project_seek_calibration_receipt(row: &CalibrationRow) -> Option<SeekCalibrationReceipt> {
     Some(SeekCalibrationReceipt {
         schema: SEEK_CALIBRATION_RECEIPT_SCHEMA.to_string(),
@@ -169,20 +154,20 @@ pub fn binding_reliability(band: &str) -> Option<f32> {
     }
 }
 
-/// Pure, deterministic weighting: fold the composed factors into a calibrated
+/// Pure, deterministic weighting: fold factors into an unqualified diagnostic
 /// [`TrustEnvelope`]. No I/O, no clock, no state — fully unit-testable.
 ///
 /// score = Σ_i (w_i · v_i · known_i) / Σ_i (w_i · known_i)
 ///
 /// with `v_i` the per-factor reliability in [0,1]. Unknown factors contribute to
-/// NEITHER sum. The verdict then bins `score` through the `envelope` calibration
-/// row's τ/τ_low (`calibration::verdict_for`) — a weighted DECISION, not a
-/// conjunction. See the module honesty invariants for the degradation rules.
+/// NEITHER sum. The score remains diagnostic: legacy aggregate calibration rows
+/// cannot qualify a runtime decision. Known finite folds require re-verification;
+/// empty or nonfinite folds are unprovable. See the module honesty invariants.
 pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) -> TrustEnvelope {
     let factor_receipts: Vec<TrustFactor> = factors.iter().map(FactorInput::to_factor).collect();
-    let calibration_receipt = cal_row.and_then(project_seek_calibration_receipt);
-    let validated_cal_row = calibration_receipt.as_ref().and(cal_row);
-    let invalid_calibration_row = cal_row.is_some() && calibration_receipt.is_none();
+    let qualification =
+        calibration::runtime_qualification(calibration::CALIBRATION_SIGNAL_ENVELOPE, cal_row);
+    let qualification_reason = qualification.reason().to_string();
 
     // Accumulate ONLY the known factors into the weighted score. Unknown factors
     // never touch either sum (the honest UNPROVABLE-per-factor invariant).
@@ -210,10 +195,11 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         return TrustEnvelope {
             verdict: VERDICT_UNPROVABLE.to_string(),
             score: 0.0,
-            calibrated: calibration_receipt.is_some(),
-            calibration_receipt,
+            calibrated: false,
+            calibration_receipt: None,
             factors: factor_receipts,
             reasons: vec![
+                qualification_reason,
                 "no provable trust factor was available on this path — the answer is UNPROVABLE, not trusted; re-verify against local files".to_string(),
             ],
             next_repair_call: first_repair_hint(factors),
@@ -227,43 +213,24 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
         return TrustEnvelope {
             verdict: VERDICT_UNPROVABLE.to_string(),
             score: 0.0,
-            calibrated: calibration_receipt.is_some(),
-            calibration_receipt,
+            calibrated: false,
+            calibration_receipt: None,
             factors: factor_receipts,
             reasons: vec![
+                qualification_reason,
                 "the weighted trust score was non-finite — reporting UNPROVABLE rather than a fabricated verdict".to_string(),
             ],
             next_repair_call: first_repair_hint(factors),
         };
     }
 
-    // Decide. With a calibration row, bin the score through the SAME conformal
-    // τ/τ_low `predict` uses. WITHOUT a row, the envelope is honestly
-    // uncalibrated: `act` is UNREACHABLE and the verdict is capped at `reverify`
-    // (softened from predict's None→abstain, because some factors ARE known here).
-    let (verdict, calibrated) = match validated_cal_row {
-        Some(row) => (
-            calibration::verdict_for(score, row.tau, row.tau_low()).to_string(),
-            true,
-        ),
-        None => (calibration::VERDICT_REVERIFY.to_string(), false),
-    };
-
-    let mut reasons = Vec::new();
-    match calibrated {
-        true => reasons.push(format!(
-            "weighted trust score {score:.2} over {known_count} known factor(s), binned by the calibrated `envelope` threshold → {verdict}"
-        )),
-        false => reasons.push(format!(
-            "weighted trust score {score:.2} over {known_count} known factor(s), but the `envelope` signal is UNCALIBRATED — `act` is unreachable and the verdict is capped at `reverify` until a calibration row is measured"
-        )),
-    }
-    if invalid_calibration_row {
-        reasons.push(
-            "the `envelope` calibration row failed finite/range/sample validation — its receipt was withheld and `act` remains unreachable"
-                .to_string(),
-        );
-    }
+    // Retain the diagnostic score, but v1 aggregates cannot authorize `act`.
+    // Unknown/invalid/legacy evidence all leave the runtime gate unqualified.
+    let verdict = calibration::VERDICT_REVERIFY.to_string();
+    let mut reasons = vec![
+        qualification_reason,
+        format!("weighted trust score {score:.2} over {known_count} known factor(s); calibration evidence is not runtime-qualified, so reverify against source and executed evidence"),
+    ];
     // Name any known factor that fell below a middling reliability so the agent
     // sees WHY the verdict is not `act`, not just THAT it is not.
     for f in factors {
@@ -292,8 +259,8 @@ pub fn weigh_factors(factors: &[FactorInput], cal_row: Option<&CalibrationRow>) 
     TrustEnvelope {
         verdict,
         score,
-        calibrated,
-        calibration_receipt,
+        calibrated: false,
+        calibration_receipt: None,
         factors: factor_receipts,
         reasons,
         next_repair_call,
@@ -329,7 +296,7 @@ pub fn cheap_trust_mode_band(node_count: u64, edge_count: u64, finalized: bool) 
 }
 
 /// Compose the slice-1 trust factors for a `seek` answer from the cheap/available
-/// signals, then fold them into a [`TrustEnvelope`] via [`weigh_factors`].
+/// signals, then fold them into an unqualified diagnostic [`TrustEnvelope`] via [`weigh_factors`].
 ///
 /// KNOWN (composed here):
 ///   * `trust_band` — the worst trust band across the top results (already
@@ -511,24 +478,57 @@ mod tests {
 
     // ── Exact weighting oracle: fixed factors → EXACT score → EXACT verdict ──
     // Two equal-weight known factors at reliability 0.8 and 1.0:
-    // score = (1·0.8 + 1·1.0) / (1 + 1) = 1.8 / 2 = 0.90. 0.90 ≥ τ(0.6) ⇒ act.
+    // score = (1·0.8 + 1·1.0) / (1 + 1) = 0.90, without qualified action evidence.
     #[test]
-    fn exact_score_and_act_verdict() {
+    fn legacy_calibration_never_qualifies_any_envelope_path() {
+        let mut invalid = cal_row();
+        invalid.tau = f32::NAN;
+        let mut insufficient = cal_row();
+        insufficient.n = 0;
+        let mut forged = cal_row();
+        forged.tau = 0.0;
+        forged.measured_precision = 1.0;
+        forged.coverage = 1.0;
+        forged.n = usize::MAX;
+        for (row, reason) in [
+            (None, "calibration_absent"),
+            (Some(cal_row()), "legacy_evidence_unqualified"),
+            (Some(forged), "legacy_evidence_unqualified"),
+            (Some(invalid), "calibration_invalid"),
+            (Some(insufficient), "calibration_invalid"),
+        ] {
+            for factors in [
+                vec![known("binding", 1.0, 1.0)],
+                vec![known("tie", 0.8, 1.0)],
+                vec![],
+                vec![unknown("binding")],
+                vec![known("binding", f32::NAN, 1.0)],
+                vec![known("a", 1.0, f32::MAX), known("b", 1.0, f32::MAX)],
+            ] {
+                let without_row = weigh_factors(&factors, None);
+                let env = weigh_factors(&factors, row.as_ref());
+                assert_eq!(
+                    env.score, without_row.score,
+                    "diagnostic score is preserved"
+                );
+                assert_eq!(env.verdict, without_row.verdict);
+                assert!(!env.calibrated);
+                assert!(env.calibration_receipt.is_none());
+                assert!(env.reasons.iter().any(|r| r == reason), "{env:?}");
+                assert_ne!(env.verdict, "act");
+            }
+        }
+    }
+
+    #[test]
+    fn exact_score_preserved_without_qualified_act() {
         let factors = [known("binding", 1.0, 1.0), known("trust_band", 0.8, 1.0)];
         let env = weigh_factors(&factors, Some(&cal_row()));
         assert_eq!(env.score, 0.90, "exact weighted score");
-        assert_eq!(env.verdict, "act");
-        assert!(env.calibrated);
-        let receipt = env
-            .calibration_receipt
-            .as_ref()
-            .expect("calibrated act carries receipt");
-        assert_eq!(receipt.schema, SEEK_CALIBRATION_RECEIPT_SCHEMA);
-        assert_eq!(receipt.status, SEEK_CALIBRATION_RECEIPT_STATUS);
-        assert_eq!(receipt.signal, calibration::CALIBRATION_SIGNAL_ENVELOPE);
-        assert_eq!(receipt.sample_size, 100);
-        assert!(verify_seek_calibration_receipt(receipt, &cal_row()));
-        assert!(env.next_repair_call.is_none(), "act ⇒ no repair call");
+        assert_eq!(env.verdict, "reverify");
+        assert!(!env.calibrated);
+        assert!(env.calibration_receipt.is_none());
+        assert!(env.next_repair_call.is_some());
     }
 
     // ── Unknown factors drop out of BOTH sums ──
@@ -549,8 +549,7 @@ mod tests {
 
     // ── ANTI-AND: a single red factor must NOT force abstain when the weighted
     //    majority is clean. THREE clean factors (1.0) + ONE red (0.05):
-    // score = (1.0+1.0+1.0+0.05)/4 = 3.05/4 = 0.7625 ≥ τ(0.6) ⇒ act (NOT abstain).
-    // An any-red AND-fold would have abstained here; the calibrated weighting acts.
+    // The weighted score remains 0.7625; unqualified evidence requires reverify.
     #[test]
     fn single_red_factor_does_not_force_abstain() {
         let factors = [
@@ -566,7 +565,7 @@ mod tests {
             env.score
         );
         assert_eq!(
-            env.verdict, "act",
+            env.verdict, "reverify",
             "one red factor must NOT force abstain when the weighted majority is clean"
         );
     }
@@ -599,13 +598,12 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
 
-        let env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&row));
-        let receipt = env.calibration_receipt.as_ref().expect("receipt");
+        // Historical receipt projection/verification remains byte-compatible.
+        let receipt = project_seek_calibration_receipt(&row).expect("historical receipt");
         assert_eq!(receipt.receipt_digest, first);
-        assert!(verify_seek_calibration_receipt(receipt, &row));
+        assert!(verify_seek_calibration_receipt(&receipt, &row));
 
-        let wire = serde_json::to_value(&env).expect("serialize envelope");
-        let projected = &wire["calibration_receipt"];
+        let projected = serde_json::to_value(&receipt).expect("serialize historical receipt");
         assert_eq!(projected["schema"], SEEK_CALIBRATION_RECEIPT_SCHEMA);
         assert_eq!(projected["status"], SEEK_CALIBRATION_RECEIPT_STATUS);
         assert_eq!(
@@ -623,8 +621,7 @@ mod tests {
     #[test]
     fn calibration_receipt_rejects_tamper_row_drift_and_invalid_rows() {
         let row = cal_row();
-        let env = weigh_factors(&[known("binding", 1.0, 1.0)], Some(&row));
-        let receipt = env.calibration_receipt.expect("receipt");
+        let receipt = project_seek_calibration_receipt(&row).expect("historical receipt");
 
         let mut tampered = receipt.clone();
         tampered.receipt_digest.replace_range(0..1, "f");
@@ -650,7 +647,7 @@ mod tests {
         assert!(invalid_env
             .reasons
             .iter()
-            .any(|reason| reason.contains("failed finite/range/sample validation")));
+            .any(|reason| reason == "calibration_invalid"));
 
         let mut empty = cal_row();
         empty.n = 0;
@@ -696,16 +693,15 @@ mod tests {
         assert_eq!(env.verdict, "unprovable");
     }
 
-    // A genuinely weak weighted score bins to abstain (not act) — the honest
-    // low end still works. score = 0.10 < τ_low(0.3) ⇒ abstain, with a repair.
+    // A weak diagnostic score remains visible, with an unqualified repair verdict.
     #[test]
-    fn weak_score_abstains_with_repair() {
+    fn weak_score_remains_unqualified_with_repair() {
         let env = weigh_factors(&[known("binding", 0.10, 1.0)], Some(&cal_row()));
-        assert_eq!(env.verdict, "abstain");
+        assert_eq!(env.verdict, "reverify");
         assert!(env.next_repair_call.is_some());
     }
 
-    // Borderline score bins to reverify. score = 0.45 ∈ [0.3, 0.6) ⇒ reverify.
+    // Borderline diagnostic score stays unqualified and requires re-verification.
     #[test]
     fn borderline_score_reverifies() {
         let env = weigh_factors(&[known("binding", 0.45, 1.0)], Some(&cal_row()));

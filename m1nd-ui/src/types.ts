@@ -125,7 +125,8 @@ export interface InstanceRegistryEntry {
   query_count?: number | null;
   /**
    * Whether THIS brain's `predict` calibration is armed (R14 / §9.5.1 card field
-   * G2) — a measured τ exists for this repo. Absent (null) for a dormant brain.
+   * G2) — runtime-qualified evidence exists, not merely a diagnostic τ. All v1
+   * rows remain unqualified. Absent (null) for a dormant brain.
    */
   calibration_armed?: boolean | null;
   /**

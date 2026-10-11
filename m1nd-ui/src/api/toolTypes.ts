@@ -136,7 +136,7 @@ export type TrustVerdict = 'act' | 'reverify' | 'abstain' | 'unprovable';
 /** The trust envelope — ALWAYS present on SeekOutput (layers.rs:180-231). */
 export interface TrustEnvelope {
   verdict: TrustVerdict;
-  calibrated: boolean; // false → capped at reverify by engine law (G2 explains)
+  calibrated: boolean; // runtime-qualified evidence; false permits reverify/unprovable, never act
   score?: number;
   factors?: TrustEnvelopeFactor[];
   reasons?: string[];
