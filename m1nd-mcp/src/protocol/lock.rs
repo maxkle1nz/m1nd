@@ -13,9 +13,9 @@ use crate::perspective::state::{LockDiffResult, LockScope, LockState, WatchStrat
 #[derive(Clone, Debug, Deserialize)]
 pub struct LockCreateInput {
     pub agent_id: String,
-    /// Scope type: node, subgraph, query_neighborhood, path.
+    /// Scope type: node, subgraph, path. query_neighborhood is refused.
     pub scope: LockScope,
-    /// Root nodes for the lock scope. Non-empty required.
+    /// Nonempty root set: exact external IDs or unique labels, canonicalized once.
     pub root_nodes: Vec<String>,
     /// BFS radius for subgraph scope. Min 1, max 4.
     #[serde(default)]
@@ -23,7 +23,7 @@ pub struct LockCreateInput {
     /// Query string for query_neighborhood scope.
     #[serde(default)]
     pub query: Option<String>,
-    /// Ordered node list for path scope.
+    /// Explicit additional nodes for path scope; not a claim of connectivity.
     #[serde(default)]
     pub path_nodes: Option<Vec<String>>,
 }
@@ -86,7 +86,10 @@ pub struct LockDiffInput {
 #[derive(Clone, Debug, Serialize)]
 pub struct LockDiffOutput {
     pub diff: LockDiffResult,
-    /// Whether watcher events were drained for this diff.
+    /// Whether any added-node/edge previews hit their output cap. no_changes is
+    /// computed before truncation; omitted changes must never imply safety.
+    pub diff_truncated: bool,
+    /// Number of coalesced watcher notifications drained for this diff.
     pub watcher_events_drained: usize,
     /// If baseline_stale, suggest lock.rebase.
     #[serde(skip_serializing_if = "Option::is_none")]

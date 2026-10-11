@@ -1440,6 +1440,9 @@ fn finalize_ingest_with_inventory(
             .unwrap()
             .insert("agent_memory_restored".to_string(), restored);
     }
+    // Public refresh/ingest and auto-ingest both notify observation watches.
+    // Refused candidates return before this completed finalization seam.
+    state.notify_watchers(crate::perspective::state::WatchTrigger::Ingest);
     Ok(out)
 }
 

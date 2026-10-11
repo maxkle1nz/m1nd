@@ -3822,9 +3822,14 @@ impl SessionState {
     /// Generate a new lock ID for an agent (Theme 2).
     pub fn next_lock_id(&mut self, agent_id: &str) -> String {
         let counter = self.lock_counter.entry(agent_id.to_string()).or_insert(0);
-        *counter += 1;
-        let short_id = &agent_id[..agent_id.len().min(8)];
-        format!("lock_{}_{:03}", short_id, counter)
+        let short_id: String = agent_id.chars().take(8).collect();
+        loop {
+            *counter += 1;
+            let id = format!("lock_{}_{:03}", short_id, counter);
+            if !self.locks.contains_key(&id) {
+                return id;
+            }
+        }
     }
 
     /// Count perspectives for an agent (for limit enforcement, Theme 5).
@@ -3873,11 +3878,21 @@ impl SessionState {
             .collect();
 
         for lock_id in matching_locks {
-            self.pending_watcher_events.push(WatcherEvent {
-                lock_id,
-                trigger: trigger.clone(),
-                timestamp_ms: now_ms,
-            });
+            // A notification says "scan since baseline", not "one graph change".
+            // Coalesce repeated triggers so a long-lived watch has bounded memory.
+            if let Some(event) = self
+                .pending_watcher_events
+                .iter_mut()
+                .find(|event| event.lock_id == lock_id && event.trigger == trigger)
+            {
+                event.timestamp_ms = now_ms;
+            } else {
+                self.pending_watcher_events.push(WatcherEvent {
+                    lock_id,
+                    trigger: trigger.clone(),
+                    timestamp_ms: now_ms,
+                });
+            }
         }
     }
 

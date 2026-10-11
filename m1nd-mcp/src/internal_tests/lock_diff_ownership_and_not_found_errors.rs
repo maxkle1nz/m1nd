@@ -60,7 +60,7 @@ fn search_first_node_id(state: &mut SessionState, query: &str) -> String {
     .to_string()
 }
 
-/// Ingest a small code file, create a lock as `tester`, and return
+/// Ingest a small source directory, create a lock as `tester`, and return
 /// `(state, lock_id)` so each test starts from a genuinely owned lock.
 fn lock_owned_by_tester(root: &Path) -> (SessionState, String) {
     let src_dir = root.join("src");
@@ -81,7 +81,7 @@ fn lock_owned_by_tester(root: &Path) -> (SessionState, String) {
         "ingest",
         json!({
             "agent_id": "tester",
-            "path": src_file.to_string_lossy().to_string(),
+            "path": src_dir.to_string_lossy().to_string(),
             "adapter": "code",
             "mode": "merge"
         }),
@@ -89,8 +89,8 @@ fn lock_owned_by_tester(root: &Path) -> (SessionState, String) {
 
     let node_id = search_first_node_id(&mut state, "TokenValidator");
     assert!(
-        !node_id.is_empty(),
-        "ingested code symbol must be searchable so the lock has a real root node"
+        state.graph.read().resolve_id(&node_id).is_some(),
+        "search must return a canonical ID in the ingested graph, got {node_id:?}"
     );
 
     let created = call(
@@ -110,11 +110,8 @@ fn lock_owned_by_tester(root: &Path) -> (SessionState, String) {
 
 #[test]
 fn lock_diff_rejects_caller_that_does_not_own_the_lock() {
-    let temp = std::env::temp_dir().join("m1nd_lock_diff_ownership_intruder");
-    let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
-
-    let (mut state, lock_id) = lock_owned_by_tester(&temp);
+    let temp = tempfile::tempdir().expect("isolated fixture");
+    let (mut state, lock_id) = lock_owned_by_tester(temp.path());
 
     // Same, existing lock_id — only the agent_id differs from the owner.
     let result = dispatch_tool(
@@ -133,18 +130,14 @@ fn lock_diff_rejects_caller_that_does_not_own_the_lock() {
         "expected LockOwnership for caller != owner, got {:?}",
         result
     );
-
-    let _ = fs::remove_dir_all(&temp);
 }
 
 #[test]
 fn lock_diff_rejects_unknown_lock_id() {
-    let temp = std::env::temp_dir().join("m1nd_lock_diff_ownership_missing");
-    let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    let temp = tempfile::tempdir().expect("isolated fixture");
 
     // The owner agent calls, but for a lock_id that was never created.
-    let (mut state, _real_lock_id) = lock_owned_by_tester(&temp);
+    let (mut state, _real_lock_id) = lock_owned_by_tester(temp.path());
 
     let result = dispatch_tool(
         &mut state,
@@ -162,6 +155,4 @@ fn lock_diff_rejects_unknown_lock_id() {
         "expected LockNotFound for an unknown lock_id, got {:?}",
         result
     );
-
-    let _ = fs::remove_dir_all(&temp);
 }

@@ -8,6 +8,15 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 - This matrix is the routing SSOT for the canonical tool surface used by agents and LLMs, and it documents the REGISTRY: a verb with a row here is callable whether or not `tools/list` lists it.
 - Any page that advertises a fixed tool count can drift. Treat `health.tool_surface_contract` (`full_registry_tool_count` / `advertised_tool_count` / `hidden_tool_count`) as counting truth.
 
+## Graph change-tracking menu (source preview)
+
+Set `M1ND_TOOL_TIER=investigate` on the server and reconnect to advertise core plus
+`lock_create`, `lock_watch`, `lock_diff`, `lock_rebase`, and `lock_release` (20 tools).
+These are session-local graph baselines, not filesystem locks. Default core and
+all authority checks are unchanged. See the [recipe and limits](../../GRAPH-CHANGE-TRACKING.md).
+Help can describe an unlisted tool but cannot register it in a host that only
+calls listed tools.
+
 ## The core menu (default `tools/list`)
 
 By default m1nd advertises a **core menu of about 15 verbs**, not the whole registry:
@@ -95,11 +104,11 @@ The floor is not an exception to the core — it is why the core can be small. `
 
 | command | core_function | choose_when | avoid_when | required | returns | next |
 |---|---|---|---|---|---|---|
-| `lock_create` | Snapshot a subgraph region. | Snapshot a subgraph region. | Avoid for solo read-only work; use only when coordination or baseline diffs matter. | `agent_id; scope; root_nodes` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
-| `lock_watch` | Register a change strategy on a lock. | Register a change strategy on a lock. | Avoid for solo read-only work; use only when coordination or baseline diffs matter. | `agent_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
-| `lock_diff` | Compare current graph state against the locked baseline. Returns changes since the lock was created. | Compare current graph state against the locked baseline. Returns changes since the lock was created. | Avoid for solo read-only work; use only when coordination or baseline diffs matter. | `agent_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
-| `lock_rebase` | Advance the lock baseline to the current graph state (after reviewing and accepting changes). | Advance the lock baseline to the current graph state (after reviewing and accepting changes). | Avoid for solo read-only work; use only when coordination or baseline diffs matter. | `agent_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
-| `lock_release` | Free lock state and release memory. | Free lock state and release memory. | Avoid for solo read-only work; use only when coordination or baseline diffs matter. | `agent_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
+| `lock_create` | Snapshot a subgraph region. | Snapshot a subgraph region. | Use for session-local graph comparisons, never filesystem exclusion. | `agent_id; scope; root_nodes` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
+| `lock_watch` | Register a change strategy on a lock. | Register a change strategy on a lock. | Use for session-local graph comparisons, never filesystem exclusion. | `agent_id; lock_id; strategy` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
+| `lock_diff` | Compare current graph state against the locked baseline. Returns changes since the lock was created. | Compare current graph state against the locked baseline. Returns changes since the lock was created. | Use for session-local graph comparisons, never filesystem exclusion. | `agent_id; lock_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
+| `lock_rebase` | Advance the lock baseline to the current graph state (after reviewing and accepting changes). | Advance the lock baseline to the current graph state (after reviewing and accepting changes). | Use for session-local graph comparisons, never filesystem exclusion. | `agent_id; lock_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
+| `lock_release` | Free lock state and release memory. | Free lock state and release memory. | Use for session-local graph comparisons, never filesystem exclusion. | `agent_id; lock_id` | `tool-specific JSON payload; inspect API reference / tools/list` | `lock_watch -> lock_diff -> lock_rebase` |
 
 ## Superpowers
 
