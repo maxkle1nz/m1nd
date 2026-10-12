@@ -98,6 +98,8 @@ Follow [the source-preview recipe](docs/AGENT-AUTONOMY.md#public-npm-cli-and-pro
 
 See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). The default tool menu is deliberately small. `help` discovers the full registry; `M1ND_TOOL_TIER=full` expands the advertised menu. For graph change tracking, source builds also offer `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools. See the [beginner and advanced recipe](docs/GRAPH-CHANGE-TRACKING.md). Source-preview graph-linked search also preserves canonical node IDs for single-file ingest roots; ambiguous file mappings are omitted. A listed or callable tool may still require authority the current session does not have.
 
+Unreleased source also supports opt-in [bounded `surgical_context` pages](docs/BOUNDED-SURGICAL-CONTEXT.md): `max_output_bytes` caps compact handler JSON, with explicit omissions, source anchors, SHA-256 digests and continuation. Transport/runtime envelopes and pretty-print whitespace are excluded. Default requests remain complete; partial source pages require reassembly before editing.
+
 ## What it does and does not prove
 
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
