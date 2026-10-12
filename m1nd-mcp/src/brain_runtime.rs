@@ -2505,8 +2505,9 @@ impl BrainActorState {
 
     /// Open the candidate-first persistence stage and arm the authoritative
     /// rollback packet. Durable state is not serialized here. Only the bounded
-    /// perspective/lock subsystem is cloned so a refused turn cannot erase
-    /// unrelated navigation state; repository-scale inventories and preview
+    /// perspective/lock state, coverage receipts and freshness counters are
+    /// cloned so refusals retain prior navigation and continuation identity.
+    /// Repository-scale inventories, proof capabilities and preview
     /// payloads are deliberately excluded from this per-call preimage.
     fn begin_state_stage(
         &mut self,
@@ -6864,6 +6865,66 @@ mod tests {
             ],
             "rollback must retain the exact pre-callback perspective state"
         );
+        actor.stop().expect("stop actor");
+    }
+
+    #[test]
+    fn refused_callback_restores_coverage_and_generation_preimage() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let actor = BrainActorHandle::start(
+            "coverage-refusal-brain".into(),
+            Arc::clone(&session),
+            runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY),
+            Arc::new(UnboundBrainCheckpointAuthority),
+            2,
+            None,
+        )
+        .expect("start actor");
+        let before = actor
+            .try_execute(false, |state| {
+                state.note_coverage(
+                    "agent",
+                    "view",
+                    vec!["prior.rs".into()],
+                    vec!["file::prior.rs".into()],
+                );
+                state.graph_generation = 17;
+                state.plasticity_generation = 23;
+                state.cache_generation = 29;
+                Ok::<_, RuntimeJobFailure>(serde_json::to_value(&state.coverage_sessions).unwrap())
+            })
+            .expect("seed process-owned visits and generations");
+        actor
+            .try_execute(false, |state| {
+                state.coverage_sessions.clear();
+                state.note_coverage(
+                    "agent",
+                    "surgical_context",
+                    vec!["failed.rs".into()],
+                    vec!["file::failed.rs".into()],
+                );
+                state.bump_graph_generation();
+                state.bump_plasticity_generation();
+                state.cache_generation = 37;
+                Err::<(), _>(RuntimeJobFailure::new(
+                    "context_refused",
+                    "partially touched process state",
+                ))
+            })
+            .expect_err("refused callback must roll back");
+        let after = actor
+            .try_execute(false, |state| {
+                Ok::<_, RuntimeJobFailure>((
+                    serde_json::to_value(&state.coverage_sessions).unwrap(),
+                    state.graph_generation,
+                    state.plasticity_generation,
+                    state.cache_generation,
+                ))
+            })
+            .expect("read restored process state");
+        assert_eq!(after, (before, 17, 23, 29));
         actor.stop().expect("stop actor");
     }
 

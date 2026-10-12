@@ -412,6 +412,13 @@ struct StrictRecoveryState {
 /// ```
 #[derive(Clone)]
 pub(crate) struct CallbackPerspectiveStatePreimage {
+    // These process-owned receipts must survive refused callbacks. Authoritative
+    // reload clears them; restore the exact pre-call state only after its digest
+    // has been verified. Failed callback coverage/generation changes are discarded.
+    coverage_sessions: HashMap<String, CoverageSessionState>,
+    graph_generation: u64,
+    plasticity_generation: u64,
+    cache_generation: u64,
     perspectives: HashMap<(String, String), PerspectiveState>,
     locks: HashMap<String, LockState>,
     perspective_counter: HashMap<String, u64>,
@@ -881,6 +888,10 @@ pub(crate) fn basename_of(root: &str) -> String {
 impl SessionState {
     pub(crate) fn capture_callback_perspective_state(&self) -> CallbackPerspectiveStatePreimage {
         CallbackPerspectiveStatePreimage {
+            coverage_sessions: self.coverage_sessions.clone(),
+            graph_generation: self.graph_generation,
+            plasticity_generation: self.plasticity_generation,
+            cache_generation: self.cache_generation,
             perspectives: self.perspectives.clone(),
             locks: self.locks.clone(),
             perspective_counter: self.perspective_counter.clone(),
@@ -892,6 +903,10 @@ impl SessionState {
         &mut self,
         preimage: CallbackPerspectiveStatePreimage,
     ) {
+        self.coverage_sessions = preimage.coverage_sessions;
+        self.graph_generation = preimage.graph_generation;
+        self.plasticity_generation = preimage.plasticity_generation;
+        self.cache_generation = preimage.cache_generation;
         self.perspectives = preimage.perspectives;
         self.locks = preimage.locks;
         self.perspective_counter = preimage.perspective_counter;
