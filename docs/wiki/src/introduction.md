@@ -23,7 +23,7 @@ A served local owner can share its graph across attached clients. Presence and o
 
 ## Read the right version
 
-This wiki follows the `1.6.5` source line. The latest published release at this refresh is `1.6.3`; [releases](https://github.com/maxkle1nz/m1nd/releases) tell you what has shipped. Automatic isolated first-workspace preparation requires the matching newer source until publication. The [quick start](tutorials/quickstart.md) separates these paths.
+GitHub/native, crates.io, and npm 1.6.5 are published at `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. Automatic isolated first-workspace preparation shipped in that release with a matching wrapper/native runtime. This wiki also follows `main`: PR580's later learning-event separation is **Unreleased**, absent from sealed 1.6.5. The [quick start](tutorials/quickstart.md) separates the current installation from the historical 1.6.3 recipe.
 
 The default `tools/list` is a small advertised menu. Use `help` for full discovery and the installed runtime's schemas for exact arguments. A tool's existence does not remove its authority requirements. Historical changelog entries describe past behavior; PRDs are design documents, not current setup instructions.
 

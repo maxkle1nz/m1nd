@@ -4,7 +4,11 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ---
 
-## [Unreleased]
+Current publication status and the 1.6.5/Unreleased boundary are recorded in
+[the repository changelog](https://github.com/maxkle1nz/m1nd/blob/main/CHANGELOG.md).
+The entries below retain the historical release record; they are not current setup instructions.
+
+## [Unreleased] — historical snapshot before 1.6.3
 
 ### Fixed
 
@@ -341,6 +345,11 @@ one agent memorizes the next agent reads back through the front door.
 ---
 
 ## [1.2.0] — 2026-07-02
+
+> **Superseded — do not follow this entry today:** Calibration behavior described
+> below is historical. Published 1.6.5 and current `main` keep every v1 row
+> unqualified: prediction abstains, seek stays at `reverify` or `unprovable`, and
+> diagnostic calibration cannot enable `act`. See [the qualification contract](../../CALIBRATION-QUALIFICATION.md).
 
 The first OMEGA-era release. The loop shifts from "retrieve, then hope" to
 **pre-orient → act on calibrated verdicts → capture what you learned** — an honest

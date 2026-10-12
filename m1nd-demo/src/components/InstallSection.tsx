@@ -1,17 +1,18 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# First follow the signed native 1.6.3 installation guide linked below.
-export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+const STEP_INSTALL = `# First follow the signed native 1.6.5 installation guide linked below.
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 "$M1ND_BINARY" --version`;
 
-const STEP_CONFIG = `# Check the selected binary reports native 1.6.3. From the repo, in a POSIX shell:
-export M1ND_RUNTIME_DIR="$(pwd -P)/.m1nd"
-# A person runs this once for an empty runtime:
-npx -y @maxkle1nz/m1nd@1.6.3 init --birth . --binary "$M1ND_BINARY"
+const STEP_CONFIG = `# Require native 1.6.5. From your repo, get a first result:
+(
+  unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS
+  npx -y @maxkle1nz/m1nd@1.6.5 agent first-minute --repo . --binary "$M1ND_BINARY" --query "map this repo" --json
+)
 
-# Replace claude with your host; complete the printed setup steps.
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host claude --project . --binary "$M1ND_BINARY"
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host claude --project . --binary "$M1ND_BINARY" --yes`;
+# To connect a host, finish its config using the linked quick start.
+npx -y @maxkle1nz/m1nd@1.6.5 hosts plan --host claude --project . --binary "$M1ND_BINARY"
+npx -y @maxkle1nz/m1nd@1.6.5 hosts apply --host claude --project . --binary "$M1ND_BINARY" --yes`;
 
 const STEP_QUERY = `Ask your connected agent:
 
@@ -92,15 +93,15 @@ export function InstallSection() {
       num: "01",
       label: "Install",
       title: "Install and check the runtime",
-      desc: "Follow the signed installation guide below to pin native 1.6.3. The updater follows the registry channel even with a pinned wrapper, so this recipe selects the verified binary explicitly.",
+      desc: "Follow the signed installation guide below to pin native 1.6.5. The updater follows the registry channel even with a pinned wrapper, so this recipe selects the verified binary explicitly.",
       code: STEP_INSTALL,
       lang: "bash",
     },
     {
       num: "02",
       label: "Configure",
-      title: "Prepare and connect",
-      desc: "For native 1.6.3, a person prepares the graph. Add the same absolute M1ND_RUNTIME_DIR to the generated host environment; hosts apply does not add it. Check the birth receipt and finish printed setup before reconnecting.",
+      title: "Get a result, then connect",
+      desc: "The 1.6.5 CLI reuses a covering owner or prepares only the granted repo in an external private cache, preserving source files. For direct host stdio, create a separate safe external runtime and add its absolute M1ND_RUNTIME_DIR to the host config; follow the quick start before reconnecting.",
       code: STEP_CONFIG,
       lang: "bash",
     },
@@ -135,7 +136,7 @@ export function InstallSection() {
             Start with one useful answer.
           </h2>
           <p className="text-muted-foreground font-mono max-w-xl mx-auto text-sm">
-            Published setup first. Source-preview features are versioned.{" "}
+            Published 1.6.5 setup. Later main changes remain Unreleased.{" "}
             <span className="text-green-400/80">Read the current quick start before upgrading.</span>
           </p>
         </motion.div>
@@ -161,7 +162,7 @@ export function InstallSection() {
             style={{ color: "#00f5ff" }}
           >
             see the full host-integration matrix ↗
-          </a>. <a href="https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.3.md" target="_blank" rel="noreferrer" className="underline underline-offset-2">Install the signed native 1.6.3 artifact ↗</a>.
+          </a>. <a href="https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md" target="_blank" rel="noreferrer" className="underline underline-offset-2">Install the signed native 1.6.5 artifact ↗</a>. <a href="https://github.com/maxkle1nz/m1nd/blob/main/docs/wiki/src/tutorials/quickstart.md" target="_blank" rel="noreferrer" className="underline underline-offset-2">Follow the 1.6.5 quick start ↗</a>.
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-20">

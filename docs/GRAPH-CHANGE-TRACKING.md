@@ -1,8 +1,9 @@
 # Graph change tracking
 
-Unreleased source-build recovery: five existing `lock_*` handlers are discoverable again.
-The published signed 1.6.3 release does not include this menu restoration; the
-1.6.5 source candidate is not a release or a promise about an installed binary.
+Published in signed 1.6.5 at `363bc97f2336c73e90802916804dccd2109c5746`:
+five existing `lock_*` handlers are discoverable again. The historical 1.6.3
+release does not include this menu restoration; select a matching 1.6.5 wrapper
+and native runtime using [the installation guide](INSTALL-1.6.5.md).
 The default MCP menu remains 15 tools. Set `M1ND_TOOL_TIER=investigate` in the
 **server's launch environment**, then restart/reconnect the MCP host. Its
 `tools/list` advertises the core plus these five tools (20 total):
@@ -28,7 +29,7 @@ update the graph. An empty graph diff does not establish unchanged source text.
 Snapshots and watches are session-local and lost on restart; they are not a
 resume/learning feature or durable investigation journal.
 
-In this unreleased source build, graph-linked `search` results from a single-file
+In published 1.6.5, graph-linked `search` results from a single-file
 ingest root retain the graph's basename ID, including when the filesystem uses a
 canonical Windows path. Check `graph_linked`: disk-only fallback rows are not
 proof of graph membership. If distinct ingest roots make one relative graph ID
@@ -96,6 +97,6 @@ and retains all its guards; the menu does not grant refresh permission.
 The regression suite covers registry/menu/help consistency and the runtime
 snapshot lifecycle. An isolated public stdio probe must establish
 `tools/list` → `tools/call`, graph change → diff, rebase and release. Exact
-commands/results belong to the candidate's test report. This slice does not
-claim hosted UI proof, durable trails, a learning authority change, a new
-release, or the full cross-platform integration gate.
+commands/results belong to the exact tested revision's report. Publication does
+not establish that every host UI has been tested. This guide does not claim
+durable trails, a learning authority change, or a new cross-platform integration run.

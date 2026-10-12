@@ -1,5 +1,10 @@
 # Agent autonomy: automatic first workspace preparation
 
+The launcher-granted isolated preparation and cache reuse described here shipped
+in 1.6.5 at `363bc97f2336c73e90802916804dccd2109c5746`. Use a matching npm
+wrapper and native runtime; see [the signed installation](INSTALL-1.6.5.md).
+This does not activate the separate M1ND-10 unattended authority machinery.
+
 ## Proven slice: stdio with an explicit launcher root
 
 A new `m1nd-mcp` stdio process can prepare its first code graph automatically
