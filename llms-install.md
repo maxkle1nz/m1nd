@@ -49,7 +49,7 @@ For a first result before host setup, run from the repository in a clean subshel
 )
 ```
 
-The CLI discovers a covering owner first; otherwise it prepares only the exact launcher-granted repository in an external private cache. It preserves source files and reuses the graph, refreshing the declared root before retrieval. Check `runtime.boot`, repository binding, source locations, gaps, and exit status. This does not mint a shared brain or move a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md).
+The CLI discovers a covering owner first; otherwise it prepares only the exact launcher-granted repository in an external private cache. It preserves source files. Only when reusing the automatic isolated cache does `first-minute` refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check `runtime.boot`, source locations, gaps, and exit status. This does not mint a shared brain or move a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md).
 
 ## 2. Wire your host — plan, then apply
 

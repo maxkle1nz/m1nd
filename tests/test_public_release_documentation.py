@@ -78,6 +78,26 @@ class PublicReleaseDocumentation(unittest.TestCase):
                 self.assertRegex(text, r"(?:[Ss]ource files remain inputs|preserves source files)")
                 self.assertNotIn('"M1ND_RUNTIME_DIR": "/absolute/path/to/project/.m1nd"', text)
 
+    def test_refresh_guarantee_is_scoped_to_reused_automatic_isolated_cache(self):
+        for relative in ("README.md", "llms-install.md", "docs/wiki/src/tutorials/quickstart.md",
+                         "skills/m1nd-first/SKILL.md", "skills/m1nd-operator/SKILL.md"):
+            paragraphs = re.split(r"\n\s*\n", self.read(relative))
+            startup = [p for p in paragraphs if "first-minute" in p and "before retrieval" in p]
+            with self.subTest(path=relative):
+                self.assertTrue(startup, "first-use freshness boundary must be explicit")
+                for paragraph in startup:
+                    normalized = re.sub(r"\s+", " ", paragraph)
+                    self.assertIn("Only when reusing the automatic isolated cache", normalized)
+                    self.assertIn("Attached-owner freshness follows the owner's own semantics", normalized)
+
+    def test_pinned_contributor_recipe_cannot_discover_an_older_owner(self):
+        contributor = self.read("README.md").split("### Unreleased main:", 1)[1].split("## What to try next", 1)[0]
+        recipe = re.findall(r"```bash\n(.*?)```", contributor, re.S)[0]
+        self.assertIn("git checkout --detach 74d0348c9a5a1e0d5d5e5b5a784ee4f3771d0808", recipe)
+        self.assertIn("--binary ./target/release/m1nd-mcp --no-attach", recipe)
+        self.assertIn("unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS M1ND_ATTACH_URL", recipe)
+        self.assertIn("older covering owner", contributor)
+
     def test_instructional_calibration_does_not_advertise_act_repair(self):
         surfaces = (*ENTRY_POINTS, "docs/AGENT-PACKS.md", "docs/CALIBRATION-QUALIFICATION.md",
                     "docs/wiki/src/api-reference/overview.md", "docs/wiki/src/tool-matrix.md",

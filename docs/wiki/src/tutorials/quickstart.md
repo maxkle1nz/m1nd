@@ -32,7 +32,7 @@ The matching 1.6.5 CLI selects an external private cache. Clear legacy runtime o
 )
 ```
 
-Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is reused first; otherwise the CLI prepares only the exact granted repository in an isolated cache outside the source tree. Later calls reuse the graph and refresh its declared root before retrieval. Check the binding, returned source locations, gaps, and command status. A refusal is not permission to delete state, move a binding, run the human-only ceremony, or substitute generic MCP `ingest`.
+Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is reused first; otherwise `first-minute` prepares only the exact granted repository in an isolated cache outside the source tree. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check returned source locations, gaps, and command status. A refusal is not permission to delete state, move a binding, run the human-only ceremony, or substitute generic MCP `ingest`.
 
 ## Connect your MCP host
 

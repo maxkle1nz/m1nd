@@ -48,7 +48,7 @@ export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 )
 ```
 
-`first-minute` discovers a covering served owner first. Otherwise, the matching wrapper/native runtime prepares only the exact launcher-granted repository in an external private cache. Source files remain inputs; later calls reuse the graph and refresh the declared root before retrieval. Check `runtime.boot`, repository binding, returned source locations, and gaps. This is not authority to create a shared brain, move a binding, or call generic `ingest`.
+`first-minute` discovers a covering served owner first. Otherwise, the matching wrapper/native runtime prepares only the exact launcher-granted repository in an external private cache. Source files remain inputs. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness rather than inferring them from the selected client binary. Check `runtime.boot`, returned source locations, and gaps. This is not authority to create a shared brain, move a binding, or call generic `ingest`.
 
 To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/quickstart.md). Direct stdio needs an explicit workspace grant and an existing external private runtime; a shared owner has separate preparation and authority requirements. See [agent autonomy](docs/AGENT-AUTONOMY.md).
 
@@ -90,7 +90,7 @@ The agent should call `north` first, then use `seek` and source inspection as ne
 
 ### Unreleased main: learning-event separation
 
-For contributors testing the unreleased learning fix, select a `main` revision containing PR580 explicitly and use its matching wrapper and native runtime. A version string alone does not establish that the fix is present. Use a clean shell without the historical recipe's runtime override; the source CLI selects an external private cache:
+For contributors testing the unreleased learning fix, select a `main` revision containing PR580 explicitly and use its matching wrapper and native runtime. A version string alone does not establish that the fix is present. `--binary` selects the executable used by the CLI, but default discovery can still attach it to an older covering owner. Use `--no-attach` and clear ambient runtime/attach overrides to run this exact revision in an automatic isolated cache:
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
@@ -98,8 +98,11 @@ cd m1nd
 git checkout --detach 74d0348c9a5a1e0d5d5e5b5a784ee4f3771d0808
 cargo build --release -p m1nd-mcp
 ./target/release/m1nd-mcp --version
-node npm/bin/m1nd.js agent first-minute --repo /absolute/path/to/your/repo \
-  --binary ./target/release/m1nd-mcp --query "map this repo" --json
+(
+  unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS M1ND_ATTACH_URL
+  node npm/bin/m1nd.js agent first-minute --repo /absolute/path/to/your/repo \
+    --binary ./target/release/m1nd-mcp --no-attach --query "map this repo" --json
+)
 ```
 
 PR580's learning semantics are available on `main` but are absent from the sealed 1.6.5 artifacts. Automatic isolated preparation already shipped in 1.6.5; it is not a preview feature of PR580. See [the launcher contract](docs/AGENT-AUTONOMY.md#public-npm-cli-and-process-status). [The contributor development kit](docs/DEVELOPMENT.md) provides checkout-private state for development.
