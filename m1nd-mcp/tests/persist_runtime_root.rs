@@ -141,7 +141,37 @@ impl Owner {
             }
             None => Stdio::null(),
         };
-        let mut child = Command::new(BIN)
+        let mut command = Command::new(BIN);
+        // This lifecycle fixture intentionally supplies no launcher grant or
+        // ambient editor binding. Its persisted roots are the source identity.
+        for name in [
+            "M1ND_WORKSPACE_ROOT",
+            "M1ND_PROJECT_ROOT",
+            "M1ND_REPO_ROOT",
+            "WORKSPACE_ROOT",
+            "PROJECT_ROOT",
+            "REPO_ROOT",
+            "CLAUDE_PROJECT_DIR",
+            "CLAUDE_WORKSPACE_ROOT",
+            "ANTHROPIC_WORKSPACE_ROOT",
+            "ANTIGRAVITY_WORKSPACE_ROOT",
+            "ANTIGRAVITY_PROJECT_ROOT",
+            "GEMINI_WORKSPACE_ROOT",
+            "GEMINI_PROJECT_ROOT",
+            "CURSOR_WORKSPACE_ROOT",
+            "CURSOR_PROJECT_ROOT",
+            "WINDSURF_WORKSPACE_ROOT",
+            "WINDSURF_PROJECT_ROOT",
+            "VSCODE_WORKSPACE",
+            "VSCODE_CWD",
+            "INIT_CWD",
+            "PWD",
+            "OLDPWD",
+            "M1ND_RUNTIME_BASE",
+        ] {
+            command.env_remove(name);
+        }
+        let mut child = command
             .arg("--no-gui")
             .current_dir(cwd)
             .env("M1ND_RUNTIME_DIR", runtime_dir)
@@ -390,6 +420,97 @@ impl Owner {
         );
         stderr
     }
+}
+
+#[test]
+fn restart_restores_source_binding_without_searching_checkpoint_copies() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let repo = tmp.path().join("repo-alpha");
+    std::fs::create_dir_all(&runtime).expect("runtime");
+    write_fixture_repo(&repo);
+    std::fs::write(
+        repo.join("src/lib.rs"),
+        "pub fn workspace_binding_probe() -> u32 { 7 }\n",
+    )
+    .expect("source marker");
+    let source = std::fs::canonicalize(&repo).expect("canonical source");
+    m1nd_core::snapshot::save_graph(&ingest_fixture(&repo), &runtime.join("graph_snapshot.json"))
+        .expect("trusted graph seed");
+    std::fs::write(
+        runtime.join("ingest_roots.json"),
+        serde_json::to_vec(&vec![source.to_string_lossy()]).expect("roots JSON"),
+    )
+    .expect("trusted source roots");
+
+    let mut first = Owner::spawn(tmp.path(), &runtime);
+    let nodes = first.node_count();
+    first.shutdown();
+    let current_path = runtime.join("checkpoint-store/CURRENT");
+    let current_before = std::fs::read(&current_path).expect("CURRENT after real shutdown");
+    let current: serde_json::Value = serde_json::from_slice(&current_before).expect("CURRENT JSON");
+    let checkpoint_id = current["current_checkpoint_id"]
+        .as_str()
+        .expect("checkpoint id");
+    let manifest_path = runtime
+        .join("checkpoint-store/checkpoints")
+        .join(checkpoint_id)
+        .join("manifest.json");
+    let manifest_before = std::fs::read(&manifest_path).expect("checkpoint manifest");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_before).expect("manifest JSON");
+    assert!(
+        manifest["brain_id"].as_str().is_some(),
+        "manifest must carry actor identity"
+    );
+
+    let mut second = Owner::spawn(Path::new(READ_ONLY_CWD), &runtime);
+    assert_eq!(second.node_count(), nodes, "restart must retain the graph");
+    let found = second.call("search", serde_json::json!({
+        "agent_id":"binding-probe", "query":"workspace_binding_probe", "mode":"literal", "top_k":100
+    }));
+    let results = found["results"].as_array().expect("search results");
+    let paths: Vec<_> = results
+        .iter()
+        .filter_map(|r| r["file_path"].as_str())
+        .collect();
+    assert!(
+        paths.contains(&"src/lib.rs"),
+        "real source must remain searchable: {found}"
+    );
+    let source_file = source.join("src/lib.rs");
+    assert!(
+        paths
+            .iter()
+            .all(|p| *p == "src/lib.rs" || Some(*p) == source_file.to_str()),
+        "checkpoint JSON/materialized copies must never become source results: {paths:?}"
+    );
+    let north = second.call(
+        "north",
+        serde_json::json!({
+            "agent_id":"binding-probe", "task":"workspace_binding_probe", "code":false
+        }),
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root"].as_str(),
+        source.to_str(),
+        "binding must restore the canonical source: {north}"
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root_source"], "persisted_ingest_root",
+        "binding provenance must name the persisted roots"
+    );
+    assert_eq!(
+        std::fs::read(&current_path).expect("CURRENT during restart"),
+        current_before,
+        "source binding restoration must not republish CURRENT"
+    );
+    assert_eq!(
+        std::fs::read(&manifest_path).expect("manifest during restart"),
+        manifest_before,
+        "source binding restoration must preserve checkpoint actor identity"
+    );
+    second.shutdown();
 }
 
 #[test]

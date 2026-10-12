@@ -1572,6 +1572,62 @@ impl SessionState {
         }
     }
 
+    /// Restore the bound owner's SOURCE read binding from recovered roots.
+    /// Called only after the actor has accepted its checkpoint identity and
+    /// rebuilt the authoritative working set. The actor/instance identity is
+    /// process-owned and must not be re-keyed by this derived read binding.
+    pub(crate) fn restore_workspace_binding_from_ingest_roots(&mut self) {
+        if self.workspace_root_source.as_deref() == Some("project_brain_manifest") {
+            return;
+        }
+        let canonical_runtime = std::fs::canonicalize(&self.runtime_root).ok();
+        let mut source_declared = false;
+        let mut file_root = None;
+        for root in &self.ingest_roots {
+            let path = Path::new(root);
+            // Persisted relative roots cannot acquire authority from this boot's
+            // cwd. Memory roots are auxiliary inputs, never the code workspace.
+            if !path.is_absolute() || is_memory_sidecar(root) {
+                continue;
+            }
+            let canonical = std::fs::canonicalize(path).ok();
+            let identity = canonical.as_deref().unwrap_or(path);
+            if identity.starts_with(&self.runtime_root)
+                || canonical_runtime
+                    .as_deref()
+                    .is_some_and(|runtime| identity.starts_with(runtime))
+                || is_memory_sidecar(&identity.to_string_lossy())
+                || Self::looks_like_managed_runtime_path(identity, &self.runtime_root)
+            {
+                continue;
+            }
+            source_declared = true;
+            let Some(canonical) = canonical else {
+                continue;
+            };
+            if canonical.is_dir() {
+                self.workspace_root = Some(canonical.to_string_lossy().into_owned());
+                self.workspace_root_source = Some("persisted_ingest_root".into());
+                return;
+            }
+            // A file-only brain must keep its exact file authority. Never
+            // widen it to the file's parent or the checkpoint/runtime directory.
+            if canonical.is_file() && file_root.is_none() {
+                file_root = Some(canonical);
+            }
+        }
+        if let Some(root) = file_root {
+            self.workspace_root = Some(root.to_string_lossy().into_owned());
+            self.workspace_root_source = Some("persisted_ingest_file".into());
+        } else if source_declared {
+            // Missing/inaccessible sources stay unavailable. Falling back to
+            // the snapshot's directory would authorize internal checkpoint copies.
+            self.workspace_root = None;
+            self.workspace_root_source = Some("persisted_ingest_roots_unavailable".into());
+        }
+        // No source declaration: retain legacy/fresh and pure-memory inference.
+    }
+
     /// True when THIS store is the medulla — the owner's own memory-of-doctrine
     /// store, not a per-project brain (MEDULLA-PRD §4.1: the tier IS the directory).
     ///
@@ -6288,6 +6344,189 @@ mod tests {
             state.workspace_root.as_deref(),
             Some(code_root.to_string_lossy().as_ref()),
             "initialize must heal the store-dir workspace_root to the code root at boot"
+        );
+    }
+
+    fn binding_restore_state(temp: &Path) -> SessionState {
+        let runtime = temp.join("runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            registry_dir: Some(temp.join("registry")),
+            ..McpConfig::default()
+        };
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("binding fixture")
+    }
+
+    #[test]
+    fn restored_workspace_binding_prefers_canonical_directory_without_rekeying_instance() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("repo-alpha");
+        let second = temp.path().join("repo-beta");
+        let doc = temp.path().join("reference.md");
+        std::fs::create_dir_all(&source).expect("source");
+        std::fs::create_dir_all(&second).expect("second source");
+        std::fs::write(&doc, "exact document").expect("document");
+        let mut state = binding_restore_state(temp.path());
+        let owned_instance = state.instance.summary();
+        let memory = state.runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&memory).expect("memory store");
+        state.ingest_roots = vec![
+            memory.to_string_lossy().into_owned(),
+            doc.to_string_lossy().into_owned(),
+            source.join(".").to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+        let roots_before = state.ingest_roots.clone();
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str()
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_root")
+        );
+        assert_eq!(
+            state.ingest_roots, roots_before,
+            "logical root set is unchanged"
+        );
+        assert_eq!(
+            state.instance.summary().instance_id,
+            owned_instance.instance_id
+        );
+        assert_eq!(
+            state.instance.summary().workspace_root,
+            owned_instance.workspace_root,
+            "restoring read binding cannot re-key ownership"
+        );
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str(),
+            "idempotent"
+        );
+    }
+
+    #[test]
+    fn restored_workspace_binding_keeps_file_only_authority_exact() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let doc = temp.path().join("reference.md");
+        let sibling = temp.path().join("unrelated.md");
+        std::fs::write(&doc, "exact document").expect("document");
+        std::fs::write(&sibling, "unrelated").expect("sibling");
+        let mut state = binding_restore_state(temp.path());
+        state.ingest_roots = vec![doc.to_string_lossy().into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        let canonical = std::fs::canonicalize(&doc).expect("canonical file");
+        assert_eq!(state.workspace_root.as_deref(), canonical.to_str());
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_file")
+        );
+        assert_eq!(
+            crate::scope::canonical_read_roots(
+                &state.ingest_roots,
+                state.workspace_root.as_deref()
+            ),
+            vec![canonical]
+        );
+        assert!(
+            crate::scope::authorize_existing_path(
+                &sibling,
+                &state.ingest_roots,
+                state.workspace_root.as_deref(),
+                "search"
+            )
+            .is_err(),
+            "parent must not become a root"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restored_workspace_binding_skips_canonical_runtime_aliases() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let alias = temp.path().join("runtime-alias");
+        std::os::unix::fs::symlink(&state.runtime_root, &alias).expect("runtime alias");
+        let source = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&source).expect("source");
+        state.ingest_roots = vec![
+            alias.to_string_lossy().into_owned(),
+            state.runtime_root.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+        ];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str()
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_root")
+        );
+    }
+
+    #[test]
+    fn restored_workspace_binding_missing_source_does_not_authorize_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let checkpoint_copy = state.runtime_root.join("checkpoint-copy.json");
+        std::fs::write(&checkpoint_copy, "source marker").expect("checkpoint copy");
+        state.ingest_roots = vec![temp
+            .path()
+            .join("missing-source")
+            .to_string_lossy()
+            .into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, None);
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_roots_unavailable")
+        );
+        assert!(crate::scope::canonical_read_roots(&state.ingest_roots, None).is_empty());
+        assert!(crate::scope::authorize_existing_path(
+            &checkpoint_copy,
+            &state.ingest_roots,
+            state.workspace_root.as_deref(),
+            "search"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn restored_workspace_binding_preserves_manifest_and_legacy_memory_inference() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let original = state.workspace_root.clone();
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, original, "empty legacy root set");
+        let memory = state.runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&memory).expect("memory");
+        state.ingest_roots = vec![memory.to_string_lossy().into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, original, "pure-memory compatibility");
+        let source = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&source).expect("source");
+        state.ingest_roots = vec![source.to_string_lossy().into_owned()];
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root, original,
+            "manifest binding is authoritative"
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("project_brain_manifest")
         );
     }
 

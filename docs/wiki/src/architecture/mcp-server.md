@@ -4,6 +4,14 @@ m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-inges
 
 Source: `m1nd-mcp/src/`
 
+**Unreleased workspace recovery:** after the bound actor validates and restores
+its checkpoint, its source read binding comes from canonical persisted ingest
+roots. An external source directory replaces the inferred snapshot parent;
+file-only roots stay exact, and unavailable external sources do not authorize the
+runtime as a fallback. Actor/checkpoint and instance/lease identities remain
+unchanged. Manifest bindings and legacy states without external sources retain
+their existing contract. See [the recovery boundaries](../../../WORKSPACE-BINDING-RECOVERY.md).
+
 ## Module Map
 
 | Module | Purpose |

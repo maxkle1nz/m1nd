@@ -309,6 +309,15 @@ read-only owners):
 
 ## Scope Binding Taxonomy
 
+Unreleased bound-owner recovery restores the source read binding from recovered
+persisted roots only after the actor accepts its checkpoint identity. The
+fingerprint names `persisted_ingest_root`, `persisted_ingest_file`, or
+`persisted_ingest_roots_unavailable`. An unavailable source is not permission to
+read checkpoint copies. Actor and lease identities remain unchanged, so a
+source-bound owner that loses its required launcher context can still refuse
+`BrainBindingMismatch`. Project manifests and no-source/pure-memory legacy
+inference retain their existing contract. See `docs/WORKSPACE-BINDING-RECOVERY.md`.
+
 Before treating a m1nd result as stale, broken, or authoritative, classify the
 relationship between the requested scope and the active binding:
 
