@@ -29,7 +29,10 @@ including parts already delivered on earlier pages. Boolean omission fields
 cover the focused symbol and heuristic summary. These counts do not claim
 that an omitted neighbor was explored. Coverage gains only neighbor records
 actually emitted on successful pages; refusals and parse/read errors leave
-previous visits and tool counts intact.
+previous visits and tool counts intact. The actor's refusal recovery restores
+exact pre-call coverage and graph/plasticity/cache generations after verifying
+the authoritative checkpoint. Partial callback changes are discarded; proof
+capabilities and preview payloads remain invalidated by recovery.
 
 Copy `context_page.continuation` into the next request, repeating the same file,
 symbol, radius and include-tests options, plus a byte budget. A null continuation
@@ -59,6 +62,6 @@ V2 proof behavior. This output cap does not bound graph traversal, file reads,
 server memory, HTTP/MCP framing or other tools.
 
 Regression tests exercise compact byte accounting with escapes and UTF-8,
-source reassembly, stable digests, omission counts, exact neighbor coverage,
+source reassembly, public stdio/actor refusal recovery, stable digests, omission counts, exact neighbor coverage,
 invalid/stale cursors, source/path refusals, empty anchors, larger-budget recovery
 and default compatibility. Hosted CI and native Windows proof remain separate.
