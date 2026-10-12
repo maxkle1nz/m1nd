@@ -22,6 +22,16 @@ conclude "broken" from a single hiccup.
 
 ## Startup: north First
 
+**Published 1.6.5 launcher boundary:** a matching wrapper/native runtime can
+prepare the exact `agent first-minute --repo <repo>` grant in an external private
+cache when no covering owner is found, preserving source files and reusing the
+graph. Direct stdio requires an explicit workspace grant and an existing safe
+external runtime. See [agent autonomy](https://github.com/maxkle1nz/m1nd/blob/v1.6.5/docs/AGENT-AUTONOMY.md). The birth and
+empty-graph recovery guidance below applies to shared-brain and legacy paths
+outside that contract, or the recovery returned by the installed runtime.
+This does not authorize a shared brain, a binding move, generic replace/merge,
+or an agent-performed human ceremony.
+
 In a live MCP session the front door is one call: `north(task)`. It returns
 binding trust, task context (focus nodes + PageRank anchors), prior
 cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps`

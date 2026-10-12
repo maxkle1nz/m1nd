@@ -17,8 +17,8 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 ## [1.6.5] — 2026-10-11
 
 GitHub/native artifacts and crates.io packages are published from immutable
-commit `363bc97f2336c73e90802916804dccd2109c5746`; npm 1.6.5 publication remains
-pending. This release skips the existing `v1.6.4` tag rather than moving it.
+commit `363bc97f2336c73e90802916804dccd2109c5746`; npm 1.6.5 is also published
+and is `latest` as of 2026-10-12. This release skips the existing `v1.6.4` tag rather than moving it.
 Published crates carry fresh versions, including `m1nd-control` 0.2.3; package
 bytes and their source identity are immutable. Later source changes belong to
 Unreleased, even while their package version strings still say 1.6.5.

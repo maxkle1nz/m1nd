@@ -15,14 +15,14 @@ copy-pasteable recipes referenced below — read it, do not duplicate it).
 
 ## Version boundary
 
-This source line is `1.6.5`; the latest published release at this refresh is `1.6.3`. The npx commands below pin the published wrapper; require native 1.6.3 for the direct-stdio recipe. The automatic isolated first-workspace path is source-preview until publication. Use matching wrapper/native versions. Generic client `replace`/`merge` remain refused; the newer launcher path is not a shared-brain authority grant.
+GitHub/native, crates.io, and npm **1.6.5** are published at immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. The commands below select matching 1.6.5 wrapper/native versions. Automatic isolated first-workspace preparation shipped in this release. PR580's later learning-event separation is **Unreleased** on `main`, absent from the sealed release despite matching package version strings. Generic client `replace`/`merge` remain refused; a launcher grant is not shared-brain authority. The [1.6.3 installation guide](docs/INSTALL-1.6.3.md) remains historical.
 
 ## 0. Prerequisites
 
 - **Node.js ≥ 18** and **npm** (for the installer/agent-pack; the installer is pure JS).
 - The native runtime is **`m1nd-mcp`** (Rust). The npm package installs the agent
   doctrine + host adapters and tells you whether the native binary is visible; `doctor`
-  reports general runtime visibility. Use the [signed 1.6.3 native installation](docs/INSTALL-1.6.3.md)
+  reports general runtime visibility. Use the [signed 1.6.5 native installation](docs/INSTALL-1.6.5.md)
   for this released recipe.
 - **macOS or Linux** for session-start hooks that inject context (some hosts are
   hook-gated to those platforms — noted per host in the matrix). MCP itself works
@@ -30,14 +30,26 @@ This source line is `1.6.5`; the latest published release at this refresh is `1.
 
 ## 1. Pin the native runtime, then select it
 
-Follow [the signed native 1.6.3 installation guide](docs/INSTALL-1.6.3.md). It selects a platform asset from the exact release and verifies its signature before installation. Pinning `npx @maxkle1nz/m1nd@1.6.3` alone does **not** pin `update apply`; the updater follows the npm registry channel. Do not use it to reproduce this versioned recipe.
+Follow [the signed native 1.6.5 installation guide](docs/INSTALL-1.6.5.md). It selects a platform asset from the exact release and verifies its signature and embedded source identity before installation. Pinning `npx @maxkle1nz/m1nd@1.6.5` alone does **not** pin `update apply`; the updater follows the npm registry channel. Do not use it to reproduce this versioned recipe.
 
 ```bash
-export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.3/m1nd-mcp"
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 "$M1ND_BINARY" --version
 ```
 
-Require `m1nd-mcp 1.6.3` before continuing. Pass this absolute binary path to the setup commands below. `doctor` remains a general runtime-visibility diagnostic, not a version selector. Automatic isolated preparation belongs to the matching newer source-preview wrapper/binary, not this pinned released route.
+Require native `1.6.5` at revision `363bc97f2336c73e90802916804dccd2109c5746` before continuing. The signed macOS ARM64 artifact includes a `-dirty` build marker; the installation guide verifies the exact tag-bound asset and checks its version/revision. Pass this absolute binary path to the commands below. `doctor` remains a general runtime-visibility diagnostic, not a version selector.
+
+For a first result before host setup, run from the repository in a clean subshell:
+
+```bash
+(
+  unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS
+  npx -y @maxkle1nz/m1nd@1.6.5 agent first-minute --repo . \
+    --binary "$M1ND_BINARY" --query "map this repo" --json
+)
+```
+
+The CLI discovers a covering owner first; otherwise it prepares only the exact launcher-granted repository in an external private cache. It preserves source files. Only when reusing the automatic isolated cache does `first-minute` refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check `runtime.boot`, source locations, gaps, and exit status. This does not mint a shared brain or move a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md).
 
 ## 2. Wire your host — plan, then apply
 
@@ -49,10 +61,10 @@ Cline / Kiro).
 
 ```bash
 # See exactly what will be wired for your host (writes nothing):
-npx -y @maxkle1nz/m1nd@1.6.3 hosts plan --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY"
+npx -y @maxkle1nz/m1nd@1.6.5 hosts plan --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY"
 
 # Apply it (opt-in mutation; dry-run without --yes):
-npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY" --yes
+npx -y @maxkle1nz/m1nd@1.6.5 hosts apply --host <host> --project /abs/path/to/project --binary "$M1ND_BINARY" --yes
 ```
 
 `<host>` is one of: `codex`, `claude`, `gemini`, `antigravity`, `generic`, `qwen`,
@@ -62,11 +74,11 @@ npx -y @maxkle1nz/m1nd@1.6.3 hosts apply --host <host> --project /abs/path/to/pr
 The two lower-level commands `apply` composes, if you want them by hand:
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 install-skills <host> --project /abs/path   # the agent pack (5 protocols)
-npx -y @maxkle1nz/m1nd@1.6.3 mcp-config <host> --project /abs/path --binary "$M1ND_BINARY" # the MCP server registration
+npx -y @maxkle1nz/m1nd@1.6.5 install-skills <host> --project /abs/path   # the agent pack (5 protocols)
+npx -y @maxkle1nz/m1nd@1.6.5 mcp-config <host> --project /abs/path --binary "$M1ND_BINARY" # the MCP server registration
 ```
 
-For the published 1.6.3 direct-stdio path, the human birth and the host MUST use the same explicit absolute runtime inside the repository. Add `M1ND_RUNTIME_DIR` (for example `/absolute/path/to/project/.m1nd`) to the generated MCP environment, retaining `M1ND_WORKSPACE_ROOT`; `hosts apply` does not supply that selector. Check the birth receipt's `store_dir`. Do not combine this nested-runtime recipe with the newer source-preview automatic launcher grant.
+For published 1.6.5 **direct stdio**, retain `M1ND_WORKSPACE_ROOT` and add an absolute external `M1ND_RUNTIME_DIR`; `hosts apply` does not supply that selector. Create a distinct runtime per repository before connecting, for example `install -d -m 700 "$HOME/.cache/m1nd/host/repo-alpha"`. It must be outside the source tree, a real directory owned by your user, with safe canonical ancestors and no group/other write permission. Use its actual absolute path in the host environment. Startup prepares only that granted root; `--birth` is not required on this path. A missing, nested, unsafe, or conflicting runtime refuses. Shared-owner and legacy paths retain their separate preparation requirements.
 
 ## 2a. Make the ambient north hook work — and verify it fired
 
@@ -128,7 +140,7 @@ Windsurf / generic (`.mcp.json`, `.cursor/mcp.json`, or the host's `mcpServers` 
       "args": ["--stdio", "--no-gui"],
       "env": {
         "M1ND_WORKSPACE_ROOT": "/absolute/path/to/project",
-        "M1ND_RUNTIME_DIR": "/absolute/path/to/project/.m1nd"
+        "M1ND_RUNTIME_DIR": "/absolute/private/runtime/repo-alpha"
       }
     }
   }
@@ -144,19 +156,19 @@ args = ["--stdio", "--no-gui"]
 
 [mcp_servers.m1nd.env]
 M1ND_WORKSPACE_ROOT = "/absolute/path/to/project"
-M1ND_RUNTIME_DIR = "/absolute/path/to/project/.m1nd"
+M1ND_RUNTIME_DIR = "/absolute/private/runtime/repo-alpha"
 ```
 
 **Shared owner, many agents (recommended for real work).** Run one owner that holds the
 live graph, and point every host at it as a thin bridge (loads no graph, takes no lease):
 
 ```bash
-# once, per project — the owner (add --open, and drop --no-gui, to open the served web UI):
-"$M1ND_BINARY" --serve --no-gui --port 1337 --runtime-dir /abs/path/to/project/.m1nd
+# Use an already prepared owner runtime (see the authority boundary below).
+"$M1ND_BINARY" --serve --no-gui --port 1337 --runtime-dir /absolute/private/runtime/repo-alpha
 ```
 
 ```json
-{ "mcpServers": { "m1nd": { "command": "/absolute/path/to/the/verified/m1nd-mcp", "args": ["--attach", "auto", "--stdio"], "env": {"M1ND_WORKSPACE_ROOT":"/absolute/path/to/project", "M1ND_RUNTIME_DIR":"/absolute/path/to/project/.m1nd"} } } }
+{ "mcpServers": { "m1nd": { "command": "/absolute/path/to/the/verified/m1nd-mcp", "args": ["--attach", "auto", "--stdio"], "env": {"M1ND_WORKSPACE_ROOT":"/absolute/path/to/project", "M1ND_RUNTIME_DIR":"/absolute/private/runtime/repo-alpha"} } } }
 ```
 
 `--attach auto` auto-discovers the live owner — no hardcoded port (the default is 1337, but
@@ -171,7 +183,7 @@ always-on launchd/systemd owner.
 
 | Variable | Purpose |
 |---|---|
-| `M1ND_RUNTIME_DIR` | Where the graph/plasticity/instance state for this project live (e.g. `<project>/.m1nd`). |
+| `M1ND_RUNTIME_DIR` | Existing external private graph/plasticity/instance directory for launcher-granted stdio; use a distinct runtime per repository. |
 | `M1ND_ATTACH_URL` | If set, every invocation attaches to this owner URL (wins over `--attach`). |
 | `M1ND_READ_ONLY=1` | Attach read-only: serve queries, never write, never take a lease. Same as `--read-only`. |
 | `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` | Pin the binary; with `M1ND_STRICT_VERSION` the host refuses a drifted binary. |
@@ -179,8 +191,8 @@ always-on launchd/systemd owner.
 ## 5. Verify
 
 ```bash
-"$M1ND_BINARY" --version                     # require the selected 1.6.3 runtime
-npx -y @maxkle1nz/m1nd@1.6.3 doctor --json     # general visibility; may find a different runtime
+"$M1ND_BINARY" --version                     # require native 1.6.5 at the sealed commit
+npx -y @maxkle1nz/m1nd@1.6.5 doctor --json     # general visibility; may find a different runtime
 ```
 
 Then, inside a live MCP session, confirm the front door answers:
@@ -190,18 +202,24 @@ north({ "agent_id": "install-check", "task": "orient" })
 ```
 
 A healthy response carries `binding.trust_mode` (e.g. `full_trust`), a `context` block
-with `focus_nodes` + `anchors`, and `honest_gaps`. If the graph is empty it returns
-`needs: "needs_ingest"`, and its `next_move` carries the door: **you do not ingest.**
-For the published shared/served setup, minting a brain is the human's one-time terminal gesture. Offer this command and
-stop; do not try to mint a brain through the agent transport:
+with `focus_nodes` + `anchors`, and `honest_gaps`. The matching 1.6.5 isolated CLI
+and explicitly granted direct-stdio path prepare their first graph at startup.
+If a different binding returns `needs: "needs_ingest"`, follow its recovery
+arguments; generic `ingest` is not a bootstrap shortcut. For a new shared/served
+brain or a legacy launcher outside the explicit grant contract, the human's
+terminal ceremony remains separate. Offer the applicable command and stop;
+agents must not perform it. A person may prepare an empty owner destination:
 
 ```bash
-M1ND_RUNTIME_DIR=/absolute/path/to/project/.m1nd \
-  npx -y @maxkle1nz/m1nd@1.6.3 init --birth /absolute/path/to/project --binary "$M1ND_BINARY"
+M1ND_RUNTIME_DIR=/absolute/private/runtime/repo-alpha \
+  npx -y @maxkle1nz/m1nd@1.6.5 init --birth /absolute/path/to/project --binary "$M1ND_BINARY"
 ```
 
 The ceremony accepts only an empty destination. It ingests the repo and prints what it
-built (`node_count`, `edge_count`). For direct stdio, require `brain: "owner_bound_graph"`, the intended `born_root`, and `store_dir` matching the exact runtime configured in the host; it exits non-zero if the scan produced nothing, so
+built (`node_count`, `edge_count`). Check the intended `born_root` and `store_dir`.
+An external shared-owner ceremony uses `brain: "project_brain"`; the historical
+1.6.3 solo nested-runtime ceremony uses `brain: "owner_bound_graph"`. Do not mix
+that nested recipe with 1.6.5 launcher-granted startup. Birth exits nonzero if the scan produced nothing, so
 it never reports success over an empty graph. Calling generic `ingest` with default/`replace` or `merge` is refused on every transport
 (`generic_action_authority_required`) — the refusal names this same command. Once the
 graph exists, `ingest({ "mode": "refresh" })` from that exact root is the agent's own
@@ -214,26 +232,26 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
-Outside a host entirely, the published first-value command below can attach to an already prepared covering owner. Automatic isolated preparation requires the separate matching source-preview wrapper/binary:
+Outside a host entirely, the published 1.6.5 first-value command can attach to a covering owner or prepare its isolated graph:
 
 ```bash
-npx -y @maxkle1nz/m1nd@1.6.3 agent first-minute --repo . --query "map this repo" --binary "$M1ND_BINARY" --json
+npx -y @maxkle1nz/m1nd@1.6.5 agent first-minute --repo . --query "map this repo" --binary "$M1ND_BINARY" --json
 ```
 
 It asks `m1nd-mcp --discover-owner` first (read-only, no lease — `--attach auto`'s two
 questions) and bridges to a live serve owner whose declared ingest roots cover the repo,
 so on a machine with a served owner it reads that owner's real graph. With no covering
 owner, published older builds may report `needs_authority` / `NOT_PROVEN`. The matching
-1.6.5 source wrapper/native runtime can instead prepare an isolated graph for the exact
+published 1.6.5 wrapper/native runtime prepares an isolated graph for the exact
 launcher-granted repo in an external private cache. It cannot mint a shared brain or move
-a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md) for the precise source contract. Read `runtime.boot`
+a binding. See [agent autonomy](docs/AGENT-AUTONOMY.md) for the precise launcher contract. Read `runtime.boot`
 (`attached_serve_owner` | `isolated_runtime`) and `runtime.owner_discovery` before
 concluding the machine has no graph; `--no-attach` forces the isolated runtime.
 
 ## 6. Troubleshooting
 
 - **`doctor` says the runtime is not visible** → the npm package is installed but the
-  general diagnostic may not see your version-specific binary. Follow the [pinned signed installation](docs/INSTALL-1.6.3.md), check `"$M1ND_BINARY" --version`, and pass the same `--binary` path to setup commands. Do not substitute an unpinned installation for this recipe.
+  general diagnostic may not see your version-specific binary. Follow the [pinned signed installation](docs/INSTALL-1.6.5.md), check `"$M1ND_BINARY" --version`, and pass the same `--binary` path to setup commands. Do not substitute an unpinned installation for this recipe.
 - **"Failed to connect" / lease held** → m1nd is single-instance per `runtime_root`. If
   an owner already holds the lease (another session, or a `--serve` owner), that message
   is **normal** — attach instead of taking a second lease: `--attach auto` or
@@ -245,15 +263,20 @@ concluding the machine has no graph; `--no-attach` forces the isolated runtime.
   graph.
 - **Host trust prompt on the hook (Codex, etc.)** → approve it once. Never script a
   bypass of hook-trust; changing the hook command re-prompts by design.
-- **Verdicts never reach `act`** → the conformal gate is armed per-repo by running
-  `calibrate_predict` once; until then verdicts cap at `reverify`. That is honest
-  calibration, not a failure.
+- **Verdicts never reach `act`** → published 1.6.5 and current `main` treat every
+  v1 calibration row as `legacy_evidence_unqualified`. Prediction abstains;
+  seek envelopes stay at `reverify` or `unprovable`, retaining scores and ranking.
+  `calibrate_predict` and `calibrate_envelope` are diagnostic handlers: running
+  them does not enable `act`. Their generic public routes remain policy-disabled;
+  there is no public calibration repair call. Verify source, compiler, tests,
+  and runtime evidence. See [calibration qualification](docs/CALIBRATION-QUALIFICATION.md).
 
 ## 7. What you get, once wired
 
 - `north(task)` — the oriented packet, before your first action.
-- `seek` / `activate` / `impact` — retrieval and blast-radius, each carrying a calibrated
-  verdict and a sufficiency signal (`abstain` / `insufficient_evidence` are real answers).
+- `seek` / `activate` / `impact` — retrieval and graph relationships to inspect;
+  read each tool's actual evidence and gap fields. Seek envelopes remain unqualified
+  for `act`; `abstain` / `insufficient_evidence` are real limits.
 - `memorize` — write durable, evidence-anchored knowledge that the next session inherits.
 - `doctor` / `trust_selftest` — one-call diagnostics and recovery.
 

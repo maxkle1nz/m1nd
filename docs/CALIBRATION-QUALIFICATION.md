@@ -2,6 +2,9 @@
 
 ## Current source behavior
 
+This containment shipped in 1.6.5 at
+`363bc97f2336c73e90802916804dccd2109c5746` and also applies to current `main`.
+
 A stored calibration row is a diagnostic record, not sufficient evidence to
 permit `act`. Every existing v1 `CalibrationRow` is unqualified for runtime
 use, including a structurally valid row with finite metrics, nonzero samples,
@@ -52,7 +55,8 @@ prediction satisfies the selected error budget. A timestamp, a successful
 handler call, a persistence round-trip, or a receipt digest cannot establish
 that claim.
 
-The subsequent [learning event separation](LEARNING-EVENT-SEMANTICS.md) corrects
+The subsequent **Unreleased** PR580 [learning event separation](LEARNING-EVENT-SEMANTICS.md),
+present on `main` but absent from sealed 1.6.5, corrects
 generic `learn`: `correct`/`wrong` is relevance-only, `partial` refuses without
 mutation, and feedback no longer creates defect, false-alarm, co-change, or
 automatic-antibody evidence. That separation does not qualify calibration.

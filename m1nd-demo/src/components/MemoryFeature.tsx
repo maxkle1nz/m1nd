@@ -81,9 +81,9 @@ function MemoryScene() {
 export function MemoryFeature() {
   return (
     <FeatureSection
-      title="Pick Up Exactly Where It Left Off"
+      title="Resume a Saved Investigation"
       subtitle="Persistent Memory"
-      description="When your agent returns to an investigation across sessions, m1nd restores the full trail: which nodes were visited, in what order, across how many hops. No re-reading files. No reconstructing context from scratch. Continued in milliseconds."
+      description="A saved trail carries visited nodes, hypotheses, and open questions into a later session. Resume checks the current graph, reports missing or stale evidence, and suggests the next verification. Missing support can downgrade hypotheses; a stale trail with too many missing nodes can refuse. Inspect current source before relying on the saved findings."
       align="left"
     >
       <MemoryScene />
