@@ -1365,5 +1365,8 @@ bytes, source anchors/digest, snapshot identity, per-page omissions and the next
 cursor. Repeat target/options and copy the returned cursor unchanged; source,
 options, graph or neighborhood drift refuses without changing prior coverage.
 Only emitted neighbors gain coverage. A large indivisible item requires a larger
-budget. Default V1 and V2 proof behavior remain unchanged. Reassemble partial
-source before editing. See [the complete contract](../../../BOUNDED-SURGICAL-CONTEXT.md).
+budget. The shared HTTP/stdio envelope requests continuation on partial pages.
+Final-page edit guidance first requires reassembling all source pages by their
+byte anchors and verifying the full-source digest; a final fragment may be empty.
+Default V1 suggestions and V2 proof behavior remain unchanged. See
+[the complete contract](../../../BOUNDED-SURGICAL-CONTEXT.md).
