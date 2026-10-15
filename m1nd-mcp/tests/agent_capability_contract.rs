@@ -157,6 +157,12 @@ fn disposition_surface(
 
 fn unregistered_mcp_disposition(action: &str) -> Option<UnregisteredMcpDisposition> {
     let disposition = match action {
+        "source.transplant.single" | "source.transplant.commit" | "source.transplant.preview"
+        | "mission.spawn" | "system_blocks.candidate_naming" => UnregisteredMcpDisposition {
+            kind: "withdrawn_capability_tombstone",
+            justification: "The capability, registered schema and routes were withdrawn; the semantic action remains only to preserve the persisted authority catalog digest.",
+            sources: &["m1nd-mcp/src/server.rs::retired_tool_name", "m1nd-mcp/src/action_routes.rs::retired_transplant_and_execution_proxy_names_have_no_callable_routes", "docs/FIRST-SIMPLIFICATION-SLICE.md"],
+        },
         "lock.create" | "lock.watch" | "lock.diff" | "lock.rebase" | "lock.release" => {
             UnregisteredMcpDisposition {
                 kind: "hidden_classified_route",
@@ -535,6 +541,48 @@ fn generated_inventory_describes_launcher_bootstrap_as_implemented() {
 fn every_mcp_catalog_action_has_registered_variant_or_justified_disposition() {
     let inventory = build_inventory();
     let catalog = m1nd10_action_catalog().expect("catalog");
+    let withdrawn = [
+        ("source.transplant.single", "transplant"),
+        ("source.transplant.commit", "transplant_commit"),
+        ("source.transplant.preview", "transplant_preview"),
+        ("mission.spawn", "mission_spawn"),
+        ("system_blocks.candidate_naming", "candidate_naming"),
+    ];
+    let expected: BTreeSet<_> = withdrawn.iter().map(|(action, _)| *action).collect();
+    let actual: BTreeSet<_> = inventory
+        .actions
+        .iter()
+        .filter(|row| {
+            row.unregistered_mcp_disposition
+                .is_some_and(|disposition| disposition.kind == "withdrawn_capability_tombstone")
+        })
+        .map(|row| row.action_id.as_str())
+        .collect();
+    assert_eq!(actual, expected, "withdrawal dispositions must be exact");
+    let registry_tools = tool_names(&m1nd_mcp::server::all_tool_schemas());
+    for (action, tool) in withdrawn {
+        assert!(catalog.entries.iter().any(|entry| {
+            entry.action.as_str() == action && entry.ingresses.contains(&Ingress::Mcp)
+        }));
+        let row = inventory
+            .actions
+            .iter()
+            .find(|row| row.action_id == action)
+            .expect("withdrawn action remains in the catalog projection");
+        assert!(row.registered_tool_variants.is_empty());
+        assert!(!registry_tools.contains(tool));
+        assert!(!MCP_TOOL_ROUTE_NAMES.contains(&tool));
+        for alias in [
+            tool.to_string(),
+            format!("m1nd.{tool}"),
+            format!("m1nd_{tool}"),
+        ] {
+            assert!(
+                possible_mcp_actions(&alias).is_none(),
+                "withdrawn alias must have no classified route: {alias}"
+            );
+        }
+    }
     for entry in catalog
         .entries
         .iter()
