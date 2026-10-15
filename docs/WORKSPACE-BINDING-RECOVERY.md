@@ -29,6 +29,13 @@ new cwd. A foreign
 launcher refuses before loading a public refresh or changing graph, roots, or
 `CURRENT`. No original directory is guessed from the new cwd.
 
+That byte-invariant launcher refusal happens before tool dispatch. A direct
+HTTP `ingest` refresh is still a classified mutation under the existing actor
+contract: a logical `ok: false` refusal can publish a checkpoint with a new ID,
+timestamp, generation and revision. It leaves source files, graph, roots and
+authoritative checkpoint content unchanged. This recovery change does not
+reclassify refresh or weaken mutation durability.
+
 New ingests resolve their input to a canonical native filesystem path and validate
 it through the shared exact path identity contract before changing session state.
 That canonical path is persisted for replace and merge; an unresolvable or
