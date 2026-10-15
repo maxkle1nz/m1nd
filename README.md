@@ -31,9 +31,28 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 <a id="sixty-seconds"></a>
 <a id="quick-start"></a>
 
-**Version matters:** [GitHub/native 1.6.5](https://github.com/maxkle1nz/m1nd/releases/tag/v1.6.5) and crates.io packages are published from immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm 1.6.5 remains pending. The learning-event fix in this PR is **Unreleased**, not part of those sealed artifacts, even though source package versions still say 1.6.5. The pinned 1.6.3 recipe below remains a separate installation route; check [releases](https://github.com/maxkle1nz/m1nd/releases) for shipped versions.
+**Version matters:** [GitHub/native 1.6.5](https://github.com/maxkle1nz/m1nd/releases/tag/v1.6.5), crates.io packages, and [npm 1.6.5](https://www.npmjs.com/package/@maxkle1nz/m1nd/v/1.6.5) are published from immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. The learning-event separation merged after that release in PR580 is **Unreleased**, even though source package versions still say 1.6.5.
 
-### Pinned published 1.6.3: install, prepare, connect
+### Published 1.6.5: get a first result
+
+You need **Node.js 18+** and a repository you can read. [Install the signed native 1.6.5 artifact](docs/INSTALL-1.6.5.md), then run this POSIX-shell recipe from your repository:
+
+```bash
+export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
+"$M1ND_BINARY" --version
+# Require native 1.6.5 at 363bc97f2336c73e90802916804dccd2109c5746.
+(
+  unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS
+  npx -y @maxkle1nz/m1nd@1.6.5 agent first-minute --repo . \
+    --binary "$M1ND_BINARY" --query "where is configuration loaded?" --json
+)
+```
+
+`first-minute` discovers a covering served owner first. Otherwise, the matching wrapper/native runtime prepares only the exact launcher-granted repository in an external private cache. Source files remain inputs. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness rather than inferring them from the selected client binary. Check `runtime.boot`, returned source locations, and gaps. This is not authority to create a shared brain, move a binding, or call generic `ingest`.
+
+To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/quickstart.md). Direct stdio needs an explicit workspace grant and an existing external private runtime; a shared owner has separate preparation and authority requirements. See [agent autonomy](docs/AGENT-AUTONOMY.md).
+
+### Historical pinned 1.6.3: install, prepare, connect
 
 You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
 
@@ -69,22 +88,24 @@ The agent should call `north` first, then use `seek` and source inspection as ne
 
 [Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors. [Your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
 
-### Unreleased source: isolated first workspace
+### Unreleased main: learning-event separation
 
-For contributors testing the unreleased learning fix, select PR580's source explicitly and use its matching wrapper and native runtime. A default clone or a version string alone does not establish that the fix is present. Use a clean shell without the pinned recipe's runtime override; the source CLI selects an external private cache:
+For contributors testing the unreleased learning fix, select a `main` revision containing PR580 explicitly and use its matching wrapper and native runtime. A version string alone does not establish that the fix is present. `--binary` selects the executable used by the CLI, but default discovery can still attach it to an older covering owner. Use `--no-attach` and clear ambient runtime/attach overrides to run this exact revision in an automatic isolated cache:
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
-git fetch origin refs/pull/580/head
-git checkout --detach FETCH_HEAD
+git checkout --detach 74d0348c9a5a1e0d5d5e5b5a784ee4f3771d0808
 cargo build --release -p m1nd-mcp
 ./target/release/m1nd-mcp --version
-node npm/bin/m1nd.js agent first-minute --repo /absolute/path/to/your/repo \
-  --binary ./target/release/m1nd-mcp --query "map this repo" --json
+(
+  unset M1ND_RUNTIME_DIR M1ND_MCP_ARGS M1ND_ATTACH_URL
+  node npm/bin/m1nd.js agent first-minute --repo /absolute/path/to/your/repo \
+    --binary ./target/release/m1nd-mcp --no-attach --query "map this repo" --json
+)
 ```
 
-Follow [the source-preview recipe](docs/AGENT-AUTONOMY.md#public-npm-cli-and-process-status) for selecting that binary and a private runtime. `agent first-minute` discovers a covering served owner first; otherwise the current source can prepare an isolated graph for the exact granted repo. It cannot mint a shared brain, move a binding, or bypass the generic ingest floor. [The contributor development kit](docs/DEVELOPMENT.md) provides checkout-private state for development.
+PR580's learning semantics are available on `main` but are absent from the sealed 1.6.5 artifacts. Automatic isolated preparation already shipped in 1.6.5; it is not a preview feature of PR580. See [the launcher contract](docs/AGENT-AUTONOMY.md#public-npm-cli-and-process-status). [The contributor development kit](docs/DEVELOPMENT.md) provides checkout-private state for development.
 
 ## What to try next
 
@@ -96,14 +117,14 @@ Follow [the source-preview recipe](docs/AGENT-AUTONOMY.md#public-npm-cli-and-pro
 | Preserve a verified finding | `memorize` with repo-relative evidence paths | Store what you actually verified, not an agent's untested conclusion. |
 | Coordinate parallel agents | One served owner and attached clients | Treat overlap notices as a request to coordinate; they do not prevent edits. |
 
-See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). The default tool menu is deliberately small. `help` discovers the full registry; `M1ND_TOOL_TIER=full` expands the advertised menu. For graph change tracking, source builds also offer `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools. See the [beginner and advanced recipe](docs/GRAPH-CHANGE-TRACKING.md). Source-preview graph-linked search also preserves canonical node IDs for single-file ingest roots; ambiguous file mappings are omitted. A listed or callable tool may still require authority the current session does not have.
+See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). The default tool menu is deliberately small. `help` discovers the full registry; `M1ND_TOOL_TIER=full` expands the advertised menu. Published 1.6.5 also offers `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools. See the [beginner and advanced recipe](docs/GRAPH-CHANGE-TRACKING.md). Graph-linked search in 1.6.5 preserves canonical node IDs for single-file ingest roots; ambiguous file mappings are omitted. A listed or callable tool may still require authority the current session does not have.
 
 ## What it does and does not prove
 
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
 - **Extraction is approximate.** Language support varies, macro-generated and dynamic references can be missed, and external imports may remain unresolved. A graph is not a compiler's semantic model.
-- **Trust is conditional.** Current source treats all v1 calibration rows as [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md): prediction abstains and the seek envelope stays at `reverify` or `unprovable`, while scores and rankings remain available. Running calibration does not enable `act`. Use source, compiler, tests, and runtime checks for your change. The [clock repair](docs/LEARNING-TIME-UNITS.md) does not establish statistical quality.
-- **Unreleased learning feedback is relevance-only.** In this PR's source, internal `learn(correct|wrong)` adjusts graph relevance weights; it records no defect, false alarm, observed co-change, or automatic antibody. Ambiguous `partial` feedback is refused without mutation, and zero strength is a no-op. Public learning and calibration authority floors remain blocked. See [the event boundary](docs/LEARNING-EVENT-SEMANTICS.md).
+- **Trust is conditional.** Published 1.6.5 and current `main` treat all v1 calibration rows as [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md): prediction abstains and the seek envelope stays at `reverify` or `unprovable`, while scores and rankings remain available. Running calibration does not enable `act`. Use source, compiler, tests, and runtime checks for your change. The [clock repair](docs/LEARNING-TIME-UNITS.md) does not establish statistical quality.
+- **Unreleased learning feedback is relevance-only.** On `main` after PR580, internal `learn(correct|wrong)` adjusts graph relevance weights; it records no defect, false alarm, observed co-change, or automatic antibody. Ambiguous `partial` feedback is refused without mutation, and zero strength is a no-op. This change is absent from sealed 1.6.5. Public learning and calibration authority floors remain blocked. See [the event boundary](docs/LEARNING-EVENT-SEMANTICS.md).
 - **Unreleased restart binding recovery.** A bound owner restores its source read binding from recovered ingest roots after checkpoint validation, keeping internal checkpoint copies out of source search for that binding. Actor and lease identities stay unchanged; unavailable source and file-only roots retain narrow read authority. See [the recovery contract and legacy limits](docs/WORKSPACE-BINDING-RECOVERY.md).
 - **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
 - **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).

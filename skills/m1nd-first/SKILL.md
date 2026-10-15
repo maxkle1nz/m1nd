@@ -7,6 +7,21 @@ description: Use when investigating a repository, searching for implementation, 
 
 This is a doctrine, not a manual.
 
+## Published 1.6.5 startup boundary
+
+With a matching 1.6.5 wrapper/native runtime, `agent first-minute --repo <repo>`
+can prepare only the exact launcher-granted repository in an external private
+cache when no covering owner is found. Source files remain inputs. Only when
+reusing the automatic isolated cache does the CLI refresh the declared root
+before retrieval. Attached-owner freshness follows the owner's own semantics;
+inspect its version, binding, and freshness separately. Direct stdio also requires that
+explicit workspace grant and an existing safe external runtime. See
+[agent autonomy](https://github.com/maxkle1nz/m1nd/blob/v1.6.5/docs/AGENT-AUTONOMY.md). The human-birth guidance below
+applies to shared-brain and legacy launchers outside that contract, or the
+recovery actually returned by the installed runtime. A prompt, tool path, or
+reception mismatch never grants bootstrap authority; generic replace/merge and
+the human-only ceremony remain unavailable to agents.
+
 ## Rules
 
 - Start with `m1nd`. In an MCP session, the front door is one call: `north(task)` — it

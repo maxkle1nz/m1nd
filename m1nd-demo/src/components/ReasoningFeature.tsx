@@ -144,9 +144,9 @@ function ReasoningScene() {
 export function ReasoningFeature() {
   return (
     <FeatureSection
-      title="Verify a Claim in One Query"
+      title="Inspect a Structural Claim"
       subtitle="Structural Reasoning"
-      description="Your agent can ask: 'does every auth call pass through scope validation?' m1nd checks the claim against the live graph and returns the answer, plus any structural gap that breaks the assumption. A structural check in under a millisecond, and a starting point for the compiler and tests to prove."
+      description="Your agent can ask: 'does every auth call pass through scope validation?' m1nd inspects the claim against the current graph and returns structural evidence and gaps. Extraction can miss relationships; verify the relevant source paths, then use the compiler and tests to check executed behavior."
       align="right"
     >
       <ReasoningScene />
