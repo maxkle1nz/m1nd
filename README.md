@@ -119,6 +119,8 @@ PR580's learning semantics are available on `main` but are absent from the seale
 
 See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). The default tool menu is deliberately small. `help` discovers the full registry; `M1ND_TOOL_TIER=full` expands the advertised menu. Published 1.6.5 also offers `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools. See the [beginner and advanced recipe](docs/GRAPH-CHANGE-TRACKING.md). Graph-linked search in 1.6.5 preserves canonical node IDs for single-file ingest roots; ambiguous file mappings are omitted. A listed or callable tool may still require authority the current session does not have.
 
+Unreleased source also supports opt-in [bounded `surgical_context` pages](docs/BOUNDED-SURGICAL-CONTEXT.md): `max_output_bytes` caps compact handler JSON, with explicit omissions, source anchors, SHA-256 digests and continuation. Transport/runtime envelopes and pretty-print whitespace are excluded. Partial-page guidance requests continuation; final-page guidance requires reassembling all source pages and verifying their full-source digest before editing. Default requests remain complete with their existing guidance.
+
 ## What it does and does not prove
 
 - **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.

@@ -2221,7 +2221,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "surgical_context",
-                "description": "Return full context for surgical LLM editing: file contents, symbols, and graph neighbourhood (callers, callees, tests). Use before apply.",
+                "description": "Return file contents, symbols and graph neighbours before editing. Default remains full context. Opt-in max_output_bytes pages compact UTF-8 handler JSON (excluding transport/runtime envelopes and pretty-print whitespace), with source anchors, SHA-256 digests, explicit omissions and continuation. A partial page is not a complete edit source. Repeat target/options and pass context_page.continuation to resume; stale/invalid cursors and impossible budgets refuse without changing coverage.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2229,7 +2229,21 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "symbol": { "type": "string", "description": "Optional: narrow context to a specific symbol (function/struct/class name)" },
                         "radius": { "type": "integer", "default": 1, "description": "BFS radius for graph neighbourhood (1 or 2)" },
-                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" }
+                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" },
+                        "max_output_bytes": { "type": "integer", "minimum": 1024, "description": "Opt-in cap on compact handler JSON bytes, including escaping and page metadata; excludes transport/runtime envelopes and pretty-print whitespace. Increase if an indivisible metadata item cannot fit." },
+                        "continuation": {
+                            "type": "object", "additionalProperties": false,
+                            "description": "Copy context_page.continuation unchanged; repeat the same file/options and a byte budget. A cursor is a position, never permission to read a path.",
+                            "properties": {
+                                "version": { "type": "integer", "const": 1 },
+                                "context_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                                "graph_generation": { "type": "integer", "minimum": 0 },
+                                "plasticity_generation": { "type": "integer", "minimum": 0 },
+                                "source_byte_offset": { "type": "integer", "minimum": 0 },
+                                "item_offset": { "type": "integer", "minimum": 0 }
+                            },
+                            "required": ["version", "context_sha256", "graph_generation", "plasticity_generation", "source_byte_offset", "item_offset"]
+                        }
                     },
                     "required": ["file_path", "agent_id"]
                 }
@@ -5340,6 +5354,8 @@ fn compose_north_code(
                     symbol: Some(target.label.clone()),
                     radius: 1,
                     include_tests: false,
+                    max_output_bytes: None,
+                    continuation: None,
                 },
             )
             .ok()
@@ -16232,6 +16248,8 @@ mod tests {
                             symbol: Some(label.clone()),
                             radius: 1,
                             include_tests: false,
+                            max_output_bytes: None,
+                            continuation: None,
                         },
                     )
                     .expect("direct surgical_context");

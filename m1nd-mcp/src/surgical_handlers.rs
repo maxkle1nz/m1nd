@@ -11,6 +11,7 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
+mod bounded_context;
 mod source_edit_transaction;
 
 pub(crate) use source_edit_transaction::{
@@ -1964,19 +1965,39 @@ pub fn handle_surgical_context(
         ))
     };
 
-    // Track agent session
+    let output = bounded_context::bounded_page(
+        surgical::SurgicalContextOutput {
+            file_path: path_str,
+            file_contents,
+            line_count,
+            node_id: node_id_str,
+            symbols,
+            focused_symbol,
+            callers,
+            callees,
+            tests,
+            heuristic_summary,
+            elapsed_ms,
+            context_page: None,
+        },
+        &input,
+        state.graph_generation,
+        state.plasticity_generation,
+    )?;
+
+    // Credit only the context actually emitted, after every refusal point.
     state.track_agent(&input.agent_id);
-    let mut visited_files = vec![path_str.clone()];
-    visited_files.extend(callers.iter().map(|entry| entry.file_path.clone()));
-    visited_files.extend(callees.iter().map(|entry| entry.file_path.clone()));
-    visited_files.extend(tests.iter().map(|entry| entry.file_path.clone()));
+    let mut visited_files = vec![output.file_path.clone()];
+    visited_files.extend(output.callers.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(output.callees.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(output.tests.iter().map(|entry| entry.file_path.clone()));
     let mut visited_nodes = Vec::new();
-    if !node_id_str.is_empty() {
-        visited_nodes.push(node_id_str.clone());
+    if !output.node_id.is_empty() {
+        visited_nodes.push(output.node_id.clone());
     }
-    visited_nodes.extend(callers.iter().map(|entry| entry.node_id.clone()));
-    visited_nodes.extend(callees.iter().map(|entry| entry.node_id.clone()));
-    visited_nodes.extend(tests.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.callers.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.callees.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.tests.iter().map(|entry| entry.node_id.clone()));
     state.note_coverage(
         &input.agent_id,
         "surgical_context",
@@ -1984,19 +2005,7 @@ pub fn handle_surgical_context(
         visited_nodes,
     );
 
-    Ok(surgical::SurgicalContextOutput {
-        file_path: path_str,
-        file_contents,
-        line_count,
-        node_id: node_id_str,
-        symbols,
-        focused_symbol,
-        callers,
-        callees,
-        tests,
-        heuristic_summary,
-        elapsed_ms,
-    })
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -2432,6 +2441,8 @@ pub fn handle_surgical_context_v2(
         symbol: input.symbol.clone(),
         radius: input.radius,
         include_tests: input.include_tests,
+        max_output_bytes: None,
+        continuation: None,
     };
     let primary = handle_surgical_context(state, v1_input)?;
 
@@ -4330,6 +4341,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -4491,6 +4503,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -4610,6 +4623,414 @@ mod tests {
         // (the caller context -- e.g. `fn ` prefix -- ensures valid identifiers)
         assert_eq!(extract_identifier("123abc"), "123abc");
         assert_eq!(extract_identifier("(foo)"), "");
+    }
+
+    fn bounded_input(
+        path: &Path,
+        budget: usize,
+        continuation: serde_json::Value,
+    ) -> surgical::SurgicalContextInput {
+        serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": budget,
+            "continuation": continuation
+        }))
+        .unwrap()
+    }
+
+    fn coverage_snapshot(state: &SessionState) -> serde_json::Value {
+        serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap()
+    }
+
+    #[test]
+    fn bounded_context_pages_reassemble_source_and_emit_each_neighbor_once() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = format!(
+            "{}pub fn core() {{}}\n",
+            "// 🧠 quotes \\\"\t\r\n".repeat(140)
+        );
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let mut continuation = serde_json::Value::Null;
+        let mut reconstructed = String::new();
+        let mut emitted_neighbors = std::collections::BTreeSet::new();
+        let mut emitted_symbols = Vec::new();
+        let mut context_digest = None;
+        for page_index in 0..100 {
+            let output =
+                handle_surgical_context(&mut state, bounded_input(&path, 1800, continuation))
+                    .unwrap();
+            let json = serde_json::to_value(&output).unwrap();
+            let page = output.context_page.as_ref().unwrap();
+            assert_eq!(
+                page.serialized_bytes,
+                serde_json::to_vec(&json).unwrap().len()
+            );
+            assert!(page.serialized_bytes <= 1800);
+            assert_eq!(page.source.byte_start, reconstructed.len());
+            assert_eq!(
+                page.source.byte_end - page.source.byte_start,
+                output.file_contents.len()
+            );
+            assert_eq!(page.source.sha256, sha256_hex(source.as_bytes()));
+            assert_eq!(page.source.total_bytes, source.len());
+            if output.file_contents.is_empty() {
+                assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+            } else {
+                assert_eq!(
+                    page.source.line_start,
+                    1 + source[..page.source.byte_start]
+                        .bytes()
+                        .filter(|b| *b == b'\n')
+                        .count()
+                );
+                assert!(page.source.line_end <= output.line_count as usize);
+            }
+            assert_eq!(
+                page.omitted.source_bytes,
+                source.len() - output.file_contents.len()
+            );
+            if let Some(digest) = &context_digest {
+                assert_eq!(digest, &page.context_sha256);
+            } else {
+                context_digest = Some(page.context_sha256.clone());
+            }
+            reconstructed.push_str(&output.file_contents);
+            emitted_symbols.extend(output.symbols.iter().map(|s| s.name.clone()));
+            for neighbor in output
+                .callers
+                .iter()
+                .chain(&output.callees)
+                .chain(&output.tests)
+            {
+                assert!(
+                    emitted_neighbors.insert(neighbor.node_id.clone()),
+                    "no repeated metadata item"
+                );
+            }
+            let coverage = &state.coverage_sessions["bounded"];
+            assert_eq!(coverage.visited_nodes.len(), 1 + emitted_neighbors.len());
+            assert_eq!(coverage.visited_files.len(), 1 + emitted_neighbors.len());
+            continuation = json["context_page"]["continuation"].clone();
+            if continuation.is_null() {
+                assert!(page_index > 0);
+                break;
+            }
+            assert!(
+                page_index < 99,
+                "pagination must make progress and terminate"
+            );
+        }
+        assert_eq!(reconstructed, source);
+        assert_eq!(emitted_symbols, vec!["core"]);
+        assert_eq!(emitted_neighbors.len(), 1);
+    }
+
+    #[test]
+    fn bounded_context_stale_source_graph_options_and_targets_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "// source\n".repeat(1000);
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        let other = root.path().join("other.rs");
+        std::fs::write(&other, &source).unwrap();
+        for (key, value) in [
+            ("radius", serde_json::json!(2)),
+            ("include_tests", serde_json::json!(false)),
+            ("symbol", serde_json::json!("absent")),
+            ("file_path", serde_json::json!(other)),
+        ] {
+            let mut input = serde_json::json!({"file_path": path, "agent_id": "bounded", "max_output_bytes":1800,"continuation":cursor});
+            input[key] = value;
+            let error = handle_surgical_context(&mut state, serde_json::from_value(input).unwrap())
+                .unwrap_err();
+            assert!(error.to_string().contains("continuation"));
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        std::fs::write(&path, format!("{source}// modified\n")).unwrap();
+        assert!(
+            handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor.clone()))
+                .is_err()
+        );
+        assert_eq!(coverage_snapshot(&state), before);
+        std::fs::write(&path, &source).unwrap();
+        state.bump_graph_generation();
+        assert!(handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor)).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_invalid_offsets_and_missing_budget_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "🧠\n".repeat(1000);
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        for (key, value) in [
+            ("source_byte_offset", serde_json::json!(1)),
+            ("source_byte_offset", serde_json::json!(source.len() + 1)),
+            ("item_offset", serde_json::json!(1)),
+            ("version", serde_json::json!(2)),
+            ("context_sha256", serde_json::json!("0".repeat(64))),
+        ] {
+            let mut altered = cursor.clone();
+            altered[key] = value;
+            assert!(
+                handle_surgical_context(&mut state, bounded_input(&path, 1800, altered)).is_err()
+            );
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        let input = serde_json::from_value(
+            serde_json::json!({"file_path":path,"agent_id":"bounded","continuation":cursor}),
+        )
+        .unwrap();
+        assert!(handle_surgical_context(&mut state, input).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_unbounded_shape_and_large_budget_remain_complete() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "pub fn core() {}\n";
+        std::fs::write(&path, source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let input =
+            serde_json::from_value(serde_json::json!({"file_path":path,"agent_id":"bounded"}))
+                .unwrap();
+        let full = handle_surgical_context(&mut state, input).unwrap();
+        assert_eq!(full.file_contents, source);
+        assert!(full.context_page.is_none());
+        assert!(serde_json::to_value(&full)
+            .unwrap()
+            .get("context_page")
+            .is_none());
+        assert_eq!(full.callees.len(), 1);
+        assert_eq!(full.symbols.len(), 1);
+        let bounded = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 10_000, serde_json::Value::Null),
+        )
+        .unwrap();
+        assert_eq!(bounded.file_contents, full.file_contents);
+        assert_eq!(bounded.callees.len(), 1);
+        let page = bounded.context_page.unwrap();
+        assert!(page.continuation.is_none());
+        assert_eq!(page.omitted.source_bytes, 0);
+        assert_eq!(page.omitted.callees, 0);
+        assert_eq!(page.omitted.symbols, 0);
+        assert!(!page.omitted.heuristic_summary);
+    }
+
+    #[test]
+    fn bounded_context_invalid_numeric_budgets_and_denied_paths_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let denied = outside.path().join("sentinel.rs");
+        std::fs::write(&path, "pub fn core() {}\n").unwrap();
+        std::fs::write(&denied, "DENIED_SOURCE\n").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        state.note_coverage(
+            "bounded",
+            "view",
+            vec!["prior.rs".into()],
+            vec!["file::prior.rs".into()],
+        );
+        let before = coverage_snapshot(&state);
+        for budget in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("1800"),
+        ] {
+            assert!(serde_json::from_value::<surgical::SurgicalContextInput>(
+                serde_json::json!({"file_path":path,"agent_id":"bounded","max_output_bytes":budget})
+            )
+            .is_err());
+        }
+        for rejected_path in [
+            denied,
+            root.path().join("missing.rs"),
+            root.path().join("runtime/graph.json"),
+        ] {
+            let error = handle_surgical_context(
+                &mut state,
+                bounded_input(&rejected_path, 1800, serde_json::Value::Null),
+            )
+            .unwrap_err();
+            assert!(!error.to_string().contains("DENIED_SOURCE"));
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        let mut deep = root.path().to_path_buf();
+        for _ in 0..6 {
+            deep.push("segment".repeat(16));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        deep.push("core.rs");
+        std::fs::write(&deep, "// source\n").unwrap();
+        assert!(handle_surgical_context(
+            &mut state,
+            bounded_input(&deep, 1024, serde_json::Value::Null)
+        )
+        .is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_oversized_metadata_requires_larger_page_without_losing_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = format!("pub fn {}() {{}}\n", "function_name".repeat(300));
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let mut cursor = serde_json::Value::Null;
+        let mut reconstructed = String::new();
+        let mut refused_cursor = None;
+        for _ in 0..100 {
+            let before = state
+                .coverage_sessions
+                .get("bounded")
+                .map(|v| serde_json::to_value(v).unwrap());
+            match handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor.clone())) {
+                Ok(page) => {
+                    reconstructed.push_str(&page.file_contents);
+                    cursor = serde_json::to_value(page.context_page.unwrap().continuation.unwrap())
+                        .unwrap();
+                }
+                Err(error) => {
+                    assert!(error.to_string().contains("complete metadata item"));
+                    assert_eq!(Some(coverage_snapshot(&state)), before);
+                    refused_cursor = Some(cursor);
+                    break;
+                }
+            }
+        }
+        assert_eq!(reconstructed, source);
+        let output = handle_surgical_context(
+            &mut state,
+            bounded_input(
+                &path,
+                20_000,
+                refused_cursor.expect("oversized symbol must refuse"),
+            ),
+        )
+        .unwrap();
+        assert!(output.file_contents.is_empty());
+        assert_eq!(output.symbols.len(), 1);
+        let page = output.context_page.unwrap();
+        assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+        assert!(page.continuation.is_none());
+    }
+
+    #[test]
+    fn bounded_context_empty_source_and_plasticity_generation_are_explicit() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let output = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 10_000, serde_json::Value::Null),
+        )
+        .unwrap();
+        let page = output.context_page.unwrap();
+        assert_eq!((page.source.byte_start, page.source.byte_end), (0, 0));
+        assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+        assert_eq!(page.source.sha256, sha256_hex(b""));
+        assert!(page.continuation.is_none());
+        std::fs::write(&path, "// source\n".repeat(1000)).unwrap();
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        state.bump_plasticity_generation();
+        assert!(handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor)).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_respects_requested_payload_budget() {
+        let root = tempfile::tempdir().expect("root");
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "// quoted \\\" source 🧠\n".repeat(1000)).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let input = serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": 1800
+        }))
+        .unwrap();
+        let output = handle_surgical_context(&mut state, input).unwrap();
+        let json = serde_json::to_value(&output).unwrap();
+        assert!(
+            serde_json::to_vec(&output).unwrap().len() <= 1800,
+            "opt-in bound must account for JSON escaping and UTF-8"
+        );
+        assert!(
+            json["context_page"]["continuation"].is_object(),
+            "partial source requires explicit continuation"
+        );
+        assert!(
+            json["context_page"]["omitted"]["source_bytes"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert!(
+            output.callees.is_empty(),
+            "neighbors not emitted on a source page"
+        );
+        let coverage = &state.coverage_sessions["bounded"];
+        assert_eq!(
+            coverage.visited_files.len(),
+            1,
+            "omitted neighbors receive no credit"
+        );
+    }
+
+    #[test]
+    fn bounded_context_refuses_impossible_budgets_and_preserves_visits() {
+        let root = tempfile::tempdir().expect("root");
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "pub fn core() {}\n").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        state.note_coverage(
+            "bounded",
+            "view",
+            vec!["prior.rs".into()],
+            vec!["file::prior.rs".into()],
+        );
+        let before = serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap();
+        let input = serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": 0
+        }))
+        .unwrap();
+        let error =
+            handle_surgical_context(&mut state, input).expect_err("impossible bound must refuse");
+        assert!(error.to_string().contains("max_output_bytes"));
+        assert_eq!(
+            serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap(),
+            before
+        );
     }
 
     #[test]
@@ -4802,6 +5223,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect_err("surgical_context must reject an external absolute path");
@@ -4850,6 +5273,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect("existing in-root surgical context must remain available");
@@ -4965,6 +5390,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect("surgical context");
@@ -5221,6 +5648,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -5939,6 +6367,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6250,6 +6679,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
