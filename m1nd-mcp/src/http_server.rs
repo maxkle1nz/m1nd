@@ -3032,16 +3032,10 @@ impl HttpBrainReadSnapshot {
     }
 
     fn code_root_path(&self) -> Option<String> {
-        for root in &self.ingest_roots {
-            if !crate::session::is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
-                return Some(root.clone());
-            }
-        }
-        self.workspace_root.as_deref().and_then(|workspace| {
-            (!crate::session::is_memory_sidecar(workspace)
-                && std::path::Path::new(workspace).join(".git").exists())
-            .then(|| workspace.to_string())
-        })
+        crate::session::code_root_path_from_inputs(
+            &self.ingest_roots,
+            self.workspace_root.as_deref(),
+        )
     }
 }
 
@@ -3049,20 +3043,7 @@ fn project_root_display_from_inputs(
     ingest_roots: &[String],
     workspace_root: Option<&str>,
 ) -> Option<String> {
-    for root in ingest_roots {
-        if !crate::session::is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
-            return Some(root.clone());
-        }
-    }
-    if let Some(workspace) = workspace_root {
-        if !crate::session::is_memory_sidecar(workspace) {
-            return Some(workspace.to_string());
-        }
-    }
-    ingest_roots
-        .first()
-        .cloned()
-        .or_else(|| workspace_root.map(str::to_string))
+    crate::session::project_root_display_from_inputs(ingest_roots, workspace_root)
 }
 
 /// Resolve a read snapshot through the hosted brain actor when the selected
@@ -5675,6 +5656,33 @@ mod tests {
         assert!(slow);
         assert_eq!(joined.expect("blocking task must join"), 42);
         assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn legacy_relative_http_snapshot_cannot_supply_code_or_project_root() {
+        let runtime = tempfile::tempdir().expect("private runtime");
+        for (roots, workspace) in [
+            (vec![".".to_string()], None),
+            (Vec::new(), Some(".".to_string())),
+        ] {
+            let snapshot = HttpBrainReadSnapshot {
+                runtime_root: runtime.path().to_path_buf(),
+                graph_json: Vec::new(),
+                domain_name: "code".to_string(),
+                ingest_roots: roots,
+                workspace_root: workspace,
+            };
+            assert_eq!(
+                snapshot.code_root_path(),
+                None,
+                "HTTP file_view cannot turn a legacy relative declaration into the new cwd"
+            );
+            assert_eq!(
+                snapshot.project_root_display(),
+                None,
+                "HTTP brain selectors and runner targets cannot infer a project from the new cwd"
+            );
+        }
     }
 
     // ---- Browser `graph_changed` relay (#233 pure-reader gap fix) ----------

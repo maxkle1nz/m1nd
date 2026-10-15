@@ -331,7 +331,8 @@ fingerprint names `persisted_ingest_root`, `persisted_ingest_file`, or
 read checkpoint copies. New ingests persist canonical native paths before mutation.
 Legacy relative declarations have unknown origins: do not resolve them against a
 new cwd, accept them as caller/refresh/launcher authority, or use them for code
-file enumeration. Their checkpoint bytes remain intact. Actor and lease identities
+file enumeration or HTTP file reads/selectors. Live and snapshot root selection
+share the same functions. Their checkpoint bytes remain intact. Actor and lease identities
 remain unchanged, so a
 source-bound owner that loses its required launcher context can still refuse
 `BrainBindingMismatch`. Project manifests and no-source/pure-memory legacy

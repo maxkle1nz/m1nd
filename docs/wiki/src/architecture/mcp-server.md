@@ -10,7 +10,9 @@ roots. An external source directory replaces the inferred snapshot parent;
 file-only roots stay exact, and unavailable external sources do not authorize the
 runtime as a fallback. New ingests persist canonical native paths before mutation;
 legacy relative roots have unknown origins and grant no read, caller, code-root,
-discovery, exact-root refresh or launcher authority. A foreign launcher with a
+discovery, exact-root refresh or launcher authority. Live sessions and HTTP read/identity
+snapshots share code/project-root selection; authenticated `/api/file` cannot read
+the new cwd through a relative legacy root. A foreign launcher with a
 queued refresh refuses without changing graph, roots or `CURRENT`. Actor/checkpoint and instance/lease identities remain
 unchanged. Manifest bindings and legacy states without external sources retain
 their existing contract. See [the recovery boundaries](../../../WORKSPACE-BINDING-RECOVERY.md).

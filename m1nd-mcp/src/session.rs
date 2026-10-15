@@ -844,6 +844,56 @@ pub(crate) fn is_memory_sidecar(p: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Code-root selection shared by live sessions and immutable HTTP snapshots.
+/// Unqualified legacy declarations never acquire authority from this process.
+/// Files and memory sidecars are not roots for repository enumeration.
+pub(crate) fn code_root_path_from_inputs(
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+) -> Option<String> {
+    for root in ingest_roots {
+        if !is_memory_sidecar(root)
+            && crate::scope::canonical_declared_root(root)
+                .is_some_and(|canonical| canonical.is_dir())
+        {
+            return Some(root.clone());
+        }
+    }
+    workspace_root.and_then(|workspace| {
+        (!is_memory_sidecar(workspace)
+            && crate::scope::canonical_declared_root(workspace)
+                .is_some_and(|canonical| canonical.join(".git").exists()))
+        .then(|| workspace.to_owned())
+    })
+}
+
+/// Project identity is also consumed by HTTP selectors and runner routing, so
+/// its display fallbacks must never resolve unanchored roots against a new cwd.
+/// Qualified memory/store roots retain their existing honest display fallback.
+pub(crate) fn project_root_display_from_inputs(
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+) -> Option<String> {
+    for root in ingest_roots {
+        if !is_memory_sidecar(root)
+            && crate::scope::canonical_declared_root(root)
+                .is_some_and(|canonical| canonical.is_dir())
+        {
+            return Some(root.clone());
+        }
+    }
+    let qualified_workspace =
+        workspace_root.filter(|root| crate::scope::is_qualified_root(Path::new(root)));
+    if let Some(workspace) = qualified_workspace.filter(|root| !is_memory_sidecar(root)) {
+        return Some(workspace.to_owned());
+    }
+    ingest_roots
+        .iter()
+        .find(|root| crate::scope::is_qualified_root(Path::new(root)))
+        .cloned()
+        .or_else(|| qualified_workspace.map(str::to_owned))
+}
+
 /// The last path component of a filesystem root — the human name of a repo
 /// ("/Users/<name>/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
 /// so a Windows backslash path ("C:\\Users\\<name>\\m1nd" → "m1nd") names its repo
@@ -1481,34 +1531,16 @@ impl SessionState {
     ///
     /// 1. the first ingest root that is a real directory and is NOT a `.light.md`
     ///    memory sidecar nor an `agent-memory` runtime dir;
-    /// 2. else `workspace_root` when it is not itself an `agent-memory` dir;
-    /// 3. else the first ingest root of any kind;
-    /// 4. else `workspace_root` (last resort — honest even if it is plumbing).
+    /// 2. else a qualified `workspace_root` that is not an `agent-memory` dir;
+    /// 3. else the first qualified ingest root of any kind;
+    /// 4. else qualified `workspace_root` (honest even if it is plumbing).
     ///
     /// A project brain always has its project root as ingest root #1, so it
     /// resolves to that; the bound graph skips its memory sidecars to reach the
-    /// repo. Returns `None` only when the brain has no roots at all (empty graph).
+    /// repo. Returns `None` when no qualified root is declared, including legacy
+    /// relative declarations whose original cwd is unknown.
     pub fn project_root_display(&self) -> Option<String> {
-        // 1. First real code ingest root that is not a memory sidecar.
-        for root in &self.ingest_roots {
-            if !is_memory_sidecar(root)
-                && crate::scope::canonical_declared_root(root)
-                    .is_some_and(|canonical| canonical.is_dir())
-            {
-                return Some(root.clone());
-            }
-        }
-        // 2. workspace_root when it is a repo, not the agent-memory sidecar dir.
-        if let Some(ws) = self.workspace_root.as_deref() {
-            if !is_memory_sidecar(ws) {
-                return Some(ws.to_string());
-            }
-        }
-        // 3. any ingest root, then 4. workspace_root as the last honest fallback.
-        self.ingest_roots
-            .first()
-            .cloned()
-            .or_else(|| self.workspace_root.clone())
+        project_root_display_from_inputs(&self.ingest_roots, self.workspace_root.as_deref())
     }
 
     /// The Hall card / Brain Chip display name: the basename of
@@ -1535,23 +1567,7 @@ impl SessionState {
     /// never `workspace_root` directly: the first virgin-repo scan listed the
     /// brain's `.light.md` memories as the repo because of exactly that.
     pub fn code_root_path(&self) -> Option<String> {
-        for root in &self.ingest_roots {
-            if !is_memory_sidecar(root)
-                && crate::scope::canonical_declared_root(root)
-                    .is_some_and(|canonical| canonical.is_dir())
-            {
-                return Some(root.clone());
-            }
-        }
-        if let Some(ws) = self.workspace_root.as_deref() {
-            if !is_memory_sidecar(ws)
-                && crate::scope::canonical_declared_root(ws)
-                    .is_some_and(|canonical| canonical.join(".git").exists())
-            {
-                return Some(ws.to_string());
-            }
-        }
-        None
+        code_root_path_from_inputs(&self.ingest_roots, self.workspace_root.as_deref())
     }
 
     /// #326-family auto-heal (load/resolve seam). A prior memorize / agent-memory
@@ -6255,7 +6271,7 @@ mod tests {
         let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("initialize session");
         state.ingest_roots = vec![];
-        state.workspace_root = Some("/Users/<name>/solo-repo".to_string());
+        state.workspace_root = Some(temp.path().join("solo-repo").to_str().unwrap().to_owned());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
     }
 
@@ -6545,6 +6561,7 @@ mod tests {
             "a relative legacy declaration cannot grant the exact-root refresh door"
         );
         assert!(state.declared_roots_canonical().is_empty());
+        assert_eq!(state.project_root_display(), None);
         assert_eq!(
             state.code_root_path(),
             None,

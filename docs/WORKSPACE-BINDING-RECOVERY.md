@@ -21,7 +21,11 @@ but missing source does not authorize reads of checkpoint copies. A legacy relat
 root has no recorded origin directory, so it is declared unavailable even if that
 text names an existing path in the new process. Its stored bytes remain intact for
 checkpoint identity; it grants no read root, caller coverage, discovery routing,
-code-root enumeration, exact-root refresh, or launcher compatibility. A foreign
+code-root enumeration, project selectors/runner targets, exact-root refresh, or
+launcher compatibility. Live sessions and immutable HTTP read/identity snapshots
+use the same code-root and project-root selection functions. Authenticated
+`GET /api/file` therefore refuses a legacy relative root instead of reading the
+new cwd. A foreign
 launcher refuses before loading a public refresh or changing graph, roots, or
 `CURRENT`. No original directory is guessed from the new cwd.
 
