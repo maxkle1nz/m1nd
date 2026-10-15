@@ -169,16 +169,19 @@ impl GraphDiff {
         }
     }
 
-    /// Apply this diff to a graph. Increments graph generation.
+    /// Apply this diff to a graph. Structural changes increment graph generation.
+    /// Consecutive edge removals share one CSR rebuild and leave it finalized;
+    /// later node/edge additions still require `Graph::finalize` before queries.
     /// Returns number of actions applied.
     pub fn apply(&self, graph: &mut Graph) -> M1ndResult<u32> {
         let mut applied = 0u32;
 
-        for action in &self.actions {
+        let mut actions = self.actions.iter().peekable();
+        while let Some(action) = actions.next() {
             match action {
                 DiffAction::AddNode(node) => {
                     let tags: Vec<&str> = node.tags.iter().map(|s| s.as_str()).collect();
-                    let _ = graph.add_node(
+                    let result = graph.add_node(
                         &node.id,
                         &node.label,
                         node.node_type,
@@ -186,6 +189,24 @@ impl GraphDiff {
                         node.line as f64,
                         0.5,
                     );
+                    if let Err(M1ndError::DuplicateNode(existing)) = result {
+                        let idx = existing.as_usize();
+                        let deleted = graph.strings.lookup("__m1nd_deleted");
+                        if deleted.is_some_and(|tag| graph.nodes.tags[idx].contains(&tag)) {
+                            // Restore the existing identity without resetting activation
+                            // or learned node state. Active duplicates remain unchanged.
+                            graph.nodes.label[idx] = graph.strings.get_or_intern(&node.label);
+                            graph.nodes.node_type[idx] = node.node_type;
+                            graph.set_node_tags(existing, &tags);
+                            graph.nodes.last_modified[idx] = node.line as f64;
+                            graph.nodes.change_frequency[idx] = FiniteF32::new(0.5);
+                            graph.nodes.provenance[idx].line_start = node.line;
+                            graph.nodes.provenance[idx].line_end = node.end_line;
+                            graph.generation = graph.generation.next();
+                            graph.finalized = false;
+                            graph.pagerank_dirty = true;
+                        }
+                    }
                     applied += 1;
                 }
                 DiffAction::RemoveNode(ext_id) => {
@@ -198,6 +219,9 @@ impl GraphDiff {
                             let deleted_tag = graph.strings.get_or_intern("__m1nd_deleted");
                             if !graph.nodes.tags[idx].contains(&deleted_tag) {
                                 graph.nodes.tags[idx].push(deleted_tag);
+                                graph.generation = graph.generation.next();
+                                graph.finalized = false;
+                                graph.pagerank_dirty = true;
                             }
                         }
                     }
@@ -243,9 +267,35 @@ impl GraphDiff {
                         applied += 1;
                     }
                 }
-                DiffAction::RemoveEdge { .. } => {
-                    // CSR doesn't support edge removal. Count it.
-                    applied += 1;
+                DiffAction::RemoveEdge {
+                    source_id,
+                    target_id,
+                    relation,
+                } => {
+                    // Coalesce only consecutive removals to retain action ordering.
+                    // GraphDiff::compute emits its removals as one contiguous run.
+                    let mut removals = Vec::new();
+                    let mut next_removal = Some((source_id, target_id, relation));
+                    while let Some((source, target, relation)) = next_removal {
+                        if let (Some(source), Some(target)) =
+                            (graph.resolve_id(source), graph.resolve_id(target))
+                        {
+                            removals.push((source, target, relation.as_str()));
+                        }
+                        applied += 1;
+                        next_removal = match actions.peek().copied() {
+                            Some(DiffAction::RemoveEdge {
+                                source_id,
+                                target_id,
+                                relation,
+                            }) => {
+                                actions.next();
+                                Some((source_id, target_id, relation))
+                            }
+                            _ => None,
+                        };
+                    }
+                    graph.remove_edges(&removals)?;
                 }
                 DiffAction::ModifyEdgeWeight {
                     source_id,

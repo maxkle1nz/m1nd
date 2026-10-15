@@ -2430,9 +2430,18 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut state = build_session(temp.path());
         // Make a known root the medulla covers, and call from it.
-        state.ingest_roots = vec!["/path/to/owner-repo".into()];
-        state.caller_root = Some("/path/to/owner-repo".into());
-        assert!(state.covers_root("/path/to/owner-repo"));
+        let owner_root = temp.path().join("owner-repo");
+        std::fs::create_dir(&owner_root).expect("owner root");
+        let owner_root = std::fs::canonicalize(owner_root).expect("owner root identity");
+        let owner_root =
+            crate::scope::normalize_path_text(owner_root.to_str().expect("UTF-8 root"));
+        state.ingest_roots = vec![owner_root.clone()];
+        state.caller_root = Some(owner_root.clone());
+        assert!(
+            state.is_medulla_store(),
+            "precondition: this is the medulla"
+        );
+        assert!(state.covers_root(&owner_root));
 
         let input = super_input("OwnerDoctrine", "authored", "0.7");
         let result = handle_light_author(&mut state, input).expect("memorize");

@@ -2,6 +2,28 @@
 
 This page covers the in-session front door, graph ingestion, document runtime operations, health monitoring, plan validation, persistence, and subgraph locking with change detection.
 
+<a id="m1ndsurgical_context"></a>
+
+## `surgical_context`
+
+Reads a source file and its graph callers, callees, symbols, and test neighbors.
+Confirm the binding, source bytes, and graph freshness before using the packet as
+edit evidence. A context response does not prove that tests ran.
+
+In unreleased source, test neighbors use the shared source-path classifier plus
+explicit test tags and existing test relations. Test directories and JS/TS
+`.test`/`.spec` names are recognized; words in names such as `contest.ts` or
+`latest.ts`, and ordinary examples, are not test proof. With
+`include_tests:false`, the existing callers/callees retain those neighbors; this
+flag does not remove them from the returned neighborhood. See the
+[classification contract and extraction limits](../../../TEST-SOURCE-CLASSIFICATION.md).
+
+<a id="m1ndsurgicalcontextv2"></a>
+
+`surgical_context_v2` builds on the same context neighborhood with its additional
+proof and edit-preparation fields. Inspect `help(tool_name:"surgical_context_v2")`
+for the installed schema and authority requirements before planning a write.
+
 ---
 
 <a id="m1ndnorth"></a>

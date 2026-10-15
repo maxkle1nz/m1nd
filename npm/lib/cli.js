@@ -133,12 +133,13 @@ tests, and source. For deep architecture, hidden coupling, security/taint,
 duplication/refactor, or runtime-heat tasks, it suggests m1nd's deeper graph
 tools.
 
-agent first-minute is the safest first contact for a new repo. It scopes,
-checks trust, and runs one bounded read-only orientation pass only when the bound
-brain already has an ingested graph — the live serve owner's graph when one
-covers this repo, the isolated runtime's otherwise. Over an empty graph it
-returns clear recovery steps explaining why no owner was reached; the npm CLI
-never ingests or bootstraps on its own. It can also suggest m1nd's deeper graph
+agent first-minute scopes the repo, checks trust, and runs one bounded
+orientation pass. With an explicit workspace grant, isolated native startup
+prepares an empty bound graph; the CLI refreshes a reused automatic private cache
+before retrieval. Attached owners must already declare the requested root.
+Preparation and refresh failures return recovery steps, never a fresh result.
+This does not grant cross-root bootstrap or change generic ingest authority.
+It can also suggest m1nd's deeper graph
 tools such as ghost_edges, taint_trace, twins, refactor_plan, and
 runtime_overlay when the query asks for those lenses.
 

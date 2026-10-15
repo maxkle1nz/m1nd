@@ -1,7 +1,7 @@
 // === crates/m1nd-core/src/graph.rs ===
 
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::{M1ndError, M1ndResult};
@@ -429,6 +429,23 @@ impl EdgePlasticity {
             last_used_query: Vec::with_capacity(cap),
         }
     }
+
+    /// Compact every column with the same ordered staging-slot selection.
+    fn retain_slots(&mut self, slots: &[usize]) {
+        fn retain<T: Copy>(column: &mut Vec<T>, slots: &[usize]) {
+            for (destination, &source) in slots.iter().enumerate() {
+                column[destination] = column[source];
+            }
+            column.truncate(slots.len());
+        }
+        retain(&mut self.original_weight, slots);
+        retain(&mut self.current_weight, slots);
+        retain(&mut self.strengthen_count, slots);
+        retain(&mut self.weaken_count, slots);
+        retain(&mut self.ltp_applied, slots);
+        retain(&mut self.ltd_applied, slots);
+        retain(&mut self.last_used_query, slots);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -600,11 +617,12 @@ impl Graph {
     /// out in CSR-slot order (length == `csr.num_edges()`), and any edges added since
     /// via `add_edge` appended their plasticity *after* that block (with one entry per
     /// `add_edge`, un-expanded). This method rebuilds `pending_edges` and
-    /// `edge_plasticity` as `[harvested canonical CSR edges] ++ [newly-added edges]`,
-    /// carrying each harvested edge's current (plasticity-tracked) weight. Bidirectional
-    /// edges are de-duplicated to their canonical (`source <= target`) slot, exactly as
-    /// `save_graph` does, so the subsequent rebuild re-expands them correctly.
-    fn rehydrate_csr_into_pending(&mut self) {
+    /// `edge_plasticity` as `[materialized CSR arcs] ++ [newly-added edges]`.
+    /// Every materialized arc retains its own weight and learning, including reverse
+    /// bidirectional arcs and self-loops. Return the materialized prefix length so
+    /// the immediate rebuild expands only newly-added bidirectional edges.
+    /// This staging state never escapes `finalize` or `remove_edges`.
+    fn rehydrate_csr_into_pending(&mut self) -> usize {
         let csr_total = self.csr.num_edges();
 
         // The CSR `offsets` array was sized for the node count at the *previous*
@@ -624,13 +642,7 @@ impl Graph {
             let lo = self.csr.offsets[src] as usize;
             let hi = self.csr.offsets[src + 1] as usize;
             for j in lo..hi {
-                let tgt = self.csr.targets[j].as_usize();
                 let direction = self.csr.directions[j];
-                // For bidirectional edges keep only the canonical direction; the rebuild
-                // re-creates the reverse copy.
-                if direction == EdgeDirection::Bidirectional && src > tgt {
-                    continue;
-                }
                 harvested.push(PendingEdge {
                     source: NodeId::new(src as u32),
                     target: self.csr.targets[j],
@@ -665,7 +677,7 @@ impl Graph {
             }
         }
 
-        // Rebuild edge_plasticity as [harvested canonical] ++ [newly-added tail].
+        // Rebuild edge_plasticity as [materialized arcs] ++ [newly-added tail].
         // Start from the harvested block (already in [0..harvested.len()) order)...
         let mut combined_plasticity = harvested_plasticity;
         combined_plasticity
@@ -695,10 +707,74 @@ impl Graph {
             .last_used_query
             .extend_from_slice(&self.edge_plasticity.last_used_query[csr_total..]);
 
-        // pending_edges = [harvested canonical] ++ [newly-added]
+        // Clear the previous CSR before rebuilding, so it cannot be harvested twice.
         harvested.extend(new_pending);
+        self.csr = CsrGraph::empty();
         self.csr.pending_edges = harvested;
         self.edge_plasticity = combined_plasticity;
+        csr_total
+    }
+
+    /// Remove all edges matching any (source, target, relation) selector.
+    /// Bidirectional edges match either endpoint order and lose both arcs; forward
+    /// edges match only the supplied order. Parallel edges with other relations stay.
+    /// A real removal rebuilds adjacency and PageRank once, preserving every retained
+    /// arc's learning. An absent match changes nothing. Returns whether edges changed.
+    pub fn remove_edges(&mut self, removals: &[(NodeId, NodeId, &str)]) -> M1ndResult<bool> {
+        let selectors: HashSet<_> = removals
+            .iter()
+            .filter_map(|&(source, target, relation)| {
+                self.strings
+                    .lookup(relation)
+                    .map(|relation| (source, target, relation))
+            })
+            .collect();
+        if selectors.is_empty() {
+            return Ok(false);
+        }
+        let matches = |source, target, relation, direction| {
+            selectors.contains(&(source, target, relation))
+                || (direction == EdgeDirection::Bidirectional
+                    && selectors.contains(&(target, source, relation)))
+        };
+        let pending_match = self
+            .csr
+            .pending_edges
+            .iter()
+            .any(|edge| matches(edge.source, edge.target, edge.relation, edge.direction));
+        let csr_match = (0..self.csr.offsets.len().saturating_sub(1)).any(|source| {
+            self.csr.out_range(NodeId::new(source as u32)).any(|slot| {
+                matches(
+                    NodeId::new(source as u32),
+                    self.csr.targets[slot],
+                    self.csr.relations[slot],
+                    self.csr.directions[slot],
+                )
+            })
+        });
+        if !pending_match && !csr_match {
+            return Ok(false);
+        }
+
+        let materialized = self.rehydrate_csr_into_pending();
+        let mut kept_materialized = 0;
+        let mut kept_slots = Vec::with_capacity(self.csr.pending_edges.len());
+        let mut slot = 0;
+        self.csr.pending_edges.retain(|edge| {
+            let keep = !matches(edge.source, edge.target, edge.relation, edge.direction);
+            if keep {
+                kept_slots.push(slot);
+                kept_materialized += usize::from(slot < materialized);
+            }
+            slot += 1;
+            keep
+        });
+        self.edge_plasticity.retain_slots(&kept_slots);
+        self.generation = self.generation.next();
+        self.finalized = false;
+        self.pagerank_dirty = true;
+        self.finalize_pending(kept_materialized)?;
+        Ok(true)
     }
 
     /// Build CSR forward + reverse adjacency. Compute PageRank.
@@ -708,8 +784,6 @@ impl Graph {
         if self.finalized {
             return Ok(());
         }
-        let n = self.nodes.count as usize;
-
         // Re-finalization safety: `finalize()` rebuilds the CSR *exclusively* from
         // `pending_edges`. After the first finalize, `pending_edges` is empty and all
         // edges live only in the CSR arrays. Any subsequent mutation that flips
@@ -718,13 +792,15 @@ impl Graph {
         //
         // To make finalize idempotent and non-destructive, harvest the edges that are
         // already in the CSR back into `pending_edges` (carrying their *current*
-        // plasticity-tracked weights), realigning the plasticity staging arrays so the
-        // insertion-index ↔ plasticity-slot mapping below stays correct. Harvested
-        // edges go first (matching how their plasticity is laid out from the previous
-        // finalize), followed by the newly-added pending edges.
-        if self.csr.num_edges() > 0 {
-            self.rehydrate_csr_into_pending();
-        }
+        // plasticity-tracked weights), followed by newly-added pending edges.
+        let materialized = self.rehydrate_csr_into_pending();
+        self.finalize_pending(materialized)
+    }
+
+    /// Rebuild immediately after rehydration; the prefix already contains both
+    /// arcs of bidirectional edges and must not be expanded a second time.
+    fn finalize_pending(&mut self, materialized: usize) -> M1ndResult<()> {
+        let n = self.nodes.count as usize;
 
         // Build forward CSR from pending edges
         // Sort edges by source for CSR layout, preserving original insertion index
@@ -744,10 +820,10 @@ impl Graph {
         let mut causal_strengths = Vec::with_capacity(total_edges);
 
         // Count edges per source
-        for (_, e) in &indexed_edges {
+        for (orig_idx, e) in &indexed_edges {
             offsets[e.source.as_usize() + 1] += 1;
             // Bidirectional edges also get a reverse entry in forward CSR
-            if e.direction == EdgeDirection::Bidirectional {
+            if *orig_idx >= materialized && e.direction == EdgeDirection::Bidirectional {
                 offsets[e.target.as_usize() + 1] += 1;
             }
         }
@@ -782,7 +858,7 @@ impl Graph {
             cursors[src] += 1;
             plasticity_mapping.push((orig_idx, pos));
 
-            if e.direction == EdgeDirection::Bidirectional {
+            if orig_idx >= materialized && e.direction == EdgeDirection::Bidirectional {
                 let tgt = e.target.as_usize();
                 let pos2 = cursors[tgt] as usize;
                 targets[pos2] = e.source;

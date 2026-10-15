@@ -4,6 +4,12 @@ m1nd-ingest transforms codebases and structured documents into the property grap
 
 Source: `m1nd-ingest/src/`
 
+## Retained-graph diff application (Unreleased)
+
+`GraphDiff::apply` removes obsolete edges from both adjacency indexes and restores a soft-deleted node at its existing ID. Relation-specific removals retain unrelated parallel edges and per-arc learning; consecutive removals share one rebuild. New additions still require finalization before queries. The retained-vs-clean regression uses independently resolved TypeScript/JavaScript extraction rows, so it does not establish dirty-file discovery or reference re-resolution.
+
+The public refresh handler performs a full rescan even with `incremental: true`; it does not use this diff application path. See [the application contract](../../../GRAPH-DIFF-APPLICATION.md) for state preservation and proof limits.
+
 ## Module Map
 
 | Module | Purpose |
