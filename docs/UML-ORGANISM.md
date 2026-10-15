@@ -1,5 +1,7 @@
 # The Organism — UML Atlas
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 **Every system, subsystem and seam of m1nd as code-grounded UML — one master map, twenty-two system sheets, one consolidated gap ledger.**
 
 > **Status:** OFFICIAL — maintainer-directed, 2026-07-06; re-grounded 2026-07-12. Grounded at `origin/main` @ `c1ba801`. Every system sheet was derived from an exhaustive per-system code map (file:line-anchored), spot-checked against source, and every Mermaid block validated with the real `mermaid.parse()` (78 blocks across the master + the twenty-two sheets, 0 failures). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**

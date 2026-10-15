@@ -1,5 +1,7 @@
 # Scan Loading — the `skeleton_candidate` wait as a state machine
 
+> **Current source scope — 2026-10-15:** Historical structural record: current source withdraws transplant and runner execution/naming/curation proxies. Retained manual paths, ingest routing and recovery guards still apply. See [../FIRST-SIMPLIFICATION-SLICE.md](../FIRST-SIMPLIFICATION-SLICE.md).
+
 The Build Map's "Scan this repo" gesture fires ONE synchronous `skeleton_candidate`
 POST that the owner legitimately holds for minutes on a big graph — and until this
 sheet's fix the UI collapsed that whole wait into a single boolean (`scanning`), so

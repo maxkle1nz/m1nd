@@ -64,7 +64,6 @@ fn mk_app(runtime: &Path) -> Arc<AppState> {
         registry_dir: Some(runtime.join("registry")),
         mcp_sessions: new_mcp_session_registry(),
         project_brains,
-        runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
         ui_authority: Arc::new(m1nd_mcp::ui_attestation::UiBundleAttestor::default()),
         mission_service: None,
         external_mutation_service: None,

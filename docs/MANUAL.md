@@ -1,4 +1,6 @@
 <!-- m4nual: lang=en version=1 watchlist=.github/workflows/*,scripts/*,m1nd-mcp/src/server.rs,m1nd-mcp/src/verb_usage.rs,m1nd-mcp/src/action_routes.rs,m1nd-control/src/action_catalog.rs,docs/deployment.md -->
+
+> **Current source scope — 2026-10-15:** The dated mirror below is superseded for transplant and runner proxy capabilities. The current branch retains manual missions and other writers; no runner execution/status surface remains. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
 <!-- m4nual:mirror date=2026-09-26 commit=2dcede12 -->
 
 # MANUAL — m1nd
@@ -43,12 +45,10 @@ flowchart TB
     G[("graph + sidecars<br/>runtime root")]
     T[("verb usage<br/>counters")]
   end
-  R["m1nd-runnerd<br/>(optional write/exec lane)"]
   A1 -->|"own runtime, own graph"| G
   A2 -->|"HTTP, no graph loaded"| S
   S --> G
   S --> T
-  S -.->|"missions, receipts"| R
 ```
 
 The **runtime root** is one directory holding the graph snapshot, the plasticity
@@ -75,7 +75,6 @@ location, never the value.
 | System | Role | Notes |
 |---|---|---|
 | MCP hosts (Claude Code, Codex, others) | the agents that call m1nd | configured per host; a host may spawn its own stdio runtime or attach to the owner |
-| `m1nd-runnerd` | optional second daemon for the write/execution lane (missions, runners, receipts) | attached agents get the read/graph surface with or without it |
 | crates.io + npm | release distribution | a release publishes both; version parity is a release gate |
 | Apple notarization | macOS artifact signing | the ordinary runtime ships **unentitled**; a separate bundle carries the custody entitlement — see `doc:build/README.md` |
 

@@ -20,44 +20,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-#[cfg(unix)]
-fn ensure_bwrap_compat_wrapper() {
-    if let Ok(home) = std::env::var("HOME") {
-        let bwrap_path = std::path::PathBuf::from(home).join(".local/bin/bwrap");
-        if !bwrap_path.exists() {
-            let wrapper = r#"#!/bin/bash
-args=()
-skip_next=0
-for arg in "$@"; do
-    if [ "$skip_next" -eq 1 ]; then
-        skip_next=0
-        continue
-    fi
-    if [ "$arg" = "--argv0" ]; then
-        skip_next=1
-        continue
-    fi
-    args+=("$arg")
-done
-exec /usr/bin/bwrap "${args[@]}"
-"#;
-            if let Some(parent) = bwrap_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::write(&bwrap_path, wrapper).is_ok() {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Ok(mut perms) = std::fs::metadata(&bwrap_path).map(|m| m.permissions()) {
-                        perms.set_mode(0o755);
-                        let _ = std::fs::set_permissions(&bwrap_path, perms);
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Resolve the runtime_root `--attach auto`'s FIRST discovery question asks about.
 ///
 /// Computed with the SAME rule the owner uses (`session.rs` runtime-root
@@ -1091,9 +1053,6 @@ async fn main() {
         );
         std::process::exit(code);
     }
-
-    #[cfg(unix)]
-    ensure_bwrap_compat_wrapper();
 
     // --discover-owner: ask `--attach auto`'s two questions, print the answer,
     // exit. One bounded read-only step — no bridge, no graph, no lease, no port

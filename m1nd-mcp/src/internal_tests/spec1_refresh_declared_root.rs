@@ -772,7 +772,6 @@ async fn spec1_5_6c_rest_seam_stamps_a_canonical_caller_root_and_reaches_the_pre
                 4,
             ),
         ),
-        runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
         ui_authority: Arc::new(m1nd_mcp::ui_attestation::UiBundleAttestor::default()),
         mission_service: None,
         external_mutation_service: None,

@@ -5,6 +5,8 @@ description: Use when the user mentions m1nd or when repo investigation, search,
 
 # m1nd Operator
 
+> Current source withdraws transplant and runner execution/naming/curation proxies. Manual mission/clipboard packets and other writers remain governed as before. See [the slice contract](../../docs/FIRST-SIMPLIFICATION-SLICE.md).
+
 This is the deep execution manual that complements the short `m1nd-first` doctrine.
 
 ## Published 1.6.5 startup boundary
@@ -267,8 +269,7 @@ The block map (the skeleton) and the mission layer are the two write surfaces
 beyond `memorize`. Both are candidate/human-gated by design.
 
 **The candidate map (F11).** `skeleton_candidate` scans a repo into a CANDIDATE
-block map; with `naming:"auto"` and a live naming-runner the map is born NAMED
-(the zero-touch default — read the map, stamp it). One verb edits it:
+block map with provisional heuristic names to review manually. One verb edits it:
 
 ```json
 candidate_edit {"agent_id":"...","expected_store_version":7,"ops":[
@@ -293,12 +294,9 @@ a raw untouched heuristic label (`needs_owner_naming`). The heavy case (a large
 monorepo candidate) has a one-gesture escape: a CURATION MISSION where a hand
 edits the whole candidate through the SAME `candidate_edit` verb — the human
 reviews the polished result and ratifies. The hand proposes; the human signs.
-`candidate_naming` is the screen's HTTP-only route, not an MCP loop verb.
-**Curation is PROPOSE-APPLY (F12):** the `curation_spawn` HTTP-only verb sends the
-candidate to a pinned live hand-runner (via the announced daemon's `/curate`); the
-hand PROPOSES a batch of `candidate_edit` ops as DATA, and the OWNER sanitizes (o5,
-seat `runner`) and applies them under OCC, then posts the summary letter. The hand
-never holds a write surface — not REST, not MCP, not a file — and can NEVER ratify.
+The UI's manual curation action posts a mission letter and copies a packet for
+human delivery. It launches no agent and applies no proposal automatically.
+`candidate_naming` and `curation_spawn` are withdrawn from current source.
 
 **The mission letter (F2.5).** A mission's live state is one
 `m1nd-mission-letter-v0`, posted with `mission_post` (WRITE, deny-listed on
@@ -744,12 +742,9 @@ one graph:
   header is the caller identity reception verifies (`M1nd-Caller-Root` ↔
   `covers_root`); a mismatch returns the degraded reception, not a fabricated
   orientation.
-- Runner daemon: `m1nd-runnerd` (its own port, `1339`, launchd) is the ONLY
-  spawner — the owner never spawns. It runs a mission packet in an isolated
-  worktree-per-mission and posts letters from `executing` onward, but holds NO
-  `receipt_import` permission (the human lands from the tray). Capabilities are
-  pinned owner-side (`runners.toml`); the announce proves liveness only and can
-  never grant or widen a capability.
+- Execution remains with the host agent's tools. The runner daemon and the
+  owner-to-runner proxies are withdrawn; manual mission letters and clipboard
+  packets remain, with human-only receipt landing unchanged.
 
 A freshly-landed verb appears ONLY after the owner is rebuilt and kickstarted —
 a live verb needs the served owner restarted (`m1nd restart --source
@@ -940,7 +935,7 @@ merit; facts, never estimated savings (G1).
 | causality | the X-ray | `impact`, `why`, `trace`, `taint_trace` |
 | simulate | the crystal ball | `predict`, `counterfactual`, `hypothesize`, `epidemic` |
 | memory | the notebook | `memorize`, `boot_memory`, `promote`, `learn` |
-| missions | the order board | `mission_post`, `mission_spawn`, `mission_*` |
+| missions | the order board | `mission_post`, `mission_*` |
 | skeleton | the wall map | `skeleton_candidate`, `candidate_edit`, `system_blocks_*` |
 | proof | the receipt ledger | `receipt_import`, `cross_verify`, `soul_check` |
 | health | the doctor | `doctor`, `trust_selftest`, `health`, `recovery_playbook` |

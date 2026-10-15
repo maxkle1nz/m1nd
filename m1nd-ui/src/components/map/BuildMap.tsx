@@ -29,7 +29,6 @@ import {
   type ScanServerPhase,
 } from '../../lib/scanMachine';
 import { Icon } from '../../lib/icons/registry';
-import { useRunnerdStatus } from '../../hooks/useRunnerdStatus';
 import BlockCard from './BlockCard';
 import BlockPanel from './BlockPanel';
 import PacketCompose from './PacketCompose';
@@ -97,9 +96,6 @@ export interface BuildMapProps {
   sendingCuration?: boolean;
   /** The last curation dispatch's honest outcome (shown under the banner). */
   curationResult?: { ok: boolean; message: string } | null;
-  /** F12 — true when a runner daemon is announced: the button offers the propose-
-   *  apply SPAWN (`curation_spawn`) instead of the DIRECT clipboard fallback. */
-  runnerAvailable?: boolean;
   /** Test seam: force the Unmapped tray open (SSR has no click). */
   initialUnmappedExpanded?: boolean;
   /** Test seam: open the reconcile confirm at mount (SSR has no click) so the
@@ -269,13 +265,11 @@ function CandidateBanner({
   onSendCuration,
   sendingCuration = false,
   curationResult = null,
-  runnerAvailable = false,
 }: {
   onReview?: () => void;
   onSendCuration?: () => void;
   sendingCuration?: boolean;
   curationResult?: { ok: boolean; message: string } | null;
-  runnerAvailable?: boolean;
 }) {
   return (
     <div
@@ -288,30 +282,17 @@ function CandidateBanner({
           ratified yet. Names are guesses until you ratify them.
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* §3a/F12 — the heavy-case escape hatch: the hand curates, the human
-              reviews the RESULT. When a runner daemon is announced the button offers
-              the propose-apply SPAWN (curation_spawn: the owner applies the hand's
-              proposal under o5 + OCC); otherwise the DIRECT path (a letter + the
-              packet to paste). The hand can NEVER ratify, either way. */}
           {onSendCuration && (
             <button
               type="button"
               data-role="send-curation"
-              data-mode={runnerAvailable ? 'spawn' : 'direct'}
+              data-mode="direct"
               onClick={onSendCuration}
               disabled={sendingCuration}
-              title={
-                runnerAvailable
-                  ? 'send the candidate to the pinned hand-runner — it proposes candidate_edit ops, the owner sanitizes and applies them under OCC, and you review the result (the hand can never ratify)'
-                  : 'compose the curation packet + post the mission letter (direct path — the packet is copied for you to paste into your agent; the hand can never ratify)'
-              }
+              title="post the mission letter and copy the packet for manual delivery; this does not launch an agent"
               className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-ink border border-ink/15 bg-bone rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
             >
-              {sendingCuration
-                ? 'Dispatching…'
-                : runnerAvailable
-                  ? 'Send to the hand-runner'
-                  : 'Send to an agent for curation'}
+              {sendingCuration ? 'Preparing…' : 'Copy curation packet + post letter'}
             </button>
           )}
           {onReview && (
@@ -361,7 +342,6 @@ export default function BuildMap({
   onSendCuration,
   sendingCuration = false,
   curationResult = null,
-  runnerAvailable = false,
   initialUnmappedExpanded = false,
   initialReconcileConfirmOpen = false,
   refreshing = false,
@@ -373,10 +353,6 @@ export default function BuildMap({
   // click opens a two-step confirm (mirroring the tray's import/archive confirm)
   // before `onReconcile` fires. Every human write on this surface confirms.
   const [reconcileConfirmOpen, setReconcileConfirmOpen] = useState(initialReconcileConfirmOpen);
-  // F2.5c §4b — poll the runner-daemon liveness only while the compose panel is open,
-  // so the spawn radio un-disables when a runner is registered.
-  const runnerd = useRunnerdStatus(modal?.kind === 'packet');
-
   // F2.5 §3b — when the mission tray asks to open a block while the map is already
   // mounted, `initialSelectedId` changes: follow it so the tray click lands the
   // selection. (No-op in SSR — effects don't run under renderToStaticMarkup.)
@@ -544,7 +520,6 @@ export default function BuildMap({
             onSendCuration={onSendCuration}
             sendingCuration={sendingCuration}
             curationResult={curationResult}
-            runnerAvailable={runnerAvailable}
           />
         )}
 
@@ -612,8 +587,6 @@ export default function BuildMap({
           repoId={repoId}
           subPath={modal.subPath}
           brainRoot={brainRoot}
-          liveRunners={runnerd.runners}
-          policy={{ runnerdAvailable: runnerd.available }}
           onClose={() => setModal(null)}
         />
       )}

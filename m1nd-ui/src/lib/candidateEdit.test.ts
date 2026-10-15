@@ -19,12 +19,10 @@ import {
   ratifyGateReasonV2,
   renameOp,
   runCandidateEdit,
-  runCandidateNaming,
   seamOp,
   splitOpFromSelection,
   zeroTouchLine,
   type CandidateEditResult,
-  type CandidateNamingResult,
 } from './candidateEdit';
 import type { CandidateMeta, SystemBlock, SystemBlockStore } from './buildMap';
 
@@ -235,42 +233,4 @@ test('runCandidateEdit: success reloads with the honest count; conflict reloads;
   }, 3);
   assert.equal(err.toast.kind, 'error');
   assert.equal(err.shouldReload, false);
-});
-
-test('runCandidateNaming: partial success reloads; refusal and zero-named inform without reload', async () => {
-  const partial: CandidateNamingResult = {
-    store_version: 4,
-    named: ['sb_a', 'sb_b'],
-    fell_back: [['sb_c', 'naming runner timed out after 20s']],
-  };
-  const ok = await runCandidateNaming(async () => partial, 3);
-  assert.equal(ok.toast.kind, 'ok');
-  assert.match(ok.toast.text, /runner named 2 blocks, 1 fell back → store v4/);
-  assert.equal(ok.shouldReload, true);
-
-  const refused = await runCandidateNaming(
-    async () => ({
-      store_version: 3,
-      named: [],
-      fell_back: [],
-      refusal: 'no_naming_runner: no runner daemon announced',
-    }),
-    3,
-  );
-  assert.equal(refused.toast.kind, 'error');
-  assert.match(refused.toast.text, /no_naming_runner/);
-  assert.equal(refused.shouldReload, false, 'nothing changed — no reload');
-
-  const zero = await runCandidateNaming(
-    async () => ({ store_version: 3, named: [], fell_back: [['sb_a', 'hostile output']] }),
-    3,
-  );
-  assert.equal(zero.toast.kind, 'error');
-  assert.equal(zero.shouldReload, false);
-
-  const conflict = await runCandidateNaming(async () => {
-    throw new Error('store version conflict: expected 3, actual 6');
-  }, 3);
-  assert.equal(conflict.toast.kind, 'conflict');
-  assert.equal(conflict.shouldReload, true);
 });

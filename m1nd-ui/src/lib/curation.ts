@@ -6,8 +6,7 @@
  * note into the Markdown a curation mission receives — the mirror of `packet.ts`
  * (a pure compositor: no I/O, no engine call). The dispatch rides the EXISTING
  * direct path (`sendDirectPacket`: a seq-1 `judging` letter + the packet on the
- * clipboard — delivery is not execution); a curation SPAWN waits for the
- * hand-runner capability, which the runner daemon refuses in the MVP (F2.5 §5e).
+ * clipboard — delivery is not execution). It never launches a process.
  *
  * Copy law (PRD §13): scoped, auditable claims only. The packet carries block ids,
  * names, and repo-relative context — no absolute paths, no secrets, no file
@@ -15,7 +14,6 @@
  * through `candidate_edit` under OCC (§3c/1a), and it can NEVER ratify (1e).
  */
 import type { SystemBlock, SystemBlockStore } from './buildMap';
-import type { CurationSpawnResult } from './candidateEdit';
 
 export interface CurationPacketInput {
   store: SystemBlockStore;
@@ -94,46 +92,17 @@ export function composeCurationPacket(input: CurationPacketInput): string {
   return parts.join('\n\n') + '\n';
 }
 
-/** The two dispatch seams (F12), injected so the decision is provable DOM-free (the
- *  repo's `sendDirectPacket` pattern). `spawn` is the F12 propose-apply verb; `direct`
- *  is the no-runner fallback (a letter + the packet on the clipboard). */
+/** Manual delivery posts one mission letter and copies the packet for the human. */
 export interface CurationDispatchDeps {
-  /** POST `curation_spawn` for the read store version (default `api.curationSpawn`).
-   *  May throw (`conflict`, read-only, network) — the caller surfaces it verbatim. */
-  spawn: (expectedStoreVersion: number) => Promise<CurationSpawnResult>;
-  /** The DIRECT fallback: compose + post the seq-1 letter and copy the packet.
-   *  Returns the honest ids + whether the clipboard write succeeded. */
   direct: () => Promise<{ mission_id: string; mission_seq: number; clipboardCopied: boolean }>;
 }
 
-/**
- * Dispatch a curation (§3): when a runner daemon is announced (`runnerAvailable`) run
- * the propose-apply SPAWN — the owner applies the hand's proposal and posts the
- * summary; an honest `refusal` (`no_hand_runner`/`proposal_malformed`/`batch_refused`)
- * is shown verbatim (never a silent DIRECT). With NO runner announced fall back to the
- * DIRECT path. Pure: the exact `{ ok, message }` the banner's curation-result reads.
- * The store only changes on a SPAWN success, so the caller reloads only then.
- */
 export async function dispatchCuration(
-  args: { runnerAvailable: boolean; storeVersion: number },
   deps: CurationDispatchDeps,
-): Promise<{ ok: boolean; message: string; applied: boolean }> {
-  if (args.runnerAvailable) {
-    const res = await deps.spawn(args.storeVersion);
-    if (res.refusal) {
-      return { ok: false, message: res.refusal, applied: false };
-    }
-    const ops = `${res.ops_count} op${res.ops_count === 1 ? '' : 's'}`;
-    return {
-      ok: true,
-      applied: true,
-      message: `curation applied — ${ops}, store v${res.store_version}${res.report ? ` · ${res.report}` : ''}`,
-    };
-  }
+): Promise<{ ok: boolean; message: string }> {
   const d = await deps.direct();
   return {
     ok: true,
-    applied: false,
     message: `curation letter posted (${d.mission_id}, seq ${d.mission_seq})${
       d.clipboardCopied ? ' — the packet is on your clipboard, paste it into your agent' : ''
     }`,

@@ -1,5 +1,7 @@
 # m1nd — THE ORGANISM FROM INSIDE + 360 — PRD
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 **The immune loop · the process memory · the presences · the portfolio (vision → spec)**
 
 > **RATIFIED by the owner 2026-07-12** — verbatim: *"MUITO BEM! ratificado bora pra frente"*.

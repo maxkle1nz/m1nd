@@ -10,6 +10,10 @@
 - [Agent installation](../llms-install.md): setup for coding agents
 - [Host integration matrix](HOST-INTEGRATION-MATRIX.md): exact host configuration and hook behavior
 
+## Current source changes
+
+- [First simplification slice](FIRST-SIMPLIFICATION-SLICE.md): retired transplant/runner APIs, retained manual workflows and recovery boundaries
+
 ## Choose a workflow
 
 - [Use cases](use-cases.md): unfamiliar code, change preparation, and continuity
@@ -23,7 +27,7 @@
 
 - [Wiki source](wiki/src/SUMMARY.md) / [published wiki](https://m1nd.world/wiki/)
 - [API overview](wiki/src/api-reference/overview.md): menu versus registry, guidance, and policy limits
-- [Architecture](wiki/src/architecture/overview.md): six-crate workspace
+- [Architecture](wiki/src/architecture/overview.md): five-crate workspace
 - [Evidence guide](wiki/src/benchmarks.md): what measurements do and do not establish
 - [Benchmark methodology](benchmarks/README.md)
 - [Test portfolio](TEST-PORTFOLIO.md): scoped PR gates and full integration proof

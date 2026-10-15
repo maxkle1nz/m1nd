@@ -5,6 +5,8 @@ description: Use when investigating a repository, searching for implementation, 
 
 # m1nd-first
 
+> Current source withdraws transplant and runner execution/naming/curation proxies. Manual mission/clipboard packets and other writers remain governed as before. See [the slice contract](../../docs/FIRST-SIMPLIFICATION-SLICE.md).
+
 This is a doctrine, not a manual.
 
 ## Published 1.6.5 startup boundary
@@ -231,8 +233,7 @@ Retrieval is forgiving; writing is not. Four things to know before any write:
    (`overlap_parent` / `overlap_child` / `overlap_worktree`), but this is an
    implementation invariant, not a public capability.
 3. **The candidate map is edited by one verb.** `skeleton_candidate` scans a repo
-   into a candidate block map (with `naming:"auto"` and a live naming-runner it is
-   born NAMED — the zero-touch default). `candidate_edit` is the single write verb
+   into a candidate block map with provisional heuristic names to review. `candidate_edit` is the single write verb
    over it: six typed ops (`rename` / `merge` / `split` / `move_member` /
    `resolve_seam` / `assign_unmapped`), one atomic OCC batch under
    `expected_store_version` (one bad op persists NOTHING). It refuses on a ratified
@@ -328,7 +329,7 @@ merit; facts, never estimated savings (G1).
 | causality | the X-ray | `impact`, `why`, `trace`, `taint_trace` |
 | simulate | the crystal ball | `predict`, `counterfactual`, `hypothesize`, `epidemic` |
 | memory | the notebook | `memorize`, `boot_memory`, `promote`, `learn` |
-| missions | the order board | `mission_post`, `mission_spawn`, `mission_*` |
+| missions | the order board | `mission_post`, `mission_*` |
 | skeleton | the wall map | `skeleton_candidate`, `candidate_edit`, `system_blocks_*` |
 | proof | the receipt ledger | `receipt_import`, `cross_verify`, `soul_check` |
 | health | the doctor | `doctor`, `trust_selftest`, `health`, `recovery_playbook` |

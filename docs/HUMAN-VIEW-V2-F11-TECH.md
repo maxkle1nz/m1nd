@@ -1,5 +1,7 @@
 # HUMAN VIEW v2 — F11 technical amendment: candidate editing with minimum human friction
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 Status: **RATIFIED** — oracle-confronted (CHANGE → 6 mandatory objections applied), ratified by the owner 2026-07-10. (The same oracle pass also delivered the promised post-hoc review of the DIR-FIRST granularity fix: **RATIFY-POST-HOC** — DIR-FIRST with FLOOR=3 stands, the top-level clamp stays, single-pass majority costura stays, the Capacitor mipmap noise is deferred to F11 review/curation.) The F11 screen (Edit Names & Boundaries) is ALREADY designed and ratified in the screen book (§3) — this amendment does not redesign it; it supplies the missing engine underneath and binds the whole state to one law the owner set in plain words: **"reduce human friction to the maximum."** The default path is zero-touch — the map arrives assembled and named; the human reads and stamps. Editing is the available exception, never the job.
 
 ## 0. The friction law (the owner's directive, made mechanical)

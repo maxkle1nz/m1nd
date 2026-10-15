@@ -15,6 +15,7 @@
  * Neutral fixtures only (no-leak law): no real project/agent name of the owner.
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { withdrawnToolPost } from './tool-registry';
 
 const NODE_COUNT = 3210;
 const now = () => Date.now();
@@ -92,13 +93,15 @@ function mockOwner(page: Page, presenceBody: () => unknown) {
         if (path === '/api/presences') return await json(route, presenceBody());
         if (path === '/api/graph/snapshot') return await json(route, { version: 1, nodes: [], edges: [] });
         if (path === '/api/graph/stats') return await json(route, { node_count: NODE_COUNT, edge_count: 9_000 });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
+        // Deliberately model a legacy owner without selector support.
         if (path === '/api/tools') return await json(route, { tools: [], rest_brain_selector: false });
         if (path === '/api/tools/system_blocks_snapshot')
           return await json(route, { result: { present: false, honest: 'no skeleton yet' } });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+        if (withdrawnToolPost(path, route.request().method()))
+          return await json(route, { error: 'tool not found' }, 404);
         if (path.startsWith('/api/tools/')) return await json(route, { result: {} });
         return await json(route, {});
       } catch {

@@ -13,35 +13,22 @@
  *     (the mailbox has no recipient field; the only box-writer is `mission_post`),
  *     so the MVP delivers the packet via the clipboard and DECLARES it: "delivery is
  *     not execution." The letter is state (§1c), the paste is the delivery.
- *
- * `spawn` (§4b, F2.5c) is LIVE when a runner daemon is registered: it hands the
- * composed packet to a pinned, live runner via the owner's `mission_spawn` proxy (the
- * browser never holds the shared secret). Disabled with the amendment's honest note
- * ("no runner daemon connected") when none is registered. Mode availability is
- * policy-gated (§4d): a read-only owner → clipboard only. Copy law holds: no
- * "proven/done/correct".
+ * Read-only owners can only copy packets; direct delivery remains a write.
  */
 import { useState } from 'react';
 import { brainRefFor, type BlockRollup, type SystemBlock } from '../../lib/buildMap';
 import { composePacket, DEFAULT_TOGGLES, type PacketToggles } from '../../lib/packet';
 import {
   sendDirectPacket,
-  sendSpawnPacket,
   type Capability,
-  type LiveRunner,
   type MissionLetter,
   type PostOutcome,
-  type SpawnInput,
-  type SpawnOutcome,
 } from '../../lib/missions';
 import { api, ApiError } from '../../api/client';
 import { Icon } from '../../lib/icons/registry';
 
-/** Mode availability policy (§4d) — a read-only owner posts nothing. `runnerdAvailable`
- *  un-disables spawn (F2.5c); disabled states always say why. */
 export interface ComposePolicy {
   readOnly?: boolean;
-  runnerdAvailable?: boolean;
 }
 
 export interface PacketComposeProps {
@@ -54,21 +41,16 @@ export interface PacketComposeProps {
   /** §4A.9 — the brain the map is viewing; routes the `mission_post` write through
    *  the `?brain=` selector so `direct` posts into the box the human is viewing. */
   brainRoot?: string | null;
-  /** §4d — mode availability policy. Absent → writable owner, no runnerd. */
+  /** §4d — mode availability policy. Absent → writable owner. */
   policy?: ComposePolicy;
   /** The intended lane for the seq-1 letter (§1). Default `build-runner` (§5b). */
   capability?: Capability;
-  /** §4b — the pinned, live runners (from `GET /api/runnerd/status`). Non-empty
-   *  un-disables the spawn radio and seeds the runner select. */
-  liveRunners?: LiveRunner[];
   /** Test/SSR seam: the mission-post writer (default `api.missionPost`). */
   postMission?: (letter: MissionLetter) => Promise<PostOutcome>;
-  /** Test/SSR seam: the spawn writer (default `api.missionSpawn`). */
-  spawnMission?: (input: SpawnInput) => Promise<SpawnOutcome>;
   /** For tests/SSR: seed the message + toggles + mode deterministically. */
   initialMessage?: string;
   initialToggles?: PacketToggles;
-  initialMode?: 'clipboard' | 'direct' | 'spawn';
+  initialMode?: 'clipboard' | 'direct';
 }
 
 interface ToggleRowProps {
@@ -117,9 +99,7 @@ export default function PacketCompose({
   brainRoot = null,
   policy,
   capability,
-  liveRunners,
   postMission,
-  spawnMission,
   initialMessage = '',
   initialToggles,
   initialMode = 'clipboard',
@@ -127,28 +107,13 @@ export default function PacketCompose({
   const [message, setMessage] = useState(initialMessage);
   const [toggles, setToggles] = useState<PacketToggles>(initialToggles ?? DEFAULT_TOGGLES);
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<'clipboard' | 'direct' | 'spawn'>(initialMode);
+  const [mode, setMode] = useState<'clipboard' | 'direct'>(initialMode);
   const [sending, setSending] = useState(false);
   const [directResult, setDirectResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [spawnResult, setSpawnResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const readOnly = policy?.readOnly ?? false;
-  const runners = liveRunners ?? [];
-  // A runner daemon is available when the status listed live runners (§4b), or the
-  // policy asserts it. Spawn is a WRITE (it launches a mission) → a read-only owner
-  // can never spawn (§4d).
-  const runnerd = (policy?.runnerdAvailable ?? false) || runners.length > 0;
   const directEnabled = !readOnly;
-  const spawnEnabled = !readOnly && runnerd && runners.length > 0;
-  const [selectedRunner, setSelectedRunner] = useState<string>(runners[0]?.runner_id ?? '');
-  // A read-only owner can never be in `direct`/`spawn` — fall back to clipboard (§4d);
-  // spawn falls back when no runner is live.
-  const activeMode =
-    mode === 'spawn' && spawnEnabled
-      ? 'spawn'
-      : mode === 'direct' && directEnabled
-        ? 'direct'
-        : 'clipboard';
+  const activeMode = mode === 'direct' && directEnabled ? 'direct' : 'clipboard';
 
   const markdown = composePacket({ block, rollup, repoId, message, subPath, toggles });
   const set = (key: keyof PacketToggles) => (v: boolean) => setToggles((t) => ({ ...t, [key]: v }));
@@ -192,30 +157,6 @@ export default function PacketCompose({
       const detail =
         err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'the post was refused';
       setDirectResult({ ok: false, message: detail });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  // `spawn` (§4b): hand the packet to a pinned, live runner via the owner's
-  // `mission_spawn` proxy (the browser never holds the secret). The daemon opens the
-  // chain and NEVER lands (§1d); the toast shows the mission_id. An error (no runner,
-  // `unpinned_runner`, read-only deny, network) surfaces verbatim — never a fake start.
-  const sendSpawn = async () => {
-    if (sending || !selectedRunner) return;
-    setSending(true);
-    setSpawnResult(null);
-    const spawner = spawnMission ?? ((input: SpawnInput) => api.missionSpawn(input, brainRoot));
-    try {
-      const res = await sendSpawnPacket(
-        { markdown, blockId: block.block_id, brainRef: letterBrainRef(brainRoot, repoId, block), runnerId: selectedRunner },
-        { spawnMission: spawner },
-      );
-      setSpawnResult({ ok: true, message: `mission started — watch the tray (${res.mission_id})` });
-    } catch (err) {
-      const detail =
-        err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'the spawn was refused';
-      setSpawnResult({ ok: false, message: detail });
     } finally {
       setSending(false);
     }
@@ -277,7 +218,7 @@ export default function PacketCompose({
                 checked={toggles.screenshot}
                 role="toggle-screenshot"
                 disabled
-                hint="screenshot capture + redaction arrives with spawn (F2.5c)"
+                hint="screenshot capture is unavailable"
               />
             </div>
 
@@ -310,30 +251,6 @@ export default function PacketCompose({
                 direct — deliver to an agent inbox
                 {!directEnabled && <span className="text-[10px]">read-only</span>}
               </label>
-              <label
-                className={`flex items-center gap-2 text-xs ${spawnEnabled ? 'text-ink cursor-pointer' : 'text-ink-soft opacity-70'}`}
-                title={
-                  spawnEnabled
-                    ? 'spawn: the runner runs the packet in an isolated worktree'
-                    : readOnly
-                      ? 'this owner is read-only — spawn launches a mission (a write)'
-                      : 'no runner daemon connected'
-                }
-              >
-                <input
-                  type="radio"
-                  name="packet-mode"
-                  data-role="mode-spawn"
-                  checked={activeMode === 'spawn'}
-                  disabled={!spawnEnabled}
-                  onChange={() => setMode('spawn')}
-                  className="accent-socket-blue"
-                />
-                spawn — launch via a runner{' '}
-                <span className="text-[10px]" data-role="spawn-note">
-                  {spawnEnabled ? 'runner ready' : 'no runner daemon connected'}
-                </span>
-              </label>
             </div>
           </div>
 
@@ -341,11 +258,7 @@ export default function PacketCompose({
           <div className="p-4 overflow-hidden flex flex-col min-h-0">
             <div className="text-[10px] uppercase tracking-wide text-ink-soft mb-1">
               Packet preview (exactly what is{' '}
-              {activeMode === 'spawn'
-                ? 'handed to the runner'
-                : activeMode === 'direct'
-                  ? 'posted & copied'
-                  : 'copied'}
+              {activeMode === 'direct' ? 'posted & copied' : 'copied'}
               )
             </div>
             <pre
@@ -355,53 +268,7 @@ export default function PacketCompose({
               {markdown}
             </pre>
 
-            {activeMode === 'spawn' ? (
-              <>
-                <div className="mt-3 flex items-center gap-2">
-                  <label htmlFor="spawn-runner" className="text-[10px] uppercase tracking-wide text-ink-soft">
-                    Runner
-                  </label>
-                  <select
-                    id="spawn-runner"
-                    data-role="spawn-runner"
-                    value={selectedRunner}
-                    onChange={(e) => setSelectedRunner(e.target.value)}
-                    className="text-xs text-ink bg-porcelain border border-hairline rounded px-1.5 py-1"
-                  >
-                    {runners.map((r) => (
-                      <option key={r.runner_id} value={r.runner_id}>
-                        {r.runner_id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mt-2 flex items-center gap-3">
-                  <button
-                    type="button"
-                    data-role="send-spawn"
-                    onClick={sendSpawn}
-                    disabled={sending || !selectedRunner}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-60 disabled:cursor-progress"
-                  >
-                    <Icon name="agents" size={14} decorative />
-                    {sending ? 'Spawning…' : 'Spawn mission'}
-                  </button>
-                  {spawnResult && (
-                    <span
-                      data-role="spawn-result"
-                      data-ok={spawnResult.ok ? 'true' : 'false'}
-                      className={`text-[11px] break-words ${spawnResult.ok ? 'text-verdict-act' : 'text-state-failure'}`}
-                    >
-                      {spawnResult.message}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-[10px] text-ink-soft" data-role="spawn-note-text">
-                  spawn: the runner runs the packet in an isolated worktree — the daemon posts the mission
-                  letters (it never lands the receipt; that stays your gesture). Watch the tray.
-                </p>
-              </>
-            ) : activeMode === 'direct' ? (
+            {activeMode === 'direct' ? (
               <>
                 <div className="mt-3 flex items-center gap-3">
                   <button

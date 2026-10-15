@@ -13,9 +13,10 @@
  *
  * Every /api/* call is mocked in-page (page.route) — NOTHING reaches any live
  * owner. The skeleton_candidate mock delays its fulfillment to reproduce the
- * real synchronous wait (the owner's naming budget alone can hold ~110s).
+ * real synchronous wait (large graph clustering can outlast the first loading note).
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { withdrawnToolPost } from './tool-registry';
 
 // ── neutral fixtures (no-leak law: example names only) ────────────────────────
 
@@ -146,7 +147,7 @@ const scanResult = {
       requested: 'auto',
       applied: 'heuristic',
       runner_available: false,
-      note: 'no naming runner announced; heuristic provisional names were used',
+      note: 'heuristic provisional names require review',
     },
   },
 };
@@ -179,7 +180,6 @@ function mockOwner(
           return await json(route, { version: 1, nodes: [], edges: [] });
         if (path === '/api/graph/stats')
           return await json(route, { node_count: NODE_COUNT, edge_count: 9_000 });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
@@ -198,6 +198,8 @@ function mockOwner(
           });
         }
         // Any other tool (north, trust, tremor…) answers a harmless empty result.
+        if (withdrawnToolPost(path, route.request().method()))
+          return await json(route, { error: 'tool not found' }, 404);
         if (path.startsWith('/api/tools/')) return await json(route, { result: {} });
         return await json(route, {});
       } catch {

@@ -1,5 +1,7 @@
 # Routing / Reception / Serve-Attach — the served-owner (:1338) transport spine
 
+> **Current source scope — 2026-10-15:** Historical structural record: current source withdraws transplant and runner execution/naming/curation proxies. Retained manual paths, ingest routing and recovery guards still apply. See [../FIRST-SIMPLIFICATION-SLICE.md](../FIRST-SIMPLIFICATION-SLICE.md).
+
 A single long-lived served owner process holds one live graph + a set of owner-hosted
 per-project brains, exposes them over a spec-compliant Streamable-HTTP MCP endpoint
 (`/mcp`), routes each wire request to the brain that owns the caller's repo (via the

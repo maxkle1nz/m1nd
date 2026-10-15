@@ -54,15 +54,10 @@ pub mod util;
 // What m1nd records about its OWN use: one counter per verb, nothing else.
 pub mod verb_usage;
 
+// Data-only block packets and hostile-field sanitization shared by manual edits.
+pub mod block_naming;
 // Human View v2 F11-a — the candidate_edit engine (typed batch edits on a candidate).
 pub mod candidate_edit;
-// Human View v2 F11-b — the naming-runner engine (packets, the o5 sanitizer, the
-// /name client, and the scan/in-screen application paths).
-pub mod naming_runner;
-// Human View v2 F12 — the curation-runner engine (the propose-apply curation lane:
-// the /curate client, the block-view packet, and the validate→apply→summary
-// transaction with the RUNNER seat under OCC).
-pub mod curation_runner;
 // Perspective MCP — stateful navigation layer (12-PERSPECTIVE-SYNTHESIS)
 pub mod boot_memory_handlers;
 // M1ND-10 G6 — conservative one-way retirement of arbitrary Boot KV.
@@ -130,9 +125,6 @@ pub mod perspective_handlers;
 // ORGANISM-INSIDE P1 — durable session-presence sidecars (m1nd-presence-v0): the
 // control room sees the team, collisions derived at read (askGOD verdict 2026-07-13).
 pub mod presence;
-// HUMAN VIEW v2 F2.5c — the owner's runnerd surface (announce liveness registry +
-// the mission_spawn proxy that keeps the shared secret owner-side).
-pub mod runnerd_owner;
 // M1ND-10 G4 — durable supervision for blocking work. The per-brain actor/OCC
 // integration is live; individual transport ingresses still opt in explicitly.
 pub mod runtime_jobs;
@@ -149,12 +141,8 @@ pub mod promote_handlers;
 pub mod skeleton_scan;
 pub mod soul_handlers;
 pub mod surgical_handlers;
-// The `transplant` verb (graph-addressed cross-file move of a top-level `fn`):
-// resolve via the graph, trichotomy from `calls` edges, atomic write through the
-// apply_batch machinery. Design + proof addresses: `docs/TRANSPLANT-PRD.md`.
 pub mod system_blocks;
 pub mod system_blocks_handlers;
-pub mod transplant;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;
@@ -302,50 +290,11 @@ mod plasticity_survives_ingest_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/first_minute_owner_discovery.rs"]
 mod first_minute_owner_discovery_internal_tests;
-// The transplant proof suites and the boot-drift battery drive `dispatch_tool`
-// and `SessionState::initialize` in-process. Those are owner-internal seams the
-// crate deliberately does NOT export — the `McpServer` / `initialize`
-// compile_fail sentinels are the ratified candidate boundary — so the batteries
-// live inside the wall instead of the wall being widened to reach them.
-#[cfg(test)]
-#[path = "internal_tests/transplant_battery.rs"]
-mod transplant_battery_internal_tests;
+// The surviving source-write tests share one process-wide proof-gate arbiter.
+// Its legacy filename is retained so every consumer holds the same fence.
 #[cfg(test)]
 #[path = "internal_tests/transplant_common.rs"]
 mod transplant_common_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_concurrency.rs"]
-mod transplant_concurrency_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_extent_experiment.rs"]
-mod transplant_extent_experiment_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_harness.rs"]
-mod transplant_harness_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_node_identity.rs"]
-mod transplant_node_identity_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_proofgate.rs"]
-mod transplant_proofgate_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_proptest.rs"]
-mod transplant_proptest_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_protected_zones.rs"]
-mod transplant_protected_zones_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_receipt_aging.rs"]
-mod transplant_receipt_aging_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_selfhost.rs"]
-mod transplant_selfhost_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_stress.rs"]
-mod transplant_stress_internal_tests;
-#[cfg(test)]
-#[path = "internal_tests/transplant_two_phase.rs"]
-mod transplant_two_phase_internal_tests;
 // The boot battery reconstructs a SessionState from drifted sidecars, so it needs
 // the same owner-internal constructor.
 #[cfg(test)]

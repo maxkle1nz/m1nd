@@ -97,7 +97,8 @@ test('slow adds the honest "usually takes a while" note and KEEPS the clock', ()
   assert.match(out, /data-role="scan-slow-note"/);
   const text = visible(el);
   assert.match(text, /3,210 nodes usually takes a while/);
-  assert.match(text, /a live naming runner can add ~2 minutes/);
+  assert.match(text, /clustering/);
+  assert.doesNotMatch(text, /naming runner/);
   assert.match(text, /request stays open/i);
   assert.match(text, /1:13/, 'the clock still counts in slow — the wait never looks dead');
 });

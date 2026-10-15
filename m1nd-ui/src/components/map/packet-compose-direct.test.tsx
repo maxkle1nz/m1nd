@@ -3,7 +3,7 @@
  * un-disabled (F2.5b) and its send composes + posts the seq-1 `judging` letter (a
  * mock `mission_post` asserts the body — seq 1, null prev, `msn_<12hex>` id, the
  * packet_ref anchored); the panel DECLARES "delivery is not execution"; policy gating
- * holds (§4d — a read-only owner falls back to clipboard, spawn stays disabled with
+ * holds (§4d — a read-only owner falls back to clipboard, direct stays disabled with
  * the amendment's note); a refused post surfaces honestly and NEVER copies as if it
  * had posted; and the clipboard path stays pure (proven in show-code.test.tsx).
  */
@@ -122,10 +122,11 @@ test('a read-only owner falls back to clipboard — direct is disabled, and says
   assert.match(visible(out), /read-only/);
 });
 
-test('spawn stays disabled with the amendment note (runnerd is F2.5c)', () => {
+test('manual compose exposes no retired spawn control', () => {
   const out = compose({ initialMode: 'direct' });
-  assert.match(out, /data-role="mode-spawn"[^>]*disabled=""/);
-  assert.match(visible(out), /no runner daemon connected/);
+  assert.doesNotMatch(out, /data-role="(?:mode-spawn|spawn-runner|send-spawn)"/);
+  assert.match(out, /data-role="send-direct"/);
+  assert.match(out, /data-role="mode-clipboard"/);
 });
 
 test('the clipboard default render still declares no engine side effects (pure)', () => {

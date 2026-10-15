@@ -3,10 +3,10 @@
 Vendor-neutral instructions for autonomous agents (Jules, Codex, Claude Code, Cursor, …)
 working on this repository. Read this first; it is the contract.
 
-**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2, six
+**m1nd** is a neuro-symbolic code-graph engine in **Rust** (workspace, resolver 2, five
 members): `m1nd-core` (in-memory engine) · `m1nd-ingest` (extractors / write side) ·
-`m1nd-mcp` (the served MCP owner + every verb) · `m1nd-control` · `m1nd-runnerd` (the
-write/execution lane — the only spawner) · `m1nd-openclaw`. Outside the Rust workspace:
+`m1nd-mcp` (the served MCP owner and retained verbs) · `m1nd-control` ·
+`m1nd-openclaw`. Outside the Rust workspace:
 `m1nd-ui` (the served web UI, Vite/React), `m1nd-demo`, and an npm wrapper in `npm/`. Philosophy: agent-first, proof-grown,
 local-first, calibrated honesty (`absent`/`abstain`/`insufficient_evidence` are real answers).
 
@@ -184,6 +184,15 @@ when a single tool violates it — the 2026-07-22 incident (a bare top-level `on
 sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
 (`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
 
+**Current source withdrawal — 2026-10-15:** `transplant*`, `mission_spawn`,
+`candidate_naming`, `curation_spawn` and the runner daemon are removed, with
+exclusive controls and tests. Frozen action identifiers can remain as tombstones.
+Manual missions, clipboard/direct packets, candidate edits, other source writers,
+retrieval, impact, workspace isolation and strict state recovery remain. See
+[the first slice contract](docs/FIRST-SIMPLIFICATION-SLICE.md). Do not reintroduce a
+withdrawn proxy as a workaround or weaken retained gates. Historical proof text
+below is not a current call recipe.
+
 **THE MENU IS NOT THE REGISTRY (since 2026-08-01).** `tools/list` advertises a CORE MENU of
 about 15 verbs — `CORE_TOOLS` (the owner-ratified 12: `north`, `memorize`, `ingest`, `seek`,
 `search`, `health`, `trust_selftest`, `view`, `impact`, `session_handshake`, `boot_memory`,
@@ -213,16 +222,12 @@ Three rules follow, and they are load-bearing when you touch this area:
   + `discovery_rule`. Battery: `server::tests::core_menu_*` and
   `help_sees_every_verb_regardless_of_tier`.
 
-**REST route seating contract:** `POST /api/tools/{tool}` runs the F-01 generic floor gate
-(`enforce_generic_action_policy`) on its way to generic dispatch. A verb that carries its OWN
-interception in `handle_tool_call` — the owner→daemon proxies (`mission_spawn`,
-`candidate_naming`, `curation_spawn`) and the typed G3 facades — is refused by that gate, so
-seating one BEHIND it turns its REST path into dead code behind a 403 while every test stays
-green (it happened twice in the field: #471, #475). Declare every specially routed verb in
-`REST_ROUTE_SEATING` and give every owner proxy a probe in `OWNER_PROXY_PROBES`
-(`m1nd-mcp/src/http_server.rs`): the guard
-`rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate` reads the live route
-source and holds both tables exactly equal to it, in both directions.
+**REST route seating contract:** `POST /api/tools/{tool}` must place each retained
+special route on the correct side of the generic authority floor. Typed G3 facades
+still need their own interception. `REST_ROUTE_SEATING` and the exhaustive route
+parity test must match the live retained routes. Withdrawn owner-to-runner proxies
+have no route, status poller or successful fallback. Do not remove the shared
+HTTP/auth, ingest or typed-admission oracles with those proxies.
 
 ## Git identity — ABSOLUTE
 

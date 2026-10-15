@@ -4,7 +4,7 @@
  * each tab is opened via `initialTab`. The teeth: Files lists the membership by
  * role; Receipts shows the contract 0/3 with each required type "not earned yet";
  * Impact shows the declared sockets, honestly labelled; the packet panel previews
- * the composed Markdown and DECLARES no side effects; direct/spawn are disabled;
+ * the composed Markdown and DECLARES no side effects; direct respects read-only policy;
  * and the clipboard path never references delegate or a tool route (read-only).
  */
 import { test } from 'node:test';
@@ -131,14 +131,12 @@ test('the packet panel previews the composed Markdown and declares no side effec
   assert.match(t, /no side effects — nothing is written to the engine/);
 });
 
-test('clipboard is the default live mode; direct is un-disabled (F2.5b); spawn stays disabled (F2.5c)', () => {
+test('clipboard remains the default; manual direct delivery is available; spawn is absent', () => {
   const out = renderToStaticMarkup(packet());
   assert.match(out, /data-role="mode-clipboard"[^>]*checked/);
   // F2.5b un-disables direct — the radio is now selectable (no disabled attr).
   assert.doesNotMatch(out, /data-role="mode-direct"[^>]*disabled=""/);
-  // spawn waits for runnerd (F2.5c) — still disabled, with the amendment's note.
-  assert.match(out, /data-role="mode-spawn"[^>]*disabled=""/);
-  assert.match(text(packet()), /no runner daemon connected/);
+  assert.doesNotMatch(out, /data-role="mode-spawn"/);
   assert.match(out, /data-role="copy-packet"/);
   // screenshot toggle is present but OFF + disabled (capture + redaction is F2.5c).
   assert.match(out, /data-role="toggle-screenshot"[^>]*disabled=""/);

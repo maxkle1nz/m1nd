@@ -5,7 +5,7 @@
  * into the exact Markdown the clipboard receives. It is a pure function: no I/O, no
  * engine call, no side effect — the clipboard mode is a READ-ONLY compositor
  * (F0-TECH §9), so composing a packet writes NOTHING to the engine. `delegate`'s
- * registry write is spawn/direct behaviour (F2.5), never this path.
+ * mission-letter writes belong to direct delivery, never this path.
  *
  * Copy law (PRD §13): scoped, auditable claims only — never "proven/done/correct".
  * The packet carries repo-relative paths and declared sockets — no absolute paths,
@@ -15,7 +15,7 @@ import type { BlockRollup, MembershipRole, Socket, SystemBlock } from './buildMa
 import { STATE_LABEL, domainTag as toDomainTag, membershipByRole } from './buildMap';
 
 /** What the packet includes (F12). All ON by default except `screenshot`, which is
- *  OFF by default — screenshot capture + redaction is a spawn concern (F0-TECH §9),
+ *  OFF by default — screenshot capture and redaction are unavailable,
  *  so the clipboard packet is text-only in F2. */
 export interface PacketToggles {
   blockDetails: boolean;

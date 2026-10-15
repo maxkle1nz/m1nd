@@ -1,5 +1,7 @@
 # HUMAN VIEW v2 — F2.5 technical amendment: the mission tray, direct delivery, and the runner daemon
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 Status: **RATIFIED** — oracle-confronted (CHANGE → 8 mandatory objections applied), ratified by the owner 2026-07-09 including the single scope narrowing (§5f: the Routing Rules screen deferred; capability pins land day one). This amendment stitches three already-signed surfaces into one buildable phase: PRD §7 (pluggable runners, the three packet modes, the policy layer), F0-TECH §9 (packet hygiene + `m1nd-runnerd`), and the mission-letter contract proven live by the first external hand agent (2026-07-09: the full cycle — packet in, gate run, receipt imported with OCC — executed against an ephemeral owner by an independent agent, both refusal laws exercised on purpose). Where this amendment NARROWS a signed scope it says so explicitly (§5f) and puts the narrowing itself up for ratification.
 
 ---
