@@ -1,5 +1,9 @@
 # Learning and calibration time units
 
+The clock repair and v1 calibration containment shipped in 1.6.5 at
+`363bc97f2336c73e90802916804dccd2109c5746`. The relevance-only event separation
+described below is **Unreleased** PR580 behavior on `main`, absent from sealed 1.6.5.
+
 The envelope calibration path consumes defect history recorded in `TrustLedger`.
 The direct `TrustLedger::record_defect` producer remains supported; generic
 `learn(correct|wrong)` now supplies relevance feedback only and writes no defect

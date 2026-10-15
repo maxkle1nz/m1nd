@@ -88,7 +88,7 @@ export function ImpactFeature() {
     <FeatureSection
       title="See the blast radius before the edit, not after the damage."
       subtitle="Blast Radius"
-      description="Before your agent changes a single line in worker_pool.py, m1nd returns the impact cone: direct callers, downstream consumers, and the modules most likely to break with it. The refactor starts with context instead of hope."
+      description="Before your agent changes worker_pool.py, m1nd returns connected callers, consumers, and neighboring modules to inspect in the graph. These relationships guide source review and test selection; they do not establish which modules will break."
       align="right"
     >
       <ImpactScene />

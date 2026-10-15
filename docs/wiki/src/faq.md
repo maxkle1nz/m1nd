@@ -26,7 +26,7 @@ Use a current stable Rust toolchain for source builds; the workspace does not de
 
 ## Which version should I install?
 
-The wiki follows the `1.6.5` source line; the latest published release at this refresh is `1.6.3`. Follow [Quick Start](tutorials/quickstart.md) for the published path. Use a matching source wrapper and binary when testing source-preview automatic preparation; an updated README does not publish a package.
+GitHub/native, crates.io, and npm 1.6.5 are published at `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. Follow [Quick Start](tutorials/quickstart.md) with a matching 1.6.5 wrapper/native runtime for automatic isolated preparation. The wiki also covers `main`; PR580's later learning-event separation is **Unreleased**, absent from sealed 1.6.5. The 1.6.3 installation guide remains historical.
 
 ## Why is the npm package not enough?
 
@@ -42,7 +42,7 @@ The default `tools/list` is a core menu. `help` discovers the full registry, and
 
 ## Why does ingest refuse?
 
-Generic `replace` and `merge` are policy-disabled for clients. A person prepares a shared/served brain through the terminal birth command. Current source also supports a narrower isolated startup under an explicit launcher grant. Public `mode: "refresh"` can only re-scan an already declared exact root; it cannot create a brain or move its binding. Do not force a different root into an existing runtime.
+Generic `replace` and `merge` are policy-disabled for clients. A person prepares a new shared/served brain through the terminal birth command. Published 1.6.5 also supports narrower isolated startup under an explicit launcher grant with external private derived state; source files remain inputs and the graph is reused. Public `mode: "refresh"` can only re-scan an already declared exact root; it cannot create a brain or move its binding. Do not force a different root into an existing runtime.
 
 ## Does a trust verdict prove the answer is correct?
 

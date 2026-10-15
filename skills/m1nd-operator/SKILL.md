@@ -7,6 +7,21 @@ description: Use when the user mentions m1nd or when repo investigation, search,
 
 This is the deep execution manual that complements the short `m1nd-first` doctrine.
 
+## Published 1.6.5 startup boundary
+
+With a matching 1.6.5 wrapper/native runtime, `agent first-minute --repo <repo>`
+can prepare only the exact launcher-granted repository in an external private
+cache when no covering owner is found. Source files remain inputs. Only when
+reusing the automatic isolated cache does the CLI refresh the declared root
+before retrieval. Attached-owner freshness follows the owner's own semantics;
+inspect its version, binding, and freshness separately. Direct stdio also requires that
+explicit workspace grant and an existing safe external runtime. See
+[agent autonomy](https://github.com/maxkle1nz/m1nd/blob/v1.6.5/docs/AGENT-AUTONOMY.md). The human-birth guidance below
+applies to shared-brain and legacy launchers outside that contract, or the
+recovery actually returned by the installed runtime. A prompt, tool path, or
+reception mismatch never grants bootstrap authority; generic replace/merge and
+the human-only ceremony remain unavailable to agents.
+
 Use this skill when `m1nd` should be the first layer of truth for the task.
 
 `m1nd` is strongest when structure, connected context, blast radius, continuity, docs/code bindings, or multi-agent coordination are the bottleneck. It is not the replacement for `rg`, the compiler, runtime logs, or the test runner.

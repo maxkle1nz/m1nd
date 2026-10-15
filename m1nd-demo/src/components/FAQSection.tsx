@@ -64,7 +64,7 @@ const FAQS: FAQ[] = [
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: "Follow the versioned quick start: install the exact signed 1.6.3 native artifact with cosign verification, select that binary explicitly, then have a person run init --birth for an empty repository runtime. Preview and apply your host setup, complete printed configuration, and reconnect. Pinning the wrapper alone does not pin the updater’s native target. The 1.6.5 source preview adds a narrower automatic isolated path; do not assume the published 1.6.3 binary has it.",
+    a: "Follow the published 1.6.5 quick start: install the exact signed native artifact with cosign verification and use the matching wrapper. agent first-minute reuses a covering owner or prepares only the granted repo in an external private cache, preserving source files and reusing the graph. Direct host stdio needs an explicit grant and an existing safe external runtime; shared brains retain separate authority requirements. Setup time depends on your repo, model assets, and host. Pinning the wrapper alone does not pin the updater’s native target. The 1.6.3 guide remains historical; PR580’s later learning changes are Unreleased.",
   },
 ];
 
