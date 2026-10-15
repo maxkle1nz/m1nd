@@ -43,6 +43,14 @@ byte anchors; metadata records are emitted whole and once when following the
 returned cursor. A complete metadata item that cannot fit refuses rather than
 being dropped; retry that cursor with a larger budget.
 
+The shared HTTP/stdio `_m1nd.suggest_next` envelope asks for the next page while
+continuation is non-null and offers no edit step. On the final page, it first
+requires reassembling **all** source fragments by their byte anchors and checking
+the full-source SHA-256 digest before suggesting edits using that verified
+content. A final page may contain only a source tail or metadata with empty
+`file_contents`; null continuation does not make that fragment a complete file.
+Unbounded requests retain their existing suggestions.
+
 The cursor is a checked position, never an authorization token. Every page reads
 through existing source authorization. Its SHA-256 context identity binds the
 canonical target, source digest, node identity, symbol/radius/include-tests

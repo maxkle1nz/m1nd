@@ -303,7 +303,20 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
 
 /// Build the `_m1nd` metadata envelope to wrap every tool response.
 pub fn build_m1nd_meta(tool_name: &str, result: &Value) -> Value {
-    let suggestions = suggest_next(tool_name);
+    // A bounded page is not a complete replacement file, even when its cursor
+    // is exhausted: the final page can carry only metadata or a source tail.
+    let suggestions = match (tool_name, result.get("context_page").filter(|page| page.is_object())) {
+        ("surgical_context", Some(page)) if page.get("continuation").is_some_and(Value::is_null) => vec![
+            "reassemble all file_contents pages by context_page.source byte anchors and verify context_page.source.sha256 before editing".into(),
+            "validate_plan(files) to ground the coupled edit surface".into(),
+            "edit_preview(file, reassembled_verified_content) to preview the complete source before writing".into(),
+            "apply_batch(edits) for multiple files after full-source verification and proof".into(),
+        ],
+        ("surgical_context", Some(_)) => vec![
+            "surgical_context(same target/options and byte budget, continuation=context_page.continuation) to fetch the next page; retain all source pages for verified reassembly".into(),
+        ],
+        _ => suggest_next(tool_name),
+    };
     let personality = personality_line(tool_name, result);
 
     let mut meta = json!({
@@ -2618,9 +2631,10 @@ mod bounded_context_envelope_tests {
                 first.contains("all") && first.contains("reassemble") && first.contains("sha256"),
                 "final fragments require all pages and a digest check: {meta}"
             );
-            assert!(suggestions
-                .iter()
-                .any(|s| s.as_str().unwrap().contains("edit_preview")));
+            assert!(suggestions.iter().any(|s| {
+                let text = s.as_str().unwrap();
+                text.contains("edit_preview") && text.contains("reassembled")
+            }));
             assert!(suggestions
                 .iter()
                 .any(|s| s.as_str().unwrap().contains("apply_batch")));

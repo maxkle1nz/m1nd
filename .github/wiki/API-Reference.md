@@ -1799,6 +1799,10 @@ fragments), context SHA-256, explicit per-page omissions and continuation.
 Source/options/target/neighborhood/generation drift refuses stale cursors.
 Refusals preserve previous visits; only emitted neighbors gain coverage.
 A partial `file_contents` fragment must be reassembled before replacing a file.
+The shared HTTP/stdio envelope requests the next page while continuation is
+non-null. Final-page guidance requires reassembling all source pages by their
+byte anchors and verifying the full-source digest before editing; the last page
+may contain only a tail or empty source alongside metadata.
 Default calls remain complete; V2 continues to use unbounded V1 context.
 See [the contract](https://github.com/maxkle1nz/m1nd/blob/main/docs/BOUNDED-SURGICAL-CONTEXT.md).
 
