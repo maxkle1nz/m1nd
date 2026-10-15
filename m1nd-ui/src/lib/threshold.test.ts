@@ -79,15 +79,28 @@ test('INV-11: current tools keep bound ingest but expose no bootstrap arguments'
   assert.doesNotMatch(JSON.stringify(tools), /brain\.bootstrap|ONE-CALL BOOTSTRAP/);
 });
 
-test('INV-11: the evolving fixture is the complete unique registry and preserves the frozen baseline', () => {
+test('INV-11: the evolving registry retains baseline tools except explicitly withdrawn APIs', () => {
   const current = load<{ tools: ToolSchema[] }>('tools-current.json').tools;
   const frozen = load<{ tools: ToolSchema[] }>('tools.json').tools;
   const currentNames = current.map((tool) => tool.name);
   const frozenNames = frozen.map((tool) => tool.name);
 
-  assert.equal(current.length, 138, 'all_tool_schemas registry count');
+  assert.equal(current.length, 142, 'full native registry captured for the first simplification slice');
   assert.equal(new Set(currentNames).size, current.length, 'tool names are unique');
-  for (const name of frozenNames) assert.ok(currentNames.includes(name), `current registry retains ${name}`);
+  const withdrawnNames = new Set([
+    'transplant', 'transplant_preview', 'transplant_commit',
+    'mission_spawn', 'candidate_naming', 'curation_spawn',
+  ]);
+  for (const name of frozenNames) {
+    if (withdrawnNames.has(name)) {
+      assert.equal(currentNames.includes(name), false, `withdrawn baseline API stays absent: ${name}`);
+    } else {
+      assert.ok(currentNames.includes(name), `current registry retains ${name}`);
+    }
+  }
+  for (const name of withdrawnNames) {
+    assert.equal(currentNames.includes(name), false, `withdrawn API stays absent: ${name}`);
+  }
 
   const preview = current.find((tool) => tool.name === 'graph_ingest_preview');
   assert.ok(preview, 'the governed read-only preview is advertised');

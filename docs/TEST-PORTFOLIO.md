@@ -76,20 +76,22 @@ with its unchanged 120-minute job ceiling and all existing gates. This costs
 the extra OS and unrelated full-selected checks; it avoids a new scheduler,
 weaker assertions or another scoped-budget increase. Shared-process fixture
 reuse can benefit that runner, but its hosted savings are not yet measured.
-Other known scopes, including transplant-only changes, keep their selection.
+Other known scopes keep their selection. The later first simplification slice
+withdraws transplant and the runner daemon; see [its contract](FIRST-SIMPLIFICATION-SLICE.md).
 
 Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
 manifests select host/cache; root `tests/test_*.py` selects Python; contributor
-launcher changes select Python/UI/cache; the Vite helper selects UI; the six
-Rust source/test trees select Rust/cache. Rust closure is core↔ingest, then MCP,
-runnerd and openclaw; control feeds MCP then runnerd/openclaw. CI workflows,
+launcher changes select Python/UI/cache; the Vite helper selects UI; the five
+retained Rust source/test trees select Rust/cache. Rust closure is core↔ingest,
+then MCP and openclaw; control feeds MCP then openclaw. CI workflows,
 `.config`, Cargo manifests/lock, `build.rs`, selector/aggregate/lightning
 scripts, security policy and marketing-demo paths are full by rule.
 
 The scoped Rust lane preserves LIGHTNING's control/core/MCP invariant set, then
 runs the affected libraries, binaries and integration tests. Outside a touched
-heavy area it excludes only `retrobuilder_real`, `retrobuilder_stress`, and
-tests named `transplant`; a matching path runs its own oracle. No ignore,
+heavy area it excludes only the `retrobuilder_real` and `retrobuilder_stress`
+binaries; a matching path runs its own oracle. There is no blanket test-name
+exclusion for a withdrawn capability. No ignore,
 retry, relaxed assertion or timeout is added. The 2026-09-25 draft/ready split
 below is historical: a draft may now receive a scoped `Test` pass, while GitHub
 continues to forbid draft merges. No time measurement is claimed by this cut.

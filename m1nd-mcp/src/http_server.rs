@@ -4961,6 +4961,10 @@ mod tests {
         .expect("boot owner")
         .into_session_state();
         let runtime_root = state.instance.summary().runtime_root;
+        assert!(
+            !state.served_owner_binding,
+            "stdio construction has no served-owner fact"
+        );
         let session = Arc::new(BrainSessionCell::new(state));
 
         let handle = spawn_background(Arc::clone(&session), 0)
@@ -4985,6 +4989,10 @@ mod tests {
         let mut owner = session
             .lock_mut_before_actor()
             .expect("background shutdown returned SessionState");
+        assert!(
+            owner.served_owner_binding,
+            "HTTP boot must preserve owner pinning across actor shutdown"
+        );
         let summary = owner.instance.summary();
         assert!(summary.bind.is_none());
         assert!(summary.port.is_none());

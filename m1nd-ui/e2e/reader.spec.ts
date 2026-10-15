@@ -13,6 +13,7 @@
  *   5. a graph FOLD range collapses the symbol's body.
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { withdrawnToolPost } from './tool-registry';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -229,6 +230,8 @@ function mockOwner(page: Page) {
           return await json(route, {
             result: { present: true, store_version: 3, block_count: 1, store: blockStore },
           });
+        if (withdrawnToolPost(path, route.request().method()))
+          return await json(route, { error: 'tool not found' }, 404);
         if (path.startsWith('/api/tools/')) return await json(route, { result: {} });
         return await json(route, {});
       } catch {

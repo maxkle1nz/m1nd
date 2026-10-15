@@ -18,6 +18,7 @@
  * Neutral fixtures only (no-leak law): no real project/agent name.
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { currentToolRegistry, withdrawnToolPost } from './tool-registry';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -108,7 +109,7 @@ function mockOwner(page: Page) {
             project_root: '/work/repo-alpha',
           });
         if (path === '/api/presences') return await json(route, { presences: [], collisions: [] });
-        if (path === '/api/tools') return await json(route, { tools: [], rest_brain_selector: true });
+        if (path === '/api/tools') return await json(route, { ...currentToolRegistry, rest_brain_selector: true });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
         if (path === '/api/tools/system_blocks_snapshot')
           return await json(route, { result: blockSnapshot });
@@ -116,6 +117,8 @@ function mockOwner(page: Page) {
         if (path === '/api/graph/stats') return await json(route, { node_count: 3210, edge_count: 9000 });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+        if (withdrawnToolPost(path, route.request().method()))
+          return await json(route, { error: 'tool not found' }, 404);
         if (path.startsWith('/api/tools/')) return await json(route, { result: {} });
         return await json(route, {});
       } catch {
