@@ -1481,6 +1481,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let proj = temp.path().join("proj");
         std::fs::create_dir_all(&proj).expect("proj dir");
+        let proj = std::fs::canonicalize(&proj).expect("canonical project");
         std::fs::write(proj.join("auth.rs"), "pub fn f() -> bool { true }\n").expect("write");
 
         let runtime_dir = temp.path().join("runtime");

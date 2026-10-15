@@ -1318,18 +1318,18 @@ fn finalize_ingest_with_inventory(
         } else {
             canonical_input_text.clone()
         };
-        // Keep the vector ordered oldest -> newest so path resolution can prefer
-        // the most recent matching root deterministically.
-        if let Some(pos) = state
-            .ingest_roots
-            .iter()
-            .position(|root| root == &root_to_track)
-        {
-            let root = state.ingest_roots.remove(pos);
-            state.ingest_roots.push(root);
-        } else {
-            state.ingest_roots.push(root_to_track);
-        }
+        // Keep the vector ordered oldest -> newest by filesystem identity.
+        // Replace every equivalent qualified alias with the accepted canonical
+        // root. Unknown relative origins and unavailable roots stay untouched.
+        let tracked_identity =
+            m1nd_ingest::exact_path_identity(std::path::Path::new(&root_to_track))
+                .expect("canonical root was validated as UTF-8 before mutation");
+        state.ingest_roots.retain(|root| {
+            !crate::scope::canonical_declared_root(root)
+                .and_then(|canonical| m1nd_ingest::exact_path_identity(&canonical).ok())
+                .is_some_and(|identity| identity == tracked_identity)
+        });
+        state.ingest_roots.push(root_to_track);
     }
     // An explicit file root authorizes only that file. The owned memory-store
     // folding above is the sole case where its parent is the declared root.
@@ -6945,6 +6945,7 @@ mod tests {
         std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
         let repo = temp.path().join("repo");
         std::fs::create_dir_all(&repo).expect("repo dir");
+        let repo = std::fs::canonicalize(&repo).expect("canonical repo");
         std::fs::write(repo.join("lib.rs"), "pub fn f() {}\n").expect("write code");
 
         let config = McpConfig {
@@ -7022,6 +7023,94 @@ mod tests {
         )
         .expect("roots JSON");
         assert_eq!(roots, state.ingest_roots);
+    }
+
+    #[test]
+    fn finalize_ingest_merge_deduplicates_qualified_aliases_without_rebasing_legacy_roots() {
+        const CHILD_ROOT: &str = "M1ND_TEST_ROOT_ALIAS_MERGE";
+        if let Some(base) = std::env::var_os(CHILD_ROOT) {
+            let base = std::path::PathBuf::from(base);
+            let source = std::fs::canonicalize(base.join("repo-alpha")).expect("source identity");
+            let alias = source.join(".").to_str().unwrap().to_owned();
+            let canonical = source.to_str().unwrap().to_owned();
+            assert_ne!(
+                alias, canonical,
+                "the fixture needs two spellings of one identity"
+            );
+            let before = base.join("repo-before").to_str().unwrap().to_owned();
+            let after = base.join("repo-after").to_str().unwrap().to_owned();
+            let missing = base.join("unavailable-root").to_str().unwrap().to_owned();
+            let runtime = base.join("runtime");
+            std::fs::create_dir_all(&runtime).expect("runtime");
+            let mut state = build_runtime_state(&runtime);
+            state.ingest_roots = vec![
+                before.clone(),
+                alias.clone(),
+                ".".into(),
+                canonical.clone(),
+                after.clone(),
+                missing.clone(),
+            ];
+            let input: crate::protocol::core::IngestInput = serde_json::from_value(
+                serde_json::json!({"path":source,"agent_id":"root-alias-probe",
+                    "adapter":"code","mode":"merge"}),
+            )
+            .expect("merge input");
+            super::finalize_ingest(
+                &mut state,
+                &input,
+                "code",
+                Graph::new(),
+                m1nd_ingest::IngestStats::default(),
+            )
+            .expect("merge finalization");
+            // The updated identity has one canonical root in the newest slot.
+            // Other roots retain their order and bytes; even when '.' is this source
+            // in the child cwd, its unknown legacy origin is never reinterpreted.
+            let expected = vec![before, ".".into(), after, missing, canonical];
+            assert_eq!(state.ingest_roots, expected);
+            let identity = m1nd_ingest::exact_path_identity(&source).unwrap();
+            assert_eq!(
+                state
+                    .ingest_roots
+                    .iter()
+                    .filter_map(|root| crate::scope::canonical_declared_root(root))
+                    .filter_map(|root| m1nd_ingest::exact_path_identity(&root).ok())
+                    .filter(|root| root == &identity)
+                    .count(),
+                1,
+                "one source identity cannot gain duplicate declared roots",
+            );
+            let persisted: Vec<String> = serde_json::from_slice(
+                &std::fs::read(state.graph_path.parent().unwrap().join("ingest_roots.json"))
+                    .expect("persisted roots"),
+            )
+            .expect("roots JSON");
+            assert_eq!(persisted, expected);
+            return;
+        }
+        // A bounded child gives '.' this source's cwd without changing the
+        // process-global cwd shared by other Rust tests.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let base = std::fs::canonicalize(temp.path()).expect("fixture identity");
+        for name in ["repo-alpha", "repo-before", "repo-after"] {
+            std::fs::create_dir_all(base.join(name)).expect("fixture root");
+        }
+        let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args([
+                "--exact",
+                "tools::tests::finalize_ingest_merge_deduplicates_qualified_aliases_without_rebasing_legacy_roots",
+                "--nocapture",
+            ])
+            .current_dir(base.join("repo-alpha"))
+            .env(CHILD_ROOT, &base)
+            .output().expect("bounded child");
+        assert!(
+            output.status.success(),
+            "root identity regression: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]

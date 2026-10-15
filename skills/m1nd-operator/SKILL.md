@@ -329,6 +329,8 @@ persisted roots only after the actor accepts its checkpoint identity. The
 fingerprint names `persisted_ingest_root`, `persisted_ingest_file`, or
 `persisted_ingest_roots_unavailable`. An unavailable source is not permission to
 read checkpoint copies. New ingests persist canonical native paths before mutation.
+Accepted merges collapse equivalent qualified aliases by shared filesystem identity;
+Relative legacy entries and roots that cannot be resolved remain unchanged.
 Legacy relative declarations have unknown origins: do not resolve them against a
 new cwd, accept them as caller/refresh/launcher authority, or use them for code
 file enumeration or HTTP file reads/selectors. Live and snapshot root selection

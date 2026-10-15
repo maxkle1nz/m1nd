@@ -9,6 +9,7 @@ its checkpoint, its source read binding comes from canonical persisted ingest
 roots. An external source directory replaces the inferred snapshot parent;
 file-only roots stay exact, and unavailable external sources do not authorize the
 runtime as a fallback. New ingests persist canonical native paths before mutation;
+accepted merges collapse equivalent qualified aliases to one canonical root;
 legacy relative roots have unknown origins and grant no read, caller, code-root,
 discovery, exact-root refresh or launcher authority. Live sessions and HTTP read/identity
 snapshots share code/project-root selection; authenticated `/api/file` cannot read

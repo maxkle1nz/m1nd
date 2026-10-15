@@ -38,8 +38,11 @@ reclassify refresh or weaken mutation durability.
 
 New ingests resolve their input to a canonical native filesystem path and validate
 it through the shared exact path identity contract before changing session state.
-That canonical path is persisted for replace and merge; an unresolvable or
-unrepresentable source refuses without publishing a graph or roots. Native
+That canonical path is persisted for replace and merge. A merge removes existing
+qualified aliases of the same exact filesystem identity before appending its
+canonical root; unrelated roots retain their order and bytes, including legacy
+relative and unavailable roots. An unresolvable or unrepresentable source refuses
+without publishing a graph or roots. Native
 Windows drive/UNC anchors are checked together; drive-relative and current-drive
 rooted spellings do not become stored authority. Arbitrary source files remain
 exact file roots. The existing owned `agent-memory` sidecar folding is preserved.
