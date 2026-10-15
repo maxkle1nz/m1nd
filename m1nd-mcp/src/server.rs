@@ -8658,7 +8658,7 @@ impl McpServer {
                 });
         let mut has_code_root = false;
         let every_root_is_owned = known_roots.iter().all(|root| {
-            let Ok(known) = std::fs::canonicalize(root) else {
+            let Some(known) = crate::scope::canonical_declared_root(root) else {
                 return false;
             };
             if known == granted_root {

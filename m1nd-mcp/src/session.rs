@@ -1142,10 +1142,14 @@ impl SessionState {
         let scope_path = Self::absolute_scope_path(scope?)?;
         let mut known_roots: Vec<(&str, PathBuf)> = Vec::new();
         if let Some(workspace_root) = self.workspace_root.as_deref() {
-            known_roots.push(("workspace_root", PathBuf::from(workspace_root)));
+            if crate::scope::is_qualified_root(Path::new(workspace_root)) {
+                known_roots.push(("workspace_root", PathBuf::from(workspace_root)));
+            }
         }
         for root in &self.ingest_roots {
-            known_roots.push(("ingest_root", PathBuf::from(root)));
+            if crate::scope::is_qualified_root(Path::new(root)) {
+                known_roots.push(("ingest_root", PathBuf::from(root)));
+            }
         }
 
         if known_roots
@@ -1380,6 +1384,9 @@ impl SessionState {
     /// "does this brain cover that caller?", shared by the reception verdict
     /// above and the Two-Tier HTTP routing layer.
     pub fn covers_root(&self, root: &str) -> bool {
+        if !crate::scope::is_qualified_root(Path::new(root)) {
+            return false;
+        }
         let mut known_roots: Vec<std::path::PathBuf> = Vec::new();
         if let Some(workspace_root) = self.workspace_root.as_deref() {
             known_roots.push(std::path::PathBuf::from(workspace_root));
@@ -1390,6 +1397,7 @@ impl SessionState {
         let candidate = std::path::Path::new(root);
         known_roots
             .iter()
+            .filter(|known| crate::scope::is_qualified_root(known))
             .any(|known| Self::path_starts_with_loosely(candidate, known))
     }
 
@@ -1426,18 +1434,16 @@ impl SessionState {
         if self.explicit_brain_selector {
             return Err("refresh_root_not_exact");
         }
-        let trimmed = caller_root.trim().trim_end_matches('/');
-        if trimmed.is_empty() || !std::path::Path::new(trimmed).exists() {
-            return Err("refresh_root_unresolvable");
-        }
-        let caller_key = ProjectBrainRegistry::canonical_key(trimmed);
+        let canonical_caller = crate::scope::canonical_declared_root(caller_root.trim())
+            .ok_or("refresh_root_unresolvable")?;
+        let caller_key = ProjectBrainRegistry::canonical_key(&canonical_caller.to_string_lossy());
 
         let declared = self
             .workspace_root
             .iter()
             .chain(self.ingest_roots.iter())
-            .filter(|root| std::path::Path::new(root.trim().trim_end_matches('/')).exists())
-            .map(|root| ProjectBrainRegistry::canonical_key(root))
+            .filter_map(|root| crate::scope::canonical_declared_root(root))
+            .map(|root| ProjectBrainRegistry::canonical_key(&root.to_string_lossy()))
             .any(|declared| declared == caller_key);
 
         if declared {
@@ -1456,6 +1462,7 @@ impl SessionState {
             .workspace_root
             .iter()
             .chain(self.ingest_roots.iter())
+            .filter(|root| crate::scope::is_qualified_root(Path::new(root)))
             .map(|root| ProjectBrainRegistry::canonical_key(root))
             .collect();
         roots.sort();
@@ -1484,7 +1491,10 @@ impl SessionState {
     pub fn project_root_display(&self) -> Option<String> {
         // 1. First real code ingest root that is not a memory sidecar.
         for root in &self.ingest_roots {
-            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
+            if !is_memory_sidecar(root)
+                && crate::scope::canonical_declared_root(root)
+                    .is_some_and(|canonical| canonical.is_dir())
+            {
                 return Some(root.clone());
             }
         }
@@ -1526,12 +1536,18 @@ impl SessionState {
     /// brain's `.light.md` memories as the repo because of exactly that.
     pub fn code_root_path(&self) -> Option<String> {
         for root in &self.ingest_roots {
-            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
+            if !is_memory_sidecar(root)
+                && crate::scope::canonical_declared_root(root)
+                    .is_some_and(|canonical| canonical.is_dir())
+            {
                 return Some(root.clone());
             }
         }
         if let Some(ws) = self.workspace_root.as_deref() {
-            if !is_memory_sidecar(ws) && std::path::Path::new(ws).join(".git").exists() {
+            if !is_memory_sidecar(ws)
+                && crate::scope::canonical_declared_root(ws)
+                    .is_some_and(|canonical| canonical.join(".git").exists())
+            {
                 return Some(ws.to_string());
             }
         }
@@ -1585,12 +1601,17 @@ impl SessionState {
         let mut file_root = None;
         for root in &self.ingest_roots {
             let path = Path::new(root);
-            // Persisted relative roots cannot acquire authority from this boot's
-            // cwd. Memory roots are auxiliary inputs, never the code workspace.
-            if !path.is_absolute() || is_memory_sidecar(root) {
+            // An unanchored legacy declaration has an unknown original cwd.
+            // Mark it unavailable even when its basename resembles memory.
+            if !crate::scope::is_qualified_root(path) {
+                source_declared = true;
                 continue;
             }
-            let canonical = std::fs::canonicalize(path).ok();
+            // Qualified memory roots remain auxiliary, not code workspaces.
+            if is_memory_sidecar(root) {
+                continue;
+            }
+            let canonical = crate::scope::canonical_declared_root(root);
             let identity = canonical.as_deref().unwrap_or(path);
             if identity.starts_with(&self.runtime_root)
                 || canonical_runtime
@@ -6501,6 +6522,39 @@ mod tests {
             "search"
         )
         .is_err());
+    }
+
+    #[test]
+    fn restored_workspace_binding_relative_legacy_roots_are_unavailable() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        state.ingest_roots = vec![".".into()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root, None,
+            "legacy '.' is a declaration with unknown origin, not no declaration"
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_roots_unavailable")
+        );
+        let cwd = std::env::current_dir().expect("cwd");
+        assert!(!state.covers_root(&cwd.to_string_lossy()));
+        assert!(
+            state.exact_declared_root(&cwd.to_string_lossy()).is_err(),
+            "a relative legacy declaration cannot grant the exact-root refresh door"
+        );
+        assert!(state.declared_roots_canonical().is_empty());
+        assert_eq!(
+            state.code_root_path(),
+            None,
+            "file APIs and repository enumeration cannot use the new cwd as code root"
+        );
+        assert_eq!(
+            state.ingest_roots,
+            vec!["."],
+            "checkpoint roots remain unchanged"
+        );
     }
 
     #[test]

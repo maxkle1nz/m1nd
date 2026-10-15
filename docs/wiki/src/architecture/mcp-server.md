@@ -8,7 +8,10 @@ Source: `m1nd-mcp/src/`
 its checkpoint, its source read binding comes from canonical persisted ingest
 roots. An external source directory replaces the inferred snapshot parent;
 file-only roots stay exact, and unavailable external sources do not authorize the
-runtime as a fallback. Actor/checkpoint and instance/lease identities remain
+runtime as a fallback. New ingests persist canonical native paths before mutation;
+legacy relative roots have unknown origins and grant no read, caller, code-root,
+discovery, exact-root refresh or launcher authority. A foreign launcher with a
+queued refresh refuses without changing graph, roots or `CURRENT`. Actor/checkpoint and instance/lease identities remain
 unchanged. Manifest bindings and legacy states without external sources retain
 their existing contract. See [the recovery boundaries](../../../WORKSPACE-BINDING-RECOVERY.md).
 

@@ -58,6 +58,7 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -134,13 +135,7 @@ impl Owner {
         Owner::start(cwd, runtime_dir, Some(stderr_log))
     }
 
-    fn start(cwd: &Path, runtime_dir: &Path, stderr_log: Option<&Path>) -> Owner {
-        let stderr = match stderr_log {
-            Some(path) => {
-                Stdio::from(std::fs::File::create(path).expect("create the owner stderr log"))
-            }
-            None => Stdio::null(),
-        };
+    fn command(cwd: &Path, runtime_dir: &Path) -> Command {
         let mut command = Command::new(BIN);
         // This lifecycle fixture intentionally supplies no launcher grant or
         // ambient editor binding. Its persisted roots are the source identity.
@@ -171,7 +166,7 @@ impl Owner {
         ] {
             command.env_remove(name);
         }
-        let mut child = command
+        command
             .arg("--no-gui")
             .current_dir(cwd)
             .env("M1ND_RUNTIME_DIR", runtime_dir)
@@ -183,7 +178,18 @@ impl Owner {
             .env("M1ND_REGISTRY_DIR", runtime_dir.join("registry"))
             .env("M1ND_NO_GUI", "1")
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::piped());
+        command
+    }
+
+    fn start(cwd: &Path, runtime_dir: &Path, stderr_log: Option<&Path>) -> Owner {
+        let stderr = match stderr_log {
+            Some(path) => {
+                Stdio::from(std::fs::File::create(path).expect("create the owner stderr log"))
+            }
+            None => Stdio::null(),
+        };
+        let mut child = Self::command(cwd, runtime_dir)
             .stderr(stderr)
             .spawn()
             .expect("spawn m1nd-mcp stdio owner");
@@ -419,6 +425,107 @@ impl Owner {
              through some other path. Its stderr said:\n{stderr}"
         );
         stderr
+    }
+}
+
+#[test]
+fn legacy_relative_restart_cannot_read_or_refresh_the_new_cwd() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let repo = tmp.path().join("repo-alpha");
+    let foreign = tmp.path().join("repo-beta");
+    std::fs::create_dir_all(&runtime).expect("runtime");
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
+        .expect("private runtime");
+    write_fixture_repo(&repo);
+    write_fixture_repo(&foreign);
+    std::fs::write(
+        foreign.join("src/lib.rs"),
+        "pub fn foreign_cwd_probe_marker() {}\npub fn second() {}\npub fn third() {}\n",
+    )
+    .expect("foreign sentinel");
+    m1nd_core::snapshot::save_graph(&ingest_fixture(&repo), &runtime.join("graph_snapshot.json"))
+        .expect("trusted legacy graph seed");
+    std::fs::write(runtime.join("ingest_roots.json"), b"[\".\"]").expect("legacy relative root");
+    let mut first = Owner::spawn(&repo, &runtime);
+    let nodes = first.node_count();
+    first.shutdown();
+
+    // A real second process changes cwd. Neither that cwd nor runtime copies
+    // may acquire authority from the legacy declaration's unknown origin.
+    let mut second = Owner::spawn(&foreign, &runtime);
+    assert_eq!(second.node_count(), nodes, "legacy graph remains loaded");
+    let found = second.call(
+        "search",
+        serde_json::json!({
+            "agent_id":"legacy-relative-probe","query":"foreign_cwd_probe_marker",
+            "mode":"literal","top_k":100
+        }),
+    );
+    assert!(
+        found["results"].as_array().expect("results").is_empty(),
+        "foreign cwd is outside the original source authority: {found}"
+    );
+    let north = second.call(
+        "north",
+        serde_json::json!({
+            "agent_id":"legacy-relative-probe","task":"source identity","code":false
+        }),
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root_source"],
+        "persisted_ingest_roots_unavailable"
+    );
+    second.shutdown();
+
+    // A new launcher fact must not authenticate itself through legacy '.'.
+    // Queue the public refresh too: initialization must refuse before it runs.
+    let owned = [
+        "graph_snapshot.json",
+        "ingest_roots.json",
+        "checkpoint-store/CURRENT",
+    ];
+    let before: Vec<_> = owned
+        .iter()
+        .map(|p| std::fs::read(runtime.join(p)).unwrap())
+        .collect();
+    let mut child = Owner::command(&foreign, &runtime)
+        .env("M1ND_WORKSPACE_ROOT", &foreign)
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("foreign launcher attempt");
+    let requests = [
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"ingest","arguments":{"path":foreign,"mode":"refresh","adapter":"code",
+                "agent_id":"legacy-relative-probe"}}}),
+    ];
+    let mut stdin = child.stdin.take().expect("stdin");
+    for request in requests {
+        writeln!(stdin, "{request}").expect("request");
+    }
+    drop(stdin);
+    let output = child.wait_with_output().expect("refused launcher exit");
+    assert!(
+        !output.status.success(),
+        "legacy '.' must not authorize this launcher"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("launcher_workspace_conflicts_with_bound_graph"),
+        "unexpected refusal: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for (path, expected) in owned.iter().zip(before) {
+        assert_eq!(
+            std::fs::read(runtime.join(path)).unwrap(),
+            expected,
+            "refused launcher/refresh must preserve {path}"
+        );
     }
 }
 

@@ -1,6 +1,30 @@
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+/// A stored root needs its own filesystem anchor, never this process's cwd or
+/// current Windows drive. Native prefixes and root components are checked
+/// together; `is_absolute` alone is not the cross-platform path contract.
+pub(crate) fn is_qualified_root(path: &Path) -> bool {
+    let mut components = path.components();
+    match components.next() {
+        Some(Component::RootDir) => !cfg!(windows),
+        Some(Component::Prefix(_)) => matches!(components.next(), Some(Component::RootDir)),
+        _ => false,
+    }
+}
+
+/// Resolve only a fully qualified persisted root. The shared identity function
+/// rejects lossy UTF-8 and applies the same Windows identity rules as ingestion.
+pub(crate) fn canonical_declared_root(root: &str) -> Option<PathBuf> {
+    let path = Path::new(root);
+    if !is_qualified_root(path) {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(path).ok()?;
+    m1nd_ingest::exact_path_identity(&canonical).ok()?;
+    Some(canonical)
+}
 
 /// One existing path resolved beneath the immutable read roots captured by a
 /// tool call. `root` is the canonical allow-root that authorized `path`.
@@ -27,7 +51,7 @@ pub(crate) fn canonical_read_roots(
     let mut seen = BTreeSet::new();
     let mut roots = Vec::new();
     for configured_root in configured {
-        let Ok(canonical) = std::fs::canonicalize(&configured_root) else {
+        let Some(canonical) = canonical_declared_root(&configured_root) else {
             continue;
         };
         let Ok(metadata) = std::fs::metadata(&canonical) else {
@@ -234,6 +258,67 @@ fn normalize_relative_scope(scope: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{authorize_existing_path, normalize_path_text, normalize_scope_path};
+
+    #[test]
+    fn legacy_relative_roots_never_authorize_the_process_cwd() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let roots = vec![".".to_string()];
+        assert!(
+            super::canonical_read_roots(&roots, None).is_empty(),
+            "a persisted relative root cannot become the new process cwd"
+        );
+        assert!(
+            authorize_existing_path(&cwd, &roots, None, "search").is_err(),
+            "the process cwd must not gain read authority"
+        );
+        assert!(
+            super::canonical_read_roots(&[], Some(".")).is_empty(),
+            "a relative workspace hint cannot independently grant cwd authority"
+        );
+    }
+
+    #[test]
+    fn qualified_root_screen_uses_native_anchors_for_cross_platform_spellings() {
+        for unanchored in [
+            "",
+            ".",
+            "..",
+            "relative/repo",
+            "C:relative",
+            r"\root",
+            r"relative\repo",
+        ] {
+            assert!(
+                !super::is_qualified_root(std::path::Path::new(unanchored)),
+                "{unanchored}"
+            );
+        }
+        for windows_root in [
+            r"C:\repo",
+            "C:/repo",
+            r"\\server\share\repo",
+            r"\\?\C:\repo",
+        ] {
+            assert_eq!(
+                super::is_qualified_root(std::path::Path::new(windows_root)),
+                cfg!(windows),
+                "{windows_root}"
+            );
+        }
+        assert_eq!(
+            super::is_qualified_root(std::path::Path::new("/repo")),
+            !cfg!(windows)
+        );
+        let temp = tempfile::tempdir().expect("tempdir");
+        let canonical = std::fs::canonicalize(temp.path()).expect("canonical native root");
+        assert!(super::is_qualified_root(&canonical));
+        let restored = super::canonical_declared_root(canonical.to_str().unwrap())
+            .expect("canonical native root accepted");
+        assert_eq!(
+            m1nd_ingest::exact_path_identity(&restored).unwrap(),
+            m1nd_ingest::exact_path_identity(&canonical).unwrap()
+        );
+    }
 
     #[test]
     fn normalizes_windows_extended_path_prefixes() {
