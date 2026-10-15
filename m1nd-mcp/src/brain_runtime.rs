@@ -1361,6 +1361,13 @@ impl BrainActorHandle {
                 return Err(error);
             }
         };
+        if identity_source.is_some() {
+            // CURRENT and its actor identity have already been validated above.
+            // Source binding is derived from the recovered roots, not from the
+            // snapshot parent. Keep the actor/lease identity unchanged: legacy
+            // bound checkpoints may legitimately be keyed by the runtime root.
+            boot_state.restore_workspace_binding_from_ingest_roots();
+        }
         let session_read_only = boot_state.read_only;
         drop(boot_state);
         let version = recovery

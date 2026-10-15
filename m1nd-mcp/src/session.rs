@@ -844,6 +844,56 @@ pub(crate) fn is_memory_sidecar(p: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Code-root selection shared by live sessions and immutable HTTP snapshots.
+/// Unqualified legacy declarations never acquire authority from this process.
+/// Files and memory sidecars are not roots for repository enumeration.
+pub(crate) fn code_root_path_from_inputs(
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+) -> Option<String> {
+    for root in ingest_roots {
+        if !is_memory_sidecar(root)
+            && crate::scope::canonical_declared_root(root)
+                .is_some_and(|canonical| canonical.is_dir())
+        {
+            return Some(root.clone());
+        }
+    }
+    workspace_root.and_then(|workspace| {
+        (!is_memory_sidecar(workspace)
+            && crate::scope::canonical_declared_root(workspace)
+                .is_some_and(|canonical| canonical.join(".git").exists()))
+        .then(|| workspace.to_owned())
+    })
+}
+
+/// Project identity is also consumed by HTTP selectors and runner routing, so
+/// its display fallbacks must never resolve unanchored roots against a new cwd.
+/// Qualified memory/store roots retain their existing honest display fallback.
+pub(crate) fn project_root_display_from_inputs(
+    ingest_roots: &[String],
+    workspace_root: Option<&str>,
+) -> Option<String> {
+    for root in ingest_roots {
+        if !is_memory_sidecar(root)
+            && crate::scope::canonical_declared_root(root)
+                .is_some_and(|canonical| canonical.is_dir())
+        {
+            return Some(root.clone());
+        }
+    }
+    let qualified_workspace =
+        workspace_root.filter(|root| crate::scope::is_qualified_root(Path::new(root)));
+    if let Some(workspace) = qualified_workspace.filter(|root| !is_memory_sidecar(root)) {
+        return Some(workspace.to_owned());
+    }
+    ingest_roots
+        .iter()
+        .find(|root| crate::scope::is_qualified_root(Path::new(root)))
+        .cloned()
+        .or_else(|| qualified_workspace.map(str::to_owned))
+}
+
 /// The last path component of a filesystem root — the human name of a repo
 /// ("/Users/<name>/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
 /// so a Windows backslash path ("C:\\Users\\<name>\\m1nd" → "m1nd") names its repo
@@ -1142,10 +1192,14 @@ impl SessionState {
         let scope_path = Self::absolute_scope_path(scope?)?;
         let mut known_roots: Vec<(&str, PathBuf)> = Vec::new();
         if let Some(workspace_root) = self.workspace_root.as_deref() {
-            known_roots.push(("workspace_root", PathBuf::from(workspace_root)));
+            if crate::scope::is_qualified_root(Path::new(workspace_root)) {
+                known_roots.push(("workspace_root", PathBuf::from(workspace_root)));
+            }
         }
         for root in &self.ingest_roots {
-            known_roots.push(("ingest_root", PathBuf::from(root)));
+            if crate::scope::is_qualified_root(Path::new(root)) {
+                known_roots.push(("ingest_root", PathBuf::from(root)));
+            }
         }
 
         if known_roots
@@ -1380,6 +1434,9 @@ impl SessionState {
     /// "does this brain cover that caller?", shared by the reception verdict
     /// above and the Two-Tier HTTP routing layer.
     pub fn covers_root(&self, root: &str) -> bool {
+        if !crate::scope::is_qualified_root(Path::new(root)) {
+            return false;
+        }
         let mut known_roots: Vec<std::path::PathBuf> = Vec::new();
         if let Some(workspace_root) = self.workspace_root.as_deref() {
             known_roots.push(std::path::PathBuf::from(workspace_root));
@@ -1390,6 +1447,7 @@ impl SessionState {
         let candidate = std::path::Path::new(root);
         known_roots
             .iter()
+            .filter(|known| crate::scope::is_qualified_root(known))
             .any(|known| Self::path_starts_with_loosely(candidate, known))
     }
 
@@ -1426,18 +1484,16 @@ impl SessionState {
         if self.explicit_brain_selector {
             return Err("refresh_root_not_exact");
         }
-        let trimmed = caller_root.trim().trim_end_matches('/');
-        if trimmed.is_empty() || !std::path::Path::new(trimmed).exists() {
-            return Err("refresh_root_unresolvable");
-        }
-        let caller_key = ProjectBrainRegistry::canonical_key(trimmed);
+        let canonical_caller = crate::scope::canonical_declared_root(caller_root.trim())
+            .ok_or("refresh_root_unresolvable")?;
+        let caller_key = ProjectBrainRegistry::canonical_key(&canonical_caller.to_string_lossy());
 
         let declared = self
             .workspace_root
             .iter()
             .chain(self.ingest_roots.iter())
-            .filter(|root| std::path::Path::new(root.trim().trim_end_matches('/')).exists())
-            .map(|root| ProjectBrainRegistry::canonical_key(root))
+            .filter_map(|root| crate::scope::canonical_declared_root(root))
+            .map(|root| ProjectBrainRegistry::canonical_key(&root.to_string_lossy()))
             .any(|declared| declared == caller_key);
 
         if declared {
@@ -1456,6 +1512,7 @@ impl SessionState {
             .workspace_root
             .iter()
             .chain(self.ingest_roots.iter())
+            .filter(|root| crate::scope::is_qualified_root(Path::new(root)))
             .map(|root| ProjectBrainRegistry::canonical_key(root))
             .collect();
         roots.sort();
@@ -1474,31 +1531,16 @@ impl SessionState {
     ///
     /// 1. the first ingest root that is a real directory and is NOT a `.light.md`
     ///    memory sidecar nor an `agent-memory` runtime dir;
-    /// 2. else `workspace_root` when it is not itself an `agent-memory` dir;
-    /// 3. else the first ingest root of any kind;
-    /// 4. else `workspace_root` (last resort — honest even if it is plumbing).
+    /// 2. else a qualified `workspace_root` that is not an `agent-memory` dir;
+    /// 3. else the first qualified ingest root of any kind;
+    /// 4. else qualified `workspace_root` (honest even if it is plumbing).
     ///
     /// A project brain always has its project root as ingest root #1, so it
     /// resolves to that; the bound graph skips its memory sidecars to reach the
-    /// repo. Returns `None` only when the brain has no roots at all (empty graph).
+    /// repo. Returns `None` when no qualified root is declared, including legacy
+    /// relative declarations whose original cwd is unknown.
     pub fn project_root_display(&self) -> Option<String> {
-        // 1. First real code ingest root that is not a memory sidecar.
-        for root in &self.ingest_roots {
-            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
-                return Some(root.clone());
-            }
-        }
-        // 2. workspace_root when it is a repo, not the agent-memory sidecar dir.
-        if let Some(ws) = self.workspace_root.as_deref() {
-            if !is_memory_sidecar(ws) {
-                return Some(ws.to_string());
-            }
-        }
-        // 3. any ingest root, then 4. workspace_root as the last honest fallback.
-        self.ingest_roots
-            .first()
-            .cloned()
-            .or_else(|| self.workspace_root.clone())
+        project_root_display_from_inputs(&self.ingest_roots, self.workspace_root.as_deref())
     }
 
     /// The Hall card / Brain Chip display name: the basename of
@@ -1525,17 +1567,7 @@ impl SessionState {
     /// never `workspace_root` directly: the first virgin-repo scan listed the
     /// brain's `.light.md` memories as the repo because of exactly that.
     pub fn code_root_path(&self) -> Option<String> {
-        for root in &self.ingest_roots {
-            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
-                return Some(root.clone());
-            }
-        }
-        if let Some(ws) = self.workspace_root.as_deref() {
-            if !is_memory_sidecar(ws) && std::path::Path::new(ws).join(".git").exists() {
-                return Some(ws.to_string());
-            }
-        }
-        None
+        code_root_path_from_inputs(&self.ingest_roots, self.workspace_root.as_deref())
     }
 
     /// #326-family auto-heal (load/resolve seam). A prior memorize / agent-memory
@@ -1570,6 +1602,67 @@ impl SessionState {
                 self.workspace_root = Some(code_root);
             }
         }
+    }
+
+    /// Restore the bound owner's SOURCE read binding from recovered roots.
+    /// Called only after the actor has accepted its checkpoint identity and
+    /// rebuilt the authoritative working set. The actor/instance identity is
+    /// process-owned and must not be re-keyed by this derived read binding.
+    pub(crate) fn restore_workspace_binding_from_ingest_roots(&mut self) {
+        if self.workspace_root_source.as_deref() == Some("project_brain_manifest") {
+            return;
+        }
+        let canonical_runtime = std::fs::canonicalize(&self.runtime_root).ok();
+        let mut source_declared = false;
+        let mut file_root = None;
+        for root in &self.ingest_roots {
+            let path = Path::new(root);
+            // An unanchored legacy declaration has an unknown original cwd.
+            // Mark it unavailable even when its basename resembles memory.
+            if !crate::scope::is_qualified_root(path) {
+                source_declared = true;
+                continue;
+            }
+            // Qualified memory roots remain auxiliary, not code workspaces.
+            if is_memory_sidecar(root) {
+                continue;
+            }
+            let canonical = crate::scope::canonical_declared_root(root);
+            let identity = canonical.as_deref().unwrap_or(path);
+            if identity.starts_with(&self.runtime_root)
+                || canonical_runtime
+                    .as_deref()
+                    .is_some_and(|runtime| identity.starts_with(runtime))
+                || is_memory_sidecar(&identity.to_string_lossy())
+                || Self::looks_like_managed_runtime_path(identity, &self.runtime_root)
+            {
+                continue;
+            }
+            source_declared = true;
+            let Some(canonical) = canonical else {
+                continue;
+            };
+            if canonical.is_dir() {
+                self.workspace_root = Some(canonical.to_string_lossy().into_owned());
+                self.workspace_root_source = Some("persisted_ingest_root".into());
+                return;
+            }
+            // A file-only brain must keep its exact file authority. Never
+            // widen it to the file's parent or the checkpoint/runtime directory.
+            if canonical.is_file() && file_root.is_none() {
+                file_root = Some(canonical);
+            }
+        }
+        if let Some(root) = file_root {
+            self.workspace_root = Some(root.to_string_lossy().into_owned());
+            self.workspace_root_source = Some("persisted_ingest_file".into());
+        } else if source_declared {
+            // Missing/inaccessible sources stay unavailable. Falling back to
+            // the snapshot's directory would authorize internal checkpoint copies.
+            self.workspace_root = None;
+            self.workspace_root_source = Some("persisted_ingest_roots_unavailable".into());
+        }
+        // No source declaration: retain legacy/fresh and pure-memory inference.
     }
 
     /// True when THIS store is the medulla — the owner's own memory-of-doctrine
@@ -6178,7 +6271,7 @@ mod tests {
         let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("initialize session");
         state.ingest_roots = vec![];
-        state.workspace_root = Some("/Users/<name>/solo-repo".to_string());
+        state.workspace_root = Some(temp.path().join("solo-repo").to_str().unwrap().to_owned());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
     }
 
@@ -6288,6 +6381,223 @@ mod tests {
             state.workspace_root.as_deref(),
             Some(code_root.to_string_lossy().as_ref()),
             "initialize must heal the store-dir workspace_root to the code root at boot"
+        );
+    }
+
+    fn binding_restore_state(temp: &Path) -> SessionState {
+        let runtime = temp.join("runtime");
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            registry_dir: Some(temp.join("registry")),
+            ..McpConfig::default()
+        };
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("binding fixture")
+    }
+
+    #[test]
+    fn restored_workspace_binding_prefers_canonical_directory_without_rekeying_instance() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("repo-alpha");
+        let second = temp.path().join("repo-beta");
+        let doc = temp.path().join("reference.md");
+        std::fs::create_dir_all(&source).expect("source");
+        std::fs::create_dir_all(&second).expect("second source");
+        std::fs::write(&doc, "exact document").expect("document");
+        let mut state = binding_restore_state(temp.path());
+        let owned_instance = state.instance.summary();
+        let memory = state.runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&memory).expect("memory store");
+        state.ingest_roots = vec![
+            memory.to_string_lossy().into_owned(),
+            doc.to_string_lossy().into_owned(),
+            source.join(".").to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+        let roots_before = state.ingest_roots.clone();
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str()
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_root")
+        );
+        assert_eq!(
+            state.ingest_roots, roots_before,
+            "logical root set is unchanged"
+        );
+        assert_eq!(
+            state.instance.summary().instance_id,
+            owned_instance.instance_id
+        );
+        assert_eq!(
+            state.instance.summary().workspace_root,
+            owned_instance.workspace_root,
+            "restoring read binding cannot re-key ownership"
+        );
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str(),
+            "idempotent"
+        );
+    }
+
+    #[test]
+    fn restored_workspace_binding_keeps_file_only_authority_exact() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let doc = temp.path().join("reference.md");
+        let sibling = temp.path().join("unrelated.md");
+        std::fs::write(&doc, "exact document").expect("document");
+        std::fs::write(&sibling, "unrelated").expect("sibling");
+        let mut state = binding_restore_state(temp.path());
+        state.ingest_roots = vec![doc.to_string_lossy().into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        let canonical = std::fs::canonicalize(&doc).expect("canonical file");
+        assert_eq!(state.workspace_root.as_deref(), canonical.to_str());
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_file")
+        );
+        assert_eq!(
+            crate::scope::canonical_read_roots(
+                &state.ingest_roots,
+                state.workspace_root.as_deref()
+            ),
+            vec![canonical]
+        );
+        assert!(
+            crate::scope::authorize_existing_path(
+                &sibling,
+                &state.ingest_roots,
+                state.workspace_root.as_deref(),
+                "search"
+            )
+            .is_err(),
+            "parent must not become a root"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restored_workspace_binding_skips_canonical_runtime_aliases() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let alias = temp.path().join("runtime-alias");
+        std::os::unix::fs::symlink(&state.runtime_root, &alias).expect("runtime alias");
+        let source = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&source).expect("source");
+        state.ingest_roots = vec![
+            alias.to_string_lossy().into_owned(),
+            state.runtime_root.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+        ];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            std::fs::canonicalize(&source)
+                .expect("canonical source")
+                .to_str()
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_root")
+        );
+    }
+
+    #[test]
+    fn restored_workspace_binding_missing_source_does_not_authorize_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let checkpoint_copy = state.runtime_root.join("checkpoint-copy.json");
+        std::fs::write(&checkpoint_copy, "source marker").expect("checkpoint copy");
+        state.ingest_roots = vec![temp
+            .path()
+            .join("missing-source")
+            .to_string_lossy()
+            .into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, None);
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_roots_unavailable")
+        );
+        assert!(crate::scope::canonical_read_roots(&state.ingest_roots, None).is_empty());
+        assert!(crate::scope::authorize_existing_path(
+            &checkpoint_copy,
+            &state.ingest_roots,
+            state.workspace_root.as_deref(),
+            "search"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn restored_workspace_binding_relative_legacy_roots_are_unavailable() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        state.ingest_roots = vec![".".into()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root, None,
+            "legacy '.' is a declaration with unknown origin, not no declaration"
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("persisted_ingest_roots_unavailable")
+        );
+        let cwd = std::env::current_dir().expect("cwd");
+        assert!(!state.covers_root(&cwd.to_string_lossy()));
+        assert!(
+            state.exact_declared_root(&cwd.to_string_lossy()).is_err(),
+            "a relative legacy declaration cannot grant the exact-root refresh door"
+        );
+        assert!(state.declared_roots_canonical().is_empty());
+        assert_eq!(state.project_root_display(), None);
+        assert_eq!(
+            state.code_root_path(),
+            None,
+            "file APIs and repository enumeration cannot use the new cwd as code root"
+        );
+        assert_eq!(
+            state.ingest_roots,
+            vec!["."],
+            "checkpoint roots remain unchanged"
+        );
+    }
+
+    #[test]
+    fn restored_workspace_binding_preserves_manifest_and_legacy_memory_inference() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = binding_restore_state(temp.path());
+        let original = state.workspace_root.clone();
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, original, "empty legacy root set");
+        let memory = state.runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&memory).expect("memory");
+        state.ingest_roots = vec![memory.to_string_lossy().into_owned()];
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(state.workspace_root, original, "pure-memory compatibility");
+        let source = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&source).expect("source");
+        state.ingest_roots = vec![source.to_string_lossy().into_owned()];
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.restore_workspace_binding_from_ingest_roots();
+        assert_eq!(
+            state.workspace_root, original,
+            "manifest binding is authoritative"
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("project_brain_manifest")
         );
     }
 

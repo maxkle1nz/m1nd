@@ -15482,6 +15482,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let repo = temp.path().join("repo");
         let source_dir = repo.join("src");
         std::fs::create_dir_all(&source_dir).expect("source dir");
+        let repo = std::fs::canonicalize(&repo).expect("canonical repo");
         std::fs::write(
             source_dir.join("missing.rs"),
             "pub fn missing_from_graph() {}\n",

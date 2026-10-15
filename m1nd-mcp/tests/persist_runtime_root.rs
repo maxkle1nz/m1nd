@@ -58,6 +58,7 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -134,14 +135,38 @@ impl Owner {
         Owner::start(cwd, runtime_dir, Some(stderr_log))
     }
 
-    fn start(cwd: &Path, runtime_dir: &Path, stderr_log: Option<&Path>) -> Owner {
-        let stderr = match stderr_log {
-            Some(path) => {
-                Stdio::from(std::fs::File::create(path).expect("create the owner stderr log"))
-            }
-            None => Stdio::null(),
-        };
-        let mut child = Command::new(BIN)
+    fn command(cwd: &Path, runtime_dir: &Path) -> Command {
+        let mut command = Command::new(BIN);
+        // This lifecycle fixture intentionally supplies no launcher grant or
+        // ambient editor binding. Its persisted roots are the source identity.
+        for name in [
+            "M1ND_WORKSPACE_ROOT",
+            "M1ND_PROJECT_ROOT",
+            "M1ND_REPO_ROOT",
+            "WORKSPACE_ROOT",
+            "PROJECT_ROOT",
+            "REPO_ROOT",
+            "CLAUDE_PROJECT_DIR",
+            "CLAUDE_WORKSPACE_ROOT",
+            "ANTHROPIC_WORKSPACE_ROOT",
+            "ANTIGRAVITY_WORKSPACE_ROOT",
+            "ANTIGRAVITY_PROJECT_ROOT",
+            "GEMINI_WORKSPACE_ROOT",
+            "GEMINI_PROJECT_ROOT",
+            "CURSOR_WORKSPACE_ROOT",
+            "CURSOR_PROJECT_ROOT",
+            "WINDSURF_WORKSPACE_ROOT",
+            "WINDSURF_PROJECT_ROOT",
+            "VSCODE_WORKSPACE",
+            "VSCODE_CWD",
+            "INIT_CWD",
+            "PWD",
+            "OLDPWD",
+            "M1ND_RUNTIME_BASE",
+        ] {
+            command.env_remove(name);
+        }
+        command
             .arg("--no-gui")
             .current_dir(cwd)
             .env("M1ND_RUNTIME_DIR", runtime_dir)
@@ -153,7 +178,18 @@ impl Owner {
             .env("M1ND_REGISTRY_DIR", runtime_dir.join("registry"))
             .env("M1ND_NO_GUI", "1")
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::piped());
+        command
+    }
+
+    fn start(cwd: &Path, runtime_dir: &Path, stderr_log: Option<&Path>) -> Owner {
+        let stderr = match stderr_log {
+            Some(path) => {
+                Stdio::from(std::fs::File::create(path).expect("create the owner stderr log"))
+            }
+            None => Stdio::null(),
+        };
+        let mut child = Self::command(cwd, runtime_dir)
             .stderr(stderr)
             .spawn()
             .expect("spawn m1nd-mcp stdio owner");
@@ -390,6 +426,198 @@ impl Owner {
         );
         stderr
     }
+}
+
+#[test]
+fn legacy_relative_restart_cannot_read_or_refresh_the_new_cwd() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let repo = tmp.path().join("repo-alpha");
+    let foreign = tmp.path().join("repo-beta");
+    std::fs::create_dir_all(&runtime).expect("runtime");
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
+        .expect("private runtime");
+    write_fixture_repo(&repo);
+    write_fixture_repo(&foreign);
+    std::fs::write(
+        foreign.join("src/lib.rs"),
+        "pub fn foreign_cwd_probe_marker() {}\npub fn second() {}\npub fn third() {}\n",
+    )
+    .expect("foreign sentinel");
+    m1nd_core::snapshot::save_graph(&ingest_fixture(&repo), &runtime.join("graph_snapshot.json"))
+        .expect("trusted legacy graph seed");
+    std::fs::write(runtime.join("ingest_roots.json"), b"[\".\"]").expect("legacy relative root");
+    let mut first = Owner::spawn(&repo, &runtime);
+    let nodes = first.node_count();
+    first.shutdown();
+
+    // A real second process changes cwd. Neither that cwd nor runtime copies
+    // may acquire authority from the legacy declaration's unknown origin.
+    let mut second = Owner::spawn(&foreign, &runtime);
+    assert_eq!(second.node_count(), nodes, "legacy graph remains loaded");
+    let found = second.call(
+        "search",
+        serde_json::json!({
+            "agent_id":"legacy-relative-probe","query":"foreign_cwd_probe_marker",
+            "mode":"literal","top_k":100
+        }),
+    );
+    assert!(
+        found["results"].as_array().expect("results").is_empty(),
+        "foreign cwd is outside the original source authority: {found}"
+    );
+    let north = second.call(
+        "north",
+        serde_json::json!({
+            "agent_id":"legacy-relative-probe","task":"source identity","code":false
+        }),
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root_source"],
+        "persisted_ingest_roots_unavailable"
+    );
+    second.shutdown();
+
+    // A new launcher fact must not authenticate itself through legacy '.'.
+    // Queue the public refresh too: initialization must refuse before it runs.
+    let owned = [
+        "graph_snapshot.json",
+        "ingest_roots.json",
+        "checkpoint-store/CURRENT",
+    ];
+    let before: Vec<_> = owned
+        .iter()
+        .map(|p| std::fs::read(runtime.join(p)).unwrap())
+        .collect();
+    let mut child = Owner::command(&foreign, &runtime)
+        .env("M1ND_WORKSPACE_ROOT", &foreign)
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("foreign launcher attempt");
+    let requests = [
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"ingest","arguments":{"path":foreign,"mode":"refresh","adapter":"code",
+                "agent_id":"legacy-relative-probe"}}}),
+    ];
+    let mut stdin = child.stdin.take().expect("stdin");
+    for request in requests {
+        writeln!(stdin, "{request}").expect("request");
+    }
+    drop(stdin);
+    let output = child.wait_with_output().expect("refused launcher exit");
+    assert!(
+        !output.status.success(),
+        "legacy '.' must not authorize this launcher"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("launcher_workspace_conflicts_with_bound_graph"),
+        "unexpected refusal: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for (path, expected) in owned.iter().zip(before) {
+        assert_eq!(
+            std::fs::read(runtime.join(path)).unwrap(),
+            expected,
+            "refused launcher/refresh must preserve {path}"
+        );
+    }
+}
+
+#[test]
+fn restart_restores_source_binding_without_searching_checkpoint_copies() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let repo = tmp.path().join("repo-alpha");
+    std::fs::create_dir_all(&runtime).expect("runtime");
+    write_fixture_repo(&repo);
+    std::fs::write(
+        repo.join("src/lib.rs"),
+        "pub fn workspace_binding_probe() -> u32 { 7 }\n",
+    )
+    .expect("source marker");
+    let source = std::fs::canonicalize(&repo).expect("canonical source");
+    m1nd_core::snapshot::save_graph(&ingest_fixture(&repo), &runtime.join("graph_snapshot.json"))
+        .expect("trusted graph seed");
+    std::fs::write(
+        runtime.join("ingest_roots.json"),
+        serde_json::to_vec(&vec![source.to_string_lossy()]).expect("roots JSON"),
+    )
+    .expect("trusted source roots");
+
+    let mut first = Owner::spawn(tmp.path(), &runtime);
+    let nodes = first.node_count();
+    first.shutdown();
+    let current_path = runtime.join("checkpoint-store/CURRENT");
+    let current_before = std::fs::read(&current_path).expect("CURRENT after real shutdown");
+    let current: serde_json::Value = serde_json::from_slice(&current_before).expect("CURRENT JSON");
+    let checkpoint_id = current["current_checkpoint_id"]
+        .as_str()
+        .expect("checkpoint id");
+    let manifest_path = runtime
+        .join("checkpoint-store/checkpoints")
+        .join(checkpoint_id)
+        .join("manifest.json");
+    let manifest_before = std::fs::read(&manifest_path).expect("checkpoint manifest");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_before).expect("manifest JSON");
+    assert!(
+        manifest["brain_id"].as_str().is_some(),
+        "manifest must carry actor identity"
+    );
+
+    let mut second = Owner::spawn(Path::new(READ_ONLY_CWD), &runtime);
+    assert_eq!(second.node_count(), nodes, "restart must retain the graph");
+    let found = second.call("search", serde_json::json!({
+        "agent_id":"binding-probe", "query":"workspace_binding_probe", "mode":"literal", "top_k":100
+    }));
+    let results = found["results"].as_array().expect("search results");
+    let paths: Vec<_> = results
+        .iter()
+        .filter_map(|r| r["file_path"].as_str())
+        .collect();
+    assert!(
+        paths.contains(&"src/lib.rs"),
+        "real source must remain searchable: {found}"
+    );
+    let source_file = source.join("src/lib.rs");
+    assert!(
+        paths
+            .iter()
+            .all(|p| *p == "src/lib.rs" || Some(*p) == source_file.to_str()),
+        "checkpoint JSON/materialized copies must never become source results: {paths:?}"
+    );
+    let north = second.call(
+        "north",
+        serde_json::json!({
+            "agent_id":"binding-probe", "task":"workspace_binding_probe", "code":false
+        }),
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root"].as_str(),
+        source.to_str(),
+        "binding must restore the canonical source: {north}"
+    );
+    assert_eq!(
+        north["binding"]["fingerprint"]["workspace_root_source"], "persisted_ingest_root",
+        "binding provenance must name the persisted roots"
+    );
+    assert_eq!(
+        std::fs::read(&current_path).expect("CURRENT during restart"),
+        current_before,
+        "source binding restoration must not republish CURRENT"
+    );
+    assert_eq!(
+        std::fs::read(&manifest_path).expect("manifest during restart"),
+        manifest_before,
+        "source binding restoration must preserve checkpoint actor identity"
+    );
+    second.shutdown();
 }
 
 #[test]

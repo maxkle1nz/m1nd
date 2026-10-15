@@ -1083,6 +1083,16 @@ fn finalize_ingest_with_inventory(
     stats: m1nd_ingest::IngestStats,
     sealed_inventory: Option<Vec<crate::session::FileInventoryEntry>>,
 ) -> M1ndResult<serde_json::Value> {
+    // Capture filesystem identity before changing ANY session owner. A source
+    // that vanished or cannot be represented exactly must not publish a graph
+    // with a cwd-dependent root. Keep native path spelling for filesystem use;
+    // comparisons use the shared exact identity contract (not lossy strings).
+    let canonical_input = std::fs::canonicalize(&input.path)?;
+    m1nd_ingest::exact_path_identity(&canonical_input)?;
+    let canonical_input_text = canonical_input
+        .to_str()
+        .expect("exact_path_identity checked UTF-8")
+        .to_owned();
     let mode = normalized_ingest_mode(&input.mode).to_string();
     let namespace = input.namespace.clone().or_else(|| {
         if adapter == "memory" {
@@ -1281,7 +1291,7 @@ fn finalize_ingest_with_inventory(
         // deliberately nothing
     } else if mode == "replace" {
         state.ingest_roots.clear();
-        state.ingest_roots.push(input.path.clone());
+        state.ingest_roots.push(canonical_input_text.clone());
     } else {
         // Budget Law (§C1.3.4 write-path fix): a `.light.md` memory claim written
         // into the `agent-memory` STORE must NOT mint a per-file ingest root — the
@@ -1290,45 +1300,53 @@ fn finalize_ingest_with_inventory(
         // Narrowly scoped to files whose parent dir is `agent-memory`: a user
         // ingesting an arbitrary `.light.md` by path elsewhere keeps its own root
         // (that path is a deliberate root, not store sprawl).
-        let ingest_path = std::path::Path::new(&input.path);
+        let ingest_path = canonical_input.as_path();
         let parent_is_agent_memory = ingest_path
             .parent()
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
             .map(|n| n == "agent-memory")
             .unwrap_or(false);
-        let root_to_track =
-            if input.path.ends_with(".light.md") && ingest_path.is_file() && parent_is_agent_memory
-            {
-                ingest_path
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|| input.path.clone())
-            } else {
-                input.path.clone()
-            };
-        // Keep the vector ordered oldest -> newest so path resolution can prefer
-        // the most recent matching root deterministically.
-        if let Some(pos) = state
-            .ingest_roots
-            .iter()
-            .position(|root| root == &root_to_track)
+        let root_to_track = if canonical_input_text.ends_with(".light.md")
+            && ingest_path.is_file()
+            && parent_is_agent_memory
         {
-            let root = state.ingest_roots.remove(pos);
-            state.ingest_roots.push(root);
+            ingest_path
+                .parent()
+                .map(|p| p.to_str().expect("canonical UTF-8 parent").to_owned())
+                .unwrap_or_else(|| canonical_input_text.clone())
         } else {
-            state.ingest_roots.push(root_to_track);
-        }
+            canonical_input_text.clone()
+        };
+        // Keep the vector ordered oldest -> newest by filesystem identity.
+        // Replace every equivalent qualified alias with the accepted canonical
+        // root. Unknown relative origins and unavailable roots stay untouched.
+        let tracked_identity =
+            m1nd_ingest::exact_path_identity(std::path::Path::new(&root_to_track))
+                .expect("canonical root was validated as UTF-8 before mutation");
+        state.ingest_roots.retain(|root| {
+            !crate::scope::canonical_declared_root(root)
+                .and_then(|canonical| m1nd_ingest::exact_path_identity(&canonical).ok())
+                .is_some_and(|identity| identity == tracked_identity)
+        });
+        state.ingest_roots.push(root_to_track);
     }
-    let input_path = std::path::Path::new(&input.path);
-    let candidate_workspace_root = if input_path.is_dir() {
-        input.path.clone()
-    } else {
-        input_path
+    // An explicit file root authorizes only that file. The owned memory-store
+    // folding above is the sole case where its parent is the declared root.
+    let candidate_workspace_root = if canonical_input_text.ends_with(".light.md")
+        && canonical_input
             .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .to_string_lossy()
-            .to_string()
+            .and_then(|p| p.file_name())
+            .is_some_and(|name| name == "agent-memory")
+    {
+        canonical_input
+            .parent()
+            .expect("memory parent")
+            .to_str()
+            .expect("canonical UTF-8 parent")
+            .to_owned()
+    } else {
+        canonical_input_text
     };
     // #326 family (3rd member — the memorize / agent-memory merge path): a
     // `memorize` writes `<runtime>/agent-memory/<slug>.light.md` and then ingests
@@ -6927,6 +6945,7 @@ mod tests {
         std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
         let repo = temp.path().join("repo");
         std::fs::create_dir_all(&repo).expect("repo dir");
+        let repo = std::fs::canonicalize(&repo).expect("canonical repo");
         std::fs::write(repo.join("lib.rs"), "pub fn f() {}\n").expect("write code");
 
         let config = McpConfig {
@@ -6960,6 +6979,263 @@ mod tests {
             state.workspace_root.as_deref(),
             Some(repo.to_string_lossy().as_ref()),
             "a stdio single-graph session must still bind its workspace_root to the ingested repo"
+        );
+    }
+
+    #[test]
+    fn finalize_ingest_persists_canonical_identity_for_relative_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        let expected =
+            m1nd_ingest::exact_path_identity(&std::fs::canonicalize(".").expect("canonical cwd"))
+                .expect("root identity");
+        let input: crate::protocol::core::IngestInput = serde_json::from_value(
+            serde_json::json!({"path":".","agent_id":"root-probe","adapter":"code", "mode":"replace"}))
+            .expect("ingest input");
+        super::finalize_ingest(
+            &mut state,
+            &input,
+            "code",
+            Graph::new(),
+            m1nd_ingest::IngestStats::default(),
+        )
+        .expect("trusted owner ingest finalization");
+        let identities: Vec<_> = state
+            .ingest_roots
+            .iter()
+            .map(|root| m1nd_ingest::exact_path_identity(std::path::Path::new(root)).unwrap())
+            .collect();
+        assert_eq!(
+            identities,
+            vec![expected.clone()],
+            "ingest must not persist a cwd-dependent root"
+        );
+        assert_eq!(
+            m1nd_ingest::exact_path_identity(std::path::Path::new(
+                state.workspace_root.as_deref().unwrap()
+            ))
+            .unwrap(),
+            expected
+        );
+        let roots: Vec<String> = serde_json::from_slice(
+            &std::fs::read(state.graph_path.parent().unwrap().join("ingest_roots.json"))
+                .expect("persisted roots"),
+        )
+        .expect("roots JSON");
+        assert_eq!(roots, state.ingest_roots);
+    }
+
+    #[test]
+    fn finalize_ingest_merge_deduplicates_qualified_aliases_without_rebasing_legacy_roots() {
+        const CHILD_ROOT: &str = "M1ND_TEST_ROOT_ALIAS_MERGE";
+        if let Some(base) = std::env::var_os(CHILD_ROOT) {
+            let base = std::path::PathBuf::from(base);
+            let source = std::fs::canonicalize(base.join("repo-alpha")).expect("source identity");
+            let alias = source.join(".").to_str().unwrap().to_owned();
+            let canonical = source.to_str().unwrap().to_owned();
+            assert_ne!(
+                alias, canonical,
+                "the fixture needs two spellings of one identity"
+            );
+            let before = base.join("repo-before").to_str().unwrap().to_owned();
+            let after = base.join("repo-after").to_str().unwrap().to_owned();
+            let missing = base.join("unavailable-root").to_str().unwrap().to_owned();
+            let runtime = base.join("runtime");
+            std::fs::create_dir_all(&runtime).expect("runtime");
+            let mut state = build_runtime_state(&runtime);
+            state.ingest_roots = vec![
+                before.clone(),
+                alias.clone(),
+                ".".into(),
+                canonical.clone(),
+                after.clone(),
+                missing.clone(),
+            ];
+            let input: crate::protocol::core::IngestInput = serde_json::from_value(
+                serde_json::json!({"path":source,"agent_id":"root-alias-probe",
+                    "adapter":"code","mode":"merge"}),
+            )
+            .expect("merge input");
+            super::finalize_ingest(
+                &mut state,
+                &input,
+                "code",
+                Graph::new(),
+                m1nd_ingest::IngestStats::default(),
+            )
+            .expect("merge finalization");
+            // The updated identity has one canonical root in the newest slot.
+            // Other roots retain their order and bytes; even when '.' is this source
+            // in the child cwd, its unknown legacy origin is never reinterpreted.
+            let expected = vec![before, ".".into(), after, missing, canonical];
+            assert_eq!(state.ingest_roots, expected);
+            let identity = m1nd_ingest::exact_path_identity(&source).unwrap();
+            assert_eq!(
+                state
+                    .ingest_roots
+                    .iter()
+                    .filter_map(|root| crate::scope::canonical_declared_root(root))
+                    .filter_map(|root| m1nd_ingest::exact_path_identity(&root).ok())
+                    .filter(|root| root == &identity)
+                    .count(),
+                1,
+                "one source identity cannot gain duplicate declared roots",
+            );
+            let persisted: Vec<String> = serde_json::from_slice(
+                &std::fs::read(state.graph_path.parent().unwrap().join("ingest_roots.json"))
+                    .expect("persisted roots"),
+            )
+            .expect("roots JSON");
+            assert_eq!(persisted, expected);
+            return;
+        }
+        // A bounded child gives '.' this source's cwd without changing the
+        // process-global cwd shared by other Rust tests.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let base = std::fs::canonicalize(temp.path()).expect("fixture identity");
+        for name in ["repo-alpha", "repo-before", "repo-after"] {
+            std::fs::create_dir_all(base.join(name)).expect("fixture root");
+        }
+        let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args([
+                "--exact",
+                "tools::tests::finalize_ingest_merge_deduplicates_qualified_aliases_without_rebasing_legacy_roots",
+                "--nocapture",
+            ])
+            .current_dir(base.join("repo-alpha"))
+            .env(CHILD_ROOT, &base)
+            .output().expect("bounded child");
+        assert!(
+            output.status.success(),
+            "root identity regression: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn finalize_ingest_unresolvable_identity_refuses_without_mutation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        let before = state
+            .authoritative_checkpoint_state_digest()
+            .expect("before digest");
+        let workspace = state.workspace_root.clone();
+        let input: crate::protocol::core::IngestInput = serde_json::from_value(
+            serde_json::json!({"path":temp.path().join("vanished-source"),
+                "agent_id":"root-probe","adapter":"code", "mode":"replace"}),
+        )
+        .expect("ingest input");
+        assert!(super::finalize_ingest(
+            &mut state,
+            &input,
+            "code",
+            Graph::new(),
+            m1nd_ingest::IngestStats::default()
+        )
+        .is_err());
+        assert_eq!(
+            state
+                .authoritative_checkpoint_state_digest()
+                .expect("after digest"),
+            before
+        );
+        assert_eq!(state.workspace_root, workspace);
+    }
+
+    #[test]
+    fn finalize_ingest_file_root_keeps_authority_exact() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("single.rs");
+        let sibling = temp.path().join("sibling.rs");
+        std::fs::write(&source, "pub fn single() {}\n").expect("source");
+        std::fs::write(&sibling, "pub fn sibling() {}\n").expect("sibling");
+        let mut state = build_runtime_state(temp.path());
+        let input: crate::protocol::core::IngestInput = serde_json::from_value(
+            serde_json::json!({"path":source,"agent_id":"root-probe","adapter":"code", "mode":"replace"}))
+            .expect("ingest input");
+        super::handle_ingest(&mut state, input).expect("trusted file ingest");
+        assert_eq!(
+            crate::scope::canonical_read_roots(
+                &state.ingest_roots,
+                state.workspace_root.as_deref()
+            ),
+            vec![std::fs::canonicalize(&source).unwrap()]
+        );
+        assert!(crate::scope::authorize_existing_path(
+            &sibling,
+            &state.ingest_roots,
+            state.workspace_root.as_deref(),
+            "search"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn legacy_relative_refresh_refuses_without_mutation() {
+        const CHILD_ROOT: &str = "M1ND_TEST_RELATIVE_REFRESH_ROOT";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let mut state = build_runtime_state(std::path::Path::new(&root));
+            state.ingest_roots = vec![".".into()];
+            state.workspace_root = None;
+            state.workspace_root_source = Some("persisted_ingest_roots_unavailable".into());
+            let cwd = std::env::current_dir().expect("fixture cwd");
+            state.caller_root = Some(cwd.to_str().unwrap().to_owned());
+            state.persist().expect("preimage");
+            let before = state
+                .authoritative_checkpoint_state_digest()
+                .expect("before digest");
+            let graph_before = std::fs::read(&state.graph_path).expect("graph preimage");
+            let roots_before =
+                std::fs::read(state.graph_path.parent().unwrap().join("ingest_roots.json"))
+                    .expect("roots preimage");
+            let input: crate::protocol::core::IngestInput = serde_json::from_value(
+                serde_json::json!({"path":cwd,"agent_id":"relative-refresh-probe",
+                    "adapter":"code", "mode":"refresh"}),
+            )
+            .expect("refresh input");
+            let output = super::handle_ingest_refresh(&mut state, &input).expect("closed refresh");
+            assert_eq!(output["refused"], "refresh_root_not_exact", "{output}");
+            assert_eq!(output["ok"], false, "{output}");
+            assert_eq!(
+                state
+                    .authoritative_checkpoint_state_digest()
+                    .expect("after digest"),
+                before
+            );
+            assert_eq!(std::fs::read(&state.graph_path).unwrap(), graph_before);
+            assert_eq!(
+                std::fs::read(state.graph_path.parent().unwrap().join("ingest_roots.json"))
+                    .unwrap(),
+                roots_before
+            );
+            return;
+        }
+        // A child supplies a private cwd without changing the process-global
+        // cwd of parallel tests. Even a vulnerable build scans only this fixture.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let foreign = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&foreign).expect("foreign cwd");
+        std::fs::write(
+            foreign.join("lib.rs"),
+            "pub fn first() {}\npub fn second() {}\npub fn third() {}\n",
+        )
+        .expect("foreign source");
+        let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args([
+                "--exact",
+                "tools::tests::legacy_relative_refresh_refuses_without_mutation",
+                "--nocapture",
+            ])
+            .current_dir(&foreign)
+            .env(CHILD_ROOT, temp.path())
+            .output()
+            .expect("bounded child");
+        assert!(
+            output.status.success(),
+            "refresh authority regression: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 

@@ -1616,6 +1616,9 @@ fn entry_declared_roots(entry: &InstanceRegistryEntry) -> Vec<String> {
 fn declared_root_covering(entry: &InstanceRegistryEntry, caller_key: &str) -> Option<String> {
     let caller = Path::new(caller_key);
     entry_declared_roots(entry).into_iter().find_map(|root| {
+        if !crate::scope::is_qualified_root(Path::new(&root)) {
+            return None;
+        }
         let key = crate::project_brains::ProjectBrainRegistry::canonical_key(&root);
         crate::project_brains::path_starts_with_loosely(caller, Path::new(&key)).then_some(key)
     })
