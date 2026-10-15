@@ -25,9 +25,23 @@ import {
   type KV,
 } from './threshold';
 import type { ToolSchema } from '../types';
+import { withdrawnToolPost } from '../../e2e/tool-registry';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
 const load = <T>(name: string): T => JSON.parse(readFileSync(join(FIX, name), 'utf8'));
+
+test('withdrawn browser mock routes refuse bare, dot and underscore aliases only on POST', () => {
+  for (const tool of ['transplant', 'transplant_preview', 'transplant_commit',
+    'mission_spawn', 'candidate_naming', 'curation_spawn']) {
+    for (const name of [tool, `m1nd.${tool}`, `m1nd_${tool}`]) {
+      assert.equal(withdrawnToolPost(`/api/tools/${name}`, 'POST'), true, name);
+      assert.equal(withdrawnToolPost(`/api/tools/${name}`, 'GET'), false, name);
+    }
+  }
+  for (const tool of ['north', 'seek', 'impact', 'candidate_edit', 'mission_post']) {
+    assert.equal(withdrawnToolPost(`/api/tools/${tool}`, 'POST'), false, tool);
+  }
+});
 
 function memKV(): KV {
   const m = new Map<string, string>();

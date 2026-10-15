@@ -79,3 +79,6 @@ The transplant/F11/F12/F25 and organism PRDs, UML histories and dated benchmark
 receipts remain historical records. Their runner/transplant designs are superseded
 for current source by this contract; they are not current call recipes. No broader
 writer, mission, promotion, UI or state-format withdrawal is included here.
+
+The frozen M1ND-10 PRD and UML remain byte-identical. This adjacent current-source
+contract records the capability withdrawal without rewriting those sealed documents.

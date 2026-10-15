@@ -13,5 +13,5 @@ const withdrawnToolNames = new Set([
 /** A removed write must never receive the generic mock's successful envelope. */
 export function withdrawnToolPost(path: string, method: string): boolean {
   if (method !== 'POST' || !path.startsWith('/api/tools/')) return false;
-  return withdrawnToolNames.has(path.slice('/api/tools/'.length).replace(/^m1nd\./, ''));
+  return withdrawnToolNames.has(path.slice('/api/tools/'.length).replace(/^m1nd[._]/, ''));
 }

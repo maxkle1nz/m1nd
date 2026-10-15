@@ -1,7 +1,5 @@
 # M1nd 10 — UML de sistemas, subsistemas e conexões
 
-> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
-
 > **Status:** RATIFIED — baseline vinculante para implementação
 > **Versão:** 1.0
 > **Data:** 2026-07-17
