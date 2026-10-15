@@ -230,7 +230,15 @@ fn oversized_metadata_refusal_can_resume_same_cursor_with_larger_budget() {
                 json!(true),
                 "valid cursor must survive the refusal: {resumed}"
             );
-            assert!(payload(&resumed)["context_page"]["continuation"].is_null());
+            let final_page = payload(&resumed);
+            assert!(final_page["file_contents"].as_str().unwrap().is_empty());
+            assert!(
+                final_page["context_page"]["source"]["byte_start"]
+                    .as_u64()
+                    .unwrap()
+                    > 0
+            );
+            assert_reassembled_source_guidance(&final_page);
             saw_refusal = true;
             break;
         }
@@ -243,5 +251,102 @@ fn oversized_metadata_refusal_can_resume_same_cursor_with_larger_budget() {
     assert!(
         saw_refusal,
         "an indivisible oversized metadata item must refuse"
+    );
+}
+
+fn assert_continuation_guidance(result: &Value) {
+    assert!(result["context_page"]["continuation"].is_object());
+    let suggestions = result["_m1nd"]["suggest_next"].as_array().unwrap();
+    assert!(suggestions
+        .iter()
+        .any(|s| s.as_str().unwrap().contains("surgical_context")
+            && s.as_str().unwrap().contains("continuation")));
+    for suggestion in suggestions {
+        let text = suggestion.as_str().unwrap();
+        for write_tool in ["edit_preview", "edit_commit", "apply_batch", "apply("] {
+            assert!(
+                !text.contains(write_tool),
+                "a partial page must not recommend a write: {text}"
+            );
+        }
+    }
+}
+
+fn assert_reassembled_source_guidance(result: &Value) {
+    assert!(result["context_page"]["continuation"].is_null());
+    let suggestions = result["_m1nd"]["suggest_next"].as_array().unwrap();
+    let first = suggestions[0].as_str().unwrap();
+    assert!(
+        first.contains("reassemble") && first.contains("all") && first.contains("sha256"),
+        "final page must require verified reassembly: {result}"
+    );
+    assert!(suggestions
+        .iter()
+        .any(|s| s.as_str().unwrap().contains("edit_preview")
+            && s.as_str().unwrap().contains("reassembled")));
+}
+
+#[test]
+fn surgical_page_envelopes_distinguish_partial_final_and_unbounded_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo-alpha");
+    let runtime = temp.path().join("private-runtime");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(
+        repo.join("Cargo.toml"),
+        "[package]\nname=\"repo-alpha\"\nversion=\"0.0.0\"\n",
+    )
+    .unwrap();
+    let source = format!(
+        "pub fn core() {{}}\n{}",
+        "// quoted source λ 🧠\n".repeat(200)
+    );
+    std::fs::write(repo.join("src/lib.rs"), &source).unwrap();
+    let mut owner = Owner::spawn(&repo, &runtime);
+    let mut cursor = Value::Null;
+    let mut reconstructed = String::new();
+    let mut final_page = None;
+    for _ in 0..100 {
+        let mut args = json!({"file_path":"src/lib.rs","max_output_bytes":2048});
+        if !cursor.is_null() {
+            args["continuation"] = cursor;
+        }
+        let reply = owner.call("surgical_context", args);
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+        let result = payload(&reply);
+        assert!(result["context_page"]["serialized_bytes"].as_u64().unwrap() <= 2048);
+        assert_eq!(
+            result["context_page"]["source"]["byte_start"]
+                .as_u64()
+                .unwrap() as usize,
+            reconstructed.len()
+        );
+        reconstructed.push_str(result["file_contents"].as_str().unwrap());
+        cursor = result["context_page"]["continuation"].clone();
+        if cursor.is_null() {
+            assert!(
+                result["context_page"]["source"]["byte_start"]
+                    .as_u64()
+                    .unwrap()
+                    > 0
+            );
+            assert_reassembled_source_guidance(&result);
+            final_page = Some(result);
+            break;
+        }
+        assert_continuation_guidance(&result);
+    }
+    assert!(final_page.is_some(), "continuation must terminate");
+    assert_eq!(reconstructed, source);
+    let unbounded = payload(&owner.call("surgical_context", json!({"file_path":"src/lib.rs"})));
+    assert_eq!(unbounded["file_contents"], source);
+    assert!(unbounded.get("context_page").is_none());
+    assert_eq!(
+        unbounded["_m1nd"]["suggest_next"],
+        json!([
+            "validate_plan(files) to ground the coupled edit surface",
+            "edit_preview(file, content) to preview changes before writing",
+            "apply_batch(edits) for multiple files after proof"
+        ])
     );
 }
