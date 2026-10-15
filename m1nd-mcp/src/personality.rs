@@ -2581,3 +2581,63 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
     dp[a_len][b_len]
 }
+
+#[cfg(test)]
+mod bounded_context_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn partial_page_suggestions_fetch_continuation_without_editing() {
+        let result =
+            json!({"file_contents":"fragment", "context_page":{"continuation":{"version":1}}});
+        let meta = build_m1nd_meta("surgical_context", &result);
+        let suggestions = meta["suggest_next"].as_array().unwrap();
+        assert!(suggestions
+            .iter()
+            .any(|s| s.as_str().unwrap().contains("surgical_context")
+                && s.as_str().unwrap().contains("continuation")));
+        for suggestion in suggestions {
+            let text = suggestion.as_str().unwrap();
+            for write_tool in ["edit_preview", "edit_commit", "apply_batch", "apply("] {
+                assert!(
+                    !text.contains(write_tool),
+                    "partial source must not recommend {write_tool}: {text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn final_tail_and_metadata_only_pages_require_verified_reassembly_before_editing() {
+        for (contents, start) in [("tail\n", 32), ("", 37)] {
+            let result = json!({"file_contents":contents,"context_page":{"continuation":null,"source":{"byte_start":start,"byte_end":37,"total_bytes":37,"sha256":"source digest"}}});
+            let meta = build_m1nd_meta("surgical_context", &result);
+            let suggestions = meta["suggest_next"].as_array().unwrap();
+            let first = suggestions[0].as_str().unwrap();
+            assert!(
+                first.contains("all") && first.contains("reassemble") && first.contains("sha256"),
+                "final fragments require all pages and a digest check: {meta}"
+            );
+            assert!(suggestions
+                .iter()
+                .any(|s| s.as_str().unwrap().contains("edit_preview")));
+            assert!(suggestions
+                .iter()
+                .any(|s| s.as_str().unwrap().contains("apply_batch")));
+        }
+    }
+
+    #[test]
+    fn unbounded_surgical_and_other_tool_suggestions_keep_the_existing_contract() {
+        let meta = build_m1nd_meta("surgical_context", &json!({"file_contents":"full source"}));
+        assert_eq!(
+            meta["suggest_next"],
+            json!(suggest_next("surgical_context"))
+        );
+        let unrelated = build_m1nd_meta(
+            "view",
+            &json!({"context_page":{"continuation":{"version":1}}}),
+        );
+        assert_eq!(unrelated["suggest_next"], json!(suggest_next("view")));
+    }
+}
