@@ -267,8 +267,8 @@ pass `soul_check {verify_curator_report: <report>}` run by a DIFFERENT agent —
 ## 6. THE WRITE SURFACE — the candidate map & missions (RATIFY IS HUMAN)
 
 Two write surfaces beyond `memorize`, both candidate/human-gated by design. THE CANDIDATE MAP: \
-`skeleton_candidate` scans a repo into a CANDIDATE block map (with `naming:\"auto\"` + a live \
-naming-runner it is born NAMED — the zero-touch default); `candidate_edit` is the ONE verb that \
+`skeleton_candidate` scans a repo into a CANDIDATE block map using local heuristic names; \
+`candidate_edit` is the ONE verb that \
 edits it — six typed ops (rename/merge/split/move_member/resolve_seam/assign_unmapped) in ONE \
 atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), and it REFUSES on a \
 ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
@@ -276,10 +276,8 @@ blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, 
 enforced: generic `system_blocks_ratify` is closed because a client-authored origin string proves \
 nothing; ratification requires a future exact typed G2/G3 sovereign lease path — \
 and raw `receipt_import` is a permanent external G3 tombstone), and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
-curation mission edits via `candidate_edit`), the human signs. CURATION IS PROPOSE-APPLY (F12): the \
-`curation_spawn` verb sends the candidate to a pinned hand-runner that PROPOSES `candidate_edit` ops \
-as data; the OWNER sanitizes (o5, seat `runner`) and applies them under OCC — the hand never holds a \
-write surface, and it can NEVER ratify. THE MISSION LETTER: `mission_post` \
+curation mission edits via `candidate_edit`), the human signs. Candidate edits retain their \
+seat validation and atomic OCC; agent execution stays with the host. THE MISSION LETTER: `mission_post` \
 records one mission's live state as `m1nd-mission-letter-v0` — `brain_ref` is the brain's DISPLAY \
 NAME (the basename of its root, never an absolute path; a wrong one is refused `brain_mismatch`), \
 `block_id` must name a real block in the bound skeleton (else `unknown_block`; a legitimate \
@@ -2359,49 +2357,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     "required": ["agent_id", "preview_id", "confirm"]
                 }
             },
-            {
-                "name": "transplant",
-                "description": "Move a top-level Rust `fn` between files of the same crate BY REFERENCE: you name the symbol and two paths, the server computes everything from the graph — widened extent (doc comments and attributes travel), dependency trichotomy from call edges (private deps travel; shared deps stay, gain pub(crate) and a back-import), referencers re-qualified across every file that names it — then writes atomically, re-ingests, and returns an honest receipt (refs_unresolved is never silently empty-when-wrong; state_left_behind names node-addressed state the re-ingest orphaned). Refusals never touch a byte and TEACH the retry: a collision names the occupant, a poisonous stem (lib/main/mod) names the invalid module path, a cross-crate move names both crate roots. v1 boundaries: top-level fn only, module = file stem, same crate, destination file must already exist, macro-generated references are invisible. See docs/TRANSPLANT-PRD.md.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
-                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
-                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
-                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path. Omitted (the default) means a zone match refuses instead of writing; the reason is recorded in the receipt when it unlocks a crossing." }
-                    },
-                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
-                }
-            },
-            {
-                "name": "transplant_preview",
-                "description": "Stage a transplant WITHOUT touching disk. Takes the same inputs as transplant and computes the whole plan — every new file content, referencer discovery, the rustfmt pass and the candidate receipt — then returns a preview_id (5-minute TTL) plus the per-file plan with each file's base hash and line deltas. Redeem it with transplant_commit.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "symbol": { "type": "string", "description": "Bare name of the top-level fn to move (matches the graph node label)" },
-                        "source_file": { "type": "string", "description": "File the symbol currently lives in (absolute or workspace-relative)" },
-                        "dest_file": { "type": "string", "description": "File the symbol is moved into; must already exist and share the source's crate root" },
-                        "allow_protected": { "type": "string", "description": "Explicit reason for crossing a ci/protected-zones.json path; same law as transplant" }
-                    },
-                    "required": ["agent_id", "symbol", "source_file", "dest_file"]
-                }
-            },
-            {
-                "name": "transplant_commit",
-                "description": "Land a staged transplant_preview after re-validating the on-disk hash of EVERY planned file — source, destination and each derived referencer. Any drift since the preview refuses the commit as stale and writes nothing; otherwise the plan lands atomically and returns the finalized receipt.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "preview_id": { "type": "string", "description": "Handle returned by transplant_preview (expires after 5 minutes)" },
-                        "confirm": { "type": "boolean", "default": false, "description": "Must be true to land the staged plan. Safety guard against accidental writes." }
-                    },
-                    "required": ["agent_id", "preview_id", "confirm"]
-                }
-            },
             // =================================================================
             // v0.4.0: search, help, report, panoramic
             // =================================================================
@@ -3178,7 +3133,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "expected_store_version": { "type": ["integer", "null"], "description": "OCC key. Null/absent is valid only when no SystemBlock store exists yet." },
                         "review_limit": { "type": "integer", "default": 16, "description": "Review queue hint for UI paging only; the backend emits every candidate block." },
-                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "auto", "description": "auto (default) calls the pinned live naming-runner via the announced runner daemon (F11-b): one packet per block (member paths + dominant kinds + top symbols, no file bodies), per-block timeout, hostile-output sanitization (o5), per-block heuristic fallback — partial is normal; with no live runnerd the scan is exactly the offline heuristic behavior. heuristic skips the runner entirely." }
+                        "naming": { "type": "string", "enum": ["auto", "heuristic"], "default": "heuristic", "description": "Local heuristic naming only. auto is retained as a compatibility alias to heuristic; runner naming is withdrawn and no runner is contacted." }
                     },
                     "required": ["agent_id"]
                 }
@@ -3327,19 +3282,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
-                "name": "candidate_naming",
-                "description": "Human View v2 F11-c WRITE verb — the in-screen 'Name with runner' path (§2b). The OWNER builds the naming packets for the requested candidate blocks (the same member-paths + dominant-kinds + top-symbols shape the scan sends, never file bodies), calls the announced runner daemon's /name (the shared secret stays owner-side — the browser never holds it), sanitizes the hostile output (o5), and applies the accepted names through ONE candidate_edit batch under the given OCC key with the RUNNER seat — provenance (named_by:runner, needs_owner_naming:false) and OCC hold; the store is never rewritten outside the verb. block_ids absent = every block still needing a name. Returns {store_version, named, fell_back, refusal?}: partial is normal; with no live naming-runner the call returns the honest no_naming_runner refusal and touches nothing. HTTP-ONLY (like mission_spawn): it needs owner-process state (the announce registry + the secret) — the sync MCP dispatch refuses with a redirect to POST /api/tools/candidate_naming. Mutation — refused under a read-only attach.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "expected_store_version": { "type": "integer", "description": "The store_version you read (OCC key). A mismatch rejects the call with a conflict BEFORE any runner is invoked; nothing is applied." },
-                        "block_ids": { "type": "array", "items": { "type": "string" }, "description": "The blocks to name. Omit to name every block still carrying an untouched provisional name (needs_owner_naming). An unknown id is a hard error." }
-                    },
-                    "required": ["agent_id", "expected_store_version"]
-                }
-            },
-            {
                 "name": "mission_post",
                 "description": "Human View v2 F2.5a WRITE verb. Appends one mission letter (schema `m1nd-mission-letter-v0`) to the bound brain's mailbox box as a `kind=mission` line, after the §1 contract gates all pass. Gates, in order: (1) schema + `mission_id` shape (`msn_<12hex>`) + `mission_seq>=1` + the §1f no-absolute-path guard on `brain_ref`; (2) per-phase field gating — `executing` carries NO verdict, `merge_wait` REQUIRES a gate, and the §1d LANDED LAW: `landed` REQUIRES `receipt.imported==true` with a real `store_version` (a zero-exit gate WITHOUT an imported receipt is `merge_wait`, never `landed`); (3) a `receipt_candidate`, when present, is complete (`artifact_hash`+`evidence_refs`); (4) the §1e HEAD CAS — the mission's letters form a content-hash chain: `mission_seq` increments by 1 and `prev_letter_id` names the prior letter's content id; a letter that does not extend the current head is REJECTED with `stale_head` and NOTHING is appended. An identical replay dedups by content id (idempotent). The letter is STATE, not evidence — it NEVER changes a block's color (that is `receipt_import`'s job alone). Returns the appended letter's `letter_id` (set it as the next letter's `prev_letter_id`). Mutation — refused under a read-only attach.",
                 "inputSchema": {
@@ -3351,21 +3293,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     "required": ["agent_id", "letter"]
                 }
             },
-            {
-                "name": "mission_spawn",
-                "description": "Human View v2 F2.5c WRITE verb (§4b) — HTTP-ONLY. The owner→runner-daemon PROXY that launches a spawn mission. The browser holds no shared secret, so the spawn travels THROUGH the owner: this verb resolves the live runner (from the announce registry), reads the owner-local `runnerd.secret`, resolves the workspace project_root from the `?brain=` selector, and FORWARDS `{runner_id, packet_markdown, block_id, brain_ref, brain}` to the runner daemon's loopback `/run` with the secret in the `x-runnerd-secret` header. The daemon opens the mission chain (judging→executing→merge_wait|failed) and NEVER lands (the landed-law: import is a human act). Returns `{mission_id, accepted:true, runner_id}` on acceptance, or the daemon's honest refusal (`unpinned_runner`, `workspace_not_allowed`, …) verbatim. Served only by `POST /api/tools/mission_spawn` on the owner — the sync MCP dispatch refuses it with a redirect. Mutation — refused under a read-only attach.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "The calling agent id (the UI passes 'gui')." },
-                        "runner_id": { "type": "string", "description": "The pinned, LIVE runner id to spawn on (must appear in GET /api/runnerd/status)." },
-                        "packet_markdown": { "type": "string", "description": "The composed MissionPacket markdown handed to the runner." },
-                        "block_id": { "type": "string", "description": "The SystemBlock the mission extends (sb_...)." },
-                        "brain_ref": { "type": "string", "description": "The brain's reference string for the letter (a display name / repo_id — NEVER an absolute path)." }
-                    },
-                    "required": ["agent_id", "runner_id", "packet_markdown", "block_id", "brain_ref"]
-                }
-            }
         ]
     });
     let tools = registry["tools"]
@@ -4573,29 +4500,11 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // must refuse them.
     "candidate_edit",
     "candidate_lease",
-    // HUMAN VIEW v2 F11-c: candidate_naming applies runner names through a
-    // candidate_edit batch (a store write). HTTP-only (like mission_spawn), but the
-    // read-only law + the tool surface stay consistent here.
-    "candidate_naming",
     // HUMAN VIEW v2 F2.5a: mission_post appends a mission letter to the box on
     // disk (a mailbox write), so a read-only attach must refuse it. The
     // `kind=mission` READ is an HTTP route (a pure read), never an MCP verb — it
     // is not gated here (§6-F2.5a: the safety laws land first).
     "mission_post",
-    // HUMAN VIEW v2 F2.5c: mission_spawn PROXIES a spawn to the runner daemon — it
-    // launches a mission (a write), so a read-only attach must refuse it. It is an
-    // HTTP-only proxy handled in `http_server::handle_mission_spawn` (it needs the
-    // owner's announce registry + the shared secret + an async forward); the
-    // dispatch arm here only surfaces an honest "http-only" message to an MCP-stdio
-    // caller. Listing it keeps the read-only law + the tool surface consistent.
-    "mission_spawn",
-    // transplant writes source/dest/referencer files atomically (through
-    // apply_batch), so a read-only attach must refuse it.
-    // `transplant_commit` lands a staged plan — the same write under a handle.
-    // `transplant_preview` is deliberately ABSENT (it stages in memory and never
-    // writes, mirroring the `edit_preview` exemption).
-    "transplant",
-    "transplant_commit",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -4693,23 +4602,6 @@ fn proof_gate_targets(
             .ok_or_else(|| M1ndError::InvalidParams {
                 tool: bare_tool.to_string(),
                 detail: "edit_commit preview target is missing or expired".to_string(),
-            })?),
-        // B1: transplant writes source + dest + DERIVED referencer files the
-        // caller never named. The full touched set is derived read-only (same
-        // discovery the verb itself runs) so the armed gate covers ALL of them —
-        // a referencer without a permit refuses the whole call before any write.
-        "transplant" => Ok(crate::transplant::proof_gate_touched_files(state, params)),
-        // A2: a staged transplant already KNOWS its full touched set — recover it
-        // from the preview (mirrors the `edit_commit` arm above), failing closed
-        // with an explicit error when the preview is missing or expired.
-        "transplant_commit" => Ok(params
-            .get("preview_id")
-            .and_then(|v| v.as_str())
-            .and_then(|pid| state.transplant_previews.get(pid))
-            .map(|p| p.planned.iter().map(|f| f.file_path.clone()).collect())
-            .ok_or_else(|| M1ndError::InvalidParams {
-                tool: bare_tool.to_string(),
-                detail: "transplant_commit preview target is missing or expired".to_string(),
             })?),
         "xray_apply" => {
             let input: crate::xray_handlers::XrayApplyInput =
@@ -6817,12 +6709,31 @@ pub(crate) fn dispatch_generic_tool(
     result
 }
 
+/// Recognize withdrawn capabilities before any dispatch-side housekeeping.
+/// Prefix aliases must have the same refusal as the bare transport name.
+pub(crate) fn retired_tool_name(tool_name: &str) -> Option<&str> {
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+    matches!(
+        bare,
+        "transplant"
+            | "transplant_preview"
+            | "transplant_commit"
+            | "mission_spawn"
+            | "candidate_naming"
+            | "curation_spawn"
+    )
+    .then_some(bare)
+}
+
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
 /// Crate-internal: raw dispatch is an actor implementation detail, not a Rust
 /// embedding API — the [`McpServer`] sentinel doctest pins that boundary. The
-/// transplant proof suites drive this SAME gated path a live agent takes (the
+/// writer proof suites drive this SAME gated path a live agent takes (the
 /// M1ND_PROOF_GATE / catalog gating lives inside this function) from INSIDE the
 /// crate, as the `#[cfg(test)]` batteries registered in `lib.rs`.
 ///
@@ -6838,6 +6749,14 @@ pub(crate) fn dispatch_tool(
         .strip_prefix("m1nd.")
         .or_else(|| normalized.strip_prefix("m1nd_"))
         .unwrap_or(&normalized);
+
+    // Retired names cannot trigger freshness ticks, presence tracking, or proof
+    // consumption even on the owner-internal dispatcher with the gate disabled.
+    if retired_tool_name(bare).is_some() {
+        return Err(M1ndError::UnknownTool {
+            name: tool_name.to_string(),
+        });
+    }
 
     // G3 tombstones are selected by the wire action name alone. This precedes
     // read-only, proof, authority, and payload classification: no capability or
@@ -7254,28 +7173,6 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::mission_letter_handlers::handle_mission_post(state, input)
         }
-        // HUMAN VIEW v2 F2.5c — mission_spawn (§4b) is an OWNER→runnerd PROXY that
-        // needs owner-process state (the announce registry + the shared secret) and
-        // an async HTTP forward; it is served ONLY by the HTTP route
-        // (`http_server::handle_mission_spawn`), never through this sync dispatch. An
-        // MCP-stdio caller reaching here gets an honest redirect, never a silent
-        // failure or a fake spawn.
-        "mission_spawn" => Err(M1ndError::InvalidParams {
-            tool: "mission_spawn".to_string(),
-            detail:
-                "mission_spawn is an HTTP-only proxy verb — call it via `POST /api/tools/mission_spawn` on the owner (it forwards to the runner daemon with the shared secret the browser never holds)"
-                    .to_string(),
-        }),
-        // HUMAN VIEW v2 F11-c — candidate_naming (§2b) is likewise HTTP-only: it
-        // needs the owner-process announce registry + the shared secret + the
-        // /name forward, none of which this sync dispatch sees. An MCP-stdio
-        // caller gets an honest redirect, never a silent failure.
-        "candidate_naming" => Err(M1ndError::InvalidParams {
-            tool: "candidate_naming".to_string(),
-            detail:
-                "candidate_naming is an HTTP-only verb — call it via `POST /api/tools/candidate_naming` on the owner (it calls the runner daemon's /name with the shared secret the browser never holds, then applies the names through candidate_edit)"
-                    .to_string(),
-        }),
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -7752,33 +7649,6 @@ fn dispatch_core_tool(
             } else {
                 surgical_handlers::handle_apply_batch(state, input)?
             };
-            serde_json::to_value(output).map_err(M1ndError::Serde)
-        }
-        "transplant" => {
-            let input: crate::protocol::surgical::TransplantInput =
-                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
-                    tool: "transplant".into(),
-                    detail: e.to_string(),
-                })?;
-            let output = crate::transplant::handle_transplant(state, input)?;
-            serde_json::to_value(output).map_err(M1ndError::Serde)
-        }
-        "transplant_preview" => {
-            let input: crate::protocol::surgical::TransplantInput =
-                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
-                    tool: "transplant_preview".into(),
-                    detail: e.to_string(),
-                })?;
-            let output = crate::transplant::handle_transplant_preview(state, input)?;
-            serde_json::to_value(output).map_err(M1ndError::Serde)
-        }
-        "transplant_commit" => {
-            let input: crate::protocol::surgical::TransplantCommitInput =
-                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
-                    tool: "transplant_commit".into(),
-                    detail: e.to_string(),
-                })?;
-            let output = crate::transplant::handle_transplant_commit(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "edit_preview" => {
@@ -10742,6 +10612,93 @@ mod tests {
         assert!(!state.sessions.contains_key("attacker"));
     }
 
+    #[test]
+    fn retired_transplant_and_execution_proxy_aliases_refuse_without_housekeeping() {
+        use crate::protocol::JsonRpcRequest;
+
+        let retired = [
+            "transplant",
+            "transplant_preview",
+            "transplant_commit",
+            "mission_spawn",
+            "candidate_naming",
+            "curation_spawn",
+        ];
+        let schemas = all_tool_schemas();
+        let registered = schemas["tools"].as_array().expect("tool registry");
+        for tool in retired {
+            assert!(
+                registered.iter().all(|entry| entry["name"] != tool),
+                "retired {tool} is still advertised by the full registry"
+            );
+        }
+
+        let (temp, mut state) = build_state_with_armed_daemon();
+        state.daemon_state.last_tick_ms = Some(0);
+        let source = temp.path().join("repo/core.py");
+        let destination = temp.path().join("repo/destination.py");
+        std::fs::write(&destination, "def destination():\n    return 2\n")
+            .expect("seed destination");
+        let payloads = [
+            serde_json::Value::Null,
+            serde_json::json!({
+                "agent_id": "retired-tool-probe",
+                "symbol": "core",
+                "source_file": source.to_string_lossy(),
+                "dest_file": destination.to_string_lossy(),
+                "preview_id": "old-preview",
+                "confirm": true,
+                "action": "query.read",
+                "authority_floor": "ORDINARY"
+            }),
+        ];
+        let baseline = denied_action_state_digest(&state, temp.path());
+        let ticks_before = state.daemon_state.tick_count;
+        for read_only in [false, true] {
+            state.read_only = read_only;
+            for tool in retired {
+                for name in [
+                    tool.to_string(),
+                    format!("m1nd.{tool}"),
+                    format!("m1nd_{tool}"),
+                ] {
+                    assert_eq!(super::retired_tool_name(&name), Some(tool));
+                    for arguments in &payloads {
+                        let error = super::dispatch_tool(&mut state, &name, arguments)
+                            .expect_err("raw dispatcher must reject a withdrawn capability");
+                        assert!(matches!(
+                            error,
+                            super::M1ndError::UnknownTool { name: rejected } if rejected == name
+                        ));
+
+                        let response = handle_mcp_method(
+                            &mut state,
+                            &JsonRpcRequest {
+                                jsonrpc: "2.0".to_string(),
+                                id: serde_json::json!(name),
+                                method: "tools/call".to_string(),
+                                params: serde_json::json!({"name": name, "arguments": arguments}),
+                            },
+                        );
+                        let result = response.result.expect("tool refusal result");
+                        assert_eq!(result["isError"], true);
+                        assert!(result
+                            .to_string()
+                            .contains("generic_action_policy_unresolved"));
+                        assert_eq!(
+                            denied_action_state_digest(&state, temp.path()),
+                            baseline,
+                            "retired {name} changed graph, store, source, or agent tracking"
+                        );
+                        assert_eq!(state.daemon_state.tick_count, ticks_before);
+                        assert_eq!(state.daemon_state.last_tick_ms, Some(0));
+                    }
+                }
+            }
+        }
+        assert_eq!(super::retired_tool_name("north"), None);
+    }
+
     // === Gardener v1: FAIL-OPEN — a background vigil never breaks a tool call ===
 
     /// The fail-open contract (gardener v1): a vigil that ERRORS is swallowed
@@ -11071,12 +11028,8 @@ mod tests {
             // F11-a: the candidate_edit batch verb + the advisory lease verb.
             "candidate_edit",
             "candidate_lease",
-            // F11-c: the Name-with-runner route (a candidate_edit write inside).
-            "candidate_naming",
             // F2.5a: the mission-letter write verb.
             "mission_post",
-            // F2.5c: the mission_spawn proxy (a write — it launches a mission).
-            "mission_spawn",
             "m1nd_apply",
             "m1nd.ingest",
         ] {
@@ -12015,45 +11968,6 @@ mod tests {
             message.contains("legacy_direct_mutation_refused")
                 && message.contains("mission_post")
                 && !message.contains("attached read-only"),
-            "unexpected: {err}"
-        );
-    }
-
-    #[test]
-    fn mission_spawn_dispatch_is_http_only_redirect() {
-        // The sync MCP dispatch never runs the proxy (it needs owner-process state +
-        // an async forward); an MCP-stdio caller gets an honest redirect, not a fake
-        // spawn. The real proxy is the HTTP route (http_server::handle_mission_spawn).
-        let (_temp, mut state) = build_state();
-        let err = super::dispatch_tool(
-            &mut state,
-            "mission_spawn",
-            &serde_json::json!({"agent_id": "gui", "runner_id": "build-1",
-                "packet_markdown": "# p", "block_id": "sb_x", "brain_ref": "repo-a"}),
-        )
-        .expect_err("mission_spawn is HTTP-only over MCP dispatch");
-        assert!(
-            err.to_string().contains("HTTP-only")
-                && err.to_string().contains("/api/tools/mission_spawn"),
-            "unexpected: {err}"
-        );
-    }
-
-    #[test]
-    fn candidate_naming_dispatch_is_http_only_redirect() {
-        // F11-c mirrors the mission_spawn law: the sync MCP dispatch never runs the
-        // naming route (it needs the announce registry + the shared secret + the
-        // /name forward); an MCP-stdio caller gets an honest redirect.
-        let (_temp, mut state) = build_state();
-        let err = super::dispatch_tool(
-            &mut state,
-            "candidate_naming",
-            &serde_json::json!({"agent_id": "gui", "expected_store_version": 1}),
-        )
-        .expect_err("candidate_naming is HTTP-only over MCP dispatch");
-        assert!(
-            err.to_string().contains("HTTP-only")
-                && err.to_string().contains("/api/tools/candidate_naming"),
             "unexpected: {err}"
         );
     }

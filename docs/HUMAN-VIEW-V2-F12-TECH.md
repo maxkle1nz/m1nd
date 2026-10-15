@@ -1,5 +1,7 @@
 # HUMAN VIEW v2 — F12: the curation lane (propose-apply) — TECH AMENDMENT
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 > Status: **RATIFIED by the owner, 2026-07-11** (oracle-confronted the same day: the askGOD verdict
 > that shaped this design returned CHANGE against the direct-write draft and demanded exactly
 > this shape; its seven required changes are folded in below as signed decisions).

@@ -8,7 +8,6 @@
  *    Reset) — implementation invents nothing;
  *  - the unmapped tray assigns residue ("leave unmapped" is the honest default);
  *  - the friction law (§4c): the zero-touch header line; provisional-first;
- *  - "Name with runner" (§2b): a disabled button always says why (§4d);
  *  - the o4 curating banner: live lease → banner; expired → nothing;
  *  - the footer: Ratify all / Ratify selected only / Later, with the honest gate.
  */
@@ -177,16 +176,11 @@ test('the zero-touch header line appears when ALL blocks are runner-named', () =
   assert.doesNotMatch(html(screen(candStore([auth, provisional]))), /data-role="zero-touch"/);
 });
 
-test('"Name with runner" disabled ALWAYS says why; enabled with a live runner + provisional blocks', () => {
-  const store = candStore([provisional, auth]);
-  const off = html(screen(store, { onNameWithRunner: noop, runnerAvailable: false }));
-  assert.match(off, /data-role="name-with-runner"[^>]*disabled/);
-  assert.match(off, /no runner daemon connected/, 'the disabled state says why (§4d)');
-  const on = html(screen(store, { onNameWithRunner: noop, runnerAvailable: true }));
-  assert.doesNotMatch(on, /data-role="name-with-runner"[^>]*disabled=""/);
-  assert.match(on, /name the 1 provisional block with the live naming-runner/);
-  // The per-block button rides the provisional row.
-  assert.match(on, /data-role="name-with-runner-block"/);
+test('the candidate editor retains manual naming without a runner control', () => {
+  const out = html(screen(candStore([provisional, auth])));
+  assert.doesNotMatch(out, /data-role="name-with-runner(?:-block)?"/);
+  assert.match(out, /data-role="accept-block"/);
+  assert.match(out, /data-role="name-input"/);
 });
 
 // ── the o4 curating banner ────────────────────────────────────────────────────

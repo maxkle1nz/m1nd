@@ -18,7 +18,7 @@ import type { SystemBlock, SystemBlockStore, WriteToast } from './buildMap';
 import { blockSupport, unresolvedSeamCount, writeErrorToast } from './buildMap';
 
 // ---------------------------------------------------------------------------
-// Wire types — the `candidate_edit` / `candidate_naming` shapes (Rust serde).
+// Wire types — the `candidate_edit` shapes (Rust serde).
 // ---------------------------------------------------------------------------
 
 /** One typed edit op — the Rust `EditOp` tagged union, verbatim on the wire. */
@@ -36,32 +36,6 @@ export interface CandidateEditResult {
   block_count: number;
   ops_applied: number;
   store: SystemBlockStore;
-}
-
-/** The `candidate_naming` route result (F11-c §2b). `fell_back` is the Rust
- *  `Vec<(String, String)>` — `[block_id, reason]` pairs. `refusal` present =
- *  no naming call could run (the screen says why); partial is normal. */
-export interface CandidateNamingResult {
-  store_version: number;
-  named: string[];
-  fell_back: [string, string][];
-  refusal?: string;
-}
-
-/** The `curation_spawn` result (F12 §3) — the propose-apply outcome. `applied` is
- *  true when the hand's batch landed (an empty proposal applies trivially);
- *  `refusal` present = nothing applied (`no_hand_runner`, `proposal_malformed`,
- *  `batch_refused`) and the screen shows why (a `no_hand_runner` falls back to
- *  DIRECT). `report` is the hand's honest paragraph; `mission_id`/`mission_seq`
- *  name the summary letter the tray watches. */
-export interface CurationSpawnResult {
-  applied: boolean;
-  ops_count: number;
-  store_version: number;
-  report?: string;
-  mission_id?: string;
-  mission_seq?: number;
-  refusal?: string;
 }
 
 /** The `candidate_lease` result (F11-a o4) — advisory, never blocking. */
@@ -236,7 +210,7 @@ export function curatingBanner(
 
 /** The F11 ratify gate (the honest client mirror of the o6 server gate + the seam
  *  law): blocks still carrying an untouched provisional name gate the blanket
- *  ratify (name them, or run the naming-runner); unresolved seams gate it too.
+ *  ratify (name or accept them); unresolved seams gate it too.
  *  Runner-named blocks need NO manual acceptance (0b — the friction law). */
 export function ratifyGateReasonV2(store: SystemBlockStore): string | null {
   const candidates = store.blocks.filter((b) => b.state === 'candidate');
@@ -245,7 +219,7 @@ export function ratifyGateReasonV2(store: SystemBlockStore): string | null {
     (b) => b.candidate_meta?.needs_owner_naming === true,
   ).length;
   if (needing > 0) {
-    return `${needing} block${needing === 1 ? '' : 's'} still need${needing === 1 ? 's' : ''} a name — name ${needing === 1 ? 'it' : 'them'} (or run the naming-runner)`;
+    return `${needing} block${needing === 1 ? '' : 's'} still need${needing === 1 ? 's' : ''} a name — name ${needing === 1 ? 'it' : 'them'}`;
   }
   const seams = unresolvedSeamCount(store);
   if (seams > 0) {
@@ -255,7 +229,7 @@ export function ratifyGateReasonV2(store: SystemBlockStore): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Write reducers — one gesture batch / one naming call → toast + reload decision.
+// Write reducers — one gesture batch → toast + reload decision.
 // ---------------------------------------------------------------------------
 
 /** Run one `candidate_edit` gesture batch and reduce it to a toast + a reload
@@ -278,42 +252,6 @@ export async function runCandidateEdit(
     };
   } catch (err) {
     const toast = writeErrorToast(err, expectedVersion, 'edit');
-    return { toast, shouldReload: toast.kind === 'conflict' };
-  }
-}
-
-/** Run one `candidate_naming` call and reduce it honestly: named > 0 reloads with
- *  the partial ledger; zero named (incl. an explicit refusal) informs WITHOUT a
- *  reload (nothing changed); a thrown conflict reloads like every OCC conflict. */
-export async function runCandidateNaming(
-  namingFn: () => Promise<CandidateNamingResult>,
-  expectedVersion: number,
-): Promise<{ toast: WriteToast; shouldReload: boolean }> {
-  try {
-    const res = await namingFn();
-    if (res.refusal) {
-      return { toast: { kind: 'error', text: res.refusal }, shouldReload: false };
-    }
-    const named = res.named.length;
-    const fell = res.fell_back.length;
-    if (named === 0) {
-      return {
-        toast: {
-          kind: 'error',
-          text: `the naming-runner named 0 blocks${fell > 0 ? ` — ${fell} fell back (see reasons per block)` : ''}`,
-        },
-        shouldReload: false,
-      };
-    }
-    return {
-      toast: {
-        kind: 'ok',
-        text: `runner named ${named} block${named === 1 ? '' : 's'}${fell > 0 ? `, ${fell} fell back` : ''} → store v${res.store_version}`,
-      },
-      shouldReload: true,
-    };
-  } catch (err) {
-    const toast = writeErrorToast(err, expectedVersion, 'name');
     return { toast, shouldReload: toast.kind === 'conflict' };
   }
 }

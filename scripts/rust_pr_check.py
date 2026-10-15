@@ -35,8 +35,6 @@ def main() -> int:
             "binary_id(m1nd-core::retrobuilder_real)",
             "binary_id(m1nd-core::retrobuilder_stress)",
         ])
-    if "transplant" not in selected["heavy"]:
-        excluded.append("test(transplant)")
     packages = [argument for crate in selected["crates"] for argument in ("-p", crate)]
     command = ["cargo", "nextest", "run", "--locked", *packages, "--all-targets"]
     if excluded:

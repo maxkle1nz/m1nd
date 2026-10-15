@@ -221,7 +221,6 @@ function mockOwner(page: Page, opts: MockOpts = {}) {
           );
         if (path === '/api/graph/snapshot') return await json(route, { version: 1, nodes: [], edges: [] });
         if (path === '/api/graph/stats') return await json(route, { node_count: 3210, edge_count: 9000 });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
         if (path.startsWith('/api/tools/')) return await json(route, { result: {} });

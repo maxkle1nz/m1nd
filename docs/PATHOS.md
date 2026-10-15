@@ -1,5 +1,7 @@
 # PATHOS — m1nd agent handoff
 
+> **Current source scope — 2026-10-15:** This unreleased branch withdraws transplant and execution/naming/curation proxies, preserving retrieval, impact, manual missions, other writers and strict recovery. The dated runner/transplant checkpoints below are historical evidence. Existing PR #582 Windows fixture failures remain unresolved; this branch has no cross-platform readiness or performance claim. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
 

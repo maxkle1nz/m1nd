@@ -3614,7 +3614,6 @@ mod tests {
             registry_dir: None,
             mcp_sessions: new_mcp_session_registry_with_limits(limits),
             project_brains,
-            runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
             ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),
             mission_service: None,
             external_mutation_service: None,

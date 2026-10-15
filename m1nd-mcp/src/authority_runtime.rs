@@ -7704,7 +7704,6 @@ mod tests {
                 owner_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
                 None,
             )),
-            runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
             ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),
             mission_service: None,
             external_mutation_service: None,

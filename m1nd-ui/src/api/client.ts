@@ -24,8 +24,6 @@ import type {
 import type {
   CandidateEditResult,
   CandidateLeaseResult,
-  CandidateNamingResult,
-  CurationSpawnResult,
   EditOpInput,
 } from '../lib/candidateEdit';
 import type {
@@ -33,9 +31,6 @@ import type {
   MissionsResponse,
   PostOutcome,
   ReceiptImportOutcome,
-  RunnerdStatus,
-  SpawnInput,
-  SpawnOutcome,
 } from '../lib/missions';
 import type { UniverseResponse } from '../lib/universe';
 import type { AlertsListResponse, AlertsAckResponse } from '../lib/alerts';
@@ -479,36 +474,6 @@ export const api = {
     }).then((r) => r.result),
 
   /**
-   * The runner-daemon liveness read (HUMAN-VIEW-V2 F2.5c §5a) — `GET /api/runnerd/status`
-   * lists every announced runner (`runner_id`, port, last_seen). A pure read (no
-   * secret): the compose panel uses it to un-disable the spawn radio and list the
-   * pinned-live runners. Empty `runners` = no daemon connected. NOT `?brain=`-scoped
-   * (the registry is owner-process-global liveness, not per-brain).
-   */
-  runnerdStatus: (signal?: AbortSignal) =>
-    apiFetch<RunnerdStatus>('/api/runnerd/status', signal ? { signal } : undefined),
-
-  /**
-   * The compose panel's spawn write (HUMAN-VIEW-V2 F2.5c §4b) — `mission_spawn` is
-   * the OWNER→runner-daemon PROXY. The browser holds no shared secret, so the spawn
-   * travels through the owner: it resolves the live runner + the secret + the
-   * workspace, then forwards the packet to the daemon's `/run`. Returns
-   * `{mission_id, accepted}` or the daemon's honest refusal. WRITE verb — refused
-   * under a read-only attach. `brain` scopes the workspace/routing to a hosted brain.
-   */
-  missionSpawn: (input: SpawnInput, brain?: string | null) =>
-    apiFetch<{ result: SpawnOutcome }>(withBrain('/api/tools/mission_spawn', brain), {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: 'gui',
-        runner_id: input.runnerId,
-        packet_markdown: input.packetMarkdown,
-        block_id: input.blockId,
-        brain_ref: input.brainRef,
-      }),
-    }).then((r) => r.result),
-
-  /**
    * The human landing's receipt import (HUMAN-VIEW-V2 F2.5d §6) — `receipt_import` is
    * the anti-poison WRITE that attaches the gate's evidence to a block after the OCC +
    * scope + evidence-contract gates pass, bumping `store_version`. The tray hands it the
@@ -578,15 +543,14 @@ export const api = {
    * law). OCC-keyed on `expected_store_version`: `null` on the first scan (no store
    * yet); the read version on a re-scan (a candidate store is replaced wholesale with
    * zero inheritance; a ratified store receives only a side-by-side candidate_revision).
-   * `naming:"auto"` tries the naming-runner then falls back to marked heuristics.
+   * Names are provisional heuristics; review them through `candidate_edit`.
    * WRITE verb — refused under a read-only attach (the honest toast says so). Bare tool
    * route, agent_id 'gui', unwrapping the `{result}` envelope. §4A.9: `brain` scopes it.
    */
   skeletonCandidate: (
-    input: { expectedStoreVersion: number | null; reviewLimit?: number; naming?: 'auto' | 'heuristic' },
+    input: { expectedStoreVersion: number | null; reviewLimit?: number },
     brain?: string | null,
-    // The scan is one LONG synchronous POST on the owner (clustering + a naming
-    // batch that can wait ~2 minutes) — the wait panel's "stop waiting" gesture
+    // The scan is one synchronous POST on the owner — "stop waiting"
     // aborts the browser side through this signal (the owner still finishes).
     signal?: AbortSignal,
   ) =>
@@ -596,7 +560,7 @@ export const api = {
         agent_id: 'gui',
         expected_store_version: input.expectedStoreVersion,
         ...(input.reviewLimit != null ? { review_limit: input.reviewLimit } : {}),
-        naming: input.naming ?? 'auto',
+        naming: 'heuristic',
       }),
       ...(signal != null ? { signal } : {}),
     }).then((r) => r.result),
@@ -651,54 +615,6 @@ export const api = {
         expected_store_version: input.expectedStoreVersion,
         ops: input.ops,
         ...(input.by != null ? { by: input.by } : {}),
-      }),
-    }).then((r) => r.result),
-
-  /**
-   * The screen's "Name with runner" write (HUMAN-VIEW-V2 F11-c §2b) — the
-   * `candidate_naming` HTTP-ONLY route (like `mission_spawn`, the browser never
-   * holds the shared secret; the owner builds the packets, calls the daemon's
-   * /name, sanitizes, and applies through `candidate_edit` under the RUNNER seat).
-   * `blockIds` absent = every block still needing a name. The result is honest:
-   * partial is normal ({named, fell_back}); no live naming-runner returns
-   * `refusal` and touches nothing; a stale OCC key conflicts BEFORE any runner is
-   * invoked. WRITE — refused under a read-only attach. §4A.9: `brain` scopes it.
-   */
-  candidateNaming: (
-    input: { expectedStoreVersion: number; blockIds?: string[] },
-    brain?: string | null,
-  ) =>
-    apiFetch<{ result: CandidateNamingResult }>(
-      withBrain('/api/tools/candidate_naming', brain),
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          agent_id: 'gui',
-          expected_store_version: input.expectedStoreVersion,
-          ...(input.blockIds != null ? { block_ids: input.blockIds } : {}),
-        }),
-      },
-    ).then((r) => r.result),
-
-  /**
-   * The candidate banner's propose-apply write (HUMAN-VIEW-V2 F12 §3) —
-   * `curation_spawn` is HTTP-ONLY (like `candidate_naming`/`mission_spawn`: the
-   * browser never holds the shared secret). The owner composes the block-view
-   * packet, calls the announced runner daemon's `/curate`, and applies the pinned
-   * hand-runner's proposal through `candidate_edit` under the RUNNER seat (o5
-   * sanitizes every rename, o1 preflights on a clone) at the given OCC key, then
-   * posts the summary letter. The result is honest: `applied` + `ops_count` +
-   * `report` on success; `refusal` (`no_hand_runner`/`proposal_malformed`/
-   * `batch_refused`) when nothing applied. A stale OCC key conflicts BEFORE any
-   * runner is invoked. WRITE — refused under a read-only attach. §4A.9: `brain`
-   * scopes it to the hosted brain being viewed.
-   */
-  curationSpawn: (input: { expectedStoreVersion: number }, brain?: string | null) =>
-    apiFetch<{ result: CurationSpawnResult }>(withBrain('/api/tools/curation_spawn', brain), {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: 'gui',
-        expected_store_version: input.expectedStoreVersion,
       }),
     }).then((r) => r.result),
 

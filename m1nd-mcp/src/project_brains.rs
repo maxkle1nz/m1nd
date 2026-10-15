@@ -195,11 +195,8 @@ pub struct ProjectBrainRegistry {
     /// Monotonic LRU clock — bumped on every touch so the newest touch always has
     /// the highest stamp and the eviction victim is `min(last_used)`.
     tick: AtomicU64,
-    /// F11-b: the owner-process naming facts, stamped into every project brain
-    /// this registry boots (a hosted brain's scan must reach the SAME announced
-    /// runnerd + owner secret the bound session does). `None` when the owner has
-    /// no announce surface — scans then fall back to heuristic naming.
-    runnerd_naming: Option<crate::runnerd_owner::NamingRunnerHandle>,
+    /// Runtime-only owner pinning propagated to hosted sessions.
+    served_owner_binding: bool,
     /// Narrow authority adapter used by checkpoint creation/recovery. The
     /// default is explicitly unbound and never claims external anti-rollback.
     checkpoint_authority: Arc<dyn BrainCheckpointAuthority>,
@@ -245,7 +242,7 @@ impl ProjectBrainRegistry {
             registry_dir,
             capacity: capacity.max(1),
             tick: AtomicU64::new(0),
-            runnerd_naming: None,
+            served_owner_binding: false,
             checkpoint_authority: Arc::new(UnboundBrainCheckpointAuthority),
             actor_queue_capacity: DEFAULT_BRAIN_ACTOR_QUEUE_CAPACITY,
             max_runtime_jobs: crate::runtime_jobs::DEFAULT_MAX_IN_FLIGHT_JOBS,
@@ -271,10 +268,10 @@ impl ProjectBrainRegistry {
         *self.read_snapshot_test_hook.lock() = Some(ReadSnapshotTestHook { entered, release });
     }
 
-    /// Thread the owner-process naming facts (F11-b) into every project brain this
-    /// registry boots. Builder-style, called once at HTTP-owner construction.
-    pub fn with_runnerd_naming(mut self, handle: crate::runnerd_owner::NamingRunnerHandle) -> Self {
-        self.runnerd_naming = Some(handle);
+    /// Pin hosted source bindings at HTTP-owner construction. This fact is
+    /// process-local and grants no authority to a request.
+    pub(crate) fn with_served_owner_binding(mut self) -> Self {
+        self.served_owner_binding = true;
         self
     }
 
@@ -1386,7 +1383,7 @@ impl ProjectBrainRegistry {
         // F11-b: a hosted brain's scan reaches the same announced runnerd + owner
         // secret the bound session does (its OWN runtime root is its store dir,
         // never the secret's home).
-        state.runnerd_naming = self.runnerd_naming.clone();
+        state.served_owner_binding = self.served_owner_binding;
         // Stamp the registry entry so the shared phonebook can tell this brain
         // from the bound dev graph (best-effort: a failed stamp never blocks the
         // brain — the entry just stays kind-less like a legacy one).

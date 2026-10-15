@@ -20,7 +20,7 @@
 //!   the stored ops alone.
 //! - **o5 the naming sanitizer governs the RUNNER seat** — a runner rename is
 //!   untrusted LLM output, so every name/purpose it proposes passes the naming-lane
-//!   sanitizer ([`crate::naming_runner::sanitize_rename_fields`]) before it can touch
+//!   sanitizer ([`crate::block_naming::sanitize_rename_fields`]) before it can touch
 //!   the store; a violation refuses the op (and, via o1, the whole batch). The owner
 //!   seat is the human at the screen and is not hard-sanitized.
 //! - **o6 provenance is a real state** — a rename stamps [`NamedBy::Owner`] (GUI seat)
@@ -736,15 +736,15 @@ fn apply_rename(
             ));
         }
     }
-    // o5 — a RUNNER seat is untrusted LLM output (the naming/curation hand), so every
-    // name/purpose it proposes runs the naming-lane sanitizer (reused verbatim) BEFORE
+    // o5 — a RUNNER seat carries untrusted proposed text, so every
+    // name/purpose it proposes runs the shared block-name sanitizer BEFORE
     // it can touch the store; a violation refuses the op, and the o1 preflight makes
     // that refusal atomic (the whole batch aborts, nothing persists). The refusal
     // names the field + class in the o5 style. The OWNER seat is the human at the
     // screen — they may write whatever they mean (even a name with `/`), so it is NOT
     // hard-sanitized: o5 governs LLM input, not the owner's keystrokes.
     if seat == EditSeat::Runner {
-        crate::naming_runner::sanitize_rename_fields(name.as_deref(), purpose.as_deref()).map_err(
+        crate::block_naming::sanitize_rename_fields(name.as_deref(), purpose.as_deref()).map_err(
             |reason| EditError::at(op_index, format!("rename: block '{block_id}' — {reason}")),
         )?;
     }

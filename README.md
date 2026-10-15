@@ -128,7 +128,7 @@ See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [too
 - **Unreleased restart binding recovery.** A bound owner restores its source read binding from recovered ingest roots after checkpoint validation, keeping internal checkpoint copies out of source search for that binding. Actor and lease identities stay unchanged. New ingests persist canonical paths and collapse equivalent declared aliases; legacy relative roots grant no read or refresh authority after a cwd change, including authenticated HTTP file reads. Unavailable source and file-only roots retain narrow read authority. See [the recovery contract and legacy limits](docs/WORKSPACE-BINDING-RECOVERY.md).
 - **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
 - **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).
-- **Advanced capabilities are not setup prerequisites.** Document adapters, structural heuristics, transplant, missions, and hardware-backed authority have their own limits. PRDs describe design intent and are not evidence that a release supports every path.
+- **Unreleased simplification:** current source removes transplant and execution/naming/curation proxies. Retrieval, impact, manual missions, other writers and strict recovery remain. See [the first slice contract](docs/FIRST-SIMPLIFICATION-SLICE.md); historical PRDs and sealed 1.6.5 describe their own version. No performance or cross-platform readiness claim follows.
 
 ## Shared context, one local owner
 
@@ -181,7 +181,7 @@ Unresolvable imports (external packages, stdlib, system headers) are left unreso
 
 ## Architecture and deeper documentation
 
-The Cargo workspace has six crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, `m1nd-runnerd` (execution lane), and `m1nd-openclaw` (bridge). The web UI and npm wrapper live outside the Rust workspace.
+The Cargo workspace has five crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, and `m1nd-openclaw` (bridge). The web UI and npm wrapper live outside the Rust workspace.
 
 - [Documentation index](docs/README.md): choose a task, then a guide
 - [Wiki](https://m1nd.world/wiki/): tutorials, concepts, and API reference

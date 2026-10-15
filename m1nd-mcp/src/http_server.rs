@@ -344,10 +344,6 @@ pub struct AppState {
     /// hop-2 caller root. The bound `session` above stays exactly the dev/single
     /// graph it always was; project brains live BESIDE it, never inside it.
     pub project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
-    /// F2.5c (§5a): the in-memory runnerd LIVENESS registry — `runner_id → (port,
-    /// last_seen)`, fed by `POST /api/runnerd/announce`, read by `/api/runnerd/status`
-    /// and the `mission_spawn` proxy. Liveness only; it grants no capability.
-    pub runnerd: Arc<crate::runnerd_owner::RunnerdRegistry>,
     /// Exact UI source shared by the HTTP fallback and organism manifest.
     pub ui_authority: Arc<crate::ui_attestation::UiBundleAttestor>,
     /// G3 real-wire facade. `None` is the production fail-closed posture until
@@ -684,25 +680,16 @@ pub async fn spawn_background_with_owner_authority(
     };
 
     // AppState
-    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
-    // F11-b: thread the naming facts (the announce registry + the OWNER runtime
-    // root, where runnerd.secret lives) into the bound session and every project
-    // brain this owner boots, so a `skeleton_candidate` scan can reach the live
-    // naming-runner from ANY hosted brain.
-    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
-        registry: runnerd.clone(),
-        owner_runtime_root: runtime_root.clone(),
-    };
     session
         .lock_mut_before_actor()
         .map_err(boot_session_fence_error)?
-        .runnerd_naming = Some(naming_handle.clone());
+        .served_owner_binding = true;
     let project_brains = Arc::new(
         crate::project_brains::ProjectBrainRegistry::new(
             runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
             Some(registry_root.clone()),
         )
-        .with_runnerd_naming(naming_handle),
+        .with_served_owner_binding(),
     );
     let mut app_state = AppState {
         session,
@@ -712,7 +699,6 @@ pub async fn spawn_background_with_owner_authority(
         registry_dir: Some(registry_root),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd,
         ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),
         mission_service: None,
         external_mutation_service: None,
@@ -972,23 +958,16 @@ pub async fn run_with_owner_authority(
     let event_log_path = event_log.map(std::path::PathBuf::from);
 
     // 6. Build shared AppState
-    let runnerd = Arc::new(crate::runnerd_owner::RunnerdRegistry::default());
-    // F11-b: thread the naming facts into the bound session + every project brain
-    // (see the background-server construction above for the law).
-    let naming_handle = crate::runnerd_owner::NamingRunnerHandle {
-        registry: runnerd.clone(),
-        owner_runtime_root: owner_runtime_root.clone(),
-    };
     session
         .lock_mut_before_actor()
         .map_err(boot_session_fence_error)?
-        .runnerd_naming = Some(naming_handle.clone());
+        .served_owner_binding = true;
     let project_brains = Arc::new(
         crate::project_brains::ProjectBrainRegistry::new(
             owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
             registry_dir.clone(),
         )
-        .with_runnerd_naming(naming_handle),
+        .with_served_owner_binding(),
     );
     let ui_authority = Arc::new(crate::ui_attestation::UiBundleAttestor::for_http(
         dev_mode,
@@ -1003,7 +982,6 @@ pub async fn run_with_owner_authority(
         registry_dir: registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
         project_brains,
-        runnerd,
         ui_authority,
         mission_service: None,
         external_mutation_service: None,
@@ -1622,12 +1600,6 @@ pub fn build_router(state: Arc<AppState>, filesystem_ui: bool) -> Router {
         // box triage sweep is CLI/REST-only, OFF the MCP surface (§C6.2).
         .route("/api/mailbox", get(handle_mailbox))
         .route("/api/inbox_sweep", get(handle_inbox_sweep))
-        // HUMAN-VIEW-V2-F2.5c §5a — the runner daemon's LIVENESS surface. `announce`
-        // is a shared-secret-guarded write to the in-memory registry (liveness only,
-        // never a capability grant); `status` is a pure read the UI uses to un-disable
-        // the spawn radio and list the pinned-live runners.
-        .route("/api/runnerd/announce", post(handle_runnerd_announce))
-        .route("/api/runnerd/status", get(handle_runnerd_status))
         .route("/api/events", get(handle_sse))
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
@@ -3132,403 +3104,13 @@ fn graph_response(
 }
 
 /// Strip the optional `m1nd.`/`m1nd_` prefix from a tool name (mirrors the
-/// dispatch-side normalization in `server::read_only_denied`), so `mission_spawn`,
-/// `m1nd.mission_spawn` and `m1nd_mission_spawn` all resolve to the bare id.
+/// dispatch-side normalization in `server::read_only_denied`), so `seek`,
+/// `m1nd.seek` and `m1nd_seek` all resolve to the bare id.
 fn bare_tool_name(tool_name: &str) -> &str {
     tool_name
         .strip_prefix("m1nd.")
         .or_else(|| tool_name.strip_prefix("m1nd_"))
         .unwrap_or(tool_name)
-}
-
-/// `mission_spawn` (§4b) — the owner→runnerd proxy. Refuses under a read-only attach
-/// (it is a WRITE that launches a mission), resolves the live runner + the shared
-/// secret + the workspace project_root, then FORWARDS the compose's spawn request to
-/// the daemon's loopback `/run` with the secret in the `x-runnerd-secret` header (the
-/// browser never sees it). The daemon's acceptance (`{mission_id, accepted}`) or its
-/// honest refusal is relayed verbatim. The owner itself spawns nothing (§5d).
-async fn handle_mission_spawn(
-    state: &Arc<AppState>,
-    served_echo: &serde_json::Value,
-    body: serde_json::Value,
-) -> axum::response::Response {
-    // Read-only attach: the proxy is a write (it starts a mission), so refuse it
-    // exactly as the dispatch gate refuses `mission_post` (§2c / the deny-list).
-    let read_only = match http_bound_identity_snapshot_async(state).await {
-        Ok(snapshot) => snapshot.read_only,
-        Err(error) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(tool_error_payload(&error)),
-            )
-                .into_response();
-        }
-    };
-    if read_only {
-        let e = m1nd_core::error::M1ndError::InvalidParams {
-            tool: "mission_spawn".to_string(),
-            detail: "m1nd is attached read-only (--read-only); mission_spawn launches a mission (a write) and is disabled. Detach or run a read-write instance to spawn."
-                .to_string(),
-        };
-        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-    }
-
-    let input: crate::runnerd_owner::SpawnInput = match serde_json::from_value(body) {
-        Ok(v) => v,
-        Err(e) => {
-            let err = m1nd_core::error::M1ndError::InvalidParams {
-                tool: "mission_spawn".to_string(),
-                detail: format!("invalid mission_spawn input: {e}"),
-            };
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response();
-        }
-    };
-
-    // The workspace/routing project_root comes from the RESOLVED `?brain=` echo, not
-    // from the browser body (the owner decides which repo a runner may touch, §5a).
-    let workspace_root = served_echo
-        .get("project_root")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let runtime_root = owner_runtime_root(state);
-
-    let target = match crate::runnerd_owner::resolve_spawn_target(
-        &state.runnerd,
-        &runtime_root,
-        &input,
-        workspace_root.as_deref(),
-    ) {
-        Ok(t) => t,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response(),
-    };
-
-    // Forward to the daemon's loopback `/run` with the secret out-of-band (header).
-    let client = reqwest::Client::new();
-    let sent = client
-        .post(&target.url)
-        .header(crate::runnerd_owner::RUNNERD_SECRET_HEADER, &target.secret)
-        .json(&target.body)
-        .send()
-        .await;
-
-    let result = match sent {
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            let val = resp
-                .json::<serde_json::Value>()
-                .await
-                .unwrap_or_else(|_| serde_json::json!({}));
-            crate::runnerd_owner::map_runnerd_response(status, &val)
-        }
-        Err(e) => Err(m1nd_core::error::M1ndError::InvalidParams {
-            tool: "mission_spawn".to_string(),
-            detail: format!(
-                "could not reach the runner daemon at {}: {e} (is m1nd-runnerd still up?)",
-                target.url
-            ),
-        }),
-    };
-
-    match result {
-        // The `{result}` envelope the UI client unwraps (like mission_post).
-        Ok(inner) => (StatusCode::OK, Json(serde_json::json!({ "result": inner }))).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response(),
-    }
-}
-
-/// `POST /api/tools/candidate_naming` (F11-c §2b) — the in-screen "Name with
-/// runner" path, HTTP-only like `mission_spawn` (the browser never holds the
-/// shared secret; the owner reads it and signs the `/name` forward). Scoped to the
-/// RESOLVED brain: its store supplies the target blocks, its graph supplies the
-/// packet kinds/symbols. The heavy part (`name_candidate_blocks`: the blocking
-/// loopback call + the `candidate_edit` apply under the caller's OCC key, runner
-/// seat) runs on the blocking pool. Honest surfaces: read-only refuses; a stale
-/// OCC key conflicts BEFORE any runner is invoked; no live naming-runner returns
-/// the `no_naming_runner` refusal inside a 200 result (the screen disables the
-/// button with the why).
-async fn handle_candidate_naming(
-    state: &Arc<AppState>,
-    target_session: &Arc<BrainSessionCell>,
-    selected_project_root: Option<String>,
-    body: serde_json::Value,
-) -> axum::response::Response {
-    const TOOL: &str = "candidate_naming";
-    let deny = |detail: String| m1nd_core::error::M1ndError::InvalidParams {
-        tool: TOOL.to_string(),
-        detail,
-    };
-
-    // Read-only attach: the naming apply is a write — refuse exactly like the
-    // dispatch gate would (the verb is on the deny-list).
-    let bound_read_only = match http_bound_identity_snapshot_async(state).await {
-        Ok(snapshot) => snapshot.read_only,
-        Err(error) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(tool_error_payload(&error)),
-            )
-                .into_response();
-        }
-    };
-    if bound_read_only {
-        let e = deny(
-            "m1nd is attached read-only (--read-only); candidate_naming applies names through candidate_edit (a write) and is disabled. Detach or run a read-write instance."
-                .to_string(),
-        );
-        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-    }
-
-    #[derive(serde::Deserialize)]
-    struct CandidateNamingBody {
-        expected_store_version: u64,
-        #[serde(default)]
-        block_ids: Option<Vec<String>>,
-    }
-    let input: CandidateNamingBody = match serde_json::from_value(body) {
-        Ok(v) => v,
-        Err(e) => {
-            let e = deny(format!("invalid candidate_naming input: {e}"));
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-
-    let snapshot = match http_brain_read_snapshot(state, target_session, selected_project_root) {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            let e = deny(err.to_string());
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-    let naming_handle = Some(crate::runnerd_owner::NamingRunnerHandle {
-        registry: Arc::clone(&state.runnerd),
-        owner_runtime_root: owner_runtime_root(state),
-    });
-
-    // Store I/O and graph packet analysis consume only immutable copied facts.
-    // They run on the blocking pool and cannot retain a SessionState guard.
-    let block_ids = input.block_ids.clone();
-    let prepared = tokio::task::spawn_blocking(move || {
-        let graph = snapshot.decode_graph().map_err(|error| error.to_string())?;
-        let dir = snapshot.runtime_root;
-        let handle = naming_handle;
-        let store = match crate::system_blocks::SystemBlockStore::load(&dir) {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                return Err(
-                    "no system-block store here yet — scan or import a seed before naming"
-                        .to_string(),
-                )
-            }
-            Err(err) => return Err(err.to_string()),
-        };
-        let targets = crate::naming_runner::select_naming_targets(&store, block_ids.as_deref())
-            .map_err(|err| err.to_string())?;
-        let nodes = crate::skeleton_scan::graph_nodes_for_naming(&graph);
-        let packets: Vec<crate::naming_runner::BlockNamingPacket> = targets
-            .iter()
-            .map(|b| crate::skeleton_scan::naming_packet_for_store_block(b, &nodes))
-            .collect();
-        Ok::<_, String>((dir, handle, store.store_version, packets))
-    })
-    .await;
-    let (dir, handle, store_version, packets) = match prepared {
-        Ok(Ok(prepared)) => prepared,
-        Ok(Err(detail)) => {
-            let e = deny(detail);
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-        Err(join_err) => {
-            let e = deny(format!("candidate_naming preparation failed: {join_err}"));
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-
-    // No announce surface on this owner → the honest refusal shape (never an
-    // exception: the screen reads it and says why the button is off).
-    let Some(handle) = handle else {
-        return (
-            StatusCode::OK,
-            Json(serde_json::json!({ "result": {
-                "store_version": store_version,
-                "named": [],
-                "fell_back": [],
-                "refusal": "no_naming_runner: this owner has no runner-daemon announce surface",
-            }})),
-        )
-            .into_response();
-    };
-
-    // The blocking loopback call + the candidate_edit apply, off the async worker.
-    let expected = input.expected_store_version;
-    let joined = tokio::task::spawn_blocking(move || {
-        crate::naming_runner::name_candidate_blocks(&handle, &dir, expected, &packets)
-    })
-    .await;
-
-    match joined {
-        Ok(Ok(outcome)) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "result": outcome })),
-        )
-            .into_response(),
-        Ok(Err(err)) => {
-            let e = deny(err.to_string());
-            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
-        }
-        Err(join_err) => {
-            let e = deny(format!("candidate_naming task failed: {join_err}"));
-            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
-        }
-    }
-}
-
-/// `POST /api/tools/curation_spawn` (F12 §3) — the propose-apply curation lane,
-/// HTTP-only like `candidate_naming` and `mission_spawn` (the browser never holds the
-/// shared secret; the owner reads it and signs the `/curate` forward). Scoped to the
-/// RESOLVED brain: its store + graph compose the block-view packet the hand-runner
-/// reasons over, and the summary letter lands in ITS mission box. The heavy part
-/// (`curate_candidate`: the blocking loopback call + the `candidate_edit` apply under
-/// the caller's OCC key, runner seat, o5 + o1, + the lease + the mission letters)
-/// runs on the blocking pool. Honest surfaces: read-only refuses; a stale OCC key
-/// conflicts BEFORE any runner is invoked; no live hand-runner returns the
-/// `no_hand_runner` refusal inside a 200 result (the screen falls back to DIRECT).
-async fn handle_curation_spawn(
-    state: &Arc<AppState>,
-    target_session: &Arc<BrainSessionCell>,
-    selected_project_root: Option<String>,
-    body: serde_json::Value,
-) -> axum::response::Response {
-    const TOOL: &str = "curation_spawn";
-    let deny = |detail: String| m1nd_core::error::M1ndError::InvalidParams {
-        tool: TOOL.to_string(),
-        detail,
-    };
-
-    // Read-only attach: the curation apply is a write — refuse exactly like the
-    // dispatch gate would (the verb is HTTP-only, so it self-gates here).
-    let bound_read_only = match http_bound_identity_snapshot_async(state).await {
-        Ok(snapshot) => snapshot.read_only,
-        Err(error) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(tool_error_payload(&error)),
-            )
-                .into_response();
-        }
-    };
-    if bound_read_only {
-        let e = deny(
-            "m1nd is attached read-only (--read-only); curation_spawn applies a curation through candidate_edit (a write) and is disabled. Detach or run a read-write instance."
-                .to_string(),
-        );
-        return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-    }
-
-    #[derive(serde::Deserialize)]
-    struct CurationSpawnBody {
-        expected_store_version: u64,
-    }
-    let input: CurationSpawnBody = match serde_json::from_value(body) {
-        Ok(v) => v,
-        Err(e) => {
-            let e = deny(format!("invalid curation_spawn input: {e}"));
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-
-    let snapshot = match http_brain_read_snapshot(state, target_session, selected_project_root) {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            let e = deny(err.to_string());
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-    let naming_handle = Some(crate::runnerd_owner::NamingRunnerHandle {
-        registry: Arc::clone(&state.runnerd),
-        owner_runtime_root: owner_runtime_root(state),
-    });
-
-    // Filesystem identity probes, store I/O, and graph packet analysis all run
-    // after the clone-only session/actor snapshot and on the blocking pool.
-    let prepared = tokio::task::spawn_blocking(move || {
-        let graph = snapshot.decode_graph().map_err(|error| error.to_string())?;
-        let dir = snapshot.runtime_root.clone();
-        let handle = naming_handle;
-        let store = match crate::system_blocks::SystemBlockStore::load(&dir) {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                return Err(
-                    "no system-block store here yet — scan or import a seed before curating"
-                        .to_string(),
-                )
-            }
-            Err(err) => return Err(err.to_string()),
-        };
-        // The mission box for THIS brain (mirror of mission_letter_handlers): the
-        // repo-side box when the brain has a code root, else the medulla box.
-        let box_path = match snapshot.project_root_display() {
-            Some(root) => std::path::Path::new(&root).join(crate::mailbox::BOX_REL_PATH),
-            None => crate::mailbox::medulla_box_path(&snapshot.runtime_root),
-        };
-        // The letters' brain_ref = the brain's display name (basename of its root —
-        // the §1f reference, never a path), falling back to the skeleton's repo id.
-        let brain_ref = snapshot
-            .display_name()
-            .unwrap_or_else(|| store.skeleton.skeleton_id.clone());
-        let nodes = crate::skeleton_scan::graph_nodes_for_naming(&graph);
-        let packet = crate::curation_runner::compose_curation_packet(&store, &nodes);
-        Ok::<_, String>((dir, handle, box_path, brain_ref, packet))
-    })
-    .await;
-    let (dir, handle, box_path, brain_ref, packet) = match prepared {
-        Ok(Ok(prepared)) => prepared,
-        Ok(Err(detail)) => {
-            let e = deny(detail);
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-        Err(join_err) => {
-            let e = deny(format!("curation_spawn preparation failed: {join_err}"));
-            return (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response();
-        }
-    };
-
-    // No announce surface on this owner → the honest refusal shape (never an
-    // exception: the screen reads it and falls back to the DIRECT clipboard path).
-    let Some(handle) = handle else {
-        return (
-            StatusCode::OK,
-            Json(serde_json::json!({ "result": {
-                "applied": false,
-                "ops_count": 0,
-                "store_version": packet.store_version,
-                "refusal": "no_hand_runner: this owner has no runner-daemon announce surface",
-            }})),
-        )
-            .into_response();
-    };
-
-    // The blocking loopback call + the candidate_edit apply + the letters, off the
-    // async worker.
-    let expected = input.expected_store_version;
-    let joined = tokio::task::spawn_blocking(move || {
-        crate::curation_runner::curate_candidate(
-            &handle, &dir, &box_path, &brain_ref, expected, &packet,
-        )
-    })
-    .await;
-
-    match joined {
-        Ok(Ok(outcome)) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "result": outcome })),
-        )
-            .into_response(),
-        Ok(Err(err)) => (StatusCode::BAD_REQUEST, Json(tool_error_payload(&err))).into_response(),
-        Err(join_err) => {
-            let e = deny(format!("curation_spawn task failed: {join_err}"));
-            (StatusCode::BAD_REQUEST, Json(tool_error_payload(&e))).into_response()
-        }
-    }
 }
 
 /// The REST arm of the one-call bootstrap: this route's own blocking + slow-op +
@@ -3969,6 +3551,15 @@ async fn handle_tool_call(
     body: Bytes,
 ) -> impl IntoResponse {
     let bare_tool = bare_tool_name(&tool_name);
+    // Withdrawn capabilities refuse before JSON decoding, brain hydration
+    // or any dispatch housekeeping. Semantic catalog rows remain only
+    // for persisted authority-digest compatibility.
+    if let Some(retired) = crate::server::retired_tool_name(bare_tool) {
+        return (StatusCode::GONE, Json(serde_json::json!({
+            "error": "capability_withdrawn", "tool": retired,
+            "message": "This capability has been withdrawn; use host tools for source edits and execution."
+        }))).into_response();
+    }
     // Compatibility tombstones run before brain resolution, JSON decoding, or
     // sovereign-authority lookup. Invalid/malicious bodies cannot change the
     // refusal and cannot make the old raw write path reachable.
@@ -4000,61 +3591,6 @@ async fn handle_tool_call(
         }
     };
 
-    // The OWNER PROXIES are intercepted HERE, ahead of the generic floor gate —
-    // the same shape the wire uses, where `mcp_http::run_mission_service_wire`
-    // intercepts its typed consumers before `enforce_generic_action_policy`.
-    //
-    // `mission_spawn` (F2.5c §4b) is the OWNER→runnerd proxy, `candidate_naming`
-    // (F11-c §2b) is the in-screen "Name with runner" path and `curation_spawn`
-    // (F12 §3) is the propose-apply curation lane. None is a graph verb and none is
-    // generic dispatch: each needs owner-process state (the announce registry + the
-    // shared secret the browser never holds) and its own async/blocking forward to
-    // the daemon, none of which the sync `dispatch_tool` sees — the same reason
-    // `mission_service` above returns before the gate.
-    //
-    // All three sit at SCOPED_GRANT_A2, so running the generic floor FIRST refused
-    // them before the proxy built to serve them ever saw the request: the REST paths
-    // behind the Human View v2 spawn, the "Name with runner" button and the
-    // candidate banner's SPAWN were dead code behind a 403 (project mailbox letters
-    // from `opus5-annotate`, high/bug, and `opus5-restorder`, medium).
-    //
-    // `curation_spawn` did not even reach a floor: the catalog ratifies
-    // `mission.curation_spawn` at High/SCOPED_GRANT_A2 with `[Rest]`-ONLY ingress, so
-    // by design it has no MCP tool route and the gate answered
-    // `generic_action_policy_unresolved: unknown or unrouted MCP tool`. Teaching the
-    // MCP router about it would be the WRONG repair — `MCP_TOOL_ROUTE_NAMES` is held
-    // exactly equal to the MCP schema registry, so routing an HTTP-only verb would
-    // advertise it as an MCP tool and contradict its ratified ingress. Interception
-    // here is its designed path, so the MCP gate correctly never sees it.
-    //
-    // Authority is not widened — the policy function is untouched, so every other
-    // seam that consults it still refuses these three HTTP-only verbs, and each
-    // handler keeps its own read-only refusal, OCC key and live-runner checks.
-    if matches!(
-        bare_tool,
-        "mission_spawn" | "candidate_naming" | "curation_spawn"
-    ) {
-        // Scoped to the SELECTED brain (its store, its graph, its project_root), so
-        // the proxies work on any hosted brain. They resolve it themselves; the
-        // gate below must keep preceding brain resolution for every generic verb.
-        let (target_session, served_echo) = match resolve_brain(&state, brain.brain.as_deref()) {
-            Ok(pair) => pair,
-            Err(e) => return graph_response(Err(e)),
-        };
-        if bare_tool == "mission_spawn" {
-            return handle_mission_spawn(&state, &served_echo, body).await;
-        }
-        let selected_project_root = served_echo
-            .get("project_root")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        if bare_tool == "candidate_naming" {
-            return handle_candidate_naming(&state, &target_session, selected_project_root, body)
-                .await;
-        }
-        return handle_curation_spawn(&state, &target_session, selected_project_root, body).await;
-    }
-
     // F-01: reject elevated generic actions before brain resolution/warm boot,
     // proxy lookup, presence tracking, freshness ticks, or handler effects.
     if let Err(error) = enforce_generic_action_policy(&tool_name, &body) {
@@ -4077,7 +3613,7 @@ async fn handle_tool_call(
     // through the guarded bootstrap; this route used to IGNORE the field and
     // dispatch the ingest on the RESOLVED brain — the BOUND graph when `?brain=`
     // is absent — so a bootstrap-shaped call through the REST door REPLACED the
-    // owner's bound graph. Intercepted HERE — like the two proxies above — and
+    // owner's bound graph. Intercepted HERE — after the generic policy — and
     // routed through the SAME seam-shared core the wire uses
     // (`mcp_http::run_bootstrap_core`), so the bound-shadow guard and the overlap
     // guard (`overlap_<class>` refusal, `allow_overlap` escape) fire identically
@@ -4971,58 +4507,6 @@ async fn handle_inbox_sweep(State(state): State<Arc<AppState>>) -> impl IntoResp
     .expect("spawn_blocking panicked");
 
     graph_response(result)
-}
-
-// ---------------------------------------------------------------------------
-// F2.5c (§5a) — the runner daemon liveness surface (announce + status).
-// ---------------------------------------------------------------------------
-
-/// `POST /api/runnerd/announce` (§5a) — a booting runner daemon proves LIVENESS.
-/// The request carries `{runner_ids, port, boot_challenge}` and the shared secret
-/// in the `x-runnerd-secret` header; the owner authenticates it against the on-disk
-/// `<runtime_root>/runnerd.secret` and, on success, registers each runner id live
-/// at `port` + echoes the challenge. A missing/wrong secret is a BARE 401 (§5a:
-/// refuse without leaking why). Loopback is the ambient guard: every non-loopback
-/// server bind is refused even when the legacy `--allow-remote` flag is present,
-/// and the secret is the real application gate — the same-UID threat is declared
-/// out of scope (§5d).
-///
-/// Announce NEVER creates or widens a capability (§5a) — the registry holds only
-/// liveness; the pins live in the daemon's own `runners.toml`.
-async fn handle_runnerd_announce(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(input): Json<crate::runnerd_owner::AnnounceInput>,
-) -> impl IntoResponse {
-    let provided = headers
-        .get(crate::runnerd_owner::RUNNERD_SECRET_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let runtime_root = owner_runtime_root(&state);
-    let outcome = crate::runnerd_owner::apply_announce(
-        &state.runnerd,
-        &runtime_root,
-        provided.as_deref(),
-        &input,
-        now_ms(),
-    );
-    match outcome {
-        // Bare 401 — no detail body (§5a: never leak why the secret was refused).
-        crate::runnerd_owner::AnnounceOutcome::Unauthorized => {
-            StatusCode::UNAUTHORIZED.into_response()
-        }
-        crate::runnerd_owner::AnnounceOutcome::Registered(body) => {
-            (StatusCode::OK, Json(body)).into_response()
-        }
-    }
-}
-
-/// `GET /api/runnerd/status` (§5a read) — the live runner registry: every
-/// announced `runner_id` with its port + last_seen. A pure read (no secret): it
-/// exposes only liveness, which the compose UI reads to un-disable the spawn radio
-/// and list the pinned-live runners. Empty when no daemon has announced.
-async fn handle_runnerd_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    (StatusCode::OK, Json(state.runnerd.status_json()))
 }
 
 /// Build the browser-facing `graph_changed` SSE event from a broadcast event, or
@@ -5940,7 +5424,6 @@ mod tests {
             registry_dir: None,
             mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
             project_brains,
-            runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
             ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),
             mission_service: None,
             external_mutation_service: None,
@@ -5998,63 +5481,6 @@ mod tests {
             .await
             .expect("request completed after graph release")
             .expect("request task joined")
-    }
-
-    fn seed_system_block_store_for_http_runtime(app: &Arc<AppState>) {
-        let mut session = app
-            .session
-            .lock_mut_before_actor()
-            .expect("test setup precedes actor startup");
-        let output = dispatch_tool(
-            &mut session,
-            "system_blocks_seed_import",
-            &serde_json::json!({
-                "agent_id": "g4-lock-proof",
-                "seed_json": include_str!("../../docs/system-blocks/m1nd.seed.v0.json")
-            }),
-        )
-        .expect("seed system block store");
-        assert_eq!(output["store_version"], 1);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn candidate_naming_graph_analysis_releases_session_lock() {
-        let temp = tempfile::tempdir().expect("temp runtime");
-        let app = rest_owner(temp.path());
-        seed_system_block_store_for_http_runtime(&app);
-        let request_app = app.clone();
-        let target = request_app.session.clone();
-        let response = assert_graph_analysis_does_not_hold_session_lock(&app, async move {
-            handle_candidate_naming(
-                &request_app,
-                &target,
-                None,
-                serde_json::json!({"expected_store_version": 1}),
-            )
-            .await
-        })
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn curation_spawn_graph_analysis_releases_session_lock() {
-        let temp = tempfile::tempdir().expect("temp runtime");
-        let app = rest_owner(temp.path());
-        seed_system_block_store_for_http_runtime(&app);
-        let request_app = app.clone();
-        let target = request_app.session.clone();
-        let response = assert_graph_analysis_does_not_hold_session_lock(&app, async move {
-            handle_curation_spawn(
-                &request_app,
-                &target,
-                None,
-                serde_json::json!({"expected_store_version": 1}),
-            )
-            .await
-        })
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -6231,6 +5657,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rest_withdrawn_capabilities_refuse_before_json_or_brain_resolution() {
+        fn tree_bytes(
+            root: &std::path::Path,
+        ) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+            fn collect(
+                root: &std::path::Path,
+                out: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+            ) {
+                for entry in std::fs::read_dir(root).expect("fixture tree") {
+                    let entry = entry.expect("fixture entry");
+                    let path = entry.path();
+                    if entry.file_type().expect("fixture type").is_dir() {
+                        collect(&path, out);
+                    } else {
+                        out.insert(path.clone(), std::fs::read(path).expect("fixture bytes"));
+                    }
+                }
+            }
+            let mut out = std::collections::BTreeMap::new();
+            collect(root, &mut out);
+            out
+        }
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = rest_owner(temp.path());
+        std::fs::write(
+            temp.path().join("source-sentinel.rs"),
+            b"pub fn untouched() {}\n",
+        )
+        .expect("source sentinel");
+        let before = tree_bytes(temp.path());
+        let before_graph = m1nd_core::snapshot::encode_graph_json(
+            &app.session.read().expect("session").graph.read(),
+        )
+        .expect("graph snapshot");
+        let before_binding = {
+            let session = app.session.read().expect("session");
+            (
+                session.workspace_root.clone(),
+                session.ingest_roots.clone(),
+                session.sessions.len(),
+                session.queries_processed,
+                session.query_log.len(),
+            )
+        };
+        for tool in [
+            "transplant",
+            "transplant_preview",
+            "transplant_commit",
+            "mission_spawn",
+            "candidate_naming",
+            "curation_spawn",
+        ] {
+            for name in [
+                tool.to_owned(),
+                format!("m1nd.{tool}"),
+                format!("m1nd_{tool}"),
+            ] {
+                for body in [
+                    b"not JSON".as_slice(),
+                    br#"{"agent_id":"untrusted","action":"commit"}"#.as_slice(),
+                ] {
+                    let response = handle_tool_call(
+                        State(app.clone()),
+                        Path(name.clone()),
+                        Query(BrainQuery {
+                            brain: Some("unknown-selected-brain".into()),
+                        }),
+                        HeaderMap::new(),
+                        Bytes::copy_from_slice(body),
+                    )
+                    .await
+                    .into_response();
+                    assert_eq!(response.status(), StatusCode::GONE, "{name}");
+                    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                        .await
+                        .expect("refusal body");
+                    let payload: serde_json::Value =
+                        serde_json::from_slice(&bytes).expect("refusal JSON");
+                    assert_eq!(payload["error"], "capability_withdrawn", "{name}");
+                    assert_eq!(payload["tool"], tool, "{name}");
+                }
+            }
+        }
+        let session = app.session.read().expect("session");
+        assert_eq!(
+            m1nd_core::snapshot::encode_graph_json(&session.graph.read()).expect("graph snapshot"),
+            before_graph
+        );
+        assert_eq!(
+            (
+                session.workspace_root.clone(),
+                session.ingest_roots.clone(),
+                session.sessions.len(),
+                session.queries_processed,
+                session.query_log.len()
+            ),
+            before_binding
+        );
+        assert_eq!(
+            tree_bytes(temp.path()),
+            before,
+            "retired requests must preserve source, runtime, and registry bytes"
+        );
+    }
+
+    #[tokio::test]
     async fn rest_generic_policy_precedes_brain_resolution_and_special_handlers() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app = rest_owner(temp.path());
@@ -6330,12 +5863,6 @@ mod tests {
     /// relative to the F-01 generic floor gate (`enforce_generic_action_policy`).
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     enum RestSeat {
-        /// An owner→daemon proxy: HTTP-only, because it needs owner-process state
-        /// the generic dispatcher never sees (the announce registry, the shared
-        /// secret the browser never holds). The generic policy REFUSES these
-        /// verbs, so the gate kills them wherever it runs first: they must precede
-        /// it, and each one must carry a probe in `OWNER_PROXY_PROBES`.
-        OwnerProxyAheadOfGate,
         /// A typed G3 facade: owns its own selector and exact lease binding and
         /// bypasses the generic gate by design (pinned by its own test above).
         TypedFacadeAheadOfGate,
@@ -6351,43 +5878,12 @@ mod tests {
     /// a verb the route handles that nobody declares here turns the guard red, and
     /// so does a declaration for a verb the route no longer handles.
     const REST_ROUTE_SEATING: &[(&str, RestSeat)] = &[
-        ("candidate_naming", RestSeat::OwnerProxyAheadOfGate),
-        ("curation_spawn", RestSeat::OwnerProxyAheadOfGate),
         (
             "external_mutation_service",
             RestSeat::TypedFacadeAheadOfGate,
         ),
         ("ingest", RestSeat::BehindTheGateByDesign),
         ("mission_service", RestSeat::TypedFacadeAheadOfGate),
-        ("mission_spawn", RestSeat::OwnerProxyAheadOfGate),
-    ];
-
-    /// One row per owner proxy: the body a browser-shaped call carries, and the
-    /// fragment of the PROXY'S OWN refusal that proves the proxy — not the floor
-    /// gate — answered on this fixture (no runner announced, no system-block
-    /// store). A verb with no proxy behind it cannot produce these bytes.
-    struct OwnerProxyProbe {
-        verb: &'static str,
-        body: &'static str,
-        own_refusal: &'static str,
-    }
-
-    const OWNER_PROXY_PROBES: &[OwnerProxyProbe] = &[
-        OwnerProxyProbe {
-            verb: "mission_spawn",
-            body: r##"{"runner_id":"runner-that-never-announced","packet_markdown":"# packet","block_id":"blk-1","brain_ref":"bound"}"##,
-            own_refusal: "no live runner 'runner-that-never-announced'",
-        },
-        OwnerProxyProbe {
-            verb: "candidate_naming",
-            body: r#"{"expected_store_version":1}"#,
-            own_refusal: "no system-block store here yet",
-        },
-        OwnerProxyProbe {
-            verb: "curation_spawn",
-            body: r#"{"expected_store_version":1}"#,
-            own_refusal: "no system-block store here yet",
-        },
     ];
 
     /// Every verb `handle_tool_call` compares `bare_tool` against, mapped to the
@@ -6447,81 +5943,15 @@ mod tests {
         earliest
     }
 
-    /// Field defect, twice (project mailbox letters from `opus5-annotate`,
-    /// high/bug, and `opus5-restorder`, medium): the generic floor gate ran BEFORE
-    /// the owner-proxy interceptions, so the three REST paths built FOR the Human
-    /// View v2 spawn, the in-screen "Name with runner" flow and the F12
-    /// propose-apply curation were dead code behind a 403 — all three verbs sit at
-    /// `SCOPED_GRANT_A2`, so the floor refused before the proxy that exists to
-    /// serve them ever saw the request. The proxies are NOT generic dispatch (they
-    /// need owner-process state the generic dispatcher does not have), exactly like
-    /// `mission_service` above, so they are intercepted AHEAD of the gate — the
-    /// same shape `mcp_http::run_mission_service_wire` uses on the wire.
-    ///
-    /// `curation_spawn` failed one step earlier still: the catalog ratifies
-    /// `mission.curation_spawn` at `[Rest]`-only ingress, so it has no MCP tool route
-    /// by design and the gate could not even classify it
-    /// (`generic_action_policy_unresolved`). Routing it would be the wrong repair —
-    /// it would force an HTTP-only verb into the MCP schema registry. Interception
-    /// ahead of the gate is the designed path, so the gate never sees it.
-    ///
-    /// The proof is the HANDLER's own honest refusal: with no runner daemon
-    /// announced and no system-block store in the fixture runtime, each proxy
-    /// answers with its own domain refusal instead of the authority floor. Table-
-    /// driven over `OWNER_PROXY_PROBES`, whose membership the exhaustiveness guard
-    /// below holds equal to the seating declared for the live route.
-    #[tokio::test]
-    async fn rest_owner_proxies_are_intercepted_ahead_of_the_generic_floor_gate() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let app = rest_owner(temp.path());
-
-        for probe in OWNER_PROXY_PROBES {
-            let body: serde_json::Value =
-                serde_json::from_str(probe.body).expect("owner-proxy probe body");
-
-            // The seat is load-bearing, never decorative: the generic policy still
-            // refuses this verb, so the same proxy seated BEHIND the gate dies there.
-            crate::server::enforce_generic_action_policy(probe.verb, &body).expect_err(
-                "a verb the generic policy ADMITS needs no seat ahead of the gate; \
-                 remove it from the owner-proxy table instead of widening the route",
-            );
-
-            // All three name spellings reach the same proxy (`bare_tool_name`).
-            for name in [
-                probe.verb.to_string(),
-                format!("m1nd.{}", probe.verb),
-                format!("m1nd_{}", probe.verb),
-            ] {
-                let (status, payload) = call_tool(&app, &name, None, body.clone()).await;
-                let rendered = payload.to_string();
-                assert!(
-                    !rendered.contains("generic_action_authority_required")
-                        && !rendered.contains("generic_action_policy_unresolved"),
-                    "{name} must reach the owner proxy, not the generic floor gate: {status} {rendered}"
-                );
-                // Every owner proxy refuses an absent runtime as a bad request; the
-                // floor gate answers 403, so the status is part of the proof.
-                assert_eq!(status, StatusCode::BAD_REQUEST, "{rendered}");
-                assert!(
-                    rendered.contains(probe.own_refusal),
-                    "{name} must answer with the proxy's own honest refusal: {rendered}"
-                );
-            }
-        }
-    }
-
-    /// The guard that makes a THIRD occurrence impossible. The two incidents above
-    /// were invisible because nothing tied the route's verb list to its seating: a
-    /// verb could be added to `handle_tool_call` on the wrong side of the gate and
-    /// every existing test stayed green.
+    /// Every surviving special route must declare its seat relative to the
+    /// generic authority gate. Retiring proxies does not weaken this boundary.
     ///
     /// So the seating is measured against the LIVE SOURCE of the route, both ways:
     /// the set of verbs `handle_tool_call` compares `bare_tool` against must equal
     /// `REST_ROUTE_SEATING` exactly (a new verb with no declared seat is red, a
     /// declared seat for a verb the route dropped is red), each verb must sit on the
-    /// side of the gate its seat declares (moving a proxy below the gate is red), and
-    /// the owner-proxy seats must equal `OWNER_PROXY_PROBES` exactly — so a new proxy
-    /// cannot be seated without a probe that proves the proxy, not the gate, answers.
+    /// side of the gate its seat declares. Negative withdrawal cases below hold
+    /// the obsolete routes unavailable before dispatch or brain hydration.
     ///
     /// Its one blind spot, stated honestly: a verb with a handler but NO special
     /// route at all (pure generic dispatch) is invisible here, because there is
@@ -6563,15 +5993,13 @@ mod tests {
         assert_eq!(
             observed, declared,
             "REST route seating drift. Declare every verb `handle_tool_call` routes \
-             specially: an owner proxy belongs AHEAD of enforce_generic_action_policy \
-             with a probe in OWNER_PROXY_PROBES, or the floor gate answers it with \
-             generic_action_authority_required and its REST path is dead code"
+             specially, on the declared side of enforce_generic_action_policy"
         );
 
         for (verb, seat) in REST_ROUTE_SEATING {
             let at = routed[*verb];
             match seat {
-                RestSeat::OwnerProxyAheadOfGate | RestSeat::TypedFacadeAheadOfGate => assert!(
+                RestSeat::TypedFacadeAheadOfGate => assert!(
                     at < gate,
                     "{verb} is routed BEHIND the generic floor gate ({at} > {gate}); \
                      the gate refuses it, so its REST path is dead code"
@@ -6583,28 +6011,10 @@ mod tests {
                 ),
             }
         }
-
-        let seated_proxies: std::collections::BTreeSet<&str> = REST_ROUTE_SEATING
-            .iter()
-            .filter(|(_, seat)| *seat == RestSeat::OwnerProxyAheadOfGate)
-            .map(|(verb, _)| *verb)
-            .collect();
-        let probed: std::collections::BTreeSet<&str> =
-            OWNER_PROXY_PROBES.iter().map(|probe| probe.verb).collect();
-        assert_eq!(
-            probed.len(),
-            OWNER_PROXY_PROBES.len(),
-            "duplicate row in OWNER_PROXY_PROBES"
-        );
-        assert_eq!(
-            seated_proxies, probed,
-            "every owner proxy needs a probe that proves the PROXY answered it, and a \
-             probe without a seat names a verb with no proxy behind it"
-        );
     }
 
-    /// No widening: the interception is keyed to the verbs that HAVE an owner
-    /// proxy, never to their authority floor. `edit_commit` (`source.edit.commit`)
+    /// Removing execution proxies must not admit their authority-floor siblings.
+    /// `edit_commit` (`source.edit.commit`)
     /// sits at the same `SCOPED_GRANT_A2` — the REST-seam twin of the spec1 pin
     /// `spec1_5_9_scoped_grant_a2_siblings_keep_todays_refusal_bytes`. Its refusal
     /// bytes are pinned here verbatim so admitting the proxies cannot silently
@@ -6630,34 +6040,6 @@ mod tests {
              consumer is installed for this action",
             "REST-seam A2 sibling refusal bytes moved: {payload}"
         );
-
-        // And the policy function itself is untouched: the two proxy verbs stay
-        // refused for every OTHER seam that consults it (the MCP wire, where they
-        // are HTTP-only by design — the browser never holds the runner secret).
-        for (tool, params) in [
-            (
-                "mission_spawn",
-                serde_json::json!({
-                    "runner_id": "r-1",
-                    "packet_markdown": "# p",
-                    "block_id": "b-1",
-                    "brain_ref": "bound"
-                }),
-            ),
-            (
-                "candidate_naming",
-                serde_json::json!({ "expected_store_version": 1 }),
-            ),
-        ] {
-            let refusal = crate::server::enforce_generic_action_policy(tool, &params)
-                .expect_err("the generic policy must still refuse the HTTP-only proxies")
-                .to_string();
-            assert!(
-                refusal.contains("generic_action_authority_required")
-                    && refusal.contains("SCOPED_GRANT_A2"),
-                "{tool}: {refusal}"
-            );
-        }
     }
 
     fn bound_node_count(app: &Arc<AppState>) -> u32 {

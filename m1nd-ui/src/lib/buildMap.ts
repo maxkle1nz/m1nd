@@ -34,8 +34,8 @@ export type SystemBlockStateName =
   | 'restored';
 export type MembershipSource = 'ratified' | 'proposed' | 'manual';
 export type SkeletonStateName = 'candidate' | 'ratified';
-/** Who named a candidate block (F0c §3a / F11 o6). The naming-runner is opt-in;
- *  the heuristic always works offline and marks the label provisional; `owner` is
+/** Candidate naming provenance (F0c §3a / F11 o6). Historical `runner` labels
+ *  remain readable. Current scans use provisional offline heuristics; `owner` is
  *  the strongest label — a human touch through Edit Names & Boundaries. */
 export type NamedBy = 'owner' | 'runner' | 'heuristic';
 

@@ -53,7 +53,6 @@ fn app(runtime: &Path, ui_dir: &Path) -> Arc<AppState> {
             runtime.join("project-brains"),
             Some(runtime.join("registry")),
         )),
-        runnerd: Arc::new(m1nd_mcp::runnerd_owner::RunnerdRegistry::default()),
         ui_authority: Arc::new(UiBundleAttestor::for_http(
             false,
             Some(ui_dir.to_path_buf()),

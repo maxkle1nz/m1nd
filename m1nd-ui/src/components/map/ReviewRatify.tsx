@@ -17,8 +17,6 @@
  * - §0/§4c (the friction law): provisional blocks surface first ("— needs you");
  *   runner-named blocks render calm (no badge, no acceptance step — 0b); the
  *   header carries the zero-touch line when every block is named.
- * - §2b: "Name with runner" (all provisional, or the selected block) rides the
- *   `candidate_naming` route; a disabled button always says why (§4d).
  * - o4: a LIVE advisory curating lease renders a non-blocking banner; expired
  *   renders nothing.
  * - The owner above (BuildMapView) is the write owner: it posts the batches under
@@ -70,13 +68,6 @@ export interface ReviewRatifyProps {
    *  OCC key it read; success/conflict reload). */
   onApplyOps: (ops: EditOpInput[]) => void;
   applying?: boolean;
-  /** §2b "Name with runner": absent ids = every provisional block. */
-  onNameWithRunner?: (blockIds?: string[]) => void;
-  naming?: boolean;
-  /** Whether a runner daemon is live (the status read). A disabled naming button
-   *  always says why (§4d). */
-  runnerAvailable?: boolean;
-  runnerUnavailableReason?: string;
   /** The blanket ratify (`system_blocks_ratify`, block_ids omitted). */
   onRatifyAll: () => void;
   /** Ratify ONLY the selected block (`block_ids:[selected]`). */
@@ -129,9 +120,6 @@ function BlockRow({
   onToggleExpand,
   onApplyOps,
   onToggleMember,
-  onNameWithRunner,
-  runnerAvailable,
-  runnerUnavailableReason,
 }: {
   block: SystemBlock;
   store: SystemBlockStore;
@@ -144,9 +132,6 @@ function BlockRow({
   onToggleExpand: (blockId: string) => void;
   onApplyOps: (ops: EditOpInput[]) => void;
   onToggleMember: (path: string) => void;
-  onNameWithRunner?: (blockIds?: string[]) => void;
-  runnerAvailable: boolean;
-  runnerUnavailableReason: string;
 }) {
   const needsNaming = block.candidate_meta?.needs_owner_naming === true;
   const seams = blockSeams(store, block.block_id);
@@ -287,25 +272,6 @@ function BlockRow({
             >
               Accept name
             </button>
-            {onNameWithRunner && (
-              <button
-                type="button"
-                data-role="name-with-runner-block"
-                disabled={!runnerAvailable}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNameWithRunner([block.block_id]);
-                }}
-                title={
-                  runnerAvailable
-                    ? 'name this block with the live naming-runner'
-                    : runnerUnavailableReason
-                }
-                className="px-2 py-1 text-[10px] font-mono rounded border border-ink/15 bg-bone text-ink-soft disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-contact transition-shadow"
-              >
-                Name with runner
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -515,10 +481,6 @@ export default function ReviewRatify({
   reviewLimit = 16,
   onApplyOps,
   applying = false,
-  onNameWithRunner,
-  naming = false,
-  runnerAvailable = false,
-  runnerUnavailableReason = 'no runner daemon connected — start m1nd-runnerd with a pinned naming-runner',
   onRatifyAll,
   onRatifySelected,
   ratifying = false,
@@ -557,10 +519,6 @@ export default function ReviewRatify({
   ).size;
   const unmappedTotal = store.unmapped_total ?? 0;
   const unmappedFiles = store.unmapped_files ?? [];
-  const provisionalIds = queue
-    .filter((b) => b.candidate_meta?.needs_owner_naming === true)
-    .map((b) => b.block_id);
-
   const selectBlock = (blockId: string) => {
     setSelectedId(blockId);
     setSplitSelection(new Set());
@@ -610,24 +568,6 @@ export default function ReviewRatify({
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {onNameWithRunner && (
-                <button
-                  type="button"
-                  data-role="name-with-runner"
-                  disabled={naming || !runnerAvailable || provisionalIds.length === 0}
-                  onClick={() => onNameWithRunner(undefined)}
-                  title={
-                    !runnerAvailable
-                      ? runnerUnavailableReason
-                      : provisionalIds.length === 0
-                        ? 'every block is named — nothing for the runner to do'
-                        : `name the ${provisionalIds.length} provisional block${provisionalIds.length === 1 ? '' : 's'} with the live naming-runner`
-                  }
-                  className="px-2 py-1 text-[11px] font-mono rounded border border-ink/15 bg-bone text-ink disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-contact transition-shadow"
-                >
-                  {naming ? 'Naming…' : 'Name with runner'}
-                </button>
-              )}
               <button
                 type="button"
                 data-role="review-close"
@@ -684,9 +624,6 @@ export default function ReviewRatify({
                   onToggleExpand={toggleExpand}
                   onApplyOps={onApplyOps}
                   onToggleMember={toggleMember}
-                  onNameWithRunner={onNameWithRunner}
-                  runnerAvailable={runnerAvailable}
-                  runnerUnavailableReason={runnerUnavailableReason}
                 />
               ))}
               {total === 0 && (

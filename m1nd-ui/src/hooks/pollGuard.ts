@@ -4,7 +4,7 @@
  * Framework-free and DOM-free (no React, no timers, no `document`) so the
  * no-stack property is unit-testable deterministically — the repo's
  * `liveRefreshCore` / `scanMachine` pure-core pattern. The React shells that wire
- * it to `setInterval` + visibility live in useRunnerdStatus / useUniverse /
+ * it to `setInterval` + visibility live in useUniverse /
  * usePresences / useMissions.
  *
  * The disease it cures: a poller that fires a fresh request every tick STACKS

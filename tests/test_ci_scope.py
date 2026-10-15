@@ -106,12 +106,12 @@ class CiScopeTest(unittest.TestCase):
         head = git(self.repo, "rev-parse", "HEAD")
         self.assertEqual(self.classify_from(base), ci_scope.full(head))
 
-    def test_other_core_and_transplant_changes_keep_their_scoped_closure(self):
+    def test_other_core_changes_keep_their_scoped_closure(self):
         candidate = "a" * 40
-        crates = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw", "m1nd-runnerd"]
+        crates = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"]
         for path, heavy in (
             ("m1nd-core/src/graph.rs", []),
-            ("m1nd-core/src/transplant.rs", ["transplant"]),
+            ("m1nd-core/src/types.rs", []),
         ):
             with self.subTest(path=path):
                 expected = ci_scope.scope(

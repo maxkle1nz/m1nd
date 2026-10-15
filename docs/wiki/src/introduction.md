@@ -1,5 +1,7 @@
 # m1nd: A Checkable Map for Your Coding Agent
 
+> **Current source scope — 2026-10-15:** The source candidate removes transplant and execution proxies; sealed 1.6.5 is unchanged. Manual mission/clipboard delivery, candidate edits, retrieval and impact remain. See [../../FIRST-SIMPLIFICATION-SLICE.md](../../FIRST-SIMPLIFICATION-SLICE.md).
+
 m1nd gives an MCP coding agent a local graph of your repository and memory linked to evidence. It helps answer three practical questions:
 
 - Where is the code relevant to this task?
@@ -36,7 +38,7 @@ Extraction is approximate and differs by language. Graph/static checks do not ex
 ## Go deeper
 
 - [Tutorials](tutorials/quickstart.md): first result and common recovery paths
-- [Architecture](architecture/overview.md): the six-crate workspace and runtime boundaries
+- [Architecture](architecture/overview.md): the five-crate workspace and runtime boundaries
 - [Concepts](concepts/spreading-activation.md): activation, learning, and structural signals
 - [API reference](api-reference/overview.md): tool families and contracts
 - [Changelog](changelog.md): historical changes, not an installation recipe

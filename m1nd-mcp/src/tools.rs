@@ -1371,14 +1371,14 @@ fn finalize_ingest_with_inventory(
     // served owner over HTTP and its trust sequence sends `ingest {path: <cwd>}`;
     // that silently rebound the owner's `workspace_root` to the cwd (`npm/bin`, then
     // `npm/test`), poisoning every session's binding card until the next kickstart.
-    // The served owner is marked by `runnerd_naming` (stamped unconditionally on the
-    // HTTP serve boot, `http_server.rs`; `None` on stdio); once it holds an
+    // The served owner is marked by `served_owner_binding` (stamped unconditionally on the
+    // HTTP serve boot, `http_server.rs`; `false` on stdio); once it holds an
     // established code root (its runtime home — the medulla identity
     // `infer_workspace_root` sets at boot) only its OWN boot/config gesture may move
     // that binding, never a foreign process's ingest. The classic stdio single-graph
-    // bind (`runnerd_naming` None) is untouched, and a per-project
+    // bind (`served_owner_binding` false) is untouched, and a per-project
     // `ingest {project_root}` routes to a hosted brain before this seam runs.
-    let served_owner_pinned = state.runnerd_naming.is_some() && holds_code_root;
+    let served_owner_pinned = state.served_owner_binding && holds_code_root;
     // `refresh` never rebinds: the root it scanned is already this brain's, so
     // there is no binding to move (SPEC-1d).
     if mode != "refresh"
@@ -6856,8 +6856,8 @@ mod tests {
     /// reaches the served owner and its trust sequence sends `ingest {path: <cwd>}`;
     /// that silently rebound the owner's `workspace_root` to the cwd (`npm/bin`,
     /// then `npm/test`), poisoning every session's binding card until the next
-    /// kickstart. The served owner is marked by `runnerd_naming` (stamped on the
-    /// HTTP serve boot, `None` on stdio); its established binding is its own runtime
+    /// kickstart. The served owner is marked by `served_owner_binding` (stamped on the
+    /// HTTP serve boot, `false` on stdio); its established binding is its own runtime
     /// home and only its OWN boot/config gesture may move it — never a foreign
     /// process's ingest. RED against origin/main (the owner flips to the foreign
     /// subdir), GREEN with the served-owner pin in `handle_ingest`.
@@ -6889,12 +6889,9 @@ mod tests {
             "precondition: the owner holds a real (non-sidecar) code root, got {owner_binding}"
         );
 
-        // The HTTP serve boot stamps `runnerd_naming` (http_server.rs:380) — the one
+        // The HTTP serve boot stamps `served_owner_binding` (http_server.rs:380) — the one
         // signal that separates the shared served owner from a stdio session.
-        state.runnerd_naming = Some(crate::runnerd_owner::NamingRunnerHandle {
-            registry: std::sync::Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
-            owner_runtime_root: runtime_dir.clone(),
-        });
+        state.served_owner_binding = true;
 
         // A FOREIGN local run delivers a classic `ingest {path: <cwd subdir>}` to
         // the served owner — the field shape: a subdir of a repo the owner maps
@@ -6933,7 +6930,7 @@ mod tests {
     }
 
     /// Guard scope (companion to the immunity test): a stdio session — no
-    /// `runnerd_naming` — keeps the classic single-graph binding, so an
+    /// `served_owner_binding` — keeps the classic single-graph binding, so an
     /// `ingest {path: repo}` still sets its `workspace_root`. The served-owner
     /// pin must NOT regress the plain `m1nd-mcp`-in-a-repo workflow.
     #[test]
@@ -6956,8 +6953,8 @@ mod tests {
         };
         let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session");
-        // Stdio session: `runnerd_naming` stays None (never a served owner).
-        assert!(state.runnerd_naming.is_none());
+        // Stdio session: `served_owner_binding` stays false (never a served owner).
+        assert!(!state.served_owner_binding);
 
         super::handle_ingest(
             &mut state,

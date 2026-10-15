@@ -1,5 +1,7 @@
 # Human View v2 — F0 technical amendment
 
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
+
 **The design decisions that must be signed before the first Rust struct.**
 
 > Status: RATIFIED for F0a · 2026-07-07 · distilled from the pre-F0 oracle verdict (CHANGE → resolutions adopted in full)

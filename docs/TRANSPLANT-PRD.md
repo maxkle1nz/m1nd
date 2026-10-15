@@ -1,4 +1,6 @@
 # PRD — `transplant`: o verbo de move por grafo
+
+> **Current source scope — 2026-10-15:** Historical design/proof record. Transplant and runner execution/naming/curation paths described below are withdrawn from the current source candidate; manual missions, other writers, retrieval and recovery remain. Do not use retired routes as current recipes. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
 **Design After do ciclo prove-first · 2026-07-20 · status: RATIFICADO PELO DONO ("assinado",
 2026-07-20) após verdict CHANGE aplicado (8 required_changes).
 Decisões fixadas: D1 = symbol+paths canônico v1 (node_id condicionado a A1) · D2 = extents de

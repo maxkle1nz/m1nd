@@ -39,7 +39,7 @@ elapsed=$(( SECONDS - start ))
 echo
 echo "LIGHTNING CHECK PASSED in ${elapsed}s — a fast day-to-day signal, NOT the merge gate."
 echo "Deliberately NOT proven here: retrieval over this repo's real history (retrobuilder),"
-echo "the transplant compiler oracles, 10k-op stress, wide property runs, the full grammar"
+echo "10k-op stress and the full grammar"
 echo "matrix, the browser suites, and every OS that is not this machine."
 echo "A full CI scope runs the three-OS integration suite. Portfolio + the never-cut fifteen:"
 echo "docs/TEST-PORTFOLIO.md"

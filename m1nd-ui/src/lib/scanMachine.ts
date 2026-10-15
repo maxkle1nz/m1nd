@@ -1,9 +1,8 @@
 /*
  * scanMachine — the scan gesture's loading STATE MACHINE (HUMAN-VIEW-V2 F0c §5,
  * UX fix: docs/uml/scan-loading.md). `skeleton_candidate` is one synchronous POST
- * on the owner (repo file list → Louvain clustering → a naming-runner batch whose
- * owner-side wait budget caps at 110s → persistence) with NO progress events —
- * minutes of held request. The old UI collapsed all of that into one boolean
+ * on the owner (repo file list → Louvain clustering → provisional names →
+ * persistence). The old UI collapsed all of that into one boolean
  * (`scanning`), so the button read "Scanning…" and the screen looked dead.
  *
  * This module is the PURE core: named states, real events, a total reducer.
@@ -131,9 +130,8 @@ export type ScanMachineEvent =
   | { type: 'RESET' };
 
 /** After this much in-flight time the machine enters `slow` — the UI adds the
- *  honest "this usually takes a while" note and keeps counting. 10s: clustering
- *  alone finishes under it; a live naming-runner call (~50s measured, 110s cap)
- *  does not. */
+ *  honest "this usually takes a while" note and keeps counting. Large-graph
+ *  clustering can exceed this 10s threshold. */
 export const SCAN_SLOW_AFTER_MS = 10_000;
 
 /** The heartbeat period the driving hook uses (1s — a calm clock, not a spinner). */
@@ -286,11 +284,10 @@ export function scanWaitCopy(nodeCount: number | null): string {
 }
 
 /** The `slow` note — the screen SAYS the wait is long and why, instead of
- *  looking dead. Grounded: a live naming-runner batch waits up to ~2 minutes on
- *  the owner (naming_runner.rs budget, 110s cap) before the heuristic fallback. */
+ *  looking dead. The note reports the retained clustering work without a timing promise. */
 export function scanSlowNote(nodeCount: number | null): string {
   const subject = nodeCount != null ? `${fmtCount(nodeCount)} nodes` : 'a large graph';
-  return `still working — clustering ${subject} usually takes a while (a live naming runner can add ~2 minutes). The request stays open.`;
+  return `still working — clustering ${subject} usually takes a while. The request stays open.`;
 }
 
 /** The owner-named phase, rendered as a label. FACTS only — the counts the owner

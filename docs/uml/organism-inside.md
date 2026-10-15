@@ -1,5 +1,7 @@
 # The Organism From Inside + 360 — UML (arc sheet, DRAFT)
 
+> **Current source scope — 2026-10-15:** Historical structural record: current source withdraws transplant and runner execution/naming/curation proxies. Retained manual paths, ingest routing and recovery guards still apply. See [../FIRST-SIMPLIFICATION-SLICE.md](../FIRST-SIMPLIFICATION-SLICE.md).
+
 **The four new wires drawn against the machinery that exists** — the immune cycle, the
 process-memory gauntlet, the presences, the provenance-honest portfolio, and the
 auto-charter lifecycle with every refusal named.

@@ -92,7 +92,6 @@ function mockOwner(page: Page, presenceBody: () => unknown) {
         if (path === '/api/presences') return await json(route, presenceBody());
         if (path === '/api/graph/snapshot') return await json(route, { version: 1, nodes: [], edges: [] });
         if (path === '/api/graph/stats') return await json(route, { node_count: NODE_COUNT, edge_count: 9_000 });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
         if (path === '/api/tools') return await json(route, { tools: [], rest_brain_selector: false });
         if (path === '/api/tools/system_blocks_snapshot')

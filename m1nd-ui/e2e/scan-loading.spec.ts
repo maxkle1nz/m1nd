@@ -13,7 +13,7 @@
  *
  * Every /api/* call is mocked in-page (page.route) — NOTHING reaches any live
  * owner. The skeleton_candidate mock delays its fulfillment to reproduce the
- * real synchronous wait (the owner's naming budget alone can hold ~110s).
+ * real synchronous wait (large graph clustering can outlast the first loading note).
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
 
@@ -146,7 +146,7 @@ const scanResult = {
       requested: 'auto',
       applied: 'heuristic',
       runner_available: false,
-      note: 'no naming runner announced; heuristic provisional names were used',
+      note: 'heuristic provisional names require review',
     },
   },
 };
@@ -179,7 +179,6 @@ function mockOwner(
           return await json(route, { version: 1, nodes: [], edges: [] });
         if (path === '/api/graph/stats')
           return await json(route, { node_count: NODE_COUNT, edge_count: 9_000 });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });

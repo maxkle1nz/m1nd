@@ -108,9 +108,6 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "apply_batch",
     "edit_preview",
     "edit_commit",
-    "transplant",
-    "transplant_preview",
-    "transplant_commit",
     "search",
     "glob",
     "scan_all",
@@ -167,14 +164,12 @@ pub const MCP_TOOL_ROUTE_NAMES: &[&str] = &[
     "system_blocks_delete",
     "candidate_edit",
     "candidate_lease",
-    "candidate_naming",
     "mission_service",
     "external_mutation_service",
     "graph_ingest_preview",
     "authority_session_challenge",
     "authority_session_authenticate",
     "authority_authorize",
-    "mission_spawn",
 ];
 
 /// Current-state facts computed by the owner before classification. `None`
@@ -624,13 +619,6 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "apply_batch" => "source.apply.batch",
         "edit_preview" => "source.edit.preview",
         "edit_commit" => "source.edit.commit",
-        // The transplant verb family, routed so the fail-closed proof middleware
-        // classifies it instead of refusing an unknown tool.
-        // transplant/transplant_commit carry SOURCE_FILESYSTEM_WRITE;
-        // transplant_preview stages only, mirroring edit_preview's read stance.
-        "transplant" => "source.transplant.single",
-        "transplant_commit" => "source.transplant.commit",
-        "transplant_preview" => "source.transplant.preview",
         "scan_all" => "query.scan_all",
         "mission_start" => "mission.start",
         "mission_next" => "mission.next",
@@ -656,8 +644,6 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "system_blocks_reconcile" => "system_blocks.reconcile",
         "system_blocks_delete" => "system_blocks.delete.permanent",
         "candidate_edit" => "system_blocks.candidate_edit",
-        "candidate_naming" => "system_blocks.candidate_naming",
-        "mission_spawn" => "mission.spawn",
         "authority_session_challenge" | "authority_session_authenticate" => {
             "runtime.session.handshake"
         }
@@ -823,6 +809,45 @@ mod tests {
             let classified = classify_mcp_action(tool, &json!({}), TrustedMcpRouteFacts::default())
                 .unwrap_or_else(|error| panic!("{tool} must classify: {error}"));
             assert_eq!(classified.action.as_str(), action);
+        }
+    }
+
+    #[test]
+    fn retired_transplant_and_execution_proxy_names_have_no_callable_routes() {
+        let catalog = m1nd10_action_catalog().expect("catalog");
+        for (tool, action) in [
+            ("transplant", "source.transplant.single"),
+            ("transplant_preview", "source.transplant.preview"),
+            ("transplant_commit", "source.transplant.commit"),
+            ("mission_spawn", "mission.spawn"),
+            ("candidate_naming", "system_blocks.candidate_naming"),
+            ("curation_spawn", "mission.curation_spawn"),
+        ] {
+            // Persisted authority may still name the old semantic action. Its
+            // compatibility record is not a callable transport route.
+            assert!(catalog
+                .entries
+                .iter()
+                .any(|entry| entry.action.as_str() == action));
+            assert!(!MCP_TOOL_ROUTE_NAMES.contains(&tool));
+            for name in [
+                tool.to_string(),
+                format!("m1nd.{tool}"),
+                format!("m1nd_{tool}"),
+            ] {
+                assert!(
+                    possible_mcp_actions(&name).is_none(),
+                    "retired {name} still routes"
+                );
+                assert!(matches!(
+                    classify_mcp_action(
+                        &name,
+                        &json!({"action": action, "authority_floor": "ORDINARY"}),
+                        TrustedMcpRouteFacts::default(),
+                    ),
+                    Err(McpActionRouteError::UnknownTool { .. })
+                ));
+            }
         }
     }
 

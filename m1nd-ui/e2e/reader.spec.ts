@@ -216,7 +216,6 @@ function mockOwner(page: Page) {
         if (path === '/api/graph/snapshot') return await json(route, readerSnapshot);
         if (path === '/api/graph/stats')
           return await json(route, { node_count: NODE_COUNT, edge_count: readerSnapshot.edges.length });
-        if (path === '/api/runnerd/status') return await json(route, { runners: [] });
         if (path === '/api/mailbox') return await json(route, { missions: [] });
         if (path === '/api/events')
           return await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
