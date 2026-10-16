@@ -2530,13 +2530,25 @@ impl PaintState {
 /// True if a node's external_id denotes a TEST source file. We look at the path
 /// portion (after `file::`, up to the first `::` kind separator).
 pub(crate) fn is_test_source(external_id: &str) -> bool {
-    let rest = external_id.strip_prefix(FILE_PREFIX).unwrap_or(external_id);
+    let rest = external_id
+        .strip_prefix(FILE_PREFIX)
+        .or_else(|| external_id.split_once("::file::").map(|(_, path)| path))
+        .unwrap_or(external_id);
     let path = rest.split("::").next().unwrap_or(rest);
-    path.contains("/tests/")
-        || path.contains("/test_")
-        || path.ends_with("_test.rs")
-        || path.ends_with("/tests.rs")
-        || path == "tests.rs"
+    let filename = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let test_component = path.split(['/', '\\']).any(|component| {
+        matches!(
+            component,
+            "tests" | "test" | "__tests__" | "__test__" | "e2e"
+        ) || component.starts_with("test_")
+    });
+    let js_test_suffix = filename.rsplit_once('.').is_some_and(|(stem, extension)| {
+        matches!(
+            extension,
+            "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts"
+        ) && (stem.ends_with(".test") || stem.ends_with(".spec"))
+    });
+    test_component || filename.ends_with("_test.rs") || filename == "tests.rs" || js_test_suffix
 }
 
 /// Indices of nodes that have PROOF EVIDENCE: either they are the target of a
@@ -5123,6 +5135,107 @@ mod tests {
         // NOT a test source: ordinary src path.
         assert!(!is_test_source("file::m1nd-core/src/lib.rs::fn::real"));
         assert!(!is_test_source("file::m1nd-mcp/src/caller.rs::fn::caller"));
+    }
+
+    #[test]
+    fn is_test_source_recognizes_test_conventions_without_production_substrings() {
+        for path in [
+            "tests/widget.ts",
+            "test/widget.js",
+            "__tests__/widget.ts",
+            "pkg/__test__/widget.jsx",
+            "e2e/widget.ts",
+            "test_helpers/widget.rs",
+            "test_widget.py",
+            "src/widget.test.tsx",
+            "src/widget.spec.ts",
+            "src/widget.test.js",
+            "src/widget.spec.jsx",
+            "src/widget.test.mjs",
+            "src/widget.spec.cjs",
+            "src/widget.test.mts",
+            "src/widget.spec.cts",
+            r"pkg\tests\widget.rs",
+            r"pkg\__tests__\widget.tsx",
+        ] {
+            for id in [
+                path.to_owned(),
+                format!("file::{path}::fn::check"),
+                format!("repo-alpha::file::{path}::fn::check"),
+            ] {
+                assert!(is_test_source(&id), "test source {id}");
+            }
+        }
+        for id in [
+            "file::src/contest.ts::fn::contest",
+            "file::src/latest.ts::fn::latest",
+            "file::src/inspect.ts::fn::inspect",
+            "file::src/examples.ts::fn::example",
+            "file::examples/widget.ts::fn::example",
+            "file::benchmarks/widget.ts::fn::benchmark",
+            "file::src/normal.ts::fn::test_widget",
+            "file::src/widget.testdata.ts::fn::check",
+            "test-spec-repo::file::src/normal.ts::fn::test_widget",
+            r"file::src\contest.ts::fn::check",
+        ] {
+            assert!(!is_test_source(id), "production/example source {id}");
+        }
+    }
+
+    #[test]
+    fn test_source_evidence_does_not_credit_examples_or_production_names() {
+        let cases = [
+            ("file::tests/widget.ts::fn::check", true, false),
+            ("file::__tests__/widget.ts::fn::check", true, false),
+            ("file::e2e/widget.ts::fn::check", true, false),
+            ("file::src/widget.test.tsx::fn::check", true, false),
+            ("file::src/widget.spec.ts::fn::check", true, false),
+            ("repo-alpha::file::tests/widget.ts::fn::check", true, false),
+            ("file::examples/widget.ts::fn::example", false, false),
+            ("file::src/contest.ts::fn::contest", false, false),
+            ("file::src/latest.ts::fn::latest", false, false),
+            ("file::src/inspect.ts::fn::inspect", false, false),
+            ("file::src/normal.ts::fn::test_widget", false, false),
+            (
+                "test-spec-repo::file::src/normal.ts::fn::check",
+                false,
+                false,
+            ),
+            // Keep xray's existing path-only contract: a tag alone is not proof.
+            ("file::src/core.rs::fn::inline_check", false, true),
+        ];
+        let mut graph = Graph::new();
+        let mut external_ids = Vec::new();
+        let mut expected = Vec::new();
+        for (index, (source_id, is_test, tagged)) in cases.iter().enumerate() {
+            let tags: &[&str] = if *tagged { &["test"] } else { &[] };
+            let source = graph
+                .add_node(source_id, "source", NodeType::Function, tags, 0.0, 0.0)
+                .expect("source");
+            external_ids.push((*source_id).to_owned());
+            let target_id = format!("file::src/target_{index}.ts::fn::target_{index}");
+            let target = graph
+                .add_node(&target_id, "target", NodeType::Function, &[], 0.0, 0.0)
+                .expect("target");
+            external_ids.push(target_id);
+            graph
+                .add_edge(
+                    source,
+                    target,
+                    "calls",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.0),
+                )
+                .expect("reference edge");
+            expected.push((target, *is_test, *source_id));
+        }
+        graph.finalize().expect("finalize");
+        let exercised = exercised_set(&graph, &external_ids);
+        for (target, expected, source) in expected {
+            assert_eq!(exercised[target.as_usize()], expected, "source {source}");
+        }
     }
 
     #[test]

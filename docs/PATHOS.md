@@ -1,5 +1,9 @@
 # PATHOS — m1nd agent handoff
 
+**Retained graph diff repair — 2026-10-15 (Unreleased source):** Resolved `GraphDiff` application now removes matching edges, restores tombstoned identities without changing their `NodeId`, and preserves retained arc metadata and plasticity through re-finalization. No graph field or persistence format is added. Public refresh remains a full rescan. The two existing Windows fixture failures have localized test-only corrections in this candidate; native Windows proof is still required. See [the application contract and limitations](GRAPH-DIFF-APPLICATION.md). The dated checkpoints below retain their historical evidence.
+
+**Test-source classification — 2026-10-15 (Unreleased source):** Context neighborhoods reuse the shared path classifier and explicit test tags instead of broad `test`/`spec` substrings. Namespaced IDs and both path separators are parsed by source portion. JS/TS test suffixes and test directories are recognized; ordinary examples and production names do not gain xray test-reference evidence. `include_tests:false` retains neighbors in callers/callees; traversal and impact caps are unchanged. Xray remains path-only and structural evidence does not prove execution. `.mts`/`.cts` classification does not establish extractor support. See [the contract](TEST-SOURCE-CLASSIFICATION.md); sealed 1.6.5 and existing integration blockers are unchanged.
+
 > **Current source scope — 2026-10-15:** This unreleased branch withdraws transplant and execution/naming/curation proxies, preserving retrieval, impact, manual missions, other writers and strict recovery. The dated runner/transplant checkpoints below are historical evidence. Existing PR #582 Windows fixture failures remain unresolved; this branch has no cross-platform readiness or performance claim. See [FIRST-SIMPLIFICATION-SLICE.md](FIRST-SIMPLIFICATION-SLICE.md).
 
 > Read this first. Single source of truth for any chat / subagent / parallel

@@ -27,6 +27,7 @@ use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
 use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::{EditPreviewState, SessionState};
+use crate::xray_handlers::is_test_source;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
 use sha2::{Digest, Sha256};
@@ -1553,9 +1554,9 @@ fn collect_neighbours(
                 // Classify: test file or callee
                 let is_test = include_tests
                     && (relation.contains("test")
-                        || label.contains("test")
-                        || file_path.contains("test")
-                        || file_path.contains("spec"));
+                        || graph.node_tags(target).contains(&"test")
+                        || is_test_source(&neighbour.node_id)
+                        || is_test_source(&file_path));
 
                 if is_test {
                     tests.push(neighbour);
@@ -1600,9 +1601,9 @@ fn collect_neighbours(
 
                 let is_test = include_tests
                     && (relation.contains("test")
-                        || label.contains("test")
-                        || file_path.contains("test")
-                        || file_path.contains("spec"));
+                        || graph.node_tags(source).contains(&"test")
+                        || is_test_source(&neighbour.node_id)
+                        || is_test_source(&file_path));
 
                 if is_test {
                     tests.push(neighbour);
@@ -4410,6 +4411,99 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_secs_f64()
+    }
+
+    #[test]
+    fn context_neighbours_classify_tests_without_hiding_production_or_examples() {
+        let root = tempfile::tempdir().expect("root");
+        let mut state = build_surgical_state(root.path(), "src/widget.ts");
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                "file::src/widget.ts",
+                "widget",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("primary");
+        let cases = [
+            ("src/widget.test.tsx", "alpha", true, false),
+            ("src/widget.spec.ts", "beta", true, false),
+            ("__tests__/widget.ts", "gamma", true, false),
+            ("e2e/widget.ts", "delta", true, false),
+            ("tests/widget.ts", "epsilon", true, false),
+            ("src/contest.ts", "contest", false, false),
+            ("src/latest.ts", "latest", false, false),
+            ("src/inspect.ts", "inspect", false, false),
+            ("src/normal.ts", "test_widget", false, false),
+            ("examples/widget.ts", "example", false, false),
+            ("src/examples.ts", "examples", false, false),
+            ("src/core.rs", "inline_check", true, true),
+        ];
+        let mut expected_tests = HashSet::new();
+        let mut expected_all = HashSet::new();
+        for (index, (path, label, is_test, tagged)) in cases.iter().enumerate() {
+            let id = format!("file::{path}::fn::{label}");
+            let tags: &[&str] = if *tagged { &["test"] } else { &[] };
+            let neighbour = graph
+                .add_node(&id, label, NodeType::Function, tags, 0.0, 0.0)
+                .expect("neighbour");
+            graph.set_node_provenance(
+                neighbour,
+                NodeProvenanceInput {
+                    source_path: Some(path),
+                    line_start: Some(1),
+                    line_end: Some(1),
+                    excerpt: None,
+                    namespace: None,
+                    canonical: true,
+                },
+            );
+            let (from, to) = if index % 2 == 0 {
+                (primary, neighbour)
+            } else {
+                (neighbour, primary)
+            };
+            graph
+                .add_edge(
+                    from,
+                    to,
+                    "calls",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.0),
+                )
+                .expect("edge");
+            expected_all.insert(id.clone());
+            if *is_test {
+                expected_tests.insert(id);
+            }
+        }
+        graph.finalize().expect("finalize");
+        *state.graph.write() = graph;
+        for radius in [1, 2] {
+            let (callers, callees, tests) = collect_neighbours(&state, primary, radius, true);
+            let actual_tests: HashSet<_> = tests.iter().map(|n| n.node_id.clone()).collect();
+            assert_eq!(actual_tests, expected_tests, "radius {radius}");
+            let included: HashSet<_> = callers
+                .iter()
+                .chain(&callees)
+                .chain(&tests)
+                .map(|n| n.node_id.clone())
+                .collect();
+            assert_eq!(included, expected_all);
+            let (callers, callees, tests) = collect_neighbours(&state, primary, radius, false);
+            assert!(tests.is_empty());
+            let unpartitioned: HashSet<_> = callers
+                .iter()
+                .chain(&callees)
+                .map(|n| n.node_id.clone())
+                .collect();
+            assert_eq!(unpartitioned, expected_all, "no hidden neighbours");
+        }
     }
 
     #[test]

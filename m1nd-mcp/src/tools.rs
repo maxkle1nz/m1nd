@@ -7028,11 +7028,20 @@ mod tests {
         if let Some(base) = std::env::var_os(CHILD_ROOT) {
             let base = std::path::PathBuf::from(base);
             let source = std::fs::canonicalize(base.join("repo-alpha")).expect("source identity");
-            let alias = source.join(".").to_str().unwrap().to_owned();
             let canonical = source.to_str().unwrap().to_owned();
+            // Appending text preserves the dot spelling even for Windows verbatim paths.
+            let alias = format!("{}/.", crate::scope::normalize_path_text(&canonical));
             assert_ne!(
                 alias, canonical,
                 "the fixture needs two spellings of one identity"
+            );
+            let identity = m1nd_ingest::exact_path_identity(&source).unwrap();
+            let alias_source =
+                crate::scope::canonical_declared_root(&alias).expect("qualified alias identity");
+            assert_eq!(
+                m1nd_ingest::exact_path_identity(&alias_source).unwrap(),
+                identity,
+                "the distinct spellings must resolve to the same source"
             );
             let before = base.join("repo-before").to_str().unwrap().to_owned();
             let after = base.join("repo-after").to_str().unwrap().to_owned();
@@ -7066,7 +7075,6 @@ mod tests {
             // in the child cwd, its unknown legacy origin is never reinterpreted.
             let expected = vec![before, ".".into(), after, missing, canonical];
             assert_eq!(state.ingest_roots, expected);
-            let identity = m1nd_ingest::exact_path_identity(&source).unwrap();
             assert_eq!(
                 state
                     .ingest_roots
