@@ -108,6 +108,8 @@ Examples on grouped reference pages describe payload shapes, not permission to m
 
 Transplant and execution/naming/curation proxies are withdrawn in the unreleased source candidate; see [the slice contract](../../../FIRST-SIMPLIFICATION-SLICE.md).
 
+The unreleased runtime overlay keeps its existing label, attribute and exact-ID mapping rules while reducing repeated lookup work within a batch. Its cache is limited to one fallback byte length; see [mapping semantics and performance limits](../../../RUNTIME-OVERLAY-MATCHING.md).
+
 The grouped reference pages below still organize the surface by area, but the current best operational map is in `help`, the README tool table, and the live `tools/list` response.
 
 ---

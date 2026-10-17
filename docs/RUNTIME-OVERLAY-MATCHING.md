@@ -1,0 +1,43 @@
+# Runtime overlay matching
+
+Unreleased source contract. This change does not alter sealed 1.6.5 artifacts
+or enable any public runtime-overlay authority surface.
+
+The overlay keeps its existing span-to-node rules:
+
+| Strategy | Existing matching behavior |
+| --- | --- |
+| `LabelMatch` | Lowercase exact label match first, including empty/short labels and duplicate labels. Otherwise both lowercase strings must have at least four UTF-8 bytes, the shorter must be at least half the longer, and either string must contain the other. |
+| `CodeAttribute` | Exact lowercase label lookup from `attributes["code.function"]`, without substring fallback. This matches the implementation's existing behavior. |
+| `ExactId` | Case-sensitive external ID lookup, with the existing node-index bound. |
+
+Byte length remains byte length after Unicode lowercase conversion; it is not
+a character-count rule. A span below the configured minimum duration remains
+processed but is neither mapped nor unmapped. Heat arithmetic, decay, counts,
+errors, durations, boosts and the 100-hot-node limit retain their behavior.
+
+For label substring fallback, one ingest reuses eligible label entries while
+the fallback name's byte length stays the same. A changed length rebuilds the
+list in the existing label-map visit order. The list borrows at most one entry
+per distinct lowercase label: O(U) extra storage, with one remembered length.
+It is not a persistent cache or a map of every observed length. Exact matches
+still bypass fallback. Alternating lengths can add work; containment checks
+still inspect every eligible label.
+
+Exact IDs use `Graph::resolve_id` instead of rebuilding a cloned external-ID
+map. Only label-based strategies populate the lowercase label index. Reverse
+output IDs borrow graph strings until an owned result is needed, preserving
+the last alias encountered in the existing graph-map iteration. Removed IDs,
+retained labels and out-of-range ID entries keep their previous behavior.
+
+Hot-node collection, stable heat-only sorting and truncation stay in their
+existing order. Equal-heat order and cutoff membership are not deterministic
+across fresh hash maps; the change adds no ID tie-breaker. No graph field,
+persistence format, dependency or configuration is added.
+
+Regressions pin mapping boundaries, Unicode, duplicates, aliases, removed and
+out-of-range IDs, duration filtering, per-node counters, decay and the existing
+tie order. Controlled timing on one fixed graph does not establish general
+throughput, productivity or the cause of a historical suite failure. The local
+stress limit remains five seconds; CI's separate allowance does not prove that
+local gate. Full-suite and platform results belong to the exact tested source.

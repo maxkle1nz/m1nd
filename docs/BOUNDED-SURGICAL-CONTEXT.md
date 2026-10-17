@@ -67,7 +67,8 @@ A partial source page is not a complete file replacement or proof of edit
 readiness. Retrieve and verify the complete source before editing. Internal
 `north` callers and `surgical_context_v2` retain unbounded V1 inputs, preserving
 V2 proof behavior. This output cap does not bound graph traversal, file reads,
-server memory, HTTP/MCP framing or other tools.
+server memory, HTTP/MCP framing or other tools. Rust symbol extraction may
+parse the complete file on each page; see [method ranges and limits](RUST-METHOD-CONTEXT.md).
 
 Regression tests exercise compact byte accounting with escapes and UTF-8,
 source reassembly, public stdio/actor refusal recovery, stable digests, omission counts, exact neighbor coverage,
