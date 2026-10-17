@@ -18,6 +18,27 @@ explicit test tags and existing test relations. Test directories and JS/TS
 flag does not remove them from the returned neighborhood. See the
 [classification contract and extraction limits](../../../TEST-SOURCE-CLASSIFICATION.md).
 
+The default returns full source, symbols and graph neighbors for an authorized
+file. Unreleased source adds optional `max_output_bytes` (integer, minimum 1024)
+and `continuation` for bounded pages. The cap measures compact UTF-8 handler
+JSON including escapes and page metadata; transport/runtime envelopes and
+pretty-print whitespace are excluded. `context_page` declares exact measured
+bytes, source anchors/digest, snapshot identity, per-page omissions and the next
+cursor. Repeat target/options and copy the returned cursor unchanged; source,
+options, graph or neighborhood drift refuses without changing prior coverage.
+Only emitted neighbors gain coverage. A large indivisible item requires a larger
+budget. The shared HTTP/stdio envelope requests continuation on partial pages.
+Final-page edit guidance first requires reassembling all source pages by their
+byte anchors and verifying the full-source digest; a final fragment may be empty.
+Default V1 suggestions and V2 proof behavior remain unchanged. See
+[the complete contract](../../../BOUNDED-SURGICAL-CONTEXT.md).
+
+Unreleased Rust context adds direct impl/trait methods with grammar-derived
+ranges, while preserving legacy symbol identity and first-name selection.
+Required trait signatures end at their semicolon; macro expansion and qualified
+method resolution remain outside this scan. Method metadata can be omitted on
+one bounded page. See [ranges and limits](../../../RUST-METHOD-CONTEXT.md).
+
 <a id="m1ndsurgicalcontextv2"></a>
 
 `surgical_context_v2` builds on the same context neighborhood with its additional

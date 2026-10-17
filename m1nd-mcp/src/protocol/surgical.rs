@@ -62,6 +62,13 @@ pub struct SurgicalContextInput {
     /// Include test files in the neighbourhood. Default: true.
     #[serde(default = "default_true")]
     pub include_tests: bool,
+    /// Opt-in maximum compact UTF-8 JSON bytes of the handler payload.
+    /// Excludes transport/runtime envelopes and pretty-print whitespace.
+    #[serde(default)]
+    pub max_output_bytes: Option<usize>,
+    /// Resume a bounded page. Repeat the same target/options and a budget.
+    #[serde(default)]
+    pub continuation: Option<SurgicalContextContinuation>,
 }
 
 fn default_radius() -> u32 {
@@ -98,6 +105,59 @@ pub struct SurgicalContextOutput {
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+    /// Present only for opt-in bounded calls; source may be a fragment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_page: Option<SurgicalContextPage>,
+}
+
+/// Position in a stable source/neighborhood snapshot, never an authorization token.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SurgicalContextContinuation {
+    pub version: u8,
+    pub context_sha256: String,
+    pub graph_generation: u64,
+    pub plasticity_generation: u64,
+    pub source_byte_offset: usize,
+    pub item_offset: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SurgicalContextPage {
+    pub max_output_bytes: usize,
+    pub serialized_bytes: usize,
+    /// Binds canonical target, source digest, options, symbols and ordered neighbors.
+    /// Live, time-decayed heuristic telemetry is excluded from snapshot identity.
+    pub context_sha256: String,
+    pub graph_generation: u64,
+    pub plasticity_generation: u64,
+    pub source: SurgicalSourceAnchor,
+    /// Counts omitted from this page, including any already delivered by prior pages.
+    pub omitted: SurgicalOmissions,
+    pub continuation: Option<SurgicalContextContinuation>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SurgicalSourceAnchor {
+    pub sha256: String,
+    pub total_bytes: usize,
+    /// Zero-based, half-open byte range in the full UTF-8 source.
+    pub byte_start: usize,
+    pub byte_end: usize,
+    /// One-based source lines touched by the fragment; both are zero for an empty range.
+    pub line_start: usize,
+    pub line_end: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SurgicalOmissions {
+    pub source_bytes: usize,
+    pub symbols: usize,
+    pub focused_symbol: bool,
+    pub callers: usize,
+    pub callees: usize,
+    pub tests: usize,
+    pub heuristic_summary: bool,
 }
 
 /// Heuristic risk summary for a surgical editing target.

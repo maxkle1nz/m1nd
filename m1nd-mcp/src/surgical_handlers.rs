@@ -11,6 +11,7 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
+mod bounded_context;
 mod source_edit_transaction;
 
 pub(crate) use source_edit_transaction::{
@@ -1222,7 +1223,10 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<surgical::SurgicalSymb
     let mut symbols = Vec::new();
 
     match ext {
-        "rs" => extract_rust_symbols(&lines, &mut symbols),
+        "rs" => {
+            extract_rust_symbols(&lines, &mut symbols);
+            reconcile_rust_method_symbols(content, &lines, &mut symbols);
+        }
         "py" => extract_python_symbols(&lines, &mut symbols),
         "ts" | "tsx" | "js" | "jsx" => extract_ts_symbols(&lines, &mut symbols),
         "go" => extract_go_symbols(&lines, &mut symbols),
@@ -1230,6 +1234,67 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<surgical::SurgicalSymb
     }
 
     symbols
+}
+
+/// Correct direct method ranges in place, then append previously skipped methods.
+/// Legacy names, types, and selection order remain unchanged.
+fn reconcile_rust_method_symbols(
+    content: &str,
+    lines: &[&str],
+    symbols: &mut Vec<surgical::SurgicalSymbol>,
+) {
+    let Some(methods) = m1nd_ingest::extract::rust_lang::rust_method_ranges(content) else {
+        return;
+    };
+    let line_starts: Vec<_> = std::iter::once(0)
+        .chain(content.match_indices('\n').map(|(offset, _)| offset + 1))
+        .collect();
+    let legacy_functions: HashMap<_, _> = symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| symbol.symbol_type == "function")
+        .filter_map(|(symbol_index, symbol)| {
+            let line_index = symbol.line_start.checked_sub(1)? as usize;
+            let line = lines.get(line_index)?;
+            let declaration = *line_starts.get(line_index)? + line.len() - line.trim_start().len();
+            Some((declaration, symbol_index))
+        })
+        .collect();
+
+    for method in methods {
+        let Some(start) = method.line_start.checked_sub(1).map(|line| line as usize) else {
+            continue;
+        };
+        let Some(end) = method.line_end.checked_sub(1).map(|line| line as usize) else {
+            continue;
+        };
+        if start > end || end >= lines.len() {
+            continue;
+        }
+        // A split visibility/modifier places the legacy anchor on `fn`, while
+        // the syntax item starts at its first modifier. Match only exact syntax
+        // anchors and the same name; comments between them are not identities.
+        let legacy_index = [method.start_byte, method.fn_keyword_byte]
+            .into_iter()
+            .find_map(|declaration| {
+                let index = *legacy_functions.get(&declaration)?;
+                (symbols[index].name == method.name).then_some(index)
+            });
+        if let Some(index) = legacy_index {
+            let symbol = &mut symbols[index];
+            symbol.line_start = method.line_start;
+            symbol.line_end = method.line_end;
+            symbol.excerpt = Some(build_excerpt(lines, start, end));
+            continue;
+        }
+        symbols.push(surgical::SurgicalSymbol {
+            name: method.name,
+            symbol_type: "function".to_string(),
+            line_start: method.line_start,
+            line_end: method.line_end,
+            excerpt: Some(build_excerpt(lines, start, end)),
+        });
+    }
 }
 
 fn extract_rust_symbols(lines: &[&str], symbols: &mut Vec<surgical::SurgicalSymbol>) {
@@ -1965,19 +2030,39 @@ pub fn handle_surgical_context(
         ))
     };
 
-    // Track agent session
+    let output = bounded_context::bounded_page(
+        surgical::SurgicalContextOutput {
+            file_path: path_str,
+            file_contents,
+            line_count,
+            node_id: node_id_str,
+            symbols,
+            focused_symbol,
+            callers,
+            callees,
+            tests,
+            heuristic_summary,
+            elapsed_ms,
+            context_page: None,
+        },
+        &input,
+        state.graph_generation,
+        state.plasticity_generation,
+    )?;
+
+    // Credit only the context actually emitted, after every refusal point.
     state.track_agent(&input.agent_id);
-    let mut visited_files = vec![path_str.clone()];
-    visited_files.extend(callers.iter().map(|entry| entry.file_path.clone()));
-    visited_files.extend(callees.iter().map(|entry| entry.file_path.clone()));
-    visited_files.extend(tests.iter().map(|entry| entry.file_path.clone()));
+    let mut visited_files = vec![output.file_path.clone()];
+    visited_files.extend(output.callers.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(output.callees.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(output.tests.iter().map(|entry| entry.file_path.clone()));
     let mut visited_nodes = Vec::new();
-    if !node_id_str.is_empty() {
-        visited_nodes.push(node_id_str.clone());
+    if !output.node_id.is_empty() {
+        visited_nodes.push(output.node_id.clone());
     }
-    visited_nodes.extend(callers.iter().map(|entry| entry.node_id.clone()));
-    visited_nodes.extend(callees.iter().map(|entry| entry.node_id.clone()));
-    visited_nodes.extend(tests.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.callers.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.callees.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(output.tests.iter().map(|entry| entry.node_id.clone()));
     state.note_coverage(
         &input.agent_id,
         "surgical_context",
@@ -1985,19 +2070,7 @@ pub fn handle_surgical_context(
         visited_nodes,
     );
 
-    Ok(surgical::SurgicalContextOutput {
-        file_path: path_str,
-        file_contents,
-        line_count,
-        node_id: node_id_str,
-        symbols,
-        focused_symbol,
-        callers,
-        callees,
-        tests,
-        heuristic_summary,
-        elapsed_ms,
-    })
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -2433,6 +2506,8 @@ pub fn handle_surgical_context_v2(
         symbol: input.symbol.clone(),
         radius: input.radius,
         include_tests: input.include_tests,
+        max_output_bytes: None,
+        continuation: None,
     };
     let primary = handle_surgical_context(state, v1_input)?;
 
@@ -4331,6 +4406,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -4585,6 +4661,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -4706,6 +4783,410 @@ mod tests {
         assert_eq!(extract_identifier("(foo)"), "");
     }
 
+    fn bounded_input(
+        path: &Path,
+        budget: usize,
+        continuation: serde_json::Value,
+    ) -> surgical::SurgicalContextInput {
+        serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": budget,
+            "continuation": continuation
+        }))
+        .unwrap()
+    }
+
+    fn coverage_snapshot(state: &SessionState) -> serde_json::Value {
+        serde_json::to_value(state.coverage_session("bounded").expect("coverage session")).unwrap()
+    }
+
+    #[test]
+    fn bounded_context_pages_reassemble_source_and_emit_each_neighbor_once() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = format!(
+            "{}pub fn core() {{}}\n",
+            "// 🧠 quotes \\\"\t\r\n".repeat(140)
+        );
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let mut continuation = serde_json::Value::Null;
+        let mut reconstructed = String::new();
+        let mut emitted_neighbors = std::collections::BTreeSet::new();
+        let mut emitted_symbols = Vec::new();
+        let mut context_digest = None;
+        for page_index in 0..100 {
+            let output =
+                handle_surgical_context(&mut state, bounded_input(&path, 1800, continuation))
+                    .unwrap();
+            let json = serde_json::to_value(&output).unwrap();
+            let page = output.context_page.as_ref().unwrap();
+            assert_eq!(
+                page.serialized_bytes,
+                serde_json::to_vec(&json).unwrap().len()
+            );
+            assert!(page.serialized_bytes <= 1800);
+            assert_eq!(page.source.byte_start, reconstructed.len());
+            assert_eq!(
+                page.source.byte_end - page.source.byte_start,
+                output.file_contents.len()
+            );
+            assert_eq!(page.source.sha256, sha256_hex(source.as_bytes()));
+            assert_eq!(page.source.total_bytes, source.len());
+            if output.file_contents.is_empty() {
+                assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+            } else {
+                assert_eq!(
+                    page.source.line_start,
+                    1 + source[..page.source.byte_start]
+                        .bytes()
+                        .filter(|b| *b == b'\n')
+                        .count()
+                );
+                assert!(page.source.line_end <= output.line_count as usize);
+            }
+            assert_eq!(
+                page.omitted.source_bytes,
+                source.len() - output.file_contents.len()
+            );
+            if let Some(digest) = &context_digest {
+                assert_eq!(digest, &page.context_sha256);
+            } else {
+                context_digest = Some(page.context_sha256.clone());
+            }
+            reconstructed.push_str(&output.file_contents);
+            emitted_symbols.extend(output.symbols.iter().map(|s| s.name.clone()));
+            for neighbor in output
+                .callers
+                .iter()
+                .chain(&output.callees)
+                .chain(&output.tests)
+            {
+                assert!(
+                    emitted_neighbors.insert(neighbor.node_id.clone()),
+                    "no repeated metadata item"
+                );
+            }
+            let coverage = state.coverage_session("bounded").expect("coverage session");
+            assert_eq!(coverage.visited_nodes.len(), 1 + emitted_neighbors.len());
+            assert_eq!(coverage.visited_files.len(), 1 + emitted_neighbors.len());
+            continuation = json["context_page"]["continuation"].clone();
+            if continuation.is_null() {
+                assert!(page_index > 0);
+                break;
+            }
+            assert!(
+                page_index < 99,
+                "pagination must make progress and terminate"
+            );
+        }
+        assert_eq!(reconstructed, source);
+        assert_eq!(emitted_symbols, vec!["core"]);
+        assert_eq!(emitted_neighbors.len(), 1);
+    }
+
+    #[test]
+    fn bounded_context_stale_source_graph_options_and_targets_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "// source\n".repeat(1000);
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        let other = root.path().join("other.rs");
+        std::fs::write(&other, &source).unwrap();
+        for (key, value) in [
+            ("radius", serde_json::json!(2)),
+            ("include_tests", serde_json::json!(false)),
+            ("symbol", serde_json::json!("absent")),
+            ("file_path", serde_json::json!(other)),
+        ] {
+            let mut input = serde_json::json!({"file_path": path, "agent_id": "bounded", "max_output_bytes":1800,"continuation":cursor});
+            input[key] = value;
+            let error = handle_surgical_context(&mut state, serde_json::from_value(input).unwrap())
+                .unwrap_err();
+            assert!(error.to_string().contains("continuation"));
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        std::fs::write(&path, format!("{source}// modified\n")).unwrap();
+        assert!(
+            handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor.clone()))
+                .is_err()
+        );
+        assert_eq!(coverage_snapshot(&state), before);
+        std::fs::write(&path, &source).unwrap();
+        state.bump_graph_generation();
+        assert!(handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor)).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_invalid_offsets_and_missing_budget_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "🧠\n".repeat(1000);
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        for (key, value) in [
+            ("source_byte_offset", serde_json::json!(1)),
+            ("source_byte_offset", serde_json::json!(source.len() + 1)),
+            ("item_offset", serde_json::json!(1)),
+            ("version", serde_json::json!(2)),
+            ("context_sha256", serde_json::json!("0".repeat(64))),
+        ] {
+            let mut altered = cursor.clone();
+            altered[key] = value;
+            assert!(
+                handle_surgical_context(&mut state, bounded_input(&path, 1800, altered)).is_err()
+            );
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        let input = serde_json::from_value(
+            serde_json::json!({"file_path":path,"agent_id":"bounded","continuation":cursor}),
+        )
+        .unwrap();
+        assert!(handle_surgical_context(&mut state, input).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_unbounded_shape_and_large_budget_remain_complete() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = "pub fn core() {}\n";
+        std::fs::write(&path, source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let input =
+            serde_json::from_value(serde_json::json!({"file_path":path,"agent_id":"bounded"}))
+                .unwrap();
+        let full = handle_surgical_context(&mut state, input).unwrap();
+        assert_eq!(full.file_contents, source);
+        assert!(full.context_page.is_none());
+        assert!(serde_json::to_value(&full)
+            .unwrap()
+            .get("context_page")
+            .is_none());
+        assert_eq!(full.callees.len(), 1);
+        assert_eq!(full.symbols.len(), 1);
+        let bounded = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 10_000, serde_json::Value::Null),
+        )
+        .unwrap();
+        assert_eq!(bounded.file_contents, full.file_contents);
+        assert_eq!(bounded.callees.len(), 1);
+        let page = bounded.context_page.unwrap();
+        assert!(page.continuation.is_none());
+        assert_eq!(page.omitted.source_bytes, 0);
+        assert_eq!(page.omitted.callees, 0);
+        assert_eq!(page.omitted.symbols, 0);
+        assert!(!page.omitted.heuristic_summary);
+    }
+
+    #[test]
+    fn bounded_context_invalid_numeric_budgets_and_denied_paths_preserve_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let denied = outside.path().join("sentinel.rs");
+        std::fs::write(&path, "pub fn core() {}\n").unwrap();
+        std::fs::write(&denied, "DENIED_SOURCE\n").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        state.note_coverage(
+            "bounded",
+            "view",
+            vec!["prior.rs".into()],
+            vec!["file::prior.rs".into()],
+        );
+        let before = coverage_snapshot(&state);
+        for budget in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("1800"),
+        ] {
+            assert!(serde_json::from_value::<surgical::SurgicalContextInput>(
+                serde_json::json!({"file_path":path,"agent_id":"bounded","max_output_bytes":budget})
+            )
+            .is_err());
+        }
+        for rejected_path in [
+            denied,
+            root.path().join("missing.rs"),
+            root.path().join("runtime/graph.json"),
+        ] {
+            let error = handle_surgical_context(
+                &mut state,
+                bounded_input(&rejected_path, 1800, serde_json::Value::Null),
+            )
+            .unwrap_err();
+            assert!(!error.to_string().contains("DENIED_SOURCE"));
+            assert_eq!(coverage_snapshot(&state), before);
+        }
+        let mut deep = root.path().to_path_buf();
+        for _ in 0..6 {
+            deep.push("segment".repeat(16));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        deep.push("core.rs");
+        std::fs::write(&deep, "// source\n").unwrap();
+        assert!(handle_surgical_context(
+            &mut state,
+            bounded_input(&deep, 1024, serde_json::Value::Null)
+        )
+        .is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_oversized_metadata_requires_larger_page_without_losing_visits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        let source = format!("pub fn {}() {{}}\n", "function_name".repeat(300));
+        std::fs::write(&path, &source).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let mut cursor = serde_json::Value::Null;
+        let mut reconstructed = String::new();
+        let mut refused_cursor = None;
+        for _ in 0..100 {
+            let before = state
+                .coverage_session("bounded")
+                .map(|v| serde_json::to_value(v).unwrap());
+            match handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor.clone())) {
+                Ok(page) => {
+                    reconstructed.push_str(&page.file_contents);
+                    cursor = serde_json::to_value(page.context_page.unwrap().continuation.unwrap())
+                        .unwrap();
+                }
+                Err(error) => {
+                    assert!(error.to_string().contains("complete metadata item"));
+                    assert_eq!(Some(coverage_snapshot(&state)), before);
+                    refused_cursor = Some(cursor);
+                    break;
+                }
+            }
+        }
+        assert_eq!(reconstructed, source);
+        let output = handle_surgical_context(
+            &mut state,
+            bounded_input(
+                &path,
+                20_000,
+                refused_cursor.expect("oversized symbol must refuse"),
+            ),
+        )
+        .unwrap();
+        assert!(output.file_contents.is_empty());
+        assert_eq!(output.symbols.len(), 1);
+        let page = output.context_page.unwrap();
+        assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+        assert!(page.continuation.is_none());
+    }
+
+    #[test]
+    fn bounded_context_empty_source_and_plasticity_generation_are_explicit() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let output = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 10_000, serde_json::Value::Null),
+        )
+        .unwrap();
+        let page = output.context_page.unwrap();
+        assert_eq!((page.source.byte_start, page.source.byte_end), (0, 0));
+        assert_eq!((page.source.line_start, page.source.line_end), (0, 0));
+        assert_eq!(page.source.sha256, sha256_hex(b""));
+        assert!(page.continuation.is_none());
+        std::fs::write(&path, "// source\n".repeat(1000)).unwrap();
+        let first = handle_surgical_context(
+            &mut state,
+            bounded_input(&path, 1800, serde_json::Value::Null),
+        )
+        .unwrap();
+        let cursor =
+            serde_json::to_value(first.context_page.unwrap().continuation.unwrap()).unwrap();
+        let before = coverage_snapshot(&state);
+        state.bump_plasticity_generation();
+        assert!(handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor)).is_err());
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
+    #[test]
+    fn bounded_context_respects_requested_payload_budget() {
+        let root = tempfile::tempdir().expect("root");
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "// quoted \\\" source 🧠\n".repeat(1000)).unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        let input = serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": 1800
+        }))
+        .unwrap();
+        let output = handle_surgical_context(&mut state, input).unwrap();
+        let json = serde_json::to_value(&output).unwrap();
+        assert!(
+            serde_json::to_vec(&output).unwrap().len() <= 1800,
+            "opt-in bound must account for JSON escaping and UTF-8"
+        );
+        assert!(
+            json["context_page"]["continuation"].is_object(),
+            "partial source requires explicit continuation"
+        );
+        assert!(
+            json["context_page"]["omitted"]["source_bytes"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert!(
+            output.callees.is_empty(),
+            "neighbors not emitted on a source page"
+        );
+        let coverage = state.coverage_session("bounded").expect("coverage session");
+        assert_eq!(
+            coverage.visited_files.len(),
+            1,
+            "omitted neighbors receive no credit"
+        );
+    }
+
+    #[test]
+    fn bounded_context_refuses_impossible_budgets_and_preserves_visits() {
+        let root = tempfile::tempdir().expect("root");
+        let path = root.path().join("core.rs");
+        std::fs::write(&path, "pub fn core() {}\n").unwrap();
+        let mut state = build_surgical_state(root.path(), &path.to_string_lossy());
+        state.note_coverage(
+            "bounded",
+            "view",
+            vec!["prior.rs".into()],
+            vec!["file::prior.rs".into()],
+        );
+        let before = coverage_snapshot(&state);
+        let input = serde_json::from_value(serde_json::json!({
+            "file_path": path, "agent_id": "bounded", "max_output_bytes": 0
+        }))
+        .unwrap();
+        let error =
+            handle_surgical_context(&mut state, input).expect_err("impossible bound must refuse");
+        assert!(error.to_string().contains("max_output_bytes"));
+        assert_eq!(coverage_snapshot(&state), before);
+    }
+
     #[test]
     fn test_diff_summary() {
         let old = "line1\nline2\nline3";
@@ -4748,6 +5229,278 @@ mod tests {
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "handle_apply");
         assert_eq!(symbols[0].symbol_type, "function");
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_includes_impl_methods_after_legacy_symbols() {
+        let source = "struct Engine {\n    value: usize,\n}\nimpl Engine {\n    pub fn remove_edges(&mut self) {\n        self.value = 0;\n    }\n}\nfn sentinel() {}\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let rows: Vec<_> = symbols
+            .iter()
+            .map(|symbol| {
+                (
+                    symbol.name.as_str(),
+                    symbol.symbol_type.as_str(),
+                    symbol.line_start,
+                    symbol.line_end,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Engine", "struct", 1, 3),
+                ("Engine", "impl", 4, 8),
+                ("sentinel", "function", 9, 9),
+                ("remove_edges", "function", 5, 7),
+            ]
+        );
+        assert_eq!(
+            symbols[3].excerpt.as_deref(),
+            Some("    pub fn remove_edges(&mut self) {\n        self.value = 0;\n    }")
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_preserves_generic_impl_method_once() {
+        let source = "struct Engine<T> { value: T }\nimpl<T> Engine<T> {\n    pub fn value(&self) -> &T {\n        &self.value\n    }\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            serde_json::to_value(&symbols[..legacy.len()]).unwrap(),
+            serde_json::to_value(&legacy).unwrap()
+        );
+        assert_eq!(
+            symbols
+                .iter()
+                .filter(|symbol| symbol.name == "value")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_corrects_generic_impl_literal_brace_range_in_place() {
+        let source = "fn sentinel() {}\nimpl<T> Engine<T> {\n    pub fn value(&self) -> usize {\n        let text = \"}\";\n        text.len()\n    }\n}\nfn after() {}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!((legacy[1].line_start, legacy[1].line_end), (3, 4));
+        let symbols = extract_symbols(source, "engine.rs");
+        let identities: Vec<_> = symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(identities, legacy_identities);
+        assert_eq!((symbols[1].line_start, symbols[1].line_end), (3, 6));
+        assert_eq!(symbols[1].excerpt.as_deref(), Some("    pub fn value(&self) -> usize {\n        let text = \"}\";\n        text.len()\n    }"));
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[2]).unwrap(),
+            serde_json::to_value(&legacy[2]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_split_modifiers_reconcile_once_in_place() {
+        let source = "fn sentinel() {}\nimpl<T> Engine<T> {\n    pub\n    fn value(&self) {}\n    pub(crate)\n    async\n    unsafe\n    fn shifted(&self) {}\n    pub(super) fn same_line(&self) {}\n}\nfn after() {}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        let rows: Vec<_> = symbols
+            .iter()
+            .map(|symbol| {
+                (
+                    symbol.name.as_str(),
+                    symbol.symbol_type.as_str(),
+                    symbol.line_start,
+                    symbol.line_end,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("sentinel", "function", 1, 1),
+                ("value", "function", 3, 4),
+                ("shifted", "function", 5, 8),
+                ("same_line", "function", 9, 9),
+                ("after", "function", 11, 11),
+            ]
+        );
+        assert_eq!(
+            symbols.len(),
+            legacy.len(),
+            "one symbol per existing method"
+        );
+        let identities: Vec<_> = symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(identities, legacy_identities);
+        assert_eq!(
+            symbols[1].excerpt.as_deref(),
+            Some("    pub\n    fn value(&self) {}")
+        );
+        assert_eq!(
+            symbols[2].excerpt.as_deref(),
+            Some("    pub(crate)\n    async\n    unsafe\n    fn shifted(&self) {}")
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[4]).unwrap(),
+            serde_json::to_value(&legacy[4]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_comment_alias_is_not_a_method_anchor() {
+        let source = "impl<T> Engine<T> {\n    pub\n    /*\n    fn value() {}\n    */\n    fn value(&self) {}\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            symbols.len(),
+            2,
+            "the legacy false positive stays; the method is not duplicated"
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            symbols[0].line_start, 4,
+            "a comment lookalike is not an AST anchor"
+        );
+        assert_eq!(symbols[1].name, "value");
+        assert_eq!(symbols[1].symbol_type, "function");
+        assert_eq!((symbols[1].line_start, symbols[1].line_end), (2, 6));
+        assert_eq!(
+            symbols[1].excerpt.as_deref(),
+            Some("    pub\n    /*\n    fn value() {}\n    */\n    fn value(&self) {}")
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_preserves_homonyms_and_first_legacy_answer() {
+        let source = "fn run() {} impl First { fn run() {} } impl Second { fn run() {} }";
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            symbols.len(),
+            3,
+            "same-line method declarations must remain distinct"
+        );
+        assert!(symbols
+            .iter()
+            .all(|symbol| symbol.name == "run" && symbol.symbol_type == "function"));
+        assert_eq!(symbols[0].line_start, 1);
+        assert_eq!(symbols[0].excerpt.as_deref(), Some(source));
+        // The selector is unchanged: keeping the original element first preserves
+        // its existing answer, without introducing qualified-name semantics.
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_trait_signatures_end_at_semicolon() {
+        let source = "trait Worker {\n    fn required(\n        &self,\n    ) -> usize;\n    fn defaulted(&self) -> usize {\n        1\n    }\n}\nimpl Worker for Engine {\n    fn required(&self) -> usize { 2 }\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!((legacy[0].line_start, legacy[0].line_end), (2, 7));
+        let symbols = extract_symbols(source, "engine.rs");
+        let retained_identities: Vec<_> = symbols[..legacy.len()]
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(retained_identities, legacy_identities);
+        assert_eq!(
+            serde_json::to_value(&symbols[1]).unwrap(),
+            serde_json::to_value(&legacy[1]).unwrap()
+        );
+        let required: Vec<_> = symbols
+            .iter()
+            .filter(|symbol| symbol.name == "required")
+            .collect();
+        assert_eq!(required.len(), 2);
+        assert_eq!((required[0].line_start, required[0].line_end), (2, 4));
+        assert_eq!((required[1].line_start, required[1].line_end), (10, 10));
+        assert!(required
+            .iter()
+            .all(|symbol| symbol.symbol_type == "function"));
+        assert_eq!(
+            required[0].excerpt.as_deref(),
+            Some("    fn required(\n        &self,\n    ) -> usize;")
+        );
+        let defaulted = symbols
+            .iter()
+            .find(|symbol| symbol.name == "defaulted")
+            .unwrap();
+        assert_eq!((defaulted.line_start, defaulted.line_end), (5, 7));
+        assert_eq!(defaulted.symbol_type, "function");
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_new_methods_do_not_include_nested_declarations() {
+        let source = "impl Engine {\n    fn outer(&self) {\n        fn local() {}\n        impl Hidden { fn nested() {} }\n        let text = \"fn quoted() {}\";\n    }\n}\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let names: Vec<_> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+        assert_eq!(names, ["Engine", "outer"]);
+        let outer = &symbols[1];
+        assert_eq!((outer.line_start, outer.line_end), (2, 6));
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_utf8_crlf_and_excerpt_cap_use_original_lines() {
+        let source = "// 東京\r\nimpl Engine {\r\n    /// café\r\n    #[inline]\r\n    pub fn café(&self) {\r\n        let text = \"{}\";\r\n    }\r\n}\r\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let method = symbols.iter().find(|symbol| symbol.name == "café").unwrap();
+        assert_eq!((method.line_start, method.line_end), (5, 7));
+        assert_eq!(
+            method.excerpt.as_deref(),
+            Some("    pub fn café(&self) {\n        let text = \"{}\";\n    }")
+        );
+        let mut long_source = "impl Engine {\n    fn long_method(&mut self) {\n".to_string();
+        for _ in 0..24 {
+            long_source.push_str("        self.count += 1;\n");
+        }
+        long_source.push_str("    }\n}\n");
+        let symbols = extract_symbols(&long_source, "engine.rs");
+        let method = symbols
+            .iter()
+            .find(|symbol| symbol.name == "long_method")
+            .unwrap();
+        assert_eq!((method.line_start, method.line_end), (2, 27));
+        let excerpt = method.excerpt.as_deref().unwrap();
+        assert_eq!(excerpt.lines().count(), 21);
+        assert!(excerpt.ends_with("    // ... (truncated)"));
     }
 
     #[test]
@@ -4896,6 +5649,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect_err("surgical_context must reject an external absolute path");
@@ -4944,6 +5699,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect("existing in-root surgical context must remain available");
@@ -5059,6 +5816,8 @@ mod tests {
                 symbol: None,
                 radius: 1,
                 include_tests: true,
+                max_output_bytes: None,
+                continuation: None,
             },
         )
         .expect("surgical context");
@@ -5315,6 +6074,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -5995,8 +6755,7 @@ mod tests {
             .iter()
             .any(|entry| entry.file_path == primary_str));
         let coverage = state
-            .coverage_sessions
-            .get("test")
+            .coverage_session("test")
             .expect("coverage should be tracked");
         assert!(coverage
             .visited_files
@@ -6032,6 +6791,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6343,6 +7103,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(root.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };

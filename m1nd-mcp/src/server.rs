@@ -2219,7 +2219,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "surgical_context",
-                "description": "Return full context for surgical LLM editing: file contents, symbols, and graph neighbourhood (callers, callees, tests). Use before apply.",
+                "description": "Return file contents, symbols and graph neighbours before editing. Default remains full context. Opt-in max_output_bytes pages compact UTF-8 handler JSON (excluding transport/runtime envelopes and pretty-print whitespace), with source anchors, SHA-256 digests, explicit omissions and continuation. A partial page is not a complete edit source. Repeat target/options and pass context_page.continuation to resume; stale/invalid cursors and impossible budgets refuse without changing coverage.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2227,7 +2227,21 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "symbol": { "type": "string", "description": "Optional: narrow context to a specific symbol (function/struct/class name)" },
                         "radius": { "type": "integer", "default": 1, "description": "BFS radius for graph neighbourhood (1 or 2)" },
-                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" }
+                        "include_tests": { "type": "boolean", "default": true, "description": "Include test files in the neighbourhood" },
+                        "max_output_bytes": { "type": "integer", "minimum": 1024, "description": "Opt-in cap on compact handler JSON bytes, including escaping and page metadata; excludes transport/runtime envelopes and pretty-print whitespace. Increase if an indivisible metadata item cannot fit." },
+                        "continuation": {
+                            "type": "object", "additionalProperties": false,
+                            "description": "Copy context_page.continuation unchanged; repeat the same file/options and a byte budget. A cursor is a position, never permission to read a path.",
+                            "properties": {
+                                "version": { "type": "integer", "const": 1 },
+                                "context_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                                "graph_generation": { "type": "integer", "minimum": 0 },
+                                "plasticity_generation": { "type": "integer", "minimum": 0 },
+                                "source_byte_offset": { "type": "integer", "minimum": 0 },
+                                "item_offset": { "type": "integer", "minimum": 0 }
+                            },
+                            "required": ["version", "context_sha256", "graph_generation", "plasticity_generation", "source_byte_offset", "item_offset"]
+                        }
                     },
                     "required": ["file_path", "agent_id"]
                 }
@@ -5232,6 +5246,8 @@ fn compose_north_code(
                     symbol: Some(target.label.clone()),
                     radius: 1,
                     include_tests: false,
+                    max_output_bytes: None,
+                    continuation: None,
                 },
             )
             .ok()
@@ -6290,10 +6306,10 @@ fn handle_am_i_stale(
                 )),
             }
         }
-    } else if let Some(session) = state.coverage_sessions.get(&agent_id) {
+    } else if let Some(paths) = state.coverage_visited_files(&agent_id) {
         source = "coverage_session";
-        for path in &session.visited_files {
-            targets.push((path.clone(), None));
+        for path in paths {
+            targets.push((path, None));
         }
     } else {
         source = "empty";
@@ -6448,21 +6464,17 @@ fn handle_am_i_stale(
 /// coverage session, otherwise `null`. `unvisited_high_value` lists up to 5 file
 /// paths with the highest PageRank that the agent has not yet visited.
 fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Value {
-    let Some(session) = state.coverage_sessions.get(agent_id) else {
+    if !state.has_coverage_session(agent_id) {
         return serde_json::Value::Null;
-    };
+    }
     let graph = state.graph.read();
     let total = graph.nodes.count as usize;
-    let visited = session.visited_nodes.len();
 
     // High-PageRank file nodes the agent has not visited yet.
     let mut unvisited: Vec<(f32, String)> = Vec::new();
     if graph.pagerank_computed && !graph.nodes.pagerank.is_empty() {
         for (interned, &nid) in &graph.id_to_node {
             let ext = graph.strings.resolve(*interned).to_string();
-            if session.visited_nodes.contains(&ext) || session.visited_files.contains(&ext) {
-                continue;
-            }
             // Prefer file-level nodes for the "what to read next" hint.
             if !ext.starts_with("file::") {
                 continue;
@@ -6475,18 +6487,22 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
                 .map(|p| p.get())
                 .unwrap_or(0.0);
             if pr > 0.0 {
-                let path = ext.strip_prefix("file::").unwrap_or(&ext).to_string();
-                unvisited.push((pr, path));
+                unvisited.push((pr, ext));
             }
         }
-        unvisited
-            .sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        unvisited.truncate(5);
     }
+    drop(graph);
+    let Some(visited) = state.coverage_for_orient(agent_id, &mut unvisited) else {
+        return serde_json::Value::Null;
+    };
+    unvisited.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    unvisited.truncate(5);
     serde_json::json!({
         "visited": visited,
         "total": total,
-        "unvisited_high_value": unvisited.into_iter().map(|(_, p)| p).collect::<Vec<_>>(),
+        "unvisited_high_value": unvisited.into_iter().map(|(_, id)| {
+            id.strip_prefix("file::").unwrap_or(&id).to_owned()
+        }).collect::<Vec<_>>(),
     })
 }
 
@@ -16146,6 +16162,8 @@ mod tests {
                             symbol: Some(label.clone()),
                             radius: 1,
                             include_tests: false,
+                            max_output_bytes: None,
+                            continuation: None,
                         },
                     )
                     .expect("direct surgical_context");

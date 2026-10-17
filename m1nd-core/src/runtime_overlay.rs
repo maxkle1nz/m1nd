@@ -50,7 +50,7 @@ impl Default for OverlayConfig {
 pub enum MappingStrategy {
     /// Match span name against node labels (case-insensitive substring).
     LabelMatch,
-    /// Match span attributes["code.function"] → node external_id.
+    /// Match span attributes["code.function"] against labels (case-insensitive exact).
     CodeAttribute,
     /// Exact match against external_id.
     ExactId,
@@ -163,6 +163,16 @@ pub struct RuntimeOverlay {
     batches_ingested: u32,
 }
 
+// A necessary-only byte-presence filter for substring matching. Folding the
+// high bit permits collisions; those candidates still require `contains`.
+fn substring_byte_signature(value: &str) -> u128 {
+    let mut signature = 0u128;
+    for byte in value.bytes() {
+        signature |= 1u128 << (byte & 0x7f);
+    }
+    signature
+}
+
 impl RuntimeOverlay {
     /// Create a new runtime overlay engine.
     pub fn new(config: OverlayConfig) -> Self {
@@ -194,22 +204,20 @@ impl RuntimeOverlay {
             }
         }
 
-        // Build label lookup: label → NodeId index
+        // Only label-based strategies need a lowercase label lookup.
         let mut label_to_idx: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut ext_to_idx: HashMap<String, usize> = HashMap::new();
-
-        for (interned, node_id) in &graph.id_to_node {
-            let idx = node_id.as_usize();
-            if idx < n {
-                let ext_id = graph.strings.resolve(*interned).to_string();
-                ext_to_idx.insert(ext_id, idx);
+        if self.config.mapping_strategy != MappingStrategy::ExactId {
+            for i in 0..n {
+                let label = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
+                label_to_idx.entry(label).or_default().push(i);
             }
         }
 
-        for i in 0..n {
-            let label = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
-            label_to_idx.entry(label).or_default().push(i);
-        }
+        // Build signatures once, lazily, in label-map order. Only the last
+        // fallback length's eligible indices are retained alongside that table.
+        let mut substring_labels: Option<Vec<(&String, &Vec<usize>, u128)>> = None;
+        let mut substring_length = None;
+        let mut substring_candidates: Vec<usize> = Vec::new();
 
         let mut spans_mapped = 0usize;
         let mut spans_unmapped = 0usize;
@@ -234,14 +242,37 @@ impl RuntimeOverlay {
                             const MIN_LEN: usize = 4;
                             let mut matches = Vec::new();
                             if name_lower.len() >= MIN_LEN {
-                                for (label, indices) in &label_to_idx {
-                                    if label.len() < MIN_LEN {
-                                        continue;
-                                    }
-                                    let shorter = label.len().min(name_lower.len());
-                                    let longer = label.len().max(name_lower.len());
-                                    // Ratio guard: prevent "span" (4) matching "nonexistent_span_500" (22)
-                                    if shorter * 2 < longer {
+                                let name_signature = substring_byte_signature(&name_lower);
+                                let labels = substring_labels.get_or_insert_with(|| {
+                                    label_to_idx
+                                        .iter()
+                                        .filter(|(label, _)| label.len() >= MIN_LEN)
+                                        .map(|(label, indices)| {
+                                            (label, indices, substring_byte_signature(label))
+                                        })
+                                        .collect()
+                                });
+                                if substring_length != Some(name_lower.len()) {
+                                    substring_candidates.clear();
+                                    substring_candidates.extend(
+                                        labels.iter().enumerate().filter_map(
+                                            |(index, &(label, _, _))| {
+                                                let shorter = label.len().min(name_lower.len());
+                                                let longer = label.len().max(name_lower.len());
+                                                (shorter * 2 >= longer).then_some(index)
+                                            },
+                                        ),
+                                    );
+                                    substring_length = Some(name_lower.len());
+                                }
+                                for &index in &substring_candidates {
+                                    let (label, indices, label_signature) = labels[index];
+                                    let (shorter, longer) = if label.len() <= name_lower.len() {
+                                        (label_signature, name_signature)
+                                    } else {
+                                        (name_signature, label_signature)
+                                    };
+                                    if shorter & !longer != 0 {
                                         continue;
                                     }
                                     if label.contains(name_lower.as_str())
@@ -263,9 +294,11 @@ impl RuntimeOverlay {
                         Vec::new()
                     }
                 }
-                MappingStrategy::ExactId => ext_to_idx
-                    .get(&span.name)
-                    .map(|&idx| vec![idx])
+                MappingStrategy::ExactId => graph
+                    .resolve_id(&span.name)
+                    .map(NodeId::as_usize)
+                    .filter(|&idx| idx < n)
+                    .map(|idx| vec![idx])
                     .unwrap_or_default(),
             };
 
@@ -295,11 +328,11 @@ impl RuntimeOverlay {
         self.batches_ingested += 1;
 
         // Build reverse map for output
-        let mut node_to_ext: Vec<String> = vec![String::new(); n];
+        let mut node_to_ext: Vec<&str> = vec![""; n];
         for (interned, node_id) in &graph.id_to_node {
             let idx = node_id.as_usize();
             if idx < n {
-                node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
+                node_to_ext[idx] = graph.strings.resolve(*interned);
             }
         }
 
@@ -316,7 +349,7 @@ impl RuntimeOverlay {
                 };
                 NodeHeat {
                     node_id: if idx < n {
-                        node_to_ext[idx].clone()
+                        node_to_ext[idx].to_string()
                     } else {
                         String::new()
                     },
@@ -652,5 +685,438 @@ mod tests {
             result.hot_nodes.is_empty(),
             "Spans below min_duration should be filtered"
         );
+    }
+
+    #[test]
+    fn label_match_length_candidates_preserve_mapping_and_batch_state() {
+        let labels = [
+            "abcd",
+            "abcdefgh",
+            "abcdefghij",
+            "abc",
+            "",
+            "abcd",
+            "xyabcd",
+            "AbCd",
+            "İAB",
+            "four",
+            "ÜBER",
+            "éé",
+            "é",
+        ];
+        let mut graph = Graph::new();
+        for (index, label) in labels.iter().enumerate() {
+            graph
+                .add_node(
+                    &format!("id::{index}"),
+                    label,
+                    NodeType::Function,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .unwrap();
+        }
+        graph.finalize().unwrap();
+        // Explicit mapping expectations cover exact-match precedence, duplicates,
+        // both substring directions, 50% length boundaries and Unicode byte length.
+        let cases: &[(&str, &[usize])] = &[
+            ("abcd", &[0, 5, 7]),
+            ("ABCD", &[0, 5, 7]),
+            ("abcdef", &[0, 1, 2, 5, 7]),
+            ("xyabcde", &[0, 5, 6, 7]),
+            ("abcdxx", &[0, 5, 7]),
+            ("abcdefghx", &[1]),
+            ("xxfourxx", &[9]),
+            ("xxfourxxx", &[]),
+            ("qfourq", &[9]),
+            ("rfourr", &[9]),
+            ("short", &[]),
+            ("abc", &[3]),
+            ("ab", &[]),
+            ("", &[4]),
+            ("xxi\u{307}ab", &[8]),
+            ("xüber", &[10]),
+            ("xééx", &[11]),
+            ("xéx", &[]),
+            ("ÜBER", &[10]),
+        ];
+        let make_span = |name: &str| OtelSpan {
+            name: name.into(),
+            duration_us: 700,
+            count: 3,
+            is_error: true,
+            attributes: HashMap::new(),
+            parent: None,
+        };
+        for &(name, expected) in cases {
+            let mut overlay = RuntimeOverlay::with_defaults();
+            let result = overlay
+                .ingest(
+                    &graph,
+                    &OtelBatch {
+                        spans: vec![make_span(name)],
+                        timestamp: 0.0,
+                        service_name: String::new(),
+                    },
+                )
+                .unwrap();
+            let actual: Vec<_> = (0..labels.len())
+                .filter(|&index| overlay.get_heat(index) > 0.0)
+                .collect();
+            assert_eq!(actual, expected, "span {name:?}");
+            assert_eq!(result.spans_processed, 1);
+            assert_eq!(result.spans_mapped, usize::from(!expected.is_empty()));
+            assert_eq!(result.spans_unmapped, usize::from(expected.is_empty()));
+            for &index in expected {
+                let state = &overlay.node_data[&index];
+                assert_eq!(
+                    (
+                        state.invocations,
+                        state.errors,
+                        state.total_duration_us,
+                        state.max_duration_us
+                    ),
+                    (3, 3, 2100, 700),
+                    "span {name:?}, node {index}"
+                );
+            }
+        }
+        // One ingest exercises reuse across different names of the same length.
+        let batch = OtelBatch {
+            spans: cases.iter().map(|(name, _)| make_span(name)).collect(),
+            timestamp: 0.0,
+            service_name: String::new(),
+        };
+        let mut overlay = RuntimeOverlay::new(OverlayConfig {
+            decay_factor: 0.5,
+            ..OverlayConfig::default()
+        });
+        let first = overlay.ingest(&graph, &batch).unwrap();
+        let mapped = cases
+            .iter()
+            .filter(|(_, expected)| !expected.is_empty())
+            .count();
+        assert_eq!(
+            (first.spans_mapped, first.spans_unmapped),
+            (mapped, cases.len() - mapped)
+        );
+        let first_heat: Vec<_> = (0..labels.len())
+            .map(|index| overlay.get_heat(index))
+            .collect();
+        overlay
+            .ingest(
+                &graph,
+                &OtelBatch {
+                    spans: vec![],
+                    timestamp: 1.0,
+                    service_name: String::new(),
+                },
+            )
+            .unwrap();
+        for (index, old_heat) in first_heat.into_iter().enumerate() {
+            assert_eq!(overlay.get_heat(index), old_heat * 0.5, "node {index}");
+            let matches = cases
+                .iter()
+                .filter(|(_, expected)| expected.contains(&index))
+                .count() as u64;
+            if matches > 0 {
+                let state = &overlay.node_data[&index];
+                assert_eq!(
+                    (
+                        state.invocations,
+                        state.errors,
+                        state.total_duration_us,
+                        state.max_duration_us
+                    ),
+                    (3 * matches, 3 * matches, 2100 * matches, 700)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn label_match_byte_prefilter_keeps_both_directions_and_rejects_false_positives() {
+        let cases = [
+            // Either containment direction must survive the necessary filter.
+            ("xyabcd", "abcd", true),
+            ("abcd", "xyabcd", true),
+            ("préparer", "prépa", true),
+            ("über", "xxÜBER", true),
+            // Presence is not byte order, multiplicity, or a substring proof.
+            ("abcd", "dcba", false),
+            ("aaab", "aabb", false),
+            ("éà", "àé", false),
+            // U+1861 is UTF-8 E1 A1 A1, folding to the same bits as "a!".
+            ("a!a!", "\u{1861}\u{1861}", false),
+            // Keep minimum byte lengths and the existing half-length boundary.
+            ("é", "éé", false),
+            ("abcd", "xxabcdxx", true),
+            ("abcd", "xxabcdxxx", false),
+        ];
+        for (label, name, expected) in cases {
+            let mut graph = Graph::new();
+            graph
+                .add_node("id::target", label, NodeType::Function, &[], 0.0, 0.0)
+                .unwrap();
+            graph.finalize().unwrap();
+            let mut overlay = RuntimeOverlay::with_defaults();
+            let result = overlay
+                .ingest(
+                    &graph,
+                    &OtelBatch {
+                        spans: vec![OtelSpan {
+                            name: name.into(),
+                            duration_us: 700,
+                            count: 3,
+                            is_error: true,
+                            attributes: HashMap::new(),
+                            parent: None,
+                        }],
+                        timestamp: 0.0,
+                        service_name: String::new(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(result.spans_processed, 1, "{label:?}, {name:?}");
+            assert_eq!(
+                result.spans_mapped,
+                usize::from(expected),
+                "{label:?}, {name:?}"
+            );
+            assert_eq!(
+                result.spans_unmapped,
+                usize::from(!expected),
+                "{label:?}, {name:?}"
+            );
+            assert_eq!(overlay.get_heat(0) > 0.0, expected, "{label:?}, {name:?}");
+            assert_eq!(overlay.node_data.len(), usize::from(expected));
+            if expected {
+                let state = &overlay.node_data[&0];
+                assert_eq!(
+                    (
+                        state.invocations,
+                        state.errors,
+                        state.total_duration_us,
+                        state.max_duration_us
+                    ),
+                    (3, 3, 2100, 700)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn other_overlay_strategies_and_duration_filter_keep_their_contract() {
+        let graph = build_test_graph();
+        let cases = [
+            (
+                MappingStrategy::CodeAttribute,
+                "ignored",
+                Some("HANDLE_REQUEST"),
+                0,
+                true,
+            ),
+            (
+                MappingStrategy::CodeAttribute,
+                "handle_request",
+                None,
+                0,
+                false,
+            ),
+            (
+                MappingStrategy::CodeAttribute,
+                "ignored",
+                Some("func::handle_request"),
+                0,
+                false,
+            ),
+            (
+                MappingStrategy::CodeAttribute,
+                "ignored",
+                Some("handle"),
+                0,
+                false,
+            ),
+            (
+                MappingStrategy::ExactId,
+                "func::handle_request",
+                None,
+                0,
+                true,
+            ),
+            (
+                MappingStrategy::ExactId,
+                "FUNC::handle_request",
+                None,
+                0,
+                false,
+            ),
+            (
+                MappingStrategy::LabelMatch,
+                "handle_request",
+                None,
+                1000,
+                false,
+            ),
+        ];
+        for (strategy, name, attribute, min_duration_us, mapped) in cases {
+            let mut attributes = HashMap::new();
+            if let Some(value) = attribute {
+                attributes.insert("code.function".into(), value.into());
+            }
+            let mut overlay = RuntimeOverlay::new(OverlayConfig {
+                mapping_strategy: strategy,
+                min_duration_us,
+                ..OverlayConfig::default()
+            });
+            let result = overlay
+                .ingest(
+                    &graph,
+                    &OtelBatch {
+                        spans: vec![OtelSpan {
+                            name: name.into(),
+                            duration_us: 700,
+                            count: 3,
+                            is_error: true,
+                            attributes,
+                            parent: None,
+                        }],
+                        timestamp: 0.0,
+                        service_name: String::new(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(result.spans_processed, 1);
+            assert_eq!(result.spans_mapped, usize::from(mapped));
+            assert_eq!(
+                result.spans_unmapped,
+                usize::from(!mapped && min_duration_us == 0)
+            );
+            assert_eq!(overlay.get_heat(0) > 0.0, mapped);
+            assert_eq!(overlay.node_data.len(), usize::from(mapped));
+        }
+    }
+
+    #[test]
+    fn exact_id_lookup_keeps_bounds_aliases_and_removed_id_semantics() {
+        let mut graph = build_test_graph();
+        let removed_id = graph.strings.lookup("func::handle_request").unwrap();
+        graph.id_to_node.remove(&removed_id);
+        let alias = graph.strings.get_or_intern("alias::process_data");
+        graph.id_to_node.insert(alias, NodeId::new(1));
+        let out_of_bounds = graph.strings.get_or_intern("stale::outside_graph");
+        graph
+            .id_to_node
+            .insert(out_of_bounds, NodeId::new(graph.num_nodes() + 5));
+
+        // Output aliases still use the last entry in this graph map's visit order.
+        let expected_output_id = graph
+            .id_to_node
+            .iter()
+            .filter(|(_, node_id)| node_id.as_usize() == 1)
+            .map(|(interned, _)| graph.strings.resolve(*interned))
+            .last()
+            .unwrap()
+            .to_string();
+        let cases: &[(MappingStrategy, &str, &[usize])] = &[
+            (MappingStrategy::ExactId, "func::handle_request", &[]),
+            (MappingStrategy::LabelMatch, "handle_request", &[0]),
+            (MappingStrategy::ExactId, "func::process_data", &[1]),
+            (MappingStrategy::ExactId, "alias::process_data", &[1]),
+            (MappingStrategy::ExactId, "ALIAS::process_data", &[]),
+            (MappingStrategy::ExactId, "stale::outside_graph", &[]),
+        ];
+        for (strategy, name, expected) in cases {
+            let mut overlay = RuntimeOverlay::new(OverlayConfig {
+                mapping_strategy: strategy.clone(),
+                ..OverlayConfig::default()
+            });
+            let result = overlay
+                .ingest(
+                    &graph,
+                    &OtelBatch {
+                        spans: vec![OtelSpan {
+                            name: (*name).into(),
+                            duration_us: 700,
+                            count: 3,
+                            is_error: true,
+                            attributes: HashMap::new(),
+                            parent: None,
+                        }],
+                        timestamp: 0.0,
+                        service_name: String::new(),
+                    },
+                )
+                .unwrap();
+            let actual: Vec<_> = (0..graph.num_nodes() as usize)
+                .filter(|&index| overlay.get_heat(index) > 0.0)
+                .collect();
+            assert_eq!(
+                actual.as_slice(),
+                *expected,
+                "strategy {strategy:?}, span {name:?}"
+            );
+            assert_eq!(result.spans_mapped, usize::from(!expected.is_empty()));
+            assert_eq!(result.spans_unmapped, usize::from(expected.is_empty()));
+            if *expected == [0] {
+                assert_eq!(result.hot_nodes[0].node_id, "");
+            } else if *expected == [1] {
+                assert_eq!(result.hot_nodes[0].node_id, expected_output_id);
+            }
+        }
+    }
+
+    #[test]
+    fn hot_node_limit_preserves_existing_map_order_for_equal_heat() {
+        let mut graph = Graph::new();
+        let mut overlay = RuntimeOverlay::with_defaults();
+        for index in 0..150 {
+            graph
+                .add_node(
+                    &format!("id::{index}"),
+                    &format!("label_{index}"),
+                    NodeType::Function,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .unwrap();
+            overlay.node_data.insert(
+                index,
+                NodeRuntimeData {
+                    heat: 1.0,
+                    invocations: 1,
+                    ..NodeRuntimeData::default()
+                },
+            );
+        }
+        graph.finalize().unwrap();
+        // All heats tie. The existing stable sort retains this visit order,
+        // including which 100 nodes survive truncation; no ID tiebreak is added.
+        let expected_ids: Vec<_> = overlay
+            .node_data
+            .iter()
+            .take(100)
+            .map(|(&index, _)| format!("id::{index}"))
+            .collect();
+        let result = overlay
+            .ingest(
+                &graph,
+                &OtelBatch {
+                    spans: vec![],
+                    timestamp: 0.0,
+                    service_name: String::new(),
+                },
+            )
+            .unwrap();
+        let actual_ids: Vec<_> = result
+            .hot_nodes
+            .iter()
+            .map(|node| node.node_id.clone())
+            .collect();
+        assert_eq!(actual_ids, expected_ids);
+        assert_eq!(result.hot_nodes.len(), 100);
+        assert_eq!(overlay.node_data.len(), 150);
     }
 }

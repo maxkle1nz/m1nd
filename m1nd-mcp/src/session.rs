@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use crate::auto_ingest::AutoIngestState;
@@ -167,6 +167,159 @@ pub struct CoverageSessionState {
     pub visited_files: BTreeSet<String>,
     pub visited_nodes: BTreeSet<String>,
     pub tools_used: HashMap<String, u64>,
+    #[cfg(test)]
+    #[serde(skip)]
+    clone_probe: CoverageCloneProbe,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct CoverageCloneProbe {
+    counter: Option<Arc<std::sync::atomic::AtomicUsize>>,
+    weight: usize,
+}
+
+#[cfg(test)]
+impl Clone for CoverageCloneProbe {
+    fn clone(&self) -> Self {
+        if let Some(counter) = &self.counter {
+            let _ = counter.fetch_add(self.weight, std::sync::atomic::Ordering::Relaxed);
+        }
+        Self {
+            counter: self.counter.clone(),
+            weight: self.weight,
+        }
+    }
+}
+
+type CoverageMap = HashMap<String, CoverageSessionState>;
+
+#[derive(Default)]
+struct CoverageStore {
+    sessions: CoverageMap,
+    active_frame: Weak<parking_lot::Mutex<CoverageFrame>>,
+}
+
+struct CoverageFrame {
+    store: Arc<parking_lot::Mutex<CoverageStore>>,
+    operations: Vec<CoverageInverse>,
+    #[cfg(test)]
+    fail_after_one_inverse: bool,
+}
+
+#[derive(Clone)]
+struct CallbackCoveragePreimage {
+    frame: Arc<parking_lot::Mutex<CoverageFrame>>,
+}
+
+enum CoverageInverse {
+    Note {
+        agent: String,
+        tool: String,
+        previous_count: Option<u64>,
+        created_agent: bool,
+        inserted_files: Vec<String>,
+        inserted_nodes: Vec<String>,
+    },
+    Reset(CoverageMap),
+}
+
+impl CoverageInverse {
+    fn apply(&mut self, sessions: &mut CoverageMap) -> M1ndResult<()> {
+        match self {
+            Self::Reset(previous) => std::mem::swap(sessions, previous),
+            Self::Note {
+                agent,
+                tool,
+                previous_count,
+                created_agent,
+                inserted_files,
+                inserted_nodes,
+            } => {
+                if *created_agent {
+                    // The write-ahead inverse also covers incomplete creation.
+                    let _ = sessions.remove(agent.as_str());
+                    return Ok(());
+                }
+                let entry = sessions.get_mut(agent.as_str()).ok_or_else(|| {
+                    M1ndError::PersistenceFailed(
+                        "coverage rollback is missing an existing agent".into(),
+                    )
+                })?;
+                // All fallible validation precedes mutation of this inverse.
+                match *previous_count {
+                    Some(previous) => {
+                        let count = entry.tools_used.get_mut(tool.as_str()).ok_or_else(|| {
+                            M1ndError::PersistenceFailed(
+                                "coverage rollback is missing an existing tool counter".into(),
+                            )
+                        })?;
+                        *count = previous;
+                    }
+                    None => {
+                        let _ = entry.tools_used.remove(tool.as_str());
+                    }
+                }
+                for file in inserted_files.iter() {
+                    let _ = entry.visited_files.remove(file);
+                }
+                for node in inserted_nodes.iter() {
+                    let _ = entry.visited_nodes.remove(node);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl CallbackCoveragePreimage {
+    fn restore_into(&self, target: &mut Arc<parking_lot::Mutex<CoverageStore>>) -> M1ndResult<()> {
+        // Read the locator without holding its lock while acquiring any store.
+        let source = { Arc::clone(&self.frame.lock().store) };
+        let fresh = Arc::new(parking_lot::Mutex::new(CoverageStore::default()));
+        let mut source_store = source.lock();
+        // This second store is fresh and cannot escape during restoration.
+        let mut fresh_store = fresh.lock();
+        let mut frame = self.frame.lock();
+        let active_matches = source_store
+            .active_frame
+            .upgrade()
+            .is_some_and(|active| Arc::ptr_eq(&active, &self.frame));
+        if !Arc::ptr_eq(&frame.store, &source) || !active_matches {
+            return Err(M1ndError::PersistenceFailed(
+                "coverage rollback frame no longer owns its retained store".into(),
+            ));
+        }
+
+        fresh_store.sessions = if Arc::ptr_eq(target, &source) {
+            std::mem::take(&mut source_store.sessions)
+        } else {
+            // Only whole-SessionState replacement copies a postimage: an escaped
+            // old state must retain its own visits without aliasing the actor.
+            // Ordinary snapshots, token clones, visits and restores copy no history.
+            source_store.sessions.clone()
+        };
+        fresh_store.active_frame = Arc::downgrade(&self.frame);
+        source_store.active_frame = Weak::new();
+
+        // Retarget every retained token before applying undo. On failure the
+        // actor and frame retain the partial map plus the remaining inverses.
+        frame.store = Arc::clone(&fresh);
+        *target = Arc::clone(&fresh);
+        while let Some(inverse) = frame.operations.last_mut() {
+            inverse.apply(&mut fresh_store.sessions)?;
+            let _ = frame.operations.pop();
+            #[cfg(test)]
+            if std::mem::take(&mut frame.fail_after_one_inverse) {
+                return Err(M1ndError::PersistenceFailed(
+                    "injected coverage rollback failure after one inverse".into(),
+                ));
+            }
+        }
+        // Keep the frame armed until its last token is dropped. Recovery can
+        // reload/clear and restore again after a failed publication.
+        Ok(())
+    }
 }
 
 /// A per-agent mark that a concrete edit target reached `proof_state ==
@@ -412,6 +565,13 @@ struct StrictRecoveryState {
 /// ```
 #[derive(Clone)]
 pub(crate) struct CallbackPerspectiveStatePreimage {
+    // These process-owned receipts must survive refused callbacks. Authoritative
+    // reload clears them; restore the exact pre-call state only after its digest
+    // has been verified. Failed callback coverage/generation changes are discarded.
+    coverage_sessions: CallbackCoveragePreimage,
+    graph_generation: u64,
+    plasticity_generation: u64,
+    cache_generation: u64,
     perspectives: HashMap<(String, String), PerspectiveState>,
     locks: HashMap<String, LockState>,
     perspective_counter: HashMap<String, u64>,
@@ -586,8 +746,8 @@ pub struct SessionState {
     pub daemon_alerts: Vec<DaemonAlert>,
     /// Lightweight metadata index for files seen during ingest or verification.
     pub file_inventory: HashMap<String, FileInventoryEntry>,
-    /// Per-agent exploration coverage state for visited files/nodes.
-    pub coverage_sessions: HashMap<String, CoverageSessionState>,
+    /// Per-agent visits, with callback-local undo and no mutable read escape.
+    coverage_sessions: Arc<parking_lot::Mutex<CoverageStore>>,
     /// Per-agent "proof ready" marks keyed by (agent_id, normalized repo-relative
     /// target). Ephemeral session intent — NOT persisted. Records that an agent
     /// has driven a target to `proof_state == "ready_to_edit"`; checked at edit
@@ -879,23 +1039,53 @@ pub(crate) fn basename_of(root: &str) -> String {
 }
 
 impl SessionState {
-    pub(crate) fn capture_callback_perspective_state(&self) -> CallbackPerspectiveStatePreimage {
-        CallbackPerspectiveStatePreimage {
+    fn capture_coverage_preimage(&self) -> M1ndResult<CallbackCoveragePreimage> {
+        let mut store = self.coverage_sessions.lock();
+        if store.active_frame.upgrade().is_some() {
+            return Err(M1ndError::PersistenceFailed(
+                "coverage callback transaction is already active".into(),
+            ));
+        }
+        let frame = Arc::new(parking_lot::Mutex::new(CoverageFrame {
+            store: Arc::clone(&self.coverage_sessions),
+            operations: Vec::new(),
+            #[cfg(test)]
+            fail_after_one_inverse: false,
+        }));
+        store.active_frame = Arc::downgrade(&frame);
+        Ok(CallbackCoveragePreimage { frame })
+    }
+
+    pub(crate) fn capture_callback_perspective_state(
+        &self,
+    ) -> M1ndResult<CallbackPerspectiveStatePreimage> {
+        Ok(CallbackPerspectiveStatePreimage {
+            coverage_sessions: self.capture_coverage_preimage()?,
+            graph_generation: self.graph_generation,
+            plasticity_generation: self.plasticity_generation,
+            cache_generation: self.cache_generation,
             perspectives: self.perspectives.clone(),
             locks: self.locks.clone(),
             perspective_counter: self.perspective_counter.clone(),
             lock_counter: self.lock_counter.clone(),
-        }
+        })
     }
 
     pub(crate) fn restore_callback_perspective_state(
         &mut self,
         preimage: CallbackPerspectiveStatePreimage,
-    ) {
+    ) -> M1ndResult<()> {
+        preimage
+            .coverage_sessions
+            .restore_into(&mut self.coverage_sessions)?;
+        self.graph_generation = preimage.graph_generation;
+        self.plasticity_generation = preimage.plasticity_generation;
+        self.cache_generation = preimage.cache_generation;
         self.perspectives = preimage.perspectives;
         self.locks = preimage.locks;
         self.perspective_counter = preimage.perspective_counter;
         self.lock_counter = preimage.lock_counter;
+        Ok(())
     }
 
     /// The version the bound repo's own `m1nd-mcp/Cargo.toml` declares, if a
@@ -2414,7 +2604,7 @@ impl SessionState {
                 Self::load_daemon_alerts(&path)
             },
             file_inventory: HashMap::new(),
-            coverage_sessions: HashMap::new(),
+            coverage_sessions: Arc::new(parking_lot::Mutex::new(CoverageStore::default())),
             proof_ready: HashMap::new(),
             active_proof_permits: HashMap::new(),
             flagged_findings: HashMap::new(),
@@ -2839,7 +3029,6 @@ impl SessionState {
             self.session_start_node_count = 0;
             self.session_start_edge_count = 0;
             self.file_inventory.clear();
-            self.coverage_sessions.clear();
             self.proof_ready.clear();
             self.flagged_findings.clear();
             self.queries_processed = 0;
@@ -2847,6 +3036,9 @@ impl SessionState {
             self.last_persist_time = None;
             self.last_antibody_scan_generation = 0;
             self.agent_memory_boot = None;
+            // Proof capabilities and all other invalidations above must still
+            // complete if the coverage frame itself refuses recovery.
+            self.reset_coverage()?;
         }
         Ok(())
     }
@@ -4319,23 +4511,130 @@ impl SessionState {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let entry = self
-            .coverage_sessions
-            .entry(agent_id.to_string())
+        // Never run caller-provided iterators while holding either lock.
+        let files = files
+            .into_iter()
+            .filter(|file| !file.is_empty())
+            .collect::<BTreeSet<_>>();
+        let nodes = nodes
+            .into_iter()
+            .filter(|node| !node.is_empty())
+            .collect::<BTreeSet<_>>();
+        let mut store = self.coverage_sessions.lock();
+        let previous = store.sessions.get(agent_id);
+        let created_agent = previous.is_none();
+        let previous_count = previous.and_then(|entry| entry.tools_used.get(tool).copied());
+        let inserted_files = files
+            .into_iter()
+            .filter(|file| !previous.is_some_and(|entry| entry.visited_files.contains(file)))
+            .collect::<Vec<_>>();
+        let inserted_nodes = nodes
+            .into_iter()
+            .filter(|node| !previous.is_some_and(|entry| entry.visited_nodes.contains(node)))
+            .collect::<Vec<_>>();
+
+        let frame_handle = store.active_frame.upgrade();
+        let mut frame = frame_handle.as_ref().map(|handle| handle.lock());
+        if frame
+            .as_ref()
+            .is_some_and(|frame| !Arc::ptr_eq(&frame.store, &self.coverage_sessions))
+        {
+            // An old owner remains detached and cannot journal into the actor.
+            store.active_frame = Weak::new();
+            frame = None;
+        }
+        if let Some(frame) = frame.as_mut() {
+            frame.operations.push(CoverageInverse::Note {
+                agent: agent_id.to_owned(),
+                tool: tool.to_owned(),
+                previous_count,
+                created_agent,
+                inserted_files: inserted_files.clone(),
+                inserted_nodes: inserted_nodes.clone(),
+            });
+        }
+        let entry = store
+            .sessions
+            .entry(agent_id.to_owned())
             .or_insert_with(|| CoverageSessionState {
                 started_at_ms: now_ms,
                 ..CoverageSessionState::default()
             });
-        *entry.tools_used.entry(tool.to_string()).or_insert(0) += 1;
-        for file in files {
-            if !file.is_empty() {
-                entry.visited_files.insert(file);
-            }
+        *entry.tools_used.entry(tool.to_owned()).or_insert(0) += 1;
+        entry.visited_files.extend(inserted_files);
+        entry.visited_nodes.extend(inserted_nodes);
+    }
+
+    /// Return a detached per-agent coverage snapshot for explicit reporting.
+    pub fn coverage_session(&self, agent_id: &str) -> Option<CoverageSessionState> {
+        self.coverage_sessions
+            .lock()
+            .sessions
+            .get(agent_id)
+            .cloned()
+    }
+
+    /// Check for an agent without inspecting or copying its visit history.
+    pub(crate) fn has_coverage_session(&self, agent_id: &str) -> bool {
+        self.coverage_sessions
+            .lock()
+            .sessions
+            .contains_key(agent_id)
+    }
+
+    /// Copy only the paths that freshness verification already needs to own.
+    pub(crate) fn coverage_visited_files(&self, agent_id: &str) -> Option<Vec<String>> {
+        self.coverage_sessions
+            .lock()
+            .sessions
+            .get(agent_id)
+            .map(|session| session.visited_files.iter().cloned().collect())
+    }
+
+    /// Filter graph-derived orientation candidates without copying visit history.
+    pub(crate) fn coverage_for_orient(
+        &self,
+        agent_id: &str,
+        candidates: &mut Vec<(f32, String)>,
+    ) -> Option<usize> {
+        let store = self.coverage_sessions.lock();
+        let session = store.sessions.get(agent_id)?;
+        candidates.retain(|(_, external_id)| {
+            !session.visited_nodes.contains(external_id)
+                && !session.visited_files.contains(external_id)
+        });
+        Some(session.visited_nodes.len())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn coverage_sessions_snapshot(&self) -> HashMap<String, CoverageSessionState> {
+        self.coverage_sessions.lock().sessions.clone()
+    }
+
+    pub(crate) fn reset_coverage(&mut self) -> M1ndResult<()> {
+        let mut store = self.coverage_sessions.lock();
+        let Some(handle) = store.active_frame.upgrade() else {
+            store.sessions.clear();
+            return Ok(());
+        };
+        let mut frame = handle.lock();
+        if !Arc::ptr_eq(&frame.store, &self.coverage_sessions) {
+            return Err(M1ndError::PersistenceFailed(
+                "coverage reset encountered a retired callback store".into(),
+            ));
         }
-        for node in nodes {
-            if !node.is_empty() {
-                entry.visited_nodes.insert(node);
+        // The inverse exists before the live map moves into it.
+        frame
+            .operations
+            .push(CoverageInverse::Reset(CoverageMap::new()));
+        match frame.operations.last_mut() {
+            Some(CoverageInverse::Reset(previous)) => {
+                std::mem::swap(&mut store.sessions, previous);
+                Ok(())
             }
+            _ => Err(M1ndError::PersistenceFailed(
+                "coverage reset could not retain its write-ahead inverse".into(),
+            )),
         }
     }
 
@@ -5212,43 +5511,884 @@ mod tests {
         ("serve", "(owner daemon loop)", DurabilityRoute::OwnerLoop),
     ];
 
-    /// Drop every `#[cfg(test)]` item so the scan only sees shipped code.
-    fn strip_cfg_test_items(lines: &[&str]) -> Vec<String> {
-        let mut kept = Vec::new();
-        let mut index = 0usize;
-        while index < lines.len() {
-            let trimmed = lines[index].trim_start();
-            if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#[cfg(all(test") {
-                let mut item = index + 1;
-                while item < lines.len()
-                    && (lines[item].trim().is_empty() || lines[item].trim_start().starts_with("#["))
-                {
-                    item += 1;
-                }
-                if item >= lines.len() {
-                    break;
-                }
-                if lines[item].contains('{') {
-                    let mut depth = 0i32;
-                    let mut cursor = item;
-                    while cursor < lines.len() {
-                        depth += lines[cursor].matches('{').count() as i32;
-                        depth -= lines[cursor].matches('}').count() as i32;
-                        cursor += 1;
-                        if depth <= 0 {
-                            break;
+    // This is a lexical boundary check for the source-inventory tests, not a Rust
+    // parser. Unknown or unterminated syntax retains source instead of hiding it.
+    fn cfg_test_code_mask(text: &str) -> Option<Vec<u8>> {
+        fn char_end(text: &str, start: usize) -> Option<usize> {
+            let bytes = text.as_bytes();
+            let mut end = start + 1;
+            if *bytes.get(end)? == b'\\' {
+                end += 1;
+                match *bytes.get(end)? {
+                    b'x' => {
+                        for _ in 0..2 {
+                            end += 1;
+                            if !bytes.get(end)?.is_ascii_hexdigit() {
+                                return None;
+                            }
                         }
+                        end += 1;
                     }
-                    index = cursor;
-                } else {
-                    index = item + 1;
+                    b'u' => {
+                        end += 1;
+                        if bytes.get(end) != Some(&b'{') {
+                            return None;
+                        }
+                        end += 1;
+                        let mut digits = 0;
+                        while let Some(byte) = bytes.get(end) {
+                            if byte.is_ascii_hexdigit() {
+                                digits += 1;
+                            } else if *byte != b'_' {
+                                break;
+                            }
+                            end += 1;
+                        }
+                        if !(1..=6).contains(&digits) || bytes.get(end) != Some(&b'}') {
+                            return None;
+                        }
+                        end += 1;
+                    }
+                    b'n' | b'r' | b't' | b'0' | b'\\' | b'\'' | b'"' => end += 1,
+                    _ => return None,
                 }
-                continue;
+            } else {
+                let ch = text.get(end..)?.chars().next()?;
+                if matches!(ch, '\'' | '\n' | '\r') {
+                    return None;
+                }
+                end += ch.len_utf8();
             }
-            kept.push(lines[index].to_string());
+            (bytes.get(end) == Some(&b'\'')).then_some(end + 1)
+        }
+
+        let bytes = text.as_bytes();
+        let mut code = bytes.to_vec();
+        let mut index = 0;
+        while index < bytes.len() {
+            let start = index;
+            let end = if bytes[index..].starts_with(b"//") {
+                bytes[index..]
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(bytes.len(), |offset| index + offset)
+            } else if bytes[index..].starts_with(b"/*") {
+                let mut depth = 1usize;
+                index += 2;
+                while depth > 0 {
+                    if bytes[index..].starts_with(b"/*") {
+                        depth += 1;
+                        index += 2;
+                    } else if bytes[index..].starts_with(b"*/") {
+                        depth -= 1;
+                        index += 2;
+                    } else if index < bytes.len() {
+                        index += 1;
+                    } else {
+                        return None;
+                    }
+                }
+                index
+            } else if bytes[index] == b'"' {
+                index += 1;
+                loop {
+                    match bytes.get(index)? {
+                        b'"' => break index + 1,
+                        b'\\' => index += 2,
+                        _ => index += 1,
+                    }
+                }
+            } else if bytes[index] == b'\'' {
+                if let Some(end) = char_end(text, index) {
+                    end
+                } else {
+                    // A lifetime or loop label starts with an identifier. It
+                    // must not consume later braces looking for a closing quote.
+                    let next = text.get(index + 1..)?.chars().next()?;
+                    if next != '_' && !next.is_alphabetic() {
+                        return None;
+                    }
+                    index += 1;
+                    continue;
+                }
+            } else if bytes[index] == b'r' {
+                // Covers r, br and cr literals: the preceding b/c is harmless
+                // code, and every quote/hash/body byte is masked here.
+                let mut quote = index + 1;
+                while bytes.get(quote) == Some(&b'#') {
+                    quote += 1;
+                }
+                if bytes.get(quote) != Some(&b'"') {
+                    index += 1;
+                    continue;
+                }
+                let hashes = quote - index - 1;
+                let mut cursor = quote + 1;
+                loop {
+                    if *bytes.get(cursor)? == b'"'
+                        && bytes
+                            .get(cursor + 1..cursor + 1 + hashes)
+                            .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'))
+                    {
+                        break cursor + 1 + hashes;
+                    }
+                    cursor += 1;
+                }
+            } else {
+                index += 1;
+                continue;
+            };
+            for byte in &mut code[start..end] {
+                if *byte != b'\n' && *byte != b'\r' {
+                    *byte = b' ';
+                }
+            }
+            index = end;
+        }
+        Some(code)
+    }
+
+    fn cfg_test_skip_space(code: &[u8], mut index: usize) -> usize {
+        while code.get(index).is_some_and(u8::is_ascii_whitespace) {
             index += 1;
         }
-        kept
+        index
+    }
+
+    fn cfg_test_delimiter_end(code: &[u8], start: usize) -> Option<usize> {
+        let mut closes = vec![match code.get(start)? {
+            b'(' => b')',
+            b'[' => b']',
+            b'{' => b'}',
+            _ => return None,
+        }];
+        for (index, byte) in code.iter().enumerate().skip(start + 1) {
+            match byte {
+                b'(' => closes.push(b')'),
+                b'[' => closes.push(b']'),
+                b'{' => closes.push(b'}'),
+                b')' | b']' | b'}' => {
+                    if closes.pop() != Some(*byte) {
+                        return None;
+                    }
+                    if closes.is_empty() {
+                        return Some(index + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn cfg_test_attribute_end(code: &[u8], start: usize) -> Option<usize> {
+        if !code.get(start..)?.starts_with(b"#[") {
+            return None;
+        }
+        let end = cfg_test_delimiter_end(code, start + 1)?;
+        let mut index = cfg_test_skip_space(code, start + 2);
+        if !code.get(index..)?.starts_with(b"cfg") {
+            return None;
+        }
+        index = cfg_test_skip_space(code, index + 3);
+        if code.get(index) != Some(&b'(') {
+            return None;
+        }
+        index = cfg_test_skip_space(code, index + 1);
+        if code.get(index..)?.starts_with(b"all") {
+            index = cfg_test_skip_space(code, index + 3);
+            if code.get(index) != Some(&b'(') {
+                return None;
+            }
+            let all_end = cfg_test_delimiter_end(code, index)?;
+            index = cfg_test_skip_space(code, index + 1);
+            if !code.get(index..)?.starts_with(b"test") {
+                return None;
+            }
+            index = cfg_test_skip_space(code, index + 4);
+            if !matches!(code.get(index), Some(b',') | Some(b')')) {
+                return None;
+            }
+            index = cfg_test_skip_space(code, all_end);
+        } else {
+            if !code.get(index..)?.starts_with(b"test") {
+                return None;
+            }
+            index = cfg_test_skip_space(code, index + 4);
+        }
+        if code.get(index) != Some(&b')') {
+            return None;
+        }
+        index = cfg_test_skip_space(code, index + 1);
+        (index + 1 == end && code.get(index) == Some(&b']')).then_some(end)
+    }
+
+    enum CfgTestItemEnd {
+        Complete(usize),
+        Unsupported,
+        Malformed,
+    }
+
+    // Non-item attributes (fields, initializers, statements, expressions) must
+    // never start a search that consumes the next production item's body.
+    fn cfg_test_item_end(code: &[u8], mut index: usize) -> CfgTestItemEnd {
+        fn word(code: &[u8], start: usize) -> Option<(&[u8], usize)> {
+            let first = *code.get(start)?;
+            if !first.is_ascii_alphabetic() && first != b'_' {
+                return None;
+            }
+            let mut end = start + 1;
+            while code
+                .get(end)
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+            {
+                end += 1;
+            }
+            Some((&code[start..end], end))
+        }
+
+        index = cfg_test_skip_space(code, index);
+        while code
+            .get(index..)
+            .is_some_and(|tail| tail.starts_with(b"#["))
+        {
+            let Some(end) = cfg_test_delimiter_end(code, index + 1) else {
+                return CfgTestItemEnd::Malformed;
+            };
+            index = cfg_test_skip_space(code, end);
+        }
+        let semicolon_only = loop {
+            if index >= code.len() {
+                return CfgTestItemEnd::Malformed;
+            }
+            let Some((token, after)) = word(code, index) else {
+                return CfgTestItemEnd::Unsupported;
+            };
+            let next = cfg_test_skip_space(code, after);
+            match token {
+                b"pub" => {
+                    index = next;
+                    if code.get(index) == Some(&b'(') {
+                        let Some(end) = cfg_test_delimiter_end(code, index) else {
+                            return CfgTestItemEnd::Malformed;
+                        };
+                        index = cfg_test_skip_space(code, end);
+                    }
+                }
+                b"async" | b"unsafe" | b"default" => index = next,
+                b"extern" => {
+                    index = next;
+                    if code.get(index) == Some(&b'{') {
+                        break false;
+                    }
+                    if let Some((b"crate", end)) = word(code, index) {
+                        index = end;
+                        break true;
+                    }
+                    // The optional ABI string is already blank in `code`.
+                }
+                b"const" => {
+                    let Some((name, end)) = word(code, next) else {
+                        return CfgTestItemEnd::Unsupported;
+                    };
+                    if matches!(name, b"fn" | b"unsafe" | b"extern") {
+                        index = next;
+                        continue;
+                    }
+                    index = cfg_test_skip_space(code, end);
+                    if code.get(index) != Some(&b':') {
+                        return CfgTestItemEnd::Unsupported;
+                    }
+                    break true;
+                }
+                b"static" => {
+                    let Some((name, mut end)) = word(code, next) else {
+                        return CfgTestItemEnd::Unsupported;
+                    };
+                    if name == b"mut" {
+                        let Some((_, after_name)) = word(code, cfg_test_skip_space(code, end))
+                        else {
+                            return CfgTestItemEnd::Unsupported;
+                        };
+                        end = after_name;
+                    }
+                    index = cfg_test_skip_space(code, end);
+                    if code.get(index) != Some(&b':') {
+                        return CfgTestItemEnd::Unsupported;
+                    }
+                    break true;
+                }
+                b"use" => {
+                    index = next;
+                    break true;
+                }
+                b"fn" | b"mod" | b"struct" | b"enum" | b"trait" | b"union" | b"type" => {
+                    let Some((_, end)) = word(code, next) else {
+                        return CfgTestItemEnd::Unsupported;
+                    };
+                    index = cfg_test_skip_space(code, end);
+                    if token == b"fn" && !matches!(code.get(index), Some(b'(') | Some(b'<')) {
+                        return CfgTestItemEnd::Unsupported;
+                    }
+                    break token == b"type";
+                }
+                b"impl" => {
+                    index = next;
+                    break false;
+                }
+                _ => return CfgTestItemEnd::Unsupported,
+            }
+        };
+
+        while index < code.len() {
+            match code[index] {
+                b'{' if !semicolon_only => {
+                    return cfg_test_delimiter_end(code, index)
+                        .map_or(CfgTestItemEnd::Malformed, CfgTestItemEnd::Complete);
+                }
+                b'(' | b'[' | b'{' => {
+                    let Some(end) = cfg_test_delimiter_end(code, index) else {
+                        return CfgTestItemEnd::Malformed;
+                    };
+                    index = end;
+                }
+                b';' => return CfgTestItemEnd::Complete(index + 1),
+                // Do not infer Rust angle syntax or consume a const-generic
+                // expression's brace as the item's body. Retain local tokens.
+                b'<' | b',' => return CfgTestItemEnd::Unsupported,
+                // A generic parameter can start with `const NAME: Type`. Do
+                // not cross its closing angle into an enclosing shipped body.
+                b'>' if index == 0 || code[index - 1] != b'-' => {
+                    return CfgTestItemEnd::Unsupported;
+                }
+                b')' | b']' | b'}' => return CfgTestItemEnd::Malformed,
+                _ => index += 1,
+            }
+        }
+        CfgTestItemEnd::Malformed
+    }
+
+    fn cfg_test_source_delimiters_balanced(code: &[u8]) -> bool {
+        let mut index = 0;
+        while index < code.len() {
+            match code[index] {
+                b'(' | b'[' | b'{' => {
+                    let Some(end) = cfg_test_delimiter_end(code, index) else {
+                        return false;
+                    };
+                    index = end;
+                }
+                b')' | b']' | b'}' => return false,
+                _ => index += 1,
+            }
+        }
+        true
+    }
+
+    /// Drop proven `#[cfg(test)]` items so the scan only sees shipped code.
+    /// Keep newlines and every byte outside those items, including same-line
+    /// production declarations. Malformed lexical boundaries retain the source;
+    /// unsupported local constructs stay visible while later proven items drop.
+    fn strip_cfg_test_items(lines: &[&str]) -> Vec<String> {
+        if lines.is_empty() {
+            return Vec::new();
+        }
+        let text = lines.join("\n");
+        let Some(code) = cfg_test_code_mask(&text) else {
+            return lines.iter().map(|line| (*line).to_string()).collect();
+        };
+        if !cfg_test_source_delimiters_balanced(&code) {
+            return lines.iter().map(|line| (*line).to_string()).collect();
+        }
+        let mut kept = text.into_bytes();
+        let mut index = 0;
+        while index < code.len() {
+            // Macro input is arbitrary tokens: an apparent cfg attribute there
+            // need not gate an emitted item. Retain complete macro packets.
+            let mut macro_open = None;
+            if code[index..].starts_with(b"macro_rules") {
+                let bang = cfg_test_skip_space(&code, index + "macro_rules".len());
+                if code.get(bang) == Some(&b'!') {
+                    let mut name_end = cfg_test_skip_space(&code, bang + 1);
+                    while code
+                        .get(name_end)
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                    {
+                        name_end += 1;
+                    }
+                    macro_open = Some(cfg_test_skip_space(&code, name_end));
+                }
+            } else if code[index] == b'!' {
+                let open = cfg_test_skip_space(&code, index + 1);
+                if matches!(code.get(open), Some(b'(') | Some(b'[') | Some(b'{')) {
+                    macro_open = Some(open);
+                }
+            }
+            if let Some(open) = macro_open {
+                let Some(end) = cfg_test_delimiter_end(&code, open) else {
+                    return lines.iter().map(|line| (*line).to_string()).collect();
+                };
+                index = end;
+                continue;
+            }
+            if code[index..].starts_with(b"#[") {
+                let Some(attribute_end) = cfg_test_delimiter_end(&code, index + 1) else {
+                    return lines.iter().map(|line| (*line).to_string()).collect();
+                };
+                if cfg_test_attribute_end(&code, index).is_none() {
+                    // Other attribute inputs also contain arbitrary tokens.
+                    index = attribute_end;
+                    continue;
+                }
+                let end = match cfg_test_item_end(&code, attribute_end) {
+                    CfgTestItemEnd::Complete(end) => end,
+                    CfgTestItemEnd::Unsupported => {
+                        index = attribute_end;
+                        continue;
+                    }
+                    CfgTestItemEnd::Malformed => {
+                        return lines.iter().map(|line| (*line).to_string()).collect();
+                    }
+                };
+                for byte in &mut kept[index..end] {
+                    if *byte != b'\n' && *byte != b'\r' {
+                        *byte = b' ';
+                    }
+                }
+                index = end;
+            } else {
+                index += 1;
+            }
+        }
+        // Non-ASCII bytes are either kept intact or replaced with ASCII spaces.
+        String::from_utf8(kept)
+            .expect("mask preserves UTF-8")
+            .split('\n')
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn cfg_test_inventory_ignores_literal_and_comment_braces() {
+        let cases = [
+            r####"        let fixture = "} escaped quote: \" }";"####,
+            r####"        let fixture = b"} escaped slash: \\";"####,
+            r####"        let fixture = c"}";"####,
+            r####"        let fixture = r"}";"####,
+            r####"        let fixture = r###"}"###;"####,
+            "        let fixture = \"first line }\nsecond line }\";",
+            r####"        let fixture = br##"}"##;"####,
+            r####"        let fixture = cr#"}"#;"####,
+            r####"        let fixture = '}'; let byte = b'}';"####,
+            r####"        let fixture = '\''; let slash = '\\'; let brace = '\u{7d}';"####,
+            "        // } closes no Rust item",
+            "        /* } /* nested } */ } */",
+        ];
+        for fixture in cases {
+            let source = format!(
+                "#[cfg(test)]\nmod tests {{\n    fn fixture() {{\n{fixture}\n    }}\n    fn test_writer() {{ state.antibodies.clear(); }}\n}}\nfn shipped_writer() {{ state.antibodies.clear(); }}\n"
+            );
+            let lines = source.lines().collect::<Vec<_>>();
+            let kept = strip_cfg_test_items(&lines);
+            let text = kept.join("\n");
+            assert!(!text.contains("test_writer"), "fixture: {fixture}");
+            assert!(
+                text.contains("fn shipped_writer() { state.antibodies.clear(); }"),
+                "following production writer must remain: {fixture}"
+            );
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_retains_production_cfg_lookalikes() {
+        let source = r####"fn before() {}
+const FIXTURE: &str = r###"
+#[cfg(test)]
+fn text_only() {}
+"###;
+const ORDINARY: &str = "first line
+#[cfg(test)]
+fn ordinary_text_only() {}
+last line";
+/* outer /* nested */
+#[cfg(test)]
+fn comment_only() {}
+*/
+// #[cfg(test)]
+#[cfg(not(test))]
+fn shipped_writer() { state.antibodies.clear(); }
+#[cfg(all(test_feature, unix))]
+fn another_shipped_writer() { state.antibodies.clear(); }
+"####;
+        let lines = source.lines().collect::<Vec<_>>();
+        assert_eq!(strip_cfg_test_items(&lines), lines);
+    }
+
+    #[test]
+    fn cfg_test_inventory_distinguishes_chars_lifetimes_and_labels() {
+        let source = r####"#[cfg(test)]
+mod tests {
+    fn borrowed<'a>(value: &'a str) -> &'a str {
+        let brace = '}';
+        let escaped = '\'';
+        let unicode = '\u{007d}';
+        let byte = b'\x7d';
+        'outer: loop { break 'outer; }
+        value
+    }
+    fn test_writer() { state.antibodies.clear(); }
+}
+fn shipped_writer<'a>(state: &'a mut State) { state.antibodies.clear(); }
+"####;
+        let lines = source.lines().collect::<Vec<_>>();
+        let kept = strip_cfg_test_items(&lines).join("\n");
+        assert!(!kept.contains("test_writer"));
+        assert!(kept.contains("fn shipped_writer<'a>(state: &'a mut State)"));
+        assert!(kept.contains("state.antibodies.clear();"));
+    }
+
+    #[test]
+    fn cfg_test_inventory_preserves_following_items_and_line_positions() {
+        assert!(strip_cfg_test_items(&[]).is_empty());
+        let source = "fn before() {}\n#[cfg(all(test, unix))]\n#[allow(dead_code)]\nfn test_writer()\n{\n    if true { state.antibodies.clear(); }\n} fn shipped_writer() { state.antibodies.clear(); }\n#[cfg(test)]\nconst TEST_ONLY: usize = 1;\nfn after() {}";
+        let lines = source.lines().collect::<Vec<_>>();
+        let kept = strip_cfg_test_items(&lines);
+        assert_eq!(kept.len(), lines.len());
+        assert_eq!(kept[0], lines[0]);
+        assert!(!kept.join("\n").contains("test_writer"));
+        assert!(!kept.join("\n").contains("TEST_ONLY"));
+        assert_eq!(
+            kept[6].trim_start(),
+            "fn shipped_writer() { state.antibodies.clear(); }"
+        );
+        assert_eq!(kept[9], lines[9]);
+        let declarations = kept
+            .iter()
+            .filter_map(|line| declared_fn_name(line))
+            .collect::<Vec<_>>();
+        assert_eq!(declarations, ["before", "shipped_writer", "after"]);
+    }
+
+    #[test]
+    fn cfg_test_inventory_retains_arbitrary_macro_tokens() {
+        let source = r####"macro_rules! emit {
+    (#[cfg(test)] $name:ident) => { fn $name() { state.antibodies.clear(); } };
+}
+emit! {
+    #[cfg(test)]
+    fn shipped_writer() { state.antibodies.clear(); }
+}
+#[custom(#[cfg(test)] fn attribute_tokens() { state.antibodies.clear(); })]
+fn another_shipped_writer() { state.antibodies.clear(); }
+"####;
+        let lines = source.lines().collect::<Vec<_>>();
+        assert_eq!(strip_cfg_test_items(&lines), lines);
+    }
+
+    #[test]
+    fn cfg_test_inventory_retains_source_when_a_boundary_is_unproven() {
+        for source in [
+            "#[cfg(test)]\nmod tests {\nfn writer() { state.antibodies.clear(); }",
+            "#[cfg(test)]\nmod tests { let value = \"unterminated }\nfn writer() { state.antibodies.clear(); }",
+            "#[cfg(test)]\nmod tests { /* unterminated }\nfn writer() { state.antibodies.clear(); }",
+            "#[cfg(test)]\nfn generic<const N: usize = { 1 }>() { state.antibodies.clear(); }\nfn shipped_writer() { state.antibodies.clear(); }",
+        ] {
+            let lines = source.lines().collect::<Vec<_>>();
+            assert_eq!(strip_cfg_test_items(&lines), lines, "source: {source}");
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_excludes_the_complete_surgical_fixture_module() {
+        let source = format!(
+            "{}\nfn shipped_writer() {{ state.antibodies.clear(); state.note_durable_sidecar_drift(); }}\n",
+            include_str!("surgical_handlers.rs")
+        );
+        let lines = source.lines().collect::<Vec<_>>();
+        let kept = strip_cfg_test_items(&lines);
+        let declarations = kept
+            .iter()
+            .filter_map(|line| declared_fn_name(line))
+            .collect::<Vec<_>>();
+        assert!(!declarations.iter().any(|name| name.starts_with("test_")));
+        assert!(!declarations
+            .iter()
+            .any(|name| name == "build_isolated_state"));
+        assert!(!declarations
+            .iter()
+            .any(|name| name == "build_findings_state"));
+        assert_eq!(
+            declarations.last().map(String::as_str),
+            Some("shipped_writer")
+        );
+        let shipped = kept.last().expect("following production line");
+        let owner_end =
+            shipped.find("state.antibodies").expect("production sink") + "state.antibodies".len();
+        assert!(is_write_after_owner(
+            &shipped[owner_end..],
+            &shipped[owner_end..]
+        ));
+        assert!(collapse_for_scan(shipped).contains("note_durable_sidecar_drift("));
+    }
+
+    #[test]
+    fn cfg_test_inventory_excludes_fixtures_after_unsupported_actual_source_items() {
+        let cases = [
+            (
+                "tools.rs",
+                include_str!("tools.rs"),
+                "mod tests {",
+                vec![
+                    "build_runtime_state",
+                    "build_star_graph",
+                    "finalize_ingest_merge_deduplicates_qualified_aliases_without_rebasing_legacy_roots",
+                    "learning_events_relevance_preserves_verified_stores_and_observed_changes",
+                    "legacy_relative_refresh_refuses_without_mutation",
+                ],
+            ),
+            (
+                "external_mutation_service.rs",
+                include_str!("external_mutation_service.rs"),
+                "mod tests {",
+                vec!["initialize_state", "new", "restarted_brain"],
+            ),
+            (
+                "project_brains.rs",
+                include_str!("project_brains.rs"),
+                "mod external_mutation_actor_binding_tests {",
+                vec!["session_cell"],
+            ),
+            (
+                "surgical_handlers/source_edit_transaction.rs",
+                include_str!("surgical_handlers/source_edit_transaction.rs"),
+                "mod tests {",
+                vec!["fixture", "restarted_state"],
+            ),
+        ];
+        for (name, original, test_module_header, fixtures) in cases {
+            let source = format!(
+                "{original}\nfn inventory_shipped_writer() {{ state.antibodies.clear(); state.note_durable_sidecar_drift(); }}\n"
+            );
+            let lines = source.lines().collect::<Vec<_>>();
+            let kept = strip_cfg_test_items(&lines);
+            let test_module_line = original
+                .lines()
+                .position(|line| line == test_module_header)
+                .expect("actual cfg(test) module anchor");
+            let declarations = kept
+                .iter()
+                .filter_map(|line| declared_fn_name(line))
+                .collect::<Vec<_>>();
+            for fixture in fixtures {
+                let mut found = false;
+                for (index, line) in original.lines().enumerate().skip(test_module_line) {
+                    if declared_fn_name(line).as_deref() == Some(fixture) {
+                        found = true;
+                        assert!(
+                            kept[index].trim().is_empty(),
+                            "fixture {fixture} leaked from {name}:{}",
+                            index + 1
+                        );
+                    }
+                }
+                assert!(found, "missing actual fixture anchor {fixture} in {name}");
+            }
+            assert_eq!(
+                declarations.last().map(String::as_str),
+                Some("inventory_shipped_writer"),
+                "following production declaration in {name}"
+            );
+            let shipped = kept.last().expect("following production line");
+            let owner_end = shipped.find("state.antibodies").expect("production sink")
+                + "state.antibodies".len();
+            assert!(is_write_after_owner(
+                &shipped[owner_end..],
+                &shipped[owner_end..]
+            ));
+            assert!(collapse_for_scan(shipped).contains("note_durable_sidecar_drift("));
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_never_consumes_fields_initializers_or_statements_as_items() {
+        let production = [
+            r####"struct Registry {
+    #[cfg(test)]
+    probe: Option<Hook>,
+    production: bool,
+}
+fn shipped_writer(state: &mut State) { state.antibodies.clear(); }
+"####,
+            r####"struct Registry {
+    #[cfg(test)]
+    probe: bool,
+    production: bool,
+}
+fn shipped_writer(state: &mut State) { state.antibodies.clear(); }
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    let _registry = Registry {
+        #[cfg(test)]
+        probe: false,
+        production: { state.antibodies.clear(); true },
+    };
+}
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    #[cfg(test)]
+    let probe = 0;
+    state.antibodies.clear();
+}
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    #[cfg(test)]
+    if true { let probe = 0; }
+    state.antibodies.clear();
+}
+"####,
+            r####"struct Registry(#[cfg(test)] u32, bool);
+fn shipped_writer(state: &mut State) { state.antibodies.clear(); }
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    let _probe = #[cfg(test)] const { 0 };
+    state.antibodies.clear();
+}
+"####,
+            r####"struct Registry(#[cfg(test)] extern "C" fn(), bool);
+fn shipped_writer(state: &mut State) { state.antibodies.clear(); }
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    #[cfg(test)]
+    unsafe { let probe = 0; }
+    state.antibodies.clear();
+}
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    let _probe = #[cfg(test)] async move { 0 };
+    state.antibodies.clear();
+}
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    let _registry = Registry {
+        #[cfg(test)]
+        union: false,
+        production: { state.antibodies.clear(); true },
+    };
+}
+"####,
+            r####"fn shipped_writer(state: &mut State) {
+    let _registry = Registry {
+        #[cfg(test)]
+        default: false,
+        production: { state.antibodies.clear(); true },
+    };
+}
+"####,
+        ];
+        for prefix in production {
+            let source = format!(
+                "{prefix}\n#[cfg(test)]\nmod tests {{ fn excluded_fixture_writer() {{ state.antibodies.clear(); }} }}\nfn following_writer() {{ state.antibodies.clear(); }}"
+            );
+            let lines = source.lines().collect::<Vec<_>>();
+            let kept = strip_cfg_test_items(&lines).join("\n");
+            assert!(
+                kept.starts_with(prefix),
+                "production prefix changed: {prefix}"
+            );
+            assert!(
+                !kept.contains("excluded_fixture_writer"),
+                "prefix: {prefix}"
+            );
+            assert!(kept.ends_with("fn following_writer() { state.antibodies.clear(); }"));
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_never_crosses_const_generic_parameter_boundaries() {
+        let production = [
+            r####"fn shipped_writer<#[cfg(test)] const N: usize>(state: &mut State) {
+    state.antibodies.clear();
+}
+const AFTER: usize = 0;
+"####,
+            r####"fn shipped_writer<#[cfg(test)] const N: usize, const M: usize>(state: &mut State) {
+    state.antibodies.clear();
+}
+const AFTER: usize = 0;
+"####,
+            r####"struct Registry<T: Marker, #[cfg(test)] const N: usize = { 1 }> {
+    marker: PhantomData<T>,
+}
+fn shipped_writer(state: &mut State) { state.antibodies.clear(); }
+const AFTER: usize = 0;
+"####,
+        ];
+        for prefix in production {
+            let source = format!(
+                "{prefix}\n#[cfg(test)]\nmod tests {{ fn excluded_fixture_writer() {{ state.antibodies.clear(); }} }}\nfn following_writer() {{ state.antibodies.clear(); }}"
+            );
+            let lines = source.lines().collect::<Vec<_>>();
+            let kept = strip_cfg_test_items(&lines).join("\n");
+            assert!(
+                kept.starts_with(prefix),
+                "production prefix changed: {prefix}"
+            );
+            assert!(
+                !kept.contains("excluded_fixture_writer"),
+                "prefix: {prefix}"
+            );
+            assert!(kept.ends_with("fn following_writer() { state.antibodies.clear(); }"));
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_retains_unsupported_generics_but_excludes_later_proven_items() {
+        for header in [
+            "fn generic<const N: usize = { 1 }>() { let keep = 1; }",
+            "pub(crate) fn generic() -> Option<impl Drop> { let keep = 1; }",
+        ] {
+            let prefix = format!("#[cfg(test)]\n{header}\n");
+            let source = format!(
+                "{prefix}#[cfg(test)]\nmod tests {{ fn excluded_fixture_writer() {{ state.antibodies.clear(); }} }}\nfn shipped_writer() {{ state.antibodies.clear(); }}"
+            );
+            let lines = source.lines().collect::<Vec<_>>();
+            let kept = strip_cfg_test_items(&lines).join("\n");
+            assert!(kept.starts_with(&prefix));
+            assert!(!kept.contains("excluded_fixture_writer"));
+            assert!(kept.ends_with("fn shipped_writer() { state.antibodies.clear(); }"));
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_malformed_source_retains_even_earlier_proven_items() {
+        for suffix in [
+            "struct Registry { #[cfg(test)] probe: Option<Hook>,",
+            "struct Registry { #[cfg(test)] probe: bool, ] }",
+            "#[cfg(test)] fn missing_body()",
+            "const TEXT: &str = r###\"unterminated",
+        ] {
+            let source = format!("#[cfg(test)] mod earlier {{ fn fixture() {{}} }}\n{suffix}");
+            let lines = source.lines().collect::<Vec<_>>();
+            assert_eq!(strip_cfg_test_items(&lines), lines, "suffix: {suffix}");
+        }
+    }
+
+    #[test]
+    fn cfg_test_inventory_semicolon_items_skip_initializer_and_import_groups() {
+        let source = r####"#[cfg(test)]
+const TEST_VALUE: usize = { if true { 1 } else { 2 } };
+#[cfg(test)]
+use example::{Alpha, Beta};
+#[cfg(test)]
+type TestArray = [u8; { 2 }];
+fn shipped_writer() { state.antibodies.clear(); }
+"####;
+        let lines = source.lines().collect::<Vec<_>>();
+        let kept = strip_cfg_test_items(&lines).join("\n");
+        assert!(!kept.contains("TEST_VALUE"));
+        assert!(!kept.contains("example::{"));
+        assert!(!kept.contains("TestArray"));
+        assert!(kept.ends_with("fn shipped_writer() { state.antibodies.clear(); }"));
     }
 
     fn collapse_for_scan(text: &str) -> String {
@@ -5556,8 +6696,8 @@ mod tests {
                     current = declared;
                 }
                 if collapse_for_scan(line).contains(DRIFT_CALL) {
-                    // File only, like the sibling scan: `lines` is the cfg(test)-stripped
-                    // view, so its index is NOT the line number in the real file.
+                    // File only, like the sibling scan: the textual heuristic
+                    // reports the source path without line-number provenance.
                     callers
                         .entry(current.clone())
                         .or_insert_with(|| name.clone());
@@ -5656,6 +6796,396 @@ mod tests {
             .finish_checkpoint_staging(stage)
             .expect("finish strict fixture candidate");
         (temp, runtime, registry, state)
+    }
+
+    #[test]
+    fn callback_coverage_snapshot_and_first_visit_do_not_clone_history() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+
+        for agent in 0..4 {
+            state.note_coverage(
+                &format!("agent-{agent}"),
+                "view",
+                (0..512).map(|n| format!("file-{agent}-{n}.rs")),
+                (0..512).map(|n| format!("node::{agent}::{n}")),
+            );
+        }
+
+        let copied = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        for entry in state.coverage_sessions.lock().sessions.values_mut() {
+            entry.clone_probe = super::CoverageCloneProbe {
+                counter: Some(Arc::clone(&copied)),
+                weight: entry.visited_files.len()
+                    + entry.visited_nodes.len()
+                    + entry.tools_used.len(),
+            };
+        }
+
+        let preimage = state
+            .capture_callback_perspective_state()
+            .expect("capture coverage");
+        let after_capture = copied.load(Ordering::Relaxed);
+        let retained = preimage.clone();
+        let after_token_clone = copied.load(Ordering::Relaxed);
+
+        state.note_coverage(
+            "agent-0",
+            "view",
+            ["first-new-file.rs".to_owned()],
+            ["node::first-new".to_owned()],
+        );
+        let after_first_visit = copied.load(Ordering::Relaxed);
+
+        assert_eq!(
+            (after_capture, after_token_clone, after_first_visit),
+            (0, 0, 0),
+            "callback snapshots must not copy historical coverage"
+        );
+        assert!(state.has_coverage_session("agent-0"));
+        assert!(!state.has_coverage_session("missing-agent"));
+        assert_eq!(state.coverage_visited_files("agent-0").unwrap().len(), 513);
+        let mut candidates = vec![
+            (3.0, "node::0::0".to_owned()),
+            (2.0, "file-0-0.rs".to_owned()),
+            (1.0, "unvisited".to_owned()),
+        ];
+        assert_eq!(
+            state.coverage_for_orient("agent-0", &mut candidates),
+            Some(513)
+        );
+        assert_eq!(candidates, vec![(1.0, "unvisited".to_owned())]);
+        assert_eq!(
+            copied.load(Ordering::Relaxed),
+            0,
+            "ordinary readers must not clone history"
+        );
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("restore ordinary coverage");
+        assert_eq!(
+            copied.load(Ordering::Relaxed),
+            0,
+            "ordinary restore must move history"
+        );
+        drop(retained);
+    }
+
+    fn callback_coverage_json(state: &SessionState) -> serde_json::Value {
+        serde_json::to_value(state.coverage_sessions_snapshot()).expect("coverage snapshot")
+    }
+
+    fn seed_callback_coverage(state: &mut SessionState) {
+        state.note_coverage("alpha", "view", ["prior.rs".into()], ["node::prior".into()]);
+        state.note_coverage("beta", "seek", ["other.rs".into()], ["node::other".into()]);
+        let mut store = state.coverage_sessions.lock();
+        let alpha = store.sessions.get_mut("alpha").expect("seeded alpha");
+        alpha.started_at_ms = 111;
+        alpha.tools_used.insert("zero".into(), 0);
+        store
+            .sessions
+            .get_mut("beta")
+            .expect("seeded beta")
+            .started_at_ms = 222;
+    }
+
+    #[test]
+    fn callback_coverage_restores_agents_duplicates_timestamps_and_absent_counters() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let before = callback_coverage_json(&state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        state.note_coverage(
+            "alpha",
+            "zero",
+            [
+                "prior.rs".into(),
+                "new.rs".into(),
+                "new.rs".into(),
+                "".into(),
+            ],
+            [
+                "node::prior".into(),
+                "node::new".into(),
+                "node::new".into(),
+                "".into(),
+            ],
+        );
+        state.note_coverage(
+            "alpha",
+            "previously_absent",
+            std::iter::empty(),
+            std::iter::empty(),
+        );
+        state.note_coverage("beta", "seek", ["other.rs".into()], ["node::other".into()]);
+        state.note_coverage("new-agent", "view", std::iter::empty(), std::iter::empty());
+        let alpha = state.coverage_session("alpha").expect("alpha");
+        assert_eq!(alpha.visited_files.len(), 2);
+        assert_eq!(alpha.visited_nodes.len(), 2);
+        assert_eq!(alpha.tools_used.get("zero"), Some(&1));
+        assert_eq!(alpha.started_at_ms, 111);
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("restore");
+        assert_eq!(callback_coverage_json(&state), before);
+        let alpha = state.coverage_session("alpha").expect("restored alpha");
+        assert_eq!(alpha.tools_used.get("zero"), Some(&0));
+        assert!(!alpha.tools_used.contains_key("previously_absent"));
+        assert!(state.coverage_session("new-agent").is_none());
+    }
+
+    #[test]
+    fn callback_coverage_resets_and_retained_tokens_survive_repeated_strict_reload() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let before = callback_coverage_json(&state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        let retained = preimage.clone();
+        state.reset_coverage().expect("first reset");
+        state.note_coverage(
+            "temporary",
+            "view",
+            ["failed.rs".into()],
+            ["node::failed".into()],
+        );
+        state.reset_coverage().expect("second reset");
+        state.reset_coverage().expect("empty reset");
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("first restore");
+        assert_eq!(callback_coverage_json(&state), before);
+        assert!(
+            state.capture_callback_perspective_state().is_err(),
+            "retained frame stays armed"
+        );
+        for _ in 0..2 {
+            state
+                .reload_authoritative_from_disk(false)
+                .expect("strict reload");
+            assert!(state.coverage_sessions_snapshot().is_empty());
+            state
+                .restore_callback_perspective_state(retained.clone())
+                .expect("retained restore");
+            assert_eq!(callback_coverage_json(&state), before);
+        }
+        drop(retained);
+        drop(
+            state
+                .capture_callback_perspective_state()
+                .expect("new frame after token drop"),
+        );
+    }
+
+    #[test]
+    fn callback_coverage_nested_capture_is_refused_and_successful_drop_allows_next_frame() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let first = state
+            .capture_callback_perspective_state()
+            .expect("first frame");
+        state.note_coverage("alpha", "view", ["committed.rs".into()], std::iter::empty());
+        assert!(state.capture_callback_perspective_state().is_err());
+        drop(first);
+        let committed = callback_coverage_json(&state);
+        let second = state
+            .capture_callback_perspective_state()
+            .expect("second frame");
+        state.note_coverage("alpha", "view", ["refused.rs".into()], std::iter::empty());
+        assert!(state.capture_callback_perspective_state().is_err());
+        state
+            .restore_callback_perspective_state(second)
+            .expect("restore second frame");
+        assert_eq!(callback_coverage_json(&state), committed);
+        assert!(state
+            .coverage_session("alpha")
+            .expect("alpha")
+            .visited_files
+            .contains("committed.rs"));
+    }
+
+    #[test]
+    fn callback_coverage_owned_state_escape_preserves_postimage_and_fences_later_notes() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        let (_replacement_temp, _replacement_runtime, _replacement_registry, replacement) =
+            strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let before = callback_coverage_json(&state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        let retained = preimage.clone();
+        state.note_coverage(
+            "alpha",
+            "failed",
+            ["failed.rs".into()],
+            ["node::failed".into()],
+        );
+        let postimage = callback_coverage_json(&state);
+        let (send, receive) = std::sync::mpsc::channel();
+        assert!(send
+            .send(std::mem::replace(&mut state, replacement))
+            .is_ok());
+        let mut escaped = receive.recv().expect("escaped owned session");
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("restore after replacement");
+        assert_eq!(callback_coverage_json(&state), before);
+        assert_eq!(callback_coverage_json(&escaped), postimage);
+        escaped.note_coverage("alpha", "late", ["late.rs".into()], ["node::late".into()]);
+        assert_eq!(callback_coverage_json(&state), before);
+        assert!(retained
+            .coverage_sessions
+            .frame
+            .lock()
+            .operations
+            .is_empty());
+
+        // Escape the newly restored owner, then restore an empty retained journal.
+        let mut escaped_again = std::mem::replace(&mut state, escaped);
+        state
+            .restore_callback_perspective_state(retained.clone())
+            .expect("empty journal fence");
+        assert_eq!(callback_coverage_json(&escaped_again), before);
+        escaped_again.note_coverage(
+            "beta",
+            "late_again",
+            ["late-again.rs".into()],
+            std::iter::empty(),
+        );
+        assert_eq!(callback_coverage_json(&state), before);
+        assert!(retained
+            .coverage_sessions
+            .frame
+            .lock()
+            .operations
+            .is_empty());
+        state
+            .reload_authoritative_from_disk(false)
+            .expect("reload after fenced restore");
+        state
+            .restore_callback_perspective_state(retained)
+            .expect("restore retargeted token");
+        assert_eq!(callback_coverage_json(&state), before);
+        let next = state
+            .capture_callback_perspective_state()
+            .expect("next transaction");
+        escaped_again.note_coverage(
+            "beta",
+            "after_token_drop",
+            ["detached.rs".into()],
+            std::iter::empty(),
+        );
+        assert_eq!(callback_coverage_json(&state), before);
+        state
+            .restore_callback_perspective_state(next)
+            .expect("next transaction restore");
+        assert_eq!(callback_coverage_json(&state), before);
+    }
+
+    #[test]
+    fn callback_coverage_partial_undo_failure_retains_progress_across_strict_reload() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let before = callback_coverage_json(&state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        state.note_coverage(
+            "alpha",
+            "view",
+            ["partial.rs".into()],
+            ["node::partial".into()],
+        );
+        state.note_coverage("new-agent", "view", ["new.rs".into()], std::iter::empty());
+        preimage
+            .coverage_sessions
+            .frame
+            .lock()
+            .fail_after_one_inverse = true;
+        let error = state
+            .restore_callback_perspective_state(preimage.clone())
+            .expect_err("one-shot fault");
+        assert!(error.to_string().contains("after one inverse"));
+        assert!(state.coverage_session("new-agent").is_none());
+        assert!(state
+            .coverage_session("alpha")
+            .expect("partial alpha")
+            .visited_files
+            .contains("partial.rs"));
+        assert_eq!(preimage.coverage_sessions.frame.lock().operations.len(), 1);
+        state
+            .reload_authoritative_from_disk(false)
+            .expect("reload partial working map");
+        state
+            .restore_callback_perspective_state(preimage.clone())
+            .expect("retry remaining undo");
+        assert_eq!(callback_coverage_json(&state), before);
+        state
+            .reload_authoritative_from_disk(false)
+            .expect("reload restored map");
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("repeat retained restore");
+        assert_eq!(callback_coverage_json(&state), before);
+    }
+
+    #[test]
+    fn callback_coverage_consumes_iterators_outside_locks_and_keeps_panic_rollback() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let before = callback_coverage_json(&state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        let store = Arc::clone(&state.coverage_sessions);
+        let frame = Arc::clone(&preimage.coverage_sessions.frame);
+        let files = std::iter::once_with(|| {
+            assert!(
+                store.try_lock().is_some(),
+                "iterator runs outside store lock"
+            );
+            assert!(
+                frame.try_lock().is_some(),
+                "iterator runs outside frame lock"
+            );
+            "new.rs".to_owned()
+        });
+        state.note_coverage("alpha", "view", files, std::iter::empty());
+        let before_panic = callback_coverage_json(&state);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.note_coverage(
+                "alpha",
+                "iterator_panic",
+                (0..2).map(|index| {
+                    assert_eq!(index, 0, "injected iterator panic");
+                    "never-committed.rs".to_owned()
+                }),
+                std::iter::empty(),
+            );
+        }));
+        assert!(result.is_err());
+        assert_eq!(callback_coverage_json(&state), before_panic);
+        state
+            .restore_callback_perspective_state(preimage)
+            .expect("restore after iterator panic");
+        assert_eq!(callback_coverage_json(&state), before);
+    }
+
+    #[test]
+    fn callback_coverage_reset_error_does_not_preserve_proof_capabilities() {
+        let (_temp, _runtime, _registry, mut state) = strict_recovery_fixture();
+        seed_callback_coverage(&mut state);
+        let preimage = state.capture_callback_perspective_state().expect("capture");
+        let key = ("alpha".to_owned(), "prior.rs".to_owned());
+        state
+            .proof_ready
+            .insert(key.clone(), ProofReadyMark::default());
+        state
+            .active_proof_permits
+            .insert(key, ProofReadyMark::default());
+        state.queries_processed = 42;
+        preimage.coverage_sessions.frame.lock().store =
+            Arc::new(parking_lot::Mutex::new(super::CoverageStore::default()));
+        let error = state
+            .reload_authoritative_from_disk(false)
+            .expect_err("retired frame must refuse");
+        assert!(error.to_string().contains("retired callback store"));
+        assert!(state.proof_ready.is_empty());
+        assert!(state.active_proof_permits.is_empty());
+        assert_eq!(state.queries_processed, 0);
     }
 
     #[test]

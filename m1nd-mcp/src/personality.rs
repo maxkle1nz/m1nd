@@ -303,7 +303,20 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
 
 /// Build the `_m1nd` metadata envelope to wrap every tool response.
 pub fn build_m1nd_meta(tool_name: &str, result: &Value) -> Value {
-    let suggestions = suggest_next(tool_name);
+    // A bounded page is not a complete replacement file, even when its cursor
+    // is exhausted: the final page can carry only metadata or a source tail.
+    let suggestions = match (tool_name, result.get("context_page").filter(|page| page.is_object())) {
+        ("surgical_context", Some(page)) if page.get("continuation").is_some_and(Value::is_null) => vec![
+            "reassemble all file_contents pages by context_page.source byte anchors and verify context_page.source.sha256 before editing".into(),
+            "validate_plan(files) to ground the coupled edit surface".into(),
+            "edit_preview(file, reassembled_verified_content) to preview the complete source before writing".into(),
+            "apply_batch(edits) for multiple files after full-source verification and proof".into(),
+        ],
+        ("surgical_context", Some(_)) => vec![
+            "surgical_context(same target/options and byte budget, continuation=context_page.continuation) to fetch the next page; retain all source pages for verified reassembly".into(),
+        ],
+        _ => suggest_next(tool_name),
+    };
     let personality = personality_line(tool_name, result);
 
     let mut meta = json!({
@@ -2580,4 +2593,65 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
         }
     }
     dp[a_len][b_len]
+}
+
+#[cfg(test)]
+mod bounded_context_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn partial_page_suggestions_fetch_continuation_without_editing() {
+        let result =
+            json!({"file_contents":"fragment", "context_page":{"continuation":{"version":1}}});
+        let meta = build_m1nd_meta("surgical_context", &result);
+        let suggestions = meta["suggest_next"].as_array().unwrap();
+        assert!(suggestions
+            .iter()
+            .any(|s| s.as_str().unwrap().contains("surgical_context")
+                && s.as_str().unwrap().contains("continuation")));
+        for suggestion in suggestions {
+            let text = suggestion.as_str().unwrap();
+            for write_tool in ["edit_preview", "edit_commit", "apply_batch", "apply("] {
+                assert!(
+                    !text.contains(write_tool),
+                    "partial source must not recommend {write_tool}: {text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn final_tail_and_metadata_only_pages_require_verified_reassembly_before_editing() {
+        for (contents, start) in [("tail\n", 32), ("", 37)] {
+            let result = json!({"file_contents":contents,"context_page":{"continuation":null,"source":{"byte_start":start,"byte_end":37,"total_bytes":37,"sha256":"source digest"}}});
+            let meta = build_m1nd_meta("surgical_context", &result);
+            let suggestions = meta["suggest_next"].as_array().unwrap();
+            let first = suggestions[0].as_str().unwrap();
+            assert!(
+                first.contains("all") && first.contains("reassemble") && first.contains("sha256"),
+                "final fragments require all pages and a digest check: {meta}"
+            );
+            assert!(suggestions.iter().any(|s| {
+                let text = s.as_str().unwrap();
+                text.contains("edit_preview") && text.contains("reassembled")
+            }));
+            assert!(suggestions
+                .iter()
+                .any(|s| s.as_str().unwrap().contains("apply_batch")));
+        }
+    }
+
+    #[test]
+    fn unbounded_surgical_and_other_tool_suggestions_keep_the_existing_contract() {
+        let meta = build_m1nd_meta("surgical_context", &json!({"file_contents":"full source"}));
+        assert_eq!(
+            meta["suggest_next"],
+            json!(suggest_next("surgical_context"))
+        );
+        let unrelated = build_m1nd_meta(
+            "view",
+            &json!({"context_page":{"continuation":{"version":1}}}),
+        );
+        assert_eq!(unrelated["suggest_next"], json!(suggest_next("view")));
+    }
 }

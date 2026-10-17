@@ -10,6 +10,114 @@ use regex::Regex;
 #[cfg(feature = "tier1")]
 use tree_sitter::{Node, Parser};
 
+/// Source range for a method declared directly in a Rust impl or trait body.
+///
+/// This is source-only: no graph IDs, name resolution, or references are built.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RustMethodRange {
+    pub name: String,
+    /// One-based, inclusive declaration and end lines, excluding preceding attributes.
+    pub line_start: u32,
+    pub line_end: u32,
+    /// Byte position of the declaration, used to distinguish same-line definitions.
+    pub start_byte: usize,
+    /// Byte position of the method item's direct, anonymous `fn` keyword.
+    pub fn_keyword_byte: usize,
+}
+
+/// Read direct impl/trait methods using the already-enabled Rust grammar.
+///
+/// Function bodies, closures, macros, and token trees are never traversed. Required
+/// trait signatures end at their semicolon. Returns `None` when the grammar is not
+/// enabled or parser setup fails; callers can retain their existing fallback.
+pub fn rust_method_ranges(content: &str) -> Option<Vec<RustMethodRange>> {
+    #[cfg(feature = "tier1")]
+    {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .ok()?;
+        let tree = parser.parse(content, None)?;
+        let source = content.as_bytes();
+        let mut ranges = Vec::new();
+        let mut declarations = vec![tree.root_node()];
+        while let Some(node) = declarations.pop() {
+            match node.kind() {
+                "source_file" | "declaration_list" => {
+                    let mut cursor = node.walk();
+                    let mut children: Vec<_> = node.named_children(&mut cursor).collect();
+                    children.reverse();
+                    declarations.extend(children);
+                }
+                "mod_item" => {
+                    if let Some(body) = node.child_by_field_name("body") {
+                        declarations.push(body);
+                    }
+                }
+                "impl_item" | "trait_item" => {
+                    let Some(body) = node.child_by_field_name("body") else {
+                        continue;
+                    };
+                    let mut cursor = body.walk();
+                    for method in body.named_children(&mut cursor) {
+                        let is_method = method.kind() == "function_item"
+                            || (node.kind() == "trait_item"
+                                && method.kind() == "function_signature_item");
+                        if !is_method || method.has_error() || method.is_missing() {
+                            continue;
+                        }
+                        let Some(name_node) = method.child_by_field_name("name") else {
+                            continue;
+                        };
+                        if name_node.kind() != "identifier" || name_node.is_missing() {
+                            continue;
+                        }
+                        let Ok(name) = name_node.utf8_text(source) else {
+                            continue;
+                        };
+                        let mut keyword_cursor = method.walk();
+                        let Some(fn_keyword_byte) = method
+                            .children(&mut keyword_cursor)
+                            .find(|child| {
+                                child.kind() == "fn" && !child.is_named() && !child.is_missing()
+                            })
+                            .map(|keyword| keyword.start_byte())
+                        else {
+                            continue;
+                        };
+                        let Some(line_start) = u32::try_from(method.start_position().row)
+                            .ok()
+                            .and_then(|line| line.checked_add(1))
+                        else {
+                            continue;
+                        };
+                        let Some(line_end) = u32::try_from(method.end_position().row)
+                            .ok()
+                            .and_then(|line| line.checked_add(1))
+                        else {
+                            continue;
+                        };
+                        ranges.push(RustMethodRange {
+                            name: name.to_string(),
+                            line_start,
+                            line_end,
+                            start_byte: method.start_byte(),
+                            fn_keyword_byte,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(ranges)
+    }
+    #[cfg(not(feature = "tier1"))]
+    {
+        let _ = content;
+        None
+    }
+}
+
 /// Rust extractor using regex.
 /// Replaces: ingest.py RustExtractor
 pub struct RustExtractor {
@@ -1542,6 +1650,138 @@ impl Extractor for RustExtractor {
 
     fn extensions(&self) -> &[&str] {
         &["rs"]
+    }
+}
+
+#[cfg(all(test, feature = "tier1"))]
+mod method_range_tests {
+    use super::rust_method_ranges;
+
+    #[test]
+    fn direct_impl_and_trait_methods_have_exact_ranges() {
+        let source = "trait Worker {\n    fn required(\n        &self,\n    ) -> usize;\n    fn defaulted(&self) -> usize {\n        1\n    }\n}\nimpl Worker for Engine {\n    fn required(&self) -> usize {\n        2\n    }\n}\n";
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        let rows: Vec<_> = methods
+            .iter()
+            .map(|method| (method.name.as_str(), method.line_start, method.line_end))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("required", 2, 4),
+                ("defaulted", 5, 7),
+                ("required", 10, 12)
+            ]
+        );
+        for method in methods {
+            assert!(source[method.start_byte..].starts_with("fn "));
+            assert_eq!(method.fn_keyword_byte, method.start_byte);
+        }
+    }
+
+    #[test]
+    fn bodies_macros_and_literals_do_not_introduce_methods() {
+        let source = r####"
+fn outside() {
+    impl Hidden { fn hidden() {} }
+}
+macro_rules! methods {
+    () => { impl Generated { fn generated() {} } };
+}
+mod nested {
+    impl Engine {
+        fn visible(&self) {
+            fn local() {}
+            let quoted = "} impl Fake { fn quoted() {} }";
+            let raw = br##"
+                impl Fake { fn raw() {} }
+            "##;
+            let brace = '}';
+            /* impl Fake { fn commented() {} } */
+            let closure = || { 1 };
+        }
+    }
+}
+methods!();
+"####;
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        assert_eq!(methods.len(), 1, "only the direct method is new evidence");
+        assert_eq!(methods[0].name, "visible");
+        assert_eq!((methods[0].line_start, methods[0].line_end), (10, 19));
+    }
+
+    #[test]
+    fn attributes_generics_utf8_and_crlf_keep_source_anchors() {
+        let source = "// café 東京\r\nimpl<'a, T> Engine<'a, T> where T: Copy {\r\n    /// Méthode.\r\n    #[inline]\r\n    pub(crate) async unsafe fn café<'b>(&'b self) -> usize where T: 'b {\r\n        1\r\n    }\r\n    pub const fn fixed(&self) -> usize { 2 }\r\n}\r\n";
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        assert_eq!(methods.len(), 2);
+        assert_eq!(methods[0].name, "café");
+        assert_eq!((methods[0].line_start, methods[0].line_end), (5, 7));
+        assert!(source[methods[0].start_byte..].starts_with("pub(crate) async unsafe fn café"));
+        assert!(source[methods[0].fn_keyword_byte..].starts_with("fn café"));
+        assert_eq!(methods[1].name, "fixed");
+        assert_eq!((methods[1].line_start, methods[1].line_end), (8, 8));
+    }
+
+    #[test]
+    fn same_line_homonyms_keep_distinct_declaration_anchors() {
+        let source = "fn run() {} impl First { fn run() {} } impl Second { fn run() {} }";
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        assert_eq!(methods.len(), 2);
+        assert_eq!(methods[0].name, "run");
+        assert_eq!(methods[1].name, "run");
+        assert_eq!((methods[0].line_start, methods[0].line_end), (1, 1));
+        assert_eq!((methods[1].line_start, methods[1].line_end), (1, 1));
+        assert!(methods[0].start_byte < methods[1].start_byte);
+        assert_ne!(
+            methods[0].start_byte, 0,
+            "the free function is not a method"
+        );
+    }
+
+    #[test]
+    fn split_modifiers_keep_exact_item_and_fn_keyword_anchors() {
+        let source = "impl<T> Engine<T> {\n    pub\n    fn value(&self) {}\n    pub(crate)\n    async\n    unsafe\n    fn shifted(&self) {}\n    pub(super) fn same_line(&self) {}\n}\n";
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        let rows: Vec<_> = methods
+            .iter()
+            .map(|method| (method.name.as_str(), method.line_start, method.line_end))
+            .collect();
+        assert_eq!(
+            rows,
+            [("value", 2, 3), ("shifted", 4, 7), ("same_line", 8, 8)]
+        );
+        for method in methods {
+            assert!(source[method.start_byte..].starts_with("pub"));
+            assert!(source[method.fn_keyword_byte..].starts_with("fn "));
+            assert!(method.fn_keyword_byte > method.start_byte);
+        }
+    }
+
+    #[test]
+    fn invalid_or_non_method_declarations_are_not_promoted() {
+        let source = "impl Engine {\n    fn missing(&self);\n    fn valid(&self) {}\n}\ntrait Worker {\n    fn required(&self);\n}\n";
+        let methods = rust_method_ranges(source).expect("Rust grammar available");
+        let names: Vec<_> = methods.iter().map(|method| method.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["valid", "required"],
+            "semicolon signatures belong only to traits"
+        );
+        let broken = rust_method_ranges("impl Engine { fn broken(&self) { let = ; } }")
+            .expect("Rust grammar available");
+        assert!(
+            broken.is_empty(),
+            "an erroneous method must not receive a precise range"
+        );
+    }
+}
+
+#[cfg(all(test, not(feature = "tier1")))]
+mod method_range_fallback_tests {
+    #[test]
+    fn missing_grammar_preserves_caller_fallback() {
+        assert!(super::rust_method_ranges("impl Engine { fn run() {} }").is_none());
     }
 }
 
