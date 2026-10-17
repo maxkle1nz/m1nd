@@ -163,6 +163,16 @@ pub struct RuntimeOverlay {
     batches_ingested: u32,
 }
 
+// A necessary-only byte-presence filter for substring matching. Folding the
+// high bit permits collisions; those candidates still require `contains`.
+fn substring_byte_signature(value: &str) -> u128 {
+    let mut signature = 0u128;
+    for byte in value.bytes() {
+        signature |= 1u128 << (byte & 0x7f);
+    }
+    signature
+}
+
 impl RuntimeOverlay {
     /// Create a new runtime overlay engine.
     pub fn new(config: OverlayConfig) -> Self {
@@ -205,7 +215,7 @@ impl RuntimeOverlay {
 
         // Keep only the last fallback length, borrowing entries in map order.
         let mut substring_length = None;
-        let mut substring_candidates: Vec<(&String, &Vec<usize>)> = Vec::new();
+        let mut substring_candidates: Vec<(&String, &Vec<usize>, u128)> = Vec::new();
 
         let mut spans_mapped = 0usize;
         let mut spans_unmapped = 0usize;
@@ -230,18 +240,32 @@ impl RuntimeOverlay {
                             const MIN_LEN: usize = 4;
                             let mut matches = Vec::new();
                             if name_lower.len() >= MIN_LEN {
+                                let name_signature = substring_byte_signature(&name_lower);
                                 if substring_length != Some(name_lower.len()) {
                                     substring_candidates.clear();
-                                    substring_candidates.extend(label_to_idx.iter().filter(
-                                        |(label, _)| {
-                                            let shorter = label.len().min(name_lower.len());
-                                            let longer = label.len().max(name_lower.len());
-                                            label.len() >= MIN_LEN && shorter * 2 >= longer
-                                        },
-                                    ));
+                                    substring_candidates.extend(
+                                        label_to_idx
+                                            .iter()
+                                            .filter(|(label, _)| {
+                                                let shorter = label.len().min(name_lower.len());
+                                                let longer = label.len().max(name_lower.len());
+                                                label.len() >= MIN_LEN && shorter * 2 >= longer
+                                            })
+                                            .map(|(label, indices)| {
+                                                (label, indices, substring_byte_signature(label))
+                                            }),
+                                    );
                                     substring_length = Some(name_lower.len());
                                 }
-                                for &(label, indices) in &substring_candidates {
+                                for &(label, indices, label_signature) in &substring_candidates {
+                                    let (shorter, longer) = if label.len() <= name_lower.len() {
+                                        (label_signature, name_signature)
+                                    } else {
+                                        (name_signature, label_signature)
+                                    };
+                                    if shorter & !longer != 0 {
+                                        continue;
+                                    }
                                     if label.contains(name_lower.as_str())
                                         || name_lower.contains(label.as_str())
                                     {
@@ -797,6 +821,77 @@ mod tests {
                         state.max_duration_us
                     ),
                     (3 * matches, 3 * matches, 2100 * matches, 700)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn label_match_byte_prefilter_keeps_both_directions_and_rejects_false_positives() {
+        let cases = [
+            // Either containment direction must survive the necessary filter.
+            ("xyabcd", "abcd", true),
+            ("abcd", "xyabcd", true),
+            ("préparer", "prépa", true),
+            ("über", "xxÜBER", true),
+            // Presence is not byte order, multiplicity, or a substring proof.
+            ("abcd", "dcba", false),
+            ("aaab", "aabb", false),
+            ("éà", "àé", false),
+            // U+1861 is UTF-8 E1 A1 A1, folding to the same bits as "a!".
+            ("a!a!", "\u{1861}\u{1861}", false),
+            // Keep minimum byte lengths and the existing half-length boundary.
+            ("é", "éé", false),
+            ("abcd", "xxabcdxx", true),
+            ("abcd", "xxabcdxxx", false),
+        ];
+        for (label, name, expected) in cases {
+            let mut graph = Graph::new();
+            graph
+                .add_node("id::target", label, NodeType::Function, &[], 0.0, 0.0)
+                .unwrap();
+            graph.finalize().unwrap();
+            let mut overlay = RuntimeOverlay::with_defaults();
+            let result = overlay
+                .ingest(
+                    &graph,
+                    &OtelBatch {
+                        spans: vec![OtelSpan {
+                            name: name.into(),
+                            duration_us: 700,
+                            count: 3,
+                            is_error: true,
+                            attributes: HashMap::new(),
+                            parent: None,
+                        }],
+                        timestamp: 0.0,
+                        service_name: String::new(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(result.spans_processed, 1, "{label:?}, {name:?}");
+            assert_eq!(
+                result.spans_mapped,
+                usize::from(expected),
+                "{label:?}, {name:?}"
+            );
+            assert_eq!(
+                result.spans_unmapped,
+                usize::from(!expected),
+                "{label:?}, {name:?}"
+            );
+            assert_eq!(overlay.get_heat(0) > 0.0, expected, "{label:?}, {name:?}");
+            assert_eq!(overlay.node_data.len(), usize::from(expected));
+            if expected {
+                let state = &overlay.node_data[&0];
+                assert_eq!(
+                    (
+                        state.invocations,
+                        state.errors,
+                        state.total_duration_us,
+                        state.max_duration_us
+                    ),
+                    (3, 3, 2100, 700)
                 );
             }
         }

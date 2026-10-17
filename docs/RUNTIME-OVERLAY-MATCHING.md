@@ -21,8 +21,15 @@ the fallback name's byte length stays the same. A changed length rebuilds the
 list in the existing label-map visit order. The list borrows at most one entry
 per distinct lowercase label: O(U) extra storage, with one remembered length.
 It is not a persistent cache or a map of every observed length. Exact matches
-still bypass fallback. Alternating lengths can add work; containment checks
-still inspect every eligible label.
+still bypass fallback. Each eligible label also carries a byte-presence
+signature. A fallback can reject a pair only when some byte-signature bit of
+the shorter string is absent from the longer string. Signatures fold each
+UTF-8 byte's high bit, so collisions remain possible and never establish a
+match: either string must still contain the other. Label-map order and duplicate
+node expansion stay unchanged. The signatures use O(U) storage alongside the
+one-length list, rather than a persistent or per-name cache. Alternating lengths
+can rebuild both the eligible list and its signatures; worst-case containment
+work is unchanged.
 
 Exact IDs use `Graph::resolve_id` instead of rebuilding a cloned external-ID
 map. Only label-based strategies populate the lowercase label index. Reverse
