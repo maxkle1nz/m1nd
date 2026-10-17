@@ -1223,7 +1223,10 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<surgical::SurgicalSymb
     let mut symbols = Vec::new();
 
     match ext {
-        "rs" => extract_rust_symbols(&lines, &mut symbols),
+        "rs" => {
+            extract_rust_symbols(&lines, &mut symbols);
+            reconcile_rust_method_symbols(content, &lines, &mut symbols);
+        }
         "py" => extract_python_symbols(&lines, &mut symbols),
         "ts" | "tsx" | "js" | "jsx" => extract_ts_symbols(&lines, &mut symbols),
         "go" => extract_go_symbols(&lines, &mut symbols),
@@ -1231,6 +1234,67 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<surgical::SurgicalSymb
     }
 
     symbols
+}
+
+/// Correct direct method ranges in place, then append previously skipped methods.
+/// Legacy names, types, and selection order remain unchanged.
+fn reconcile_rust_method_symbols(
+    content: &str,
+    lines: &[&str],
+    symbols: &mut Vec<surgical::SurgicalSymbol>,
+) {
+    let Some(methods) = m1nd_ingest::extract::rust_lang::rust_method_ranges(content) else {
+        return;
+    };
+    let line_starts: Vec<_> = std::iter::once(0)
+        .chain(content.match_indices('\n').map(|(offset, _)| offset + 1))
+        .collect();
+    let legacy_functions: HashMap<_, _> = symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| symbol.symbol_type == "function")
+        .filter_map(|(symbol_index, symbol)| {
+            let line_index = symbol.line_start.checked_sub(1)? as usize;
+            let line = lines.get(line_index)?;
+            let declaration = *line_starts.get(line_index)? + line.len() - line.trim_start().len();
+            Some((declaration, symbol_index))
+        })
+        .collect();
+
+    for method in methods {
+        let Some(start) = method.line_start.checked_sub(1).map(|line| line as usize) else {
+            continue;
+        };
+        let Some(end) = method.line_end.checked_sub(1).map(|line| line as usize) else {
+            continue;
+        };
+        if start > end || end >= lines.len() {
+            continue;
+        }
+        // A split visibility/modifier places the legacy anchor on `fn`, while
+        // the syntax item starts at its first modifier. Match only exact syntax
+        // anchors and the same name; comments between them are not identities.
+        let legacy_index = [method.start_byte, method.fn_keyword_byte]
+            .into_iter()
+            .find_map(|declaration| {
+                let index = *legacy_functions.get(&declaration)?;
+                (symbols[index].name == method.name).then_some(index)
+            });
+        if let Some(index) = legacy_index {
+            let symbol = &mut symbols[index];
+            symbol.line_start = method.line_start;
+            symbol.line_end = method.line_end;
+            symbol.excerpt = Some(build_excerpt(lines, start, end));
+            continue;
+        }
+        symbols.push(surgical::SurgicalSymbol {
+            name: method.name,
+            symbol_type: "function".to_string(),
+            line_start: method.line_start,
+            line_end: method.line_end,
+            excerpt: Some(build_excerpt(lines, start, end)),
+        });
+    }
 }
 
 fn extract_rust_symbols(lines: &[&str], symbols: &mut Vec<surgical::SurgicalSymbol>) {
@@ -5169,6 +5233,278 @@ mod tests {
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "handle_apply");
         assert_eq!(symbols[0].symbol_type, "function");
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_includes_impl_methods_after_legacy_symbols() {
+        let source = "struct Engine {\n    value: usize,\n}\nimpl Engine {\n    pub fn remove_edges(&mut self) {\n        self.value = 0;\n    }\n}\nfn sentinel() {}\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let rows: Vec<_> = symbols
+            .iter()
+            .map(|symbol| {
+                (
+                    symbol.name.as_str(),
+                    symbol.symbol_type.as_str(),
+                    symbol.line_start,
+                    symbol.line_end,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Engine", "struct", 1, 3),
+                ("Engine", "impl", 4, 8),
+                ("sentinel", "function", 9, 9),
+                ("remove_edges", "function", 5, 7),
+            ]
+        );
+        assert_eq!(
+            symbols[3].excerpt.as_deref(),
+            Some("    pub fn remove_edges(&mut self) {\n        self.value = 0;\n    }")
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_preserves_generic_impl_method_once() {
+        let source = "struct Engine<T> { value: T }\nimpl<T> Engine<T> {\n    pub fn value(&self) -> &T {\n        &self.value\n    }\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            serde_json::to_value(&symbols[..legacy.len()]).unwrap(),
+            serde_json::to_value(&legacy).unwrap()
+        );
+        assert_eq!(
+            symbols
+                .iter()
+                .filter(|symbol| symbol.name == "value")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_corrects_generic_impl_literal_brace_range_in_place() {
+        let source = "fn sentinel() {}\nimpl<T> Engine<T> {\n    pub fn value(&self) -> usize {\n        let text = \"}\";\n        text.len()\n    }\n}\nfn after() {}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!((legacy[1].line_start, legacy[1].line_end), (3, 4));
+        let symbols = extract_symbols(source, "engine.rs");
+        let identities: Vec<_> = symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(identities, legacy_identities);
+        assert_eq!((symbols[1].line_start, symbols[1].line_end), (3, 6));
+        assert_eq!(symbols[1].excerpt.as_deref(), Some("    pub fn value(&self) -> usize {\n        let text = \"}\";\n        text.len()\n    }"));
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[2]).unwrap(),
+            serde_json::to_value(&legacy[2]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_split_modifiers_reconcile_once_in_place() {
+        let source = "fn sentinel() {}\nimpl<T> Engine<T> {\n    pub\n    fn value(&self) {}\n    pub(crate)\n    async\n    unsafe\n    fn shifted(&self) {}\n    pub(super) fn same_line(&self) {}\n}\nfn after() {}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        let rows: Vec<_> = symbols
+            .iter()
+            .map(|symbol| {
+                (
+                    symbol.name.as_str(),
+                    symbol.symbol_type.as_str(),
+                    symbol.line_start,
+                    symbol.line_end,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("sentinel", "function", 1, 1),
+                ("value", "function", 3, 4),
+                ("shifted", "function", 5, 8),
+                ("same_line", "function", 9, 9),
+                ("after", "function", 11, 11),
+            ]
+        );
+        assert_eq!(
+            symbols.len(),
+            legacy.len(),
+            "one symbol per existing method"
+        );
+        let identities: Vec<_> = symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(identities, legacy_identities);
+        assert_eq!(
+            symbols[1].excerpt.as_deref(),
+            Some("    pub\n    fn value(&self) {}")
+        );
+        assert_eq!(
+            symbols[2].excerpt.as_deref(),
+            Some("    pub(crate)\n    async\n    unsafe\n    fn shifted(&self) {}")
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[4]).unwrap(),
+            serde_json::to_value(&legacy[4]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_comment_alias_is_not_a_method_anchor() {
+        let source = "impl<T> Engine<T> {\n    pub\n    /*\n    fn value() {}\n    */\n    fn value(&self) {}\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            symbols.len(),
+            2,
+            "the legacy false positive stays; the method is not duplicated"
+        );
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+        assert_eq!(
+            symbols[0].line_start, 4,
+            "a comment lookalike is not an AST anchor"
+        );
+        assert_eq!(symbols[1].name, "value");
+        assert_eq!(symbols[1].symbol_type, "function");
+        assert_eq!((symbols[1].line_start, symbols[1].line_end), (2, 6));
+        assert_eq!(
+            symbols[1].excerpt.as_deref(),
+            Some("    pub\n    /*\n    fn value() {}\n    */\n    fn value(&self) {}")
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_preserves_homonyms_and_first_legacy_answer() {
+        let source = "fn run() {} impl First { fn run() {} } impl Second { fn run() {} }";
+        let symbols = extract_symbols(source, "engine.rs");
+        assert_eq!(
+            symbols.len(),
+            3,
+            "same-line method declarations must remain distinct"
+        );
+        assert!(symbols
+            .iter()
+            .all(|symbol| symbol.name == "run" && symbol.symbol_type == "function"));
+        assert_eq!(symbols[0].line_start, 1);
+        assert_eq!(symbols[0].excerpt.as_deref(), Some(source));
+        // The selector is unchanged: keeping the original element first preserves
+        // its existing answer, without introducing qualified-name semantics.
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!(
+            serde_json::to_value(&symbols[0]).unwrap(),
+            serde_json::to_value(&legacy[0]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_trait_signatures_end_at_semicolon() {
+        let source = "trait Worker {\n    fn required(\n        &self,\n    ) -> usize;\n    fn defaulted(&self) -> usize {\n        1\n    }\n}\nimpl Worker for Engine {\n    fn required(&self) -> usize { 2 }\n}\n";
+        let lines: Vec<_> = source.lines().collect();
+        let mut legacy = Vec::new();
+        extract_rust_symbols(&lines, &mut legacy);
+        assert_eq!((legacy[0].line_start, legacy[0].line_end), (2, 7));
+        let symbols = extract_symbols(source, "engine.rs");
+        let retained_identities: Vec<_> = symbols[..legacy.len()]
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        let legacy_identities: Vec<_> = legacy
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.symbol_type.as_str()))
+            .collect();
+        assert_eq!(retained_identities, legacy_identities);
+        assert_eq!(
+            serde_json::to_value(&symbols[1]).unwrap(),
+            serde_json::to_value(&legacy[1]).unwrap()
+        );
+        let required: Vec<_> = symbols
+            .iter()
+            .filter(|symbol| symbol.name == "required")
+            .collect();
+        assert_eq!(required.len(), 2);
+        assert_eq!((required[0].line_start, required[0].line_end), (2, 4));
+        assert_eq!((required[1].line_start, required[1].line_end), (10, 10));
+        assert!(required
+            .iter()
+            .all(|symbol| symbol.symbol_type == "function"));
+        assert_eq!(
+            required[0].excerpt.as_deref(),
+            Some("    fn required(\n        &self,\n    ) -> usize;")
+        );
+        let defaulted = symbols
+            .iter()
+            .find(|symbol| symbol.name == "defaulted")
+            .unwrap();
+        assert_eq!((defaulted.line_start, defaulted.line_end), (5, 7));
+        assert_eq!(defaulted.symbol_type, "function");
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_new_methods_do_not_include_nested_declarations() {
+        let source = "impl Engine {\n    fn outer(&self) {\n        fn local() {}\n        impl Hidden { fn nested() {} }\n        let text = \"fn quoted() {}\";\n    }\n}\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let names: Vec<_> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+        assert_eq!(names, ["Engine", "outer"]);
+        let outer = &symbols[1];
+        assert_eq!((outer.line_start, outer.line_end), (2, 6));
+    }
+
+    #[test]
+    fn test_extract_rust_symbols_utf8_crlf_and_excerpt_cap_use_original_lines() {
+        let source = "// 東京\r\nimpl Engine {\r\n    /// café\r\n    #[inline]\r\n    pub fn café(&self) {\r\n        let text = \"{}\";\r\n    }\r\n}\r\n";
+        let symbols = extract_symbols(source, "engine.rs");
+        let method = symbols.iter().find(|symbol| symbol.name == "café").unwrap();
+        assert_eq!((method.line_start, method.line_end), (5, 7));
+        assert_eq!(
+            method.excerpt.as_deref(),
+            Some("    pub fn café(&self) {\n        let text = \"{}\";\n    }")
+        );
+        let mut long_source = "impl Engine {\n    fn long_method(&mut self) {\n".to_string();
+        for _ in 0..24 {
+            long_source.push_str("        self.count += 1;\n");
+        }
+        long_source.push_str("    }\n}\n");
+        let symbols = extract_symbols(&long_source, "engine.rs");
+        let method = symbols
+            .iter()
+            .find(|symbol| symbol.name == "long_method")
+            .unwrap();
+        assert_eq!((method.line_start, method.line_end), (2, 27));
+        let excerpt = method.excerpt.as_deref().unwrap();
+        assert_eq!(excerpt.lines().count(), 21);
+        assert!(excerpt.ends_with("    // ... (truncated)"));
     }
 
     #[test]
