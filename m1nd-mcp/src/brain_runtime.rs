@@ -2185,7 +2185,9 @@ impl BrainActorState {
                     // checked-out boot preimage is authoritative and can be
                     // republished without reading friendly defaults.
                     if let Some(preimage) = callback_perspective_preimage.clone() {
-                        state.restore_callback_perspective_state(preimage);
+                        state
+                            .restore_callback_perspective_state(preimage)
+                            .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
                     }
                     Ok(())
                 } else {
@@ -2201,7 +2203,9 @@ impl BrainActorState {
                                 })?;
                             self.verify_reloaded_state_digest(&mut state)?;
                             if let Some(preimage) = callback_perspective_preimage.clone() {
-                                state.restore_callback_perspective_state(preimage);
+                                state
+                                    .restore_callback_perspective_state(preimage)
+                                    .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
                             }
                             Ok(())
                         })
@@ -2328,7 +2332,9 @@ impl BrainActorState {
         }
 
         if let Some(preimage) = pending.callback_perspective_preimage {
-            state.restore_callback_perspective_state(preimage);
+            state
+                .restore_callback_perspective_state(preimage)
+                .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
         }
 
         // Publication is the final linearization point. The recovery guard
@@ -2470,7 +2476,9 @@ impl BrainActorState {
                 }
             }
             if let Some(preimage) = callback_perspective_preimage {
-                state.restore_callback_perspective_state(preimage);
+                state
+                    .restore_callback_perspective_state(preimage)
+                    .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
             }
             self.version = BrainVersionV1::from_manifest(&loaded.manifest);
             self.current_manifest = Some(loaded.manifest);
@@ -2505,19 +2513,22 @@ impl BrainActorState {
 
     /// Open the candidate-first persistence stage and arm the authoritative
     /// rollback packet. Durable state is not serialized here. Only the bounded
-    /// perspective/lock state, coverage receipts and freshness counters are
-    /// cloned so refusals retain prior navigation and continuation identity.
+    /// perspective/lock state and freshness counters are cloned. Coverage uses
+    /// an undo token so refusals retain visits without copying their history.
     /// Repository-scale inventories, proof capabilities and preview
     /// payloads are deliberately excluded from this per-call preimage.
     fn begin_state_stage(
         &mut self,
         state: &mut SessionState,
     ) -> Result<CheckpointPersistenceStage, BrainRuntimeError> {
+        let preimage = state
+            .capture_callback_perspective_state()
+            .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
         self.pending_rollback = Some(PendingAuthoritativeRollback {
             authoritative_manifest: self.current_manifest.clone(),
             version_before: self.version,
             stage: None,
-            callback_perspective_preimage: Some(state.capture_callback_perspective_state()),
+            callback_perspective_preimage: Some(preimage),
         });
         let stage = state
             .begin_checkpoint_staging()
@@ -2672,7 +2683,9 @@ impl BrainActorState {
                         .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
                     self.verify_reloaded_state_digest(&mut state)?;
                     if let Some(preimage) = callback_perspective_preimage {
-                        state.restore_callback_perspective_state(preimage);
+                        state
+                            .restore_callback_perspective_state(preimage)
+                            .map_err(|error| BrainRuntimeError::Persistence(error.to_string()))?;
                     }
                     Ok(())
                 })
@@ -6893,12 +6906,14 @@ mod tests {
                 state.graph_generation = 17;
                 state.plasticity_generation = 23;
                 state.cache_generation = 29;
-                Ok::<_, RuntimeJobFailure>(serde_json::to_value(&state.coverage_sessions).unwrap())
+                Ok::<_, RuntimeJobFailure>(
+                    serde_json::to_value(state.coverage_sessions_snapshot()).unwrap(),
+                )
             })
             .expect("seed process-owned visits and generations");
         actor
             .try_execute(false, |state| {
-                state.coverage_sessions.clear();
+                state.reset_coverage().expect("reset refused coverage");
                 state.note_coverage(
                     "agent",
                     "surgical_context",
@@ -6917,7 +6932,7 @@ mod tests {
         let after = actor
             .try_execute(false, |state| {
                 Ok::<_, RuntimeJobFailure>((
-                    serde_json::to_value(&state.coverage_sessions).unwrap(),
+                    serde_json::to_value(state.coverage_sessions_snapshot()).unwrap(),
                     state.graph_generation,
                     state.plasticity_generation,
                     state.cache_generation,
@@ -6925,7 +6940,104 @@ mod tests {
             })
             .expect("read restored process state");
         assert_eq!(after, (before, 17, 23, 29));
+        actor
+            .try_execute(false, |state| -> Result<(), RuntimeJobFailure> {
+                state.note_coverage(
+                    "agent",
+                    "panic",
+                    ["panicked.rs".into()],
+                    ["file::panicked.rs".into()],
+                );
+                state.bump_graph_generation();
+                panic!("injected coverage callback panic");
+            })
+            .expect_err("panicked callback must roll back");
+        let after_panic = actor
+            .try_execute(false, |state| {
+                Ok::<_, RuntimeJobFailure>((
+                    serde_json::to_value(state.coverage_sessions_snapshot()).unwrap(),
+                    state.graph_generation,
+                    state.plasticity_generation,
+                    state.cache_generation,
+                ))
+            })
+            .expect("read restored process state after panic");
+        assert_eq!(after_panic, after);
         actor.stop().expect("stop actor");
+    }
+
+    #[test]
+    fn callback_coverage_nested_stage_preserves_the_original_rollback_packet() {
+        let temporary = tempfile::tempdir().expect("temporary runtime");
+        let runtime_root = temporary.path().join("runtime");
+        let session = Arc::new(BrainSessionCell::new(test_state(&runtime_root)));
+        let version = BrainVersionV1::fresh();
+        let mut actor = BrainActorState {
+            brain_id: "nested-coverage-stage".into(),
+            session: Arc::clone(&session),
+            store: CheckpointStore::open(runtime_root.join(BRAIN_CHECKPOINT_DIRECTORY)).unwrap(),
+            authority: Arc::new(UnboundBrainCheckpointAuthority),
+            checkpoint_faults: Arc::new(NoCheckpointFaults),
+            version,
+            current_manifest: None,
+            recovery_receipt: None,
+            degraded_fallback: false,
+            read_only: false,
+            persistence_failure: None,
+            in_doubt_checkpoint_id: None,
+            last_ack: None,
+            pending_candidate_manifest: None,
+            pending_reconciliation: None,
+            pending_rollback: None,
+            active_checkpoint_stage: None,
+            managed_working_paths: BTreeSet::new(),
+            deferred_read_publishes: 0,
+            admission: Arc::new(Mutex::new(BrainActorAdmission {
+                accepting: true,
+                lease_fenced: false,
+            })),
+            health: Arc::new(Mutex::new(BrainRuntimeHealthState {
+                degraded_persistence: false,
+                degraded_fallback: false,
+                recovery_pending: false,
+                actor_persistence_error: None,
+                lease_error: None,
+                last_persistence_error: None,
+                version,
+                current_checkpoint_id: None,
+                in_doubt_checkpoint_id: None,
+            })),
+        };
+        let mut state = session.checkout().expect("checkout session");
+        state.note_coverage("agent", "view", ["prior.rs".into()], std::iter::empty());
+        state.graph_generation = 17;
+        let before = serde_json::to_value(state.coverage_sessions_snapshot()).unwrap();
+        let _first_stage = actor.begin_state_stage(&mut state).expect("first stage");
+        state.note_coverage("agent", "failed", ["failed.rs".into()], std::iter::empty());
+        state.graph_generation = 23;
+        let error = actor
+            .begin_state_stage(&mut state)
+            .expect_err("nested stage refuses");
+        assert!(error.to_string().contains("already active"));
+        let pending = actor
+            .pending_rollback
+            .take()
+            .expect("original packet retained");
+        state
+            .abort_checkpoint_staging(pending.stage.expect("original stage retained"))
+            .unwrap();
+        state
+            .restore_callback_perspective_state(
+                pending
+                    .callback_perspective_preimage
+                    .expect("original preimage retained"),
+            )
+            .expect("restore original packet");
+        assert_eq!(
+            serde_json::to_value(state.coverage_sessions_snapshot()).unwrap(),
+            before
+        );
+        assert_eq!(state.graph_generation, 17);
     }
 
     #[test]
@@ -6951,6 +7063,7 @@ mod tests {
 
         actor
             .try_execute(false, |state| {
+                state.note_coverage("agent", "view", ["prior.rs".into()], std::iter::empty());
                 state.perspectives.insert(
                     ("agent".to_string(), "persp_main".to_string()),
                     test_perspective("agent", "persp_main"),
@@ -6966,6 +7079,7 @@ mod tests {
         injector.enabled.store(true, Ordering::SeqCst);
         actor
             .try_execute_with_checkpoint_ack(|state| {
+                state.note_coverage("agent", "failed", ["failed.rs".into()], std::iter::empty());
                 state
                     .perspectives
                     .get_mut(&("agent".to_string(), "persp_main".to_string()))
@@ -6984,6 +7098,22 @@ mod tests {
                 ("persp_main".to_string(), Vec::<String>::new()),
             ],
             "PRE-CURRENT checkpoint rollback must retain the exact prior perspectives"
+        );
+        let coverage = actor
+            .try_read_snapshot(|state| {
+                Ok::<_, RuntimeJobFailure>(
+                    serde_json::to_value(state.coverage_sessions_snapshot()).unwrap(),
+                )
+            })
+            .expect("read coverage after publication failure")
+            .value;
+        assert_eq!(
+            coverage["agent"]["visited_files"],
+            serde_json::json!(["prior.rs"])
+        );
+        assert_eq!(
+            coverage["agent"]["tools_used"],
+            serde_json::json!({"view": 1})
         );
         injector.enabled.store(false, Ordering::SeqCst);
         actor.stop().expect("stop actor");

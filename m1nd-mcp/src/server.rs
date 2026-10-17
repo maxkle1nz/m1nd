@@ -6306,10 +6306,10 @@ fn handle_am_i_stale(
                 )),
             }
         }
-    } else if let Some(session) = state.coverage_sessions.get(&agent_id) {
+    } else if let Some(paths) = state.coverage_visited_files(&agent_id) {
         source = "coverage_session";
-        for path in &session.visited_files {
-            targets.push((path.clone(), None));
+        for path in paths {
+            targets.push((path, None));
         }
     } else {
         source = "empty";
@@ -6464,21 +6464,17 @@ fn handle_am_i_stale(
 /// coverage session, otherwise `null`. `unvisited_high_value` lists up to 5 file
 /// paths with the highest PageRank that the agent has not yet visited.
 fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Value {
-    let Some(session) = state.coverage_sessions.get(agent_id) else {
+    if !state.has_coverage_session(agent_id) {
         return serde_json::Value::Null;
-    };
+    }
     let graph = state.graph.read();
     let total = graph.nodes.count as usize;
-    let visited = session.visited_nodes.len();
 
     // High-PageRank file nodes the agent has not visited yet.
     let mut unvisited: Vec<(f32, String)> = Vec::new();
     if graph.pagerank_computed && !graph.nodes.pagerank.is_empty() {
         for (interned, &nid) in &graph.id_to_node {
             let ext = graph.strings.resolve(*interned).to_string();
-            if session.visited_nodes.contains(&ext) || session.visited_files.contains(&ext) {
-                continue;
-            }
             // Prefer file-level nodes for the "what to read next" hint.
             if !ext.starts_with("file::") {
                 continue;
@@ -6491,18 +6487,22 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
                 .map(|p| p.get())
                 .unwrap_or(0.0);
             if pr > 0.0 {
-                let path = ext.strip_prefix("file::").unwrap_or(&ext).to_string();
-                unvisited.push((pr, path));
+                unvisited.push((pr, ext));
             }
         }
-        unvisited
-            .sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        unvisited.truncate(5);
     }
+    drop(graph);
+    let Some(visited) = state.coverage_for_orient(agent_id, &mut unvisited) else {
+        return serde_json::Value::Null;
+    };
+    unvisited.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    unvisited.truncate(5);
     serde_json::json!({
         "visited": visited,
         "total": total,
-        "unvisited_high_value": unvisited.into_iter().map(|(_, p)| p).collect::<Vec<_>>(),
+        "unvisited_high_value": unvisited.into_iter().map(|(_, id)| {
+            id.strip_prefix("file::").unwrap_or(&id).to_owned()
+        }).collect::<Vec<_>>(),
     })
 }
 

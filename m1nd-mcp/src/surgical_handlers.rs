@@ -4796,7 +4796,7 @@ mod tests {
     }
 
     fn coverage_snapshot(state: &SessionState) -> serde_json::Value {
-        serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap()
+        serde_json::to_value(state.coverage_session("bounded").expect("coverage session")).unwrap()
     }
 
     #[test]
@@ -4866,7 +4866,7 @@ mod tests {
                     "no repeated metadata item"
                 );
             }
-            let coverage = &state.coverage_sessions["bounded"];
+            let coverage = state.coverage_session("bounded").expect("coverage session");
             assert_eq!(coverage.visited_nodes.len(), 1 + emitted_neighbors.len());
             assert_eq!(coverage.visited_files.len(), 1 + emitted_neighbors.len());
             continuation = json["context_page"]["continuation"].clone();
@@ -5063,8 +5063,7 @@ mod tests {
         let mut refused_cursor = None;
         for _ in 0..100 {
             let before = state
-                .coverage_sessions
-                .get("bounded")
+                .coverage_session("bounded")
                 .map(|v| serde_json::to_value(v).unwrap());
             match handle_surgical_context(&mut state, bounded_input(&path, 1800, cursor.clone())) {
                 Ok(page) => {
@@ -5157,7 +5156,7 @@ mod tests {
             output.callees.is_empty(),
             "neighbors not emitted on a source page"
         );
-        let coverage = &state.coverage_sessions["bounded"];
+        let coverage = state.coverage_session("bounded").expect("coverage session");
         assert_eq!(
             coverage.visited_files.len(),
             1,
@@ -5177,7 +5176,7 @@ mod tests {
             vec!["prior.rs".into()],
             vec!["file::prior.rs".into()],
         );
-        let before = serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap();
+        let before = coverage_snapshot(&state);
         let input = serde_json::from_value(serde_json::json!({
             "file_path": path, "agent_id": "bounded", "max_output_bytes": 0
         }))
@@ -5185,10 +5184,7 @@ mod tests {
         let error =
             handle_surgical_context(&mut state, input).expect_err("impossible bound must refuse");
         assert!(error.to_string().contains("max_output_bytes"));
-        assert_eq!(
-            serde_json::to_value(&state.coverage_sessions["bounded"]).unwrap(),
-            before
-        );
+        assert_eq!(coverage_snapshot(&state), before);
     }
 
     #[test]
@@ -6759,8 +6755,7 @@ mod tests {
             .iter()
             .any(|entry| entry.file_path == primary_str));
         let coverage = state
-            .coverage_sessions
-            .get("test")
+            .coverage_session("test")
             .expect("coverage should be tracked");
         assert!(coverage
             .visited_files

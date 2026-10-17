@@ -1045,11 +1045,7 @@ pub fn handle_coverage_session(
     state: &mut SessionState,
     input: layers::CoverageSessionInput,
 ) -> M1ndResult<serde_json::Value> {
-    let session = state
-        .coverage_sessions
-        .get(&input.agent_id)
-        .cloned()
-        .unwrap_or_default();
+    let session = state.coverage_session(&input.agent_id).unwrap_or_default();
     // Snapshot loading restores the graph but does not hydrate this optional
     // audit cache. Build one live inventory on demand and retain it so repeated
     // coverage reads describe the same snapshot instead of re-hashing the tree.
@@ -3251,12 +3247,12 @@ mod tests {
 
         let mut state = build_empty_state(root);
         let agent_id = "coverage-test".to_string();
-        state
-            .coverage_sessions
-            .entry(agent_id.clone())
-            .or_default()
-            .visited_files
-            .insert("/stale/outside-the-current-inventory.rs".to_string());
+        state.note_coverage(
+            &agent_id,
+            "fixture",
+            ["/stale/outside-the-current-inventory.rs".to_string()],
+            std::iter::empty(),
+        );
 
         let first = handle_coverage_session(
             &mut state,
@@ -3277,12 +3273,7 @@ mod tests {
             .expect("inventoried file")
             .file_path
             .clone();
-        state
-            .coverage_sessions
-            .get_mut(&agent_id)
-            .expect("coverage session")
-            .visited_files
-            .insert(inventoried_path);
+        state.note_coverage(&agent_id, "fixture", [inventoried_path], std::iter::empty());
         std::fs::write(
             root.join("created-after-snapshot.rs"),
             "pub fn later() {}\n",
