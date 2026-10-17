@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - id: identity
@@ -208,7 +208,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -244,7 +244,7 @@ jobs:
             --provenance release-ui/UI-BUNDLE-PROVENANCE.json \
             --expected-commit "${GITHUB_SHA}" \
             --expected-sha256 "${UI_SHA256}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-ui-bundle-${{ github.sha }}
           path: release-ui/
@@ -260,7 +260,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Pack and validate the immutable npm tarball
@@ -286,7 +286,7 @@ jobs:
             throw new Error("npm pack did not produce exactly the declared tarball");
           }
           NODE
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-npm-package-${{ github.sha }}
           path: release-npm/*.tgz
@@ -305,7 +305,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-ui-bundle-${{ github.sha }}
           path: release-ui
@@ -327,7 +327,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: release-source-gate
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -400,7 +400,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-ui-bundle-${{ github.sha }}
           path: ${{ runner.temp }}/release-ui
@@ -489,7 +489,7 @@ jobs:
             --expected-name m1nd-mcp \
             --expected-version "${{ needs.tag-guard.outputs.crate_mcp_version }}" \
             --expected-commit "${GITHUB_SHA}" >/dev/null
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-cargo-packages-${{ github.sha }}
           path: release-crates/*.crate
@@ -527,7 +527,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-ui-bundle-${{ github.sha }}
           path: release-ui
@@ -957,7 +957,7 @@ jobs:
 
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "::notice title=Custody-ceremony bundle::$BUNDLE_ZIP signed, notarized and stapled. Its embedded profile expires $PROFILE_EXPIRES — the bundle stops launching then, so re-tag before that date."
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: steps.custody-bundle.outputs.built == 'true'
         with:
           name: m1nd-custody-ceremony-${{ matrix.target }}
@@ -977,7 +977,7 @@ jobs:
         run: |
           tar -C "target/${{ matrix.target }}/release" \
             -czf "${{ matrix.archive }}" "${BINARY_NAME}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -1020,7 +1020,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ matrix.artifact }}
       - name: Install Unix archive bytes
@@ -1062,7 +1062,7 @@ jobs:
           --expected-ui-sha256 "${{ needs.ui-artifact.outputs.sha256 }}"
           --target "${{ matrix.target }}"
           --output "GATE-ARTIFACT-SMOKE-${{ matrix.target }}.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-artifact-smoke-${{ matrix.target }}
           path: |
@@ -1081,25 +1081,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: m1nd-mcp-*
           path: release-bins
           merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: m1nd-artifact-smoke-*
           path: release-bins
           merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-ui-bundle-${{ github.sha }}
           path: release-ui
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-npm-package-${{ github.sha }}
           path: release-npm
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-cargo-packages-${{ github.sha }}
           path: release-crates
@@ -1109,7 +1109,7 @@ jobs:
           cp release-npm/*.tgz release-bins/
           cp release-crates/*.crate release-bins/
       - name: Generate SPDX JSON SBOM over exact runtime artifacts
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: release-bins
           format: spdx-json
@@ -1173,7 +1173,7 @@ jobs:
               for path in paths:
                   output.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
           PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-release-candidate-unsigned-${{ github.sha }}
           path: release-bins/
@@ -1190,12 +1190,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-unsigned-${{ github.sha }}
           path: release-bins
       - name: GitHub Sigstore build provenance
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             release-bins/*.tar.gz
@@ -1208,7 +1208,7 @@ jobs:
             release-bins/*.json
             release-bins/SHA256SUMS
       - name: GitHub Sigstore SBOM attestation
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             release-bins/*.tar.gz
@@ -1233,7 +1233,7 @@ jobs:
               "${file}"
           done < <(find release-bins -maxdepth 1 -type f \
             ! -name '*.sigstore.json' -print0 | sort -z)
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins/
@@ -1262,7 +1262,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Install cosign
@@ -1278,7 +1278,7 @@ jobs:
           src="$(command -v cosign)"
           sudo install -m 0755 "$src" /usr/local/bin/cosign
           /usr/local/bin/cosign version >/dev/null
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
@@ -1294,7 +1294,7 @@ jobs:
           --expected-commit "${{ github.sha }}"
           --target "${{ matrix.target }}"
           --output "GATE-VERIFIED-UPDATE-SMOKE-${{ matrix.target }}.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-verified-update-smoke-${{ matrix.target }}
           path: GATE-VERIFIED-UPDATE-SMOKE-${{ matrix.target }}.json
@@ -1315,11 +1315,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: m1nd-verified-update-smoke-*
           path: verified-update-receipts
@@ -1382,7 +1382,7 @@ jobs:
           key: exact-candidate-crate-verification
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
@@ -1580,7 +1580,7 @@ jobs:
               encoding="utf-8",
           )
           PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: m1nd-crates-publish-ready-${{ github.sha }}
           path: crates-publish-ready/
@@ -1621,12 +1621,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
       - name: Create immutable-byte release without repository checkout
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: release-bins/*
           generate_release_notes: true
@@ -1647,11 +1647,11 @@ jobs:
           python-version: "3.12"
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-crates-publish-ready-${{ github.sha }}
           path: crates-publish-ready
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
@@ -1928,11 +1928,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: m1nd-release-candidate-${{ github.sha }}
           path: release-bins
