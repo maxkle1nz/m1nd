@@ -1059,9 +1059,9 @@ mod tests {
             );
             assert_eq!(result.spans_mapped, usize::from(!expected.is_empty()));
             assert_eq!(result.spans_unmapped, usize::from(expected.is_empty()));
-            if *expected == &[0] {
+            if *expected == [0] {
                 assert_eq!(result.hot_nodes[0].node_id, "");
-            } else if *expected == &[1] {
+            } else if *expected == [1] {
                 assert_eq!(result.hot_nodes[0].node_id, expected_output_id);
             }
         }
