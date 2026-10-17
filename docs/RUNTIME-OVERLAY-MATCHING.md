@@ -16,20 +16,22 @@ a character-count rule. A span below the configured minimum duration remains
 processed but is neither mapped nor unmapped. Heat arithmetic, decay, counts,
 errors, durations, boosts and the 100-hot-node limit retain their behavior.
 
-For label substring fallback, one ingest reuses eligible label entries while
-the fallback name's byte length stays the same. A changed length rebuilds the
-list in the existing label-map visit order. The list borrows at most one entry
-per distinct lowercase label: O(U) extra storage, with one remembered length.
-It is not a persistent cache or a map of every observed length. Exact matches
-still bypass fallback. Each eligible label also carries a byte-presence
-signature. A fallback can reject a pair only when some byte-signature bit of
-the shorter string is absent from the longer string. Signatures fold each
-UTF-8 byte's high bit, so collisions remain possible and never establish a
-match: either string must still contain the other. Label-map order and duplicate
-node expansion stay unchanged. The signatures use O(U) storage alongside the
-one-length list, rather than a persistent or per-name cache. Alternating lengths
-can rebuild both the eligible list and its signatures; worst-case containment
-work is unchanged.
+For label substring fallback, one ingest lazily builds a table in the existing
+label-map visit order. Each distinct lowercase label with at least four bytes
+gets its byte-presence signature once. Exact-only batches, short fallback names
+and the other strategies never build this table. A second list retains only the
+eligible table indices for the last fallback name's byte length. A changed length
+rebuilds those indices without recomputing label signatures. Both lists use O(U)
+extra storage; neither persists across ingests or grows with distinct query names.
+
+A fallback can reject a pair only when some byte-signature bit of the shorter
+string is absent from the longer string. Signatures fold each UTF-8 byte's high
+bit, so collisions remain possible and never establish a match: either string
+must still contain the other. Label-map order and duplicate node expansion stay
+unchanged. Dense signatures can add work without rejecting candidates, and the
+first fallback signs even labels outside its length ratio. The extra table and
+index indirection trade bounded memory and initial work for signature reuse;
+worst-case containment work is unchanged.
 
 Exact IDs use `Graph::resolve_id` instead of rebuilding a cloned external-ID
 map. Only label-based strategies populate the lowercase label index. Reverse

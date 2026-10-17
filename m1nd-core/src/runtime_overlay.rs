@@ -213,9 +213,11 @@ impl RuntimeOverlay {
             }
         }
 
-        // Keep only the last fallback length, borrowing entries in map order.
+        // Build signatures once, lazily, in label-map order. Only the last
+        // fallback length's eligible indices are retained alongside that table.
+        let mut substring_labels: Option<Vec<(&String, &Vec<usize>, u128)>> = None;
         let mut substring_length = None;
-        let mut substring_candidates: Vec<(&String, &Vec<usize>, u128)> = Vec::new();
+        let mut substring_candidates: Vec<usize> = Vec::new();
 
         let mut spans_mapped = 0usize;
         let mut spans_unmapped = 0usize;
@@ -241,23 +243,30 @@ impl RuntimeOverlay {
                             let mut matches = Vec::new();
                             if name_lower.len() >= MIN_LEN {
                                 let name_signature = substring_byte_signature(&name_lower);
+                                let labels = substring_labels.get_or_insert_with(|| {
+                                    label_to_idx
+                                        .iter()
+                                        .filter(|(label, _)| label.len() >= MIN_LEN)
+                                        .map(|(label, indices)| {
+                                            (label, indices, substring_byte_signature(label))
+                                        })
+                                        .collect()
+                                });
                                 if substring_length != Some(name_lower.len()) {
                                     substring_candidates.clear();
                                     substring_candidates.extend(
-                                        label_to_idx
-                                            .iter()
-                                            .filter(|(label, _)| {
+                                        labels.iter().enumerate().filter_map(
+                                            |(index, &(label, _, _))| {
                                                 let shorter = label.len().min(name_lower.len());
                                                 let longer = label.len().max(name_lower.len());
-                                                label.len() >= MIN_LEN && shorter * 2 >= longer
-                                            })
-                                            .map(|(label, indices)| {
-                                                (label, indices, substring_byte_signature(label))
-                                            }),
+                                                (shorter * 2 >= longer).then_some(index)
+                                            },
+                                        ),
                                     );
                                     substring_length = Some(name_lower.len());
                                 }
-                                for &(label, indices, label_signature) in &substring_candidates {
+                                for &index in &substring_candidates {
+                                    let (label, indices, label_signature) = labels[index];
                                     let (shorter, longer) = if label.len() <= name_lower.len() {
                                         (label_signature, name_signature)
                                     } else {
