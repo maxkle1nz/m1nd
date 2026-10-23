@@ -69,7 +69,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "typescript": "~5.9.2",
-    "vite": "^7.3.2"
+    "vite": "^7.3.7"
   },
   "overrides": {
     "esbuild": "^0.28.1"
