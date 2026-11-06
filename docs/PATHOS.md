@@ -1,5 +1,7 @@
 # PATHOS — m1nd agent handoff
 
+**Dependency security candidate — 2026-11-06 (unreleased):** Seven locked package updates address the 14 vulnerability findings on main `a3008970` against RustSec `26fd2d43`; the candidate audit reports zero vulnerabilities and six informational warnings without ignores. Crypto and certificate dependency minimum Rust requirements increase, within the existing lockfile's higher toolchain requirement. Source APIs and persisted formats are unchanged. This extends the QUIC/TLS remediation shared by #586/#588; #587 and #588 still need lockfile reconciliation when integrated. The coverage-map API migration in #588 is separate. Exact-candidate test results, independent review and hosted gates remain separate proof; no integration or release is claimed. See [scope and compatibility](DEPENDENCY-SECURITY-2026-11.md).
+
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
 

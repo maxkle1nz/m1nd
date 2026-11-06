@@ -11,6 +11,8 @@ Published 1.6.5 is available on [GitHub/native](https://github.com/maxkle1nz/m1n
 
 ## Install the published release
 
+For source-preview builds, read the [November dependency security update](https://github.com/maxkle1nz/m1nd/blob/main/docs/DEPENDENCY-SECURITY-2026-11.md). Its unreleased lockfile changes preserve source APIs and do not replace published 1.6.5 artifacts.
+
 Prerequisites: Node.js 18+ and a repository you can read. First follow the [signed native 1.6.5 installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md), which pins the exact artifact and verifies its signature with cosign. The 1.6.5 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell walkthrough from your repository:
 
 ```bash
