@@ -121,6 +121,193 @@ fn refresh_params(path: &str) -> serde_json::Value {
     json!({ "path": path, "agent_id": AGENT, "mode": "refresh" })
 }
 
+fn seed_owned_memory(state: &mut SessionState) -> Vec<String> {
+    for index in 0..8 {
+        let result = admit_then_dispatch(
+            state,
+            "memorize",
+            &json!({
+                "agent_id": AGENT,
+                "node_label": format!("SourceMemory{index}"),
+                "claims": [{
+                    "label": format!("SourceClaim{index}"),
+                    "text": "The top function is defined in src/lib.rs.",
+                    "confidence": "high",
+                    "evidence": ["src/lib.rs"]
+                }]
+            }),
+        )
+        .expect("ordinary managed-memory write");
+        assert_eq!(result["ok"], json!(true));
+        assert_eq!(result["light_evidence_unresolved"], json!(0));
+    }
+    let graph = state.graph.read();
+    let claims: Vec<String> = (0..8)
+        .map(|index| format!("⍂ entity: SourceClaim{index}"))
+        .collect();
+    for claim in &claims {
+        assert!(graph
+            .nodes
+            .label
+            .iter()
+            .any(|label| graph.strings.resolve(*label) == claim));
+    }
+    claims
+}
+
+#[test]
+fn refresh_owned_memory_is_measured_in_the_complete_candidate() {
+    let _cap = crate::tools::agent_memory_test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    seed_declared_root(&mut state, &repo);
+    state.caller_root = Some(canonical(&repo));
+    let code_nodes = node_count(&state);
+    let memory_claims = seed_owned_memory(&mut state);
+    let before = node_count(&state);
+    assert!(u64::from(code_nodes) * 100 < u64::from(before) * 60);
+    let roots = state.ingest_roots.clone();
+    let workspace = state.workspace_root.clone();
+
+    let payload = admit_then_dispatch(&mut state, "ingest", &refresh_params(&canonical(&repo)))
+        .expect("refresh with unchanged code and managed memory");
+    assert_eq!(payload["ok"], json!(true), "{payload}");
+    assert_eq!(payload["shrink_floor_percent"], json!(60));
+    assert_eq!(payload["agent_memory_restored"]["loaded"], json!(true));
+    assert_eq!(payload["agent_memory_restored"]["loaded_count"], json!(8));
+    assert_eq!(state.ingest_roots, roots);
+    assert_eq!(state.workspace_root, workspace);
+    let graph = state.graph.read();
+    // The existing adapter changes file-relative metadata IDs when individual
+    // writes are reloaded as a directory. Pin grounded claim content instead.
+    for claim in memory_claims {
+        assert!(
+            graph
+                .nodes
+                .label
+                .iter()
+                .any(|label| graph.strings.resolve(*label) == claim),
+            "lost memory claim {claim}"
+        );
+    }
+    let grounded = graph
+        .strings
+        .lookup("grounded_in")
+        .expect("evidence relation");
+    assert!(graph.csr.relations.contains(&grounded));
+    assert_eq!(
+        payload["agent_memory_restored"]["light_evidence_resolved"],
+        json!(8)
+    );
+}
+
+#[test]
+fn refresh_owned_memory_missing_on_disk_cannot_credit_the_candidate() {
+    let _cap = crate::tools::agent_memory_test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    seed_declared_root(&mut state, &repo);
+    state.caller_root = Some(canonical(&repo));
+    seed_owned_memory(&mut state);
+    let before = node_count(&state);
+    let snapshot = std::fs::read(&state.graph_path).expect("snapshot");
+    let roots = state.ingest_roots.clone();
+    for entry in std::fs::read_dir(state.runtime_root.join("agent-memory")).expect("memory dir") {
+        let path = entry.expect("memory entry").path();
+        if path.extension().is_some_and(|extension| extension == "md") {
+            std::fs::remove_file(path).expect("remove fixture memory");
+        }
+    }
+    let payload = admit_then_dispatch(&mut state, "ingest", &refresh_params(&canonical(&repo)))
+        .expect("admitted then refused");
+    assert_eq!(payload["refused"], json!("refresh_would_shrink_graph"));
+    assert_eq!(payload["floor_percent"], json!(60));
+    assert_eq!(node_count(&state), before);
+    assert_eq!(state.ingest_roots, roots);
+    assert_eq!(
+        std::fs::read(&state.graph_path).expect("snapshot"),
+        snapshot
+    );
+}
+
+#[test]
+fn refresh_owned_memory_still_refuses_a_genuinely_narrow_scan() {
+    let _cap = crate::tools::agent_memory_test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    for index in 0..40 {
+        std::fs::write(
+            repo.join("src").join(format!("wide_{index}.rs")),
+            format!("pub fn wide_{index}() -> i64 {{ {index} }}\npub struct Wide{index} {{ pub v: i64 }}\n"),
+        ).expect("wide source");
+    }
+    seed_declared_root(&mut state, &repo);
+    state.caller_root = Some(canonical(&repo));
+    seed_owned_memory(&mut state);
+    let before = node_count(&state);
+    let snapshot = std::fs::read(&state.graph_path).expect("snapshot");
+    let roots = state.ingest_roots.clone();
+    for index in 0..40 {
+        std::fs::remove_file(repo.join("src").join(format!("wide_{index}.rs")))
+            .expect("remove wide source");
+    }
+    let payload = admit_then_dispatch(&mut state, "ingest", &refresh_params(&canonical(&repo)))
+        .expect("admitted then refused");
+    assert_eq!(payload["refused"], json!("refresh_would_shrink_graph"));
+    assert_eq!(payload["floor_percent"], json!(60));
+    assert_eq!(node_count(&state), before);
+    assert_eq!(state.ingest_roots, roots);
+    assert_eq!(
+        std::fs::read(&state.graph_path).expect("snapshot"),
+        snapshot
+    );
+}
+
+#[test]
+fn refresh_owned_memory_read_error_aborts_before_the_graph_swap() {
+    let _cap = crate::tools::agent_memory_test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    seed_declared_root(&mut state, &repo);
+    state.caller_root = Some(canonical(&repo));
+    seed_owned_memory(&mut state);
+    let before = node_count(&state);
+    let roots = state.ingest_roots.clone();
+    let workspace = state.workspace_root.clone();
+    let snapshot = std::fs::read(&state.graph_path).expect("snapshot");
+    std::fs::write(
+        state.runtime_root.join("agent-memory/broken.light.md"),
+        [0xff, 0xfe],
+    )
+    .expect("invalid UTF-8 fixture");
+    let error = admit_then_dispatch(&mut state, "ingest", &refresh_params(&canonical(&repo)))
+        .expect_err("the existing adapter must report the unreadable text");
+    assert!(error.contains("UTF-8"), "{error}");
+    assert_eq!(node_count(&state), before);
+    assert_eq!(state.ingest_roots, roots);
+    assert_eq!(state.workspace_root, workspace);
+    assert_eq!(
+        std::fs::read(&state.graph_path).expect("snapshot"),
+        snapshot
+    );
+}
+
 // ---------------------------------------------------------------------------
 // §5.1 — the hijack stays dead
 // ---------------------------------------------------------------------------

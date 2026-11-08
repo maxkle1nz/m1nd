@@ -11,6 +11,8 @@ Published 1.6.5 is available on [GitHub/native](https://github.com/maxkle1nz/m1n
 
 ## Install the published release
 
+For source-preview builds, read the [November dependency security update](https://github.com/maxkle1nz/m1nd/blob/main/docs/DEPENDENCY-SECURITY-2026-11.md). Its unreleased lockfile changes preserve source APIs and do not replace published 1.6.5 artifacts.
+
 Prerequisites: Node.js 18+ and a repository you can read. First follow the [signed native 1.6.5 installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md), which pins the exact artifact and verifies its signature with cosign. The 1.6.5 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell walkthrough from your repository:
 
 ```bash
@@ -33,6 +35,10 @@ The matching 1.6.5 CLI selects an external private cache. Clear legacy runtime o
 ```
 
 Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is reused first; otherwise `first-minute` prepares only the exact granted repository in an isolated cache outside the source tree. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check returned source locations, gaps, and command status. A refusal is not permission to delete state, move a binding, run the human-only ceremony, or substitute generic MCP `ingest`.
+
+For an explicitly located automatic cache, set `M1ND_AGENT_CACHE_DIR` to a private directory outside the source repository and retain `--no-attach` when validating an isolated binary. This cache selector is separate from `M1ND_RUNTIME_DIR`, which belongs to direct-runtime configuration. Cache ownership, safe ancestors and single-owner lease checks still apply.
+
+The source candidate [preserves owned memory during refresh](https://github.com/maxkle1nz/m1nd/blob/main/docs/REFRESH-OWNED-MEMORY.md) by measuring the complete code-plus-memory candidate against the existing shrink guard. A refusal still requires inspection; clearing memory or lowering the guard is not a recovery recipe.
 
 ## Connect your MCP host
 
