@@ -60,6 +60,8 @@ To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/q
 
 Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicitly locates cache and registry in an already-writable workspace outside the indexed repository. `agent scope` previews the locations without writes. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli); this grants no permissions and does not migrate existing memory.
 
+Structured follow-up agent commands retain the selected state directory, isolation flag and binary, so the next step uses the same cache.
+
 ### Historical pinned 1.6.3: install, prepare, connect
 
 You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:

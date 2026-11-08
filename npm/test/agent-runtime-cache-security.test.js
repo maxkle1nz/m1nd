@@ -87,6 +87,37 @@ test("state-dir CLI scope is read-only and conflicting launch overrides fail bef
   } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
 });
 
+test("state-dir continuation commands retain the selected isolated storage", () => {
+  const { spawnSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-continuation-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state with space");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(path.join(repo, "src"));
+    fs.writeFileSync(path.join(repo, "src/config.js"), "export const configuration = 1;\n");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    for (const command of [["scope"], ["handoff"], ["auto", "--query", "locate configuration"],
+      ["auto", "--query", "understand this repo"], ["next", "--query", "src/config.js"],
+      ["recover", "--from", "transport_closed"], ["recover", "--from", "wrong_workspace_binding"]]) {
+      const run = spawnSync(process.execPath, [path.resolve(__dirname, "../bin/m1nd.js"), "agent", ...command,
+        "--repo", repo, "--binary", process.execPath, "--no-attach", "--state-dir", state, "--json"],
+      { env, encoding: "utf8", timeout: 10000 });
+      assert.equal(run.status, 0, run.stderr);
+      const payload = JSON.parse(run.stdout);
+      const instructions = [payload.action?.action?.command, payload.handoff?.resume_hint,
+        ...(payload.next_actions || []),
+        ...(payload.recovery_plan || []).map((step) => step.command)].filter((text) => /(?:^| )m1nd agent /.test(text || ""));
+      assert.ok(instructions.length > 0, JSON.stringify(payload));
+      for (const instruction of instructions) {
+        assert.match(instruction, /--state-dir /, instruction);
+        assert.match(instruction, /--no-attach(?: |$)/, instruction);
+        assert.ok(instruction.includes("state with space"), instruction);
+      }
+    }
+    assert.equal(fs.existsSync(state), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("runtime cache target refuses a symlinked cache base", symlinkTestOptions, () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-base-symlink-"));
   try {

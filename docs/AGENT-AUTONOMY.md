@@ -131,6 +131,10 @@ node npm/bin/m1nd.js agent first-minute --repo /workspace/repo-alpha \
 `runtime.state_selection` reports the canonical state root, `agent-runtimes`
 cache base and private `registry` directory. Runtime commands create these
 locations using the existing ownership, safe-ancestor and no-follow checks.
+Emitted agent commands for trust, orientation, context and recovery retain
+`--no-attach`, the canonical `--state-dir` and the selected binary. Shell recipes
+quote the state path, including spaces and literal shell characters. Following
+the structured next command therefore retains the chosen isolated storage.
 New directories use mode `0700` on Unix. Existing modes are not tightened:
 the existing policy rejects group/other writes, but can accept `0755`. Choose
 a directory whose read access is appropriate for the source and memory stored.

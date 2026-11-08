@@ -12,6 +12,48 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("state-dir suggested commands reuse storage through a POSIX shell", {
+  skip: !BINARY || process.platform === "win32"
+    ? "requires explicit native binary and POSIX shell recipe" : false,
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-command-chain-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    const state = path.join(fixture, "state 'quoted' $(echo not-executed)");
+    writeFixture(repo, "state_command_signal");
+    const before = sourceSnapshot(repo);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    if (EMBED_MODEL) env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const scope = spawnSync(process.execPath, [CLI, "agent", "scope", "--repo", repo, "--binary", BINARY,
+      "--no-attach", "--state-dir", state, "--json"], { env, encoding: "utf8", timeout: 10000 });
+    assert.equal(scope.status, 0, scope.stderr);
+    assert.equal(fs.existsSync(state), false);
+    const quote = (text) => `'${text.replace(/'/g, `'\\''`)}'`;
+    const execute = (command) => {
+      assert.ok(command.startsWith("m1nd agent "), command);
+      const script = `${quote(process.execPath)} ${quote(CLI)} ${command.slice("m1nd ".length)}`;
+      const result = spawnSync("sh", ["-c", script], { env, encoding: "utf8", timeout: 60000 });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    const trust = execute(JSON.parse(scope.stdout).action.action.command);
+    const orient = execute(trust.action.action.command);
+    assert.equal(trust.runtime.runtime_root, orient.runtime.runtime_root);
+    assert.equal(orient.runtime.state_selection.state_root, fs.realpathSync(state));
+    assert.equal(path.dirname(orient.runtime.runtime_root), path.join(fs.realpathSync(state), "agent-runtimes"));
+    const empty = spawnSync(process.execPath, [CLI, "agent", "first-minute", "--repo", repo, "--binary", BINARY,
+      "--no-attach", "--state-dir", state, "--tool", "search", "--query", "zzzz_absent_state_probe_987654321", "--json"],
+    { env, encoding: "utf8", timeout: 60000 });
+    assert.equal(empty.status, 0, empty.stderr);
+    const recovery = JSON.parse(empty.stdout);
+    assert.match(recovery.recommended_next_command, /m1nd agent recover /);
+    const recipe = recovery.next_actions.find((text) => text.includes("pipe this JSON"));
+    assert.ok(recipe.includes(recovery.recommended_next_command), recipe);
+    assert.deepEqual(sourceSnapshot(repo), before);
+    assert.equal(fs.existsSync(path.join(orient.runtime.runtime_root, ".agent-cache-owner-v1")), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("explicit state-dir contains native cache and registry without ambient fallback", {
   skip: !BINARY && "set M1ND_TEST_AGENT_CACHE_BINARY to an explicit native binary",
 }, () => {

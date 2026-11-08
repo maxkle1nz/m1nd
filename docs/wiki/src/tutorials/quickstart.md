@@ -40,6 +40,8 @@ For an explicitly located automatic cache, set `M1ND_AGENT_CACHE_DIR` to a priva
 
 The unreleased source CLI also accepts `--no-attach --state-dir <private-directory>` to select both cache and registry inside a host-authorized writable workspace, outside the indexed repository. Preview with `agent scope` first. This does not grant sandbox access, migrate memory or update an installed wrapper. See the [storage contract](https://github.com/maxkle1nz/m1nd/blob/main/docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli) for override refusals and model-cache limits.
 
+Use the structured next command when continuing: it preserves the same state directory, isolated mode and binary, including shell quoting for paths with spaces.
+
 The source candidate [preserves owned memory during refresh](https://github.com/maxkle1nz/m1nd/blob/main/docs/REFRESH-OWNED-MEMORY.md) by measuring the complete code-plus-memory candidate against the existing shrink guard. A refusal still requires inspection; clearing memory or lowering the guard is not a recovery recipe.
 
 ## Connect your MCP host
