@@ -37,6 +37,8 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 
 Source-preview contributors: the [November dependency security update](docs/DEPENDENCY-SECURITY-2026-11.md) addresses findings in the unreleased lockfile; it does not update the published binaries above.
 
+The source candidate also preserves the existing [runtime-overlay matching rules](docs/RUNTIME-OVERLAY-MATCHING.md) while reusing batch-local substring filters. UI dependency audit debt and exact-candidate performance proof are tracked separately in the security update.
+
 You need **Node.js 18+** and a repository you can read. [Install the signed native 1.6.5 artifact](docs/INSTALL-1.6.5.md), then run this POSIX-shell recipe from your repository:
 
 ```bash
