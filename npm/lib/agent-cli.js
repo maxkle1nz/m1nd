@@ -6,6 +6,8 @@ const { McpRuntimeClient, callToolSafely, discoverServeOwner } = require("./mcp-
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  agentStatePaths,
+  prepareAgentState,
   ensureAgentRuntimeIdentity,
   releaseAgentRuntimeLease,
 } = require("./agent-runtime-cache");
@@ -1149,6 +1151,8 @@ function applyBootPlan(result, plan, repo) {
 }
 
 async function runBootPlan(args, deps, repo, fn, binary, plan) {
+  const statePaths = args.agentStatePaths;
+  if (statePaths) prepareAgentState(statePaths);
   const explicitRuntimeDir = args["runtime-dir"] ? path.resolve(args["runtime-dir"]) : null;
   const ambientHasRuntimeDir = String(process.env.M1ND_MCP_ARGS || "")
     .trim()
@@ -1156,7 +1160,9 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     .some((arg) => arg === "--runtime-dir" || arg.startsWith("--runtime-dir="));
   const cacheTarget = plan.attach || args["shared-runtime"] || explicitRuntimeDir || ambientHasRuntimeDir
     ? null
-    : agentRuntimeCacheTarget(repo);
+    : agentRuntimeCacheTarget(repo, statePaths
+      ? { ...process.env, M1ND_AGENT_CACHE_DIR: statePaths.cache_base }
+      : process.env);
   const runtimeDir = plan.attach || args["shared-runtime"]
     ? null
     : explicitRuntimeDir || (ambientHasRuntimeDir ? null : cacheTarget.runtimeDir);
@@ -1169,6 +1175,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     runtimeDir,
     runtimeDirExplicit: Boolean(explicitRuntimeDir),
     cancellation: interruption,
+    env: statePaths ? { M1ND_REGISTRY_DIR: statePaths.registry_root } : {},
   });
   let handlersRemoved = false;
   const onSignal = (signal) => {
@@ -1205,6 +1212,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
       await client.start();
       if (interruption.error) throw interruption.error;
       result = applyBootPlan(await fn(client, binary), plan, repo);
+      if (statePaths && result && result.runtime) result.runtime.state_selection = statePaths;
       if (interruption.error) throw interruption.error;
     } catch (error) {
       primaryError = error;
@@ -1383,6 +1391,7 @@ async function agentScope(args, deps, repo, agentId) {
     scopeAlignment: buildScopeAlignment(repo),
   });
   envelope.ok = Boolean(binary);
+  if (args.agentStatePaths) envelope.runtime.state_selection = args.agentStatePaths;
   envelope.package_version = deps.readPackageVersion();
   envelope.git_root = findGitRoot(repo);
   envelope.host_hints = {
@@ -2179,6 +2188,15 @@ async function agentKickstart(args, deps) {
 async function agentCommand(args, deps) {
   const subcommand = args._[1] || "scope";
   const repo = path.resolve(args.repo || args.project || process.cwd());
+  if (args["state-dir"]) {
+    if (!args["no-attach"] || args["shared-runtime"] || args["runtime-dir"]) {
+      throw new Error("--state-dir requires --no-attach and cannot be combined with --shared-runtime or --runtime-dir");
+    }
+    for (const key of ["M1ND_MCP_ARGS", "M1ND_RUNTIME_DIR", "M1ND_RUNTIME_BASE", "M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_ATTACH_URL"]) {
+      if (process.env[key]) throw new Error(`--state-dir conflicts with ${key}; remove that runtime override explicitly before using isolated state`);
+    }
+    args = { ...args, agentStatePaths: agentStatePaths(repo, args["state-dir"]) };
+  }
   const normalizedSubcommand = subcommand === "next" ? "auto" : subcommand;
   const agentId = args["agent-id"] || `m1nd-agent-${subcommand === "next" ? "next" : normalizedSubcommand}`;
   switch (normalizedSubcommand) {

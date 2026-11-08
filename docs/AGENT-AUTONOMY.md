@@ -110,6 +110,53 @@ claim to isolate mutually hostile processes running with the same operating
 system UID, which already have authority to alter that user's private files.
 
 Attach/discovery still wins when a served owner covers the repository.
+This remains the default; the source-only opt-in below requires isolated mode.
+
+### Explicit storage in an already-writable workspace (unreleased CLI)
+
+Use `--no-attach --state-dir <directory>` when the normal user cache is outside
+the sandbox's writable roots. Choose a private directory **outside the indexed
+repository**, inside a workspace or temporary root the host already permits.
+The CLI cannot discover or grant those permissions. Preview without creating
+directories or launching a runtime:
+
+```bash
+node npm/bin/m1nd.js agent scope --repo /workspace/repo-alpha \
+  --binary "$M1ND_BINARY" --no-attach --state-dir /workspace/private-state --json
+node npm/bin/m1nd.js agent first-minute --repo /workspace/repo-alpha \
+  --binary "$M1ND_BINARY" --no-attach --state-dir /workspace/private-state \
+  --query "where is configuration loaded?" --json
+```
+
+`runtime.state_selection` reports the canonical state root, `agent-runtimes`
+cache base and private `registry` directory. Runtime commands create these
+locations using the existing ownership, safe-ancestor and no-follow checks.
+New directories use mode `0700` on Unix. Existing modes are not tightened:
+the existing policy rejects group/other writes, but can accept `0755`. Choose
+a directory whose read access is appropriate for the source and memory stored.
+Identity still separates repository/branch/HEAD, and leases still serialize
+writers. `scope` only plans; it does not certify writability. Storage selection
+does not certify retrieval quality or admit broader tool authority.
+
+This option explicitly overrides `M1ND_AGENT_CACHE_DIR` and `M1ND_REGISTRY_DIR`
+for this command, without changing the parent environment. It refuses
+`--shared-runtime`, `--runtime-dir` and ambient `M1ND_MCP_ARGS`,
+`M1ND_RUNTIME_DIR`, `M1ND_RUNTIME_BASE`, `M1ND_GRAPH_SOURCE`,
+`M1ND_PLASTICITY_STATE` or `M1ND_ATTACH_URL`; remove conflicting overrides
+explicitly first. It never silently retries another location, changes existing
+permissions, edits host configuration, creates credentials, deletes locks or
+migrates memory from the previous cache. Changing state roots selects a
+different cache: existing memory remains in the old one. Returning to the old
+root retains its existing identity and safety checks.
+
+The option locates runtime cache and registry, not an embedding download cache
+or external services. Use an already-available local model for offline probes.
+A remaining sandbox denial is a stop and a diagnostic, not permission to seek
+another access route. Same-UID path races remain outside the existing cache
+security claim. Dedicated wrappers must deliberately expose this option;
+older installed wrappers and released npm 1.6.5 do not acquire it automatically.
+This change adds no UI capture, experiment telemetry or source upload.
+
 An explicit CLI `--runtime-dir` wins over a conflicting runtime argument in
 `M1ND_MCP_ARGS`; without the CLI flag, either environmental syntax remains the
 winner and the unused automatic cache is not created. Relative paths are resolved

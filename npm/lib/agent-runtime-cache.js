@@ -288,6 +288,31 @@ function agentRuntimeCacheTarget(repo, env = process.env) {
   return { runtimeDir, identity };
 }
 
+// Plan without creating state. Resolve existing ancestors so aliases cannot
+// place derived state inside the source tree that this runtime will scan.
+function agentStatePaths(repo, directory) {
+  const requested = path.resolve(directory);
+  let ancestor = requested;
+  const missing = [];
+  while (!cacheLstat(ancestor)) {
+    missing.unshift(path.basename(ancestor));
+    ancestor = path.dirname(ancestor);
+  }
+  const root = path.resolve(fs.realpathSync(ancestor), ...missing);
+  const relative = path.relative(fs.realpathSync(repo), root);
+  if (!relative || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))) {
+    throw new Error("--state-dir must be outside the indexed repository; choose a private directory in an already-writable workspace or temporary root");
+  }
+  // Keep the lexical path for no-follow validation at execution time.
+  return { requested, state_root: root, cache_base: path.join(root, "agent-runtimes"), registry_root: path.join(root, "registry") };
+}
+
+function prepareAgentState(paths) {
+  const root = assertPrivateCacheBase(paths.requested);
+  if (root !== paths.state_root) throw new Error("--state-dir changed after planning; refusing to start");
+  assertPrivateCacheBase(paths.registry_root);
+}
+
 function cacheBusyError(runtimeDir, waitMs) {
   const error = new Error(
     `agent runtime cache is busy at ${runtimeDir}; the current owner did not release within ` +
@@ -412,6 +437,8 @@ module.exports = {
   CACHE_IDENTITY_SCHEMA,
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  agentStatePaths,
+  prepareAgentState,
   cacheOwnerWaitMs,
   ensureAgentRuntimeIdentity,
   releaseAgentRuntimeLease,

@@ -12,6 +12,35 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("explicit state-dir contains native cache and registry without ambient fallback", {
+  skip: !BINARY && "set M1ND_TEST_AGENT_CACHE_BINARY to an explicit native binary",
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-explicit-state-real-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    writeFixture(repo, "state_directory_signal");
+    const before = sourceSnapshot(repo);
+    const state = path.join(fixture, "state"), unusedCache = path.join(fixture, "unused-cache");
+    const unusedRegistry = path.join(fixture, "unused-registry");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    Object.assign(env, { M1ND_AGENT_CACHE_DIR: unusedCache, M1ND_REGISTRY_DIR: unusedRegistry });
+    if (EMBED_MODEL) env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const options = { args: ["--no-attach", "--state-dir", state] };
+    const cold = runFirstMinute(repo, "state_directory_signal", env, options);
+    const warm = runFirstMinute(repo, "state_directory_signal", env, options);
+    assert.equal(cold.payload.runtime.runtime_root, warm.payload.runtime.runtime_root);
+    const selection = cold.payload.runtime.state_selection;
+    assert.equal(selection.state_root, fs.realpathSync(state));
+    assert.equal(path.dirname(cold.payload.runtime.runtime_root), selection.cache_base);
+    assert.equal(fs.existsSync(path.join(cold.payload.runtime.runtime_root, "graph_snapshot.json")), true);
+    assert.equal(fs.statSync(selection.registry_root).isDirectory(), true);
+    assert.equal(fs.existsSync(unusedCache), false);
+    assert.equal(fs.existsSync(unusedRegistry), false);
+    assert.equal(fs.existsSync(path.join(cold.payload.runtime.runtime_root, ".agent-cache-owner-v1")), false);
+    assert.deepEqual(sourceSnapshot(repo), before);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 function sha256(file) {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }

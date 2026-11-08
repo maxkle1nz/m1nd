@@ -127,6 +127,12 @@ runtime bound to --repo and says so. Either way it emits deterministic JSON
 outside any stale MCP host and tells the agent when to switch back to the
 compiler, tests, and source. Pass --no-attach to force the isolated runtime.
 
+For an already-writable sandbox workspace, add --no-attach --state-dir <private-dir>
+to agent commands. scope reports the planned cache/registry locations without
+creating them; runtime commands use those locations or fail without fallback.
+The directory must be outside the indexed repository. This selects storage,
+not sandbox permission. Runtime overrides must be removed explicitly first.
+
 agent auto/next is the deterministic route picker. It does not claim proof; it
 chooses the next bounded agent step or hands control back to the compiler,
 tests, and source. For deep architecture, hidden coupling, security/taint,

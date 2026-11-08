@@ -8,12 +8,84 @@ const test = require("node:test");
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  agentStatePaths,
+  prepareAgentState,
   ensureAgentRuntimeIdentity,
   releaseAgentRuntimeLease,
 } = require("../lib/agent-runtime-cache");
 const symlinkTestOptions = {
   skip: process.platform === "win32" && "Windows symlink creation requires host privilege",
 };
+
+test("state-dir plans storage without writes and prepares private registry/cache siblings", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-plan-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    const state = path.join(fixture, "private-state");
+    const plan = agentStatePaths(repo, state);
+    assert.equal(fs.existsSync(state), false);
+    prepareAgentState(plan);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: plan.cache_base });
+    assert.equal(path.dirname(target.runtimeDir), plan.cache_base);
+    assert.equal(fs.statSync(plan.registry_root).isDirectory(), true);
+    if (process.platform !== "win32") assert.equal(fs.statSync(plan.state_root).mode & 0o077, 0);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir rejects source-tree state before creating it", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-source-"));
+  try {
+    const state = path.join(fixture, "derived");
+    assert.throws(() => agentStatePaths(fixture, state), /outside the indexed repository/);
+    assert.equal(fs.existsSync(state), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir refuses symlink roots and a symlinked registry without adoption", symlinkTestOptions, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-symlink-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), outside = path.join(fixture, "outside");
+    const state = path.join(fixture, "state"), alias = path.join(fixture, "alias");
+    for (const p of [repo, outside, state]) fs.mkdirSync(p, { mode: 0o700 });
+    fs.symlinkSync(outside, alias, "dir");
+    assert.throws(() => prepareAgentState(agentStatePaths(repo, alias)), /non-symlink/);
+    fs.symlinkSync(outside, path.join(state, "registry"), "dir");
+    assert.throws(() => prepareAgentState(agentStatePaths(repo, state)), /non-symlink/);
+    const sourceAlias = path.join(fixture, "source-alias");
+    fs.symlinkSync(repo, sourceAlias, "dir");
+    assert.throws(() => agentStatePaths(repo, path.join(sourceAlias, "new-state")), /outside the indexed repository/);
+    assert.deepEqual(fs.readdirSync(outside), []);
+    assert.deepEqual(fs.readdirSync(repo), []);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir CLI scope is read-only and conflicting launch overrides fail before writes", () => {
+  const { spawnSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-cli-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    fs.mkdirSync(repo);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    const base = [path.resolve(__dirname, "../bin/m1nd.js"), "agent", "scope", "--repo", repo, "--binary", process.execPath, "--state-dir", state, "--json"];
+    function run(extra, additions = {}) { return spawnSync(process.execPath, [...base, ...extra], { env: { ...env, ...additions }, encoding: "utf8", timeout: 10000 }); }
+    const plan = run(["--no-attach"]);
+    assert.equal(plan.status, 0, plan.stderr);
+    assert.equal(JSON.parse(plan.stdout).runtime.state_selection.state_root, fs.realpathSync(fixture) + path.sep + "state");
+    assert.equal(fs.existsSync(state), false);
+    for (const extra of [[], ["--no-attach", "--shared-runtime"], ["--no-attach", "--runtime-dir", state]]) {
+      const result = run(extra);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /requires --no-attach/);
+    }
+    for (const key of ["M1ND_MCP_ARGS", "M1ND_RUNTIME_DIR", "M1ND_RUNTIME_BASE", "M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_ATTACH_URL"]) {
+      const result = run(["--no-attach"], { [key]: "conflicting-override" });
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(key), result.stderr);
+      assert.equal(fs.existsSync(state), false);
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("runtime cache target refuses a symlinked cache base", symlinkTestOptions, () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-base-symlink-"));
