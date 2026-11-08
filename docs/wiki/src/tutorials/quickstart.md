@@ -36,6 +36,8 @@ The matching 1.6.5 CLI selects an external private cache. Clear legacy runtime o
 
 Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is reused first; otherwise `first-minute` prepares only the exact granted repository in an isolated cache outside the source tree. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check returned source locations, gaps, and command status. A refusal is not permission to delete state, move a binding, run the human-only ceremony, or substitute generic MCP `ingest`.
 
+For an explicitly located automatic cache, set `M1ND_AGENT_CACHE_DIR` to a private directory outside the source repository and retain `--no-attach` when validating an isolated binary. This cache selector is separate from `M1ND_RUNTIME_DIR`, which belongs to direct-runtime configuration. Cache ownership, safe ancestors and single-owner lease checks still apply.
+
 ## Connect your MCP host
 
 Preview and apply the host setup:

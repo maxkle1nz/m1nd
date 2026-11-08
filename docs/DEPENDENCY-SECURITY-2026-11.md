@@ -40,7 +40,31 @@ arithmetic findings. P-256 persisted-signature continuity and normal
 certificate-validated model download are compatibility checks, not exploit
 reproductions or a general cryptographic security assessment.
 
-## Relationship to pending changes
+## Follow-up scope and pending branches
+
+### UI audit follow-up
+
+The source candidate also updates Vite 8.1.5 to 8.1.6 and the transitive Zod
+resolution from 4.4.3 to 4.6.7. The npm audit comparison drops from twelve
+findings (two high, ten moderate) to ten moderate findings, with zero high or
+critical findings. Existing platform selectors and the dependency inventory are
+preserved. The high-severity audit gate and lint rules are unchanged.
+
+The remaining ten moderate entries share the minimatch advisory through the
+ESLint dependency chain; they are not ten independent defects. Its current
+consumers still require minimatch 10, which has no compatible patched release
+for this advisory. This candidate neither forces minimatch 11 outside those
+ranges nor downgrades ESLint. That migration remains explicit dependency debt;
+passing `npm audit --audit-level=high` does not mean a zero-finding npm audit.
+
+### Runtime overlay
+
+The candidate imports only the existing runtime-overlay optimization and its
+regressions from PR #588. Matching rules and heat arithmetic are preserved;
+substring filters and label signatures are reused within a batch. See the
+[matching contract and worst-case limits](RUNTIME-OVERLAY-MATCHING.md). The
+five-second local stress assertion is unchanged. Performance proof belongs to
+the exact tested candidate, not the donor branch's historical measurements.
 
 PR #586 and the composed PR #588 already carry the same quinn-proto and rustls
 patches. This candidate extends that narrow remediation with five package
