@@ -38,6 +38,8 @@ Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is re
 
 For an explicitly located automatic cache, set `M1ND_AGENT_CACHE_DIR` to a private directory outside the source repository and retain `--no-attach` when validating an isolated binary. This cache selector is separate from `M1ND_RUNTIME_DIR`, which belongs to direct-runtime configuration. Cache ownership, safe ancestors and single-owner lease checks still apply.
 
+The source candidate [preserves owned memory during refresh](https://github.com/maxkle1nz/m1nd/blob/main/docs/REFRESH-OWNED-MEMORY.md) by measuring the complete code-plus-memory candidate against the existing shrink guard. A refusal still requires inspection; clearing memory or lowering the guard is not a recovery recipe.
+
 ## Connect your MCP host
 
 Preview and apply the host setup:

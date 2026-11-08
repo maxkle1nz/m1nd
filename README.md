@@ -39,6 +39,8 @@ Source-preview contributors: the [November dependency security update](docs/DEPE
 
 The source candidate also preserves the existing [runtime-overlay matching rules](docs/RUNTIME-OVERLAY-MATCHING.md) while reusing batch-local substring filters. UI dependency audit debt and exact-candidate performance proof are tracked separately in the security update.
 
+[Owned-memory refresh](docs/REFRESH-OWNED-MEMORY.md) prepares code and memory together before the unchanged shrink guard, so an unchanged source tree can resume after a grounded memory write.
+
 You need **Node.js 18+** and a repository you can read. [Install the signed native 1.6.5 artifact](docs/INSTALL-1.6.5.md), then run this POSIX-shell recipe from your repository:
 
 ```bash
