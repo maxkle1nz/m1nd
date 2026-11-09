@@ -691,7 +691,12 @@ test(
         assert.equal(run.signal, null);
         assert.equal(treeDigest(env.M1ND_AGENT_CACHE_DIR), before, `${kind} metadata failure wrote cache state`);
         assert.notEqual(run.status, 0, "corrupt metadata was accepted");
-        assert.match(run.stderr, /git.*(failed|unavailable|timed out|identity)/i);
+        if (kind === "environment") {
+          assert.match(run.stderr, /automatic cache identity conflicts with GIT_DIR/);
+          assert.ok(!run.stderr.includes(env.GIT_DIR), "redirection error must not echo its configured path");
+        } else {
+          assert.match(run.stderr, /git.*(failed|unavailable|timed out|identity)/i);
+        }
       }
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
