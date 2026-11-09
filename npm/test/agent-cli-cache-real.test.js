@@ -12,6 +12,56 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("warm state-dir refresh precedes graph queries and returns newly edited symbols", {
+  skip: !BINARY || !EMBED_MODEL,
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-before-query-refresh-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    writeFixture(repo, "initial_query_symbol");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+    env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const gitEnv = { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" };
+    for (const args of [["init", "-b", "fresh-main"], ["config", "user.name", "Fixture Author"],
+      ["config", "user.email", "fixture@example.invalid"], ["add", "."], ["commit", "-m", "initial source"]]) {
+      const result = spawnSync("git", args, { cwd: repo, env: gitEnv, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const execute = (command, flags) => {
+      const run = spawnSync(process.execPath, [CLI, command === "kickstart" ? "kickstart" : "agent",
+        ...(command === "kickstart" ? [] : [command]), "--repo", repo, "--binary", BINARY,
+        "--no-attach", "--state-dir", state, ...flags, "--json"], { env, encoding: "utf8", timeout: 60000 });
+      assert.equal(run.status, 0, `${command}: ${run.stderr}\n${run.stdout}`);
+      return JSON.parse(run.stdout);
+    };
+    const initial = execute("first-minute", ["--tool", "search", "--query", "initial_query_symbol"]);
+    const runtime = initial.runtime.runtime_root, revision = initial.runtime.source_identity.source_revision;
+    for (const [command, symbol, flags, queryTool] of [
+      ["first-minute", "dirty_query_symbol_a", ["--tool", "search"], "search"],
+      ["orient", "dirty_query_symbol_b", ["--tool", "search", "--mode", "short", "--skip-ingest"], "search"],
+      ["context", "dirty_query_symbol_c", ["--anchor", "src/signal.js"], "surgical_context_v2"],
+    ]) {
+      fs.writeFileSync(path.join(repo, "src/signal.js"), `export function ${symbol}() { return 73; }\n`);
+      const payload = execute(command, command === "kickstart" ? flags : [...flags, "--query", symbol]);
+      assert.equal(payload.ok, true, JSON.stringify(payload));
+      assert.equal(payload.runtime.runtime_root, runtime);
+      assert.deepEqual(payload.runtime.source_identity.source_revision, revision, "no commit or branch changed");
+      assert.equal(payload.runtime.graph_snapshot_version.update_status, "refreshed");
+      const tools = payload.calls.map((call) => call.tool), refresh = tools.indexOf("ingest");
+      assert.ok(refresh >= 0 && refresh < tools.indexOf("trust_selftest"), tools.join(","));
+      assert.ok(refresh < tools.indexOf(queryTool), tools.join(","));
+      if (queryTool === "search") {
+        const candidates = payload.results.flatMap((entry) => entry.results || []);
+        assert.ok(candidates.some((item) => item.graph_linked === true
+          && item.node_id === `file::src/signal.js::fn::${symbol}`), JSON.stringify(candidates));
+      }
+      const graph = JSON.parse(fs.readFileSync(path.join(runtime, "graph_snapshot.json"), "utf8"));
+      assert.ok(graph.nodes.some((node) => node.label === symbol));
+      assert.ok(!graph.nodes.some((node) => node.label === "initial_query_symbol"));
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("state-dir rebuilds dirty edits, deletes and renames and isolates branch revisions across restarts", {
   skip: !BINARY || !EMBED_MODEL,
 }, async () => {

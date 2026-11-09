@@ -104,3 +104,8 @@ Public `ingest` is not a bootstrap shortcut: default/`replace` and `merge` are p
 - [Multi-agent workflows](multi-agent.md): share a local owner and coordinate
 - [Deployment](https://github.com/maxkle1nz/m1nd/blob/main/docs/deployment.md): persistent owners and transport limits
 - [Contributor development kit](contributor-devkit.md): source builds and private development state
+
+Unreleased isolated CLI hardening: `kickstart` honors `--no-attach --state-dir`
+and refused results exit nonzero. Automatic caches reject conflicting attach or
+persistence destinations. See the [freshness contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md)
+for refresh-before-query proof and its limits.

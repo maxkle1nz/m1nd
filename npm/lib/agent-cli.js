@@ -1176,6 +1176,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     sharedRuntime: Boolean(args["shared-runtime"]),
     attach: plan.attach ? "auto" : null,
     forbidAttach: Boolean(args["no-attach"]),
+    managedCache: Boolean(cacheTarget),
     runtimeDir,
     runtimeDirExplicit: Boolean(explicitRuntimeDir),
     cancellation: interruption,
@@ -2246,6 +2247,7 @@ async function agentKickstart(args, deps) {
           files_parsed: filesParsed,
         },
         audit_summary: auditSummary,
+        calls: [...sequence.calls, callSummary("audit", auditResult)],
         next_action: nextAction,
         non_claims: [
           "does not prove runtime or production behavior",

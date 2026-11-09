@@ -13,6 +13,24 @@ its authority floors are unchanged. An attached owner or an explicit/shared
 runtime has different freshness semantics: this CLI reports its identity and
 graph version as not checked/observed rather than implying an automatic refresh.
 
+## Isolated launch policy
+
+`kickstart` applies the same `--no-attach --state-dir` storage selection as
+`agent` commands and exits nonzero when its result is refused. Isolated launches
+reject an inherited attach argument before native runtime startup. Cache-base
+preparation may precede that refusal; it does not imply a native process ran.
+Automatic caches also reject graph, plasticity, configuration and runtime-base
+overrides that could direct native persistence away from the versioned cache.
+Errors name the conflicting selector without echoing its value. Explicit/manual
+runtimes retain their separate configuration semantics and unverified receipts.
+
+Native fixture proof checks that a warm `first-minute`, `orient` (including
+`--skip-ingest`) and anchored `context` refresh before retrieval. Search must
+return the newly edited graph-backed symbol, not merely persist it afterward.
+This covers edits completed before invocation; it is not an atomic live view.
+`kickstart` still includes `audit`, whose sovereign authority floor is unchanged;
+these query proofs do not establish a successful ordinary native audit.
+
 ## Identity at query boundaries
 
 `runtime.source_identity` records the selected root and branch/HEAD plus the

@@ -58,7 +58,7 @@ export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 
 To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/quickstart.md). Direct stdio needs an explicit workspace grant and an existing external private runtime; a shared owner has separate preparation and authority requirements. See [agent autonomy](docs/AGENT-AUTONOMY.md).
 
-Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicitly locates cache and registry in an already-writable workspace outside the indexed repository. `agent scope` previews the locations without writes. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli); this grants no permissions and does not migrate existing memory.
+Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicitly locates cache and registry in an already-writable workspace outside the indexed repository. `agent scope` previews the locations without writes. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli); this grants no permissions and does not migrate existing memory. `kickstart` honors the same storage flags; isolated automatic caches refuse conflicting attach or persistence destinations.
 
 Structured follow-up agent commands retain the selected state directory, isolation flag and binary, so the next step uses the same cache.
 

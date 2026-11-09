@@ -132,6 +132,11 @@ node npm/bin/m1nd.js agent first-minute --repo /workspace/repo-alpha \
   --query "where is configuration loaded?" --json
 ```
 
+`kickstart` honors the same explicit storage selection and returns a nonzero
+process status for a refused result. `--no-attach` also rejects inherited attach
+arguments before runtime startup. Automatic cache destination overrides are
+refused rather than producing a receipt for a different snapshot.
+
 `runtime.state_selection` reports the canonical state root, `agent-runtimes`
 cache base and private `registry` directory. Runtime commands create these
 locations using the existing ownership, safe-ancestor and no-follow checks.
