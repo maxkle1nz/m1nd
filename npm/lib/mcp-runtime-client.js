@@ -114,6 +114,8 @@ class McpRuntimeClient {
     this.registryDir = selectedRegistryDir(options);
     this.cwd = options.cwd || null;
     this.args = options.args || defaultRuntimeArgs();
+    this.forbidAttach = Boolean(options.forbidAttach);
+    this.assertAttachPolicy();
     this.proc = null;
     this.readline = null;
     this.pending = new Map();
@@ -127,6 +129,16 @@ class McpRuntimeClient {
     this.cancellation = options.cancellation || null;
     this.cancelledError = null;
     this.startAttempted = false;
+  }
+
+  assertAttachPolicy() {
+    if (this.forbidAttach && (this.attach || argsHaveOption(this.args, "--attach"))) {
+      // Do not echo an explicit URL: it may contain credentials. Nor should a
+      // caller's request for isolation silently become a different launch plan.
+      const error = new Error("--no-attach conflicts with an attach option in the runtime configuration; remove the conflicting attach option or M1ND_MCP_ARGS override before starting");
+      error.code = "M1ND_ATTACH_FORBIDDEN";
+      throw error;
+    }
   }
 
   interruptionError() {
@@ -163,6 +175,10 @@ class McpRuntimeClient {
   }
 
   launchConfig() {
+    // Recheck mutable options before either branch can create a directory or
+    // select a bridge. M1ND_ATTACH_URL alone is not a native transport selector;
+    // the native process reads it only after an --attach selector is present.
+    this.assertAttachPolicy();
     if (this.attach) {
       const args = [...this.args];
       if (!argsHaveOption(args, "--attach")) args.push("--attach", this.attach);
