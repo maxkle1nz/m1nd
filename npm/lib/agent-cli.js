@@ -18,6 +18,7 @@ const { graphSnapshotVersion } = require("./agent-graph-receipt");
 const { agentViewReceipt } = require("./agent-view-receipt");
 const { reviewAgentMemory } = require("./agent-memory-review");
 const { checkAnchorFreshness } = require("./agent-anchor-freshness");
+const { capsuleFiles } = require("./agent-capsule-files");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
 const ORIENTATION_TOOLS = new Set(["auto", "search", "seek", "activate", "audit", "glob"]);
@@ -1909,15 +1910,16 @@ async function agentContext(args, deps, repo, agentId) {
       return attachCapabilityGuidance(envelope, query);
     }
     envelope.selected_file = selectedFile;
-    const checkSelectedAnchor = async () => {
-      const check = await checkAnchorFreshness(client, agentId, [selectedFile]);
+    const checkSelectedAnchor = async (files = [selectedFile]) => {
+      const check = await checkAnchorFreshness(client, agentId, files);
       envelope.calls.push({ tool: "am_i_stale", isError: check.reason === "tool_error",
         freshness_status: check.status, checked: check.checked });
       return check;
     };
     const before = await checkSelectedAnchor();
-    envelope.source_freshness = { status: "not_proven", scope: "selected_anchor_only",
-      atomic_snapshot: false, before, after: { status: "not_checked" } };
+    envelope.source_freshness = { status: "not_proven", scope: "explicit_boundary_files_only",
+      atomic_snapshot: false, before_scope: "selected_anchor_only", after_scope: "not_checked",
+      before, after: { status: "not_checked" } };
     const changedContext = () => {
       envelope.ok = false;
       envelope.status = "source_changed_during_context";
@@ -1926,9 +1928,9 @@ async function agentContext(args, deps, repo, agentId) {
       envelope.results = [];
       envelope.switch_to_direct_proof = true;
       envelope.action = buildDirectProofAction("source_changed_during_context");
-      envelope.proof_boundary = { m1nd_proved: "the selected anchor changed or went missing relative to the native inventory; context was discarded",
+      envelope.proof_boundary = { m1nd_proved: "a checked source file changed or went missing relative to the native inventory; context was discarded",
         still_needs_direct_proof: ["read the current source directly", "obtain a new refreshed view before relying on graph context"] };
-      envelope.next_actions.push("Read the changed anchor directly; the next isolated invocation may refresh it. No retry was performed.");
+      envelope.next_actions.push("Read the changed source directly; the next isolated invocation may refresh it. No retry was performed.");
       return attachCapabilityGuidance(envelope, query);
     };
     if (before.status === "stale") return changedContext();
@@ -1960,10 +1962,23 @@ async function agentContext(args, deps, repo, agentId) {
       envelope.next_actions.push("Context was refused or failed; read the selected file directly before making claims.");
       return attachCapabilityGuidance(envelope, query);
     }
-    // An unsupported/unknown precheck cannot become a fresh claim, and is not
-    // retried. A valid inventory baseline is checked again after retrieval.
+    const capsuleScope = capsuleFiles(selectedFile, contextPayload, file => ensureWithinRepo(repo, file));
+    if (!capsuleScope.ok) {
+      envelope.ok = false;
+      envelope.status = "context_scope_not_proven";
+      envelope.context_confidence = "context_unavailable";
+      envelope.results = [];
+      envelope.source_freshness.after = { status: "not_proven", reason: capsuleScope.reason };
+      envelope.switch_to_direct_proof = true;
+      envelope.action = buildDirectProofAction("context_scope_not_proven");
+      envelope.next_actions.push("The returned source scope could not be validated; read source directly. No retry was performed.");
+      return attachCapabilityGuidance(envelope, query);
+    }
+    // Unknown/unsupported prechecks are never retried. The postcheck covers the
+    // validated returned files, but only the anchor was observed before reads.
     if (before.status === "fresh_at_boundary") {
-      const after = await checkSelectedAnchor();
+      envelope.source_freshness.after_scope = capsuleScope.scope;
+      const after = await checkSelectedAnchor(capsuleScope.files);
       envelope.source_freshness.after = after;
       if (after.status === "stale") return changedContext();
       if (after.status === "fresh_at_boundary") envelope.source_freshness.status = "fresh_at_boundaries";
