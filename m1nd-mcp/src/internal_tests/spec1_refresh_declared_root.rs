@@ -177,6 +177,18 @@ fn refresh_owned_memory_is_measured_in_the_complete_candidate() {
         .expect("refresh with unchanged code and managed memory");
     assert_eq!(payload["ok"], json!(true), "{payload}");
     assert_eq!(payload["shrink_floor_percent"], json!(60));
+    assert_eq!(
+        payload["code_snapshot"]["code_ownership_coverage"],
+        json!("COMPLETE")
+    );
+    assert_eq!(
+        payload["code_snapshot"]["semantic_completeness"],
+        json!("not_proven")
+    );
+    assert_eq!(
+        payload["code_snapshot"]["source_revalidated_before_admission"],
+        json!(true)
+    );
     assert_eq!(payload["agent_memory_restored"]["loaded"], json!(true));
     assert_eq!(payload["agent_memory_restored"]["loaded_count"], json!(8));
     assert_eq!(state.ingest_roots, roots);
@@ -203,6 +215,52 @@ fn refresh_owned_memory_is_measured_in_the_complete_candidate() {
         payload["agent_memory_restored"]["light_evidence_resolved"],
         json!(8)
     );
+}
+
+#[test]
+fn refresh_reports_a_new_code_projection_after_an_uncommitted_source_edit() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(&temp.path().join("runtime"));
+    let repo = temp.path().join("repo");
+    write_repo(&repo, None);
+    seed_declared_root(&mut state, &repo);
+    state.caller_root = Some(canonical(&repo));
+    let params = refresh_params(&canonical(&repo));
+    let first = admit_then_dispatch(&mut state, "ingest", &params).unwrap();
+    assert_eq!(first["ok"], json!(true));
+    let receipt = &first["code_snapshot"];
+    assert_eq!(receipt["update_mode"], json!("full_rebuild"));
+    assert_eq!(receipt["root_identity"], json!(canonical(&repo)));
+    assert_eq!(receipt["atomic_filesystem_snapshot"], json!(false));
+    assert!(receipt["source_count"].as_u64().unwrap() >= 3);
+    for key in [
+        "source_projection_digest",
+        "ownership_digest",
+        "pipeline_digest",
+        "policy_fingerprint",
+    ] {
+        assert_eq!(receipt[key].as_str().unwrap().len(), 64, "{key}");
+    }
+    let before = std::fs::read_to_string(repo.join("src/lib.rs")).unwrap();
+    std::fs::write(
+        repo.join("src/lib.rs"),
+        before.replace("fn second()", "fn renamed_second()"),
+    )
+    .unwrap();
+    let second = admit_then_dispatch(&mut state, "ingest", &params).unwrap();
+    assert_eq!(second["ok"], json!(true));
+    assert_ne!(
+        first["code_snapshot"]["source_projection_digest"],
+        second["code_snapshot"]["source_projection_digest"]
+    );
+    assert!(
+        second["graph_generation"].as_u64().unwrap() > first["graph_generation"].as_u64().unwrap()
+    );
+    let graph = state.graph.read();
+    assert!(graph
+        .resolve_id("file::src/lib.rs::fn::renamed_second")
+        .is_some());
+    assert!(graph.resolve_id("file::src/lib.rs::fn::second").is_none());
 }
 
 #[test]

@@ -114,6 +114,10 @@ This remains the default; the source-only opt-in below requires isolated mode.
 
 ### Explicit storage in an already-writable workspace (unreleased CLI)
 
+See [automatic graph freshness](AUTOMATIC-GRAPH-FRESHNESS.md) for branch/HEAD
+identity guards, refresh provenance, graph-version receipts and the limits of
+dirty-content, attached-owner and cross-branch memory claims.
+
 Use `--no-attach --state-dir <directory>` when the normal user cache is outside
 the sandbox's writable roots. Choose a private directory **outside the indexed
 repository**, inside a workspace or temporary root the host already permits.

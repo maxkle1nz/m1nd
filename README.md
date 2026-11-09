@@ -62,6 +62,8 @@ Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicit
 
 Structured follow-up agent commands retain the selected state directory, isolation flag and binary, so the next step uses the same cache.
 
+The unreleased [automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md) adds root/branch/HEAD checkpoint guards, observed refresh and persisted graph-version receipts, and explicit completeness limits. The code path rebuilds on the next isolated CLI invocation; the document watcher is not a continuous code watcher.
+
 ### Historical pinned 1.6.3: install, prepare, connect
 
 You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:

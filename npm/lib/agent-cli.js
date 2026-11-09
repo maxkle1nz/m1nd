@@ -13,6 +13,7 @@ const {
   releaseAgentRuntimeLease,
 } = require("./agent-runtime-cache");
 const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent-schemas");
+const { graphSnapshotVersion } = require("./agent-graph-receipt");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
 const ORIENTATION_TOOLS = new Set(["auto", "search", "seek", "activate", "audit", "glob"]);
@@ -1251,6 +1252,12 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
       try { verifySource("before return"); }
       catch (error) { primaryError = error; }
     }
+    if (!primaryError && !cleanupError && cacheTarget && client.processClosed && result?.runtime) {
+      try {
+        result.runtime.graph_snapshot_version = graphSnapshotVersion(runtimeDir, client.agentRefreshReceipt);
+        verifySource("after persisted graph version");
+      } catch (error) { primaryError = error; }
+    }
     let leaseReleaseError = null;
     // An unsuccessful close is not proof that the native writer stopped. A
     // failed spawn and a witnessed child `close` are safe; otherwise leave the
@@ -1284,6 +1291,14 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     if (primaryError) throw primaryError;
     if (cleanupError) throw cleanupError;
     if (result && result.runtime) {
+      if (!cacheTarget) result.runtime.graph_snapshot_version = {
+        schema: "m1nd-agent-graph-version-v1",
+        status: "not_observed",
+        update_status: "not_checked",
+        reason: "automatic_cache_not_selected",
+        semantic_completeness: "not_proven",
+        atomic_source_snapshot: false,
+      };
       result.runtime.source_identity = cacheTarget ? {
         status: "verified_at_checkpoints",
         canonical_root: cacheTarget.identity.canonical_root,
@@ -1358,6 +1373,7 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
       ok: !refresh.isError && refreshPayload.ok === true,
       refused: refreshPayload.refused || null,
       reason: refreshPayload.reason || refreshPayload.error || null,
+      code_snapshot: refreshPayload.code_snapshot || null,
     };
     if (refresh.isError || refreshPayload.ok !== true) {
       return {

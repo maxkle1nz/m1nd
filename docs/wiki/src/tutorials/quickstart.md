@@ -42,6 +42,8 @@ The unreleased source CLI also accepts `--no-attach --state-dir <private-directo
 
 Use the structured next command when continuing: it preserves the same state directory, isolated mode and binary, including shell quoting for paths with spaces.
 
+In the unreleased CLI, inspect `runtime.source_identity` and `runtime.graph_snapshot_version` for branch/HEAD checks, observed refresh status and persisted-byte version. A COMPLETE code ownership receipt is not semantic completeness. Explicit/shared runtimes and attached owners do not inherit automatic-cache freshness. See [automatic freshness and branch views](https://github.com/maxkle1nz/m1nd/blob/main/docs/AUTOMATIC-GRAPH-FRESHNESS.md).
+
 The source candidate [preserves owned memory during refresh](https://github.com/maxkle1nz/m1nd/blob/main/docs/REFRESH-OWNED-MEMORY.md) by measuring the complete code-plus-memory candidate against the existing shrink guard. A refusal still requires inspection; clearing memory or lowering the guard is not a recovery recipe.
 
 ## Connect your MCP host

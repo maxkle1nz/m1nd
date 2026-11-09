@@ -357,18 +357,48 @@ fn handle_ingest_refresh(
 
     // 6. The CANDIDATE, computed first and committed only if it survives. The
     //    ingest itself is the existing one — this door builds no second scanner.
-    let (mut candidate, stats) = m1nd_ingest::Ingestor::new(code_ingest_config(
+    let mut bundle = m1nd_ingest::Ingestor::new(code_ingest_config(
         state,
         std::path::Path::new(target),
         input.include_dotfiles,
         input.dotfile_patterns.clone(),
     ))
-    .ingest()?;
+    .ingest_bundle()?;
+    bundle.require_complete()?;
 
     // Measure the COMPLETE graph that will be installed, including the owned
     // memory replace/refresh has always restored. No live/durable mutation is
     // allowed while preparing or checking this candidate.
-    let prepared_memory = prepare_refresh_agent_memory(state, &mut candidate)?;
+    let prepared_memory = prepare_refresh_agent_memory(state, &mut bundle.graph)?;
+    // Memory loading can take time. Recheck the original immutable CODE source
+    // receipt immediately before admission, without mistaking added memory for
+    // code ownership. Drift refuses; it never installs an unverified candidate.
+    bundle.revalidate_sources()?;
+    let code_snapshot = serde_json::json!({
+        "schema": "m1nd-refresh-code-snapshot-v1",
+        "update_mode": "full_rebuild",
+        "root_identity": bundle.ownership.root_identity,
+        "source_projection_digest": bundle.ownership.source_projection_digest,
+        "ownership_digest": bundle.ownership.ownership_digest,
+        "pipeline_digest": bundle.ownership.pipeline_digest,
+        "policy_fingerprint": bundle.ownership.pipeline_receipt.policy_fingerprint,
+        "producer_build_identity": bundle.ownership.pipeline_receipt.producer_build_identity,
+        "vcs_context_digest": bundle.ownership.pipeline_receipt.vcs_context_digest,
+        "source_count": bundle.ownership.source_digests.len(),
+        "files_scanned": bundle.stats.files_scanned,
+        "files_parsed": bundle.stats.files_parsed,
+        "files_skipped_binary": bundle.stats.files_skipped_binary,
+        "files_skipped_encoding": bundle.stats.files_skipped_encoding,
+        "references_unresolved": bundle.stats.references_unresolved,
+        "references_ambiguous": bundle.stats.references_ambiguous,
+        "unreadable_path_coverage": "not_attested",
+        "code_ownership_coverage": bundle.ownership.coverage,
+        "source_revalidated_before_admission": true,
+        "atomic_filesystem_snapshot": false,
+        "semantic_completeness": "not_proven",
+    });
+    let candidate = bundle.graph;
+    let stats = bundle.stats;
     let live_nodes = u64::from(state.graph.read().num_nodes());
     let candidate_nodes = u64::from(candidate.num_nodes());
 
@@ -426,6 +456,11 @@ fn handle_ingest_refresh(
             serde_json::json!(live_nodes),
         );
         object.insert("node_count".to_string(), serde_json::json!(node_count));
+        object.insert("code_snapshot".to_string(), code_snapshot);
+        object.insert(
+            "graph_generation".to_string(),
+            serde_json::json!(state.graph_generation),
+        );
         object.insert(
             "root_set_unchanged".to_string(),
             serde_json::json!(state.declared_roots_canonical() == declared_before),

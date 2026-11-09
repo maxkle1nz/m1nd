@@ -12,6 +12,150 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("state-dir rebuilds dirty edits, deletes and renames and isolates branch revisions across restarts", {
+  skip: !BINARY || !EMBED_MODEL,
+}, async () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-branch-graph-matrix-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    writeFixture(repo, "branch_graph_signal");
+    for (let i = 0; i < 8; i++) fs.writeFileSync(path.join(repo, `src/stable${i}.js`), `export function stable_${i}() { return ${i}; }\n`);
+    fs.writeFileSync(path.join(repo, "src/removable.js"), "export function removed_symbol() { return 1; }\n");
+    fs.writeFileSync(path.join(repo, "src/rename-me.js"), "export function renamed_file_symbol() { return 2; }\n");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+    env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const vcs = (...args) => {
+      const result = spawnSync("git", args, { cwd: repo, env: { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" }, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    vcs("init", "-b", "graph-main");
+    vcs("config", "user.name", "Fixture Author");
+    vcs("config", "user.email", "fixture@example.invalid");
+    const commit = (message) => { vcs("add", "."); vcs("commit", "-m", message); };
+    commit("initial graph");
+    const probe = (directory) => runFirstMinute(repo, "branch_graph_signal", env, { args: ["--no-attach", "--state-dir", directory] }).payload;
+    const snapshot = (payload) => JSON.parse(fs.readFileSync(path.join(payload.runtime.runtime_root, "graph_snapshot.json"), "utf8"));
+    const memory = async (runtimeDir, write) => {
+      const { McpRuntimeClient, decodeToolResponse } = require("../lib/mcp-runtime-client");
+      const { acquireAgentRuntimeLease, releaseAgentRuntimeLease } = require("../lib/agent-runtime-cache");
+      const lease = await acquireAgentRuntimeLease(runtimeDir);
+      const client = new McpRuntimeClient({ binary: BINARY, repo, runtimeDir,
+        args: ["--stdio", "--no-gui"], env: { M1ND_EMBED_MODEL: EMBED_MODEL,
+          M1ND_RUNTIME_BASE: runtimeDir, M1ND_GRAPH_SOURCE: path.join(runtimeDir, "graph_snapshot.json"),
+          M1ND_PLASTICITY_STATE: path.join(runtimeDir, "plasticity_state.json"), M1ND_REGISTRY_DIR: path.join(state, "registry") } });
+      try {
+        await client.start();
+        const decoded = decodeToolResponse(await client.callTool(write ? "memorize" : "seek", write
+          ? { agent_id: "branch-fixture", node_label: "BranchMemory", ingest_after: true,
+            claims: [{ label: "BranchMemory", kind: "entity", confidence: "high",
+              text: "branch_graph_signal is the entrypoint in src/signal.js", evidence: ["src/signal.js"] }] }
+          : { agent_id: "branch-fixture", query: "BranchMemory", top_k: 8 }));
+        assert.equal(decoded.isError, false, JSON.stringify(decoded));
+        if (write) {
+          assert.equal(decoded.payload.ingested, true);
+          assert.equal(decoded.payload.light_evidence_resolved, 1);
+          return decoded.payload.path;
+        }
+        assert.ok(decoded.payload.results.some((item) => item.node_id?.startsWith("light::") && item.label?.includes("BranchMemory")));
+      } finally {
+        try { await client.close(); }
+        finally { if (!client.spawned || client.processClosed) releaseAgentRuntimeLease(lease); }
+      }
+    };
+    // Query learning intentionally changes current weights; compare the SOURCE
+    // projection rather than treating those learned differences as code drift.
+    const sourceProjection = (graph) => ({
+      nodes: graph.nodes.filter((node) => !node.external_id.startsWith("light::")).map(({ external_id, label, node_type, tags, provenance }) =>
+        [external_id, label, node_type, [...tags].sort(), provenance]).sort((a, b) => a[0].localeCompare(b[0])),
+      edges: graph.edges.filter((edge) => !edge.source_id.startsWith("light::") && !edge.target_id.startsWith("light::")).map(({ source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength }) =>
+        [source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    });
+    let epoch = 0;
+    const compareRebuild = (payload) => {
+      const rebuilt = probe(path.join(fixture, `baseline-${epoch++}`));
+      assert.deepEqual(sourceProjection(snapshot(payload)), sourceProjection(snapshot(rebuilt)));
+      return snapshot(payload);
+    };
+    const initial = probe(state), initialRuntime = initial.runtime.runtime_root;
+    const memoryPath = await memory(initialRuntime, true), memoryDigest = sha256(memoryPath);
+    const initialHead = vcs("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(repo, "src/signal.js"), "export function branch_graph_signal() { return 73; }\nexport function dirty_only_symbol() { return 5; }\n");
+    const dirty = probe(state);
+    assert.equal(dirty.runtime.runtime_root, initialRuntime);
+    assert.equal(vcs("rev-parse", "HEAD"), initialHead);
+    assert.equal(dirty.runtime.graph_snapshot_version.update_status, "refreshed");
+    assert.ok(compareRebuild(dirty).nodes.some((node) => node.label === "dirty_only_symbol"));
+    fs.unlinkSync(path.join(repo, "src/removable.js"));
+    const deleted = compareRebuild(probe(state));
+    assert.ok(!deleted.nodes.some((node) => node.label === "removed_symbol"));
+    fs.renameSync(path.join(repo, "src/rename-me.js"), path.join(repo, "src/renamed.js"));
+    const renamed = compareRebuild(probe(state));
+    assert.ok(!renamed.nodes.some((node) => node.external_id.includes("rename-me.js")));
+    assert.ok(renamed.nodes.some((node) => node.external_id.includes("renamed.js")));
+    await memory(initialRuntime, false);
+    commit("edited deleted renamed");
+    const committed = probe(state), committedRuntime = committed.runtime.runtime_root;
+    assert.notEqual(committedRuntime, initialRuntime);
+    assert.ok(!snapshot(committed).nodes.some((node) => node.external_id.startsWith("light::")), "a new commit must not silently inherit branch-bound memory");
+    const retained = sha256(path.join(initialRuntime, "graph_snapshot.json"));
+    vcs("switch", "-c", "graph-feature");
+    fs.writeFileSync(path.join(repo, "src/feature.js"), "export function feature_only_symbol() { return 91; }\n");
+    commit("feature branch");
+    const featureHead = vcs("rev-parse", "HEAD"), feature = probe(state);
+    assert.notEqual(feature.runtime.runtime_root, committedRuntime);
+    assert.ok(compareRebuild(feature).nodes.some((node) => node.label === "feature_only_symbol"));
+    vcs("switch", "graph-main");
+    const returned = probe(state);
+    assert.equal(returned.runtime.runtime_root, committedRuntime);
+    assert.ok(!compareRebuild(returned).nodes.some((node) => node.label === "feature_only_symbol"));
+    vcs("branch", "-D", "graph-feature");
+    assert.equal(probe(state).runtime.runtime_root, committedRuntime);
+    assert.ok(fs.existsSync(feature.runtime.runtime_root), "deleting a branch must not erase retained memory/cache");
+    vcs("merge", "--no-ff", featureHead, "-m", "merge feature");
+    const merged = probe(state);
+    assert.notEqual(merged.runtime.runtime_root, committedRuntime);
+    assert.ok(compareRebuild(merged).nodes.some((node) => node.label === "feature_only_symbol"));
+    assert.equal(sha256(path.join(initialRuntime, "graph_snapshot.json")), retained);
+    assert.equal(sha256(memoryPath), memoryDigest, "old branch memory must remain intact");
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("persisted graph version reports bytes and partial status without inventing freshness", () => {
+  const { graphSnapshotVersion } = require("../lib/agent-graph-receipt");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-graph-version-"));
+  try {
+    assert.equal(graphSnapshotVersion(fixture).status, "unavailable");
+    const file = path.join(fixture, "graph_snapshot.json");
+    fs.writeFileSync(file, '{"version":4,"nodes":[],"edges":[]}\n');
+    const cold = graphSnapshotVersion(fixture);
+    assert.equal(cold.sha256, sha256(file));
+    assert.equal(cold.update_status, "not_observed");
+    assert.equal(cold.semantic_completeness, "not_proven");
+    const updated = graphSnapshotVersion(fixture, { attempted: true, ok: true, code_snapshot: { update_mode: "full_rebuild" } });
+    assert.equal(updated.update_status, "refreshed");
+    assert.equal(updated.code_snapshot.update_mode, "full_rebuild");
+    const refused = graphSnapshotVersion(fixture, { attempted: true, ok: false, refused: "refresh_would_shrink_graph" });
+    assert.equal(refused.update_status, "refused");
+    assert.equal(refused.sha256, cold.sha256);
+    fs.writeFileSync(file, '{"version":4,"nodes":[{}],"edges":[]}\n');
+    assert.notEqual(graphSnapshotVersion(fixture).sha256, cold.sha256);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("persisted graph version refuses symlink snapshots", { skip: process.platform === "win32" }, () => {
+  const { graphSnapshotVersion } = require("../lib/agent-graph-receipt");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-graph-version-link-"));
+  try {
+    fs.writeFileSync(path.join(fixture, "outside.json"), "{}");
+    fs.symlinkSync(path.join(fixture, "outside.json"), path.join(fixture, "graph_snapshot.json"));
+    const receipt = graphSnapshotVersion(fixture);
+    assert.equal(receipt.status, "unavailable");
+    assert.equal(receipt.reason, "unsafe_snapshot_file");
+    assert.equal(receipt.sha256, undefined);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("state-dir suggested commands reuse storage through a POSIX shell", {
   skip: !BINARY || process.platform === "win32"
     ? "requires explicit native binary and POSIX shell recipe" : false,
