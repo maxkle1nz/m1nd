@@ -4857,6 +4857,7 @@ async function main(rawArgs) {
       runtimeVersion,
     });
     print(result, args.json || !process.stdout.isTTY);
+    if (result.ok === false) process.exitCode = 1;
     return;
   }
 

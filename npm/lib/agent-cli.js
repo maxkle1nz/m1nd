@@ -1175,6 +1175,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     repo,
     sharedRuntime: Boolean(args["shared-runtime"]),
     attach: plan.attach ? "auto" : null,
+    forbidAttach: Boolean(args["no-attach"]),
     runtimeDir,
     runtimeDirExplicit: Boolean(explicitRuntimeDir),
     cancellation: interruption,
@@ -1237,6 +1238,16 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
       if (interruption.error) throw interruption.error;
       verifySource("after initialize");
       result = applyBootPlan(await fn(client, binary), plan, repo);
+      // Kickstart historically has top-level boot metadata. Keep those fields
+      // while giving it the same observed runtime provenance as agent verbs.
+      if (result && typeof result === "object" && !Array.isArray(result) && !result.runtime) {
+        result.runtime = {
+          ...runtimeInfo(binary, deps),
+          runtime_root: client.runtimeDir || null,
+          boot: result.boot,
+          owner_discovery: result.owner_discovery,
+        };
+      }
       if (statePaths && result && result.runtime) result.runtime.state_selection = statePaths;
       if (interruption.error) throw interruption.error;
     } catch (error) {
@@ -2095,9 +2106,21 @@ function findGitRoot(repo) {
 
 const KICKSTART_SCHEMA = "m1nd-kickstart-v0";
 
+function normalizeAgentStateArgs(args, repo) {
+  if (!args["state-dir"]) return args;
+  if (!args["no-attach"] || args["shared-runtime"] || args["runtime-dir"]) {
+    throw new Error("--state-dir requires --no-attach and cannot be combined with --shared-runtime or --runtime-dir");
+  }
+  for (const key of ["M1ND_MCP_ARGS", "M1ND_RUNTIME_DIR", "M1ND_RUNTIME_BASE", "M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_ATTACH_URL"]) {
+    if (process.env[key]) throw new Error(`--state-dir conflicts with ${key}; remove that runtime override explicitly before using isolated state`);
+  }
+  return { ...args, agentStatePaths: agentStatePaths(repo, args["state-dir"]) };
+}
+
 async function agentKickstart(args, deps) {
   const repo = path.resolve(args.repo || args.project || process.cwd());
   if (!args.repo && !args.project) throw new Error("agentKickstart requires --repo <path>");
+  args = normalizeAgentStateArgs(args, repo);
   const auditPath = args["audit-path"] ? path.resolve(args["audit-path"]) : repo;
   const agentId = args["agent-id"] || "m1nd-kickstart";
   const t0 = Date.now();
@@ -2265,15 +2288,7 @@ async function agentKickstart(args, deps) {
 async function agentCommand(args, deps) {
   const subcommand = args._[1] || "scope";
   const repo = path.resolve(args.repo || args.project || process.cwd());
-  if (args["state-dir"]) {
-    if (!args["no-attach"] || args["shared-runtime"] || args["runtime-dir"]) {
-      throw new Error("--state-dir requires --no-attach and cannot be combined with --shared-runtime or --runtime-dir");
-    }
-    for (const key of ["M1ND_MCP_ARGS", "M1ND_RUNTIME_DIR", "M1ND_RUNTIME_BASE", "M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_ATTACH_URL"]) {
-      if (process.env[key]) throw new Error(`--state-dir conflicts with ${key}; remove that runtime override explicitly before using isolated state`);
-    }
-    args = { ...args, agentStatePaths: agentStatePaths(repo, args["state-dir"]) };
-  }
+  args = normalizeAgentStateArgs(args, repo);
   const normalizedSubcommand = subcommand === "next" ? "auto" : subcommand;
   const agentId = args["agent-id"] || `m1nd-agent-${subcommand === "next" ? "next" : normalizedSubcommand}`;
   switch (normalizedSubcommand) {
