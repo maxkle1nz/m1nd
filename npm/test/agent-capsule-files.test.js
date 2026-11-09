@@ -29,3 +29,18 @@ test("containment callback rejects canonical symlink escapes", () => {
     assert.equal(capsuleFiles(path.join(repo,"a.js"), {connected_files:[{file_path:"link.js"}]}, bound).ok, false);
   } finally { fs.rmSync(root, {recursive:true,force:true}); }
 });
+
+test("every declared primary source must canonically match the selected anchor", () => {
+  const root = path.resolve("repo-alpha"), anchor = path.join(root, "a.js");
+  const bound = value => { const p = path.resolve(root, value); if (!p.startsWith(root + path.sep)) throw Error("outside"); return p; };
+  for (const payload of [
+    { file_path: "../outside.js", connected_files: [] },
+    { file_path: "b.js", connected_files: [] },
+    { file_path: null },
+    { primary_file: { file_path: "../outside.js" }, connected_files: [] },
+    { primary_file: { file_path: "b.js" }, connected_files: [] },
+    { primary_file: null },
+    { file_path: "a.js", primary_file: { file_path: "b.js" } },
+  ]) assert.equal(capsuleFiles(anchor, payload, bound).ok, false, JSON.stringify(payload));
+  assert.equal(capsuleFiles(anchor, { file_path: "./a.js", primary_file: { file_path: anchor }, connected_files: [] }, bound).ok, true);
+});

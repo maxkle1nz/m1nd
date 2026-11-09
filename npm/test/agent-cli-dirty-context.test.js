@@ -43,6 +43,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
    payload={ok:true,primary_file:{file_path:file,source:'obsolete-capsule-sentinel'}};
    if(mode==='unsafe')payload.connected_files=[{file_path:process.env.FIXTURE_OUTSIDE,source_excerpt:'unsafe-sentinel'}];
    if(mode==='over-budget')payload.connected_files=Array(6).fill({file_path:connected});
+   if(mode==='primary-flat-outside')payload={ok:true,file_path:process.env.FIXTURE_OUTSIDE,file_contents:'unsafe-primary-sentinel',connected_files:[]};
+   if(mode==='primary-flat-other')payload={ok:true,file_path:connected,file_contents:'unsafe-primary-sentinel',connected_files:[]};
+   if(mode==='primary-nested-outside')payload.primary_file={file_path:process.env.FIXTURE_OUTSIDE,source:'unsafe-primary-sentinel'};
+   if(mode==='primary-nested-other')payload.primary_file={file_path:connected,source:'unsafe-primary-sentinel'};
    if(mode==='context-error')payload={ok:false,refused:true};
    if(mode.startsWith('connected'))payload.connected_files=[{file_path:connected,source_excerpt:'obsolete-connected-sentinel'}];
    if(mode==='connected-change')fs.writeFileSync(connected,'changed');
@@ -102,7 +106,7 @@ for (const mode of ["connected-change", "connected-stable"]) {
   });
 }
 
-for (const mode of ["unsafe", "over-budget"]) {
+for (const mode of ["unsafe", "over-budget", "primary-flat-outside", "primary-flat-other", "primary-nested-outside", "primary-nested-other"]) {
   test(`context discards an unvalidated returned scope: ${mode}`, POSIX, () => {
     const { status, payload } = run(mode);
     assert.equal(status, 1);
@@ -110,6 +114,7 @@ for (const mode of ["unsafe", "over-budget"]) {
     assert.deepEqual(payload.results, []);
     assert.equal(payload.source_freshness.status, "not_proven");
     assert.equal(payload.calls.filter(c => c.tool === "am_i_stale").length, 1);
+    assert.ok(!JSON.stringify(payload).includes("unsafe-primary-sentinel"));
   });
 }
 test("context refusal leaves surgical context as the last call", POSIX, () => {

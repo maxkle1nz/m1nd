@@ -142,7 +142,9 @@ persistently attested by that identity.
 
 `agent context` calls the ordinary read-only `am_i_stale` door by name for the
 selected source anchor before retrieval. After retrieval it validates the
-actual returned connected-file paths (at most five) inside the selected repo,
+declared primary path against the canonical selected anchor (including the
+legacy nested primary field), and the actual returned connected-file paths
+(at most five) inside the selected repo,
 then checks anchor plus those files against the native inventory. Malformed,
 out-of-scope or over-budget capsules are discarded rather than truncated. A changed/missing anchor discards the capsule,
 returns `source_changed_during_context` with no results and a nonzero exit, and

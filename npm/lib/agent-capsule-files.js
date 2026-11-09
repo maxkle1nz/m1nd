@@ -12,6 +12,13 @@ function capsuleFiles(anchor, payload, ensureWithinRepo) {
   if (present && (!Array.isArray(payload.connected_files) || payload.connected_files.length > 5)) return invalid();
   try {
     const files = [ensureWithinRepo(anchor)];
+    if (Object.prototype.hasOwnProperty.call(payload, "file_path") &&
+        (!validPath(payload.file_path) || ensureWithinRepo(payload.file_path) !== files[0])) return invalid();
+    if (Object.prototype.hasOwnProperty.call(payload, "primary_file")) {
+      const primary = payload.primary_file;
+      if (!primary || typeof primary !== "object" || Array.isArray(primary) || !validPath(primary.file_path) ||
+          ensureWithinRepo(primary.file_path) !== files[0]) return invalid();
+    }
     for (const item of present ? payload.connected_files : []) {
       if (!item || typeof item !== "object" || Array.isArray(item) || !validPath(item.file_path)) return invalid();
       files.push(ensureWithinRepo(item.file_path));
