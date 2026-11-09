@@ -606,6 +606,11 @@ impl Graph {
     /// `save_graph` does, so the subsequent rebuild re-expands them correctly.
     fn rehydrate_csr_into_pending(&mut self) {
         let csr_total = self.csr.num_edges();
+        // A materialized bidirectional self-loop has two adjacent mirror
+        // slots. Fold a mirror only when the complete pair is unambiguous.
+        // Legacy asymmetric layouts retain the historical harvest behavior;
+        // the exact relation-edit API refuses them before mutation instead.
+        let canonical_self_loops = self.validate_relation_edits().is_ok();
 
         // The CSR `offsets` array was sized for the node count at the *previous*
         // finalize. Nodes added since then are not represented in it, so iterate only
@@ -623,6 +628,7 @@ impl Graph {
         for src in 0..csr_nodes {
             let lo = self.csr.offsets[src] as usize;
             let hi = self.csr.offsets[src + 1] as usize;
+            let mut self_loop_mirror = None;
             for j in lo..hi {
                 let tgt = self.csr.targets[j].as_usize();
                 let direction = self.csr.directions[j];
@@ -630,6 +636,13 @@ impl Graph {
                 // re-creates the reverse copy.
                 if direction == EdgeDirection::Bidirectional && src > tgt {
                     continue;
+                }
+                if canonical_self_loops && direction == EdgeDirection::Bidirectional && src == tgt {
+                    if self_loop_mirror == Some(j) {
+                        self_loop_mirror = None;
+                        continue;
+                    }
+                    self_loop_mirror = Some(j + 1);
                 }
                 harvested.push(PendingEdge {
                     source: NodeId::new(src as u32),
@@ -699,6 +712,185 @@ impl Graph {
         harvested.extend(new_pending);
         self.csr.pending_edges = harvested;
         self.edge_plasticity = combined_plasticity;
+    }
+
+    /// Remove all logical edges with these endpoints and relation. A real
+    /// zero-weight edge is retained unless it matches this identity. A
+    /// bidirectional edge matches either endpoint order. Returns the number
+    /// of logical edges removed; callers must `finalize` before querying.
+    pub fn remove_relation_edges(
+        &mut self,
+        source: NodeId,
+        target: NodeId,
+        relation: &str,
+    ) -> M1ndResult<usize> {
+        self.edit_relation_edges(source, target, relation, None)
+    }
+
+    /// Set the live weight of matching logical edges, including staged edges.
+    /// Other relations and their learning histories are preserved. Returns the
+    /// number of matching logical edges processed (zero if already satisfied);
+    /// callers must `finalize` before querying. Ambiguous bidirectional
+    /// self-loops are refused before mutation by both relation-edit methods.
+    pub fn set_relation_weight(
+        &mut self,
+        source: NodeId,
+        target: NodeId,
+        relation: &str,
+        weight: FiniteF32,
+    ) -> M1ndResult<usize> {
+        self.edit_relation_edges(source, target, relation, Some(weight))
+    }
+
+    fn edit_relation_edges(
+        &mut self,
+        source: NodeId,
+        target: NodeId,
+        relation: &str,
+        weight: Option<FiniteF32>,
+    ) -> M1ndResult<usize> {
+        self.validate_relation_edits()?;
+        let Some(relation) = self.strings.lookup(relation) else {
+            return Ok(0);
+        };
+        let matches = |src, tgt, rel, direction| {
+            rel == relation
+                && ((src == source && tgt == target)
+                    || (direction == EdgeDirection::Bidirectional
+                        && src == target
+                        && tgt == source))
+        };
+        let changes_weight = |current| weight.is_none_or(|next| next != current);
+        let pending_match = self.csr.pending_edges.iter().any(|edge| {
+            matches(edge.source, edge.target, edge.relation, edge.direction)
+                && changes_weight(edge.weight)
+        });
+        let csr_match = (0..self.csr.offsets.len().saturating_sub(1)).any(|src| {
+            self.csr.out_range(NodeId::new(src as u32)).any(|j| {
+                matches(
+                    NodeId::new(src as u32),
+                    self.csr.targets[j],
+                    self.csr.relations[j],
+                    self.csr.directions[j],
+                ) && changes_weight(self.csr.read_weight(EdgeIdx::new(j as u32)))
+            })
+        });
+        if !pending_match && !csr_match {
+            return Ok(0);
+        }
+
+        if self.csr.num_edges() > 0 {
+            self.rehydrate_csr_into_pending();
+        }
+        let pending = std::mem::take(&mut self.csr.pending_edges);
+        let previous = std::mem::take(&mut self.edge_plasticity);
+        // The harvested CSR must not be harvested a second time by finalize.
+        self.csr = CsrGraph::empty();
+        let mut changed = 0;
+        for (i, mut edge) in pending.into_iter().enumerate() {
+            let selected = matches(edge.source, edge.target, edge.relation, edge.direction);
+            if selected {
+                match weight {
+                    None => {
+                        changed += 1;
+                        continue;
+                    }
+                    Some(next) => {
+                        changed += 1;
+                        edge.weight = next;
+                    }
+                }
+            }
+            self.edge_plasticity
+                .original_weight
+                .push(previous.original_weight[i]);
+            self.edge_plasticity.current_weight.push(if selected {
+                edge.weight
+            } else {
+                previous.current_weight[i]
+            });
+            self.edge_plasticity
+                .strengthen_count
+                .push(previous.strengthen_count[i]);
+            self.edge_plasticity
+                .weaken_count
+                .push(previous.weaken_count[i]);
+            self.edge_plasticity
+                .ltp_applied
+                .push(previous.ltp_applied[i]);
+            self.edge_plasticity
+                .ltd_applied
+                .push(previous.ltd_applied[i]);
+            self.edge_plasticity
+                .last_used_query
+                .push(previous.last_used_query[i]);
+            self.csr.pending_edges.push(edge);
+        }
+        self.generation = self.generation.next();
+        self.finalized = false;
+        self.pagerank_dirty = true;
+        Ok(changed)
+    }
+
+    /// Preflight exact relation edits without mutating graph data. This is
+    /// public so a batch can reject an ambiguous self-loop before earlier
+    /// actions (such as node additions) have been applied. It is not a general
+    /// graph validator or a resolution of legacy bidirectional learning.
+    pub fn validate_relation_edits(&self) -> M1ndResult<()> {
+        let expected = self.csr.num_edges() + self.csr.pending_edges.len();
+        if [
+            self.edge_plasticity.original_weight.len(),
+            self.edge_plasticity.current_weight.len(),
+            self.edge_plasticity.strengthen_count.len(),
+            self.edge_plasticity.weaken_count.len(),
+            self.edge_plasticity.ltp_applied.len(),
+            self.edge_plasticity.ltd_applied.len(),
+            self.edge_plasticity.last_used_query.len(),
+        ]
+        .iter()
+        .any(|&length| length != expected)
+        {
+            return Err(M1ndError::CorruptState {
+                reason: "relation edit requires aligned edge plasticity".into(),
+            });
+        }
+        for source in 0..self.csr.offsets.len().saturating_sub(1) {
+            let mut i = self.csr.offsets[source] as usize;
+            let end = self.csr.offsets[source + 1] as usize;
+            while i < end {
+                if self.csr.targets[i].as_usize() != source
+                    || self.csr.directions[i] != EdgeDirection::Bidirectional
+                {
+                    i += 1;
+                    continue;
+                }
+                let j = i + 1;
+                let equivalent = j < end
+                    && self.csr.targets[j].as_usize() == source
+                    && self.csr.directions[j] == EdgeDirection::Bidirectional
+                    && self.csr.relations[i] == self.csr.relations[j]
+                    && self.csr.inhibitory[i] == self.csr.inhibitory[j]
+                    && self.csr.causal_strengths[i] == self.csr.causal_strengths[j]
+                    && self.csr.read_weight(EdgeIdx::new(i as u32))
+                        == self.csr.read_weight(EdgeIdx::new(j as u32))
+                    && self.edge_plasticity.original_weight[i]
+                        == self.edge_plasticity.original_weight[j]
+                    && self.edge_plasticity.current_weight[i]
+                        == self.edge_plasticity.current_weight[j]
+                    && self.edge_plasticity.strengthen_count[i]
+                        == self.edge_plasticity.strengthen_count[j]
+                    && self.edge_plasticity.weaken_count[i] == self.edge_plasticity.weaken_count[j]
+                    && self.edge_plasticity.ltp_applied[i] == self.edge_plasticity.ltp_applied[j]
+                    && self.edge_plasticity.ltd_applied[i] == self.edge_plasticity.ltd_applied[j]
+                    && self.edge_plasticity.last_used_query[i]
+                        == self.edge_plasticity.last_used_query[j];
+                if !equivalent {
+                    return Err(M1ndError::CorruptState { reason: "ambiguous bidirectional self-loop pair; relation edit refused before mutation".into() });
+                }
+                i += 2;
+            }
+        }
+        Ok(())
     }
 
     /// Build CSR forward + reverse adjacency. Compute PageRank.
