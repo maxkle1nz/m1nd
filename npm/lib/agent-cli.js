@@ -6,6 +6,7 @@ const { McpRuntimeClient, callToolSafely, discoverServeOwner } = require("./mcp-
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,
   ensureAgentRuntimeIdentity,
@@ -1178,6 +1179,26 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     cancellation: interruption,
     env: statePaths ? { M1ND_REGISTRY_DIR: statePaths.registry_root } : {},
   });
+  let sourceError = null;
+  const sourceCheckpoints = new Set();
+  const verifySource = (phase) => {
+    if (sourceError) throw sourceError;
+    if (!cacheTarget) return;
+    try {
+      assertAgentSourceIdentity(cacheTarget.sourceGuard, phase);
+      sourceCheckpoints.add(phase);
+    } catch (error) {
+      sourceError = error;
+      throw error;
+    }
+  };
+  const callTool = client.callTool.bind(client);
+  client.callTool = async (...toolArgs) => {
+    verifySource("before tool");
+    const response = await callTool(...toolArgs);
+    verifySource("after tool");
+    return response;
+  };
   let handlersRemoved = false;
   const onSignal = (signal) => {
     const error = interruption.interrupt(signal);
@@ -1202,6 +1223,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
         ? await acquireAgentRuntimeLease(runtimeDir, { cancellation: interruption })
         : null;
       if (interruption.error) throw interruption.error;
+      verifySource("after cache lease");
       if (cacheTarget) {
         // Identity can be written before the first graph bootstrap succeeds.
         // Only a persisted graph is eligible for the warm exact-root refresh;
@@ -1212,6 +1234,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
       if (interruption.error) throw interruption.error;
       await client.start();
       if (interruption.error) throw interruption.error;
+      verifySource("after initialize");
       result = applyBootPlan(await fn(client, binary), plan, repo);
       if (statePaths && result && result.runtime) result.runtime.state_selection = statePaths;
       if (interruption.error) throw interruption.error;
@@ -1223,6 +1246,10 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
       await client.close();
     } catch (error) {
       cleanupError = error;
+    }
+    if (!primaryError) {
+      try { verifySource("before return"); }
+      catch (error) { primaryError = error; }
     }
     let leaseReleaseError = null;
     // An unsuccessful close is not proof that the native writer stopped. A
@@ -1256,6 +1283,21 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
     }
     if (primaryError) throw primaryError;
     if (cleanupError) throw cleanupError;
+    if (result && result.runtime) {
+      result.runtime.source_identity = cacheTarget ? {
+        status: "verified_at_checkpoints",
+        canonical_root: cacheTarget.identity.canonical_root,
+        source_revision: cacheTarget.identity.source_revision,
+        checkpoints: [...sourceCheckpoints],
+        working_tree_contents: "not_attested_by_identity",
+        atomic_snapshot: false,
+      } : {
+        status: "not_checked",
+        reason: "this launch did not select an automatic isolated cache identity",
+        working_tree_contents: "not_attested_by_identity",
+        atomic_snapshot: false,
+      };
+    }
     return result;
   } finally {
     removeSignalHandlers();
@@ -1311,6 +1353,12 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
       };
     calls.push(callSummary("ingest", refresh));
     const refreshPayload = payloadDict(refresh);
+    client.agentRefreshReceipt = {
+      attempted: true,
+      ok: !refresh.isError && refreshPayload.ok === true,
+      refused: refreshPayload.refused || null,
+      reason: refreshPayload.reason || refreshPayload.error || null,
+    };
     if (refresh.isError || refreshPayload.ok !== true) {
       return {
         refresh,

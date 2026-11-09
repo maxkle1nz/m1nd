@@ -8,6 +8,7 @@ const test = require("node:test");
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,
   ensureAgentRuntimeIdentity,
@@ -16,6 +17,67 @@ const {
 const symlinkTestOptions = {
   skip: process.platform === "win32" && "Windows symlink creation requires host privilege",
 };
+
+test("cache source guard rejects branch and HEAD drift instead of reusing its selected identity", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-git-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+    git("init", "-q");
+    fs.writeFileSync(path.join(repo, "signal.js"), "export const signal = 1;\n");
+    git("add", ".");
+    git("-c", "user.name=Fixture User", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "initial");
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    assert.doesNotThrow(() => assertAgentSourceIdentity(target.sourceGuard, "selected"));
+    git("checkout", "-qb", "other-branch");
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "before startup"), /source identity changed.*before startup/);
+    const branchTarget = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.appendFileSync(path.join(repo, "signal.js"), "export const later = 2;\n");
+    git("add", ".");
+    git("-c", "user.name=Fixture User", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "advance");
+    assert.throws(() => assertAgentSourceIdentity(branchTarget.sourceGuard, "after query"), /source identity changed.*after query/);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("cache source guard rejects root replacement even with the same path and Git revision", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-root-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), parked = path.join(fixture, "parked");
+    fs.mkdirSync(repo);
+    execFileSync("git", ["-C", repo, "init", "-q"]);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.renameSync(repo, parked);
+    fs.cpSync(parked, repo, { recursive: true });
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "before return"), /source identity changed.*before return/);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("cache source guard fails closed if Git metadata becomes unreadable", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-unreadable-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    execFileSync("git", ["-C", repo, "init", "-q"]);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.renameSync(path.join(repo, ".git"), path.join(repo, "saved-git"));
+    fs.writeFileSync(path.join(repo, ".git"), "gitdir: missing-git-directory\n");
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "after refresh"), /source identity changed.*after refresh/);
+    fs.unlinkSync(path.join(repo, ".git"));
+    fs.renameSync(path.join(repo, "saved-git"), path.join(repo, ".git"));
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = "";
+      assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "missing Git"), /source identity changed.*Git.*unavailable/);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("state-dir plans storage without writes and prepares private registry/cache siblings", () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-plan-"));

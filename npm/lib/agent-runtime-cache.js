@@ -277,6 +277,7 @@ function ensureAgentRuntimeIdentity(lease, identity) {
 
 function agentRuntimeCacheTarget(repo, env = process.env) {
   const canonicalRoot = fs.realpathSync(repo);
+  const rootStamp = sourceRootStamp(canonicalRoot);
   const identity = {
     schema: CACHE_IDENTITY_SCHEMA,
     canonical_root: canonicalRoot,
@@ -285,7 +286,42 @@ function agentRuntimeCacheTarget(repo, env = process.env) {
   const key = crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const cacheBase = assertPrivateCacheBase(defaultCacheBase(env));
   const runtimeDir = path.join(cacheBase, key);
-  return { runtimeDir, identity };
+  const sourceGuard = { requested_root: path.resolve(repo), identity, root_stamp: rootStamp };
+  assertAgentSourceIdentity(sourceGuard, "cache selection");
+  return { runtimeDir, identity, sourceGuard };
+}
+
+function sourceRootStamp(root) {
+  const stat = fs.statSync(root);
+  if (!stat.isDirectory()) throw new Error("source root is not a directory");
+  return { dev: stat.dev, ino: stat.ino, birthtime_ms: stat.birthtimeMs };
+}
+
+function assertAgentSourceIdentity(guard, phase) {
+  try {
+    const root = fs.realpathSync(guard.requested_root);
+    if (root !== guard.identity.canonical_root ||
+        JSON.stringify(sourceRootStamp(root)) !== JSON.stringify(guard.root_stamp) ||
+        !sameIdentity(guard.identity, {
+          schema: CACHE_IDENTITY_SCHEMA,
+          canonical_root: root,
+          source_revision: sourceRevision(root),
+        })) {
+      throw new Error("root directory or Git revision no longer matches the selected cache");
+    }
+    // This is a boundary check, not an atomic filesystem snapshot or a claim
+    // about uncommitted file contents. Replacements between checks can race.
+    if (JSON.stringify(sourceRootStamp(root)) !== JSON.stringify(guard.root_stamp)) {
+      throw new Error("source root changed while its revision was read");
+    }
+  } catch (cause) {
+    const error = new Error(
+      `source identity changed during ${phase} (source_identity_changed); stale result refused: ${cause.message}`,
+      { cause }
+    );
+    error.code = "M1ND_AGENT_SOURCE_IDENTITY_CHANGED";
+    throw error;
+  }
 }
 
 // Plan without creating state. Resolve existing ancestors so aliases cannot
@@ -437,6 +473,7 @@ module.exports = {
   CACHE_IDENTITY_SCHEMA,
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,
   cacheOwnerWaitMs,

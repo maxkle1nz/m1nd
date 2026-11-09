@@ -13,6 +13,65 @@ const POSIX_SHEBANG_ONLY = {
   skip: process.platform === "win32" && "POSIX shebang fixture cannot be spawned by Windows CreateProcess",
 };
 
+test("automatic cache refuses source drift across lease, initialization, tools and shutdown", () => {
+  const { execFileSync } = require("node:child_process");
+  for (const mode of ["lease", "initialize", "tool_revert", "close", "stable"]) {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-boundary-"));
+    try {
+      const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+      const preload = path.join(fixture, "boundary-fixture.cjs"), marker = path.join(fixture, "started");
+      fs.mkdirSync(repo);
+      const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
+      git("init", "-q");
+      fs.writeFileSync(path.join(repo, "signal.js"), "export const boundary_signal = 1;\n");
+      git("add", ".");
+      git("-c", "user.name=Fixture User", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "initial");
+      const initialBranch = git("symbolic-ref", "--short", "HEAD");
+      const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(state, "agent-runtimes") });
+      fs.writeFileSync(preload, `
+const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const { McpRuntimeClient } = require(${JSON.stringify(path.resolve(__dirname, "../lib/mcp-runtime-client"))});
+const cache = require(${JSON.stringify(path.resolve(__dirname, "../lib/agent-runtime-cache"))});
+const mode = process.env.BOUNDARY_MODE, repo = process.env.BOUNDARY_REPO;
+const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' });
+let changed = false;
+function change() { if (!changed) { git('checkout', '-qb', 'changed-source'); changed = true; } }
+const acquire = cache.acquireAgentRuntimeLease;
+cache.acquireAgentRuntimeLease = async (...args) => { const lease = await acquire(...args); if (mode === 'lease') change(); return lease; };
+McpRuntimeClient.prototype.start = async function () { fs.writeFileSync(process.env.BOUNDARY_MARKER, 'started'); if (mode === 'initialize') change(); return this; };
+McpRuntimeClient.prototype.request = async function () { return { result: { tools: ['trust_selftest', 'session_handshake'].map(name => ({ name })) } }; };
+McpRuntimeClient.prototype.callTool = async function () { if (mode === 'tool_revert') change(); return { result: { content: [{ type: 'text', text: JSON.stringify({ trust_mode: 'full_trust', verdict: 'full_trust' }) }] } }; };
+McpRuntimeClient.prototype.close = async function () { if (mode === 'tool_revert' && changed) git('checkout', '-q', process.env.BOUNDARY_INITIAL_BRANCH); if (mode === 'close') change(); this.processClosed = true; this.closeStatus = { code: 0, signal: null }; };
+`);
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+      Object.assign(env, { NODE_OPTIONS: `--require=${preload}`, BOUNDARY_MODE: mode, BOUNDARY_REPO: repo,
+        BOUNDARY_MARKER: marker, BOUNDARY_INITIAL_BRANCH: initialBranch });
+      const run = spawnSync(process.execPath, [CLI, "agent", "trust", "--repo", repo, "--binary", process.execPath,
+        "--no-attach", "--state-dir", state, "--json"], { env, encoding: "utf8", timeout: 15000 });
+      assert.equal(run.signal, null, run.stderr);
+      if (mode === "stable") {
+        assert.equal(run.status, 0, run.stderr);
+        const payload = JSON.parse(run.stdout);
+        assert.equal(payload.runtime.source_identity.status, "verified_at_checkpoints");
+        assert.equal(payload.runtime.source_identity.source_revision.branch, initialBranch);
+        assert.equal(payload.runtime.source_identity.working_tree_contents, "not_attested_by_identity");
+        assert.equal(payload.runtime.source_identity.atomic_snapshot, false);
+      } else {
+        assert.equal(run.status, 1, run.stdout);
+        assert.match(run.stderr, /source identity changed/);
+        assert.equal(run.stdout, "", "source drift must not print a successful trust envelope");
+      }
+      if (mode === "lease") {
+        assert.equal(fs.existsSync(marker), false, "source drift after lease must stop before startup");
+        assert.equal(fs.existsSync(path.join(target.runtimeDir, "agent-cache-identity.json")), false);
+      }
+      assert.equal(fs.existsSync(path.join(target.runtimeDir, ".agent-cache-owner-v1")), false);
+      if (mode === "tool_revert") assert.equal(git("symbolic-ref", "--short", "HEAD"), initialBranch);
+    } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+  }
+});
+
 test("startup failure keeps the primary error when teardown also fails", POSIX_SHEBANG_ONLY, () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-startup-diagnostic-"));
   try {
