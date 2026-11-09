@@ -527,3 +527,148 @@ fn asymmetric_self_loop_refuses_before_any_batch_or_direct_helper_mutation() {
     assert!(!graph.pagerank_dirty);
     assert!(graph.csr.pending_edges.is_empty());
 }
+
+#[test]
+fn asymmetric_reverse_learning_refuses_unrelated_relation_edits_without_loss() {
+    let mut graph = build(&[edge("b", "c", "calls", 0.7)], true);
+    let a = graph.resolve_id("a").unwrap();
+    let b = graph.resolve_id("b").unwrap();
+    let c = graph.resolve_id("c").unwrap();
+    graph
+        .add_edge(
+            a,
+            b,
+            "imports",
+            FiniteF32::new(0.4),
+            EdgeDirection::Bidirectional,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+    graph.finalize().unwrap();
+    let reverse = graph
+        .csr
+        .out_range(b)
+        .find(|&j| graph.csr.targets[j] == a)
+        .unwrap();
+    graph
+        .csr
+        .atomic_write_weight(EdgeIdx::new(reverse as u32), FiniteF32::new(0.9), 10)
+        .unwrap();
+    graph.edge_plasticity.current_weight[reverse] = FiniteF32::new(0.9);
+    graph.edge_plasticity.strengthen_count[reverse] = 8;
+    let before_edges = semantic_edges(&graph);
+    let before_relation: Vec<_> = before_edges
+        .iter()
+        .filter(|row| row.2 == "imports")
+        .cloned()
+        .collect();
+    let before_snapshot = snapshot_bytes(&graph);
+    let engine = m1nd_core::plasticity::PlasticityEngine::new(&graph, Default::default());
+    let before_learning = serde_json::to_vec(&engine.export_state(&graph).unwrap()).unwrap();
+    let before_generation = graph.generation;
+    let before_strings = graph.strings.len();
+    assert_eq!(graph.remove_relation_edges(a, c, "imports").unwrap(), 0);
+    assert_eq!(
+        graph
+            .set_relation_weight(a, c, "imports", FiniteF32::ZERO)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        graph
+            .set_relation_weight(b, c, "calls", FiniteF32::new(0.7))
+            .unwrap(),
+        0
+    );
+    assert_eq!(graph.generation, before_generation);
+    let mut delta = one(DiffAction::RemoveEdge {
+        source_id: "b".into(),
+        target_id: "c".into(),
+        relation: "calls".into(),
+    });
+    delta.actions.insert(
+        0,
+        DiffAction::AddNode(ExtractedNode {
+            id: "must-not-precede-relation-error".into(),
+            label: "new".into(),
+            node_type: NodeType::Function,
+            tags: vec![],
+            line: 1,
+            end_line: 1,
+        }),
+    );
+    let result = delta.apply(&mut graph);
+    if result.is_ok() {
+        graph.finalize().unwrap();
+    }
+    let relation: Vec<_> = semantic_edges(&graph)
+        .into_iter()
+        .filter(|row| row.2 == "imports")
+        .collect();
+    assert_eq!(
+        relation, before_relation,
+        "unrelated reverse learned weight must not be replaced by the canonical slot"
+    );
+    assert!(result.unwrap_err().to_string().contains("bidirectional"));
+    assert!(graph
+        .resolve_id("must-not-precede-relation-error")
+        .is_none());
+    assert!(graph.remove_relation_edges(b, c, "calls").is_err());
+    assert!(graph
+        .set_relation_weight(a, b, "imports", FiniteF32::ZERO)
+        .is_err());
+    assert_eq!(semantic_edges(&graph), before_edges);
+    assert_eq!(snapshot_bytes(&graph), before_snapshot);
+    assert_eq!(
+        serde_json::to_vec(&engine.export_state(&graph).unwrap()).unwrap(),
+        before_learning
+    );
+    assert_eq!(graph.generation, before_generation);
+    assert_eq!(graph.strings.len(), before_strings);
+    assert!(graph.finalized);
+    assert!(!graph.pagerank_dirty);
+}
+
+#[test]
+fn reverse_counter_only_divergence_refuses_even_when_live_weights_are_equal() {
+    let mut graph = build(&[edge("b", "c", "calls", 0.7)], true);
+    let a = graph.resolve_id("a").unwrap();
+    let b = graph.resolve_id("b").unwrap();
+    let c = graph.resolve_id("c").unwrap();
+    graph
+        .add_edge(
+            a,
+            b,
+            "imports",
+            FiniteF32::new(0.4),
+            EdgeDirection::Bidirectional,
+            false,
+            FiniteF32::ZERO,
+        )
+        .unwrap();
+    graph.finalize().unwrap();
+    let reverse = graph
+        .csr
+        .out_range(b)
+        .find(|&j| graph.csr.targets[j] == a)
+        .unwrap();
+    graph.edge_plasticity.strengthen_count[reverse] = 13;
+    let engine = m1nd_core::plasticity::PlasticityEngine::new(&graph, Default::default());
+    let before_learning = serde_json::to_vec(&engine.export_state(&graph).unwrap()).unwrap();
+    let before_snapshot = snapshot_bytes(&graph);
+    let generation = graph.generation;
+    assert!(graph
+        .remove_relation_edges(b, c, "calls")
+        .unwrap_err()
+        .to_string()
+        .contains("bidirectional reverse state"));
+    assert_eq!(snapshot_bytes(&graph), before_snapshot);
+    assert_eq!(
+        serde_json::to_vec(&engine.export_state(&graph).unwrap()).unwrap(),
+        before_learning
+    );
+    assert_eq!(graph.generation, generation);
+    assert!(graph.finalized);
+    assert!(graph.csr.pending_edges.is_empty());
+}

@@ -610,7 +610,7 @@ impl Graph {
         // slots. Fold a mirror only when the complete pair is unambiguous.
         // Legacy asymmetric layouts retain the historical harvest behavior;
         // the exact relation-edit API refuses them before mutation instead.
-        let canonical_self_loops = self.validate_relation_edits().is_ok();
+        let canonical_self_loops = self.validate_self_loop_pairs().is_ok();
 
         // The CSR `offsets` array was sized for the node count at the *previous*
         // finalize. Nodes added since then are not represented in it, so iterate only
@@ -731,7 +731,7 @@ impl Graph {
     /// Other relations and their learning histories are preserved. Returns the
     /// number of matching logical edges processed (zero if already satisfied);
     /// callers must `finalize` before querying. Ambiguous bidirectional
-    /// self-loops are refused before mutation by both relation-edit methods.
+    /// mirrors are refused before mutation by both relation-edit methods.
     pub fn set_relation_weight(
         &mut self,
         source: NodeId,
@@ -749,7 +749,6 @@ impl Graph {
         relation: &str,
         weight: Option<FiniteF32>,
     ) -> M1ndResult<usize> {
-        self.validate_relation_edits()?;
         let Some(relation) = self.strings.lookup(relation) else {
             return Ok(0);
         };
@@ -778,6 +777,7 @@ impl Graph {
         if !pending_match && !csr_match {
             return Ok(0);
         }
+        self.validate_relation_edits()?;
 
         if self.csr.num_edges() > 0 {
             self.rehydrate_csr_into_pending();
@@ -833,10 +833,79 @@ impl Graph {
     }
 
     /// Preflight exact relation edits without mutating graph data. This is
-    /// public so a batch can reject an ambiguous self-loop before earlier
+    /// public so a batch can reject ambiguous bidirectional mirrors before earlier
     /// actions (such as node additions) have been applied. It is not a general
     /// graph validator or a resolution of legacy bidirectional learning.
     pub fn validate_relation_edits(&self) -> M1ndResult<()> {
+        self.validate_self_loop_pairs()?;
+        // Match parallel reverse slots positionally within the same complete
+        // structural identity, as snapshot v4 does. Harvesting preserves only
+        // the canonical slot, so a differing reverse history must not be
+        // silently replaced during an otherwise unrelated edit.
+        type MirrorKey = (u32, u32, InternedStr, bool, u32);
+        let mut mirrors: HashMap<MirrorKey, std::collections::VecDeque<usize>> = HashMap::new();
+        for source in 0..self.csr.offsets.len().saturating_sub(1) {
+            for i in self.csr.out_range(NodeId::new(source as u32)) {
+                let target = self.csr.targets[i].0;
+                if self.csr.directions[i] == EdgeDirection::Bidirectional
+                    && source > target as usize
+                {
+                    mirrors
+                        .entry((
+                            source as u32,
+                            target,
+                            self.csr.relations[i],
+                            self.csr.inhibitory[i],
+                            self.csr.causal_strengths[i].get().to_bits(),
+                        ))
+                        .or_default()
+                        .push_back(i);
+                }
+            }
+        }
+        for source in 0..self.csr.offsets.len().saturating_sub(1) {
+            for i in self.csr.out_range(NodeId::new(source as u32)) {
+                let target = self.csr.targets[i].0;
+                if self.csr.directions[i] != EdgeDirection::Bidirectional
+                    || source >= target as usize
+                {
+                    continue;
+                }
+                let key = (
+                    target,
+                    source as u32,
+                    self.csr.relations[i],
+                    self.csr.inhibitory[i],
+                    self.csr.causal_strengths[i].get().to_bits(),
+                );
+                let reverse = mirrors.get_mut(&key).and_then(|slots| slots.pop_front());
+                if !reverse.is_some_and(|j| self.equivalent_edge_learning(i, j)) {
+                    return Err(M1ndError::CorruptState { reason: "ambiguous bidirectional reverse state; relation edit refused before mutation".into() });
+                }
+            }
+        }
+        if mirrors.values().any(|slots| !slots.is_empty()) {
+            return Err(M1ndError::CorruptState {
+                reason:
+                    "unmatched bidirectional reverse slots; relation edit refused before mutation"
+                        .into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn equivalent_edge_learning(&self, i: usize, j: usize) -> bool {
+        self.csr.read_weight(EdgeIdx::new(i as u32)) == self.csr.read_weight(EdgeIdx::new(j as u32))
+            && self.edge_plasticity.original_weight[i] == self.edge_plasticity.original_weight[j]
+            && self.edge_plasticity.current_weight[i] == self.edge_plasticity.current_weight[j]
+            && self.edge_plasticity.strengthen_count[i] == self.edge_plasticity.strengthen_count[j]
+            && self.edge_plasticity.weaken_count[i] == self.edge_plasticity.weaken_count[j]
+            && self.edge_plasticity.ltp_applied[i] == self.edge_plasticity.ltp_applied[j]
+            && self.edge_plasticity.ltd_applied[i] == self.edge_plasticity.ltd_applied[j]
+            && self.edge_plasticity.last_used_query[i] == self.edge_plasticity.last_used_query[j]
+    }
+
+    fn validate_self_loop_pairs(&self) -> M1ndResult<()> {
         let expected = self.csr.num_edges() + self.csr.pending_edges.len();
         if [
             self.edge_plasticity.original_weight.len(),
@@ -871,19 +940,7 @@ impl Graph {
                     && self.csr.relations[i] == self.csr.relations[j]
                     && self.csr.inhibitory[i] == self.csr.inhibitory[j]
                     && self.csr.causal_strengths[i] == self.csr.causal_strengths[j]
-                    && self.csr.read_weight(EdgeIdx::new(i as u32))
-                        == self.csr.read_weight(EdgeIdx::new(j as u32))
-                    && self.edge_plasticity.original_weight[i]
-                        == self.edge_plasticity.original_weight[j]
-                    && self.edge_plasticity.current_weight[i]
-                        == self.edge_plasticity.current_weight[j]
-                    && self.edge_plasticity.strengthen_count[i]
-                        == self.edge_plasticity.strengthen_count[j]
-                    && self.edge_plasticity.weaken_count[i] == self.edge_plasticity.weaken_count[j]
-                    && self.edge_plasticity.ltp_applied[i] == self.edge_plasticity.ltp_applied[j]
-                    && self.edge_plasticity.ltd_applied[i] == self.edge_plasticity.ltd_applied[j]
-                    && self.edge_plasticity.last_used_query[i]
-                        == self.edge_plasticity.last_used_query[j];
+                    && self.equivalent_edge_learning(i, j);
                 if !equivalent {
                     return Err(M1ndError::CorruptState { reason: "ambiguous bidirectional self-loop pair; relation edit refused before mutation".into() });
                 }
