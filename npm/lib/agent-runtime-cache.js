@@ -214,6 +214,10 @@ function assertPrivateCacheAncestors(canonicalBase) {
 
 function assertPrivateCacheBase(base) {
   fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+  return assertExistingPrivateCacheBase(base);
+}
+
+function assertExistingPrivateCacheBase(base) {
   assertCacheDirectory(base, "base");
   const canonical = fs.realpathSync(base);
   const stat = fs.statSync(canonical);
@@ -225,6 +229,16 @@ function assertPrivateCacheBase(base) {
   }
   assertPrivateCacheAncestors(canonical);
   return canonical;
+}
+
+function canonicalFuturePath(target) {
+  let ancestor = target;
+  const missing = [];
+  while (!cacheLstat(ancestor)) {
+    missing.unshift(path.basename(ancestor));
+    ancestor = path.dirname(ancestor);
+  }
+  return path.resolve(fs.realpathSync(ancestor), ...missing);
 }
 
 function sameIdentity(left, right) {
@@ -290,7 +304,7 @@ function ensureAgentRuntimeIdentity(lease, identity) {
   }
 }
 
-function agentRuntimeCacheTarget(repo, env = process.env) {
+function agentRuntimeCacheTarget(repo, env = process.env, options = {}) {
   const canonicalRoot = fs.realpathSync(repo);
   const rootStamp = sourceRootStamp(canonicalRoot);
   const identity = {
@@ -299,11 +313,18 @@ function agentRuntimeCacheTarget(repo, env = process.env) {
     source_revision: sourceRevision(canonicalRoot),
   };
   const key = crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex");
-  const cacheBase = assertPrivateCacheBase(defaultCacheBase(env));
+  const requestedBase = defaultCacheBase(env);
+  const cacheBase = options.readOnly
+    ? (cacheLstat(requestedBase) ? assertExistingPrivateCacheBase(requestedBase) : canonicalFuturePath(requestedBase))
+    : assertPrivateCacheBase(requestedBase);
   const runtimeDir = path.join(cacheBase, key);
   const sourceGuard = { requested_root: path.resolve(repo), identity, root_stamp: rootStamp };
   assertAgentSourceIdentity(sourceGuard, "cache selection");
   return { runtimeDir, identity, sourceGuard };
+}
+
+function planAgentRuntimeCacheTarget(repo, env = process.env) {
+  return agentRuntimeCacheTarget(repo, env, { readOnly: true });
 }
 
 function sourceRootStamp(root) {
@@ -488,6 +509,7 @@ module.exports = {
   CACHE_IDENTITY_SCHEMA,
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  planAgentRuntimeCacheTarget,
   assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,

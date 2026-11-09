@@ -1,5 +1,6 @@
 'use strict';
-const test = require('node:test');
+const nodeTest = require('node:test');
+const test = (name, fn) => nodeTest(name, { skip: !fs.constants.O_NOFOLLOW && 'Memory review requires no-follow file reads' }, fn);
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -21,6 +22,7 @@ test('complete supplied baseline is only a candidate; no mutation or claim text'
  const f=fixture(t); const before=fs.readdirSync(f.runtimeDir); const r=reviewAgentMemory(f);
  assert.equal(r.documents[0].status,'candidate_only'); assert.equal(r.authored_provenance,'supplied_unverified'); assert.equal(r.sharing_authorized,false); assert.equal(r.semantic_validity,'not_certified'); assert.equal(r.mutations,false);
  assert.deepEqual(fs.readdirSync(f.runtimeDir),before); assert.equal(JSON.stringify(r).includes('Created:'),false);
+ assert.deepEqual(r.baseline_source_identity,f.provenance.source_identity); assert.equal(r.baseline_identity_authenticated,false); assert.equal(r.observations_atomic,false);
 });
 test('legacy and partial baselines cannot become candidates',t=>{
  const f=fixture(t); assert.equal(reviewAgentMemory({...f,provenance:undefined}).documents[0].status,'origin_not_attested');

@@ -12,6 +12,67 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("native context rejects dirty anchor races and the next invocation rebuilds the edited source", {
+  skip: !BINARY || !EMBED_MODEL || process.platform === "win32",
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-native-anchor-race-"));
+  try {
+    for (const phase of ["before", "after"]) {
+      const repo = path.join(fixture, phase, "repo-alpha"), state = path.join(fixture, phase, "state");
+      writeFixture(repo, "native_anchor_original");
+      const anchor = path.join(repo, "src/signal.js"), proxy = path.join(fixture, `proxy-${phase}.js`);
+      fs.writeFileSync(proxy, `#!${process.execPath}\n` + `
+const fs=require('node:fs'),{spawn,spawnSync}=require('node:child_process'),readline=require('node:readline');
+const args=process.argv.slice(2),binary=process.env.FIXTURE_NATIVE_BINARY;
+if(args.includes('--version')){const r=spawnSync(binary,args,{encoding:'utf8'});process.stdout.write(r.stdout||'');process.stderr.write(r.stderr||'');process.exit(r.status===null?1:r.status);}
+const child=spawn(binary,args,{stdio:['pipe','pipe','inherit']});
+const contexts=new Set();let changed=false;
+const edit=()=>{if(!changed){fs.writeFileSync(process.env.FIXTURE_ANCHOR,'export function native_anchor_updated() { return 91; }\\n');changed=true;}};
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const q=JSON.parse(line);
+ if(q.method==='tools/call'&&q.params.name==='surgical_context_v2')contexts.add(q.id);
+ if(process.env.FIXTURE_DRIFT_PHASE==='before'&&q.method==='tools/call'&&q.params.name==='am_i_stale')edit();
+ child.stdin.write(line+'\\n');
+}).on('close',()=>child.stdin.end());
+readline.createInterface({input:child.stdout}).on('line',line=>{
+ const answer=JSON.parse(line);
+ if(process.env.FIXTURE_DRIFT_PHASE==='after'&&contexts.has(answer.id)){edit();contexts.delete(answer.id);}
+ process.stdout.write(line+'\\n');
+});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>child.kill(signal));
+child.on('error',()=>process.exit(1));child.on('exit',code=>process.exit(code===null?1:code));
+`, { mode: 0o700 });
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+      Object.assign(env, { M1ND_EMBED_MODEL: EMBED_MODEL, FIXTURE_NATIVE_BINARY: BINARY,
+        FIXTURE_ANCHOR: anchor, FIXTURE_DRIFT_PHASE: phase });
+      const options = { args: ["--no-attach", "--state-dir", state] };
+      runFirstMinute(repo, "native_anchor_original", env, options);
+      const raced = spawnSync(process.execPath, [CLI, "agent", "context", "--repo", repo, "--binary", proxy,
+        "--no-attach", "--state-dir", state, "--query", "native_anchor_original", "--anchor", "src/signal.js", "--json"],
+      { env, encoding: "utf8", timeout: 60000 });
+      assert.equal(raced.status, 1, `${raced.stderr}\n${raced.stdout}`);
+      const refused = JSON.parse(raced.stdout);
+      assert.equal(refused.status, "source_changed_during_context");
+      assert.deepEqual(refused.results, []);
+      assert.equal(refused.calls.filter(call => call.tool === "surgical_context_v2").length, phase === "before" ? 0 : 1);
+      const retried = runFirstMinute(repo, "native_anchor_updated", env, options).payload;
+      const rebuilt = runFirstMinute(repo, "native_anchor_updated", env,
+        { args: ["--no-attach", "--state-dir", path.join(fixture, phase, "baseline")] }).payload;
+      const projection = (payload) => {
+        const graph = JSON.parse(fs.readFileSync(path.join(payload.runtime.runtime_root, "graph_snapshot.json"), "utf8"));
+        return {
+          nodes: graph.nodes.map(({ external_id, label, node_type, tags, provenance }) =>
+            [external_id, label, node_type, [...tags].sort(), provenance]).sort((a, b) => a[0].localeCompare(b[0])),
+          edges: graph.edges.map(({ source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength }) =>
+            [source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        };
+      };
+      assert.deepEqual(projection(retried), projection(rebuilt));
+      assert.ok(!projection(retried).nodes.some(node => node[1] === "native_anchor_original"));
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("linked worktrees keep divergent views separate across branch recreation and restart", {
   skip: !BINARY || !EMBED_MODEL,
 }, () => {
@@ -212,6 +273,33 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     };
     const initial = probe(state), initialRuntime = initial.runtime.runtime_root;
     const memoryPath = await memory(initialRuntime, true), memoryDigest = sha256(memoryPath);
+    const provenanceFile = path.join(fixture, "provided-memory-baseline.json");
+    const suppliedBaseline = {
+      schema: "m1nd-memory-sharing-baseline-v1",
+      source_identity: JSON.parse(fs.readFileSync(path.join(initialRuntime, "agent-cache-identity.json"), "utf8")),
+      documents: [{ name: path.basename(memoryPath), sha256: memoryDigest,
+        evidence: [{ path: "src/signal.js", sha256: sha256(path.join(repo, "src/signal.js")) }] }],
+    };
+    fs.writeFileSync(provenanceFile, JSON.stringify(suppliedBaseline));
+    const memoryReview = (withBaseline = true) => {
+      const run = spawnSync(process.execPath, [CLI, "agent", "memory-check", "--repo", repo,
+        "--no-attach", "--state-dir", state, "--binary", path.join(fixture, "must-not-run"),
+        ...(withBaseline ? ["--provenance-manifest", provenanceFile] : []), "--json"], { env, encoding: "utf8", timeout: 15000 });
+      assert.equal(run.status, 0, run.stderr);
+      const review = JSON.parse(run.stdout);
+      assert.equal(review.sharing_authorized, false);
+      assert.equal(review.semantic_validity, "not_certified");
+      assert.equal(review.mutations, false);
+      assert.equal(sha256(memoryPath), memoryDigest);
+      return review;
+    };
+    if (fs.constants.O_NOFOLLOW) {
+      assert.equal(memoryReview(false).documents[0].status, "origin_not_attested");
+      const candidate = memoryReview();
+      assert.equal(candidate.documents[0].status, "candidate_only");
+      assert.equal(candidate.authored_provenance, "supplied_unverified");
+      assert.equal(candidate.baseline_identity_authenticated, false);
+    }
     const initialHead = vcs("rev-parse", "HEAD");
     fs.writeFileSync(path.join(repo, "src/signal.js"), "export function branch_graph_signal() { return 73; }\nexport function dirty_only_symbol() { return 5; }\n");
     const dirty = probe(state);
@@ -219,6 +307,7 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     assert.equal(vcs("rev-parse", "HEAD"), initialHead);
     assert.equal(dirty.runtime.graph_snapshot_version.update_status, "refreshed");
     assert.ok(compareRebuild(dirty).nodes.some((node) => node.label === "dirty_only_symbol"));
+    if (fs.constants.O_NOFOLLOW) assert.equal(memoryReview().documents[0].status, "invalidated");
     const restoration = (payload) => {
       const memory = payload.runtime.view.memory;
       assert.equal(memory.claim_origin, "not_attested");
@@ -240,6 +329,7 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     const evidenceRenamed = probe(state, "stable_2", stableSource);
     compareRebuild(evidenceRenamed, "stable_2", stableSource);
     assert.ok(restoration(evidenceRenamed).light_evidence_unresolved >= 1);
+    if (fs.constants.O_NOFOLLOW) assert.equal(memoryReview().documents[0].status, "invalidated");
     fs.unlinkSync(movedSignal);
     const evidenceDeleted = probe(state, "stable_2", stableSource);
     compareRebuild(evidenceDeleted, "stable_2", stableSource);
@@ -265,6 +355,11 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     const committed = probe(state), committedRuntime = committed.runtime.runtime_root;
     assert.notEqual(committedRuntime, initialRuntime);
     assert.ok(!snapshot(committed).nodes.some((node) => node.external_id.startsWith("light::")), "a new commit must not silently inherit branch-bound memory");
+    if (fs.constants.O_NOFOLLOW) {
+      const absent = memoryReview();
+      assert.deepEqual(absent.documents, []);
+      assert.deepEqual(absent.baseline_documents_not_observed, [path.basename(memoryPath)]);
+    }
     const retained = sha256(path.join(initialRuntime, "graph_snapshot.json"));
     vcs("switch", "-c", "graph-feature");
     fs.writeFileSync(path.join(repo, "src/feature.js"), "export function feature_only_symbol() { return 91; }\n");
@@ -301,6 +396,7 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     compareRebuild(remembered);
     await memory(initialRuntime, false);
     assert.equal(sha256(memoryPath), memoryDigest);
+    if (fs.constants.O_NOFOLLOW) assert.equal(memoryReview().documents[0].status, "candidate_only");
   } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
 });
 

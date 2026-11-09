@@ -72,7 +72,7 @@ function baseline(value, repo) {
   for(const e of d.evidence) { if(!exact(e,['path','sha256']) || !safeRelative(e.path) || !sha(e.sha256) || ev.has(e.path)) fail('invalid provenance evidence'); ev.set(e.path,e.sha256); }
   out.set(d.name,{sha256:d.sha256,evidence:ev});
  }
- return out;
+ return {documents:out,source_identity:p.source_identity};
 }
 function reviewAgentMemory({repo,runtimeDir,identity,provenance}={}) {
  const guards=[]; const budget={bytes:0};
@@ -83,8 +83,8 @@ function reviewAgentMemory({repo,runtimeDir,identity,provenance}={}) {
   const key=digest(JSON.stringify(identity)); if(path.basename(runtimeDir)!==key) fail('cache key mismatch');
   const manifest=JSON.parse(readFile(path.join(runtimeDir,'agent-cache-identity.json'),8192,guards).toString('utf8'));
   if(!validIdentity(manifest) || identityValue(manifest)!==identityValue(identity)) fail('manifest mismatch');
-  const supplied=baseline(provenance,canonical);
-  const output={schema:'m1nd-memory-review-v1',status:'reviewed',view_id:key,source_revision_observed:{...identity.source_revision},authored_provenance:supplied?'supplied_unverified':'absent',documents:[],semantic_validity:'not_certified',sharing_authorized:false,mutations:false};
+  const suppliedBaseline=baseline(provenance,canonical), supplied=suppliedBaseline?.documents;
+  const output={schema:'m1nd-memory-review-v1',status:'reviewed',view_id:key,source_revision_observed:{...identity.source_revision},authored_provenance:supplied?'supplied_unverified':'absent',baseline_source_identity:suppliedBaseline?.source_identity||null,baseline_identity_authenticated:false,observations_atomic:false,documents:[],baseline_documents_not_observed:supplied?[...supplied.keys()]:[],semantic_validity:'not_certified',sharing_authorized:false,mutations:false};
   const memory=path.join(runtimeDir,'agent-memory');
   try { fs.lstatSync(memory); } catch(e) { if(e.code!=='ENOENT') throw e; output.status='no_memory_observed'; for(const g of guards) g(); return output; }
   directory(memory,guards);

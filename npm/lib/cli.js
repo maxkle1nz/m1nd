@@ -80,6 +80,7 @@ Usage:
   m1nd update verify [--repo <dir>] [--transport stdio|http] [--json]
   m1nd update rollback [--json]
   m1nd agent scope --repo <dir> [--json]
+  m1nd agent memory-check --repo <dir> --no-attach [--state-dir <dir>] [--provenance-manifest <json>] [--json]
   m1nd agent trust --repo <dir> [--ensure-ingest] [--json]
   m1nd agent first-minute --repo <dir> --query <text> [--mode short|normal|deep] [--no-attach] [--json]
   m1nd agent orient --repo <dir> --query <text> [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]

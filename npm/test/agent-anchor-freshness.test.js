@@ -107,7 +107,7 @@ test("tool failures stay not proven without returning native or transport error 
 });
 
 test("invalid or oversized inputs do not call the native tool or silently truncate", async () => {
-  for (const requested of [undefined, [], ["relative.js"], [files[0], files[0]], [files[0], null],
+  for (const requested of [undefined, [], Array(1), ["relative.js"], [files[0], files[0]], [files[0], null],
     [files[0] + "\0"], Array.from({ length: 9 }, (_, index) => path.resolve("repo-alpha", `file${index}.js`))]) {
     const client = fixture(payload());
     const receipt = await checkAnchorFreshness(client, "anchor-probe", requested);

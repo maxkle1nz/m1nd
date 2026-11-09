@@ -6,6 +6,7 @@ const { McpRuntimeClient, callToolSafely, discoverServeOwner } = require("./mcp-
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  planAgentRuntimeCacheTarget,
   assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,
@@ -15,6 +16,8 @@ const {
 const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent-schemas");
 const { graphSnapshotVersion } = require("./agent-graph-receipt");
 const { agentViewReceipt } = require("./agent-view-receipt");
+const { reviewAgentMemory } = require("./agent-memory-review");
+const { checkAnchorFreshness } = require("./agent-anchor-freshness");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
 const ORIENTATION_TOOLS = new Set(["auto", "search", "seek", "activate", "audit", "glob"]);
@@ -1905,6 +1908,30 @@ async function agentContext(args, deps, repo, agentId) {
       envelope.next_actions.push("No source anchor was found; use search/glob/direct file reads to identify a concrete file first.");
       return attachCapabilityGuidance(envelope, query);
     }
+    envelope.selected_file = selectedFile;
+    const checkSelectedAnchor = async () => {
+      const check = await checkAnchorFreshness(client, agentId, [selectedFile]);
+      envelope.calls.push({ tool: "am_i_stale", isError: check.reason === "tool_error",
+        freshness_status: check.status, checked: check.checked });
+      return check;
+    };
+    const before = await checkSelectedAnchor();
+    envelope.source_freshness = { status: "not_proven", scope: "selected_anchor_only",
+      atomic_snapshot: false, before, after: { status: "not_checked" } };
+    const changedContext = () => {
+      envelope.ok = false;
+      envelope.status = "source_changed_during_context";
+      envelope.context_confidence = "context_unavailable";
+      envelope.source_freshness.status = "stale";
+      envelope.results = [];
+      envelope.switch_to_direct_proof = true;
+      envelope.action = buildDirectProofAction("source_changed_during_context");
+      envelope.proof_boundary = { m1nd_proved: "the selected anchor changed or went missing relative to the native inventory; context was discarded",
+        still_needs_direct_proof: ["read the current source directly", "obtain a new refreshed view before relying on graph context"] };
+      envelope.next_actions.push("Read the changed anchor directly; the next isolated invocation may refresh it. No retry was performed.");
+      return attachCapabilityGuidance(envelope, query);
+    };
+    if (before.status === "stale") return changedContext();
     const context = await callToolSafely(client, "surgical_context_v2", {
       agent_id: agentId,
       file_path: selectedFile,
@@ -1913,7 +1940,6 @@ async function agentContext(args, deps, repo, agentId) {
       max_connected_files: 5,
       max_lines_per_file: Math.max(20, Math.floor(maxOutputChars / 600)),
     });
-    envelope.selected_file = selectedFile;
     envelope.context_confidence = anchor || directFile
       ? "direct_anchor"
       : allowDiscovery
@@ -1933,6 +1959,14 @@ async function agentContext(args, deps, repo, agentId) {
       };
       envelope.next_actions.push("Context was refused or failed; read the selected file directly before making claims.");
       return attachCapabilityGuidance(envelope, query);
+    }
+    // An unsupported/unknown precheck cannot become a fresh claim, and is not
+    // retried. A valid inventory baseline is checked again after retrieval.
+    if (before.status === "fresh_at_boundary") {
+      const after = await checkSelectedAnchor();
+      envelope.source_freshness.after = after;
+      if (after.status === "stale") return changedContext();
+      if (after.status === "fresh_at_boundary") envelope.source_freshness.status = "fresh_at_boundaries";
     }
     envelope.results = [compactContextPayload(contextPayload, maxOutputChars)];
     envelope.action = buildDirectProofAction("context_capsule_ready");
@@ -2290,6 +2324,53 @@ async function agentKickstart(args, deps) {
   }
 }
 
+function readMemoryProvenance(file) {
+  if (typeof file !== "string") throw new Error("--provenance-manifest requires a JSON file");
+  let fd;
+  try {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.isSymbolicLink() || before.size > 131072) throw new Error("unsafe provenance file");
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const stamp = (stat) => [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+    if (stamp(fs.fstatSync(fd)) !== stamp(before)) throw new Error("provenance changed");
+    const buffer = Buffer.alloc(131073);
+    let size = 0;
+    for (let count; size < buffer.length && (count = fs.readSync(fd, buffer, size, buffer.length - size, null)) > 0;) size += count;
+    if (size > 131072 || stamp(fs.fstatSync(fd)) !== stamp(before) || stamp(fs.lstatSync(file)) !== stamp(before)) throw new Error("provenance changed");
+    const bytes = buffer.subarray(0, size), text = bytes.toString("utf8");
+    if (!Buffer.from(text).equals(bytes)) throw new Error("invalid UTF-8");
+    return JSON.parse(text);
+  } catch (_) {
+    throw new Error("memory provenance must be a stable, bounded regular UTF-8 JSON file; no values were adopted");
+  } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
+function agentMemoryCheck(args, repo) {
+  if (!args["no-attach"] || args["shared-runtime"] || args["runtime-dir"]) {
+    throw new Error("memory-check requires --no-attach and an automatic cache view; explicit/shared runtimes are not supported");
+  }
+  const env = args.agentStatePaths ? { ...process.env, M1ND_AGENT_CACHE_DIR: args.agentStatePaths.cache_base } : process.env;
+  const selected = planAgentRuntimeCacheTarget(repo, env);
+  const provenance = args["provenance-manifest"] === undefined ? undefined : readMemoryProvenance(args["provenance-manifest"]);
+  let report;
+  let runtimeExists = false;
+  try { fs.lstatSync(selected.runtimeDir); runtimeExists = true; }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  if (!runtimeExists) {
+    report = { schema: "m1nd-memory-review-v1", status: "view_not_observed",
+      view_id: path.basename(selected.runtimeDir), source_revision_observed: selected.identity.source_revision,
+      authored_provenance: "absent", baseline_source_identity: null, baseline_identity_authenticated: false,
+      baseline_status: "not_evaluated_missing_view", observations_atomic: false,
+      documents: [], semantic_validity: "not_certified",
+      sharing_authorized: false, mutations: false };
+  } else {
+    report = reviewAgentMemory({ repo: selected.identity.canonical_root, runtimeDir: selected.runtimeDir,
+      identity: selected.identity, provenance });
+  }
+  assertAgentSourceIdentity(selected.sourceGuard, "after memory review");
+  return report;
+}
+
 async function agentCommand(args, deps) {
   const subcommand = args._[1] || "scope";
   const repo = path.resolve(args.repo || args.project || process.cwd());
@@ -2297,6 +2378,8 @@ async function agentCommand(args, deps) {
   const normalizedSubcommand = subcommand === "next" ? "auto" : subcommand;
   const agentId = args["agent-id"] || `m1nd-agent-${subcommand === "next" ? "next" : normalizedSubcommand}`;
   switch (normalizedSubcommand) {
+    case "memory-check":
+      return agentMemoryCheck(args, repo);
     case "scope":
       return agentScope(args, deps, repo, agentId);
     case "trust":

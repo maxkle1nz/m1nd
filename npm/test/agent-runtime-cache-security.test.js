@@ -8,6 +8,7 @@ const test = require("node:test");
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  planAgentRuntimeCacheTarget,
   assertAgentSourceIdentity,
   agentStatePaths,
   prepareAgentState,
@@ -17,6 +18,21 @@ const {
 const symlinkTestOptions = {
   skip: process.platform === "win32" && "Windows symlink creation requires host privilege",
 };
+
+test("readonly cache selection does not create missing state and agrees with normal identity", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-readonly-cache-plan-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), cache = path.join(fixture, "missing-cache");
+    fs.mkdirSync(repo);
+    const env = { M1ND_AGENT_CACHE_DIR: cache };
+    const planned = planAgentRuntimeCacheTarget(repo, env);
+    assert.equal(fs.existsSync(cache), false);
+    const selected = agentRuntimeCacheTarget(repo, env);
+    assert.deepEqual(planned.identity, selected.identity);
+    assert.equal(planned.runtimeDir, selected.runtimeDir);
+    assert.equal(fs.readdirSync(cache).length, 0);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("automatic cache refuses ambient Git repository redirection before creating a cache", () => {
   const { execFileSync } = require("node:child_process");

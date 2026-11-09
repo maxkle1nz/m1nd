@@ -138,6 +138,66 @@ without changing its sidecar bytes. Recreating a root at the same path can reuse
 the same cache identity after refresh; root history and old claim origin are not
 persistently attested by that identity.
 
+## Context anchor changes during a command
+
+`agent context` calls the ordinary read-only `am_i_stale` door by name for the
+selected source anchor before retrieval. A complete fresh inventory comparison
+is checked again afterward. A changed/missing anchor discards the capsule,
+returns `source_changed_during_context` with no results and a nonzero exit, and
+hands off to direct proof. The command does not refresh/retry automatically.
+The next isolated invocation performs its normal full refresh.
+
+Unknown files, unavailable tools, incomplete or malformed replies remain
+`source_freshness.status: not_proven`; the unavailable precheck is not retried.
+Only exact successful coverage at both boundaries yields `fresh_at_boundaries`.
+The scope is **the selected anchor**, not every connected source file, new file
+or the whole tree. Neither boundary observes an atomic filesystem snapshot;
+changes after the final check or change-and-revert races remain outside it.
+
+## Read-only memory sharing review
+
+The unreleased command inspects only the currently selected automatic cache:
+
+```bash
+node npm/bin/m1nd.js agent memory-check --repo /workspace/repo-alpha \
+  --no-attach --state-dir /workspace/private-state --json
+```
+
+It does not start a native runtime, discover/attach an owner, create state,
+copy memory or ingest anything. Git identity reads still occur. Missing views
+are reported without creation; sibling views are not searched. Existing view
+identity is checked against its manifest/key. Inspection requires no-follow
+file reads; an unavailable filesystem capability refuses inspection.
+
+Legacy memory reports `origin_not_attested`: `Created` and `Origin-Brain` are
+not author-time evidence hashes or branch identity. Evidence paths/hashes and
+missing/unsafe/unreadable states are observations, not proof of claim truth.
+
+An optional `--provenance-manifest <json>` accepts a bounded explicit baseline:
+`schema: m1nd-memory-sharing-baseline-v1`, `source_identity` in the existing
+cache-identity-v1 shape, and `documents` containing each memory basename,
+`sha256`, and complete `evidence: [{path, sha256}]`. Hashes are 64 lowercase hex
+characters. The supplied source root must be the same canonical project root;
+its branch/HEAD may differ and are returned separately from the selected view.
+Different worktree roots are deliberately not treated as a common project.
+
+The baseline is always `supplied_unverified`, with
+`baseline_identity_authenticated: false`. Complete matching document/evidence
+bytes produce only `candidate_only`. Changed documents/evidence, deletion or
+rename invalidate the candidate; missing provenance, partial coverage and
+unreadable evidence cannot produce a candidate. No baseline is minted
+retroactively or authenticated by this command. Every result preserves
+`semantic_validity: not_certified`, `sharing_authorized: false`,
+`mutations: false` and `observations_atomic: false`. This is a proposal review,
+not an automatic sharing/promotion implementation.
+
+Reads reject symlinks, absolute/traversing evidence paths, duplicates and
+in-flight mutations. Limits are 32 immediate memory files, 64 KiB/document,
+16 evidence paths/document, 1 MiB/evidence file, 16 MiB evidence total and
+128 KiB supplied provenance. Exceeding a limit refuses rather than truncates.
+Native fixtures check dirty invalidation, source-evidence rename/delete,
+branch isolation and return-to-origin consistency alongside rebuild parity.
+
 ## Relation-edit substrate
 
 `GraphDiff` now applies relation removal and matches weight edits by endpoints

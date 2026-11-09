@@ -118,3 +118,9 @@ selectors are refused for automatic cache selection.
 For restored memory, inspect `runtime.view.memory.restoration.evidence_check`
 alongside stale counts. An inventory check or zero stale count does not certify
 a claim; absent/unverifiable checks remain explicit.
+
+Unreleased `agent memory-check --repo <dir> --no-attach --state-dir <dir>`
+reviews only current-view memory without native boot or copying claims. Supplied
+baselines remain unauthenticated proposals; sharing is never authorized. Context
+capsules are discarded when a selected-anchor boundary check observes a change;
+unknown checks stay not proven. See the [freshness contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md).

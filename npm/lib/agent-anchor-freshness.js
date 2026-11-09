@@ -22,7 +22,7 @@ function receipt(files, reason) {
 async function checkAnchorFreshness(client, agentId, files) {
   if (typeof agentId !== "string" || !agentId.trim() || agentId.includes("\0") ||
       !Array.isArray(files) || files.length < 1 || files.length > 8 ||
-      files.some((file) => typeof file !== "string" || file.includes("\0") || !path.isAbsolute(file)) ||
+      Array.from(files).some((file) => typeof file !== "string" || file.includes("\0") || !path.isAbsolute(file)) ||
       new Set(files).size !== files.length) {
     return receipt([], "invalid_input");
   }
