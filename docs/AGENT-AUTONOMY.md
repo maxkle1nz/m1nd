@@ -116,7 +116,9 @@ This remains the default; the source-only opt-in below requires isolated mode.
 
 The unreleased `runtime.view` receipt separates cache-view identity, observed
 code version and memory-restoration telemetry. Restoring memory does not certify
-a claim or share it with other branches. Automatic caches refuse ambient Git
+a claim or share it with other branches. Inspect the restoration
+`evidence_check` state alongside counts: zero stale evidence is not a claim-validity
+certificate. Automatic caches refuse ambient Git
 repository selectors instead of adopting a foreign branch identity.
 
 See [automatic graph freshness](AUTOMATIC-GRAPH-FRESHNESS.md) for branch/HEAD

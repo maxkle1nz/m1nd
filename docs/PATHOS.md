@@ -1,5 +1,7 @@
 # PATHOS — m1nd agent handoff
 
+**Memory evidence boundary — 2026-11-09 (local, unpublished):** The exact e407b04d npm suite passed 70/70 with no failures/skips. The next local increment preserves native evidence-check status separately from stale counts in runtime.view; claim truth/origin remain uncertified and unknown diagnostics are omitted. Native evidence rename/delete/return probes compare against rebuilds while preserving the original memory bytes and branch isolation.
+
 **Branch/worktree view candidate — 2026-11-09 (local, unpublished):** Automatic cache identity refuses ambient Git repository redirection and requires a source worktree. A view receipt separates cache identity, observed refreshed code provenance and memory restoration telemetry, without certifying old claims or copying them between branches. New native fixtures exercise detached worktrees at the same HEAD, divergence, branch/worktree recreation and exact-owner memory recall against rebuilds. Same-path cache reuse does not attest historical root continuity.
 
 **Isolated entry hardening — 2026-11-09 (local, unpublished):** Kickstart now honors explicit state storage and reports refused results through process status. Isolated launches reject inherited attach selectors; automatic caches reject destination overrides before startup. Native warm-query fixtures verify refresh ordering and newly edited graph-backed search results. The audit authority floor remains unchanged; no ordinary native audit success or continuous watcher is claimed.

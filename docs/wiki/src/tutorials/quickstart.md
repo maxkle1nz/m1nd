@@ -114,3 +114,7 @@ Unreleased `runtime.view` separates worktree/branch/commit cache identity from
 observed refreshed code and memory restoration. Claims stay bound to their view;
 restoration does not certify their freshness. Conflicting ambient Git repository
 selectors are refused for automatic cache selection.
+
+For restored memory, inspect `runtime.view.memory.restoration.evidence_check`
+alongside stale counts. An inventory check or zero stale count does not certify
+a claim; absent/unverifiable checks remain explicit.

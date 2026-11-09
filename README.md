@@ -62,7 +62,7 @@ Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicit
 
 Structured follow-up agent commands retain the selected state directory, isolation flag and binary, so the next step uses the same cache.
 
-The unreleased [automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md) adds root/branch/HEAD checkpoint guards, observed refresh and persisted graph-version receipts, and explicit completeness limits. The `runtime.view` receipt separates worktree/branch/commit identity, observed code version and memory scope; restored claims retain an explicit freshness limit. The code path rebuilds on the next isolated CLI invocation; the document watcher is not a continuous code watcher.
+The unreleased [automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md) adds root/branch/HEAD checkpoint guards, observed refresh and persisted graph-version receipts, and explicit completeness limits. The `runtime.view` receipt separates worktree/branch/commit identity, observed code version and memory scope; restored claims retain an explicit freshness limit and an evidence-check status separate from stale counts. The code path rebuilds on the next isolated CLI invocation; the document watcher is not a continuous code watcher.
 
 ### Historical pinned 1.6.3: install, prepare, connect
 

@@ -111,6 +111,14 @@ The memory section names the cache view as its scope and reports only observed
 restoration counts/caps from a successful refresh. `claim_origin: not_attested`
 and `claims_freshness: not_revalidated` remain explicit even when restoration
 succeeds: evidence resolution counts do not prove the text of a claim true.
+Restoration also preserves an allowlisted `evidence_check` state from the native
+report: `verified_against_stored_inventory`,
+`unverifiable_until_code_reingest`, or `not_reported`. A zero stale-evidence count
+is a reported count, not proof that claims are true or that every evidence item
+was verified. The native inventory label can cover a refreshed inventory rather
+than the bytes present when the claim was authored; it does not attest complete
+per-claim read coverage. Unrecognized diagnostic text is not forwarded.
+
 No memory is copied between views. Cold/manual/shared/attached paths do not
 invent restoration or source-version observations.
 

@@ -87,6 +87,7 @@ test("observed memory telemetry never certifies claim origin or current truth", 
     freshness_note: "not-forwarded", error: "not-forwarded" } };
   const memory = agentViewReceipt(target(), graphVersion(), refresh).memory;
   assert.deepEqual(memory.restoration, { status: "reported", loaded: true, loaded_count: 2,
+    evidence_check: "not_reported",
     file_count: 4, load_cap: 2, capped_out_count: 2, light_evidence_resolved: 3,
     light_evidence_unresolved: 1, stale_evidence_count: 1 });
   assert.equal(memory.claim_origin, "not_attested");
@@ -103,6 +104,21 @@ test("missing or refused memory telemetry never invents loaded claims", () => {
   const refresh = { attempted: true, ok: true, agent_memory_restored: { loaded: false,
     file_count: 0, loaded_count: -1, capped_out_count: Infinity, light_evidence_resolved: 1.5, load_cap: null } };
   assert.deepEqual(agentViewReceipt(target(), null, refresh).memory.restoration,
-    { status: "reported", loaded: false, file_count: 0, load_cap: null });
+    { status: "reported", loaded: false, evidence_check: "not_reported", file_count: 0, load_cap: null });
   assert.deepEqual(agentViewReceipt(null, graphVersion(), refresh).memory.restoration, { status: "not_observed" });
+});
+
+test("zero stale evidence preserves the native check boundary without certifying claims", () => {
+  for (const note of ["verified_against_stored_inventory", "unverifiable_until_code_reingest", "private-note-not-forwarded", undefined]) {
+    const refresh = { attempted: true, ok: true, agent_memory_restored: {
+      loaded: true, loaded_count: 1, stale_evidence_count: 0, freshness_note: note,
+    } };
+    const memory = agentViewReceipt(target(), graphVersion(), refresh).memory;
+    assert.equal(memory.restoration.evidence_check,
+      note === "verified_against_stored_inventory" || note === "unverifiable_until_code_reingest" ? note : "not_reported");
+    assert.equal(memory.restoration.stale_evidence_count, 0);
+    assert.equal(memory.claims_freshness, "not_revalidated");
+    assert.equal(memory.claim_origin, "not_attested");
+    assert.ok(!JSON.stringify(memory).includes("private-note-not-forwarded"));
+  }
 });

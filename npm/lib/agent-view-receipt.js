@@ -26,7 +26,9 @@ function memoryRestoration(refresh) {
   if (!report || typeof report.loaded !== "boolean") return missing;
   const count = (value) => Number.isSafeInteger(value) && value >= 0;
   if (report.loaded && !count(report.loaded_count)) return missing;
-  const observed = { status: "reported", loaded: report.loaded };
+  const evidenceCheck = ["verified_against_stored_inventory", "unverifiable_until_code_reingest"]
+    .includes(report.freshness_note) ? report.freshness_note : "not_reported";
+  const observed = { status: "reported", loaded: report.loaded, evidence_check: evidenceCheck };
   for (const key of ["file_count", "loaded_count", "capped_out_count",
     "light_evidence_resolved", "light_evidence_unresolved", "stale_evidence_count"]) {
     if (count(report[key])) observed[key] = report[key];

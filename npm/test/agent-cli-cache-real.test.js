@@ -166,7 +166,8 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     vcs("config", "user.email", "fixture@example.invalid");
     const commit = (message) => { vcs("add", "."); vcs("commit", "-m", message); };
     commit("initial graph");
-    const probe = (directory) => runFirstMinute(repo, "branch_graph_signal", env, { args: ["--no-attach", "--state-dir", directory] }).payload;
+    const probe = (directory, symbol = "branch_graph_signal", sourcePattern) => runFirstMinute(repo, symbol, env,
+      { args: ["--no-attach", "--state-dir", directory], sourcePattern }).payload;
     const snapshot = (payload) => JSON.parse(fs.readFileSync(path.join(payload.runtime.runtime_root, "graph_snapshot.json"), "utf8"));
     const memory = async (runtimeDir, write) => {
       const { McpRuntimeClient, decodeToolResponse } = require("../lib/mcp-runtime-client");
@@ -204,8 +205,8 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
         [source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     });
     let epoch = 0;
-    const compareRebuild = (payload) => {
-      const rebuilt = probe(path.join(fixture, `baseline-${epoch++}`));
+    const compareRebuild = (payload, symbol, sourcePattern) => {
+      const rebuilt = probe(path.join(fixture, `baseline-${epoch++}`), symbol, sourcePattern);
       assert.deepEqual(sourceProjection(snapshot(payload)), sourceProjection(snapshot(rebuilt)));
       return snapshot(payload);
     };
@@ -218,6 +219,40 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     assert.equal(vcs("rev-parse", "HEAD"), initialHead);
     assert.equal(dirty.runtime.graph_snapshot_version.update_status, "refreshed");
     assert.ok(compareRebuild(dirty).nodes.some((node) => node.label === "dirty_only_symbol"));
+    const restoration = (payload) => {
+      const memory = payload.runtime.view.memory;
+      assert.equal(memory.claim_origin, "not_attested");
+      assert.equal(memory.claims_freshness, "not_revalidated");
+      assert.equal(memory.restoration.loaded, true);
+      assert.ok(["verified_against_stored_inventory", "unverifiable_until_code_reingest"]
+        .includes(memory.restoration.evidence_check), JSON.stringify(memory.restoration));
+      assert.equal(sha256(memoryPath), memoryDigest, "refresh must not rewrite the original claim");
+      return memory.restoration;
+    };
+    restoration(dirty);
+    // The memory names signal.js. Renaming/deleting that actual evidence must
+    // leave the claim retained but unresolved, rather than silently treating
+    // a different source file as its evidence.
+    const signal = path.join(repo, "src/signal.js"), movedSignal = path.join(repo, "src/moved-signal.js");
+    const dirtySource = fs.readFileSync(signal, "utf8");
+    const stableSource = /src[/\\]stable2\.js/;
+    fs.renameSync(signal, movedSignal);
+    const evidenceRenamed = probe(state, "stable_2", stableSource);
+    compareRebuild(evidenceRenamed, "stable_2", stableSource);
+    assert.ok(restoration(evidenceRenamed).light_evidence_unresolved >= 1);
+    fs.unlinkSync(movedSignal);
+    const evidenceDeleted = probe(state, "stable_2", stableSource);
+    compareRebuild(evidenceDeleted, "stable_2", stableSource);
+    assert.ok(restoration(evidenceDeleted).light_evidence_unresolved >= 1);
+    fs.writeFileSync(signal, dirtySource);
+    const evidenceReturned = probe(state);
+    compareRebuild(evidenceReturned);
+    assert.ok(restoration(evidenceReturned).light_evidence_resolved >= 1);
+    console.info("memory evidence lifecycle", JSON.stringify({
+      renamed: evidenceRenamed.runtime.view.memory.restoration,
+      deleted: evidenceDeleted.runtime.view.memory.restoration,
+      returned: evidenceReturned.runtime.view.memory.restoration,
+    }));
     fs.unlinkSync(path.join(repo, "src/removable.js"));
     const deleted = compareRebuild(probe(state));
     assert.ok(!deleted.nodes.some((node) => node.label === "removed_symbol"));
@@ -439,7 +474,7 @@ function runFirstMinute(repo, symbol, env, options = {}) {
   );
   const rendered = JSON.stringify(matches);
   assert.match(rendered, new RegExp(symbol));
-  assert.match(rendered, /src[/\\]signal\.js/);
+  assert.match(rendered, options.sourcePattern || /src[/\\]signal\.js/);
   return { payload, matches, stderr: run.stderr, status: run.status };
 }
 
