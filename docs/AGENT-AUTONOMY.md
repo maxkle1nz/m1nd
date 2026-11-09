@@ -125,8 +125,8 @@ repository selectors instead of adopting a foreign branch identity.
 the current view without native boot, owner discovery or state creation.
 Optional `--provenance-manifest <json>` compares supplied, unauthenticated byte
 baselines; no result authorizes sharing or copies a claim. `agent context`
-checks its selected anchor at query boundaries and discards observed stale
-capsules; unknown checks remain explicitly not proven.
+checks its selected anchor before retrieval and its validated returned files
+afterward, discarding observed stale or invalid-scope capsules; unknown checks remain explicitly not proven.
 
 See [automatic graph freshness](AUTOMATIC-GRAPH-FRESHNESS.md) for branch/HEAD
 identity guards, refresh provenance, graph-version receipts and the limits of

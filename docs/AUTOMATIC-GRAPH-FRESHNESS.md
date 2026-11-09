@@ -141,8 +141,10 @@ persistently attested by that identity.
 ## Context anchor changes during a command
 
 `agent context` calls the ordinary read-only `am_i_stale` door by name for the
-selected source anchor before retrieval. A complete fresh inventory comparison
-is checked again afterward. A changed/missing anchor discards the capsule,
+selected source anchor before retrieval. After retrieval it validates the
+actual returned connected-file paths (at most five) inside the selected repo,
+then checks anchor plus those files against the native inventory. Malformed,
+out-of-scope or over-budget capsules are discarded rather than truncated. A changed/missing anchor discards the capsule,
 returns `source_changed_during_context` with no results and a nonzero exit, and
 hands off to direct proof. The command does not refresh/retry automatically.
 The next isolated invocation performs its normal full refresh.
@@ -150,8 +152,10 @@ The next isolated invocation performs its normal full refresh.
 Unknown files, unavailable tools, incomplete or malformed replies remain
 `source_freshness.status: not_proven`; the unavailable precheck is not retried.
 Only exact successful coverage at both boundaries yields `fresh_at_boundaries`.
-The scope is **the selected anchor**, not every connected source file, new file
-or the whole tree. Neither boundary observes an atomic filesystem snapshot;
+The receipt distinguishes `before_scope: selected_anchor_only` from
+`after_scope: anchor_and_returned_connected_files`. Older responses without a
+connected-file list retain an explicit selected-anchor-only scope. The checks
+cover only these bounded returned files, not new files or the whole tree. Neither boundary observes an atomic filesystem snapshot;
 changes after the final check or change-and-revert races remain outside it.
 
 ## Read-only memory sharing review
@@ -197,6 +201,29 @@ in-flight mutations. Limits are 32 immediate memory files, 64 KiB/document,
 128 KiB supplied provenance. Exceeding a limit refuses rather than truncates.
 Native fixtures check dirty invalidation, source-evidence rename/delete,
 branch isolation and return-to-origin consistency alongside rebuild parity.
+
+## Plain Python call edges (unreleased)
+
+Python's regex extractor previously emitted receiver-method calls from the file
+node and did not emit bare `helper()` calls. The new path links a caller function
+ID directly to a uniquely identified function in the same module, without a
+global name-resolution guess. Different caller IDs keep their own call edges.
+Existing node IDs and legacy receiver/reference extraction remain unchanged.
+
+This is a conservative subset, not a complete Python AST or runtime call graph:
+simple undecorated top-level definitions, simple parameter lists, and flat
+assignment-free, quote-free caller bodies. Ambiguous names, rebinding, local
+shadowing, nested/control/dynamic scopes, complex headers and multiline lexical
+forms are omitted by the new path. A missing edge therefore does not establish
+that a call cannot occur. Existing legacy reference heuristics keep their
+separate limitations.
+
+Positive fixtures require a direct function-to-function call before testing its
+removal. Removing only the call keeps both nodes, drops the edge and compares
+the supported full-root refresh with an independent full-root source-projection
+digest. Governed v1 keeps exact-file refresh disabled; this change does not
+enable it.
+Unknown bare names must not bind to a same-name definition in another file.
 
 ## Relation-edit substrate
 

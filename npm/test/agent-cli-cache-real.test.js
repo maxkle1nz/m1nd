@@ -12,6 +12,101 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("native Python refresh adds and removes exact caller edges with both nodes retained", {
+  skip: !BINARY || !EMBED_MODEL,
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-native-python-calls-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    writeFixture(repo, "unrelated_signal");
+    const source = path.join(repo, "src/local.py");
+    fs.writeFileSync(source, "def helper():\n    return 1\n\ndef caller():\n    return helper()\n\ndef second():\n    return helper()\n\ndef shadowed(helper):\n    return helper()\n");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+    env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const probe = (directory) => runFirstMinute(repo, "caller", env,
+      { args: ["--no-attach", "--state-dir", directory], sourcePattern: /src[/\\]local\.py/ }).payload;
+    const snapshot = (payload) => JSON.parse(fs.readFileSync(path.join(payload.runtime.runtime_root, "graph_snapshot.json"), "utf8"));
+    const hasCall = (graph, caller) => graph.edges.some(edge => edge.source_id === `file::src/local.py::fn::${caller}`
+      && edge.target_id === "file::src/local.py::fn::helper" && edge.relation === "calls");
+    const projection = (graph) => ({
+      nodes: graph.nodes.map(({ external_id, label, node_type, tags, provenance }) =>
+        [external_id, label, node_type, [...tags].sort(), provenance]).sort((a, b) => a[0].localeCompare(b[0])),
+      edges: graph.edges.map(({ source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength }) =>
+        [source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    });
+    const initial = probe(state), positive = snapshot(initial);
+    assert.ok(hasCall(positive, "caller"), "positive graph must prove the exact caller edge before removal");
+    assert.ok(hasCall(positive, "second"), "two callers must retain distinct edges to the same helper");
+    assert.ok(!hasCall(positive, "shadowed"), "a parameter must not be linked to a same-name module function");
+    fs.writeFileSync(source, "def helper():\n    return 1\n\ndef caller():\n    return 2\n\ndef second():\n    return helper()\n\ndef shadowed(helper):\n    return helper()\n");
+    const changed = probe(state), removed = snapshot(changed);
+    assert.equal(changed.runtime.runtime_root, initial.runtime.runtime_root);
+    assert.equal(changed.runtime.graph_snapshot_version.update_status, "refreshed");
+    assert.ok(removed.nodes.some(node => node.external_id === "file::src/local.py::fn::caller"));
+    assert.ok(removed.nodes.some(node => node.external_id === "file::src/local.py::fn::helper"));
+    assert.ok(!hasCall(removed, "caller"));
+    assert.ok(hasCall(removed, "second"));
+    assert.ok(!hasCall(removed, "shadowed"));
+    assert.deepEqual(projection(removed), projection(snapshot(probe(path.join(fixture, "rebuilt")))));
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("native context discards a changed returned peer while its selected anchor stays intact", {
+  skip: !BINARY || !EMBED_MODEL || process.platform === "win32",
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-native-capsule-peer-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    writeFixture(repo, "contextAnchor");
+    const anchor = path.join(repo, "src/signal.js"), peer = path.join(repo, "src/peer.js");
+    fs.writeFileSync(anchor, "import { linkedPeer } from './peer.js';\nexport function contextAnchor() { return linkedPeer(); }\n");
+    fs.writeFileSync(peer, "export function linkedPeer() { return 1; }\n");
+    const originalAnchor = sha256(anchor), proxy = path.join(fixture, "peer-proxy.js"), capture = path.join(fixture, "capture.json");
+    fs.writeFileSync(proxy, `#!${process.execPath}\n` + `
+const fs=require('node:fs'),{spawn,spawnSync}=require('node:child_process'),readline=require('node:readline');
+const args=process.argv.slice(2),binary=process.env.FIXTURE_NATIVE_BINARY;
+if(args.includes('--version')){const r=spawnSync(binary,args,{encoding:'utf8'});process.stdout.write(r.stdout||'');process.exit(r.status===null?1:r.status);}
+const child=spawn(binary,args,{stdio:['pipe','pipe','inherit']}),contexts=new Set();
+readline.createInterface({input:process.stdin}).on('line',line=>{const q=JSON.parse(line);if(q.method==='tools/call'&&q.params.name==='surgical_context_v2')contexts.add(q.id);child.stdin.write(line+'\\n');}).on('close',()=>child.stdin.end());
+readline.createInterface({input:child.stdout}).on('line',line=>{
+ const answer=JSON.parse(line);
+ if(contexts.has(answer.id)){
+  const text=answer.result?.content?.find(item=>item.type==='text')?.text;
+  const payload=text?JSON.parse(text):{};
+  const paths=(payload.connected_files||[]).map(file=>file.file_path);
+  const returned=paths.some(file=>file.endsWith('/peer.js'));
+  if(returned)fs.writeFileSync(process.env.FIXTURE_PEER,'export function linkedPeer() { return 99; }\\n');
+  fs.writeFileSync(process.env.FIXTURE_CAPTURE,JSON.stringify({returned,paths}));contexts.delete(answer.id);
+ }
+ process.stdout.write(line+'\\n');
+});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>child.kill(signal));
+child.on('error',()=>process.exit(1));child.on('exit',code=>process.exit(code===null?1:code));
+`, { mode: 0o700 });
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+    Object.assign(env, { M1ND_EMBED_MODEL: EMBED_MODEL, FIXTURE_NATIVE_BINARY: BINARY,
+      FIXTURE_PEER: peer, FIXTURE_CAPTURE: capture });
+    runFirstMinute(repo, "contextAnchor", env, { args: ["--no-attach", "--state-dir", state] });
+    const context = (binary) => spawnSync(process.execPath, [CLI, "agent", "context", "--repo", repo,
+      "--binary", binary, "--no-attach", "--state-dir", state, "--query", "contextAnchor", "--anchor", "src/signal.js", "--json"],
+    { env, encoding: "utf8", timeout: 60000 });
+    const raced = context(proxy);
+    assert.equal(raced.status, 1, `${raced.stderr}\n${raced.stdout}`);
+    assert.equal(JSON.parse(fs.readFileSync(capture, "utf8")).returned, true, "the peer must really be in the native capsule");
+    assert.equal(sha256(anchor), originalAnchor, "only the connected source changed");
+    const refused = JSON.parse(raced.stdout);
+    assert.equal(refused.status, "source_changed_during_context");
+    assert.deepEqual(refused.results, []);
+    assert.ok(refused.source_freshness.after.stale.some(file => file.path.endsWith("/peer.js") && file.reason === "changed"));
+    const refreshed = context(BINARY);
+    assert.equal(refreshed.status, 0, `${refreshed.stderr}\n${refreshed.stdout}`);
+    const valid = JSON.parse(refreshed.stdout);
+    assert.equal(valid.source_freshness.status, "fresh_at_boundaries");
+    assert.equal(valid.source_freshness.after_scope, "anchor_and_returned_connected_files");
+    assert.ok(valid.source_freshness.after.files.some(file => file.endsWith("/peer.js")));
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("native context rejects dirty anchor races and the next invocation rebuilds the edited source", {
   skip: !BINARY || !EMBED_MODEL || process.platform === "win32",
 }, () => {

@@ -11,7 +11,7 @@ Source: `m1nd-ingest/src/`
 | `lib.rs` | `Ingestor` pipeline, `IngestAdapter` trait, config, stats |
 | `walker.rs` | `DirectoryWalker`, binary detection, git enrichment |
 | `extract/mod.rs` | `Extractor` trait, comment stripping, `CommentSyntax` |
-| `extract/python.rs` | Python: classes, functions, decorators, imports |
+| `extract/python.rs` | Python: classes/functions/decorators/imports and conservative same-module plain-function calls |
 | `extract/typescript.rs` | TypeScript/JS: classes, functions, interfaces, imports |
 | `extract/rust_lang.rs` | Rust: structs, enums, impls, traits, functions, mods |
 | `extract/go.rs` | Go: structs, interfaces, functions, packages |
@@ -515,3 +515,10 @@ pub struct IngestStats {
 ```
 
 `commit_groups` is passed to the `CoChangeMatrix` in m1nd-core after graph finalization, seeding the temporal co-change model with real git history.
+
+## Unreleased plain Python calls
+
+The regex path now links recognized same-module plain function calls from the
+caller function ID. It omits ambiguous/shadowed/complex cases instead of using
+global name matching. This does not replace a complete Python parser; see the
+[coverage and rebuild contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md#plain-python-call-edges-unreleased).
