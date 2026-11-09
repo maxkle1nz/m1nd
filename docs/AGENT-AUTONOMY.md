@@ -114,6 +114,11 @@ This remains the default; the source-only opt-in below requires isolated mode.
 
 ### Explicit storage in an already-writable workspace (unreleased CLI)
 
+The unreleased `runtime.view` receipt separates cache-view identity, observed
+code version and memory-restoration telemetry. Restoring memory does not certify
+a claim or share it with other branches. Automatic caches refuse ambient Git
+repository selectors instead of adopting a foreign branch identity.
+
 See [automatic graph freshness](AUTOMATIC-GRAPH-FRESHNESS.md) for branch/HEAD
 identity guards, refresh provenance, graph-version receipts and the limits of
 dirty-content, attached-owner and cross-branch memory claims.

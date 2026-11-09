@@ -39,12 +39,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js",
+    "test": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/agent-view-receipt.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js",
     "m1nd:doctor": "node npm/bin/m1nd.js doctor",
     "m1nd:pack-check": "node npm/bin/m1nd.js pack-check && node npm/lib/pack-contents-check.js",
     "m1nd:pack-routing-check": "node npm/bin/m1nd.js pack-routing-check",
     "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project .",
-    "test:npm": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js"
+    "test:npm": "node --test --test-concurrency=1 npm/test/cli.test.js npm/test/agent-cli-cache-real.test.js npm/test/agent-cli-cache-concurrency-real.test.js npm/test/agent-cli-startup-diagnostics.test.js npm/test/agent-cli-cold-context.test.js npm/test/agent-runtime-cache-security.test.js npm/test/agent-view-receipt.test.js npm/test/mcp-runtime-client-lifecycle.test.js npm/test/pack-contents-check.test.js"
   },
   "engines": {
     "node": ">=18"

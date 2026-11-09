@@ -109,3 +109,8 @@ Unreleased isolated CLI hardening: `kickstart` honors `--no-attach --state-dir`
 and refused results exit nonzero. Automatic caches reject conflicting attach or
 persistence destinations. See the [freshness contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md)
 for refresh-before-query proof and its limits.
+
+Unreleased `runtime.view` separates worktree/branch/commit cache identity from
+observed refreshed code and memory restoration. Claims stay bound to their view;
+restoration does not certify their freshness. Conflicting ambient Git repository
+selectors are refused for automatic cache selection.

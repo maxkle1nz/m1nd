@@ -48,7 +48,7 @@ function agentViewReceipt(cacheTarget, graphVersion, refreshReceipt) {
     source_revision: null,
     content_certified: false,
     code_version: unknownCode(),
-    memory: { scope: "not_checked", view_id: null, cross_view_sharing: false,
+    memory: { scope: "not_checked", view_id: null, cross_view_sharing: null,
       claim_origin: "not_attested", claims_freshness: "not_revalidated",
       restoration: { status: "not_observed" } },
   };
@@ -66,6 +66,7 @@ function agentViewReceipt(cacheTarget, graphVersion, refreshReceipt) {
   output.source_revision = revision;
   output.memory.scope = "cache_view";
   output.memory.view_id = key;
+  output.memory.cross_view_sharing = false;
   output.memory.restoration = memoryRestoration(refreshReceipt);
   if (graphVersion?.status === "persisted_bytes_observed" && graphVersion.update_status === "refreshed") {
     const provenance = cloneRecord(graphVersion.code_snapshot);

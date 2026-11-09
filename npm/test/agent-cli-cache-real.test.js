@@ -12,6 +12,88 @@ const CLI = path.resolve(__dirname, "../bin/m1nd.js");
 const BINARY = process.env.M1ND_TEST_AGENT_CACHE_BINARY || "";
 const EMBED_MODEL = process.env.M1ND_TEST_EMBED_MODEL || "";
 
+test("linked worktrees keep divergent views separate across branch recreation and restart", {
+  skip: !BINARY || !EMBED_MODEL,
+}, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-linked-views-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), linked = path.join(fixture, "linked-alpha");
+    const state = path.join(fixture, "state");
+    writeFixture(repo, "common_view_symbol");
+    for (let i = 0; i < 6; i++) fs.writeFileSync(path.join(repo, `src/stable${i}.js`), `export function stable_${i}() { return ${i}; }\n`);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("M1ND_") && !key.startsWith("GIT_")));
+    env.M1ND_EMBED_MODEL = EMBED_MODEL;
+    const git = (root, ...args) => {
+      const run = spawnSync("git", ["-C", root, ...args], { env: { ...env, GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" }, encoding: "utf8" });
+      assert.equal(run.status, 0, `${args.join(" ")}: ${run.stderr}`);
+      return run.stdout.trim();
+    };
+    const commit = (root, message) => {
+      git(root, "add", ".");
+      git(root, "-c", "user.name=Fixture Author", "-c", "user.email=fixture@example.invalid", "commit", "-m", message);
+    };
+    git(repo, "init", "-b", "view-main");
+    commit(repo, "common source");
+    git(repo, "worktree", "add", "-b", "view-feature", linked);
+    assert.equal(fs.statSync(path.join(linked, ".git")).isFile(), true);
+    git(repo, "switch", "--detach");
+    git(linked, "switch", "--detach");
+    const probe = (root, symbol, directory = state) => runFirstMinute(root, symbol, env,
+      { args: ["--no-attach", "--state-dir", directory] }).payload;
+    const graph = (payload) => JSON.parse(fs.readFileSync(path.join(payload.runtime.runtime_root, "graph_snapshot.json"), "utf8"));
+    const projection = (snapshot) => ({
+      nodes: snapshot.nodes.map(({ external_id, label, node_type, tags, provenance }) =>
+        [external_id, label, node_type, [...tags].sort(), provenance]).sort((a, b) => a[0].localeCompare(b[0])),
+      edges: snapshot.edges.map(({ source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength }) =>
+        [source_id, target_id, relation, original_weight, direction, inhibitory, causal_strength]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    });
+    let baseline = 0;
+    const parity = (root, symbol, payload) => {
+      const rebuilt = probe(root, symbol, path.join(fixture, `baseline-${baseline++}`));
+      assert.deepEqual(projection(graph(payload)), projection(graph(rebuilt)));
+    };
+    const main = probe(repo, "common_view_symbol"), sibling = probe(linked, "common_view_symbol");
+    assert.deepEqual(main.runtime.source_identity.source_revision, sibling.runtime.source_identity.source_revision);
+    assert.notEqual(main.runtime.runtime_root, sibling.runtime.runtime_root);
+    assert.notEqual(main.runtime.view.view_id, sibling.runtime.view.view_id);
+    assert.deepEqual(main.runtime.view.source_revision, sibling.runtime.view.source_revision);
+    git(repo, "switch", "view-main");
+    git(linked, "switch", "view-feature");
+    const branchSibling = probe(linked, "common_view_symbol");
+    fs.writeFileSync(path.join(linked, "src/signal.js"), "export function feature_view_symbol() { return 42; }\n");
+    fs.renameSync(path.join(linked, "src/stable0.js"), path.join(linked, "src/moved0.js"));
+    fs.unlinkSync(path.join(linked, "src/stable1.js"));
+    const dirty = probe(linked, "feature_view_symbol");
+    assert.equal(dirty.runtime.runtime_root, branchSibling.runtime.runtime_root);
+    parity(linked, "feature_view_symbol", dirty);
+    assert.ok(!graph(dirty).nodes.some((node) => node.external_id.includes("stable0.js") || node.label === "stable_1"));
+    commit(linked, "feature rename and deletion");
+    const featureHead = git(linked, "rev-parse", "HEAD"), feature = probe(linked, "feature_view_symbol");
+    fs.writeFileSync(path.join(repo, "src/signal.js"), "export function main_view_symbol() { return 17; }\n");
+    commit(repo, "divergent main source");
+    const divergent = probe(repo, "main_view_symbol");
+    parity(repo, "main_view_symbol", divergent);
+    assert.ok(!graph(divergent).nodes.some((node) => node.label === "feature_view_symbol"));
+    git(linked, "switch", "--detach", git(repo, "rev-parse", "HEAD"));
+    const detached = probe(linked, "main_view_symbol");
+    assert.notEqual(detached.runtime.runtime_root, divergent.runtime.runtime_root, "same commit in another worktree is a different view");
+    assert.ok(!graph(detached).nodes.some((node) => node.label === "feature_view_symbol"));
+    git(repo, "branch", "-D", "view-feature");
+    git(linked, "switch", "-c", "view-feature", featureHead);
+    const recreated = probe(linked, "feature_view_symbol");
+    assert.equal(recreated.runtime.runtime_root, feature.runtime.runtime_root);
+    parity(linked, "feature_view_symbol", recreated);
+    git(repo, "worktree", "remove", linked);
+    git(repo, "worktree", "add", linked, "view-feature");
+    const restarted = probe(linked, "feature_view_symbol");
+    assert.equal(restarted.runtime.runtime_root, feature.runtime.runtime_root);
+    assert.equal(restarted.runtime.graph_snapshot_version.update_status, "refreshed");
+    assert.ok(!graph(restarted).nodes.some((node) => node.label === "main_view_symbol"));
+    parity(linked, "feature_view_symbol", restarted);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("warm state-dir refresh precedes graph queries and returns newly edited symbols", {
   skip: !BINARY || !EMBED_MODEL,
 }, () => {
@@ -168,6 +250,22 @@ test("state-dir rebuilds dirty edits, deletes and renames and isolates branch re
     assert.ok(compareRebuild(merged).nodes.some((node) => node.label === "feature_only_symbol"));
     assert.equal(sha256(path.join(initialRuntime, "graph_snapshot.json")), retained);
     assert.equal(sha256(memoryPath), memoryDigest, "old branch memory must remain intact");
+    // Return to the exact branch/HEAD that actually owns the memory, rather
+    // than merely checking that another revision's empty cache is reusable.
+    vcs("switch", "--detach");
+    vcs("branch", "-f", "graph-main", initialHead);
+    vcs("switch", "graph-main");
+    const remembered = probe(state);
+    assert.equal(remembered.runtime.runtime_root, initialRuntime);
+    assert.equal(remembered.runtime.view.memory.restoration.status, "reported");
+    assert.equal(remembered.runtime.view.memory.restoration.loaded, true);
+    assert.ok(remembered.runtime.view.memory.restoration.loaded_count >= 1);
+    assert.equal(remembered.runtime.view.memory.claim_origin, "not_attested");
+    assert.equal(remembered.runtime.view.memory.claims_freshness, "not_revalidated");
+    assert.equal(remembered.runtime.view.code_version.status, "observed_refreshed");
+    compareRebuild(remembered);
+    await memory(initialRuntime, false);
+    assert.equal(sha256(memoryPath), memoryDigest);
   } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
 });
 

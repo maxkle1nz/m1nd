@@ -128,6 +128,16 @@ function hasGitMetadataHint(root) {
 }
 
 function sourceRevision(root) {
+  // `git -C root` does not override these inherited selectors. Accepting one
+  // could label this source tree with another repository's branch or HEAD.
+  // Refuse rather than silently clearing intentional operator configuration.
+  const redirected = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE"]
+    .find((key) => process.env[key]);
+  if (redirected) {
+    const error = new Error(`automatic cache identity conflicts with ${redirected}; remove the Git redirection before selecting a repository view`);
+    error.code = "M1ND_AGENT_GIT_REDIRECTION";
+    throw error;
+  }
   const repository = gitResult(root, ["rev-parse", "--is-inside-work-tree"]);
   if (repository.status !== 0) {
     const detail = String(repository.stderr || "");
@@ -135,6 +145,11 @@ function sourceRevision(root) {
       return { kind: "non_git", head: null, branch: null };
     }
     throw gitFailure("repository probe", repository);
+  }
+  if (String(repository.stdout || "").trim() !== "true") {
+    const error = new Error("automatic cache identity requires a source worktree; Git did not report this root inside one");
+    error.code = "M1ND_AGENT_NOT_WORKTREE";
+    throw error;
   }
 
   const branchResult = gitResult(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);

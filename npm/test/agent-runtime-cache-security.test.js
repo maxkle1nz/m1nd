@@ -18,6 +18,50 @@ const symlinkTestOptions = {
   skip: process.platform === "win32" && "Windows symlink creation requires host privilege",
 };
 
+test("automatic cache refuses ambient Git repository redirection before creating a cache", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-git-redirection-"));
+  const keys = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE"];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of keys) delete process.env[key];
+    const repo = path.join(fixture, "repo-alpha"), other = path.join(fixture, "repo-beta");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(other);
+    execFileSync("git", ["-C", other, "init", "-q", "-b", "foreign-view"], { stdio: "pipe" });
+    for (const key of keys) {
+      const cache = path.join(fixture, `cache-${key}`);
+      process.env[key] = key === "GIT_WORK_TREE" ? other : path.join(other, ".git");
+      assert.throws(() => agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: cache }),
+        { code: "M1ND_AGENT_GIT_REDIRECTION" }, key);
+      assert.equal(fs.existsSync(cache), false);
+      delete process.env[key];
+    }
+    const selected = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "selected-cache") });
+    process.env.GIT_DIR = path.join(other, ".git");
+    assert.throws(() => assertAgentSourceIdentity(selected.sourceGuard, "before query"),
+      { code: "M1ND_AGENT_SOURCE_IDENTITY_CHANGED" });
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("automatic cache refuses a bare repository instead of attesting a source worktree", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-bare-view-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), cache = path.join(fixture, "cache");
+    execFileSync("git", ["init", "--bare", "-q", repo], { stdio: "pipe" });
+    assert.throws(() => agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: cache }),
+      { code: "M1ND_AGENT_NOT_WORKTREE" });
+    assert.equal(fs.existsSync(cache), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test("cache source guard rejects branch and HEAD drift instead of reusing its selected identity", () => {
   const { execFileSync } = require("node:child_process");
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-git-"));

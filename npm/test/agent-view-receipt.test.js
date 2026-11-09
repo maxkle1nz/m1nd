@@ -50,6 +50,7 @@ test("manual, missing and malformed cache targets do not assert branch or memory
     assert.equal(view.source_revision, null);
     assert.equal(view.memory.scope, "not_checked");
     assert.equal(view.memory.view_id, null);
+    assert.equal(view.memory.cross_view_sharing, null);
     assert.equal(view.code_version.status, "not_observed");
   }
 });

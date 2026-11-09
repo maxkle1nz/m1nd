@@ -14,6 +14,7 @@ const {
 } = require("./agent-runtime-cache");
 const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent-schemas");
 const { graphSnapshotVersion } = require("./agent-graph-receipt");
+const { agentViewReceipt } = require("./agent-view-receipt");
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
 const ORIENTATION_TOOLS = new Set(["auto", "search", "seek", "activate", "audit", "glob"]);
@@ -1324,6 +1325,7 @@ async function runBootPlan(args, deps, repo, fn, binary, plan) {
         working_tree_contents: "not_attested_by_identity",
         atomic_snapshot: false,
       };
+      result.runtime.view = agentViewReceipt(cacheTarget, result.runtime.graph_snapshot_version, client.agentRefreshReceipt);
     }
     return result;
   } finally {
@@ -1386,6 +1388,7 @@ async function runTrustSequence(client, repo, agentId, legacyEnsureIngestRequest
       refused: refreshPayload.refused || null,
       reason: refreshPayload.reason || refreshPayload.error || null,
       code_snapshot: refreshPayload.code_snapshot || null,
+      agent_memory_restored: refreshPayload.agent_memory_restored || null,
     };
     if (refresh.isError || refreshPayload.ok !== true) {
       return {

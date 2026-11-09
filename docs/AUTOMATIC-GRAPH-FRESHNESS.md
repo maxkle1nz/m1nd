@@ -99,6 +99,37 @@ does not implement a shared cross-branch memory store, migration or validated
 promotion of common facts. Retention is not proof that an old claim remains
 true: evidence freshness and direct source verification still matter.
 
+## View receipts and Git selection
+
+`runtime.view` identifies the selected automatic cache view using its existing
+cache key, canonical worktree root and branch/HEAD identity. The code version
+is reported separately, only when successful refresh and persisted graph bytes
+were both observed. Local edits can change that code version while keeping the
+same view ID. A view ID is not an archive of every dirty working-tree state.
+
+The memory section names the cache view as its scope and reports only observed
+restoration counts/caps from a successful refresh. `claim_origin: not_attested`
+and `claims_freshness: not_revalidated` remain explicit even when restoration
+succeeds: evidence resolution counts do not prove the text of a claim true.
+No memory is copied between views. Cold/manual/shared/attached paths do not
+invent restoration or source-version observations.
+
+Automatic identity selection refuses inherited `GIT_DIR`, `GIT_WORK_TREE`,
+`GIT_COMMON_DIR` and `GIT_NAMESPACE` selectors rather than labeling the selected
+source with foreign Git metadata. It also requires Git's inside-worktree probe
+to answer `true`; a bare repository is not a source worktree. Errors name the
+selector without echoing its value. Remove the conflicting selector explicitly;
+the CLI does not clear it silently. Non-Git source roots remain supported.
+
+Linked-worktree fixture proof includes two detached worktrees at the same HEAD,
+divergent histories, dirty delete/rename, branch deletion/recreation and worktree
+removal/recreation across process restarts. Each exercised source projection is
+compared with an independent rebuild for that root. A separate memory proof
+returns to the exact old branch/HEAD that actually owns the claim and recalls it
+without changing its sidecar bytes. Recreating a root at the same path can reuse
+the same cache identity after refresh; root history and old claim origin are not
+persistently attested by that identity.
+
 ## Relation-edit substrate
 
 `GraphDiff` now applies relation removal and matches weight edits by endpoints
