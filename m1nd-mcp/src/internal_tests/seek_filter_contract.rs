@@ -38,6 +38,7 @@ fn state(root: &std::path::Path, mut graph: Graph) -> SessionState {
     let config = McpConfig {
         graph_source: runtime.join("graph.json"),
         plasticity_state: runtime.join("plasticity.json"),
+        registry_dir: Some(runtime.join("registry")),
         runtime_dir: Some(runtime),
         ..Default::default()
     };

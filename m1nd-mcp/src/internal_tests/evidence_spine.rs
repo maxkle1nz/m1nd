@@ -225,6 +225,7 @@ fn owner_state(runtime: &std::path::Path, workspace: &std::path::Path) -> Sessio
     let config = McpConfig {
         graph_source: runtime.join("graph_snapshot.json"),
         plasticity_state: runtime.join("plasticity_state.json"),
+        registry_dir: Some(runtime.join("registry")),
         runtime_dir: Some(runtime.to_path_buf()),
         ..McpConfig::default()
     };

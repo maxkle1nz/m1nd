@@ -32,6 +32,7 @@ fn make_state(root: &Path) -> SessionState {
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
+        registry_dir: Some(root.join(".test-registry")),
         ..McpConfig::default()
     };
     let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())

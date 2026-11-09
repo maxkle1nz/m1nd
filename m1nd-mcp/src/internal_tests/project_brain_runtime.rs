@@ -171,8 +171,12 @@ fn submit_stress_append(
 fn stale_concurrent_worker_never_mutates_and_only_one_write_commits() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("repo");
-    let registry = ProjectBrainRegistry::with_capacity(temp.path().join("brains"), None, 2)
-        .with_runtime_limits(4, 2);
+    let registry = ProjectBrainRegistry::with_capacity(
+        temp.path().join("brains"),
+        Some(temp.path().join("registry")),
+        2,
+    )
+    .with_runtime_limits(4, 2);
     mount(&registry, &root);
 
     let revision = current_revision(&registry, &root);
@@ -239,7 +243,7 @@ fn multi_brain_actors_are_isolated() {
     let root_b = temp.path().join("repo-b");
     let registry = Arc::new(ProjectBrainRegistry::with_capacity(
         temp.path().join("brains"),
-        None,
+        Some(temp.path().join("registry")),
         4,
     ));
     mount(&registry, &root_a);
@@ -330,8 +334,12 @@ fn ten_thousand_multi_project_actor_operations_are_isolated_and_bounded() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let registry = Arc::new(
-        ProjectBrainRegistry::with_capacity(temp.path().join("brains"), None, BRAIN_COUNT)
-            .with_runtime_limits(BRAIN_COUNT, 2_048),
+        ProjectBrainRegistry::with_capacity(
+            temp.path().join("brains"),
+            Some(temp.path().join("registry")),
+            BRAIN_COUNT,
+        )
+        .with_runtime_limits(BRAIN_COUNT, 2_048),
     );
     let roots = (0..BRAIN_COUNT)
         .map(|brain_index| temp.path().join(format!("repo-{brain_index:02}")))
@@ -517,8 +525,12 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let registry = Arc::new(
-        ProjectBrainRegistry::with_capacity(temp.path().join("brains"), None, 2)
-            .with_runtime_limits(1, 1),
+        ProjectBrainRegistry::with_capacity(
+            temp.path().join("brains"),
+            Some(temp.path().join("registry")),
+            2,
+        )
+        .with_runtime_limits(1, 1),
     );
     mount(&registry, &root);
     current_revision(&registry, &root); // start actor
@@ -630,8 +642,12 @@ fn actor_queue_and_global_worker_limit_fail_fast_under_pressure() {
 fn persistence_failure_closes_admission_marks_reconciling_and_checkpoint_retry_recovers() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("repo");
-    let registry = ProjectBrainRegistry::with_capacity(temp.path().join("brains"), None, 2)
-        .with_runtime_limits(2, 4);
+    let registry = ProjectBrainRegistry::with_capacity(
+        temp.path().join("brains"),
+        Some(temp.path().join("registry")),
+        2,
+    )
+    .with_runtime_limits(2, 4);
     mount(&registry, &root);
 
     let baseline = registry
@@ -805,7 +821,7 @@ fn shutdown_ack_and_exact_current_restore_overwrite_corrupt_canonical_files() {
     let store_dir;
     let replay_job_id;
     {
-        let registry = ProjectBrainRegistry::new(base.clone(), None);
+        let registry = ProjectBrainRegistry::new(base.clone(), Some(temp.path().join("registry")));
         mount(&registry, &root);
         canonical_root = ProjectBrainRegistry::canonical_key(&root.to_string_lossy());
         let job = submit_root_append(&registry, &root, "restart-write", "durable-root");
@@ -825,7 +841,7 @@ fn shutdown_ack_and_exact_current_restore_overwrite_corrupt_canonical_files() {
         .expect("corrupt canonical graph");
     std::fs::write(store_dir.join("ingest_roots.json"), b"[]").expect("erase canonical roots");
 
-    let registry = ProjectBrainRegistry::new(base, None);
+    let registry = ProjectBrainRegistry::new(base, Some(temp.path().join("registry")));
     registry
         .try_resolve(&canonical_root)
         .expect("checkpoint-backed restart")
@@ -865,7 +881,7 @@ fn corrupt_latest_checkpoint_recovers_only_with_degraded_fallback_receipt() {
     let canonical_root;
     let checkpoint_root;
     {
-        let registry = ProjectBrainRegistry::new(base.clone(), None);
+        let registry = ProjectBrainRegistry::new(base.clone(), Some(temp.path().join("registry")));
         mount(&registry, &root);
         canonical_root = ProjectBrainRegistry::canonical_key(&root.to_string_lossy());
         let jobs = registry.runtime_job_registry().expect("jobs");
@@ -914,7 +930,7 @@ fn corrupt_latest_checkpoint_recovers_only_with_degraded_fallback_receipt() {
     )
     .expect("corrupt latest blob");
 
-    let registry = ProjectBrainRegistry::new(base, None);
+    let registry = ProjectBrainRegistry::new(base, Some(temp.path().join("registry")));
     registry
         .try_resolve(&canonical_root)
         .expect("fallback restart")
@@ -970,7 +986,7 @@ fn corrupt_current_pointer_fails_closed_instead_of_fresh_boot() {
     let canonical_root;
     let checkpoint_root;
     {
-        let registry = ProjectBrainRegistry::new(base.clone(), None);
+        let registry = ProjectBrainRegistry::new(base.clone(), Some(temp.path().join("registry")));
         mount(&registry, &root);
         canonical_root = ProjectBrainRegistry::canonical_key(&root.to_string_lossy());
         let job = submit_root_append(&registry, &root, "pointer-write", "pointer-root");
@@ -986,7 +1002,7 @@ fn corrupt_current_pointer_fails_closed_instead_of_fresh_boot() {
     }
     std::fs::write(checkpoint_root.join("CURRENT"), b"{not-json").expect("corrupt CURRENT pointer");
 
-    let registry = ProjectBrainRegistry::new(base, None);
+    let registry = ProjectBrainRegistry::new(base, Some(temp.path().join("registry")));
     let error = match registry.try_resolve(&canonical_root) {
         Ok(_) => panic!("corrupt CURRENT must not become a fresh brain"),
         Err(error) => error,
