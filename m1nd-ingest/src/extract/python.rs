@@ -357,16 +357,15 @@ fn balanced_inline(line: &str) -> bool {
     for ch in line.chars() {
         match ch {
             '(' | '[' | '{' => stack.push(ch),
-            ')' | ']' | '}' => {
+            ')' | ']' | '}'
                 if stack.pop()
                     != Some(match ch {
                         ')' => '(',
                         ']' => '[',
                         _ => '{',
-                    })
-                {
-                    return false;
-                }
+                    }) =>
+            {
+                return false;
             }
             _ => {}
         }
