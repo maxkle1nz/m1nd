@@ -208,6 +208,7 @@ mod tests {
         let graph_path = tmp.path().join("graph_snapshot.json");
         let plasticity_path = tmp.path().join("plasticity_state.json");
         let config = McpConfig {
+            registry_dir: Some(tmp.path().join("registry")),
             graph_source: graph_path,
             plasticity_state: plasticity_path,
             ..McpConfig::default()

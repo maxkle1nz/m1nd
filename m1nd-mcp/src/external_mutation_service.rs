@@ -6508,6 +6508,7 @@ mod tests {
             let config = McpConfig {
                 graph_source: runtime_root.join("graph.json"),
                 plasticity_state: runtime_root.join("plasticity.json"),
+                registry_dir: Some(runtime_root.join("registry")),
                 runtime_dir: Some(runtime_root.clone()),
                 ..McpConfig::default()
             };
@@ -6520,7 +6521,7 @@ mod tests {
             let recovery_brain = Arc::clone(&selected_brain);
             let actor_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 temp.path().join("ratify-project-brains"),
-                None,
+                Some(runtime_root.join("registry")),
             ));
             let reconciliation_brain_id = actor_registry
                 .bound_brain_id_for_target(Arc::clone(&selected_brain))
@@ -6667,6 +6668,7 @@ mod tests {
             let config = McpConfig {
                 graph_source: self.runtime_root.join("graph.json"),
                 plasticity_state: self.runtime_root.join("plasticity.json"),
+                registry_dir: Some(self.runtime_root.join("registry")),
                 runtime_dir: Some(self.runtime_root.clone()),
                 ..McpConfig::default()
             };
@@ -6691,7 +6693,7 @@ mod tests {
             assert!(!Arc::ptr_eq(&brain, &self.host.selected_brain));
             let actor_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 self.runtime_root.join("ratify-replay-project-brains"),
-                None,
+                Some(self.runtime_root.join("registry")),
             ));
             let actor_brain = Arc::clone(&brain);
             let registry_for_actor = Arc::clone(&actor_registry);
@@ -6948,6 +6950,7 @@ mod tests {
         let config = McpConfig {
             graph_source: foreign_root.join("graph.json"),
             plasticity_state: foreign_root.join("plasticity.json"),
+            registry_dir: Some(foreign_root.join("registry")),
             runtime_dir: Some(foreign_root),
             ..McpConfig::default()
         };
@@ -6957,7 +6960,7 @@ mod tests {
         ));
         let foreign_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
             fixture.runtime_root.join("foreign-ratify-project-brains"),
-            None,
+            config.registry_dir.clone(),
         ));
         let foreign_actor = Arc::clone(&foreign);
         let registry_for_actor = Arc::clone(&foreign_registry);
@@ -7111,6 +7114,7 @@ mod tests {
             let config = McpConfig {
                 graph_source: runtime_root.join("graph.json"),
                 plasticity_state: runtime_root.join("plasticity.json"),
+                registry_dir: Some(runtime_root.join("registry")),
                 runtime_dir: Some(runtime_root.to_path_buf()),
                 ..McpConfig::default()
             };
@@ -7157,7 +7161,7 @@ mod tests {
             let recovery_brain = Arc::clone(&selected_brain);
             let actor_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 temp.path().join("source-project-brains"),
-                None,
+                Some(runtime_root.join("registry")),
             ));
             let reconciliation_brain_id = actor_registry
                 .bound_brain_id_for_target(Arc::clone(&selected_brain))
@@ -7342,7 +7346,7 @@ mod tests {
             let recovery_brain = Arc::clone(&brain);
             let actor_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 self.runtime_root.join("source-replay-project-brains"),
-                None,
+                Some(self.runtime_root.join("registry")),
             ));
             // The previous host's actor owner releases on a detached guardian
             // thread, so the fence it holds is still up when its registry drops.
@@ -7632,7 +7636,7 @@ mod tests {
         fn pending_recovery_is_empty(&self, brain: Arc<BrainSessionCell>) -> bool {
             let registry = crate::project_brains::ProjectBrainRegistry::new(
                 self.runtime_root.join("source-pending-read-project-brains"),
-                None,
+                Some(self.runtime_root.join("registry")),
             );
             registry
                 .read_target_runtime_snapshot(brain, None, true, |state| {
@@ -8184,6 +8188,7 @@ mod tests {
             let config = McpConfig {
                 graph_source: session_runtime.join("graph.json"),
                 plasticity_state: session_runtime.join("plasticity.json"),
+                registry_dir: Some(session_runtime.join("registry")),
                 runtime_dir: Some(session_runtime),
                 ..McpConfig::default()
             };
@@ -8195,7 +8200,7 @@ mod tests {
             let reconciliation_registry =
                 Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                     temp.path().join("matrix-project-brains"),
-                    None,
+                    Some(medulla_runtime.join("registry")),
                 ));
             let reconciliation_brain_id = reconciliation_registry
                 .bound_brain_id_for_target(Arc::clone(&reconciliation_brain))
@@ -9633,6 +9638,7 @@ mod tests {
             let config = McpConfig {
                 graph_source: runtime_root.join("graph.json"),
                 plasticity_state: runtime_root.join("plasticity.json"),
+                registry_dir: Some(runtime_root.join("registry")),
                 runtime_dir: Some(runtime_root),
                 ..McpConfig::default()
             };
@@ -9647,7 +9653,7 @@ mod tests {
             let selected_brain = Arc::new(BrainSessionCell::new(state));
             let actor_registry = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 temp.path().join("A2-project-brains"),
-                None,
+                config.registry_dir.clone(),
             ));
             let reconciliation_brain_id = actor_registry
                 .bound_brain_id_for_target(Arc::clone(&selected_brain))

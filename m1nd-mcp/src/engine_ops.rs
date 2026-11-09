@@ -516,6 +516,7 @@ mod tests {
         );
         let base = std::env::temp_dir().join(unique);
         let config = McpConfig {
+            registry_dir: Some(base.join("registry")),
             graph_source: base.join("graph.json"),
             plasticity_state: base.join("plasticity.json"),
             ..McpConfig::default()

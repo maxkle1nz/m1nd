@@ -2216,6 +2216,7 @@ mod external_mutation_actor_binding_tests {
         let config = crate::server::McpConfig {
             graph_source: runtime_root.join("graph.json"),
             plasticity_state: runtime_root.join("plasticity.json"),
+            registry_dir: Some(runtime_root.join("registry")),
             runtime_dir: Some(runtime_root.to_path_buf()),
             ..Default::default()
         };
@@ -2244,7 +2245,10 @@ mod external_mutation_actor_binding_tests {
         std::fs::create_dir_all(&bound_root).expect("bound root");
         let bound = session_cell(&temp.path().join("bound-runtime"), &bound_root);
 
-        let first = ProjectBrainRegistry::new(temp.path().join("first-brains"), None);
+        let first = ProjectBrainRegistry::new(
+            temp.path().join("first-brains"),
+            Some(temp.path().join("registry")),
+        );
         let first_id = first
             .bound_brain_id_for_target(Arc::clone(&bound))
             .expect("first bound actor identity");
@@ -2254,7 +2258,10 @@ mod external_mutation_actor_binding_tests {
         drop(first);
 
         // Re-bind on the very next statement — no sleep, no retry budget.
-        let second = ProjectBrainRegistry::new(temp.path().join("second-brains"), None);
+        let second = ProjectBrainRegistry::new(
+            temp.path().join("second-brains"),
+            Some(temp.path().join("registry")),
+        );
         let second_id = second
             .bound_brain_id_for_target(Arc::clone(&bound))
             .expect("re-bind must wait for the previous owner's release");
@@ -2281,7 +2288,7 @@ mod external_mutation_actor_binding_tests {
         std::fs::create_dir_all(&bound_root).expect("bound root");
         let bound = session_cell(&temp.path().join("bound-runtime"), &bound_root);
 
-        let registry = ProjectBrainRegistry::new(base.clone(), None);
+        let registry = ProjectBrainRegistry::new(base.clone(), Some(temp.path().join("registry")));
         let (hosted, _, _) = registry
             .bootstrap(&repo_text, &json!({"agent_id": "actor-binding"}))
             .expect("bootstrap hosted actor");
@@ -2299,7 +2306,7 @@ mod external_mutation_actor_binding_tests {
             .expect("shutdown first hosted registry");
         drop(registry);
 
-        let restarted = ProjectBrainRegistry::new(base, None);
+        let restarted = ProjectBrainRegistry::new(base, Some(temp.path().join("registry")));
         let rebound = restarted
             .resolve_external_mutation_actor(Arc::clone(&bound), &repo_text)
             .expect("warm-restart hosted actor binding");
@@ -2351,7 +2358,10 @@ mod external_mutation_actor_binding_tests {
         let root = temp.path().join("bound");
         std::fs::create_dir_all(&root).expect("bound root");
         let session = session_cell(&temp.path().join("runtime"), &root);
-        let registry = ProjectBrainRegistry::new(temp.path().join("brains"), None);
+        let registry = ProjectBrainRegistry::new(
+            temp.path().join("brains"),
+            Some(temp.path().join("registry")),
+        );
 
         let error = registry
             .execute_target_m1nd(Arc::clone(&session), None, true, true, |state| {
@@ -2692,7 +2702,7 @@ mod eviction_gate_tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let base = tmp.path().join("project-brains");
         // Cap 1: inserting a second brain must evict the first.
-        let reg = ProjectBrainRegistry::with_capacity(base, None, 1);
+        let reg = ProjectBrainRegistry::with_capacity(base, Some(tmp.path().join("registry")), 1);
 
         let root_a = tmp.path().join("repo-a").to_string_lossy().to_string();
         let root_b = tmp.path().join("repo-b").to_string_lossy().to_string();
@@ -2780,7 +2790,11 @@ mod eviction_gate_tests {
     #[test]
     fn failed_checkpoint_keeps_victim_warm_and_rejects_new_brain() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+        let reg = ProjectBrainRegistry::with_capacity(
+            tmp.path().join("pb"),
+            Some(tmp.path().join("registry")),
+            1,
+        );
         let key_a =
             ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-a").to_string_lossy());
         let key_b =
@@ -2827,7 +2841,11 @@ mod eviction_gate_tests {
     #[test]
     fn try_resolve_propagates_checkpoint_failure_instead_of_falling_back() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+        let reg = ProjectBrainRegistry::with_capacity(
+            tmp.path().join("pb"),
+            Some(tmp.path().join("registry")),
+            1,
+        );
         let key_a =
             ProjectBrainRegistry::canonical_key(&tmp.path().join("repo-a").to_string_lossy());
         let key_b =
@@ -2870,7 +2888,11 @@ mod eviction_gate_tests {
     #[test]
     fn map_never_exceeds_capacity() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 3);
+        let reg = ProjectBrainRegistry::with_capacity(
+            tmp.path().join("pb"),
+            Some(tmp.path().join("registry")),
+            3,
+        );
         for i in 0..10 {
             let key = ProjectBrainRegistry::canonical_key(
                 &tmp.path().join(format!("r{i}")).to_string_lossy(),
@@ -2899,7 +2921,11 @@ mod eviction_gate_tests {
     #[test]
     fn covering_brain_prefers_the_unique_related_brain_and_abstains_on_ambiguity() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 8);
+        let reg = ProjectBrainRegistry::with_capacity(
+            tmp.path().join("pb"),
+            Some(tmp.path().join("registry")),
+            8,
+        );
 
         // A brain on disk for `<tmp>/workspace/repo-a`. Create the dir so its key
         // canonicalizes to the SAME spelling the roster reports (macOS /tmp →
@@ -3001,7 +3027,11 @@ mod daemon_rearm_tests {
     fn evicted_brains_armed_daemon_rearms_on_the_next_resolve() {
         let tmp = tempfile::tempdir().expect("tempdir");
         // Cap 1: bootstrapping a second brain MUST evict the first.
-        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 1);
+        let reg = ProjectBrainRegistry::with_capacity(
+            tmp.path().join("pb"),
+            Some(tmp.path().join("registry")),
+            1,
+        );
 
         let root_a = tmp.path().join("repo-a");
         write_tiny_repo(&root_a);
@@ -3162,7 +3192,11 @@ mod overlap_guard_tests {
     }
 
     fn reg_in(tmp: &Path) -> ProjectBrainRegistry {
-        ProjectBrainRegistry::with_capacity(tmp.join("project-brains"), None, 8)
+        ProjectBrainRegistry::with_capacity(
+            tmp.join("project-brains"),
+            Some(tmp.join("registry")),
+            8,
+        )
     }
 
     /// The refusal must be an `ingest` InvalidParams that names the class, the

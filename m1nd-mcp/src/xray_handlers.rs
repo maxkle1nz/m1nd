@@ -5411,6 +5411,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph_snapshot.json"),
             plasticity_state: runtime_dir.join("plasticity_state.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };

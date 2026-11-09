@@ -3591,6 +3591,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -3604,14 +3605,14 @@ mod tests {
         let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
             root.join("runtime")
                 .join(crate::project_brains::PROJECT_BRAINS_DIR),
-            None,
+            Some(root.join("runtime").join("registry")),
         ));
         Arc::new(AppState {
             session: Arc::new(BrainSessionCell::new(session)),
             tool_schemas_cache,
             event_tx,
             event_log_path: None,
-            registry_dir: None,
+            registry_dir: Some(root.join("runtime").join("registry")),
             mcp_sessions: new_mcp_session_registry_with_limits(limits),
             project_brains,
             runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),

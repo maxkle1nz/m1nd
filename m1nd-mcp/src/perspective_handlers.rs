@@ -2019,6 +2019,7 @@ mod tests {
         let config = crate::server::McpConfig {
             graph_source: temp_dir.path().join("graph_snapshot.json"),
             plasticity_state: temp_dir.path().join("plasticity_state.json"),
+            registry_dir: Some(temp_dir.path().join("registry")),
             runtime_dir: Some(temp_dir.path().to_path_buf()),
             ..crate::server::McpConfig::default()
         };

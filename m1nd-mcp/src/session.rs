@@ -5617,6 +5617,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph_snapshot.json"),
             plasticity_state: temp.path().join("plasticity_state.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -5645,6 +5646,7 @@ mod tests {
         let config = McpConfig {
             graph_source: graph_path.clone(),
             plasticity_state: runtime.join("plasticity.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime.clone()),
             ..McpConfig::default()
         };
@@ -5984,6 +5986,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph.json"),
             plasticity_state: temp.path().join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             read_only: true,
             ..McpConfig::default()
@@ -6010,6 +6013,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph.json"),
             plasticity_state: temp.path().join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -6134,6 +6138,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph_snapshot.json"),
             plasticity_state: temp.path().join("plasticity_state.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -6172,6 +6177,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph_snapshot.json"),
             plasticity_state: temp.path().join("plasticity_state.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -6200,6 +6206,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph.json"),
             plasticity_state: temp.path().join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -6234,6 +6241,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("graph.json"),
             plasticity_state: temp.path().join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(temp.path().to_path_buf()),
             ..McpConfig::default()
         };
@@ -6278,6 +6286,7 @@ mod tests {
         let config = McpConfig {
             graph_source: agent_memory.join("graph.json"),
             plasticity_state: agent_memory.join("plasticity.json"),
+            registry_dir: Some(agent_memory.join("registry")),
             runtime_dir: Some(agent_memory.clone()),
             ..McpConfig::default()
         };
@@ -6342,6 +6351,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime),
             ..McpConfig::default()
         };
@@ -6374,6 +6384,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime.clone()),
             ..McpConfig::default()
         };
@@ -6410,6 +6421,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime),
             ..McpConfig::default()
         };
@@ -6532,6 +6544,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime),
             ..McpConfig::default()
         };
@@ -6634,6 +6647,7 @@ mod tests {
         let config = McpConfig {
             graph_source: workspace.join("graph_snapshot.json"),
             plasticity_state: workspace.join("plasticity_state.json"),
+            registry_dir: Some(workspace.join("registry")),
             runtime_dir: Some(workspace.clone()),
             ..McpConfig::default()
         };
@@ -6665,6 +6679,7 @@ mod tests {
         let config = McpConfig {
             graph_source: workspace.join("graph_snapshot.json"),
             plasticity_state: workspace.join("plasticity_state.json"),
+            registry_dir: Some(workspace.join("registry")),
             runtime_dir: Some(workspace.clone()),
             ..McpConfig::default()
         };
@@ -6688,6 +6703,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("runtime").join("graph_snapshot.json"),
             plasticity_state: temp.path().join("runtime").join("plasticity_state.json"),
+            registry_dir: Some(temp.path().join("runtime").join("registry")),
             runtime_dir: Some(temp.path().join("runtime")),
             ..McpConfig::default()
         };
@@ -6724,6 +6740,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.path().join("runtime").join("graph_snapshot.json"),
             plasticity_state: temp.path().join("runtime").join("plasticity_state.json"),
+            registry_dir: Some(temp.path().join("runtime").join("registry")),
             runtime_dir: Some(temp.path().join("runtime")),
             ..McpConfig::default()
         };
@@ -6761,6 +6778,7 @@ mod tests {
         let config = McpConfig {
             graph_source: workspace.join("graph_snapshot.json"),
             plasticity_state: workspace.join("plasticity_state.json"),
+            registry_dir: Some(workspace.join("registry")),
             runtime_dir: Some(workspace.clone()),
             ..McpConfig::default()
         };
@@ -6812,6 +6830,7 @@ mod tests {
         let config = McpConfig {
             graph_source: workspace.join("graph_snapshot.json"),
             plasticity_state: workspace.join("plasticity_state.json"),
+            registry_dir: Some(workspace.join("registry")),
             runtime_dir: Some(workspace.clone()),
             ..McpConfig::default()
         };
@@ -6848,6 +6867,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph_snapshot.json"),
             plasticity_state: runtime.join("plasticity_state.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime),
             ..McpConfig::default()
         };
@@ -6871,6 +6891,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime.join("graph.json"),
             plasticity_state: runtime.join("plasticity.json"),
+            registry_dir: Some(runtime.join("registry")),
             runtime_dir: Some(runtime),
             ..McpConfig::default()
         };
@@ -6999,6 +7020,7 @@ mod tests {
         let config = McpConfig {
             graph_source: temp.join("graph_snapshot.json"),
             plasticity_state: temp.join("plasticity_state.json"),
+            registry_dir: Some(temp.join("registry")),
             runtime_dir: Some(temp.to_path_buf()),
             ..McpConfig::default()
         };
