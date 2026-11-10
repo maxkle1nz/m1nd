@@ -4,6 +4,12 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ---
 
+## [2.0.0] — Local draft, unpublished
+
+- Proposes a strict major version for the existing PR #580 partial-feedback no-mutation refusal; authority/calibration floors remain unchanged.
+- Carries thirteen Rust dependency updates; four maintenance advisories remain under triage. No new persisted format, broad graph features, operational admission, migration or release qualification is claimed.
+- See [scope and outstanding gates](docs/RELEASE-2.0.0-PROPOSAL.md).
+
 ## [Unreleased]
 
 ### Fixed

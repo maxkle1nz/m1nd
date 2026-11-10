@@ -1,5 +1,7 @@
 # PATHOS — m1nd agent handoff
 
+> **Local 2.0.0 proposal, unpublished:** thirteen Rust dependency updates and the existing PR #580 partial-feedback refusal motivate a major version. No new format, automatic graph features, operational admission or migration proof is claimed. Existing floors and release gates remain. See [proposal](RELEASE-2.0.0-PROPOSAL.md).
+
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
 

@@ -1,4 +1,6 @@
 <p align="center">
+
+> **Local 2.0.0 proposal, unpublished:** thirteen Rust dependency updates and the existing PR #580 partial-feedback refusal motivate a major version. No new format, automatic graph features, operational admission or migration proof is claimed. Existing floors and release gates remain. See [proposal](docs/RELEASE-2.0.0-PROPOSAL.md).
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
 </p>
 
