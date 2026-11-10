@@ -1,5 +1,7 @@
 # PATHOS — m1nd agent handoff
 
+> **Unpublished UI bundle correction:** tracked assets now match the verified build output and the UI packaged in 1.6.5. UI source and dependencies are unchanged. See [release scope](RELEASE-2.0.0-PROPOSAL.md#tracked-ui-bundle-alignment).
+
 > **Local 2.0.0 proposal, unpublished:** thirteen Rust dependency updates and the existing PR #580 partial-feedback refusal motivate a major version. No new format, automatic graph features, operational admission or migration proof is claimed. Existing floors and release gates remain. See [proposal](RELEASE-2.0.0-PROPOSAL.md).
 
 > Read this first. Single source of truth for any chat / subagent / parallel
