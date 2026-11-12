@@ -1326,8 +1326,8 @@ impl Graph {
                 let lo = self.csr.rev_offsets[i] as usize;
                 let hi = self.csr.rev_offsets[i + 1] as usize;
                 let mut rank_sum = 0.0f32;
-                for j in lo..hi {
-                    let src = self.csr.rev_sources[j].as_usize();
+                for source in &self.csr.rev_sources[lo..hi] {
+                    let src = source.as_usize();
                     let deg = out_degree[src];
                     if deg > 0 {
                         rank_sum += pr[src] / deg as f32;

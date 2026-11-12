@@ -1534,13 +1534,9 @@ fn is_forbidden_path(p: &Path) -> bool {
     // case-insensitive-filesystem reason.
     let path_str = p.to_string_lossy().to_lowercase();
     let path_str = path_str.replace('\\', "/"); // normalize for Windows
-    if path_str
+    path_str
         .split('/')
         .any(|segment| matches!(segment, ".git" | "target" | "node_modules" | "l1ght-cache"))
-    {
-        return true;
-    }
-    false
 }
 
 /// Recursively collect candidate files under `dir` that pass every safety filter

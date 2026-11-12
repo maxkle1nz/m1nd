@@ -1016,8 +1016,8 @@ impl VelocityScorer {
         let (mean, stddev) = Self::frequency_stats_static(graph);
         let mut scores = Vec::new();
 
-        for i in 0..n {
-            let freq = graph.nodes.change_frequency[i].get();
+        for (i, frequency) in graph.nodes.change_frequency[..n].iter().enumerate() {
+            let freq = frequency.get();
             let z = (freq - mean) / stddev;
             let trend = if z > 0.5 {
                 VelocityTrend::Accelerating
@@ -1049,8 +1049,8 @@ impl VelocityScorer {
         let (mean, stddev) = self.frequency_stats(graph);
         let mut scores = Vec::new();
 
-        for i in 0..n {
-            let freq = graph.nodes.change_frequency[i].get();
+        for (i, frequency) in graph.nodes.change_frequency[..n].iter().enumerate() {
+            let freq = frequency.get();
             let z = (freq - mean) / stddev;
             let trend = if z > 0.5 {
                 VelocityTrend::Accelerating

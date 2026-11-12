@@ -5105,8 +5105,8 @@ pub fn handle_trace(
     // --- 5. Score suspiciousness ---
     let max_pagerank = {
         let mut mx = 0.0f32;
-        for i in 0..n {
-            let pr = graph.nodes.pagerank[i].get();
+        for rank in &graph.nodes.pagerank[..n] {
+            let pr = rank.get();
             if pr > mx {
                 mx = pr;
             }
