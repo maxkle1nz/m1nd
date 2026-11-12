@@ -1,4 +1,7 @@
 <p align="center">
+
+> **newm1nd integration preview, unpublished:** this branch combines the verified local graph/agent/Python source batch with dependency, version and tracked-UI changes. Their earlier receipts remain component history; this combined candidate needs its own checks. See [integration scope](docs/RELEASE-2.0.0-PROPOSAL.md).
+
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
 </p>
 

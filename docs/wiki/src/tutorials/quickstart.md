@@ -1,5 +1,7 @@
 # Quick Start
 
+> **newm1nd integration preview, unpublished:** this branch combines the verified local graph/agent/Python source batch with dependency, version and tracked-UI changes. Their earlier receipts remain component history; this combined candidate needs its own checks. See [integration scope](../../../RELEASE-2.0.0-PROPOSAL.md).
+
 Start with a read-only question about a real repository. You do not need to understand the full tool catalog, run missions, or configure hardware-backed authority first.
 
 ## Choose the version you are using
