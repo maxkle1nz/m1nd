@@ -48,6 +48,7 @@ fn fixture() -> (tempfile::TempDir, SessionState) {
     let config = McpConfig {
         graph_source: dir.path().join("graph.json"),
         plasticity_state: dir.path().join("plasticity.json"),
+        registry_dir: Some(dir.path().join("registry")),
         runtime_dir: Some(dir.path().to_owned()),
         ..Default::default()
     };

@@ -128,6 +128,16 @@ function hasGitMetadataHint(root) {
 }
 
 function sourceRevision(root) {
+  // `git -C root` does not override these inherited selectors. Accepting one
+  // could label this source tree with another repository's branch or HEAD.
+  // Refuse rather than silently clearing intentional operator configuration.
+  const redirected = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE"]
+    .find((key) => process.env[key]);
+  if (redirected) {
+    const error = new Error(`automatic cache identity conflicts with ${redirected}; remove the Git redirection before selecting a repository view`);
+    error.code = "M1ND_AGENT_GIT_REDIRECTION";
+    throw error;
+  }
   const repository = gitResult(root, ["rev-parse", "--is-inside-work-tree"]);
   if (repository.status !== 0) {
     const detail = String(repository.stderr || "");
@@ -135,6 +145,11 @@ function sourceRevision(root) {
       return { kind: "non_git", head: null, branch: null };
     }
     throw gitFailure("repository probe", repository);
+  }
+  if (String(repository.stdout || "").trim() !== "true") {
+    const error = new Error("automatic cache identity requires a source worktree; Git did not report this root inside one");
+    error.code = "M1ND_AGENT_NOT_WORKTREE";
+    throw error;
   }
 
   const branchResult = gitResult(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -199,6 +214,10 @@ function assertPrivateCacheAncestors(canonicalBase) {
 
 function assertPrivateCacheBase(base) {
   fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+  return assertExistingPrivateCacheBase(base);
+}
+
+function assertExistingPrivateCacheBase(base) {
   assertCacheDirectory(base, "base");
   const canonical = fs.realpathSync(base);
   const stat = fs.statSync(canonical);
@@ -210,6 +229,16 @@ function assertPrivateCacheBase(base) {
   }
   assertPrivateCacheAncestors(canonical);
   return canonical;
+}
+
+function canonicalFuturePath(target) {
+  let ancestor = target;
+  const missing = [];
+  while (!cacheLstat(ancestor)) {
+    missing.unshift(path.basename(ancestor));
+    ancestor = path.dirname(ancestor);
+  }
+  return path.resolve(fs.realpathSync(ancestor), ...missing);
 }
 
 function sameIdentity(left, right) {
@@ -275,17 +304,85 @@ function ensureAgentRuntimeIdentity(lease, identity) {
   }
 }
 
-function agentRuntimeCacheTarget(repo, env = process.env) {
+function agentRuntimeCacheTarget(repo, env = process.env, options = {}) {
   const canonicalRoot = fs.realpathSync(repo);
+  const rootStamp = sourceRootStamp(canonicalRoot);
   const identity = {
     schema: CACHE_IDENTITY_SCHEMA,
     canonical_root: canonicalRoot,
     source_revision: sourceRevision(canonicalRoot),
   };
   const key = crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex");
-  const cacheBase = assertPrivateCacheBase(defaultCacheBase(env));
+  const requestedBase = defaultCacheBase(env);
+  const cacheBase = options.readOnly
+    ? (cacheLstat(requestedBase) ? assertExistingPrivateCacheBase(requestedBase) : canonicalFuturePath(requestedBase))
+    : assertPrivateCacheBase(requestedBase);
   const runtimeDir = path.join(cacheBase, key);
-  return { runtimeDir, identity };
+  const sourceGuard = { requested_root: path.resolve(repo), identity, root_stamp: rootStamp };
+  assertAgentSourceIdentity(sourceGuard, "cache selection");
+  return { runtimeDir, identity, sourceGuard };
+}
+
+function planAgentRuntimeCacheTarget(repo, env = process.env) {
+  return agentRuntimeCacheTarget(repo, env, { readOnly: true });
+}
+
+function sourceRootStamp(root) {
+  const stat = fs.statSync(root);
+  if (!stat.isDirectory()) throw new Error("source root is not a directory");
+  return { dev: stat.dev, ino: stat.ino, birthtime_ms: stat.birthtimeMs };
+}
+
+function assertAgentSourceIdentity(guard, phase) {
+  try {
+    const root = fs.realpathSync(guard.requested_root);
+    if (root !== guard.identity.canonical_root ||
+        JSON.stringify(sourceRootStamp(root)) !== JSON.stringify(guard.root_stamp) ||
+        !sameIdentity(guard.identity, {
+          schema: CACHE_IDENTITY_SCHEMA,
+          canonical_root: root,
+          source_revision: sourceRevision(root),
+        })) {
+      throw new Error("root directory or Git revision no longer matches the selected cache");
+    }
+    // This is a boundary check, not an atomic filesystem snapshot or a claim
+    // about uncommitted file contents. Replacements between checks can race.
+    if (JSON.stringify(sourceRootStamp(root)) !== JSON.stringify(guard.root_stamp)) {
+      throw new Error("source root changed while its revision was read");
+    }
+  } catch (cause) {
+    const error = new Error(
+      `source identity changed during ${phase} (source_identity_changed); stale result refused: ${cause.message}`,
+      { cause }
+    );
+    error.code = "M1ND_AGENT_SOURCE_IDENTITY_CHANGED";
+    throw error;
+  }
+}
+
+// Plan without creating state. Resolve existing ancestors so aliases cannot
+// place derived state inside the source tree that this runtime will scan.
+function agentStatePaths(repo, directory) {
+  const requested = path.resolve(directory);
+  let ancestor = requested;
+  const missing = [];
+  while (!cacheLstat(ancestor)) {
+    missing.unshift(path.basename(ancestor));
+    ancestor = path.dirname(ancestor);
+  }
+  const root = path.resolve(fs.realpathSync(ancestor), ...missing);
+  const relative = path.relative(fs.realpathSync(repo), root);
+  if (!relative || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))) {
+    throw new Error("--state-dir must be outside the indexed repository; choose a private directory in an already-writable workspace or temporary root");
+  }
+  // Keep the lexical path for no-follow validation at execution time.
+  return { requested, state_root: root, cache_base: path.join(root, "agent-runtimes"), registry_root: path.join(root, "registry") };
+}
+
+function prepareAgentState(paths) {
+  const root = assertPrivateCacheBase(paths.requested);
+  if (root !== paths.state_root) throw new Error("--state-dir changed after planning; refusing to start");
+  assertPrivateCacheBase(paths.registry_root);
 }
 
 function cacheBusyError(runtimeDir, waitMs) {
@@ -412,6 +509,10 @@ module.exports = {
   CACHE_IDENTITY_SCHEMA,
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  planAgentRuntimeCacheTarget,
+  assertAgentSourceIdentity,
+  agentStatePaths,
+  prepareAgentState,
   cacheOwnerWaitMs,
   ensureAgentRuntimeIdentity,
   releaseAgentRuntimeLease,

@@ -5105,8 +5105,8 @@ pub fn handle_trace(
     // --- 5. Score suspiciousness ---
     let max_pagerank = {
         let mut mx = 0.0f32;
-        for i in 0..n {
-            let pr = graph.nodes.pagerank[i].get();
+        for rank in &graph.nodes.pagerank[..n] {
+            let pr = rank.get();
             if pr > mx {
                 mx = pr;
             }
@@ -11275,6 +11275,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11413,6 +11414,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11544,6 +11546,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11685,6 +11688,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11730,6 +11734,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11827,6 +11832,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11893,6 +11899,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -11993,6 +12000,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -12102,6 +12110,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -12620,6 +12629,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -12766,6 +12776,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -13008,6 +13019,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -13207,6 +13219,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -13727,6 +13740,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -14102,6 +14116,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -14836,6 +14851,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -14906,6 +14922,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -15492,6 +15509,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -15568,6 +15586,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -15708,6 +15727,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -15803,6 +15823,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -15984,6 +16005,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -16036,6 +16058,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -16315,6 +16338,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -16411,6 +16435,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir.clone()),
             ..Default::default()
         };

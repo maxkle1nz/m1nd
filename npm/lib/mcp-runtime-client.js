@@ -114,6 +114,10 @@ class McpRuntimeClient {
     this.registryDir = selectedRegistryDir(options);
     this.cwd = options.cwd || null;
     this.args = options.args || defaultRuntimeArgs();
+    this.forbidAttach = Boolean(options.forbidAttach);
+    this.managedCache = Boolean(options.managedCache);
+    this.assertAttachPolicy();
+    this.assertManagedCachePolicy();
     this.proc = null;
     this.readline = null;
     this.pending = new Map();
@@ -127,6 +131,29 @@ class McpRuntimeClient {
     this.cancellation = options.cancellation || null;
     this.cancelledError = null;
     this.startAttempted = false;
+  }
+
+  assertAttachPolicy() {
+    if (this.forbidAttach && (this.attach || argsHaveOption(this.args, "--attach"))) {
+      // Do not echo an explicit URL: it may contain credentials. Nor should a
+      // caller's request for isolation silently become a different launch plan.
+      const error = new Error("--no-attach conflicts with an attach option in the runtime configuration; remove the conflicting attach option or M1ND_MCP_ARGS override before starting");
+      error.code = "M1ND_ATTACH_FORBIDDEN";
+      throw error;
+    }
+  }
+
+  assertManagedCachePolicy() {
+    if (!this.managedCache) return;
+    const env = { ...process.env, ...this.extraEnv };
+    const selector = ["M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_RUNTIME_BASE"].find((key) => env[key])
+      || ["--graph", "--plasticity", "--config", "--attach"].find((key) => argsHaveOption(this.args, key))
+      || (this.attach ? "attach" : null);
+    if (selector) {
+      const error = new Error(`automatic runtime cache conflicts with ${selector}; inspect and remove the destination override before using cache identity or freshness receipts`);
+      error.code = "M1ND_CACHE_DESTINATION_CONFLICT";
+      throw error;
+    }
   }
 
   interruptionError() {
@@ -163,6 +190,11 @@ class McpRuntimeClient {
   }
 
   launchConfig() {
+    // Recheck mutable options before either branch can create a directory or
+    // select a bridge. M1ND_ATTACH_URL alone is not a native transport selector;
+    // the native process reads it only after an --attach selector is present.
+    this.assertAttachPolicy();
+    this.assertManagedCachePolicy();
     if (this.attach) {
       const args = [...this.args];
       if (!argsHaveOption(args, "--attach")) args.push("--attach", this.attach);

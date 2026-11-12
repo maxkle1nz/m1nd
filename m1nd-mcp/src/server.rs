@@ -11602,7 +11602,7 @@ mod tests {
         // its owner-side store dir).
         let reg = crate::project_brains::ProjectBrainRegistry::with_capacity(
             tmp.path().join("project-brains"),
-            None,
+            Some(tmp.path().join("registry")),
             4,
         );
         let (brain, _ingest, _reused) = reg
@@ -14774,6 +14774,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(runtime_dir),
             ..McpConfig::default()
         };
@@ -14897,6 +14898,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(runtime_dir),
             read_only,
             ..McpConfig::default()
@@ -15718,6 +15720,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(runtime_dir),
             read_only: true, // attach-style: prove orient works without mutating
             ..McpConfig::default()
@@ -16348,6 +16351,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
             runtime_dir: Some(runtime_dir),
             ..McpConfig::default()
         };

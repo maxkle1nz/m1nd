@@ -4,6 +4,13 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ---
 
+## [2.0.0] — Development branch preview, unreleased
+
+- Retains the strict major-version proposal for PR #580's existing partial-feedback no-mutation refusal; authority and calibration floors remain unchanged.
+- Includes thirteen Rust dependency updates, with four maintenance advisories retained under triage.
+- Includes the separately verified local graph/branch/view, relation-edit and conservative Python-call source batch. Freshness checks remain bounded; memory claims are not certified or automatically shared. The combined candidate has no migration or release qualification.
+- See [integration scope and outstanding gates](docs/RELEASE-2.0.0-PROPOSAL.md).
+
 ## [Unreleased]
 
 ### Fixed

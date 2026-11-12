@@ -1,5 +1,7 @@
 # Quick Start
 
+> **newm1nd integration preview, unpublished:** this branch combines the verified local graph/agent/Python source batch with dependency, version and tracked-UI changes. Their earlier receipts remain component history; this combined candidate needs its own checks. See [integration scope](../../../RELEASE-2.0.0-PROPOSAL.md).
+
 Start with a read-only question about a real repository. You do not need to understand the full tool catalog, run missions, or configure hardware-backed authority first.
 
 ## Choose the version you are using
@@ -10,6 +12,8 @@ Published 1.6.5 is available on [GitHub/native](https://github.com/maxkle1nz/m1n
 - **Historical 1.6.3:** retain [its signed installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.3.md) and [historical README recipe](https://github.com/maxkle1nz/m1nd/blob/main/README.md#historical-pinned-163-install-prepare-connect). Its human birth and nested-runtime recipe are separate from the external-runtime 1.6.5 contract.
 
 ## Install the published release
+
+For source-preview builds, read the [November dependency security update](https://github.com/maxkle1nz/m1nd/blob/main/docs/DEPENDENCY-SECURITY-2026-11.md). Its unreleased lockfile changes preserve source APIs and do not replace published 1.6.5 artifacts.
 
 Prerequisites: Node.js 18+ and a repository you can read. First follow the [signed native 1.6.5 installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md), which pins the exact artifact and verifies its signature with cosign. The 1.6.5 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell walkthrough from your repository:
 
@@ -33,6 +37,16 @@ The matching 1.6.5 CLI selects an external private cache. Clear legacy runtime o
 ```
 
 Read `runtime.boot` and `runtime.owner_discovery`: a covering served owner is reused first; otherwise `first-minute` prepares only the exact granted repository in an isolated cache outside the source tree. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness. `--binary` selects the client executable, not the discovered owner's version. Check returned source locations, gaps, and command status. A refusal is not permission to delete state, move a binding, run the human-only ceremony, or substitute generic MCP `ingest`.
+
+For an explicitly located automatic cache, set `M1ND_AGENT_CACHE_DIR` to a private directory outside the source repository and retain `--no-attach` when validating an isolated binary. This cache selector is separate from `M1ND_RUNTIME_DIR`, which belongs to direct-runtime configuration. Cache ownership, safe ancestors and single-owner lease checks still apply.
+
+The unreleased source CLI also accepts `--no-attach --state-dir <private-directory>` to select both cache and registry inside a host-authorized writable workspace, outside the indexed repository. Preview with `agent scope` first. This does not grant sandbox access, migrate memory or update an installed wrapper. See the [storage contract](https://github.com/maxkle1nz/m1nd/blob/main/docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli) for override refusals and model-cache limits.
+
+Use the structured next command when continuing: it preserves the same state directory, isolated mode and binary, including shell quoting for paths with spaces.
+
+In the unreleased CLI, inspect `runtime.source_identity` and `runtime.graph_snapshot_version` for branch/HEAD checks, observed refresh status and persisted-byte version. A COMPLETE code ownership receipt is not semantic completeness. Explicit/shared runtimes and attached owners do not inherit automatic-cache freshness. See [automatic freshness and branch views](https://github.com/maxkle1nz/m1nd/blob/main/docs/AUTOMATIC-GRAPH-FRESHNESS.md).
+
+The source candidate [preserves owned memory during refresh](https://github.com/maxkle1nz/m1nd/blob/main/docs/REFRESH-OWNED-MEMORY.md) by measuring the complete code-plus-memory candidate against the existing shrink guard. A refusal still requires inspection; clearing memory or lowering the guard is not a recovery recipe.
 
 ## Connect your MCP host
 
@@ -92,3 +106,23 @@ Public `ingest` is not a bootstrap shortcut: default/`replace` and `merge` are p
 - [Multi-agent workflows](multi-agent.md): share a local owner and coordinate
 - [Deployment](https://github.com/maxkle1nz/m1nd/blob/main/docs/deployment.md): persistent owners and transport limits
 - [Contributor development kit](contributor-devkit.md): source builds and private development state
+
+Unreleased isolated CLI hardening: `kickstart` honors `--no-attach --state-dir`
+and refused results exit nonzero. Automatic caches reject conflicting attach or
+persistence destinations. See the [freshness contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md)
+for refresh-before-query proof and its limits.
+
+Unreleased `runtime.view` separates worktree/branch/commit cache identity from
+observed refreshed code and memory restoration. Claims stay bound to their view;
+restoration does not certify their freshness. Conflicting ambient Git repository
+selectors are refused for automatic cache selection.
+
+For restored memory, inspect `runtime.view.memory.restoration.evidence_check`
+alongside stale counts. An inventory check or zero stale count does not certify
+a claim; absent/unverifiable checks remain explicit.
+
+Unreleased `agent memory-check --repo <dir> --no-attach --state-dir <dir>`
+reviews only current-view memory without native boot or copying claims. Supplied
+baselines remain unauthenticated proposals; sharing is never authorized. Context
+capsules are discarded when a selected-anchor boundary check observes a change;
+unknown checks stay not proven. See the [freshness contract](../../../AUTOMATIC-GRAPH-FRESHNESS.md).

@@ -1,4 +1,7 @@
 <p align="center">
+
+> **newm1nd integration preview, unpublished:** this branch combines the verified local graph/agent/Python source batch with dependency, version and tracked-UI changes. Their earlier receipts remain component history; this combined candidate needs its own checks. See [integration scope](docs/RELEASE-2.0.0-PROPOSAL.md).
+
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
 </p>
 
@@ -35,6 +38,12 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 
 ### Published 1.6.5: get a first result
 
+Source-preview contributors: the [November dependency security update](docs/DEPENDENCY-SECURITY-2026-11.md) addresses findings in the unreleased lockfile; it does not update the published binaries above.
+
+The source candidate also preserves the existing [runtime-overlay matching rules](docs/RUNTIME-OVERLAY-MATCHING.md) while reusing batch-local substring filters. UI dependency audit debt and exact-candidate performance proof are tracked separately in the security update.
+
+[Owned-memory refresh](docs/REFRESH-OWNED-MEMORY.md) prepares code and memory together before the unchanged shrink guard, so an unchanged source tree can resume after a grounded memory write.
+
 You need **Node.js 18+** and a repository you can read. [Install the signed native 1.6.5 artifact](docs/INSTALL-1.6.5.md), then run this POSIX-shell recipe from your repository:
 
 ```bash
@@ -51,6 +60,12 @@ export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 `first-minute` discovers a covering served owner first. Otherwise, the matching wrapper/native runtime prepares only the exact launcher-granted repository in an external private cache. Source files remain inputs. Only when reusing the automatic isolated cache does the CLI refresh the declared root before retrieval. Attached-owner freshness follows the owner's own semantics; inspect that owner's version, repository binding, and freshness rather than inferring them from the selected client binary. Check `runtime.boot`, returned source locations, and gaps. This is not authority to create a shared brain, move a binding, or call generic `ingest`.
 
 To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/quickstart.md). Direct stdio needs an explicit workspace grant and an existing external private runtime; a shared owner has separate preparation and authority requirements. See [agent autonomy](docs/AGENT-AUTONOMY.md).
+
+Unreleased CLI: `agent ... --no-attach --state-dir <private-directory>` explicitly locates cache and registry in an already-writable workspace outside the indexed repository. `agent scope` previews the locations without writes. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli); this grants no permissions and does not migrate existing memory. `kickstart` honors the same storage flags; isolated automatic caches refuse conflicting attach or persistence destinations.
+
+Structured follow-up agent commands retain the selected state directory, isolation flag and binary, so the next step uses the same cache.
+
+The unreleased [automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md) adds root/branch/HEAD checkpoint guards, observed refresh and persisted graph-version receipts, and explicit completeness limits. The `runtime.view` receipt separates worktree/branch/commit identity, observed code version and memory scope; restored claims retain an explicit freshness limit and an evidence-check status separate from stale counts. `agent context` discards a capsule when its anchor or a validated returned source file is observed to change; `agent memory-check --no-attach` reviews current-view memory without copying or authorizing sharing. The unreleased Python extractor also adds direct same-module calls for a conservative plain-function subset, with [explicit coverage limits](docs/AUTOMATIC-GRAPH-FRESHNESS.md#plain-python-call-edges-unreleased). The code path rebuilds on the next isolated CLI invocation; the document watcher is not a continuous code watcher.
 
 ### Historical pinned 1.6.3: install, prepare, connect
 

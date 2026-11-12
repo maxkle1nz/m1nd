@@ -161,8 +161,9 @@ fn capture_baseline(
             if depth >= radius {
                 continue;
             }
-            for edge_pos in graph.csr.offsets[idx] as usize..graph.csr.offsets[idx + 1] as usize {
-                let target = graph.csr.targets[edge_pos].as_usize();
+            let edges = graph.csr.offsets[idx] as usize..graph.csr.offsets[idx + 1] as usize;
+            for edge_target in &graph.csr.targets[edges] {
+                let target = edge_target.as_usize();
                 if selected.insert(target) {
                     frontier.push_back((target, depth + 1));
                 }

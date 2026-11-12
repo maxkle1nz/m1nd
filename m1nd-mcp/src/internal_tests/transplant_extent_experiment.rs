@@ -34,6 +34,7 @@ fn measure_ingest_extents_on_m1nd_core() {
     let config = McpConfig {
         graph_source: snapshot_path.clone(),
         plasticity_state: tmp.path().join("plasticity_state.json"),
+        registry_dir: Some(tmp.path().join("registry")),
         ..McpConfig::default()
     };
     let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())

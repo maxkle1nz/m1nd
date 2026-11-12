@@ -624,16 +624,13 @@ fn refuse_symlink_or_non_file_target(target: &Path, tool: &str) -> M1ndResult<()
 }
 
 fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
     #[cfg(windows)]
     {
-        crate::windows_durable_fs::is_reparse_point(metadata)
+        metadata.file_type().is_symlink() || crate::windows_durable_fs::is_reparse_point(metadata)
     }
     #[cfg(not(windows))]
     {
-        false
+        metadata.file_type().is_symlink()
     }
 }
 
@@ -1237,6 +1234,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -1395,6 +1393,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -1489,6 +1488,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -1611,6 +1611,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -1796,6 +1797,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -2198,6 +2200,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };

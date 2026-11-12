@@ -848,6 +848,7 @@ mod tests {
         let config = crate::server::McpConfig {
             graph_source: temp.path().join("g.json"),
             plasticity_state: temp.path().join("p.json"),
+            registry_dir: Some(temp.path().join("rt").join("registry")),
             runtime_dir: Some(temp.path().join("rt")),
             ..crate::server::McpConfig::default()
         };
@@ -926,6 +927,7 @@ mod tests {
         let config = crate::server::McpConfig {
             graph_source: temp.path().join("g.json"),
             plasticity_state: temp.path().join("p.json"),
+            registry_dir: Some(temp.path().join("rt").join("registry")),
             runtime_dir: Some(temp.path().join("rt")),
             ..crate::server::McpConfig::default()
         };

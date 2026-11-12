@@ -357,14 +357,48 @@ fn handle_ingest_refresh(
 
     // 6. The CANDIDATE, computed first and committed only if it survives. The
     //    ingest itself is the existing one — this door builds no second scanner.
-    let (candidate, stats) = m1nd_ingest::Ingestor::new(code_ingest_config(
+    let mut bundle = m1nd_ingest::Ingestor::new(code_ingest_config(
         state,
         std::path::Path::new(target),
         input.include_dotfiles,
         input.dotfile_patterns.clone(),
     ))
-    .ingest()?;
+    .ingest_bundle()?;
+    bundle.require_complete()?;
 
+    // Measure the COMPLETE graph that will be installed, including the owned
+    // memory replace/refresh has always restored. No live/durable mutation is
+    // allowed while preparing or checking this candidate.
+    let prepared_memory = prepare_refresh_agent_memory(state, &mut bundle.graph)?;
+    // Memory loading can take time. Recheck the original immutable CODE source
+    // receipt immediately before admission, without mistaking added memory for
+    // code ownership. Drift refuses; it never installs an unverified candidate.
+    bundle.revalidate_sources()?;
+    let code_snapshot = serde_json::json!({
+        "schema": "m1nd-refresh-code-snapshot-v1",
+        "update_mode": "full_rebuild",
+        "root_identity": bundle.ownership.root_identity,
+        "source_projection_digest": bundle.ownership.source_projection_digest,
+        "ownership_digest": bundle.ownership.ownership_digest,
+        "pipeline_digest": bundle.ownership.pipeline_digest,
+        "policy_fingerprint": bundle.ownership.pipeline_receipt.policy_fingerprint,
+        "producer_build_identity": bundle.ownership.pipeline_receipt.producer_build_identity,
+        "vcs_context_digest": bundle.ownership.pipeline_receipt.vcs_context_digest,
+        "source_count": bundle.ownership.source_digests.len(),
+        "files_scanned": bundle.stats.files_scanned,
+        "files_parsed": bundle.stats.files_parsed,
+        "files_skipped_binary": bundle.stats.files_skipped_binary,
+        "files_skipped_encoding": bundle.stats.files_skipped_encoding,
+        "references_unresolved": bundle.stats.references_unresolved,
+        "references_ambiguous": bundle.stats.references_ambiguous,
+        "unreadable_path_coverage": "not_attested",
+        "code_ownership_coverage": bundle.ownership.coverage,
+        "source_revalidated_before_admission": true,
+        "atomic_filesystem_snapshot": false,
+        "semantic_completeness": "not_proven",
+    });
+    let candidate = bundle.graph;
+    let stats = bundle.stats;
     let live_nodes = u64::from(state.graph.read().num_nodes());
     let candidate_nodes = u64::from(candidate.num_nodes());
 
@@ -390,7 +424,15 @@ fn handle_ingest_refresh(
     //    so the invariant holds even if that path grows a new root writer.
     let roots_before = state.ingest_roots.clone();
     let workspace_before = state.workspace_root.clone();
-    let mut output = finalize_ingest(state, input, "code", candidate, stats)?;
+    let mut output = finalize_ingest_with_inventory(
+        state,
+        input,
+        "code",
+        candidate,
+        stats,
+        None,
+        Some(prepared_memory),
+    )?;
     state.ingest_roots = roots_before;
     state.workspace_root = workspace_before;
 
@@ -414,6 +456,11 @@ fn handle_ingest_refresh(
             serde_json::json!(live_nodes),
         );
         object.insert("node_count".to_string(), serde_json::json!(node_count));
+        object.insert("code_snapshot".to_string(), code_snapshot);
+        object.insert(
+            "graph_generation".to_string(),
+            serde_json::json!(state.graph_generation),
+        );
         object.insert(
             "root_set_unchanged".to_string(),
             serde_json::json!(state.declared_roots_canonical() == declared_before),
@@ -846,36 +893,18 @@ fn read_light_created_ms(path: &std::path::Path) -> Option<u64> {
     None
 }
 
-/// Ingest `<runtime_root>/agent-memory/*.light.md` (adapter=light, mode=merge) so
-/// agent-authored L1GHT memory is loaded into the live graph and its evidence
-/// re-anchors to the current code (`grounded_in`). Gated by env
-/// `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON). Returns a report for the
-/// trust/handshake layer (and for ingest responses after a `replace`), or `None`
-/// when there is no agent-memory directory yet. Called at boot AND after a
-/// `replace` ingest (which would otherwise wipe the memory). Honest: surfaces
-/// empty/zero with a note rather than fabricating.
-///
-/// Recency cap (`M1ND_MEMORY_LOAD_CAP`, default unlimited → no-op): when set and
-/// the file count exceeds it, only the K most-recent-by-`Created` files load;
-/// the rest are dropped and reported under `capped_out` so forgetting is
-/// provable, not silent. Files with NO parseable `Created` (legacy, pre-#187)
-/// are EXEMPT from eviction — always loaded — so setting a cap never evicts the
-/// pre-existing corpus for merely lacking a provenance stamp.
-pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value> {
-    let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
-        .map(|v| v != "0" && v != "false")
-        .unwrap_or(true);
-    let dir = state.runtime_root.join("agent-memory");
-    if !enabled {
-        return Some(serde_json::json!({
-            "loaded": false,
-            "skipped": "disabled by M1ND_AUTO_LOAD_AGENT_MEMORY=0",
-        }));
-    }
-    if !dir.is_dir() {
-        return None;
-    }
-    let mut light_files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+struct AgentMemorySelection {
+    light_files: Vec<std::path::PathBuf>,
+    file_count: usize,
+    dir_str: String,
+    cap: usize,
+    capped_out: Vec<String>,
+    capped_names: Vec<String>,
+}
+
+// Boot reload and refresh preparation share the same cap/exemption policy.
+fn select_agent_memory_files(dir: &std::path::Path) -> AgentMemorySelection {
+    let mut light_files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
@@ -884,15 +913,6 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
         .collect();
     let file_count = light_files.len();
     let dir_str = dir.to_string_lossy().to_string();
-    if file_count == 0 {
-        return Some(serde_json::json!({
-            "dir": dir_str,
-            "file_count": 0,
-            "loaded": false,
-            "skipped": "no .light.md files",
-        }));
-    }
-
     // Recency cap. Default (unlimited, or file_count within budget) leaves the
     // legacy single-directory ingest untouched — a pure no-op. Only when a cap is
     // set AND exceeded do we select the survivors and record the drops.
@@ -934,6 +954,162 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
         }
         light_files = survivors;
     }
+    AgentMemorySelection {
+        light_files,
+        file_count,
+        dir_str,
+        cap,
+        capped_out,
+        capped_names,
+    }
+}
+
+fn agent_memory_freshness_report(
+    state: &mut SessionState,
+) -> (usize, Vec<serde_json::Value>, &'static str) {
+    {
+        let cross_verify_input = crate::protocol::layers::CrossVerifyInput {
+            agent_id: "boot".to_string(),
+            scope: None,
+            check: vec!["evidence_freshness".to_string()],
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        match crate::audit_handlers::handle_cross_verify(state, cross_verify_input) {
+            Ok(cv) => {
+                let count = cv["stale_evidence_count"].as_u64().unwrap_or(0) as usize;
+                let claims: Vec<serde_json::Value> = cv["stale_evidence"]
+                    .as_array()
+                    .map(|arr| arr.iter().take(5).cloned().collect())
+                    .unwrap_or_default();
+                let note = if state.file_inventory.is_empty()
+                    || state.file_inventory.values().all(|e| e.sha256.is_none())
+                {
+                    "unverifiable_until_code_reingest"
+                } else {
+                    "verified_against_stored_inventory"
+                };
+                (count, claims, note)
+            }
+            Err(_) => (0, vec![], "unverifiable_until_code_reingest"),
+        }
+    }
+}
+
+// A prepared report of None is distinct from an unprepared finalization:
+// refresh must not re-read memory after measuring its complete candidate.
+struct PreparedAgentMemoryRestore {
+    report: Option<serde_json::Value>,
+}
+
+fn prepare_refresh_agent_memory(
+    state: &SessionState,
+    candidate: &mut m1nd_core::graph::Graph,
+) -> M1ndResult<PreparedAgentMemoryRestore> {
+    use m1nd_ingest::IngestAdapter;
+    let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
+        .map(|value| value != "0" && value != "false")
+        .unwrap_or(true);
+    if !enabled {
+        return Ok(PreparedAgentMemoryRestore {
+            report: Some(serde_json::json!({
+                "loaded": false, "skipped": "disabled by M1ND_AUTO_LOAD_AGENT_MEMORY=0",
+            })),
+        });
+    }
+    let dir = state.runtime_root.join("agent-memory");
+    if !dir.is_dir() {
+        return Ok(PreparedAgentMemoryRestore { report: None });
+    }
+    let selected = select_agent_memory_files(&dir);
+    if selected.file_count == 0 {
+        return Ok(PreparedAgentMemoryRestore {
+            report: Some(serde_json::json!({
+                "dir": selected.dir_str, "file_count": 0, "loaded": false,
+                "skipped": "no .light.md files",
+            })),
+        });
+    }
+    let code_nodes = candidate.num_nodes();
+    let loaded_count = selected.light_files.len();
+    let paths = if selected.capped_out.is_empty() {
+        vec![dir]
+    } else {
+        selected.light_files
+    };
+    let adapter = m1nd_ingest::L1ghtIngestAdapter::new(Some("light".to_string()));
+    for path in paths {
+        let (memory, _) = adapter.ingest(&path)?;
+        *candidate = m1nd_ingest::merge::merge_graphs(candidate, &memory)?;
+    }
+    let (resolved, unresolved) = resolve_light_evidence(candidate);
+    if !candidate.finalized {
+        candidate.finalize()?;
+    }
+    Ok(PreparedAgentMemoryRestore {
+        report: Some(serde_json::json!({
+            "dir": selected.dir_str, "file_count": selected.file_count,
+            "loaded_count": loaded_count,
+            "load_cap": if selected.cap == usize::MAX { serde_json::Value::Null } else { serde_json::json!(selected.cap) },
+            "capped_out_count": selected.capped_out.len(), "capped_out": selected.capped_out,
+            "loaded": true, "nodes_added": candidate.num_nodes().saturating_sub(code_nodes),
+            "light_evidence_resolved": resolved, "light_evidence_unresolved": unresolved,
+        })),
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn agent_memory_test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+/// Ingest `<runtime_root>/agent-memory/*.light.md` (adapter=light, mode=merge) so
+/// agent-authored L1GHT memory is loaded into the live graph and its evidence
+/// re-anchors to the current code (`grounded_in`). Gated by env
+/// `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON). Returns a report for the
+/// trust/handshake layer (and for ingest responses after a `replace`), or `None`
+/// when there is no agent-memory directory yet. Called at boot AND after a
+/// `replace` ingest (which would otherwise wipe the memory). Honest: surfaces
+/// empty/zero with a note rather than fabricating.
+///
+/// Recency cap (`M1ND_MEMORY_LOAD_CAP`, default unlimited → no-op): when set and
+/// the file count exceeds it, only the K most-recent-by-`Created` files load;
+/// the rest are dropped and reported under `capped_out` so forgetting is
+/// provable, not silent. Files with NO parseable `Created` (legacy, pre-#187)
+/// are EXEMPT from eviction — always loaded — so setting a cap never evicts the
+/// pre-existing corpus for merely lacking a provenance stamp.
+pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value> {
+    let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
+        .map(|v| v != "0" && v != "false")
+        .unwrap_or(true);
+    let dir = state.runtime_root.join("agent-memory");
+    if !enabled {
+        return Some(serde_json::json!({
+            "loaded": false,
+            "skipped": "disabled by M1ND_AUTO_LOAD_AGENT_MEMORY=0",
+        }));
+    }
+    if !dir.is_dir() {
+        return None;
+    }
+    let AgentMemorySelection {
+        light_files,
+        file_count,
+        dir_str,
+        cap,
+        capped_out,
+        capped_names,
+    } = select_agent_memory_files(&dir);
+    if file_count == 0 {
+        return Some(serde_json::json!({
+            "dir": dir_str,
+            "file_count": 0,
+            "loaded": false,
+            "skipped": "no .light.md files",
+        }));
+    }
+
     let loaded_count = light_files.len();
 
     let nodes_before = state.graph.read().num_nodes();
@@ -1005,33 +1181,7 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
 
             // Best-effort evidence freshness: report whatever cross_verify finds,
             // honestly noting when there is no recorded inventory to verify against.
-            let (stale_count, stale_claims, freshness_note) = {
-                let cross_verify_input = crate::protocol::layers::CrossVerifyInput {
-                    agent_id: "boot".to_string(),
-                    scope: None,
-                    check: vec!["evidence_freshness".to_string()],
-                    include_dotfiles: false,
-                    dotfile_patterns: vec![],
-                };
-                match crate::audit_handlers::handle_cross_verify(state, cross_verify_input) {
-                    Ok(cv) => {
-                        let count = cv["stale_evidence_count"].as_u64().unwrap_or(0) as usize;
-                        let claims: Vec<serde_json::Value> = cv["stale_evidence"]
-                            .as_array()
-                            .map(|arr| arr.iter().take(5).cloned().collect())
-                            .unwrap_or_default();
-                        let note = if state.file_inventory.is_empty()
-                            || state.file_inventory.values().all(|e| e.sha256.is_none())
-                        {
-                            "unverifiable_until_code_reingest"
-                        } else {
-                            "verified_against_stored_inventory"
-                        };
-                        (count, claims, note)
-                    }
-                    Err(_) => (0, vec![], "unverifiable_until_code_reingest"),
-                }
-            };
+            let (stale_count, stale_claims, freshness_note) = agent_memory_freshness_report(state);
 
             Some(serde_json::json!({
                 "dir": dir_str,
@@ -1072,7 +1222,7 @@ fn finalize_ingest(
     new_graph: m1nd_core::graph::Graph,
     stats: m1nd_ingest::IngestStats,
 ) -> M1ndResult<serde_json::Value> {
-    finalize_ingest_with_inventory(state, input, adapter, new_graph, stats, None)
+    finalize_ingest_with_inventory(state, input, adapter, new_graph, stats, None, None)
 }
 
 fn finalize_ingest_with_inventory(
@@ -1082,6 +1232,7 @@ fn finalize_ingest_with_inventory(
     new_graph: m1nd_core::graph::Graph,
     stats: m1nd_ingest::IngestStats,
     sealed_inventory: Option<Vec<crate::session::FileInventoryEntry>>,
+    prepared_memory: Option<PreparedAgentMemoryRestore>,
 ) -> M1ndResult<serde_json::Value> {
     let mode = normalized_ingest_mode(&input.mode).to_string();
     let namespace = input.namespace.clone().or_else(|| {
@@ -1382,7 +1533,24 @@ fn finalize_ingest_with_inventory(
     // (`refresh` wipes it the same way and restores it the same way; SPEC-1d's
     // root-set invariance is preserved because the door refuses up front when
     // that restore would have to declare a root the brain does not hold.)
-    let agent_memory_restored = if mode != "merge" && adapter != "light" {
+    let agent_memory_restored = if let Some(prepared) = prepared_memory {
+        prepared.report.map(|mut report| {
+            if report["loaded"] == true {
+                let (stale_count, stale_claims, freshness_note) =
+                    agent_memory_freshness_report(state);
+                let object = report
+                    .as_object_mut()
+                    .expect("prepared memory report is an object");
+                object.insert(
+                    "stale_evidence_count".into(),
+                    serde_json::json!(stale_count),
+                );
+                object.insert("stale_claims".into(), serde_json::json!(stale_claims));
+                object.insert("freshness_note".into(), serde_json::json!(freshness_note));
+            }
+            report
+        })
+    } else if mode != "merge" && adapter != "light" {
         reload_agent_memory(state)
     } else {
         None
@@ -3739,6 +3907,7 @@ pub(crate) fn install_complete_code_bundle(
         graph,
         stats,
         Some(sealed_inventory),
+        None,
     )?;
     let installed_projection =
         m1nd_ingest::ownership::source_projection_digest(&state.graph.read())?;
@@ -5165,6 +5334,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -5588,6 +5758,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6063,6 +6234,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6328,6 +6500,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6428,6 +6601,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6533,6 +6707,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6649,6 +6824,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6768,6 +6944,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -6853,6 +7030,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir.clone()),
             ..Default::default()
         };
@@ -6932,6 +7110,7 @@ mod tests {
         let config = McpConfig {
             graph_source: runtime_dir.join("graph.json"),
             plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
@@ -7020,8 +7199,7 @@ mod tests {
     /// mutate it must serialize against one another. Mirrors the `LOCK` pattern
     /// in `session.rs`.
     fn cap_env_lock() -> &'static std::sync::Mutex<()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        super::agent_memory_test_env_lock()
     }
 
     /// Write a minimal-but-valid `.light.md` into `<runtime>/agent-memory`,
@@ -7037,6 +7215,102 @@ mod tests {
             "---\nProtocol: L1GHT/1.0\nNode: {node}\n{created_line}---\n\n## Recall\n\nThe [⍂ entity: {node}] was learned. [𝔻 confidence: high]\n"
         );
         std::fs::write(dir.join(name), body).expect("write .light.md");
+    }
+
+    #[test]
+    fn refresh_prepared_memory_uses_the_shared_cap_and_legacy_exemption() {
+        let _guard = cap_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        struct RestoreCap(Option<std::ffi::OsString>);
+        impl Drop for RestoreCap {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(value) => std::env::set_var("M1ND_MEMORY_LOAD_CAP", value),
+                    None => std::env::remove_var("M1ND_MEMORY_LOAD_CAP"),
+                }
+            }
+        }
+        let _restore = RestoreCap(std::env::var_os("M1ND_MEMORY_LOAD_CAP"));
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "2");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = build_runtime_state(temp.path());
+        write_memory(&state.runtime_root, "old.light.md", Some(10));
+        write_memory(&state.runtime_root, "new.light.md", Some(20));
+        write_memory(&state.runtime_root, "legacy.light.md", None);
+        let live_nodes_before = state.graph.read().num_nodes();
+        let mut candidate = Graph::new();
+        let prepared = super::prepare_refresh_agent_memory(&state, &mut candidate)
+            .expect("prepare capped memory without mutating the session");
+        let report = prepared.report.expect("memory report");
+        assert_eq!(report["loaded_count"], 2);
+        assert_eq!(report["file_count"], 3);
+        assert_eq!(report["load_cap"], 2);
+        assert_eq!(report["capped_out_count"], 1);
+        assert!(report["capped_out"][0]
+            .as_str()
+            .unwrap()
+            .ends_with("old.light.md"));
+        let labels: Vec<&str> = candidate
+            .nodes
+            .label
+            .iter()
+            .map(|label| candidate.strings.resolve(*label))
+            .collect();
+        assert!(labels.contains(&"⍂ entity: legacy"));
+        assert!(labels.contains(&"⍂ entity: new"));
+        assert!(!labels.contains(&"⍂ entity: old"));
+        assert_eq!(
+            state.graph.read().num_nodes(),
+            live_nodes_before,
+            "preparation leaves live graph alone"
+        );
+    }
+
+    #[test]
+    fn refresh_prepared_without_memory_does_not_reopen_a_late_sidecar() {
+        let _guard = cap_env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(&temp.path().join("runtime"));
+        let source = temp.path().join("repo");
+        std::fs::create_dir_all(&source).expect("source dir");
+        std::fs::write(source.join("lib.rs"), "pub fn entry() {}\n").expect("source");
+        let (mut candidate, stats) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+            root: source.clone(),
+            parallelism: 1,
+            ..Default::default()
+        })
+        .ingest()
+        .expect("code candidate");
+        let expected_nodes = candidate.num_nodes();
+        let prepared = super::prepare_refresh_agent_memory(&state, &mut candidate)
+            .expect("prepare without memory");
+        assert!(prepared.report.is_none());
+        // This file appears after preparation/admission. It must not become a
+        // second, unmeasured graph replacement during finalization.
+        write_memory(&state.runtime_root, "late.light.md", Some(30));
+        let roots = state.ingest_roots.clone();
+        let workspace = state.workspace_root.clone();
+        let input: crate::protocol::core::IngestInput = serde_json::from_value(serde_json::json!({
+            "path": source.to_string_lossy(), "agent_id": "prepared-refresh", "mode": "refresh"
+        }))
+        .expect("input");
+        let output = super::finalize_ingest_with_inventory(
+            &mut state,
+            &input,
+            "code",
+            candidate,
+            stats,
+            None,
+            Some(prepared),
+        )
+        .expect("install the measured candidate");
+        assert_eq!(state.graph.read().num_nodes(), expected_nodes);
+        assert!(output.get("agent_memory_restored").is_none());
+        assert_eq!(state.ingest_roots, roots);
+        assert_eq!(state.workspace_root, workspace);
     }
 
     #[test]

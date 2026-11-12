@@ -5,7 +5,112 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+
+test("managed automatic cache refuses graph destination overrides without reading or spawning", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-managed-cache-policy-"));
+  try {
+    const runtimeDir = path.join(fixture, "cache");
+    const base = { binary: process.execPath, repo: fixture, runtimeDir, managedCache: true };
+    for (const option of ["--graph", "--plasticity", "--config", "--attach"]) {
+      for (const args of [[option, "outside-value"], [`${option}=outside-value`]]) {
+        assert.throws(() => new McpRuntimeClient({ ...base, args }), { code: "M1ND_CACHE_DESTINATION_CONFLICT" });
+      }
+    }
+    for (const key of ["M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_RUNTIME_BASE"]) {
+      assert.throws(() => new McpRuntimeClient({ ...base, args: ["--stdio"], env: { [key]: "outside-value" } }),
+        { code: "M1ND_CACHE_DESTINATION_CONFLICT" });
+    }
+    assert.equal(fs.existsSync(runtimeDir), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("managed cache rechecks late changes while manual runtime configuration retains precedence", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-managed-cache-late-"));
+  try {
+    const runtimeDir = path.join(fixture, "cache");
+    const client = new McpRuntimeClient({ binary: process.execPath, repo: fixture, runtimeDir, args: ["--stdio"], managedCache: true });
+    client.extraEnv.M1ND_GRAPH_SOURCE = path.join(fixture, "outside.json");
+    assert.throws(() => client.launchConfig(), { code: "M1ND_CACHE_DESTINATION_CONFLICT" });
+    assert.equal(fs.existsSync(runtimeDir), false);
+    const manual = new McpRuntimeClient({ binary: process.execPath, repo: fixture, runtimeDir,
+      args: ["--stdio", "--graph=custom.json"], env: { M1ND_GRAPH_SOURCE: "operator-selected.json" } });
+    assert.equal(manual.launchConfig().env.M1ND_GRAPH_SOURCE, "operator-selected.json");
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 const { McpRuntimeClient } = require("../lib/mcp-runtime-client");
+
+test("forbidAttach rejects conflicting transport selectors before config writes", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-forbid-attach-"));
+  try {
+    const cases = [
+      { args: ["--stdio"], attach: "auto" },
+      { args: ["--stdio", "--attach", "auto"] },
+      { args: ["--stdio", "--attach=https://example.invalid/mcp"] },
+      { args: ["--attach", "auto", "--attach=https://example.invalid/mcp"] },
+      { args: ["--stdio", "--attach="] },
+    ];
+    for (const [index, options] of cases.entries()) {
+      const runtimeDir = path.join(fixture, `state-${index}`);
+      assert.throws(() => new McpRuntimeClient({
+        binary: process.execPath, repo: fixture, runtimeDir, forbidAttach: true, ...options,
+      }), (error) => {
+        assert.equal(error.code, "M1ND_ATTACH_FORBIDDEN");
+        assert.match(error.message, /--no-attach/);
+        assert.ok(!error.message.includes("example.invalid"), "errors must not echo an owner URL");
+        return true;
+      });
+      assert.equal(fs.existsSync(runtimeDir), false);
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("forbidAttach also checks captured ambient arguments and later mutation", async () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-forbid-ambient-"));
+  const previous = process.env.M1ND_MCP_ARGS;
+  try {
+    process.env.M1ND_MCP_ARGS = "--stdio --attach=auto";
+    assert.throws(() => new McpRuntimeClient({ binary: process.execPath, repo: fixture, forbidAttach: true }),
+      (error) => error.code === "M1ND_ATTACH_FORBIDDEN");
+    const runtimeDir = path.join(fixture, "private-state");
+    const client = new McpRuntimeClient({ binary: process.execPath, repo: fixture,
+      runtimeDir, args: ["--stdio"], forbidAttach: true });
+    client.args.push("--attach", "auto");
+    assert.throws(() => client.launchConfig(), (error) => error.code === "M1ND_ATTACH_FORBIDDEN");
+    await assert.rejects(client.start(), (error) => error.code === "M1ND_ATTACH_FORBIDDEN");
+    assert.equal(client.proc, null);
+    assert.equal(client.spawned, false);
+    assert.equal(fs.existsSync(runtimeDir), false);
+    const propertyClient = new McpRuntimeClient({ binary: process.execPath, repo: fixture,
+      runtimeDir, args: ["--stdio"], forbidAttach: true });
+    propertyClient.attach = "auto";
+    assert.throws(() => propertyClient.launchConfig(), (error) => error.code === "M1ND_ATTACH_FORBIDDEN");
+    assert.equal(fs.existsSync(runtimeDir), false);
+  } finally {
+    if (previous === undefined) delete process.env.M1ND_MCP_ARGS;
+    else process.env.M1ND_MCP_ARGS = previous;
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("forbidAttach leaves allowed transport configuration and environment intact", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-attach-compatible-"));
+  try {
+    const runtimeDir = path.join(fixture, "private-state");
+    const isolated = new McpRuntimeClient({ binary: "fixture", repo: fixture, runtimeDir,
+      args: ["--stdio"], forbidAttach: true, env: { M1ND_ATTACH_URL: "https://example.invalid/mcp" } });
+    const config = isolated.launchConfig();
+    assert.equal(config.env.M1ND_ATTACH_URL, "https://example.invalid/mcp");
+    assert.ok(!config.args.some((arg) => arg === "--attach" || arg.startsWith("--attach=")));
+    assert.equal(config.runtimeDir, runtimeDir);
+    const attached = new McpRuntimeClient({ binary: "fixture", repo: fixture,
+      args: ["--stdio"], attach: "auto" }).launchConfig();
+    assert.ok(attached.args.includes("--attach"));
+    assert.equal(attached.runtimeDir, null);
+    const legacyArguments = new McpRuntimeClient({ binary: "fixture", repo: fixture,
+      args: ["--stdio", "--attach=auto"], runtimeDir: path.join(fixture, "legacy-state") }).launchConfig();
+    assert.ok(legacyArguments.args.includes("--attach=auto"), "non-opt-in callers retain existing argument behavior");
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("cold initialize has a longer bounded deadline than ordinary requests", async () => {
   const client = new McpRuntimeClient({ binary: "fixture", repo: "repo-alpha" });

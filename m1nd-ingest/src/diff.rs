@@ -49,6 +49,11 @@ pub struct GraphDiff {
 
 impl GraphDiff {
     /// Compute diff between old and new extraction results.
+    ///
+    /// Edge identity here is the source/target/relation triple, not an
+    /// occurrence ID. Inputs with ambiguous duplicate triples are not a
+    /// multiset diff. Apply removes or updates the complete matching triple;
+    /// unrelated parallel relations retain their multiplicity.
     pub fn compute(
         old_nodes: &[ExtractedNode],
         old_edges: &[ExtractedEdge],
@@ -170,8 +175,20 @@ impl GraphDiff {
     }
 
     /// Apply this diff to a graph. Increments graph generation.
-    /// Returns number of actions applied.
+    /// Returns number of actions applied. Edge removal/weight changes update
+    /// graph generation and staging; call `Graph::finalize` before queries or
+    /// snapshot persistence, just as after adding an edge.
     pub fn apply(&self, graph: &mut Graph) -> M1ndResult<u32> {
+        if self.actions.iter().any(|action| {
+            matches!(
+                action,
+                DiffAction::RemoveEdge { .. } | DiffAction::ModifyEdgeWeight { .. }
+            )
+        }) {
+            // Reject this representational ambiguity before any preceding
+            // AddNode/ModifyNode can leave a partial batch behind.
+            graph.validate_relation_edits()?;
+        }
         let mut applied = 0u32;
 
         for action in &self.actions {
@@ -243,32 +260,34 @@ impl GraphDiff {
                         applied += 1;
                     }
                 }
-                DiffAction::RemoveEdge { .. } => {
-                    // CSR doesn't support edge removal. Count it.
-                    applied += 1;
+                DiffAction::RemoveEdge {
+                    source_id,
+                    target_id,
+                    relation,
+                } => {
+                    if let (Some(src), Some(tgt)) =
+                        (graph.resolve_id(source_id), graph.resolve_id(target_id))
+                    {
+                        applied += u32::from(graph.remove_relation_edges(src, tgt, relation)? > 0);
+                    }
                 }
                 DiffAction::ModifyEdgeWeight {
                     source_id,
                     target_id,
-                    relation: _,
+                    relation,
                     new_weight,
                 } => {
-                    if let (Some(src), Some(_tgt)) =
+                    if let (Some(src), Some(tgt)) =
                         (graph.resolve_id(source_id), graph.resolve_id(target_id))
                     {
-                        // Find the edge in CSR and update weight
-                        let range = graph.csr.out_range(src);
-                        for j in range {
-                            if graph.csr.targets[j] == _tgt {
-                                let _ = graph.csr.atomic_write_weight(
-                                    EdgeIdx::new(j as u32),
-                                    FiniteF32::new(*new_weight),
-                                    10,
-                                );
-                                applied += 1;
-                                break;
-                            }
-                        }
+                        applied += u32::from(
+                            graph.set_relation_weight(
+                                src,
+                                tgt,
+                                relation,
+                                FiniteF32::new(*new_weight),
+                            )? > 0,
+                        );
                     }
                 }
             }

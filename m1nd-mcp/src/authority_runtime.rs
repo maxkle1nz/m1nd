@@ -7702,7 +7702,7 @@ mod tests {
             mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
             project_brains: Arc::new(crate::project_brains::ProjectBrainRegistry::new(
                 owner_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
-                None,
+                Some(owner_root.join("registry")),
             )),
             runnerd: Arc::new(crate::runnerd_owner::RunnerdRegistry::default()),
             ui_authority: Arc::new(crate::ui_attestation::UiBundleAttestor::default()),

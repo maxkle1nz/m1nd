@@ -114,6 +114,7 @@ fn selfhost_transplant_real_private_fn_keeps_m1nd_core_compiling() {
     let config = McpConfig {
         graph_source: tmp.path().join("graph_snapshot.json"),
         plasticity_state: tmp.path().join("plasticity_state.json"),
+        registry_dir: Some(tmp.path().join("registry")),
         ..McpConfig::default()
     };
     let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())

@@ -549,8 +549,8 @@ impl ReferenceResolver {
     fn build_label_index(graph: &Graph) -> std::collections::HashMap<InternedStr, Vec<NodeId>> {
         let mut index: std::collections::HashMap<InternedStr, Vec<NodeId>> =
             std::collections::HashMap::new();
-        for i in 0..graph.num_nodes() as usize {
-            let label = graph.nodes.label[i];
+        let n = graph.num_nodes() as usize;
+        for (i, &label) in graph.nodes.label[..n].iter().enumerate() {
             index.entry(label).or_default().push(NodeId::new(i as u32));
         }
         index

@@ -8,12 +8,237 @@ const test = require("node:test");
 const {
   acquireAgentRuntimeLease,
   agentRuntimeCacheTarget,
+  planAgentRuntimeCacheTarget,
+  assertAgentSourceIdentity,
+  agentStatePaths,
+  prepareAgentState,
   ensureAgentRuntimeIdentity,
   releaseAgentRuntimeLease,
 } = require("../lib/agent-runtime-cache");
 const symlinkTestOptions = {
   skip: process.platform === "win32" && "Windows symlink creation requires host privilege",
 };
+
+test("readonly cache selection does not create missing state and agrees with normal identity", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-readonly-cache-plan-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), cache = path.join(fixture, "missing-cache");
+    fs.mkdirSync(repo);
+    const env = { M1ND_AGENT_CACHE_DIR: cache };
+    const planned = planAgentRuntimeCacheTarget(repo, env);
+    assert.equal(fs.existsSync(cache), false);
+    const selected = agentRuntimeCacheTarget(repo, env);
+    assert.deepEqual(planned.identity, selected.identity);
+    assert.equal(planned.runtimeDir, selected.runtimeDir);
+    assert.equal(fs.readdirSync(cache).length, 0);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("automatic cache refuses ambient Git repository redirection before creating a cache", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-git-redirection-"));
+  const keys = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE"];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of keys) delete process.env[key];
+    const repo = path.join(fixture, "repo-alpha"), other = path.join(fixture, "repo-beta");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(other);
+    execFileSync("git", ["-C", other, "init", "-q", "-b", "foreign-view"], { stdio: "pipe" });
+    for (const key of keys) {
+      const cache = path.join(fixture, `cache-${key}`);
+      process.env[key] = key === "GIT_WORK_TREE" ? other : path.join(other, ".git");
+      assert.throws(() => agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: cache }),
+        { code: "M1ND_AGENT_GIT_REDIRECTION" }, key);
+      assert.equal(fs.existsSync(cache), false);
+      delete process.env[key];
+    }
+    const selected = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "selected-cache") });
+    process.env.GIT_DIR = path.join(other, ".git");
+    assert.throws(() => assertAgentSourceIdentity(selected.sourceGuard, "before query"),
+      { code: "M1ND_AGENT_SOURCE_IDENTITY_CHANGED" });
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("automatic cache refuses a bare repository instead of attesting a source worktree", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-bare-view-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), cache = path.join(fixture, "cache");
+    execFileSync("git", ["init", "--bare", "-q", repo], { stdio: "pipe" });
+    assert.throws(() => agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: cache }),
+      { code: "M1ND_AGENT_NOT_WORKTREE" });
+    assert.equal(fs.existsSync(cache), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("cache source guard rejects branch and HEAD drift instead of reusing its selected identity", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-git-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+    git("init", "-q");
+    fs.writeFileSync(path.join(repo, "signal.js"), "export const signal = 1;\n");
+    git("add", ".");
+    git("-c", "user.name=Fixture User", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "initial");
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    assert.doesNotThrow(() => assertAgentSourceIdentity(target.sourceGuard, "selected"));
+    git("checkout", "-qb", "other-branch");
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "before startup"), /source identity changed.*before startup/);
+    const branchTarget = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.appendFileSync(path.join(repo, "signal.js"), "export const later = 2;\n");
+    git("add", ".");
+    git("-c", "user.name=Fixture User", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "advance");
+    assert.throws(() => assertAgentSourceIdentity(branchTarget.sourceGuard, "after query"), /source identity changed.*after query/);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("cache source guard rejects root replacement even with the same path and Git revision", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-root-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), parked = path.join(fixture, "parked");
+    fs.mkdirSync(repo);
+    execFileSync("git", ["-C", repo, "init", "-q"]);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.renameSync(repo, parked);
+    fs.cpSync(parked, repo, { recursive: true });
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "before return"), /source identity changed.*before return/);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("cache source guard fails closed if Git metadata becomes unreadable", () => {
+  const { execFileSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-source-guard-unreadable-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    execFileSync("git", ["-C", repo, "init", "-q"]);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: path.join(fixture, "cache") });
+    fs.renameSync(path.join(repo, ".git"), path.join(repo, "saved-git"));
+    fs.writeFileSync(path.join(repo, ".git"), "gitdir: missing-git-directory\n");
+    assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "after refresh"), /source identity changed.*after refresh/);
+    fs.unlinkSync(path.join(repo, ".git"));
+    fs.renameSync(path.join(repo, "saved-git"), path.join(repo, ".git"));
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = "";
+      assert.throws(() => assertAgentSourceIdentity(target.sourceGuard, "missing Git"), /source identity changed.*Git.*unavailable/);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir plans storage without writes and prepares private registry/cache siblings", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-plan-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha");
+    fs.mkdirSync(repo);
+    const state = path.join(fixture, "private-state");
+    const plan = agentStatePaths(repo, state);
+    assert.equal(fs.existsSync(state), false);
+    prepareAgentState(plan);
+    const target = agentRuntimeCacheTarget(repo, { M1ND_AGENT_CACHE_DIR: plan.cache_base });
+    assert.equal(path.dirname(target.runtimeDir), plan.cache_base);
+    assert.equal(fs.statSync(plan.registry_root).isDirectory(), true);
+    if (process.platform !== "win32") assert.equal(fs.statSync(plan.state_root).mode & 0o077, 0);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir rejects source-tree state before creating it", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-source-"));
+  try {
+    const state = path.join(fixture, "derived");
+    assert.throws(() => agentStatePaths(fixture, state), /outside the indexed repository/);
+    assert.equal(fs.existsSync(state), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir refuses symlink roots and a symlinked registry without adoption", symlinkTestOptions, () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-symlink-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), outside = path.join(fixture, "outside");
+    const state = path.join(fixture, "state"), alias = path.join(fixture, "alias");
+    for (const p of [repo, outside, state]) fs.mkdirSync(p, { mode: 0o700 });
+    fs.symlinkSync(outside, alias, "dir");
+    assert.throws(() => prepareAgentState(agentStatePaths(repo, alias)), /non-symlink/);
+    fs.symlinkSync(outside, path.join(state, "registry"), "dir");
+    assert.throws(() => prepareAgentState(agentStatePaths(repo, state)), /non-symlink/);
+    const sourceAlias = path.join(fixture, "source-alias");
+    fs.symlinkSync(repo, sourceAlias, "dir");
+    assert.throws(() => agentStatePaths(repo, path.join(sourceAlias, "new-state")), /outside the indexed repository/);
+    assert.deepEqual(fs.readdirSync(outside), []);
+    assert.deepEqual(fs.readdirSync(repo), []);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir CLI scope is read-only and conflicting launch overrides fail before writes", () => {
+  const { spawnSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-cli-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state");
+    fs.mkdirSync(repo);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    const base = [path.resolve(__dirname, "../bin/m1nd.js"), "agent", "scope", "--repo", repo, "--binary", process.execPath, "--state-dir", state, "--json"];
+    function run(extra, additions = {}) { return spawnSync(process.execPath, [...base, ...extra], { env: { ...env, ...additions }, encoding: "utf8", timeout: 10000 }); }
+    const plan = run(["--no-attach"]);
+    assert.equal(plan.status, 0, plan.stderr);
+    assert.equal(JSON.parse(plan.stdout).runtime.state_selection.state_root, fs.realpathSync(fixture) + path.sep + "state");
+    assert.equal(fs.existsSync(state), false);
+    for (const extra of [[], ["--no-attach", "--shared-runtime"], ["--no-attach", "--runtime-dir", state]]) {
+      const result = run(extra);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /requires --no-attach/);
+    }
+    for (const key of ["M1ND_MCP_ARGS", "M1ND_RUNTIME_DIR", "M1ND_RUNTIME_BASE", "M1ND_GRAPH_SOURCE", "M1ND_PLASTICITY_STATE", "M1ND_ATTACH_URL"]) {
+      const result = run(["--no-attach"], { [key]: "conflicting-override" });
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(key), result.stderr);
+      assert.equal(fs.existsSync(state), false);
+    }
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("state-dir continuation commands retain the selected isolated storage", () => {
+  const { spawnSync } = require("node:child_process");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-state-continuation-"));
+  try {
+    const repo = path.join(fixture, "repo-alpha"), state = path.join(fixture, "state with space");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(path.join(repo, "src"));
+    fs.writeFileSync(path.join(repo, "src/config.js"), "export const configuration = 1;\n");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("M1ND_")));
+    for (const command of [["scope"], ["handoff"], ["auto", "--query", "locate configuration"],
+      ["auto", "--query", "understand this repo"], ["next", "--query", "src/config.js"],
+      ["recover", "--from", "transport_closed"], ["recover", "--from", "wrong_workspace_binding"]]) {
+      const run = spawnSync(process.execPath, [path.resolve(__dirname, "../bin/m1nd.js"), "agent", ...command,
+        "--repo", repo, "--binary", process.execPath, "--no-attach", "--state-dir", state, "--json"],
+      { env, encoding: "utf8", timeout: 10000 });
+      assert.equal(run.status, 0, run.stderr);
+      const payload = JSON.parse(run.stdout);
+      const instructions = [payload.action?.action?.command, payload.handoff?.resume_hint,
+        ...(payload.next_actions || []),
+        ...(payload.recovery_plan || []).map((step) => step.command)].filter((text) => /(?:^| )m1nd agent /.test(text || ""));
+      assert.ok(instructions.length > 0, JSON.stringify(payload));
+      for (const instruction of instructions) {
+        assert.match(instruction, /--state-dir /, instruction);
+        assert.match(instruction, /--no-attach(?: |$)/, instruction);
+        assert.ok(instruction.includes("state with space"), instruction);
+      }
+    }
+    assert.equal(fs.existsSync(state), false);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("runtime cache target refuses a symlinked cache base", symlinkTestOptions, () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-agent-cache-base-symlink-"));

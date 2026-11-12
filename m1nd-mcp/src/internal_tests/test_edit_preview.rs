@@ -27,6 +27,7 @@ fn make_test_state(root: &Path) -> SessionState {
     let config = McpConfig {
         graph_source: root.join("graph_snapshot.json"),
         plasticity_state: root.join("plasticity_state.json"),
+        registry_dir: Some(root.join(".test-registry")),
         ..McpConfig::default()
     };
 
