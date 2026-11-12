@@ -230,7 +230,13 @@ fn refresh_reports_a_new_code_projection_after_an_uncommitted_source_edit() {
     assert_eq!(first["ok"], json!(true));
     let receipt = &first["code_snapshot"];
     assert_eq!(receipt["update_mode"], json!("full_rebuild"));
-    assert_eq!(receipt["root_identity"], json!(canonical(&repo)));
+    // root_identity is OS-neutral: on Windows the verbatim `\\?\C:\...` root is
+    // normalized to `//?/C:/...`, so derive the expectation the same way.
+    let expected_root_identity = m1nd_ingest::exact_path_identity(
+        &std::fs::canonicalize(&repo).expect("canonical repo root"),
+    )
+    .expect("root identity");
+    assert_eq!(receipt["root_identity"], json!(expected_root_identity));
     assert_eq!(receipt["atomic_filesystem_snapshot"], json!(false));
     assert!(receipt["source_count"].as_u64().unwrap() >= 3);
     for key in [
