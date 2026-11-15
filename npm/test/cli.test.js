@@ -3536,4 +3536,55 @@ withEnv(
   }
 );
 
+// --- private backup permissions (0o700 dir, 0o600 files) ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const testHome = homeForTest();
+    const project = mkTmpDir();
+    const backupDir = path.join(testHome, ".m1nd", "backups");
+    fs.mkdirSync(backupDir, { recursive: true, mode: 0o755 });
+    if (process.platform !== "win32") {
+      fs.chmodSync(backupDir, 0o755);
+    }
+    const mcpConfigPath = path.join(project, ".mcp.json");
+    const originalBytes = Buffer.from(
+      `${JSON.stringify({ mcpServers: { preexisting: { command: "old-tool", args: [] } } }, null, 2)}\n`,
+      "utf8"
+    );
+    fs.writeFileSync(mcpConfigPath, originalBytes, { mode: 0o644 });
+
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+    const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(configAction && configAction.backup, "backup created when overwriting .mcp.json");
+    assert.strictEqual(
+      Buffer.compare(fs.readFileSync(configAction.backup), originalBytes),
+      0,
+      "backup bytes match original"
+    );
+    if (process.platform !== "win32") {
+      assert.strictEqual(
+        fs.statSync(backupDir).mode & 0o777,
+        0o700,
+        "~/.m1nd/backups mode must be tightened to 0o700 even if pre-existing"
+      );
+      assert.strictEqual(
+        fs.statSync(configAction.backup).mode & 0o777,
+        0o600,
+        "backup file mode must be 0o600"
+      );
+    }
+  }
+);
+
 console.log("npm cli tests ok");

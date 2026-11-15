@@ -203,6 +203,13 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function ensurePrivateDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    fs.chmodSync(dir, 0o700);
+  }
+}
+
 function copyFile(source, target) {
   ensureDir(path.dirname(target));
   fs.copyFileSync(source, target);
@@ -2556,10 +2563,14 @@ function configBackupPath(file, label = "config") {
 function backupExistingFile(file, label = "config") {
   if (!fs.existsSync(file)) return null;
   const backup = configBackupPath(file, label);
-  ensureDir(path.dirname(backup));
+  const backupDir = path.dirname(backup);
+  ensurePrivateDir(backupDir);
   fs.copyFileSync(file, backup);
+  if (process.platform !== "win32") {
+    fs.chmodSync(backup, 0o600);
+  }
   fsyncFile(backup);
-  fsyncDirectory(path.dirname(backup));
+  fsyncDirectory(backupDir);
   return backup;
 }
 
@@ -3963,7 +3974,7 @@ function installRuntimeBinaryWithBackup(sourceBinary, targetBinary, verification
   let backup = null;
   if (beforeSha256 !== null) {
     backup = updateBackupPath(targetBinary, beforeVersion);
-    ensureDir(path.dirname(backup));
+    ensurePrivateDir(path.dirname(backup));
     fs.copyFileSync(targetBinary, backup);
     if (process.platform !== "win32") fs.chmodSync(backup, 0o755);
     fsyncFile(backup);
