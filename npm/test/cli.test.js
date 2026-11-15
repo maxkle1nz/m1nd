@@ -1849,7 +1849,7 @@ withEnv(
         },
       })
     );
-    const unrelatedProjectStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const unrelatedProjectStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(unrelatedProjectStatus.hosts[0].config.status, "missing");
@@ -1864,7 +1864,7 @@ withEnv(
         },
       })
     );
-    const projectScopeStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const projectScopeStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(projectScopeStatus.hosts[0].config.status, `project-scope (${project})`);
@@ -1876,7 +1876,7 @@ withEnv(
       mcpConfig("claude", process.execPath, sharedProj)
     );
     const sharedHome = mkTmpDir();
-    const sharedStatus = withEnv({ HOME: sharedHome, M1ND_TEST_HOME: null }, () =>
+    const sharedStatus = withEnv({ HOME: sharedHome, USERPROFILE: sharedHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project: sharedProj, binary: process.execPath })
     );
     assert.strictEqual(sharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
@@ -1888,7 +1888,7 @@ withEnv(
       path.join(legacyProj, ".claude", "mcp.json"),
       mcpConfig("claude", process.execPath, legacyProj)
     );
-    const legacyStatus = withEnv({ HOME: sharedHome, M1ND_TEST_HOME: null }, () =>
+    const legacyStatus = withEnv({ HOME: sharedHome, USERPROFILE: sharedHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project: legacyProj, binary: process.execPath })
     );
     assert.strictEqual(legacyStatus.hosts[0].config.status, "legacy (.claude/mcp.json)");
@@ -1907,7 +1907,7 @@ withEnv(
         },
       })
     );
-    const userScopeStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const userScopeStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(userScopeStatus.hosts[0].host, "claude");
@@ -1923,7 +1923,7 @@ withEnv(
       [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
       {
         encoding: "utf8",
-        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
       }
     );
     assert.strictEqual(planHuman.status, 0, planHuman.stderr);
@@ -1940,7 +1940,7 @@ withEnv(
       [cli, "hosts", "apply", "--host", "claude", "--project", project, "--binary", process.execPath, "--yes"],
       {
         encoding: "utf8",
-        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
       }
     );
     assert.strictEqual(applyHuman.status, 0, applyHuman.stderr);
@@ -1961,7 +1961,7 @@ withEnv(
     const planLocal = spawnSync(
       process.execPath,
       [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
-      { encoding: "utf8", env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" } }
+      { encoding: "utf8", env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" } }
     );
     assert.strictEqual(planLocal.status, 0, planLocal.stderr);
     assert(
@@ -1971,14 +1971,14 @@ withEnv(
     fs.writeFileSync(claudeJson, claudeBeforeBytes); // back to the user-scope-only seed
     const writtenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
     assert.strictEqual(writtenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
-    const afterSharedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const afterSharedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(afterSharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
 
     // Backup is created when rewriting an existing <project>/.mcp.json.
     fs.writeFileSync(sharedMcpJson, JSON.stringify({ mcpServers: { other: { command: "other-bin", args: [] } } }, null, 2));
-    const applyBackupResult = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const applyBackupResult = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes: true })
     );
     assert.strictEqual(Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes), 0);
@@ -1990,14 +1990,14 @@ withEnv(
 
     const claudeSkillFile = path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md");
     assert(fs.existsSync(claudeSkillFile), "claude global skill installed");
-    const installedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const installedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(installedStatus.hosts[0].agent_pack.status, "installed");
     assert.strictEqual(installedStatus.hosts[0].readiness, "ready");
 
     fs.appendFileSync(claudeSkillFile, "\n<!-- local edit -->\n");
-    const outdatedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const outdatedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
     assert.strictEqual(outdatedStatus.hosts[0].agent_pack.status, "outdated");
@@ -2204,6 +2204,7 @@ withEnv(
   {
     ...fakeEnvBase,
     HOME: hostApplyCliHome,
+    USERPROFILE: hostApplyCliHome,
     M1ND_TEST_HOME: null,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
@@ -2238,7 +2239,7 @@ withEnv(
     assert.strictEqual(outdated.hosts[0].readiness, "attention");
 
     const freshHome = mkTmpDir();
-    const missing = withEnv({ HOME: freshHome }, () =>
+    const missing = withEnv({ HOME: freshHome, USERPROFILE: freshHome }, () =>
       hostStatus({
         _: ["hosts", "status"],
         host: "antigravity",
@@ -3513,7 +3514,11 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
-    HOME: mkTmpDir(),
+    ...(() => {
+      // os.homedir() reads USERPROFILE on Windows and HOME elsewhere; set both.
+      const home = mkTmpDir();
+      return { HOME: home, USERPROFILE: home };
+    })(),
     M1ND_TEST_HOME: null,
     CODEX_HOME: mkTmpDir(),
   },
@@ -3638,7 +3643,7 @@ withEnv(
       [cli, "hosts", "apply", "--host", "antigravity", "--project", project, "--binary", process.execPath, "--yes", ...extraArgs],
       {
         encoding: "utf8",
-        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
       }
     );
     assert.strictEqual(res.status, 0, res.stderr);
@@ -3658,7 +3663,7 @@ withEnv(
   });
   assert.strictEqual(updatedAgy.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
 
-  const scopedEmpty = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+  const scopedEmpty = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
     hostStatus({ _: ["hosts", "status"], host: "antigravity", project, binary: process.execPath })
   );
   assert.strictEqual(JSON.stringify(scopedEmpty).includes(secretToken), false);
@@ -3690,10 +3695,10 @@ withEnv(
     fs.symlinkSync(targetDir, pluginDir);
 
     assert.throws(
-      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
       /refusing Antigravity plugin install.*symlink/
     );
-    const applyBlocked = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    const applyBlocked = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
       hostApply({ _: ["hosts", "apply"], host: "antigravity", project: mkTmpDir(), binary: process.execPath, yes: true })
     );
     assert(applyBlocked.blocked_actions.some((a) => a.id === "install-agent-pack-failed"));
@@ -3707,7 +3712,7 @@ withEnv(
     const { testHome, pluginDir } = setupPluginsRoot();
     fs.symlinkSync(path.join(testHome, "does-not-exist"), pluginDir);
     assert.throws(
-      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
       /refusing Antigravity plugin install.*symlink/
     );
     assert(fs.lstatSync(pluginDir).isSymbolicLink());
@@ -3718,7 +3723,7 @@ withEnv(
     const { testHome, pluginDir } = setupPluginsRoot();
     fs.writeFileSync(pluginDir, "not a directory\n");
     assert.throws(
-      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
       /refusing Antigravity plugin install.*not a directory/
     );
     assert.strictEqual(fs.readFileSync(pluginDir, "utf8"), "not a directory\n");
@@ -3729,14 +3734,14 @@ withEnv(
     const { testHome, pluginDir } = setupPluginsRoot();
     fs.mkdirSync(pluginDir, { recursive: true });
     assert.throws(
-      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
       /refusing Antigravity plugin install.*without a regular m1nd plugin\.json/
     );
 
     const foreignPluginJson = path.join(pluginDir, "plugin.json");
     fs.writeFileSync(foreignPluginJson, `${JSON.stringify({ name: "foreign-plugin" })}\n`);
     assert.throws(
-      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
       /refusing Antigravity plugin install.*does not belong to m1nd/
     );
     assert.strictEqual(JSON.parse(fs.readFileSync(foreignPluginJson, "utf8")).name, "foreign-plugin");
