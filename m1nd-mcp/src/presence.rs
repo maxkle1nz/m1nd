@@ -1,7 +1,7 @@
 //! presence — durable session-presence sidecars (`m1nd-presence-v0`).
 //!
-//! ORGANISM-INSIDE **P1**, askGOD verdict 2026-07-13 (binding changes 1–2,
-//! `docs/voice/ASKGOD-VERDICT-P1.md`). A runtime sidecar per live agent session,
+//! P1 durable session-presence sidecars (verdict 2026-07-13, binding changes
+//! 1–2). A runtime sidecar per live agent session,
 //! MOLDED on [`crate::instance_registry`]: files in the shared registry dir
 //! (sibling of `instances/`), TTL'd (minutes-scale), honest-absent on expiry,
 //! GC'd at boot. The BEAT rides `track_agent` (throttled — never one write per
@@ -380,7 +380,7 @@ pub fn collisions_in(roster: &[PresenceRecord], now: u64) -> Vec<Collision> {
 }
 
 // ---------------------------------------------------------------------------
-// Wire shape — the P1-UI contract (`GET /api/presences`, P1-UI-CONTRACT.md)
+// Wire shape — the P1-UI contract (`GET /api/presences`)
 // ---------------------------------------------------------------------------
 
 /// One contract `PresenceEntry` for the `/api/presences` wire: `{agent_id, root,

@@ -373,8 +373,8 @@ pub fn m1nd10_action_catalog() -> Result<ActionCatalogV1, ActionCatalogError> {
             Critical,
             PositiveSovereign,
         ),
-        // The BIRTH path (GENESIS-INGEST-CONSUMERS-SPEC.md §2, owner-ratified
-        // 2026-07-29). Its own action rather than a mode of `brain.bootstrap`,
+        // The BIRTH path (SPEC-2, owner-ratified 2026-07-29). Its own action
+        // rather than a mode of `brain.bootstrap`,
         // because its guards are different in kind: empty destination defined ON
         // DISK, no `allow_overlap` at all, whole-or-nothing, and admission by an
         // owner-stamped human origin. Same effects and the same
@@ -415,8 +415,8 @@ pub fn m1nd10_action_catalog() -> Result<ActionCatalogV1, ActionCatalogError> {
             High,
             ScopedGrantA2,
         ),
-        // The freshness door (GENESIS-INGEST-CONSUMERS-SPEC.md §1, owner-ratified
-        // 2026-07-29). It re-scans a root the bound brain has ALREADY declared:
+        // The freshness door (SPEC-1, owner-ratified 2026-07-29). It re-scans a
+        // root the bound brain has ALREADY declared:
         // same effects as `merge_existing`, and deliberately NO `SovereignMutation`,
         // because it structurally cannot change the root set or cross to another
         // brain's territory. Its floor is the ratified `ScopedGrantA2`.

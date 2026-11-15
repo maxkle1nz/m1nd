@@ -21,7 +21,7 @@
 //! re-ingest that renumbers every node. The ingest simply never called it.
 //!
 //! Every case below drives the REAL door: `refresh` is the one ingest mode a
-//! client may run (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1), it takes the
+//! client may run (SPEC-1), it takes the
 //! same `finalize_ingest` commit path as `replace`, and it is reached here
 //! through the same policy gate both transports run — so nothing here proves a
 //! handler while leaving the door untested.

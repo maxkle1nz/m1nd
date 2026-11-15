@@ -123,8 +123,7 @@ class CiSecurityContractTests(unittest.TestCase):
             "personal_path_content",
             # The ratified C6 frozen-PRD content-gate exception must stay bound to
             # its exact digest; losing it would silently reopen the leak or drop
-            # the exception. see docs/proofs/
-            # m1nd10-public-path-migration-ratification-20260720.md
+            # the exception (ratified in the public-path migration decision).
             "FROZEN_PRD_SHA256",
             "2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b",
         ):

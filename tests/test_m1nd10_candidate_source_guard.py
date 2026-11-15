@@ -281,10 +281,9 @@ class CandidateSourceGuardTests(unittest.TestCase):
     def test_frozen_prd_digest_exception_is_bound_to_exact_bytes(self) -> None:
         # The owner-ratified C6 exception exempts the canonical PRD from the
         # content gate ONLY at its exact SHA-256. Since the 2026-07-23 re-freeze
-        # (docs/proofs/m1nd10-prd-refreeze-20260723.md) the real PRD carries no
-        # machine-local paths, so the exception is moot in effect; the binding
-        # mechanism is kept and proven here with synthetic canon bytes whose
-        # digest is patched in as the frozen one.
+        # the real PRD carries no machine-local paths, so the exception is moot in
+        # effect; the binding mechanism is kept and proven here with synthetic canon
+        # bytes whose digest is patched in as the frozen one.
         prd_bytes = (ROOT / "docs" / "M1ND-10-PRD.md").read_bytes()
         self.assertEqual(
             hashlib.sha256(prd_bytes).hexdigest(),

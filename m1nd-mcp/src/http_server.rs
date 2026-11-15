@@ -1957,8 +1957,7 @@ fn health_snapshot_json(
 }
 
 /// `GET /api/presences?brain=` — the P1 presence endpoint the Hall strip reads
-/// (contract: `m1nd-ui` `docs/voice/P1-UI-CONTRACT.md`; authority: the P1
-/// verdict, binding changes 1–3). Envelope: `{presences, collisions, served_brain?}`.
+/// (P1 UI contract, binding changes 1–3). Envelope: `{presences, collisions, served_brain?}`.
 ///
 /// - `brain` ABSENT ⇒ the OWNER-WIDE roster (the Hall's control-room scope):
 ///   every live presence across all this owner's brains, no `served_brain` echo

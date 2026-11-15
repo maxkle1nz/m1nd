@@ -1,8 +1,5 @@
-//! SPEC-2 — `brain.bootstrap.birth`, the birth ceremony's server verb.
-//!
-//! The normative document is `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2
-//! (RATIFIED, owner, 2026-07-29, all four §6 items — item 4 being the `human-cli`
-//! allowlist entry this module exists to honour).
+//! SPEC-2 — `brain.bootstrap.birth`, the birth ceremony's server verb
+//! (ratified by the owner on 2026-07-29; `human-cli` allowlist entry).
 //!
 //! **THE ORIGIN STAMP — where the spec constrains and where this resolves.**
 //!
@@ -37,8 +34,7 @@
 
 use serde_json::json;
 
-/// The CLOSED set of HUMAN origins the birth verb admits
-/// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified §6 item 4).
+/// The CLOSED set of HUMAN origins the birth verb admits (SPEC-2, owner-ratified).
 ///
 /// A Rust enum rather than a string allow-list on purpose. `receipt_import`'s
 /// gate (`system_blocks_handlers.rs`) validates a CLIENT-SUPPLIED string against

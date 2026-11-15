@@ -2,11 +2,6 @@
 
 Thanks for your interest in contributing to m1nd. This document covers the basics.
 
-If you are contributing through real agent usage, also keep
-[docs/AGENT-TASKNOTES.md](docs/AGENT-TASKNOTES.md) current. It is the running
-capture surface for moments where an agent used `m1nd`, did not get the exact
-answer it needed, and had to compensate outside the graph.
-
 For large capability waves, move code, docs, built docs, and release surfaces
 together in the same change — a feature is not complete until the documentation
 and wiki reflect it.

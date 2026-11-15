@@ -612,9 +612,8 @@ fn run_medulla_migrate(
     println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
 }
 
-/// THE BIRTH CEREMONY (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified
-/// 2026-07-29) — the P2 human gesture, and the ONLY place in this binary that
-/// stamps a `HumanOrigin`.
+/// THE BIRTH CEREMONY (owner-ratified 2026-07-29) — the P2 human gesture, and
+/// the ONLY place in this binary that stamps a `HumanOrigin`.
 ///
 /// This function IS the admission §2 requires. It is not that the CLI presents a
 /// token the owner then trusts: the owner is this process, and the fact it
@@ -1213,10 +1212,9 @@ async fn main() {
         return;
     }
 
-    // --birth <repo>: THE BIRTH CEREMONY (GENESIS-INGEST-CONSUMERS-SPEC.md §2,
-    // owner-ratified 2026-07-29). Runs BEFORE --serve/stdio, so it never opens a
-    // transport — which is also why the stamp it applies can never be reached
-    // through one.
+    // --birth <repo>: THE BIRTH CEREMONY (owner-ratified 2026-07-29). Runs BEFORE
+    // --serve/stdio, so it never opens a transport — which is also why the stamp
+    // it applies can never be reached through one.
     if let Some(root) = cli.birth {
         run_birth_ceremony(config, &root);
         return;

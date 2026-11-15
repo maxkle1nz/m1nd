@@ -5,8 +5,7 @@
 //! verbatim (inside a fenced code block) under the negative-default cadence in
 //! `M1ND_INSTRUCTIONS` — they never re-compose it.
 //!
-//! Law of this field (askGOD verdict "human view", 2026-07-12 — the 10
-//! amendments; `docs/voice/ASKGOD-VERDICT-HUMAN-VIEW.md`):
+//! Law of this field (2026-07-12 — the 10 amendments):
 //! - the field is `human_view`, never `owner_view` ("owner" = the served owner
 //!   process in this codebase) — amendment 1;
 //! - MECHANICAL cap: ≤4 lines, ≤80 chars per line, wrap indents +2 inside the
@@ -22,8 +21,8 @@
 //! - brand law G1 as the field's written law: only measured facts already in
 //!   the packet — no uncalibrated adjective, no benefit claim — amendment 8;
 //! - the mark is the PULSE: the `m1nd` wordmark + a 5-cell pulse row `╷╷╷│╷`
-//!   (`M1ND-VOICE-ALIEN.md` §5 variant C, the owner's explicit stamp
-//!   2026-07-12 — the official signature of the voice). Calm `╷` (U+2577) = a
+//!   (variant C, the owner's explicit stamp 2026-07-12 — the official signature
+//!   of the voice). Calm `╷` (U+2577) = a
 //!   vital sign at rest; raised `│` (U+2502) = one calling for the human. The
 //!   cell order is FIXED FOREVER (the anti-equalizer law, pinned by test):
 //!   `trust · graph · focus · bell · coherence`. Read the row as an
@@ -59,7 +58,7 @@ const SPINE: char = '│';
 /// Field separator inside the identity line (U+00B7).
 const SEP: &str = " · ";
 
-/// The pulse cells (`M1ND-VOICE-ALIEN.md` §5). `╷` (U+2577, narrow-guaranteed —
+/// The pulse cells. `╷` (U+2577, narrow-guaranteed —
 /// EAW class N) is a vital sign at rest; `│` (U+2502) is the SAME spine glyph,
 /// raised, so a calling cell reads as a stem standing up out of the calm row.
 /// ASCII fallback is the AGENT's duty (1:1 map `╷`→`.`, `│`→`|`; widths
@@ -168,7 +167,7 @@ fn compose_state_sig(input: &HumanViewInput, pulse: &str) -> String {
     )
 }
 
-/// Compose the pulse row (`M1ND-VOICE-ALIEN.md` §5) — FIVE cells in a FROZEN
+/// Compose the pulse row — FIVE cells in a FROZEN
 /// order (the anti-equalizer law, pinned by test): `trust · graph · focus ·
 /// bell · coherence`. Each cell is calm `╷` or raised `│`:
 /// - **trust** rises when `trust_mode != full_trust`;
@@ -208,7 +207,7 @@ fn compose_pulse(input: &HumanViewInput) -> String {
 
 /// Line 1 — THE pluggable-mark seam (amendment 7). The signature prefix is the
 /// wordmark hung on the margin followed by the PULSE row (the owner's official
-/// stamp, `M1ND-VOICE-ALIEN.md` §5): `m1nd ╷╷╷│╷  <facts>`. The first pulse
+/// stamp): `m1nd ╷╷╷│╷  <facts>`. The first pulse
 /// cell sits at column 6, exactly under the continuation gutter's spine — the
 /// lombada is BORN from the pulse. When `pulse` is `None` (S3 mismatch), the
 /// plain spine `m1nd │ ` returns: the pulse would read the wrong brain's

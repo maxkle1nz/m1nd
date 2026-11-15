@@ -492,7 +492,7 @@ bound brain because the writer never checked which brain it was talking to.
 4. **The one ingest you CAN run is `ingest {mode:"refresh"}` — from exactly your own root.**
    `replace` and `merge` stay policy-disabled for every client; `refresh` re-scans a root the
    brain has ALREADY declared and is admitted at `SCOPED_GRANT_A2`, A2-locally, with no lease
-   (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1, owner-ratified 2026-07-29). It is admitted by
+   (ratified 2026-07-29). It is admitted by
    ACTION, never by floor: the two siblings at that same floor — `source.edit.commit` and
    `graph.ingest.merge_existing` — stay refused, and a test pins their refusal bytes.
    What it refuses, always with nothing mutated: a caller root that is not EXACTLY a declared

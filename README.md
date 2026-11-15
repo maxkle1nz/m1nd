@@ -38,7 +38,7 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 
 ### Published 1.6.5: get a first result
 
-Source-preview contributors: the [November dependency security update](docs/DEPENDENCY-SECURITY-2026-11.md) addresses findings in the unreleased lockfile; it does not update the published binaries above.
+Source-preview contributors: the [November dependency security update](CHANGELOG.md#security) addresses findings in the unreleased lockfile; it does not update the published binaries above.
 
 The source candidate also preserves the existing [runtime-overlay matching rules](docs/RUNTIME-OVERLAY-MATCHING.md) while reusing batch-local substring filters. UI dependency audit debt and exact-candidate performance proof are tracked separately in the security update.
 

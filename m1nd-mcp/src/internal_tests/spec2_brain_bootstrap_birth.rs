@@ -1,10 +1,9 @@
 //! SPEC-2 — `brain.bootstrap.birth`, the BIRTH path.
 //!
-//! The normative document is `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` (RATIFIED,
-//! owner, 2026-07-29, all four §6 items — item 4 is this file's subject). This
-//! file IS its §5.7 and the birth half of §5.8, which SPEC-1's battery left
-//! deliberately absent. Written before the implementation, born RED against
-//! today's binary, and never edited afterwards to make the implementation pass.
+//! Acceptance battery for the owner-ratified birth path (2026-07-29). This
+//! file covers the birth half left out of SPEC-1's battery. Written before the
+//! implementation, born RED against today's binary, and never edited afterwards
+//! to make the implementation pass.
 //!
 //! What the verb is, in one line: the ONE way a brain is born, and it is not an
 //! agent's to call. Admission is an OWNER-STAMPED human origin (§2) — the owner

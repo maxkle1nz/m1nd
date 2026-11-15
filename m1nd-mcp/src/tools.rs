@@ -52,8 +52,8 @@ fn normalized_ingest_mode(mode: &str) -> &str {
 }
 
 // ---------------------------------------------------------------------------
-// SPEC-1 — `graph.ingest.refresh_declared_root`, the freshness door.
-// `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1, owner-ratified 2026-07-29.
+// SPEC-1 — `graph.ingest.refresh_declared_root`, the freshness door
+// (owner-ratified 2026-07-29).
 // ---------------------------------------------------------------------------
 
 /// The shrink floor, ratified by the owner at 60% (spec §6 item 3).

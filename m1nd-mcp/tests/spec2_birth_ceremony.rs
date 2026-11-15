@@ -1,7 +1,5 @@
-//! SPEC-2 — the P2 birth ceremony, driven against the REAL binary.
-//!
-//! The normative document is `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2
-//! (RATIFIED, owner, 2026-07-29). The in-process battery
+//! SPEC-2 — the P2 birth ceremony, driven against the REAL binary
+//! (owner-ratified 2026-07-29). The in-process battery
 //! (`m1nd-mcp/src/internal_tests/spec2_brain_bootstrap_birth.rs`) proves the
 //! verb's decisions; this file proves the two things only a real process can:
 //!

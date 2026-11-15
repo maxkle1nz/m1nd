@@ -4,8 +4,8 @@
  * of the reader"). Cached per brain root so opening Show Code on many files (or
  * re-opening the modal) fetches the snapshot at most once per brain — the honest
  * client-side alternative to a per-file backend view (dossier Risk 6; a thin
- * `GET /api/file/symbols?path=` owner view is the future optimization, recorded in
- * SLICE1-DIVERGENCES.md — this slice adds NO backend).
+ * `GET /api/file/symbols?path=` owner view is the future optimization — this
+ * slice adds NO backend).
  *
  * SSR-safe like useFileView: the effect never runs in `renderToStaticMarkup`, and
  * an injected `override` lets a component test supply the snapshot with no network.

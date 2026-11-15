@@ -70,7 +70,7 @@ pub mod boot_kv_migration;
 // Upgrade-path repair: one-time boot adoption of a pre-1.5 legacy graph snapshot.
 pub mod legacy_snapshot_adoption;
 // SPEC-2 — `brain.bootstrap.birth`, the birth ceremony's server verb
-// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2, owner-ratified 2026-07-29).
+// (owner-ratified 2026-07-29).
 pub mod brain_birth;
 // ORGANISM R6 — the delegation layer (`delegate` / `debrief`).
 pub mod delegation_handlers;
@@ -274,14 +274,11 @@ mod two_tier_project_brains_internal_tests;
 #[cfg(all(test, feature = "serve"))]
 #[path = "internal_tests/ui_bundle_attestation.rs"]
 mod ui_bundle_attestation_internal_tests;
-// SPEC-1 — the freshness door's acceptance battery
-// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5), written before its implementation.
+// SPEC-1 — the freshness door's acceptance battery, written before its implementation.
 #[cfg(test)]
 #[path = "internal_tests/spec1_refresh_declared_root.rs"]
 mod spec1_refresh_declared_root_internal_tests;
-// SPEC-2 — the birth path's acceptance battery
-// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5.7 + the birth half of §5.8),
-// written before its implementation.
+// SPEC-2 — the birth path's acceptance battery, written before its implementation.
 #[cfg(test)]
 #[path = "internal_tests/spec2_brain_bootstrap_birth.rs"]
 mod spec2_brain_bootstrap_birth_internal_tests;

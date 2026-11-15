@@ -125,8 +125,7 @@ pub enum ActionConsumerDispositionV1 {
 }
 
 /// The action-keyed generic-dispatch allowlist — the ONE opening in the
-/// authority wall (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.1, owner-ratified
-/// 2026-07-29).
+/// authority wall (SPEC-1, owner-ratified 2026-07-29).
 ///
 /// Keyed BY ACTION, never by floor. That is the whole point of the shape: the
 /// two `SCOPED_GRANT_A2` siblings that already exist — `source.edit.commit` and
@@ -950,8 +949,7 @@ mod tests {
     }
 
     /// The generic door opens for EXACTLY the ratified action and nothing else,
-    /// and it opens at exactly the ratified floor
-    /// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §6 items 1–2, owner 2026-07-29).
+    /// and it opens at exactly the ratified floor (SPEC-1, owner 2026-07-29).
     /// A second entry appearing here without a second ratification is the failure
     /// this test exists to make loud.
     #[test]

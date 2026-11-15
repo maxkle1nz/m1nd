@@ -487,7 +487,7 @@ fn classify_ingest(
     }
     match string_field(arguments, "mode").unwrap_or("replace") {
         "replace" => Ok("graph.ingest.replace"),
-        // The freshness door (GENESIS-INGEST-CONSUMERS-SPEC.md §1.1). It is its
+        // The freshness door (SPEC-1). It is its
         // OWN action, selected from `(tool, params)` ALONE — no trusted route
         // fact, so the gate's pure/pre-brain invariant (spec R-I) is untouched.
         // The spec is explicit that no future need may reuse that plumbing until
@@ -643,7 +643,7 @@ fn fixed_mcp_action(tool: &str) -> Option<&'static str> {
         "daemon_tick" => "daemon.tick",
         "alerts_ack" => "daemon.alerts_ack",
         "promote" => "brain.promote",
-        // SPEC-2's birth verb (GENESIS-INGEST-CONSUMERS-SPEC.md §2). A FIXED
+        // SPEC-2's birth verb. A FIXED
         // action: it is selected by the tool name alone, so no field a client
         // sends — least of all one claiming a human origin — can change what it
         // classifies as, and the refusal every generic seam emits for it is

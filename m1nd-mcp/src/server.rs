@@ -6706,7 +6706,7 @@ pub(crate) fn enforce_generic_action_policy(
     };
 
     // The ONE opening in the wall, keyed BY ACTION and never by floor
-    // (GENESIS-INGEST-CONSUMERS-SPEC.md §1.1, owner-ratified 2026-07-29).
+    // (SPEC-1, owner-ratified 2026-07-29).
     //
     // It is deliberately reachable ONLY from the exactly-classified branch. The
     // `MissingTrustedFact` arm above resolves a UNION of floors with no exact
@@ -6750,8 +6750,8 @@ pub(crate) fn enforce_generic_action_policy(
 /// Deliberately NOT the whole floor-gated family. `source.edit.commit` and
 /// `graph.ingest.merge_existing` sit at the same wall, but their answer is not
 /// "run the birth ceremony": they act on a brain that already exists, and their
-/// refusal bytes are pinned by `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §5.9
-/// precisely so the action-keyed allowlist cannot drift into opening them.
+/// refusal bytes are pinned by test precisely so the action-keyed allowlist
+/// cannot drift into opening them.
 const FIRST_GRAPH_ACTIONS: &[&str] = &[
     "graph.ingest.replace",
     "brain.bootstrap",
