@@ -3195,4 +3195,73 @@ assert(
   "the post-install probe budget is strictly larger than the warm-path default"
 );
 
+// --- safe writes: atomic config updates, timestamped backups, scoped skill replacement ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const testHome = homeForTest();
+    const project = mkTmpDir();
+    const configPath = path.join(testHome, ".codex", "config.toml");
+    const customSkillDir = path.join(testHome, ".codex", "skills", "custom-local-skill");
+    const staleM1ndFile = path.join(testHome, ".codex", "skills", "m1nd-first", "stale-extra.txt");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.mkdirSync(customSkillDir, { recursive: true });
+    fs.mkdirSync(path.dirname(staleM1ndFile), { recursive: true });
+    fs.writeFileSync(path.join(customSkillDir, "SKILL.md"), "# keep custom skill\n");
+    fs.writeFileSync(staleM1ndFile, "stale\n");
+
+    const originalToml = [
+      'model = "gpt-5-codex"',
+      "",
+      "[features]",
+      "hooks = true",
+      "",
+      "[mcp_servers.m1nd]",
+      'command = "old-m1nd"',
+      'args = ["--old"]',
+      "",
+      "[mcp_servers.other]",
+      'command = "other-tool"',
+      "",
+    ].join("\n");
+    fs.writeFileSync(configPath, originalToml);
+
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+
+    const updatedToml = fs.readFileSync(configPath, "utf8");
+    assert(updatedToml.includes('model = "gpt-5-codex"'), "unrelated top-level TOML preserved");
+    assert(updatedToml.includes("[features]\nhooks = true"), "unrelated TOML table preserved");
+    assert(updatedToml.includes('[mcp_servers.other]\ncommand = "other-tool"'), "unrelated MCP entry preserved");
+    assert(!updatedToml.includes('command = "old-m1nd"'), "old m1nd entry replaced");
+    assert(fs.existsSync(path.join(customSkillDir, "SKILL.md")), "unrelated skill dir preserved");
+    assert.strictEqual(fs.existsSync(staleM1ndFile), false, "m1nd skill dir replaced cleanly");
+
+    const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(configAction && configAction.backup, "backup path recorded for modified config");
+    assert(fs.existsSync(configAction.backup), "timestamped backup file exists on disk");
+    assert.strictEqual(fs.readFileSync(configAction.backup, "utf8"), originalToml, "backup preserves original bytes");
+    assert(configAction.backup.startsWith(path.join(testHome, ".m1nd", "backups")), "backup uses ~/.m1nd/backups convention");
+
+    // No leftover temp files in config or skills directory.
+    assert.strictEqual(
+      fs.readdirSync(path.dirname(configPath)).some((name) => name.endsWith(".tmp")),
+      false
+    );
+    assert.strictEqual(
+      fs.readdirSync(path.join(testHome, ".codex", "skills")).some((name) => name.endsWith(".tmp")),
+      false
+    );
+  }
+);
+
 console.log("npm cli tests ok");

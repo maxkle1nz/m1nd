@@ -545,18 +545,35 @@ function packRoutingCheck(options = {}) {
   };
 }
 
+const GLOBAL_SKILL_NAMES = ["m1nd-first", "m1nd-guardian", "m1nd-operator"];
+
+function installSkillDirs(targetSkillsRoot, skillNames = GLOBAL_SKILL_NAMES) {
+  ensureDir(targetSkillsRoot);
+  const installed = [];
+  for (const skillName of skillNames) {
+    const sourceDir = path.join(SKILLS_ROOT, skillName);
+    const targetDir = path.join(targetSkillsRoot, skillName);
+    const stagingDir = path.join(
+      targetSkillsRoot,
+      `.${skillName}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
+    );
+    try {
+      copyDir(sourceDir, stagingDir);
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      fs.renameSync(stagingDir, targetDir);
+    } finally {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    }
+    installed.push(targetDir);
+  }
+  return installed;
+}
+
 function installCodex() {
   const targetRoot = path.join(homeDir(), ".codex", "skills");
-  copyDir(path.join(SKILLS_ROOT, "m1nd-first"), path.join(targetRoot, "m1nd-first"));
-  copyDir(path.join(SKILLS_ROOT, "m1nd-guardian"), path.join(targetRoot, "m1nd-guardian"));
-  copyDir(path.join(SKILLS_ROOT, "m1nd-operator"), path.join(targetRoot, "m1nd-operator"));
   return {
     host: "codex",
-    installed: [
-      path.join(targetRoot, "m1nd-first"),
-      path.join(targetRoot, "m1nd-guardian"),
-      path.join(targetRoot, "m1nd-operator"),
-    ],
+    installed: installSkillDirs(targetRoot),
   };
 }
 
@@ -1231,7 +1248,7 @@ function writeHookConfig(recipe, host) {
   const file = recipe.hook.config_path;
   const before = readText(file);
   const parsed = before.trim() ? safeJsonParse(before) : {};
-  if (before.trim() && !parsed) {
+  if (before.trim() && (!parsed || typeof parsed !== "object" || Array.isArray(parsed))) {
     throw new Error(`cannot safely update invalid JSON hook config at ${file}`);
   }
   const config = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
@@ -1270,10 +1287,10 @@ function writeHookConfig(recipe, host) {
   }
 
   const after = `${JSON.stringify(config, null, 2)}\n`;
-  ensureDir(path.dirname(file));
-  if (before === after) return { changed: false, file };
-  fs.writeFileSync(file, after);
-  return { changed: true, file };
+  if (before === after) return { changed: false, file, backup: null };
+  const backup = backupExistingFile(file, host);
+  writeFileAtomic(file, after, { preserveMode: true });
+  return { changed: true, file, backup };
 }
 
 function hostStatus(args) {
@@ -1500,14 +1517,14 @@ function canonicalHostConfigPath(host, projectDir) {
   }
 }
 
-function removeTomlSections(text, sectionNames) {
+function removeTomlSections(text, predicate) {
   const lines = String(text || "").split(/\r?\n/);
   const kept = [];
   let skipping = false;
   for (const line of lines) {
-    const section = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    const section = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
     if (section) {
-      skipping = sectionNames.has(section[1]);
+      skipping = predicate(section[1].trim());
       if (skipping) continue;
     }
     if (!skipping) kept.push(line);
@@ -1520,13 +1537,13 @@ function writeCodexMcpConfig(file, binary, projectDir) {
   const snippet = mcpConfig("codex", binary, projectDir).trimEnd();
   const withoutM1nd = removeTomlSections(
     before,
-    new Set(["mcp_servers.m1nd", "mcp_servers.m1nd.env"])
+    (section) => section === "mcp_servers.m1nd" || section.startsWith("mcp_servers.m1nd.")
   );
   const after = `${withoutM1nd ? `${withoutM1nd}\n\n` : ""}${snippet}\n`;
-  ensureDir(path.dirname(file));
-  if (before === after) return { changed: false, file };
-  fs.writeFileSync(file, after);
-  return { changed: true, file };
+  if (before === after) return { changed: false, file, backup: null };
+  const backup = backupExistingFile(file, "codex");
+  writeFileAtomic(file, after, { preserveMode: true });
+  return { changed: true, file, backup };
 }
 
 function mcpServerEntry(binary, projectDir) {
@@ -1539,10 +1556,10 @@ function mcpServerEntry(binary, projectDir) {
   };
 }
 
-function writeJsonMcpConfig(file, binary, projectDir) {
+function writeJsonMcpConfig(file, binary, projectDir, host = null) {
   const before = readText(file);
   const parsed = before.trim() ? safeJsonParse(before) : {};
-  if (before.trim() && !parsed) {
+  if (before.trim() && (!parsed || typeof parsed !== "object" || Array.isArray(parsed))) {
     throw new Error(`cannot safely update invalid JSON config at ${file}`);
   }
   const config = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
@@ -1551,15 +1568,17 @@ function writeJsonMcpConfig(file, binary, projectDir) {
     : {};
   config.mcpServers.m1nd = mcpServerEntry(binary, projectDir);
   const after = `${JSON.stringify(config, null, 2)}\n`;
-  ensureDir(path.dirname(file));
-  if (before === after) return { changed: false, file, parse_ok: Boolean(parsed || !before.trim()) };
-  fs.writeFileSync(file, after);
-  return { changed: true, file, parse_ok: true };
+  if (before === after) {
+    return { changed: false, file, parse_ok: Boolean(parsed || !before.trim()), backup: null };
+  }
+  const backup = backupExistingFile(file, host || "host");
+  writeFileAtomic(file, after, { preserveMode: true });
+  return { changed: true, file, parse_ok: true, backup };
 }
 
 function writeHostConfig(host, file, binary, projectDir) {
   if (host === "codex") return writeCodexMcpConfig(file, binary, projectDir);
-  return writeJsonMcpConfig(file, binary, projectDir);
+  return writeJsonMcpConfig(file, binary, projectDir, host);
 }
 
 function hostApply(args) {
@@ -1667,6 +1686,7 @@ function hostApply(args) {
             ok: true,
             file: writeResult.file,
             changed: writeResult.changed,
+            ...(writeResult.backup ? { backup: writeResult.backup } : {}),
             workspace_root: projectDir,
           };
           appliedActions.push(applied);
@@ -1769,6 +1789,7 @@ function hostApply(args) {
               ok: true,
               file: writeResult.file,
               changed: writeResult.changed,
+              ...(writeResult.backup ? { backup: writeResult.backup } : {}),
               event: recipe.hook.event,
             };
             appliedActions.push(applied);
@@ -2261,17 +2282,47 @@ function fsyncDirectory(directory) {
   }
 }
 
-function writeJsonAtomic(file, value) {
+function configBackupPath(file, label = "config") {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupRoot = path.join(homeDir(), ".m1nd", "backups");
+  const safeLabel = String(label || "config").replace(/[^A-Za-z0-9._-]/g, "_");
+  const base = path.basename(file).replace(/^\.+/, "") || "config";
+  let candidate = path.join(backupRoot, `${safeLabel}-${base}-${stamp}`);
+  if (fs.existsSync(candidate)) {
+    candidate = `${candidate}-${crypto.randomBytes(3).toString("hex")}`;
+  }
+  return candidate;
+}
+
+function backupExistingFile(file, label = "config") {
+  if (!fs.existsSync(file)) return null;
+  const backup = configBackupPath(file, label);
+  ensureDir(path.dirname(backup));
+  fs.copyFileSync(file, backup);
+  fsyncFile(backup);
+  fsyncDirectory(path.dirname(backup));
+  return backup;
+}
+
+function writeFileAtomic(file, text, options = {}) {
   const directory = path.dirname(file);
   ensureDir(directory);
+  let mode = options.mode !== undefined ? options.mode : 0o644;
+  if (options.preserveMode && fs.existsSync(file)) {
+    try {
+      mode = fs.statSync(file).mode & 0o777;
+    } catch (_) {
+      // Keep default mode when stat fails.
+    }
+  }
   const temporary = path.join(
     directory,
     `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
   );
   let descriptor = null;
   try {
-    descriptor = fs.openSync(temporary, "wx", 0o600);
-    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
+    descriptor = fs.openSync(temporary, "wx", mode);
+    fs.writeFileSync(descriptor, text);
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
     descriptor = null;
@@ -2281,6 +2332,10 @@ function writeJsonAtomic(file, value) {
     if (descriptor !== null) fs.closeSync(descriptor);
     fs.rmSync(temporary, { force: true });
   }
+}
+
+function writeJsonAtomic(file, value) {
+  writeFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 function selectTargetVersion(packageVersion, registryVersion) {
