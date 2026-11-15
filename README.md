@@ -203,12 +203,6 @@ The Cargo workspace has six crates: `m1nd-core` (graph engine), `m1nd-ingest` (e
 - [Changelog](CHANGELOG.md): release history
 - [Contributing](CONTRIBUTING.md): development and verification
 
-## Translations
-
-[Português](i18n/README.pt-BR.md) · [Español](i18n/README.es.md) · [Italiano](i18n/README.it.md) · [Français](i18n/README.fr.md) · [Deutsch](i18n/README.de.md) · [中文](i18n/README.zh.md) · [日本語](i18n/README.ja.md)
-
-Translations have not been refreshed with this English revision and may contain outdated setup or capability claims. Use this English README for current instructions.
-
 ## License
 
 MIT. Your graph is derived from your code; memory files remain on disk. See [LICENSE](LICENSE).
