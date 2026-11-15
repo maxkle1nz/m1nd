@@ -25,17 +25,10 @@ m1nd-ui/node_modules/
 # M1nd 10 G0 proof receipt — immutable baseline, verified in CI/tooling.
 !docs/proofs/m1nd10-ground-snapshot-v1.json
 !docs/proofs/m1nd10-g1-live-proof-v1.json
-# M1ND-10 G4/R6 ratified workload and measured runtime receipt.
-!docs/benchmarks/m1nd10-g4-r6-metric-spec-v1.json
-!docs/benchmarks/m1nd10-g4-r6-runtime-result-v1.json
-# M1ND-10 G6 ratified metric contract and fail-closed evidence receipts.
+# M1ND-10 G6 ratified metric contract.
 !docs/benchmarks/m1nd10-g6-metric-spec-v1.json
-!docs/benchmarks/m1nd10-g6-current-report.json
-!docs/benchmarks/m1nd10-g6-failed-*.json
 # M1ND-10 canonical release-contract vectors — public test fixture required by CI.
 !tests/fixtures/M1ND10-CANONICAL-VECTORS.json
-!docs/benchmarks/m1nd10-g6-universal-ingest-matrix-v1.json
-!docs/benchmarks/m1nd10-g6-held-out-v1/public/queries.json
 # M1ND-10 G6 held-out V2 public corpus contract. Labels, reviews, generators,
 # and runner outputs remain operator-private; only public queries, manifests,
 # digests, and schemas are versionable in the candidate source tree.
