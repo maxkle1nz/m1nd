@@ -125,7 +125,6 @@ scratchpad/*
 # Internal/maintainer-only working docs (design drafts, build reports, benchmarks
 # with local paths) live here but are NOT published with the product.
 docs/internal/
-.github/wiki/VERIFICATION_REPORT.md
 
 # Local agent-session tooling and throwaway harnesses — never published.
 /.claude/
