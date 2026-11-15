@@ -577,6 +577,14 @@ function installCodex() {
   };
 }
 
+function installClaude() {
+  const targetRoot = path.join(homeDir(), ".claude", "skills");
+  return {
+    host: "claude",
+    installed: installSkillDirs(targetRoot),
+  };
+}
+
 function hostRuleFilename(host) {
   switch (host) {
     case "claude":
@@ -609,7 +617,7 @@ function installSkills(host, projectDir) {
   if (host === "all") {
     return [
       installCodex(),
-      installPortable("claude", projectDir),
+      installClaude(),
       installPortable("gemini", projectDir),
       installPortable("antigravity", projectDir),
       installPortable("generic", projectDir),
@@ -617,6 +625,9 @@ function installSkills(host, projectDir) {
   }
   if (host === "codex") {
     return [installCodex()];
+  }
+  if (host === "claude") {
+    return [installClaude()];
   }
   return [installPortable(host, projectDir)];
 }
@@ -763,35 +774,131 @@ function portableAgentPackPaths(host, projectDir) {
   };
 }
 
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function jsonM1ndServer(parsed) {
+  if (!isPlainObject(parsed) || !isPlainObject(parsed.mcpServers)) return null;
+  return isPlainObject(parsed.mcpServers.m1nd) ? parsed.mcpServers.m1nd : null;
+}
+
+function findClaudeProjectM1ndServer(parsed, projectDir) {
+  if (!isPlainObject(parsed) || !isPlainObject(parsed.projects)) return null;
+  const resolvedProject = path.resolve(projectDir);
+  if (isPlainObject(parsed.projects[resolvedProject])) {
+    const server = jsonM1ndServer(parsed.projects[resolvedProject]);
+    if (server) return { projectKey: resolvedProject, server };
+  }
+  for (const [key, entry] of Object.entries(parsed.projects)) {
+    if (!isPlainObject(entry)) continue;
+    if (sameFilesystemTarget(key, resolvedProject)) {
+      const server = jsonM1ndServer(entry);
+      if (server) return { projectKey: key, server };
+    }
+  }
+  return null;
+}
+
+function listFilesRelative(rootDir, prefix = "") {
+  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (isGeneratedSkillArtifact(entry.name) || entry.name === ".DS_Store") continue;
+    const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+    const full = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFilesRelative(full, rel));
+    } else if (entry.isFile()) {
+      files.push(rel);
+    }
+  }
+  return files.sort();
+}
+
+function dirMatchesPackage(sourceDir, targetDir) {
+  if (!fs.existsSync(targetDir)) return false;
+  for (const rel of listFilesRelative(sourceDir)) {
+    const srcFile = path.join(sourceDir, rel);
+    const dstFile = path.join(targetDir, rel);
+    if (!fs.existsSync(dstFile)) return false;
+    let srcStat;
+    let dstStat;
+    try {
+      srcStat = fs.statSync(srcFile);
+      dstStat = fs.statSync(dstFile);
+    } catch (_) {
+      return false;
+    }
+    if (!dstStat.isFile() || srcStat.size !== dstStat.size) return false;
+    if (Buffer.compare(fs.readFileSync(srcFile), fs.readFileSync(dstFile)) !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function skillPackStatus(installKind, targetRoot, skillRoot, extraRequired = [], extraValid = () => true) {
+  const required = [
+    ...GLOBAL_SKILL_NAMES.map((skillName) => path.join(skillRoot, skillName, "SKILL.md")),
+    ...extraRequired,
+  ];
+  const missing = required.filter((file) => !fs.existsSync(file));
+  let outdated = false;
+  if (missing.length === 0) {
+    const skillsMatch = GLOBAL_SKILL_NAMES.every((skillName) =>
+      dirMatchesPackage(path.join(SKILLS_ROOT, skillName), path.join(skillRoot, skillName))
+    );
+    outdated = !skillsMatch || !extraValid();
+  }
+  const status = missing.length > 0 ? "missing" : outdated ? "outdated" : "installed";
+  return {
+    install_kind: installKind,
+    target_root: targetRoot,
+    rule_file: null,
+    required,
+    missing,
+    status,
+    installed: status === "installed",
+    outdated,
+  };
+}
+
 function agentPackStatusForHost(host, projectDir) {
   if (host === "codex") {
     const skillRoot = path.join(homeDir(), ".codex", "skills");
-    const required = [
-      path.join(skillRoot, "m1nd-first", "SKILL.md"),
-      path.join(skillRoot, "m1nd-guardian", "SKILL.md"),
-      path.join(skillRoot, "m1nd-operator", "SKILL.md"),
-    ];
+    const required = GLOBAL_SKILL_NAMES.map((skillName) => path.join(skillRoot, skillName, "SKILL.md"));
     const missing = required.filter((file) => !fs.existsSync(file));
+    const status = missing.length === 0 ? "installed" : "missing";
     return {
       install_kind: "codex-skill-root",
       target_root: skillRoot,
       rule_file: null,
       required,
       missing,
+      status,
       installed: missing.length === 0,
+      outdated: false,
     };
+  }
+  if (host === "claude") {
+    const skillRoot = path.join(homeDir(), ".claude", "skills");
+    return skillPackStatus("claude-skill-root", skillRoot, skillRoot);
   }
 
   const paths = portableAgentPackPaths(host, projectDir);
   const required = [paths.first_skill, paths.guardian_skill, paths.operator_skill, paths.rule_file];
   const missing = required.filter((file) => !fs.existsSync(file));
+  const status = missing.length === 0 ? "installed" : "missing";
   return {
     install_kind: "project-local-portable-pack",
     target_root: paths.target_root,
     rule_file: paths.rule_file,
     required,
     missing,
+    status,
     installed: missing.length === 0,
+    outdated: false,
   };
 }
 
@@ -801,9 +908,10 @@ function hostConfigCandidates(host, projectDir) {
       return [path.join(homeDir(), ".codex", "config.toml")];
     case "claude":
       return [
+        path.join(homeDir(), ".claude.json"),
+        path.join(projectDir, ".mcp.json"),
         path.join(projectDir, ".claude", "mcp.json"),
         path.join(projectDir, "claude_mcp.json"),
-        path.join(homeDir(), ".claude.json"),
       ];
     case "gemini":
       return [path.join(projectDir, ".gemini", "settings.json"), path.join(projectDir, "gemini_mcp.json")];
@@ -814,26 +922,137 @@ function hostConfigCandidates(host, projectDir) {
   }
 }
 
+function claudeConfigStatus(projectDir, binary, packageVersion, snippetCommand) {
+  const claudeJsonPath = path.join(homeDir(), ".claude.json");
+  const sharedProjectPath = path.join(projectDir, ".mcp.json");
+  const legacyDotClaudePath = path.join(projectDir, ".claude", "mcp.json");
+  const legacyRootPath = path.join(projectDir, "claude_mcp.json");
+
+  const claudeContent = readText(claudeJsonPath);
+  const claudeParsed = safeJsonParse(claudeContent);
+  const userServer = jsonM1ndServer(claudeParsed);
+  const projectMatch = findClaudeProjectM1ndServer(claudeParsed, projectDir);
+  const projectServer = projectMatch ? projectMatch.server : null;
+
+  const sharedServer = jsonM1ndServer(safeJsonParse(readText(sharedProjectPath)));
+  const legacyDotClaudeServer = jsonM1ndServer(safeJsonParse(readText(legacyDotClaudePath)));
+  const legacyRootServer = jsonM1ndServer(safeJsonParse(readText(legacyRootPath)));
+
+  const buildCandidate = (file, server, extra = {}) => {
+    const scopedContent = server ? JSON.stringify(server) : "";
+    return {
+      file,
+      exists: fs.existsSync(file),
+      mentions_m1nd: Boolean(server),
+      mentions_workspace_root: scopedContent.includes("M1ND_WORKSPACE_ROOT"),
+      mentions_project_dir:
+        scopedContent.includes(projectDir) ||
+        scopedContent.includes(JSON.stringify(projectDir).slice(1, -1)),
+      runtime_bindings: runtimeBindingsFromText(scopedContent, binary, packageVersion),
+      ...extra,
+    };
+  };
+
+  const claudeScopedParts = [projectServer, userServer].filter(Boolean).map((entry) => JSON.stringify(entry));
+  const claudeScopedContent = claudeScopedParts.join("\n");
+  const checked = [
+    {
+      file: claudeJsonPath,
+      exists: fs.existsSync(claudeJsonPath),
+      mentions_m1nd: Boolean(projectServer || userServer),
+      user_scope: Boolean(userServer),
+      project_scope: Boolean(projectServer),
+      mentions_workspace_root: claudeScopedContent.includes("M1ND_WORKSPACE_ROOT"),
+      mentions_project_dir:
+        claudeScopedContent.includes(projectDir) ||
+        claudeScopedContent.includes(JSON.stringify(projectDir).slice(1, -1)),
+      runtime_bindings: runtimeBindingsFromText(claudeScopedContent, binary, packageVersion),
+    },
+    buildCandidate(sharedProjectPath, sharedServer),
+    buildCandidate(legacyDotClaudePath, legacyDotClaudeServer, { legacy: true }),
+    buildCandidate(legacyRootPath, legacyRootServer, { legacy: true }),
+  ];
+
+  let configStatus = "missing";
+  if (projectServer) {
+    configStatus = `project-scope (${projectDir})`;
+  } else if (sharedServer) {
+    configStatus = "shared project (.mcp.json)";
+  } else if (userServer) {
+    configStatus = "user-scope";
+  } else if (legacyDotClaudeServer) {
+    configStatus = "legacy (.claude/mcp.json)";
+  } else if (legacyRootServer) {
+    configStatus = "legacy (claude_mcp.json)";
+  }
+
+  const configured = configStatus !== "missing";
+  const workspaceConfigured = checked.some(
+    (candidate) =>
+      candidate.exists &&
+      candidate.mentions_m1nd &&
+      candidate.mentions_workspace_root &&
+      candidate.mentions_project_dir
+  );
+  const runtimeBindings = checked.flatMap((candidate) => candidate.runtime_bindings);
+  const selectedRuntimeConfigured = runtimeBindings.some((binding) => binding.matches_selected);
+  const selectedRuntimeConfiguredCurrent = runtimeBindings.some(
+    (binding) => binding.matches_selected && binding.current
+  );
+  const currentRuntimeConfigured = runtimeBindings.some((binding) => binding.current);
+  const runtimeBindingStatus = !configured
+    ? "unconfigured"
+    : runtimeBindings.length === 0
+      ? "unknown"
+      : currentRuntimeConfigured
+        ? "current"
+        : "stale_or_missing";
+
+  return {
+    status: configStatus,
+    configured,
+    workspace_configured: workspaceConfigured,
+    candidates: checked,
+    expected_command: binary || defaultRuntimePath(),
+    snippet_command: snippetCommand,
+    runtime_bindings: runtimeBindings,
+    runtime_binding_status: runtimeBindingStatus,
+    selected_runtime_configured: selectedRuntimeConfigured,
+    selected_runtime_configured_current: selectedRuntimeConfiguredCurrent,
+    current_runtime_configured: currentRuntimeConfigured,
+    note: configured
+      ? `Claude MCP config detected at ${configStatus}; workspace env and host rebind are still checked separately.`
+      : "No config candidate currently proves that Claude is wired to m1nd.",
+  };
+}
+
 function hostConfigStatus(host, projectDir, binary, packageVersion = readPackageVersion()) {
   const candidates = hostConfigCandidates(host, projectDir);
   const snippetCommand = `m1nd mcp-config ${host} --project ${projectDir}`;
   if (candidates.length === 0) {
     return {
       status: "manual",
+      configured: false,
       candidates: [],
       expected_command: binary || defaultRuntimePath(),
       snippet_command: snippetCommand,
       note: "Generic hosts have no canonical config path; paste the generated MCP snippet into the host's config surface.",
     };
   }
+  if (host === "claude") {
+    return claudeConfigStatus(projectDir, binary, packageVersion, snippetCommand);
+  }
 
   const checked = candidates.map((file) => {
     const content = readText(file);
     const scopedContent = hostScopedConfigText(host, content);
+    const mentionsM1nd = host === "codex"
+      ? content.includes("m1nd")
+      : Boolean(jsonM1ndServer(safeJsonParse(content)));
     return {
       file,
       exists: fs.existsSync(file),
-      mentions_m1nd: content.includes("m1nd"),
+      mentions_m1nd: mentionsM1nd,
       mentions_workspace_root: scopedContent.includes("M1ND_WORKSPACE_ROOT"),
       // JSON configs escape backslashes, so on Windows the raw path never
       // appears verbatim; match the JSON-encoded spelling as well.
@@ -843,13 +1062,7 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
       runtime_bindings: runtimeBindingsFromText(scopedContent, binary, packageVersion),
     };
   });
-  const userScopePath = host === "claude" ? path.join(homeDir(), ".claude.json") : null;
   const configured = checked.some((candidate) => candidate.exists && candidate.mentions_m1nd);
-  const configuredUserScope =
-    userScopePath !== null &&
-    checked.some((candidate) => candidate.file === userScopePath && candidate.exists && candidate.mentions_m1nd);
-  const configuredProjectScope =
-    checked.some((candidate) => candidate.file !== userScopePath && candidate.exists && candidate.mentions_m1nd);
   const workspaceConfigured = checked.some(
     (candidate) =>
       candidate.exists &&
@@ -872,14 +1085,13 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
         ? "current"
         : "stale_or_missing";
   const configStatus = configured
-    ? configuredUserScope && !configuredProjectScope
-      ? "configured (user-scope)"
-      : "configured"
+    ? "configured"
     : anyPresent
       ? "present_without_m1nd"
       : "missing";
   return {
     status: configStatus,
+    configured,
     workspace_configured: workspaceConfigured,
     candidates: checked,
     expected_command: binary || defaultRuntimePath(),
@@ -970,7 +1182,7 @@ function hostApplyNonClaims() {
 }
 
 function hostInstallCommand(host, projectDir) {
-  if (host === "codex") return "m1nd install-skills codex";
+  if (host === "codex" || host === "claude") return `m1nd install-skills ${host}`;
   return `m1nd install-skills ${host} --project ${projectDir}`;
 }
 
@@ -1335,8 +1547,9 @@ function hostStatus(args) {
     const config = hostConfigStatus(host, projectDir, binary, packageVersion);
     const pathShadow = hostPathShadow(pathRuntimeCurrent, pathBinary, pathRuntimeText, config);
     const workspaceReady = workspace.status === "aligned" || Boolean(config.workspace_configured);
-    const configReady = config.status === "configured" && workspaceReady;
-    const readiness = runtimeCurrent && !pathShadow.blocking && agentPack.installed && configReady ? "ready" : "attention";
+    const configReady = Boolean(config.configured) && workspaceReady;
+    const agentPackReady = agentPack.status === "installed";
+    const readiness = runtimeCurrent && !pathShadow.blocking && agentPackReady && configReady ? "ready" : "attention";
     const nextActions = [];
     const warnings = [];
     if (!runtimeCurrent) {
@@ -1348,7 +1561,7 @@ function hostStatus(args) {
     if (pathShadow.status === "shadow_warning") {
       warnings.push(pathShadow.message);
     }
-    if (!agentPack.installed) {
+    if (!agentPackReady) {
       nextActions.push(`Run ${hostInstallCommand(host, projectDir)}.`);
     }
     if (config.status === "missing") {
@@ -1357,7 +1570,7 @@ function hostStatus(args) {
     if (config.status === "present_without_m1nd") {
       nextActions.push(`Update the existing host config with ${config.snippet_command}.`);
     }
-    if (config.status === "configured" && !config.workspace_configured && workspace.status !== "aligned") {
+    if (config.configured && !config.workspace_configured && workspace.status !== "aligned") {
       nextActions.push(`Update the existing host config with ${config.snippet_command} so it carries M1ND_WORKSPACE_ROOT=${projectDir}.`);
     }
     if (workspace.status !== "aligned" && !config.workspace_configured) {
@@ -1445,7 +1658,8 @@ function hostPlan(args) {
       doctrine,
       settings_block: settingsBlock,
       install_agent_pack: {
-        needed: !host.agent_pack.installed,
+        needed: host.agent_pack.status !== "installed",
+        status: host.agent_pack.status,
         command: hostInstallCommand(host.host, projectDir),
         target_root: host.agent_pack.target_root,
         rule_file: host.agent_pack.rule_file,
@@ -1507,7 +1721,7 @@ function canonicalHostConfigPath(host, projectDir) {
     case "codex":
       return path.join(homeDir(), ".codex", "config.toml");
     case "claude":
-      return path.join(projectDir, ".claude", "mcp.json");
+      return path.join(homeDir(), ".claude.json");
     case "gemini":
       return path.join(projectDir, ".gemini", "settings.json");
     case "antigravity":
@@ -4722,7 +4936,7 @@ function print(value, asJson) {
     console.log(`host rebind proven: ${value.summary.host_rebind_proven ? "yes" : "no"}`);
     for (const host of value.hosts) {
       console.log(`${host.host}: ${host.readiness}`);
-      console.log(`  agent pack: ${host.agent_pack.installed ? "installed" : "missing"}`);
+      console.log(`  agent pack: ${host.agent_pack.status || (host.agent_pack.installed ? "installed" : "missing")}`);
       console.log(`  config: ${host.config.status}`);
     }
     if (value.next_actions.length > 0) {

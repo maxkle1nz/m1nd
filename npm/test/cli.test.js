@@ -1527,6 +1527,7 @@ withEnv(
   },
   () => {
     const tmp = mkTmpDir();
+    const testHome = homeForTest();
     const missing = hostStatus({
       _: ["hosts", "status"],
       host: "claude",
@@ -1539,14 +1540,14 @@ withEnv(
     assert.strictEqual(missing.hosts[0].host, "claude");
     assert.strictEqual(missing.hosts[0].readiness, "attention");
     assert.strictEqual(missing.hosts[0].agent_pack.installed, false);
+    assert.strictEqual(missing.hosts[0].agent_pack.status, "missing");
     assert.strictEqual(missing.hosts[0].config.status, "missing");
     assert(missing.non_claims.some((claim) => claim.includes("does not mutate")));
 
     installSkills("claude", tmp);
     const staleSkillArtifact = path.join(
-      tmp,
-      ".m1nd",
-      "agent-pack",
+      testHome,
+      ".claude",
       "skills",
       "m1nd-operator",
       "graph_snapshot.json"
@@ -1555,9 +1556,8 @@ withEnv(
     assert(fs.existsSync(staleSkillArtifact));
     installSkills("claude", tmp);
     assert(!fs.existsSync(staleSkillArtifact));
-    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmp, ".claude", "mcp.json"),
+      path.join(tmp, ".mcp.json"),
       mcpConfig("claude", process.execPath, tmp)
     );
 
@@ -1568,7 +1568,8 @@ withEnv(
       binary: process.execPath,
     });
     assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
-    assert.strictEqual(ready.hosts[0].config.status, "configured");
+    assert.strictEqual(ready.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(ready.hosts[0].config.status, "shared project (.mcp.json)");
     assert.strictEqual(ready.hosts[0].config.workspace_configured, true);
     assert.strictEqual(
       ready.hosts[0].readiness,
@@ -1595,7 +1596,7 @@ withEnv(
   }
 );
 
-withEnv(fakeEnvBase, () => {
+withEnv({ ...fakeEnvBase, M1ND_TEST_HOME: mkTmpDir() }, () => {
   const tmp = mkTmpDir();
   const selectedRuntime = path.join(tmp, "managed", runtimeBinaryName());
   const pathRuntimeDir = path.join(tmp, "path");
@@ -1603,8 +1604,7 @@ withEnv(fakeEnvBase, () => {
   writeFakeBinary(selectedRuntime);
   writeFakeBinary(pathRuntime);
   installSkills("claude", tmp);
-  fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
-  fs.writeFileSync(path.join(tmp, ".claude", "mcp.json"), mcpConfig("claude", selectedRuntime, tmp));
+  fs.writeFileSync(path.join(tmp, ".mcp.json"), mcpConfig("claude", selectedRuntime, tmp));
 
   const status = withEnv(
     {
@@ -1701,9 +1701,12 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
   },
   () => {
     const tmp = mkTmpDir();
+    const testHome = homeForTest();
+    const claudeJsonPath = path.join(testHome, ".claude.json");
     const dryRun = hostApply({
       _: ["hosts", "apply"],
       host: "claude",
@@ -1713,8 +1716,8 @@ withEnv(
     assert.strictEqual(dryRun.schema, "m1nd-host-apply-v0");
     assert.strictEqual(dryRun.dry_run, true);
     assert.strictEqual(dryRun.applied_actions.length, 0);
-    assert.strictEqual(fs.existsSync(path.join(tmp, ".claude", "mcp.json")), false);
-    assert.strictEqual(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack")), false);
+    assert.strictEqual(fs.existsSync(claudeJsonPath), false);
+    assert.strictEqual(fs.existsSync(path.join(testHome, ".claude", "skills")), false);
     assert.strictEqual(dryRun.requires_host_rebind, true);
     assert.strictEqual(dryRun.host_rebind_proven, false);
     assert(dryRun.non_claims.some((claim) => claim.includes("cached MCP tool list")));
@@ -1729,11 +1732,13 @@ withEnv(
     assert.strictEqual(applied.dry_run, false);
     assert(applied.applied_actions.some((entry) => entry.id === "install-agent-pack" && entry.ok));
     assert(applied.applied_actions.some((entry) => entry.id === "write-mcp-config" && entry.ok));
-    assert(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack", "CLAUDE.md")));
-    const claudeConfig = JSON.parse(fs.readFileSync(path.join(tmp, ".claude", "mcp.json"), "utf8"));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-guardian", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-operator", "SKILL.md")));
+    const claudeConfig = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8"));
     assert.strictEqual(claudeConfig.mcpServers.m1nd.command, process.execPath);
     assert.strictEqual(claudeConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
-    assert(applied.changed_files.includes(path.join(tmp, ".claude", "mcp.json")));
+    assert(applied.changed_files.includes(claudeJsonPath));
     assert(applied.next_actions.some((entry) => entry.includes("Restart or rebind")));
 
     const idempotent = hostApply({
@@ -1751,6 +1756,7 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
   },
   () => {
     const tmp = mkTmpDir();
@@ -1816,7 +1822,7 @@ withEnv(
   }
 );
 
-// user-scope ~/.claude.json detection
+// user-scope ~/.claude.json detection and Claude scope/skills truth
 withEnv(
   {
     ...fakeEnvBase,
@@ -1825,27 +1831,110 @@ withEnv(
   () => {
     const testHome = mkTmpDir();
     const project = mkTmpDir();
-    // Write a fake ~/.claude.json as produced by `claude mcp add -s user`
+    const otherProject = mkTmpDir();
+    const claudeJson = path.join(testHome, ".claude.json");
+
+    // 1. Entry under an unrelated project in ~/.claude.json must report missing, never user-scope.
     fs.writeFileSync(
-      path.join(testHome, ".claude.json"),
-      JSON.stringify({ mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } })
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        projects: {
+          [otherProject]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } },
+        },
+      })
     );
-    const status = withEnv(
-      { M1ND_TEST_HOME: testHome },
-      () =>
-        hostStatus({
-          _: ["hosts", "status"],
-          host: "claude",
-          project,
-          binary: process.execPath,
-        })
+    const unrelatedProjectStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
-    assert.strictEqual(status.hosts[0].host, "claude");
-    assert.notStrictEqual(status.hosts[0].config.status, "missing");
-    assert(
-      status.hosts[0].config.status.includes("user-scope"),
-      `Expected config.status to include "user-scope", got: ${status.hosts[0].config.status}`
+    assert.strictEqual(unrelatedProjectStatus.hosts[0].config.status, "missing");
+
+    // 2. Entry under projects[project] reports project-scope (<dir>), never user-scope.
+    fs.writeFileSync(
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        projects: {
+          [project]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } },
+        },
+      })
     );
+    const projectScopeStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(projectScopeStatus.hosts[0].config.status, `project-scope (${project})`);
+
+    // 3. Shared project .mcp.json reports shared project (.mcp.json).
+    const sharedProj = mkTmpDir();
+    fs.writeFileSync(
+      path.join(sharedProj, ".mcp.json"),
+      mcpConfig("claude", process.execPath, sharedProj)
+    );
+    const sharedHome = mkTmpDir();
+    const sharedStatus = withEnv({ HOME: sharedHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project: sharedProj, binary: process.execPath })
+    );
+    assert.strictEqual(sharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
+
+    // 4. Legacy .claude/mcp.json stays clearly labelled legacy.
+    const legacyProj = mkTmpDir();
+    fs.mkdirSync(path.join(legacyProj, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyProj, ".claude", "mcp.json"),
+      mcpConfig("claude", process.execPath, legacyProj)
+    );
+    const legacyStatus = withEnv({ HOME: sharedHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project: legacyProj, binary: process.execPath })
+    );
+    assert.strictEqual(legacyStatus.hosts[0].config.status, "legacy (.claude/mcp.json)");
+
+    // 5. User-scope ~/.claude.json top-level mcpServers reports user-scope.
+    fs.writeFileSync(
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        mcpServers: {
+          other: { command: "other-bin", args: [] },
+          m1nd: { command: process.execPath, args: [], env: {} },
+        },
+        projects: {
+          [otherProject]: { allowedTools: ["Read"] },
+        },
+      })
+    );
+    const userScopeStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(userScopeStatus.hosts[0].host, "claude");
+    assert.strictEqual(userScopeStatus.hosts[0].config.status, "user-scope");
+
+    // 6. Apply preserves unrelated keys in ~/.claude.json and creates a backup, and installs skills.
+    //    Modifying one byte in an installed skill switches agent pack status to outdated.
+    const applyResult = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes: true })
+    );
+    const updatedClaude = JSON.parse(fs.readFileSync(claudeJson, "utf8"));
+    assert.strictEqual(updatedClaude.numStartups, 42, "unrelated top-level key survived");
+    assert.strictEqual(updatedClaude.mcpServers.other.command, "other-bin", "unrelated mcpServer survived");
+    assert.deepStrictEqual(updatedClaude.projects[otherProject], { allowedTools: ["Read"] }, "projects survived");
+    assert.strictEqual(updatedClaude.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+    const claudeCfgAction = applyResult.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(claudeCfgAction && claudeCfgAction.backup && fs.existsSync(claudeCfgAction.backup));
+
+    const claudeSkillFile = path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md");
+    assert(fs.existsSync(claudeSkillFile), "claude global skill installed");
+    const installedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(installedStatus.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installedStatus.hosts[0].readiness, "ready");
+
+    fs.appendFileSync(claudeSkillFile, "\n<!-- local edit -->\n");
+    const outdatedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(outdatedStatus.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdatedStatus.hosts[0].readiness, "attention");
   }
 );
 
