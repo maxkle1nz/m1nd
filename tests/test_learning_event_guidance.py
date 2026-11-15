@@ -9,12 +9,9 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-PRDS = (
-    "docs/ORGANISM-PRD.md", "docs/NEXTGEN-AGENT-PRD.md", "docs/MEDULLA-PRD.md",
-    "docs/CASE-INTELLIGENCE-PRD.md", "docs/HUMAN-LAYER-PRD.md",
-)
-SURFACES = PRDS + (
-    "docs/AGENT-PACKS.md", "docs/PATHOS.md", "docs/UML-ORGANISM.md",
+PRDS = ()
+SURFACES = (
+    "docs/AGENT-PACKS.md", "docs/PATHOS.md",
     "m1nd-core/src/trust.rs", "m1nd-core/src/antibody.rs",
 )
 FORBIDDEN = (

@@ -1,6 +1,6 @@
 //! F30 — `GET /api/universe` (the Universe landing surface's read-only aggregate).
 //!
-//! THE HARD LAW (RED-first, `docs/HUMAN-VIEW-V2-F30-UNIVERSE.md` §3): serving
+//! THE HARD LAW (RED-first, F30 §3): serving
 //! `/api/universe` is SIDECAR-ONLY and must NEVER hydrate a project brain — it must
 //! never insert into `ProjectBrainRegistry.brains`. The panorama is composed purely
 //! from on-disk manifests + the presence dir + each world's mission box / SystemBlock

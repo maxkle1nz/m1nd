@@ -274,9 +274,8 @@ owner on port `1338` — all tests use temp dirs.
 
 - **`docs/PATHOS.md`** — the canonical handoff: north star, current state, doctrine, next moves.
   Read this first.
-- **`docs/UML-ORGANISM.md`** + `docs/uml/` — the structural atlas: every system as
-  code-grounded UML, plus a ranked ledger of known open gaps.
-- **`docs/ORGANISM-PRD.md`** — the constitution (the spine, the four grammars, the build ladder).
+- **`docs/uml/`** — the structural atlas: code-grounded architecture sheets and
+  open gaps.
 - **`CLAUDE.md`** — the repo's canonical build/gate/automation notes (also read by Claude Code).
 
 ## The G6 blind benchmark is the owner's, not yours
@@ -438,7 +437,7 @@ A **collision** is derived at read, never stored: two live presences on the **sa
 carrying a mutation signal**, whose declared working sets **overlap** → an advisory line on BOTH
 sessions' `north` packets. It warns; it never blocks. **When you see a collision, STOP and
 coordinate — do not force the write** (the same posture as reception). Contract: `m1nd-presence-v0`
-(`docs/ORGANISM-INSIDE-PRD.md` §3.3, `m1nd-mcp/src/presence.rs`); the Hall renders the live roster (`m1nd-ui`).
+(`m1nd-mcp/src/presence.rs`); the Hall renders the live roster (`m1nd-ui`).
 
 **The Universe (the human's L0 panorama).** The served UI's landing surface for an owner with ≥1
 project brain is the **Universe** — a per-world panorama fed by one read-only aggregate,
@@ -447,7 +446,7 @@ the presence dir, each world's mission-letter box + SystemBlock store, and the o
 alerts — and it NEVER hydrates a brain (an executable RED-first law: the warm map is byte-identical
 before/after). Its unified gesture queue, **the Landing**, aggregates reads (merge_wait stamps,
 candidate ratifies, owner alerts) but every write still goes through the existing per-type verb.
-Not an agent surface — agents keep using `north`/`seek`/the cards. Contract: `docs/HUMAN-VIEW-V2-F30-UNIVERSE.md`.
+Not an agent surface — agents keep using `north`/`seek`/the cards (`GET /api/universe`).
 
 ## The write laws — reception governs WRITES (read before any m1nd write)
 
@@ -570,8 +569,7 @@ head is quiet), `mission_post` of an `archived` letter requires the SAME human o
 appended. Two engine laws back it on the pure post path (both seams): an `archived` letter may
 never carry `receipt.imported==true` (never a landing in disguise), and it may only supersede a
 `merge_wait` head — the board's FIRST transition rule (`invalid_transition` otherwise). **An agent
-never archives; the owner's screen does** — an agent must never silence its own unproven work. Full
-rule: `HUMAN-VIEW-V2-F25-TECH` §1h + § archived.
+never archives; the owner's screen does** — an agent must never silence its own unproven work.
 
 **Two more write-door guards (2026-07-15 field hardening).** (1) A `mission_post` letter carrying a
 `receipt_candidate` is now checked against the LIVE block at post time: a candidate whose
