@@ -2075,7 +2075,23 @@ assert.strictEqual(hostsPlanJson.schema, "m1nd-host-rebind-plan-v0");
 assert.strictEqual(hostsPlanJson.plans[0].configure_mcp.status, "manual");
 assert(hostsPlanJson.plans[0].configure_mcp.snippet.includes("M1ND_WORKSPACE_ROOT"));
 
+const hostApplyCliHome = mkTmpDir();
 const hostApplyCliProject = mkTmpDir();
+const antigravityMcpPath = path.join(hostApplyCliHome, ".gemini", "config", "mcp_config.json");
+fs.mkdirSync(path.dirname(antigravityMcpPath), { recursive: true });
+fs.writeFileSync(
+  antigravityMcpPath,
+  JSON.stringify(
+    {
+      theme: "dark",
+      mcpServers: {
+        otherServer: { command: "other-cmd", args: ["--flag"] },
+      },
+    },
+    null,
+    2
+  )
+);
 const hostApplyCli = spawnSync(
   process.execPath,
   [cli, "hosts", "apply", "--json", "--host", "antigravity", "--project", hostApplyCliProject, "--binary", process.execPath, "--yes"],
@@ -2084,6 +2100,8 @@ const hostApplyCli = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
+      HOME: hostApplyCliHome,
+      M1ND_TEST_HOME: hostApplyCliHome,
       M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     },
   }
@@ -2093,8 +2111,78 @@ const hostApplyCliJson = JSON.parse(hostApplyCli.stdout);
 assert.strictEqual(hostApplyCliJson.schema, "m1nd-host-apply-v0");
 assert.strictEqual(hostApplyCliJson.dry_run, false);
 assert.strictEqual(hostApplyCliJson.requires_host_rebind, true);
-assert(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")));
-assert(fs.existsSync(path.join(hostApplyCliProject, ".m1nd", "agent-pack", "AGENTS.md")));
+assert.strictEqual(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")), false, "must not write project-local mcp_config.json");
+assert(fs.existsSync(antigravityMcpPath), "antigravity global mcp_config.json written");
+const antigravityMcp = JSON.parse(fs.readFileSync(antigravityMcpPath, "utf8"));
+assert.strictEqual(antigravityMcp.theme, "dark", "unrelated top-level key in mcp_config.json survived");
+assert.deepStrictEqual(antigravityMcp.mcpServers.otherServer, { command: "other-cmd", args: ["--flag"] }, "unrelated mcpServer in mcp_config.json survived");
+assert.strictEqual(antigravityMcp.mcpServers.m1nd.command, process.execPath);
+assert.strictEqual(antigravityMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(hostApplyCliProject));
+const antigravityPluginDir = path.join(hostApplyCliHome, ".gemini", "config", "plugins", "m1nd");
+assert.deepStrictEqual(
+  JSON.parse(fs.readFileSync(path.join(antigravityPluginDir, "plugin.json"), "utf8")),
+  { name: "m1nd" }
+);
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-first", "SKILL.md")));
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-guardian", "SKILL.md")));
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-operator", "SKILL.md")));
+assert.strictEqual(
+  fs.existsSync(path.join(antigravityPluginDir, "mcp_config.json")),
+  false,
+  "plugin must not contain its own mcp_config.json"
+);
+
+// Antigravity status and plan detect the global config and plugin (installed -> outdated -> missing)
+withEnv(
+  {
+    ...fakeEnvBase,
+    HOME: hostApplyCliHome,
+    M1ND_TEST_HOME: null,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+  },
+  () => {
+    const plan = hostPlan({
+      _: ["hosts", "plan"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.deepStrictEqual(plan.plans[0].configure_mcp.candidate_paths, [antigravityMcpPath]);
+
+    const installed = hostStatus({
+      _: ["hosts", "status"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.strictEqual(installed.hosts[0].config.status, "configured");
+    assert.strictEqual(installed.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installed.hosts[0].readiness, "ready");
+
+    const skillFile = path.join(antigravityPluginDir, "skills", "m1nd-operator", "SKILL.md");
+    fs.appendFileSync(skillFile, "\n<!-- outdated -->\n");
+    const outdated = hostStatus({
+      _: ["hosts", "status"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.strictEqual(outdated.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdated.hosts[0].readiness, "attention");
+
+    const freshHome = mkTmpDir();
+    const missing = withEnv({ HOME: freshHome }, () =>
+      hostStatus({
+        _: ["hosts", "status"],
+        host: "antigravity",
+        project: hostApplyCliProject,
+        binary: process.execPath,
+      })
+    );
+    assert.strictEqual(missing.hosts[0].config.status, "missing");
+    assert.strictEqual(missing.hosts[0].agent_pack.status, "missing");
+  }
+);
 
 const scopeRepo = mkTmpDir();
 const nestedScope = path.join(scopeRepo, "src");

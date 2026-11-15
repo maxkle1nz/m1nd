@@ -585,6 +585,24 @@ function installClaude() {
   };
 }
 
+function antigravityPluginDir() {
+  return path.join(homeDir(), ".gemini", "config", "plugins", "m1nd");
+}
+
+function installAntigravity() {
+  const pluginDir = antigravityPluginDir();
+  const pluginJsonPath = path.join(pluginDir, "plugin.json");
+  const skillsRoot = path.join(pluginDir, "skills");
+  writeFileAtomic(pluginJsonPath, `${JSON.stringify({ name: "m1nd" }, null, 2)}\n`, {
+    preserveMode: true,
+  });
+  const installedSkills = installSkillDirs(skillsRoot);
+  return {
+    host: "antigravity",
+    installed: [pluginJsonPath, ...installedSkills],
+  };
+}
+
 function hostRuleFilename(host) {
   switch (host) {
     case "claude":
@@ -619,7 +637,7 @@ function installSkills(host, projectDir) {
       installCodex(),
       installClaude(),
       installPortable("gemini", projectDir),
-      installPortable("antigravity", projectDir),
+      installAntigravity(),
       installPortable("generic", projectDir),
     ];
   }
@@ -628,6 +646,9 @@ function installSkills(host, projectDir) {
   }
   if (host === "claude") {
     return [installClaude()];
+  }
+  if (host === "antigravity") {
+    return [installAntigravity()];
   }
   return [installPortable(host, projectDir)];
 }
@@ -885,6 +906,15 @@ function agentPackStatusForHost(host, projectDir) {
     const skillRoot = path.join(homeDir(), ".claude", "skills");
     return skillPackStatus("claude-skill-root", skillRoot, skillRoot);
   }
+  if (host === "antigravity") {
+    const pluginDir = antigravityPluginDir();
+    const pluginJsonPath = path.join(pluginDir, "plugin.json");
+    const skillRoot = path.join(pluginDir, "skills");
+    return skillPackStatus("antigravity-plugin", pluginDir, skillRoot, [pluginJsonPath], () => {
+      const parsed = safeJsonParse(readText(pluginJsonPath));
+      return isPlainObject(parsed) && parsed.name === "m1nd";
+    });
+  }
 
   const paths = portableAgentPackPaths(host, projectDir);
   const required = [paths.first_skill, paths.guardian_skill, paths.operator_skill, paths.rule_file];
@@ -916,7 +946,7 @@ function hostConfigCandidates(host, projectDir) {
     case "gemini":
       return [path.join(projectDir, ".gemini", "settings.json"), path.join(projectDir, "gemini_mcp.json")];
     case "antigravity":
-      return [path.join(projectDir, "mcp_config.json")];
+      return [path.join(homeDir(), ".gemini", "config", "mcp_config.json")];
     default:
       return [];
   }
@@ -1182,7 +1212,9 @@ function hostApplyNonClaims() {
 }
 
 function hostInstallCommand(host, projectDir) {
-  if (host === "codex" || host === "claude") return `m1nd install-skills ${host}`;
+  if (host === "codex" || host === "claude" || host === "antigravity") {
+    return `m1nd install-skills ${host}`;
+  }
   return `m1nd install-skills ${host} --project ${projectDir}`;
 }
 
@@ -1725,7 +1757,7 @@ function canonicalHostConfigPath(host, projectDir) {
     case "gemini":
       return path.join(projectDir, ".gemini", "settings.json");
     case "antigravity":
-      return path.join(projectDir, "mcp_config.json");
+      return path.join(homeDir(), ".gemini", "config", "mcp_config.json");
     default:
       return null;
   }
