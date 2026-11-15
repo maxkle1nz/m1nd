@@ -1087,9 +1087,13 @@ function claudeConfigStatus(projectDir, binary, packageVersion, snippetCommand) 
         : userServer
           ? "user-scope"
           : null;
-  const precedenceNote = claudeJsonExistingScope
-    ? `Existing ${claudeJsonExistingScope} entry in ${claudeJsonPath} exists and takes precedence over ${sharedProjectPath}; ${claudeJsonPath} is left untouched.`
-    : null;
+  // Claude Code resolves a server defined at several scopes as local > project (.mcp.json) > user
+  // (code.claude.com/docs/en/mcp). So only a local project-scope entry hides the .mcp.json one.
+  const precedenceNote = projectServer
+    ? `Existing local project-scope entry in ${claudeJsonPath} takes precedence over ${sharedProjectPath}; ${claudeJsonPath} is left untouched (remove that entry with \`claude mcp remove m1nd -s local\` to use the project file).`
+    : userServer
+      ? `Existing user-scope entry in ${claudeJsonPath} is overridden by ${sharedProjectPath} in this project; ${claudeJsonPath} is left untouched.`
+      : null;
   const runtimeBindingStatus = !configured
     ? "unconfigured"
     : runtimeBindings.length === 0

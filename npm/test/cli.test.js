@@ -1928,10 +1928,12 @@ withEnv(
     );
     assert.strictEqual(planHuman.status, 0, planHuman.stderr);
     assert(planHuman.stdout.includes(sharedMcpJson), "plan prints .mcp.json target");
+    // Claude Code precedence is local > project (.mcp.json) > user: a user-scope entry is overridden.
     assert(
-      planHuman.stdout.includes("takes precedence") && planHuman.stdout.includes(claudeJson),
-      "plan warns about existing ~/.claude.json precedence"
+      planHuman.stdout.includes("is overridden by") && planHuman.stdout.includes(claudeJson),
+      "plan says the existing user-scope entry is overridden by .mcp.json"
     );
+    assert(!planHuman.stdout.includes("takes precedence"), "user scope never takes precedence over .mcp.json");
 
     const applyHuman = spawnSync(
       process.execPath,
@@ -1944,14 +1946,29 @@ withEnv(
     assert.strictEqual(applyHuman.status, 0, applyHuman.stderr);
     assert(applyHuman.stdout.includes(sharedMcpJson), "apply output states .mcp.json target");
     assert(
-      applyHuman.stdout.includes("takes precedence") && applyHuman.stdout.includes(claudeJson),
-      "apply output warns about existing ~/.claude.json precedence"
+      applyHuman.stdout.includes("is overridden by") && applyHuman.stdout.includes(claudeJson),
+      "apply output says the existing user-scope entry is overridden by .mcp.json"
     );
     assert.strictEqual(
       Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes),
       0,
       "~/.claude.json must stay byte-identical after hosts apply"
     );
+    // A local project-scope entry for this project is the one that wins over .mcp.json.
+    const localSeed = JSON.parse(fs.readFileSync(claudeJson, "utf8"));
+    localSeed.projects = { ...(localSeed.projects || {}), [project]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } } };
+    fs.writeFileSync(claudeJson, JSON.stringify(localSeed));
+    const planLocal = spawnSync(
+      process.execPath,
+      [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
+      { encoding: "utf8", env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" } }
+    );
+    assert.strictEqual(planLocal.status, 0, planLocal.stderr);
+    assert(
+      planLocal.stdout.includes("local project-scope entry") && planLocal.stdout.includes("takes precedence"),
+      "plan says a local project-scope entry takes precedence over .mcp.json"
+    );
+    fs.writeFileSync(claudeJson, claudeBeforeBytes); // back to the user-scope-only seed
     const writtenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
     assert.strictEqual(writtenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
     const afterSharedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
