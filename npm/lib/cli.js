@@ -792,7 +792,7 @@ function hostScopedConfigText(host, text) {
     typeof parsed.mcpServers.m1nd === "object"
       ? parsed.mcpServers.m1nd
       : null;
-  return server ? JSON.stringify(server) : text;
+  return server ? JSON.stringify(server) : "";
 }
 
 function portableAgentPackPaths(host, projectDir) {

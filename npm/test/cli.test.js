@@ -3587,4 +3587,64 @@ withEnv(
   }
 );
 
+// --- Antigravity mcp_config.json preserves other server entries and never prints env secrets ---
+{
+  const secretToken = "FAKE_SECRET_ENV_VALUE_987";
+  const testHome = mkTmpDir();
+  const project = mkTmpDir();
+  const agyConfigPath = path.join(testHome, ".gemini", "config", "mcp_config.json");
+  fs.mkdirSync(path.dirname(agyConfigPath), { recursive: true });
+  fs.writeFileSync(
+    agyConfigPath,
+    `${JSON.stringify(
+      {
+        mcpServers: {
+          otherServer: {
+            command: "other-mcp",
+            args: ["--serve"],
+            env: {
+              API_TOKEN: secretToken,
+              SECOND_VAR: "other-value",
+            },
+          },
+        },
+        customSetting: true,
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  for (const extraArgs of [[], ["--json"]]) {
+    const res = spawnSync(
+      process.execPath,
+      [cli, "hosts", "apply", "--host", "antigravity", "--project", project, "--binary", process.execPath, "--yes", ...extraArgs],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert.strictEqual(res.stdout.includes(secretToken), false, "stdout must never print other server env values");
+    assert.strictEqual(res.stderr.includes(secretToken), false, "stderr must never print other server env values");
+  }
+
+  const updatedAgy = JSON.parse(fs.readFileSync(agyConfigPath, "utf8"));
+  assert.strictEqual(updatedAgy.customSetting, true);
+  assert.deepStrictEqual(updatedAgy.mcpServers.otherServer, {
+    command: "other-mcp",
+    args: ["--serve"],
+    env: {
+      API_TOKEN: secretToken,
+      SECOND_VAR: "other-value",
+    },
+  });
+  assert.strictEqual(updatedAgy.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+
+  const scopedEmpty = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    hostStatus({ _: ["hosts", "status"], host: "antigravity", project, binary: process.execPath })
+  );
+  assert.strictEqual(JSON.stringify(scopedEmpty).includes(secretToken), false);
+}
+
 console.log("npm cli tests ok");
