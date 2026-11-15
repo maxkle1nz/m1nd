@@ -1,5 +1,4 @@
 target/
-/.l00p/
 
 # m1nd-runnerd (F2.5c §5a): the operator-private runner config + the shared secret
 # are NEVER versioned. Only runners.example.toml (neutral placeholders) is tracked.
