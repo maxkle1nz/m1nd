@@ -6,7 +6,7 @@ labels: enhancement
 
 **Is your feature request related to a problem?**
 
-A clear description of the problem. E.g., "When I call `activate()` on large monorepos, I can't distinguish results by semantic meaning vs. keyword proximity..."
+A clear description of the problem. E.g., "When I call `seek()` on large monorepos, I can't distinguish results by semantic meaning vs. keyword proximity..."
 
 **Describe the solution**
 

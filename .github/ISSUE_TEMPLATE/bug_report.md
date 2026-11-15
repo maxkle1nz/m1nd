@@ -11,8 +11,8 @@ A clear and concise description of what the bug is.
 **To Reproduce**
 
 Steps to reproduce the behavior:
-1. Run `ingest path=...`
-2. Call `activate query=...`
+1. Start or attach `m1nd-mcp` (e.g., `m1nd-mcp --stdio` or `m1nd agent first-minute`)
+2. Call `<tool>` with `<parameters>`
 3. Observe error
 
 **Expected behavior**
