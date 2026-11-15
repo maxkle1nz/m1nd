@@ -602,8 +602,56 @@ function antigravityPluginDir() {
   return path.join(homeDir(), ".gemini", "config", "plugins", "m1nd");
 }
 
+function lstatOrNull(targetPath) {
+  try {
+    return fs.lstatSync(targetPath);
+  } catch (error) {
+    if (error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function assertSafeAntigravityPluginDir(pluginDir) {
+  const pluginsRoot = path.dirname(pluginDir);
+  const rootStat = lstatOrNull(pluginsRoot);
+  if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) {
+    throw new Error(`refusing Antigravity plugin install: ${pluginsRoot} is not a real directory`);
+  }
+
+  const pluginStat = lstatOrNull(pluginDir);
+  if (!pluginStat) return;
+
+  if (pluginStat.isSymbolicLink()) {
+    throw new Error(`refusing Antigravity plugin install: ${pluginDir} is a symlink`);
+  }
+  if (!pluginStat.isDirectory()) {
+    throw new Error(`refusing Antigravity plugin install: ${pluginDir} exists and is not a directory`);
+  }
+
+  const pluginJsonPath = path.join(pluginDir, "plugin.json");
+  const jsonStat = lstatOrNull(pluginJsonPath);
+  if (!jsonStat || jsonStat.isSymbolicLink() || !jsonStat.isFile()) {
+    throw new Error(
+      `refusing Antigravity plugin install: ${pluginDir} already exists without a regular m1nd plugin.json`
+    );
+  }
+
+  const parsed = safeJsonParse(fs.readFileSync(pluginJsonPath, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.name !== "m1nd") {
+    throw new Error(
+      `refusing Antigravity plugin install: ${pluginJsonPath} does not belong to m1nd`
+    );
+  }
+
+  const skillsStat = lstatOrNull(path.join(pluginDir, "skills"));
+  if (skillsStat && (skillsStat.isSymbolicLink() || !skillsStat.isDirectory())) {
+    throw new Error(`refusing Antigravity plugin install: ${path.join(pluginDir, "skills")} is not a real directory`);
+  }
+}
+
 function installAntigravity() {
   const pluginDir = antigravityPluginDir();
+  assertSafeAntigravityPluginDir(pluginDir);
   const pluginJsonPath = path.join(pluginDir, "plugin.json");
   const skillsRoot = path.join(pluginDir, "skills");
   writeFileAtomic(pluginJsonPath, `${JSON.stringify({ name: "m1nd" }, null, 2)}\n`, {

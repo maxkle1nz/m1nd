@@ -3647,4 +3647,83 @@ withEnv(
   assert.strictEqual(JSON.stringify(scopedEmpty).includes(secretToken), false);
 }
 
+// --- Antigravity plugins/m1nd refusal when symlink, non-directory, or foreign plugin.json ---
+{
+  const setupPluginsRoot = () => {
+    const testHome = mkTmpDir();
+    const pluginsRoot = path.join(testHome, ".gemini", "config", "plugins");
+    fs.mkdirSync(pluginsRoot, { recursive: true });
+    const siblingPlugin = path.join(pluginsRoot, "other-plugin", "plugin.json");
+    fs.mkdirSync(path.dirname(siblingPlugin), { recursive: true });
+    fs.writeFileSync(siblingPlugin, JSON.stringify({ name: "other-plugin" }));
+    return {
+      testHome,
+      pluginsRoot,
+      pluginDir: path.join(pluginsRoot, "m1nd"),
+      siblingPlugin,
+    };
+  };
+
+  // 1. Live symlink plugins/m1nd is refused and target is untouched.
+  {
+    const { testHome, pluginDir, siblingPlugin } = setupPluginsRoot();
+    const targetDir = mkTmpDir();
+    const sentinel = path.join(targetDir, "sentinel.txt");
+    fs.writeFileSync(sentinel, "untouched");
+    fs.symlinkSync(targetDir, pluginDir);
+
+    assert.throws(
+      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*symlink/
+    );
+    const applyBlocked = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostApply({ _: ["hosts", "apply"], host: "antigravity", project: mkTmpDir(), binary: process.execPath, yes: true })
+    );
+    assert(applyBlocked.blocked_actions.some((a) => a.id === "install-agent-pack-failed"));
+    assert.strictEqual(fs.readFileSync(sentinel, "utf8"), "untouched");
+    assert(fs.lstatSync(pluginDir).isSymbolicLink());
+    assert.strictEqual(JSON.parse(fs.readFileSync(siblingPlugin, "utf8")).name, "other-plugin");
+  }
+
+  // 2. Dangling symlink plugins/m1nd is refused via lstatSync.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.symlinkSync(path.join(testHome, "does-not-exist"), pluginDir);
+    assert.throws(
+      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*symlink/
+    );
+    assert(fs.lstatSync(pluginDir).isSymbolicLink());
+  }
+
+  // 3. Regular file at plugins/m1nd is refused.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.writeFileSync(pluginDir, "not a directory\n");
+    assert.throws(
+      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*not a directory/
+    );
+    assert.strictEqual(fs.readFileSync(pluginDir, "utf8"), "not a directory\n");
+  }
+
+  // 4. Existing dir without plugin.json or with foreign plugin.json name is refused.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.mkdirSync(pluginDir, { recursive: true });
+    assert.throws(
+      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*without a regular m1nd plugin\.json/
+    );
+
+    const foreignPluginJson = path.join(pluginDir, "plugin.json");
+    fs.writeFileSync(foreignPluginJson, `${JSON.stringify({ name: "foreign-plugin" })}\n`);
+    assert.throws(
+      () => withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*does not belong to m1nd/
+    );
+    assert.strictEqual(JSON.parse(fs.readFileSync(foreignPluginJson, "utf8")).name, "foreign-plugin");
+  }
+}
+
 console.log("npm cli tests ok");
