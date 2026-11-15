@@ -350,26 +350,6 @@ cargo test -p m1nd-mcp
 
 Each module has inline tests at the bottom of the file (`#[cfg(test)] mod tests { ... }`).
 
-### E2E tests
-
-The `mcp/m1nd/` directory contains end-to-end test scripts that drive the server via
-its JSON-RPC interface:
-
-```bash
-# Shell-based E2E
-./tests/e2e/test_e2e.sh
-./tests/e2e/test_mcp.sh
-./tests/e2e/test_perspective_e2e.sh
-
-# Python-based scenarios
-python3 tests/e2e/test_layers_e2e.py
-python3 tests/e2e/test_advanced_usecases.py
-python3 tests/e2e/test_perspective_usecases.py
-```
-
-These scripts start the binary, send JSON-RPC calls over stdin, and assert on stdout.
-They are the ground truth for behavioral correctness.
-
 ### Integration test guidelines
 
 - New tools: add a test in the E2E shell script that exercises the happy path + one

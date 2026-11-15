@@ -173,12 +173,7 @@ class PublicReleaseDocumentation(unittest.TestCase):
                 self.assertIn("shared", text)
                 self.assertIn("human", text)
 
-    def test_historical_163_installation_remains_separate(self):
-        historical = self.read("docs/INSTALL-1.6.3.md")
-        self.assertIn("releases/download/v1.6.3", historical)
-        self.assertIn("release.yml@refs/tags/v1.6.3", historical)
-        self.assertIn("versions/1.6.3", historical)
-        self.assertNotIn("releases/download/v1.6.5", historical)
+    def test_historical_changelog_remains_superseded(self):
         changelog = self.read("docs/wiki/src/changelog.md")
         section = changelog.split("## [1.2.0]", 1)[1].split("## [", 1)[0]
         self.assertIn("Superseded — do not follow this entry today:", section)

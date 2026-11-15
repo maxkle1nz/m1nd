@@ -15,7 +15,7 @@ copy-pasteable recipes referenced below — read it, do not duplicate it).
 
 ## Version boundary
 
-GitHub/native, crates.io, and npm **1.6.5** are published at immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. The commands below select matching 1.6.5 wrapper/native versions. Automatic isolated first-workspace preparation shipped in this release. PR580's later learning-event separation is **Unreleased** on `main`, absent from the sealed release despite matching package version strings. Generic client `replace`/`merge` remain refused; a launcher grant is not shared-brain authority. The [1.6.3 installation guide](docs/INSTALL-1.6.3.md) remains historical.
+GitHub/native, crates.io, and npm **1.6.5** are published at immutable commit `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. The commands below select matching 1.6.5 wrapper/native versions. Automatic isolated first-workspace preparation shipped in this release. PR580's later learning-event separation is **Unreleased** on `main`, absent from the sealed release despite matching package version strings. Generic client `replace`/`merge` remain refused; a launcher grant is not shared-brain authority. See [the signed installation guide](docs/INSTALL-1.6.5.md) for the current signed release recipe.
 
 ## 0. Prerequisites
 

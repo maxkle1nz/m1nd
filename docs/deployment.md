@@ -6,11 +6,6 @@ always-on use, run **one persistent owner** that keeps the graph resident, and p
 IDE/agent at it through the **native attach bridge** (`m1nd-mcp --attach`): a thin
 stdio↔HTTP client that loads no graph, builds no engines, and takes no lease.
 
-> **Migrating from the Python proxy.** Earlier releases used a Python stdio-to-HTTP proxy
-> (`scripts/macos/m1nd-proxy.py`). That lane is superseded by `m1nd-mcp --attach` — no
-> separate script, the same runtime on both ends. If you still point an IDE at
-> `m1nd-proxy.py`, switch it to the attach block in §2.
-
 ## Architecture
 
 1. **Persistent owner (`m1nd-mcp --serve`)** — runs constantly, keeping the graph in RAM
@@ -172,16 +167,6 @@ cd /path/to/repo && m1nd-mcp --discover-owner
 # → {"schema":"m1nd-owner-discovery-v0","found":true,"discovery":"ingest_coverage",
 #    "base_url":"http://127.0.0.1:1338","declared_root":"/path/to/repo", …}
 ```
-
-## 3. Noise reduction (large workspaces)
-
-If your workspace contains massive dependencies (iOS Pods, `node_modules`, Rust `target/`),
-a raw ingest pollutes the graph and degrades retrieval. The helper scripts in
-`scripts/macos/` scope the graph to the namespaces you actually work in:
-
-1. `smart-ingest.py` — ingest only specific relevant namespaces (`mode="merge"`).
-2. `file-watcher.py` (with `world.m1nd.file-watcher.plist`) — trigger incremental syncs
-   when files change.
 
 Keeping the graph resident in one owner and attaching every host to it, `m1nd` runs at full
 speed with zero per-session startup overhead.
