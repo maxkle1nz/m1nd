@@ -1024,6 +1024,17 @@ function claudeConfigStatus(projectDir, binary, packageVersion, snippetCommand) 
     (binding) => binding.matches_selected && binding.current
   );
   const currentRuntimeConfigured = runtimeBindings.some((binding) => binding.current);
+  const claudeJsonExistingScope =
+    projectServer && userServer
+      ? "user-scope and local project-scope"
+      : projectServer
+        ? "local project-scope"
+        : userServer
+          ? "user-scope"
+          : null;
+  const precedenceNote = claudeJsonExistingScope
+    ? `Existing ${claudeJsonExistingScope} entry in ${claudeJsonPath} exists and takes precedence over ${sharedProjectPath}; ${claudeJsonPath} is left untouched.`
+    : null;
   const runtimeBindingStatus = !configured
     ? "unconfigured"
     : runtimeBindings.length === 0
@@ -1044,6 +1055,8 @@ function claudeConfigStatus(projectDir, binary, packageVersion, snippetCommand) 
     selected_runtime_configured: selectedRuntimeConfigured,
     selected_runtime_configured_current: selectedRuntimeConfiguredCurrent,
     current_runtime_configured: currentRuntimeConfigured,
+    claude_json_existing_scope: claudeJsonExistingScope,
+    precedence_note: precedenceNote,
     note: configured
       ? `Claude MCP config detected at ${configStatus}; workspace env and host rebind are still checked separately.`
       : "No config candidate currently proves that Claude is wired to m1nd.",
@@ -1692,6 +1705,8 @@ function hostPlan(args) {
       },
       configure_mcp: {
         status: host.config.status,
+        target_path: canonicalHostConfigPath(host.host, projectDir),
+        ...(host.config.precedence_note ? { precedence_warning: host.config.precedence_note } : {}),
         command: host.config.snippet_command,
         candidate_paths: configCandidateFiles,
         snippet: mcpConfig(host.host, binary, projectDir),
@@ -1747,7 +1762,7 @@ function canonicalHostConfigPath(host, projectDir) {
     case "codex":
       return path.join(codexHomeDir(), "config.toml");
     case "claude":
-      return path.join(homeDir(), ".claude.json");
+      return path.join(projectDir, ".mcp.json");
     case "gemini":
       return path.join(projectDir, ".gemini", "settings.json");
     case "antigravity":
@@ -2053,6 +2068,10 @@ function hostApply(args) {
       const blocked = action("hook-disabled", "hook", "hook write disabled by --no-hooks", { host: hostName });
       blockedActions.push(blocked);
       hostResult.blocked_actions.push(blocked);
+    }
+
+    if (hostBefore && hostBefore.config && hostBefore.config.precedence_note) {
+      warnings.push(hostBefore.config.precedence_note);
     }
 
     hostResults.push(hostResult);
@@ -4979,6 +4998,12 @@ function print(value, asJson) {
       console.log(`${plan.host}: ${plan.readiness}`);
       console.log(`  install: ${plan.install_agent_pack.needed ? plan.install_agent_pack.command : "already installed"}`);
       console.log(`  config: ${plan.configure_mcp.command}`);
+      if (plan.configure_mcp.target_path) {
+        console.log(`  config target: ${plan.configure_mcp.target_path}`);
+      }
+      if (plan.configure_mcp.precedence_warning) {
+        console.log(`  config note: ${plan.configure_mcp.precedence_warning}`);
+      }
       console.log(`  workspace: M1ND_WORKSPACE_ROOT=${plan.workspace_binding.env.M1ND_WORKSPACE_ROOT}`);
       if (plan.hook && plan.hook.event) {
         console.log(`  hook: ${plan.hook.event} -> ${plan.hook.config_path}${plan.hook.os_supported === false ? " (unsupported on this OS)" : ""}`);
@@ -5006,10 +5031,16 @@ function print(value, asJson) {
       for (const file of value.changed_files) console.log(`  - ${file}`);
     }
     for (const h of value.hosts || []) {
+      const cfg = [...(h.applied_actions || []), ...(h.planned_actions || [])].find((a) => a.kind === "config");
+      if (cfg && cfg.file) console.log(`  ${h.host} config: ${cfg.file}`);
       const doc = [...(h.applied_actions || []), ...(h.planned_actions || [])].find((a) => a.kind === "doctrine");
       if (doc) console.log(`  ${h.host} doctrine: ${doc.file}`);
       const hk = [...(h.applied_actions || []), ...(h.blocked_actions || []), ...(h.planned_actions || [])].find((a) => a.kind === "hook");
       if (hk) console.log(`  ${h.host} hook: ${hk.id}`);
+    }
+    if (Array.isArray(value.warnings) && value.warnings.length > 0) {
+      console.log("warnings:");
+      for (const warning of value.warnings) console.log(`  - ${warning}`);
     }
     if (value.next_actions.length > 0) {
       console.log("next:");

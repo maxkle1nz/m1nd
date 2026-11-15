@@ -1707,6 +1707,7 @@ withEnv(
     const tmp = mkTmpDir();
     const testHome = homeForTest();
     const claudeJsonPath = path.join(testHome, ".claude.json");
+    const sharedMcpPath = path.join(tmp, ".mcp.json");
     const dryRun = hostApply({
       _: ["hosts", "apply"],
       host: "claude",
@@ -1717,6 +1718,7 @@ withEnv(
     assert.strictEqual(dryRun.dry_run, true);
     assert.strictEqual(dryRun.applied_actions.length, 0);
     assert.strictEqual(fs.existsSync(claudeJsonPath), false);
+    assert.strictEqual(fs.existsSync(sharedMcpPath), false);
     assert.strictEqual(fs.existsSync(path.join(testHome, ".claude", "skills")), false);
     assert.strictEqual(dryRun.requires_host_rebind, true);
     assert.strictEqual(dryRun.host_rebind_proven, false);
@@ -1735,11 +1737,14 @@ withEnv(
     assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md")));
     assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-guardian", "SKILL.md")));
     assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-operator", "SKILL.md")));
-    const claudeConfig = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8"));
-    assert.strictEqual(claudeConfig.mcpServers.m1nd.command, process.execPath);
-    assert.strictEqual(claudeConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
-    assert(applied.changed_files.includes(claudeJsonPath));
+    assert.strictEqual(fs.existsSync(claudeJsonPath), false, "hosts apply must never create ~/.claude.json");
+    const sharedConfig = JSON.parse(fs.readFileSync(sharedMcpPath, "utf8"));
+    assert.strictEqual(sharedConfig.mcpServers.m1nd.command, process.execPath);
+    assert.strictEqual(sharedConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
+    assert(applied.changed_files.includes(sharedMcpPath));
     assert(applied.next_actions.some((entry) => entry.includes("Restart or rebind")));
+    const afterStatus = hostStatus({ _: ["hosts", "status"], host: "claude", project: tmp, binary: process.execPath });
+    assert.strictEqual(afterStatus.hosts[0].config.status, "shared project (.mcp.json)");
 
     const idempotent = hostApply({
       _: ["hosts", "apply"],
@@ -1908,17 +1913,62 @@ withEnv(
     assert.strictEqual(userScopeStatus.hosts[0].host, "claude");
     assert.strictEqual(userScopeStatus.hosts[0].config.status, "user-scope");
 
-    // 6. Apply preserves unrelated keys in ~/.claude.json and creates a backup, and installs skills.
-    //    Modifying one byte in an installed skill switches agent pack status to outdated.
-    const applyResult = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+    // 6. Apply writes <project>/.mcp.json and leaves ~/.claude.json byte-identical; plan and apply report
+    //    precedence when ~/.claude.json already has a user-scope or local project-scope entry;
+    //    modifying one byte in an installed skill switches agent pack status to outdated.
+    const claudeBeforeBytes = fs.readFileSync(claudeJson);
+    const sharedMcpJson = path.join(project, ".mcp.json");
+    const planHuman = spawnSync(
+      process.execPath,
+      [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(planHuman.status, 0, planHuman.stderr);
+    assert(planHuman.stdout.includes(sharedMcpJson), "plan prints .mcp.json target");
+    assert(
+      planHuman.stdout.includes("takes precedence") && planHuman.stdout.includes(claudeJson),
+      "plan warns about existing ~/.claude.json precedence"
+    );
+
+    const applyHuman = spawnSync(
+      process.execPath,
+      [cli, "hosts", "apply", "--host", "claude", "--project", project, "--binary", process.execPath, "--yes"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(applyHuman.status, 0, applyHuman.stderr);
+    assert(applyHuman.stdout.includes(sharedMcpJson), "apply output states .mcp.json target");
+    assert(
+      applyHuman.stdout.includes("takes precedence") && applyHuman.stdout.includes(claudeJson),
+      "apply output warns about existing ~/.claude.json precedence"
+    );
+    assert.strictEqual(
+      Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes),
+      0,
+      "~/.claude.json must stay byte-identical after hosts apply"
+    );
+    const writtenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
+    assert.strictEqual(writtenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+    const afterSharedStatus = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(afterSharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
+
+    // Backup is created when rewriting an existing <project>/.mcp.json.
+    fs.writeFileSync(sharedMcpJson, JSON.stringify({ mcpServers: { other: { command: "other-bin", args: [] } } }, null, 2));
+    const applyBackupResult = withEnv({ HOME: testHome, M1ND_TEST_HOME: null }, () =>
       hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes: true })
     );
-    const updatedClaude = JSON.parse(fs.readFileSync(claudeJson, "utf8"));
-    assert.strictEqual(updatedClaude.numStartups, 42, "unrelated top-level key survived");
-    assert.strictEqual(updatedClaude.mcpServers.other.command, "other-bin", "unrelated mcpServer survived");
-    assert.deepStrictEqual(updatedClaude.projects[otherProject], { allowedTools: ["Read"] }, "projects survived");
-    assert.strictEqual(updatedClaude.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
-    const claudeCfgAction = applyResult.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert.strictEqual(Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes), 0);
+    const rewrittenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
+    assert.strictEqual(rewrittenSharedMcp.mcpServers.other.command, "other-bin");
+    assert.strictEqual(rewrittenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+    const claudeCfgAction = applyBackupResult.applied_actions.find((a) => a.id === "write-mcp-config");
     assert(claudeCfgAction && claudeCfgAction.backup && fs.existsSync(claudeCfgAction.backup));
 
     const claudeSkillFile = path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md");
