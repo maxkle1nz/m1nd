@@ -89,13 +89,6 @@ cost on every request.
 - stdio or HTTP/UI
 - best for broad compatibility
 
-### Native lane
-
-- `m1nd-openclaw`
-- persistent Unix socket bridge
-- best for local runtimes that can benefit from a hot graph
-- Unix/macOS/Linux lane today; on Windows (phase-2) use plain `m1nd-mcp` built from source
-
 ### Thin adapters
 
 Adapters should be very small:
@@ -106,7 +99,6 @@ Adapters should be very small:
 
 Examples:
 
-- OpenClaw → native shell/bridge adapter
 - Antigravity → `m1nd-antigravity-proxy.py`
 - Cursor / Windsurf → project-local MCP config pointing at a native proxy if desired
 
@@ -178,10 +170,6 @@ you still need a host restart/rebind plus `trust_selftest` or
 
 ## Current m1nd-native components
 
-- `m1nd-openclaw` — hot daemon
-- `m1nd-openclaw-client` — CLI client
-- `scripts/macos/m1nd-openclaw-bridge.sh` — daemon wrapper
-- `scripts/macos/m1nd-openclaw-call.sh` — call wrapper
 - `scripts/macos/m1nd-antigravity-proxy.py` — editor-facing stdio proxy
 
 ## Notes

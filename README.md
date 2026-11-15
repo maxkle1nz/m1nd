@@ -195,7 +195,7 @@ Unresolvable imports (external packages, stdlib, system headers) are left unreso
 
 ## Architecture and deeper documentation
 
-The Cargo workspace has six crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, `m1nd-runnerd` (execution lane), and `m1nd-openclaw` (bridge). The web UI and npm wrapper live outside the Rust workspace.
+The Cargo workspace has five crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, and `m1nd-runnerd` (execution lane). The web UI and npm wrapper live outside the Rust workspace.
 
 - [Documentation index](docs/README.md): choose a task, then a guide
 - [Wiki](https://m1nd.world/wiki/): tutorials, concepts, and API reference

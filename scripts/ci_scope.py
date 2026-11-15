@@ -26,7 +26,6 @@ CRATES = (
     "m1nd-core",
     "m1nd-ingest",
     "m1nd-mcp",
-    "m1nd-openclaw",
     "m1nd-runnerd",
 )
 HEAVY = ("retrobuilder", "transplant")
@@ -226,16 +225,16 @@ def classify_paths(candidate: str, paths: Iterable[str]) -> dict[str, object]:
         return scope(candidate, "scoped", rust=False, ui=False, host=False, cache=False, python=False)
 
     # Static dependency closure: core and ingest test each other; their
-    # dependents are MCP, runnerd and openclaw. Control feeds the same outer
+    # dependents are MCP and runnerd. Control feeds the same outer
     # layer through MCP. This closure is deliberately explicit so a metadata
     # failure cannot silently shrink CI coverage.
     if rust:
         if {"m1nd-core", "m1nd-ingest"} & crates:
-            crates.update({"m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-runnerd", "m1nd-openclaw"})
+            crates.update({"m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-runnerd"})
         if "m1nd-control" in crates:
-            crates.update({"m1nd-mcp", "m1nd-runnerd", "m1nd-openclaw"})
+            crates.update({"m1nd-mcp", "m1nd-runnerd"})
         if "m1nd-mcp" in crates:
-            crates.update({"m1nd-runnerd", "m1nd-openclaw"})
+            crates.update({"m1nd-runnerd"})
 
     return scope(candidate, "scoped", rust=rust, ui=ui, host=host, cache=cache,
                  python=python, crates=crates, heavy=heavy)

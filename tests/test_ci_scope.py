@@ -108,7 +108,7 @@ class CiScopeTest(unittest.TestCase):
 
     def test_other_core_and_transplant_changes_keep_their_scoped_closure(self):
         candidate = "a" * 40
-        crates = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw", "m1nd-runnerd"]
+        crates = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-runnerd"]
         for path, heavy in (
             ("m1nd-core/src/graph.rs", []),
             ("m1nd-core/src/transplant.rs", ["transplant"]),

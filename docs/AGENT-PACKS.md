@@ -396,9 +396,7 @@ Generate Windows-safe MCP snippets the same way:
 m1nd mcp-config generic --binary "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 ```
 
-The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`. The
-`m1nd-openclaw` native fast path uses Unix sockets today, so Windows hosts
-should use plain MCP until a Windows-native fast lane is introduced.
+The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`.
 
 ## Front Door For Every Host
 
