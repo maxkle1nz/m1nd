@@ -3441,4 +3441,49 @@ withEnv(
   }
 );
 
+// --- Codex CODEX_HOME support and outdated detection ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    HOME: mkTmpDir(),
+    M1ND_TEST_HOME: null,
+    CODEX_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const codexHome = process.env.CODEX_HOME;
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+    assert(applied.applied_actions.some((a) => a.id === "install-agent-pack" && a.ok));
+    assert(fs.existsSync(path.join(codexHome, "config.toml")));
+    assert(fs.existsSync(path.join(codexHome, "skills", "m1nd-guardian", "SKILL.md")));
+
+    const installed = hostStatus({
+      _: ["hosts", "status"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+    });
+    assert.strictEqual(installed.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installed.hosts[0].config.status, "configured");
+    assert.strictEqual(installed.hosts[0].readiness, "ready");
+
+    fs.appendFileSync(path.join(codexHome, "skills", "m1nd-guardian", "SKILL.md"), "\n<!-- edited -->\n");
+    const outdated = hostStatus({
+      _: ["hosts", "status"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+    });
+    assert.strictEqual(outdated.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdated.hosts[0].readiness, "attention");
+  }
+);
+
 console.log("npm cli tests ok");

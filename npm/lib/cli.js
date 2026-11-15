@@ -569,8 +569,14 @@ function installSkillDirs(targetSkillsRoot, skillNames = GLOBAL_SKILL_NAMES) {
   return installed;
 }
 
+function codexHomeDir() {
+  const explicit = process.env.CODEX_HOME;
+  if (explicit && explicit.trim()) return path.resolve(explicit);
+  return path.join(homeDir(), ".codex");
+}
+
 function installCodex() {
-  const targetRoot = path.join(homeDir(), ".codex", "skills");
+  const targetRoot = path.join(codexHomeDir(), "skills");
   return {
     host: "codex",
     installed: installSkillDirs(targetRoot),
@@ -887,20 +893,8 @@ function skillPackStatus(installKind, targetRoot, skillRoot, extraRequired = [],
 
 function agentPackStatusForHost(host, projectDir) {
   if (host === "codex") {
-    const skillRoot = path.join(homeDir(), ".codex", "skills");
-    const required = GLOBAL_SKILL_NAMES.map((skillName) => path.join(skillRoot, skillName, "SKILL.md"));
-    const missing = required.filter((file) => !fs.existsSync(file));
-    const status = missing.length === 0 ? "installed" : "missing";
-    return {
-      install_kind: "codex-skill-root",
-      target_root: skillRoot,
-      rule_file: null,
-      required,
-      missing,
-      status,
-      installed: missing.length === 0,
-      outdated: false,
-    };
+    const skillRoot = path.join(codexHomeDir(), "skills");
+    return skillPackStatus("codex-skill-root", skillRoot, skillRoot);
   }
   if (host === "claude") {
     const skillRoot = path.join(homeDir(), ".claude", "skills");
@@ -935,7 +929,7 @@ function agentPackStatusForHost(host, projectDir) {
 function hostConfigCandidates(host, projectDir) {
   switch (host) {
     case "codex":
-      return [path.join(homeDir(), ".codex", "config.toml")];
+      return [path.join(codexHomeDir(), "config.toml")];
     case "claude":
       return [
         path.join(homeDir(), ".claude.json"),
@@ -1286,7 +1280,7 @@ function hostRecipe(host, projectDir) {
         os_gate: null,
         hook: doctrineHook(
           "SessionStart",
-          path.join(home, ".codex", "hooks.json"),
+          path.join(codexHomeDir(), "hooks.json"),
           "startup|resume",
           true,
           `${SHIM_BIN} --repo "$CODEX_CWD" --query "orient"`,
@@ -1751,7 +1745,7 @@ function hostPlan(args) {
 function canonicalHostConfigPath(host, projectDir) {
   switch (host) {
     case "codex":
-      return path.join(homeDir(), ".codex", "config.toml");
+      return path.join(codexHomeDir(), "config.toml");
     case "claude":
       return path.join(homeDir(), ".claude.json");
     case "gemini":
@@ -2105,7 +2099,7 @@ function doctor() {
   const binary = findRuntimeBinary();
   const binaryVersion = runtimeVersion(binary);
   const packageVersion = readPackageVersion();
-  const codexSkillRoot = path.join(homeDir(), ".codex", "skills");
+  const codexSkillRoot = path.join(codexHomeDir(), "skills");
   const codexSkillsInstalled =
     fs.existsSync(path.join(codexSkillRoot, "m1nd-first", "SKILL.md")) &&
     fs.existsSync(path.join(codexSkillRoot, "m1nd-operator", "SKILL.md"));
