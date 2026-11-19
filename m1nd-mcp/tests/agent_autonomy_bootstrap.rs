@@ -863,6 +863,62 @@ fn explicit_launcher_root_bootstraps_once_and_survives_restart() {
     );
 }
 
+/// A doc that repeats one code example, shaped like a real Go web framework's
+/// binding guide: the same `type Person struct` once per fenced block.
+fn write_repeated_example_doc(root: &Path) {
+    std::fs::create_dir_all(root.join("docs")).expect("create fixture docs");
+    let block = |tag: &str| {
+        format!("```go\ntype Person struct {{\n\tName string `{tag}:\"name\"`\n}}\n\nfunc main() {{\n\troute := gin.Default()\n}}\n```\n")
+    };
+    std::fs::write(
+        root.join("docs/guide.md"),
+        format!(
+            "# Binding guide\n\nBind a query string:\n\n{}\nBind a JSON body:\n\n{}\nBind a form:\n\n{}",
+            block("form"),
+            block("json"),
+            block("form")
+        ),
+    )
+    .expect("write repeated-example doc");
+}
+
+/// One file must never take down a whole first-time ingest. A real
+/// repository's docs repeated the same Go example in one markdown file; the
+/// launcher birth refused the WHOLE repository over it, the owner exited
+/// before `initialize`, and the agent got no m1nd at all.
+#[test]
+fn a_doc_that_repeats_a_code_example_still_births_a_served_graph() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let workspace = temp.path().join("repo-alpha");
+    let runtime = temp.path().join("private-runtime");
+    write_fixture(&workspace, UNIQUE_SYMBOL);
+    write_repeated_example_doc(&workspace);
+    std::fs::create_dir_all(&runtime).expect("create external runtime");
+
+    let mut owner = Owner::spawn(&workspace, &runtime);
+    let identity = assert_symbol_is_retrievable(&mut owner, &runtime);
+    assert!(identity.node_count > 0, "the birth must serve a graph");
+
+    let search = owner.call(
+        "search",
+        serde_json::json!({ "agent_id": AGENT, "query": "Person" }),
+    );
+    let encoded = serde_json::to_string(&search).expect("encode search result");
+    assert!(
+        encoded.contains("file::docs/guide.md::type::Person"),
+        "the repeated example's definitions must be in the served graph: {search}"
+    );
+
+    // The owner is still up and still answering after the birth.
+    let health = owner.call("health", serde_json::json!({ "agent_id": AGENT }));
+    assert_eq!(
+        health["node_count"].as_u64(),
+        Some(identity.node_count),
+        "health must keep serving the born graph: {health}"
+    );
+    owner.shutdown();
+}
+
 #[test]
 fn legitimate_grounded_memory_survives_restart_refresh_and_restart() {
     let temp = tempfile::tempdir().expect("tempdir");

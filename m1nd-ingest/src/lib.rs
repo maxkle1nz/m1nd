@@ -1989,6 +1989,148 @@ mod tests {
         fs::remove_dir_all(&root).ok();
     }
 
+    /// A doc that repeats one code example, shaped like a real Go web
+    /// framework's binding guide: the same `type Person struct` and
+    /// `func main()` appear once per fenced block.
+    const REPEATED_EXAMPLE_DOC: &str = "\
+# Binding guide
+
+Bind a query string:
+
+```go
+type Person struct {
+\tName string `form:\"name\"`
+}
+
+func main() {
+\troute := gin.Default()
+}
+```
+
+Bind a JSON body:
+
+```go
+type Person struct {
+\tName string `json:\"name\"`
+}
+
+func main() {
+\troute := gin.Default()
+}
+```
+
+Bind a URI:
+
+```go
+type Person struct {
+\tID string `uri:\"id\"`
+}
+```
+";
+
+    /// The gatehouse kill of 2026-11-19: a REAL repository's docs repeated the
+    /// same Go example in one markdown file. Every occurrence got the same
+    /// external id at a different line, the static-contribution fence read
+    /// that as a conflict, and the whole ingest — every other file of the repo
+    /// with it — died. Repeats inside one source are distinct occurrences: the
+    /// first keeps the clean id and later ones take `#2`, `#3`, the rule
+    /// same-named functions in the very same file already follow.
+    #[test]
+    fn a_doc_that_repeats_a_code_example_does_not_abort_the_ingest() {
+        let root = temp_ingest_dir("repeated-doc-example");
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn bind() -> u32 { 1 }\n").unwrap();
+        fs::write(root.join("docs/guide.md"), REPEATED_EXAMPLE_DOC).unwrap();
+
+        let result = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..IngestConfig::default()
+        })
+        .ingest();
+        fs::remove_dir_all(&root).ok();
+        let (graph, _stats) =
+            result.expect("a doc that repeats one code example must not abort the ingest");
+
+        for id in [
+            "file::src/lib.rs::fn::bind",
+            "file::docs/guide.md",
+            "file::docs/guide.md::type::Person",
+            "file::docs/guide.md::type::Person#2",
+            "file::docs/guide.md::type::Person#3",
+            "file::docs/guide.md::fn::main",
+            "file::docs/guide.md::fn::main#2",
+        ] {
+            assert!(
+                graph.resolve_id(id).is_some(),
+                "every occurrence must stay addressable; missing {id}"
+            );
+        }
+        assert!(graph
+            .resolve_id("file::docs/guide.md::type::Person#4")
+            .is_none());
+    }
+
+    /// The same abort, reached through every regex extractor that named a
+    /// type-level definition without the occurrence suffix: conditional class
+    /// definitions in Python, interface declaration merging in TypeScript,
+    /// same-named nested classes in Java, duplicated declarations in Go
+    /// test data. None of them may take the rest of the repository down.
+    #[test]
+    fn same_named_type_definitions_in_one_source_do_not_abort_the_ingest() {
+        let root = temp_ingest_dir("same-named-types");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("compat.py"),
+            "import sys\n\nif sys.version_info >= (3, 11):\n    class Settings:\n        pass\nelse:\n    class Settings:\n        pass\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("options.ts"),
+            "export interface Options {\n  a: number;\n}\n\nexport interface Options {\n  b: string;\n}\n\nclass Store {}\nclass Store {}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Outer.java"),
+            "public class Outer {\n    static class Left {\n        public static class Builder {}\n    }\n    static class Right {\n        public static class Builder {}\n    }\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("dup.go"),
+            "package dup\n\ntype Point struct {\n}\n\ntype Point struct {\n}\n\ntype Shape interface {\n}\n\ntype Shape interface {\n}\n",
+        )
+        .unwrap();
+
+        let result = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..IngestConfig::default()
+        })
+        .ingest();
+        fs::remove_dir_all(&root).ok();
+        let (graph, _stats) =
+            result.expect("same-named definitions in one source must not abort the ingest");
+
+        for id in [
+            "file::compat.py::class::Settings",
+            "file::compat.py::class::Settings#2",
+            "file::options.ts::interface::Options",
+            "file::options.ts::interface::Options#2",
+            "file::options.ts::class::Store",
+            "file::options.ts::class::Store#2",
+            "file::Outer.java::class::Builder",
+            "file::Outer.java::class::Builder#2",
+            "file::dup.go::struct::Point",
+            "file::dup.go::struct::Point#2",
+            "file::dup.go::interface::Shape",
+            "file::dup.go::interface::Shape#2",
+        ] {
+            assert!(
+                graph.resolve_id(id).is_some(),
+                "every same-named definition must stay addressable; missing {id}"
+            );
+        }
+    }
+
     #[test]
     fn file_external_id_builder_rejects_empty_and_dot_paths() {
         assert_eq!(build_file_external_id(""), None);
