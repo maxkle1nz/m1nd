@@ -1717,6 +1717,14 @@ function hostStatus(args) {
   };
 }
 
+// Claude Code's project .mcp.json is the scope a team shares through version
+// control, but the entry m1nd writes there is machine-specific. Say so on every
+// plan and apply, so the user decides before committing it.
+function claudeSharedScopeWarning(file, binary, projectDir) {
+  const command = binary || findRuntimeBinary() || defaultRuntimePath();
+  return `${file} is Claude Code's project scope, which is shared through version control; the m1nd entry written there holds absolute paths from this machine (command ${command}, M1ND_WORKSPACE_ROOT=${path.resolve(projectDir)}). Review it before committing the file, or keep it out of version control.`;
+}
+
 function hostPlan(args) {
   const status = hostStatus(args);
   const projectDir = status.project_dir;
@@ -1754,6 +1762,11 @@ function hostPlan(args) {
       recipe && recipe.hook && recipe.hook.owned === false && host.host === "claude"
         ? claudeSettingsBlock(recipe.hook.command)
         : null;
+    const configTargetPath = canonicalHostConfigPath(host.host, projectDir);
+    const sharedScopeWarning =
+      host.host === "claude" && configTargetPath
+        ? claudeSharedScopeWarning(configTargetPath, binary, projectDir)
+        : null;
     return {
       host: host.host,
       readiness: host.readiness,
@@ -1770,8 +1783,9 @@ function hostPlan(args) {
       },
       configure_mcp: {
         status: host.config.status,
-        target_path: canonicalHostConfigPath(host.host, projectDir),
+        target_path: configTargetPath,
         ...(host.config.precedence_note ? { precedence_warning: host.config.precedence_note } : {}),
+        ...(sharedScopeWarning ? { shared_scope_warning: sharedScopeWarning } : {}),
         command: host.config.snippet_command,
         candidate_paths: configCandidateFiles,
         snippet: mcpConfig(host.host, binary, projectDir),
@@ -1996,6 +2010,9 @@ function hostApply(args) {
       });
       plannedActions.push(configAction);
       hostResult.planned_actions.push(configAction);
+      if (hostName === "claude") {
+        warnings.push(claudeSharedScopeWarning(configFile, binary, projectDir));
+      }
       if (yes) {
         try {
           const writeResult = writeHostConfig(hostName, configFile, binary, projectDir);
@@ -5102,6 +5119,9 @@ function print(value, asJson) {
       }
       if (plan.configure_mcp.precedence_warning) {
         console.log(`  config note: ${plan.configure_mcp.precedence_warning}`);
+      }
+      if (plan.configure_mcp.shared_scope_warning) {
+        console.log(`  config warning: ${plan.configure_mcp.shared_scope_warning}`);
       }
       console.log(`  workspace: M1ND_WORKSPACE_ROOT=${plan.workspace_binding.env.M1ND_WORKSPACE_ROOT}`);
       if (plan.hook && plan.hook.event) {

@@ -3226,6 +3226,64 @@ withEnv(
   }
 );
 
+// 5b. claude .mcp.json is the VCS-shared project scope but carries machine paths:
+// plan and apply both warn before the user commits it; other hosts do not.
+{
+  const testHome = mkTmpDir();
+  const project = mkTmpDir();
+  const mcpJsonPath = path.join(project, ".mcp.json");
+  const env = {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: testHome,
+  };
+  const isSharedScopeWarning = (text) =>
+    typeof text === "string" &&
+    text.includes(mcpJsonPath) &&
+    text.includes("shared through version control") &&
+    text.includes(`command ${process.execPath}`) &&
+    text.includes(`M1ND_WORKSPACE_ROOT=${path.resolve(project)}`);
+
+  withEnv(env, () => {
+    const plan = hostPlan({ _: ["hosts", "plan"], host: "claude", project, binary: process.execPath });
+    assert(isSharedScopeWarning(plan.plans[0].configure_mcp.shared_scope_warning), "claude plan carries the shared-scope warning");
+    const codexPlan = hostPlan({ _: ["hosts", "plan"], host: "codex", project, binary: process.execPath });
+    assert.strictEqual(codexPlan.plans[0].configure_mcp.shared_scope_warning, undefined, "codex plan has no .mcp.json warning");
+
+    for (const yes of [false, true]) {
+      const applied = hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes, "no-skills": true });
+      assert(applied.warnings.some(isSharedScopeWarning), `claude apply (yes=${yes}) warns about the shared .mcp.json`);
+    }
+    const noConfig = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: mkTmpDir(),
+      binary: process.execPath,
+      yes: true,
+      "no-skills": true,
+      "no-config": true,
+    });
+    assert.strictEqual(
+      noConfig.warnings.some((w) => w.includes("shared through version control")),
+      false,
+      "no .mcp.json warning when the config write is disabled"
+    );
+  });
+
+  for (const verb of ["plan", "apply"]) {
+    const res = spawnSync(
+      process.execPath,
+      [cli, "hosts", verb, "--host", "claude", "--project", project, "--binary", process.execPath, "--no-skills"],
+      { encoding: "utf8", env: { ...process.env, ...env } }
+    );
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert(
+      res.stdout.split("\n").some(isSharedScopeWarning),
+      `hosts ${verb} human output prints the shared-scope warning:\n${res.stdout}`
+    );
+  }
+}
+
 // 6. codex TOML MCP config: exactly one [mcp_servers.m1nd] after apply (regression).
 withEnv(
   {
