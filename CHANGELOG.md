@@ -14,6 +14,11 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 
 ### Breaking / Changed
 
+- **Leaner `file_group` seek rows:** a `file_group` row's `intent_summary` leaves out
+  every `m1nd:edge:*` edge-resolution tag (node rows keep them). Semantic `search`
+  inherits this: for a narrative query, a row without an excerpt takes its
+  `matched_line` from the shorter summary. With `token_budget`, `seek` and `focus`
+  count attached symbol ids, so they may keep fewer rows than before.
 - **Learning feedback is relevance-only (#580):** `learn(correct|wrong)` adjusts
   graph relevance weights without recording defects, false alarms, observed
   co-change, or automatic antibodies. Ambiguous `partial` feedback now refuses
@@ -26,6 +31,12 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 
 ### Added
 
+- **Symbols on file-group seek rows:** each of the first ten `file_group` rows of a
+  narrative `seek` can carry `symbols`, up to three `{node_id, line_start, line_end}`
+  entries for the file's most relevant eligible symbols, best first, so a caller can
+  open the span instead of the whole file. Rows, their order, scores and count are
+  unchanged; the field is omitted when empty and when `node_types` is `["file"]`. See
+  the [seek reference](docs/wiki/src/api-reference/exploration.md#m1ndseek).
 - **Truthful, atomic host installer (PR #595):**
   - Host config files are written atomically, with backups stored under
     `~/.m1nd/backups/` using private `0700`/`0600` permissions on Unix. MCP

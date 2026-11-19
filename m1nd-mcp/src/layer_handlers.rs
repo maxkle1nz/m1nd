@@ -429,11 +429,15 @@ fn l2_file_group_symbols(
         .collect()
 }
 
+/// Prefix shared by every graph edge-resolution diagnostic tag that ingest
+/// mints (`m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG`, `EDGE_AMBIGUOUS_TAG` and
+/// its targeted form). Matching the prefix keeps a future edge tag out too.
+const L2_EDGE_DIAGNOSTIC_TAG_PREFIX: &str = "m1nd:edge:";
+
 /// Whether a node tag is a graph edge-resolution diagnostic (`m1nd:edge:*`):
 /// bookkeeping about unresolved or ambiguous edges, not a description of the node.
 fn l2_is_edge_diagnostic_tag(tag: &str) -> bool {
-    tag == m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG
-        || tag.starts_with(m1nd_ingest::resolve::EDGE_AMBIGUOUS_TAG)
+    tag.starts_with(L2_EDGE_DIAGNOSTIC_TAG_PREFIX)
 }
 
 fn l2_bm25_terms(text: &str) -> Vec<String> {

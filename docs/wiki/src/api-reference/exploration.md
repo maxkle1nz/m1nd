@@ -150,18 +150,14 @@ span to open. There is no excerpt.
 - **When absent.** The field is omitted when a file has no eligible symbol, on rows after
   the tenth, in `"node"` granularity, and when `node_types` is `["file"]`.
 - **Summary.** A `file_group` row's `intent_summary` (`label (type) [tags]`) leaves out
-  the `m1nd:edge:*` edge-resolution tags, which can run to thousands of characters on a
-  file. `"node"` rows keep every tag.
+  every `m1nd:edge:*` edge-resolution tag, which can run to thousands of characters on a
+  file. `"node"` rows keep every tag. Semantic `search` inherits this: for a narrative
+  query, a row without an excerpt takes its `matched_line` from that shorter summary.
 - **Budget.** With `token_budget`, each row's estimate includes its symbol ids, so a
   budget may keep fewer rows than it would without them. `focus` inherits this.
 - **Unchanged.** The rows themselves (their `node_id`s, order, scores, count and
   `result_granularity`) are the same with or without symbols. Semantic `search` rows and
   the memory rows `north` builds from a `light::`-scoped seek do not carry the field.
-
-**Hash order does not affect ranking.** Semantic (n-gram) and BM25 sums run in a fixed
-order, and equal semantic scores keep ascending node order through each top-k cut, so two
-processes over the same graph rank alike. Runtime state, such as trust history and its
-decay over time, can still change scores between calls.
 
 ```json
 {
