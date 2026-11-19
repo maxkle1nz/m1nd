@@ -78,7 +78,7 @@ fn session(root: &std::path::Path) -> SessionState {
     state
 }
 
-/// Everything ranking decides: ids and exact score bits.
+/// Everything ranking decides: ids, exact score bits, and attached symbols.
 fn answer(state: &mut SessionState, query: &str, top_k: usize) -> (String, Vec<Value>) {
     let input: SeekInput = serde_json::from_value(json!({
         "agent_id": "seek-determinism",
@@ -96,6 +96,7 @@ fn answer(state: &mut SessionState, query: &str, top_k: usize) -> (String, Vec<V
             json!({
                 "node_id": row.node_id,
                 "score_bits": row.score.to_bits(),
+                "symbols": serde_json::to_value(&row.symbols).expect("symbols"),
             })
         })
         .collect();

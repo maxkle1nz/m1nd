@@ -350,55 +350,79 @@ fn file_only_node_types_attach_no_symbols() {
     }
 }
 
-#[test]
-fn attached_symbols_break_ties_by_node_index_and_repeat_exactly() {
-    let temp = tempfile::tempdir().expect("tempdir");
+/// A file holding two overloads that share a label, tags and file, so their
+/// relevance ties exactly. `first` is inserted (and indexed) first.
+fn overload_state(root: &std::path::Path, first: (&str, u32), second: (&str, u32)) -> SessionState {
     let mut graph = Graph::new();
     let router = "src/router.rs";
     add_file(&mut graph, router, "router.rs", 300);
-    // Two overloads share a label, tags and file, so their relevance ties
-    // exactly; the earlier node must come first.
-    add_node(
-        &mut graph,
-        "file::src/router.rs::fn::handle_request",
-        "handle_request",
-        NodeType::Function,
-        router,
-        (20, 60),
-    );
-    add_node(
-        &mut graph,
-        "file::src/router.rs::fn::handle_request#2",
-        "handle_request",
-        NodeType::Function,
-        router,
-        (120, 160),
-    );
-    let mut state = session(temp.path(), graph);
+    for (suffix, line) in [first, second] {
+        add_node(
+            &mut graph,
+            &format!("file::src/router.rs::fn::handle_request{suffix}"),
+            "handle_request",
+            NodeType::Function,
+            router,
+            (line, line + 40),
+        );
+    }
+    let mut state = session(root, graph);
     state.orchestrator.semantic.weights = SemanticWeights {
         ngram: FiniteF32::ZERO,
         cooccurrence: FiniteF32::ZERO,
         synonym: FiniteF32::ZERO,
     };
+    state
+}
+
+#[test]
+fn attached_symbols_break_ties_by_node_index_and_repeat_exactly() {
+    let temp = tempfile::tempdir().expect("tempdir");
     let query =
         "Where does the router handle each incoming request before dispatching the response?";
+    let plain = "file::src/router.rs::fn::handle_request";
+    let second = "file::src/router.rs::fn::handle_request#2";
 
-    let first = seek_json(&mut state, seek_input(query, None, &[]));
-    let second = seek_json(&mut state, seek_input(query, None, &[]));
-    assert_eq!(first["result_granularity"], "file_group", "{first:#}");
-    let file = row(&first, "file::src/router.rs");
+    let mut state = overload_state(&temp.path().join("a"), ("", 20), ("#2", 120));
+    let first_call = seek_json(&mut state, seek_input(query, None, &[]));
+    let second_call = seek_json(&mut state, seek_input(query, None, &[]));
     assert_eq!(
-        symbol_ids(file),
-        vec![
-            "file::src/router.rs::fn::handle_request",
-            "file::src/router.rs::fn::handle_request#2"
-        ]
+        first_call["result_granularity"], "file_group",
+        "{first_call:#}"
     );
     assert_eq!(
-        first["results"], second["results"],
-        "identical across calls"
+        symbol_ids(row(&first_call, "file::src/router.rs")),
+        vec![plain, second]
     );
-    assert_eq!(first, second);
+    assert_eq!(first_call, second_call, "identical across calls");
+
+    // Swapping insertion order swaps the symbols. Had the two scores differed,
+    // the better one would lead in both graphs, so this proves the tie is real
+    // and is broken by node index alone.
+    let mut swapped = overload_state(&temp.path().join("b"), ("#2", 120), ("", 20));
+    let output = seek_json(&mut swapped, seek_input(query, None, &[]));
+    assert_eq!(
+        symbol_ids(row(&output, "file::src/router.rs")),
+        vec![second, plain]
+    );
+}
+
+#[test]
+fn edge_resolution_tags_share_one_prefix_and_stay_out_of_file_summaries() {
+    use m1nd_ingest::resolve::{ambiguous_edge_tag, EDGE_AMBIGUOUS_TAG, EDGE_UNRESOLVED_TAG};
+    let ambiguous_target = ambiguous_edge_tag("file::src/a.rs::fn::b");
+    for tag in [
+        EDGE_UNRESOLVED_TAG,
+        EDGE_AMBIGUOUS_TAG,
+        ambiguous_target.as_str(),
+        // A future edge diagnostic needs no change here to stay out.
+        "m1nd:edge:shadowed",
+    ] {
+        assert!(super::l2_is_edge_diagnostic_tag(tag), "{tag}");
+    }
+    for tag in ["rust", "typescript", "m1nd:ui", "edge:unresolved"] {
+        assert!(!super::l2_is_edge_diagnostic_tag(tag), "{tag}");
+    }
 }
 
 #[test]
