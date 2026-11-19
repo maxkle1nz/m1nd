@@ -11229,6 +11229,10 @@ fn generate_dot(
 mod seek_filter_contract_tests;
 
 #[cfg(test)]
+#[path = "internal_tests/seek_determinism.rs"]
+mod seek_determinism_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         compute_modified_nodes, handle_calibrate_envelope, handle_focus, handle_layers,
