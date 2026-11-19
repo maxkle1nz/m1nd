@@ -1,479 +1,201 @@
 # Contributing to m1nd
 
-Thanks for your interest in contributing to m1nd. This document covers the basics.
+This guide covers the workspace layout, build flags, and the exact test and CI gates used on this repository. For coding-agent-specific operational rules (git identity, no-leak, write laws, ceremony boundaries), also read [AGENTS.md](AGENTS.md).
 
-For large capability waves, move code, docs, built docs, and release surfaces
-together in the same change — a feature is not complete until the documentation
-and wiki reflect it.
+## Prerequisites
 
-## Getting Started
+- **Rust (stable)** with `clippy` and `rustfmt` components
+- **`cargo-nextest`** (canonical local Rust test runner)
+- **Node.js 18+** (CI uses Node 22) for the root `@maxkle1nz/m1nd` wrapper and `m1nd-ui`
+- **Python 3.12+** for proof harnesses (`tests/`) and CI gate scripts (`scripts/`)
+
+If you work across parallel git worktrees, isolate each checkout's Cargo target directory before building or running tests:
 
 ```bash
-git clone https://github.com/maxkle1nz/m1nd.git
-cd m1nd
-cargo build
-cargo test --all
+export CARGO_TARGET_DIR="$(scripts/cargo_target_dir.sh)"
 ```
 
-## Project Structure
+## Workspace layout
 
-```
-m1nd-core/     Graph engine, plasticity, spreading activation, hypothesis engine
-m1nd-ingest/   Language extractors (28 languages), memory adapter, JSON adapter
-m1nd-mcp/      MCP server, live MCP tool surface, JSON-RPC over stdio
-```
+The Cargo workspace (`Cargo.toml`, resolver 2) has **five crates**:
 
----
+| Crate | Version | Role |
+|---|---|---|
+| `m1nd-core/` | `2.0.0` | In-memory graph engine, spreading activation, plasticity, temporal/semantic/topology/trust/calibration primitives |
+| `m1nd-ingest/` | `2.0.0` | Directory walker, 5 manual extractors (Python, TypeScript/JavaScript, Rust, Go, Java), 22 tree-sitter languages, document/memory/JSON/L1GHT adapters, cross-file resolution, incremental diff |
+| `m1nd-mcp/` | `2.0.0` | MCP server (stdio, loopback HTTP/REST + embedded UI, `--attach` bridge), 147 registered tools, 15-tool default core menu, per-brain actor runtime, single-writer lease |
+| `m1nd-control/` | `0.2.4` | Control-plane contracts, action catalog, Ed25519/P-256 verification, authority WAL |
+| `m1nd-runnerd/` | `1.6.5` (`publish = false`) | Dedicated runner daemon for pinned spawn missions in isolated worktrees |
 
-## Crate Architecture
+Outside the Rust workspace:
 
-m1nd is a three-crate Rust workspace. Understanding what lives where saves you from
-editing the wrong crate.
+- `npm/` and root `package.json` — dependency-free `@maxkle1nz/m1nd` (`2.0.0`) host installer and agent CLI (`m1nd`, `m1nd-north-shim`).
+- `m1nd-ui/` — Vite/React web UI (`m1nd-ui/dist/` is committed and embedded into `m1nd-mcp` via `rust-embed`).
+- `skills/` — agent skill packs installed into Claude Code, Codex, Antigravity, and other hosts.
+- `tests/` — Python proof harnesses and documentation/CI contract tests.
+- `docs/` (including `docs/wiki/` mdBook source), `scripts/`, and `m1nd-demo/`.
 
-### m1nd-core
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the checkout-private development kit (`scripts/m1nd-dev`).
 
-The graph engine. No I/O, no file system, no LLM calls. Pure computation.
-
-Key modules:
-
-| Module | Purpose |
-|--------|---------|
-| `graph.rs` | CSR adjacency, `NodeProvenance`, `Graph::finalize()` (required before any query) |
-| `activation.rs` | Spreading activation, `HybridEngine` auto-selection, XLR noise cancellation |
-| `plasticity.rs` | Hebbian LTP/LTD, `QueryMemory` ring buffer, homeostatic normalization |
-| `temporal.rs` | `CoChangeMatrix`, `TemporalDecayScorer`, per-NodeType half-lives |
-| `semantic.rs` | Trigram `CharNgramIndex`, `CoOccurrenceIndex` with PPMI, `SynonymExpander` |
-| `resonance.rs` | Standing wave analysis, `HarmonicAnalyzer`, `SympatheticResonanceDetector` |
-| `counterfactual.rs` | Cascade simulation, synergy analysis for multi-node removal |
-| `topology.rs` | Community detection, bridge detection, `ActivationFingerprinter` LSH |
-| `antibody.rs` | Bug immune memory — subgraph pattern matching with DFS + timeout budget |
-| `flow.rs` | Particle-based concurrent execution simulation, race condition detection |
-| `epidemic.rs` | SIR bug propagation model, `R0` estimation, burnout detection |
-| `tremor.rs` | Second-derivative acceleration detection on edge weight time series |
-| `trust.rs` | Actuarial per-module defect density, Bayesian prior adjustment |
-| `layer.rs` | Tarjan SCC + BFS depth → architectural layer detection and violation reporting |
-| `domain.rs` | `DomainConfig` — multi-domain presets: `code`, `music`, `memory`, `generic` |
-| `builder.rs` | Fluent `GraphBuilder` API for constructing graphs programmatically |
-| `snapshot.rs` | `save_graph()` / `load_graph()`, atomic write via temp + rename |
-| `seed.rs` | 5-level `SeedFinder`: exact → prefix → substring → tag → fuzzy trigram |
-| `types.rs` | `NodeType`, `EdgeType`, `PropagationConfig`, `DIMENSION_WEIGHTS`, newtypes |
-| `error.rs` | `M1ndError` variants — all map to MCP error responses |
-| `query.rs` | `QueryConfig` — `xlr_enabled`, `include_ghost_edges`, `GhostEdge` struct |
-| `xlr.rs` | XLR differential processing math — `sigmoid_gate()`, `spectral_overlap()` |
-
-**Design rule**: m1nd-core must compile with `no_std` ambitions. Keep stdlib use minimal
-and confined to `snapshot.rs` / persistence paths.
-
-### m1nd-ingest
-
-File system walker, language extractors, graph construction pipeline. Depends on m1nd-core.
-
-Key modules:
-
-| Module | Purpose |
-|--------|---------|
-| `lib.rs` | `Ingestor` pipeline, `IngestConfig`, `IngestStats` |
-| `walker.rs` | `DirectoryWalker` — binary detection, git history enrichment |
-| `cross_file.rs` | Post-ingest `CrossFileResolver` — imports/tests/registers edges |
-| `resolve.rs` | `ReferenceResolver` — multi-value index, import hint disambiguation |
-| `diff.rs` | `GraphDiff` — incremental ingest engine (`DiffAction` enum) |
-| `merge.rs` | `merge_graphs()` — tag union, max weight, provenance merge (powers `federate`) |
-| `memory_adapter.rs` | `MemoryIngestAdapter` — markdown/text → memory graph |
-| `json_adapter.rs` | `JsonIngestAdapter` — JSON descriptor → any-domain graph |
-| `extract/tree_sitter_ext.rs` | `TreeSitterExtractor` — universal tree-sitter extractor, 22 languages |
-| `extract/generic.rs` | Regex fallback for unsupported file types |
-
-### m1nd-mcp
-
-JSON-RPC stdio server. Tool dispatch, session state, protocol types. Depends on both crates.
-
-Key modules:
-
-| Module | Purpose |
-|--------|---------|
-| `main.rs` | Entry point, env/config loading, `./m1nd-mcp [config.json]` |
-| `server.rs` | `tool_schemas()` — 77 tool registrations, tool dispatch (normalize → match) |
-| `tools.rs` | Core tool handlers (ingest, activate, impact, learn, drift, ...) |
-| `layer_handlers.rs` | Antibody, flow, epidemic, tremor, trust, layers handlers |
-| `engine_ops.rs` | Shared engine helpers |
-| `session.rs` | Multi-agent session state, `SharedGraph`, generation counters |
-| `protocol/core.rs` | JSON-RPC types, request/response shapes |
-| `protocol/layers.rs` | Protocol types for the 9 Superpowers Extended tools |
-| `perspective_handlers.rs` | 12 perspective navigation handlers |
-| `lock_handlers.rs` | 5 lock system handlers |
-| `perspective/state.rs` | In-process perspective state machine |
-| `perspective/peek_security.rs` | Allowlist enforcement — only files within ingest roots |
-| `perspective/confidence.rs` | Suggestion confidence scoring |
-
----
-
-## Adding New MCP Tools
-
-Every tool follows the same dispatch pattern in `server.rs` + handler in the appropriate
-`.rs` file.
-
-### Step 1: Add the tool schema
-
-In `m1nd-mcp/src/server.rs`, find `tool_schemas()`. Add a new entry:
-
-```rust
-ToolSchema {
-    name: "your_tool".to_string(),
-    description: "One sentence. What it does and when to use it.".to_string(),
-    input_schema: json!({
-        "type": "object",
-        "properties": {
-            "agent_id": { "type": "string", "description": "Caller agent identifier" },
-            // your parameters here
-        },
-        "required": ["agent_id"]
-    }),
-},
-```
-
-### Step 2: Add the dispatch arm
-
-In `server.rs`, find the tool dispatch `match` block. The tool name is normalized
-(dots → underscores, leading `m1nd_` stripped) before matching:
-
-```rust
-"your_tool" => handle_your_tool(&state, params).await,
-```
-
-### Step 3: Write the handler
-
-Add your handler to the appropriate file. Use `engine_ops.rs` helpers for graph access.
-The standard signature:
-
-```rust
-pub async fn handle_your_tool(
-    state: &ServerState,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, M1ndError> {
-    let agent_id = params["agent_id"].as_str().ok_or(M1ndError::InvalidInput(...))?;
-    let graph = state.graph.read();
-    // ...
-    Ok(json!({ "result": ... }))
-}
-```
-
-### Step 4: Add a protocol type (optional)
-
-If your tool returns a complex struct, add request/response types in
-`m1nd-mcp/src/protocol/`. Mirror the naming convention of existing protocol files.
-
-### Step 5: Tests
-
-Add unit tests in the handler file and, if the tool touches core logic, integration
-tests in `m1nd-core/src/` next to the module it exercises.
-
-### Step 6: Update the agent-facing docs (CI-enforced)
-
-Adding or changing a tool changes what agents can do, so CI's **agent-docs gate**
-(`scripts/agent_docs_gate.py`, the `agent-docs-gate` job) requires your PR to ALSO
-touch at least one agent-facing doc surface: `skills/` (the packs installed into
-Claude/Codex/Gemini/Antigravity hosts), `docs/` (including the wiki under
-`docs/wiki/`), `README.md`, or `CONTRIBUTING.md`. The gate arms only when the diff
-touches an agent-workflow surface (the MCP instructions string / schemas / verb
-dispatch, `protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, or the
-npm host installer under `npm/`), so unrelated internal changes are never blocked.
-An edit that only touches the `M1ND_INSTRUCTIONS` string self-satisfies. If a
-surface change genuinely has **no** agent-visible behavior (a pure refactor), add
-the `agent-docs-exempt` label to the PR to skip the gate. This exists because a
-surface change without a doc change once taught hosts a stale contract for two
-weeks (PR #216).
-
----
-
-## Adding Language Extractors
-
-m1nd has two tiers of tree-sitter language support plus a manual extractor path.
-
-### Tier system
-
-| Tier | Feature flag | Languages |
-|------|-------------|-----------|
-| Tier 1 | `--features tier1` | C/H, C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Bash, Lua, R, HTML, CSS, JSON (14) |
-| Tier 2 | `--features tier2` (default) | Tier 1 + Elixir, Dart, Zig, Haskell, OCaml, TOML, YAML, SQL (22 total) |
-
-Tier 2 is the default build (`default = ["tier2"]` in `m1nd-ingest/Cargo.toml`).
-
-### Adding a tree-sitter language (recommended path)
-
-1. Find a `tree-sitter-<lang>` crate that depends on `tree-sitter-language` (new API),
-   NOT the old `tree-sitter 0.19/0.20`. Crates that depend on the old API cause symbol
-   collisions at link time and will silently return `None` from `parse()`.
-
-2. Add the crate to `m1nd-ingest/Cargo.toml` as an optional dependency under the
-   appropriate tier feature:
-
-   ```toml
-   [features]
-   tier1 = [..., "dep:tree-sitter-yourlang"]
-
-   [dependencies]
-   tree-sitter-yourlang = { version = "x.y", optional = true }
-   ```
-
-3. In `m1nd-ingest/src/extract/tree_sitter_ext.rs`, add a `LanguageConfig` entry:
-
-   ```rust
-   LanguageConfig {
-       lang_tag: "yourlang",
-       extensions: &["ext"],
-       function_kinds: &["function_definition"],
-       class_kinds: &["class_declaration"],
-       struct_kinds: &[],
-       enum_kinds: &[],
-       type_kinds: &[],
-       module_kinds: &["module"],
-       import_kinds: &["import_statement"],
-       name_field: "name",
-       alt_name_fields: &[],
-       name_from_first_child: false,
-   }
-   ```
-
-   The `name_field` is the tree-sitter field used to extract a definition's name.
-   Use `alt_name_fields` for languages with complex name positions (e.g., C declarators).
-   Set `name_from_first_child: true` for languages like OCaml or TOML where the name
-   is the first named child.
-
-4. Gate the config behind `#[cfg(feature = "tier1")]` or `#[cfg(feature = "tier2")]`
-   matching the tier you added it to.
-
-### Adding a manual extractor
-
-For languages where tree-sitter support is incomplete or you need deeper semantic
-understanding, add a manual extractor in `m1nd-ingest/src/extract/`:
-
-1. Create `your_lang.rs` implementing the extractor logic. Return `Vec<ExtractedNode>`
-   and `Vec<ExtractedEdge>`.
-2. Register the file extension in `m1nd-ingest/src/lib.rs` pipeline dispatch.
-3. Existing examples: `m1nd-ingest/src/extract/` (Python, Rust, TypeScript, Go, Java).
-
----
-
-## Memory Adapter
-
-`m1nd-ingest/src/memory_adapter.rs` turns markdown and plain text files into a graph.
-This is the path for AI agent memory, project wikis, and knowledge bases.
-
-### How it works
-
-The adapter parses `.md`, `.markdown`, and `.txt` files and creates nodes for:
-- `file::` — the document itself
-- `section::` — H1–H6 headings
-- `entry::` — bullet points, checkboxes, table rows, plain text lines
-- `reference::` — file paths cross-referenced in text
-
-Entries are classified by keyword: `todo`/`task` → `Process` with tag `memory:task`;
-`decision`/`decided` → `Concept` with tag `memory:decision`; etc.
-
-Canonical source detection marks `YYYY-MM-DD.md`, `memory.md`, `*-active.md`,
-`*-history.md`, and files containing `briefing` as `canonical=true` in provenance.
-
-Node ID scheme:
-```
-memory::<namespace>::file::<file-slug>
-memory::<namespace>::section::<file-slug>::<heading-slug>-<n>
-memory::<namespace>::entry::<file-slug>::<line-no>::<entry-slug>
-memory::<namespace>::reference::<path-slug>
-```
-
-### Using the adapter via MCP
-
-Pass `adapter: "memory"` to `ingest`:
-
-```json
-{
-  "name": "ingest",
-  "arguments": {
-    "path": "/path/to/notes/",
-    "adapter": "memory",
-    "namespace": "project-x",
-    "agent_id": "your-agent"
-  }
-}
-```
-
-The `namespace` parameter scopes all node IDs (default: `"memory"`). Ingest multiple
-note directories with different namespaces and they coexist in the same graph.
-
-### Extending the adapter
-
-To add a new content classification rule, edit the entry classification block in
-`memory_adapter.rs`. Each rule matches keywords in entry text and maps to a
-`(NodeType, tag, relation)` triple. The adapter uses the first matching rule,
-with a default catch-all of `(Concept, "memory:note", "contains")`.
-
-To add a new canonical source pattern, add to the `is_canonical()` function.
-
----
-
-## Domain Configuration
-
-`M1ND_DOMAIN` (env var) or the `domain` field in the config JSON controls which
-`DomainConfig` preset is active. This affects temporal decay half-lives and which
-edge types are considered meaningful for co-change analysis.
-
-| Domain | Use case | git_co_change |
-|--------|---------|---------------|
-| `code` | Software codebases | true |
-| `music` | Audio/DAW graphs | false |
-| `memory` | Agent memory, wikis | false |
-| `generic` | Any other graph | false |
-
-New domain presets go in `m1nd-core/src/domain.rs`. Implement `DomainConfig::your_domain()`
-and add it to the `from_str()` dispatch.
-
----
-
-## Testing
-
-### Unit tests
+## Building and feature flags
 
 ```bash
-# All crates
-cargo test --all
+# Default workspace build
+cargo build --locked --workspace
 
-# Single crate
-cargo test -p m1nd-core
-cargo test -p m1nd-ingest
-cargo test -p m1nd-mcp
+# Fast incremental dev profile (defined in Cargo.toml)
+cargo build --locked --profile dev-fast --workspace
+
+# Release workspace build
+cargo build --locked --release --workspace
 ```
 
-Each module has inline tests at the bottom of the file (`#[cfg(test)] mod tests { ... }`).
+### `m1nd-mcp` features (`m1nd-mcp/Cargo.toml`)
 
-### Integration test guidelines
-
-- New tools: add a test in the E2E shell script that exercises the happy path + one
-  error case.
-- New extractors: add a fixture file in the test corpus and assert on node/edge counts.
-- Core algorithm changes: add both a unit test at the function level and an E2E test
-  that exercises the full stack.
-
-### Testing `apply` and `apply_batch` with `verify=true`
-
-`apply` and `apply_batch` both accept an optional `verify` flag (v0.5.0+).
-When `verify=true`, the server performs a post-write graph consistency check: it re-reads
-the written file, confirms the content round-trips through ingest cleanly, and returns
-a `verify` block in the response with `passed`, `node_delta`, and `edge_delta`.
-
-When adding tests for tools that call `apply` or `apply_batch`, include a case that
-sets `verify=true` and asserts on the `verify.passed` field:
+- `default = ["serve", "embed"]`
+- `serve` — Axum HTTP/REST server, embedded UI, and `--attach` / `--discover-owner` client.
+- `embed` — local static embeddings via `m1nd-core/embed` (`model2vec-rs`).
 
 ```bash
-# E2E: apply with verify
-echo '{"method":"tools/call","params":{"name":"apply","arguments":{
-  "agent_id":"test","file_path":"/tmp/test_apply.py",
-  "new_content":"def hello(): pass\n","verify":true
-}}}' | ./m1nd-mcp | jq '.result.verify'
-# Expected: {"passed": true, "node_delta": 1, "edge_delta": 0}
+# Lean stdio-only edge (also checked in CI)
+cargo check --locked -p m1nd-mcp --no-default-features
 
-# E2E: apply_batch with verify
-echo '{"method":"tools/call","params":{"name":"apply_batch","arguments":{
-  "agent_id":"test",
-  "edits":[
-    {"file_path":"/tmp/a.py","new_content":"x = 1\n"},
-    {"file_path":"/tmp/b.py","new_content":"y = 2\n"}
-  ],
-  "verify":true
-}}}' | ./m1nd-mcp | jq '.result.verify'
-# Expected: {"passed": true, "files_verified": 2}
+# Served binary without local static embeddings
+cargo build --locked --release -p m1nd-mcp --no-default-features --features serve
 ```
 
-The `verify` flag is designed for CI and agent harnesses where silent write failures
-are unacceptable. It adds ~1–3ms per file written (one ingest round-trip).
+### `m1nd-ingest` features (`m1nd-ingest/Cargo.toml`)
 
----
-
-## Feature Flags
-
-`m1nd-ingest/Cargo.toml` defines the tier system:
-
-```toml
-[features]
-default = ["tier2"]
-tier1 = [...]    # 14 tree-sitter languages
-tier2 = ["tier1", ...]  # 8 more languages (default build)
-```
-
-`m1nd-mcp` has no additional feature flags — it inherits from m1nd-ingest via the
-workspace dependency chain.
-
-To build with only native extractors (smaller binary, faster compile):
+- `default = ["tier2"]`
+- `tier1` — 14 routed tree-sitter languages (C, C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Bash, Lua, R, HTML with embedded JS/CSS, CSS, JSON) plus tree-sitter Rust/JavaScript support.
+- `tier2` — `tier1` plus 8 languages (Elixir, Dart, Zig, Haskell, OCaml, TOML, YAML, SQL), 22 routed tree-sitter languages total.
 
 ```bash
-cargo build --release --no-default-features
+# Manual extractors only (Python, TypeScript/JavaScript, Rust, Go, Java + generic fallback)
+cargo build --locked -p m1nd-ingest --no-default-features
+
+# Tier 1 only
+cargo build --locked -p m1nd-ingest --no-default-features --features tier1
 ```
 
-To build with only Tier 1:
+## Running tests and gates
+
+CI classifies every pull request with `scripts/ci_scope.py` and runs the selected gates in `.github/workflows/ci.yml` (`docs/TEST-PORTFOLIO.md` explains the path mapping). Run the gates that match your changes locally before opening a PR.
+
+### Rust gates
+
+Fast day-to-day signal over the core invariant profile (not a substitute for the full merge gate):
 
 ```bash
-cargo build --release --no-default-features --features tier1
+bash scripts/lightning_check.sh
 ```
 
-The full Tier 2 build (default) produces the release binary shipped in
-`target/release/m1nd-mcp`.
+Full local Rust proof:
 
----
+```bash
+cargo nextest run --locked --workspace --all-targets
+cargo test --locked --workspace --doc
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo check --locked -p m1nd-mcp --no-default-features
+```
 
-## What to Work On
+Notes:
+- `cargo test --locked --workspace --doc` is required in addition to `nextest` because `nextest` does not execute doctests; `m1nd-mcp` carries 13 `compile_fail` doctests guarding crate-internal boundaries.
+- CI's `rust-full` job runs `cargo test --locked --workspace --all-targets` on Ubuntu, macOS, and Windows (plus `cargo build --locked --release --workspace` on pushes to `main`).
+- Scoped PR runs (`rust-scoped`) execute `scripts/lightning_check.sh`, `scripts/rust_pr_check.py`, and `cargo fmt --all --check` on Ubuntu and Windows.
 
-### Language Extractors (high impact)
+### npm host, pack, and native cache gates
 
-m1nd currently supports 22 languages via tree-sitter (Tier 1+2) plus Python, Rust,
-TypeScript/JavaScript, Go, and Java via manual extractors. Adding more tree-sitter
-grammars is the fastest path to expanding language coverage.
+The root `package.json` must remain dependency-free (`dependencies`, `devDependencies`, and `optionalDependencies` empty).
 
-Before adding a grammar crate: verify it depends on `tree-sitter-language` (new API),
-not `tree-sitter 0.19/0.20`. Old-API crates cause silent parse failures at runtime.
+```bash
+npm test
+npm run m1nd:pack-check
+npm run m1nd:pack-routing-check
+npm pack --dry-run
+```
 
-### Graph Algorithms
+To exercise the real-binary cache and concurrency tests run by CI's `agent-cache-real-gates` job:
 
-The core engine in `m1nd-core/` has room for improvement:
-- Community detection algorithms
-- Better spreading activation decay functions
-- Smarter ghost edge inference
-- Embedding-based semantic scoring (V1 is trigram-only)
+```bash
+cargo build --locked -p m1nd-mcp
+M1ND_TEST_AGENT_CACHE_BINARY="$(pwd)/target/debug/m1nd-mcp" \
+  node --test --test-concurrency=1 \
+  npm/test/agent-cli-cache-real.test.js \
+  npm/test/agent-cli-cache-concurrency-real.test.js
+```
 
-### MCP Tools
+### Web UI gates (`m1nd-ui/`)
 
-New tools that leverage the graph are welcome. Each tool is a handler in `m1nd-mcp/src/`.
-The pattern is consistent -- look at existing tools for the structure.
+`m1nd-ui/dist/` is tracked in git and embedded into `m1nd-mcp`. Commit rebuilt `dist/` output alongside any UI source change; CI fails if a clean build differs.
 
-### Benchmarks
+```bash
+cd m1nd-ui
+npm ci
+node --test ../scripts/devkit/ui-dev.test.mjs
+npm test
+npm run lint:soft
+npm run lint
+npm run build
+git status --porcelain --ignored=matching -- dist   # must be empty
+```
 
-Run m1nd on your codebase and report performance. We track real-world numbers, not synthetic benchmarks.
+When touching UI shell chrome, navigation, landmarks, or labels, also run the separate browser suites (install Playwright Chromium once with `npx playwright install --with-deps chromium`):
 
----
+```bash
+cd m1nd-ui
+npm run test:e2e
+npm run test:e2e:a11y
+```
 
-## Code Standards
+### Python proof harnesses
 
-- `cargo fmt` before committing
-- `cargo clippy -- -D warnings` must pass
-- All new code needs tests
-- No `unsafe` without a comment explaining why
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
 
-## Pull Requests
+### Security, frozen contracts, and documentation coupling
 
-1. Fork the repo and create a branch from `main`
-2. Make your changes with tests
-3. Ensure `cargo test --all` passes
-4. Ensure `cargo clippy --all -- -D warnings` passes
-5. Ensure `cargo fmt --all -- --check` passes
-6. Open a PR with a clear description of what and why
+These run on every PR in `.github/workflows/ci.yml`:
 
-## Issues
+```bash
+# Candidate source boundary guard (rejects private, secret, or oversized paths)
+python3 scripts/m1nd10_candidate_source_guard.py --repo . --revision HEAD
 
-Use GitHub issues for bugs, feature requests, and questions. Label your issue:
-- `bug` -- something doesn't work
-- `enhancement` -- new feature or improvement
-- `good first issue` -- suitable for new contributors
-- `language-extractor` -- new language support
-- `algorithm` -- graph algorithm work
+# Frozen M1ND-10 contract checksums (must match ci.yml)
+printf '%s  %s\n' \
+  '2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b' 'docs/M1ND-10-PRD.md' \
+  'd5bc29776f516c300cb1a0668f0a53844286f75395fd0ad1e875b52ea3a067a5' 'docs/M1ND-10-UML.md' \
+  | shasum -a 256 -c -
+
+# Agent-workflow documentation coupling gate
+python3 scripts/agent_docs_gate.py --base-ref main
+```
+
+CI additionally runs `gitleaks` over full commit history, `cargo audit --file ./Cargo.lock` on full coverage, and `npm audit --audit-level=high` inside `m1nd-ui/` when UI dependencies change.
+
+## Adding MCP tools
+
+1. **Schema (`m1nd-mcp/src/server.rs`):** register the tool in `all_tool_schemas_inner()`. Every tool's `inputSchema` must declare a top-level `"type": "object"` (enforced by `every_tool_input_schema_is_top_level_object`).
+2. **Policy route (`m1nd-mcp/src/action_routes.rs`):** add the verb to `MCP_TOOL_ROUTE_NAMES` and map it to its semantic action and authority floor; parity tests enforce exact equality with the tool registry.
+3. **Dispatch & handler:** wire dispatch in `m1nd-mcp/src/server.rs` and implement the handler (plus any protocol types in `m1nd-mcp/src/protocol/`). If the verb has custom REST interception ahead of the generic floor gate, declare it in `REST_ROUTE_SEATING` (`m1nd-mcp/src/http_server.rs`).
+4. **Menu discipline:** new verbs enter the 147-tool registry and remain discoverable via `help`; adding a verb to the 15-tool default core menu (`CORE_TOOLS` / `core_menu_tool_names()`) is a separate, deliberate decision.
+5. **Docs coupling:** `scripts/agent_docs_gate.py` requires any change to agent-workflow surfaces (`server.rs`, `tools.rs`, `protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, `npm/bin/`, `npm/lib/{cli,agent-cli,agent-schemas}.js`) to also update an agent-facing doc (`skills/`, `docs/`, `README.md`, `CONTRIBUTING.md`, or `AGENTS.md`), unless the PR carries the `agent-docs-exempt` label for a pure refactor.
+
+## Adding language extractors
+
+- **Tree-sitter grammar (preferred):** choose a crate using the new `tree-sitter-language` API (not legacy `tree-sitter` 0.19/0.20, which causes C symbol collisions and silent parse failures). Add it as an optional dependency in `m1nd-ingest/Cargo.toml` under `tier1` or `tier2`, add its `LanguageConfig` in `m1nd-ingest/src/extract/tree_sitter_ext.rs`, and route its extensions in `m1nd-ingest/src/lib.rs`.
+- **Manual extractor:** add a module in `m1nd-ingest/src/extract/` (see `python.rs`, `rust_lang.rs`, `typescript.rs`, `go.rs`, `java.rs`) and dispatch its extensions in `m1nd-ingest/src/lib.rs`.
+- **Domain presets:** `m1nd-core/src/domain.rs` defines `code`, `music`, `memory`, `generic`, and `light`.
+
+## Code standards and pull requests
+
+- Format Rust code with `cargo fmt` and fix all Clippy warnings (`-D warnings`).
+- Add unit or integration tests for new behavior; use neutral fixture names (`repo-alpha`, `tempfile` dirs) and never include personal paths, private hostnames, or secrets.
+- Document every `unsafe` block with a `// SAFETY:` comment explaining its invariant.
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`) with English messages describing what and why. PRs are squash-merged by default.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
