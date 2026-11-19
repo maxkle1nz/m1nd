@@ -1,4 +1,5 @@
 target/
+/.l00p/
 
 # m1nd-runnerd (F2.5c §5a): the operator-private runner config + the shared secret
 # are NEVER versioned. Only runners.example.toml (neutral placeholders) is tracked.
@@ -105,6 +106,9 @@ docs/benchmarks/**/runner-results/
 # tracked). The leading dot also makes the ingest walker skip them.
 agent-memory/.history/
 agent-memory/.locks/
+
+# Scratchpad: ephemeral local working dir, never published.
+scratchpad/
 
 # Internal/maintainer-only working docs (design drafts, build reports, benchmarks
 # with local paths) live here but are NOT published with the product.
