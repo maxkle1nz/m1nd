@@ -296,6 +296,21 @@ impl Owner {
         session_id
     }
 
+    async fn get_rest(&self, path: &str) -> serde_json::Value {
+        let response = self
+            .client
+            .get(self.endpoint.replace("/mcp", path))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("GET {path}: {error}"));
+        assert_eq!(response.status(), reqwest::StatusCode::OK, "GET {path}");
+        response
+            .json()
+            .await
+            .unwrap_or_else(|error| panic!("GET {path} JSON: {error}"))
+    }
+
     async fn unauthenticated_status(&self) -> reqwest::StatusCode {
         self.client
             .post(&self.endpoint)
@@ -599,4 +614,118 @@ async fn http_conflicting_grant_refuses_and_preserves_snapshot_and_roots() {
         std::fs::read(runtime.join("ingest_roots.json")).unwrap(),
         roots_before
     );
+}
+
+/// `/api/health` must agree with `/api/instance/self` about the bound graph, or
+/// decline to count with a stated reason. A zero beside a non-empty graph is the
+/// one answer it may never give.
+fn assert_health_counts_agree_with_instance_self(
+    health: &serde_json::Value,
+    instance_self: &serde_json::Value,
+) -> u64 {
+    let self_nodes = instance_self["graph_state"]["node_count"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("instance/self node_count: {instance_self}"));
+    let self_edges = instance_self["graph_state"]["edge_count"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("instance/self edge_count: {instance_self}"));
+    assert!(
+        self_nodes > 0,
+        "the launcher-granted fixture must yield a non-empty graph: {instance_self}"
+    );
+    if health["node_count"].is_null() {
+        let reason = health["graph_counts_unavailable_reason"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            !reason.is_empty(),
+            "health withheld node_count without naming why: {health}"
+        );
+        assert!(health["edge_count"].is_null(), "{health}");
+        return self_nodes;
+    }
+    assert_eq!(
+        health["node_count"].as_u64(),
+        Some(self_nodes),
+        "health node_count disagrees with instance/self ({self_nodes}): {health}"
+    );
+    assert_eq!(
+        health["edge_count"].as_u64(),
+        Some(self_edges),
+        "health edge_count disagrees with instance/self ({self_edges}): {health}"
+    );
+    self_nodes
+}
+
+/// Served-owner regression: a tool call that starts the bound actor BEFORE the
+/// first `/api/health` read used to leave health on a zeroed placeholder for
+/// the life of the process (node_count 0 and uptime 0 beside a populated
+/// graph), and a later refresh never reached it either.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_health_counts_follow_the_served_graph_after_tool_calls() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let workspace = temp.path().join("repo-alpha");
+    let runtime = temp.path().join("external-runtime");
+    write_fixture(&workspace, SYMBOL);
+
+    let mut owner = Owner::spawn(&workspace, &runtime).await;
+    tool_payload(
+        &owner
+            .call_with_root(
+                &workspace,
+                "search",
+                serde_json::json!({"agent_id": AGENT, "query": SYMBOL}),
+            )
+            .await,
+    );
+
+    let health = owner.get_rest("/api/health").await;
+    let instance_self = owner.get_rest("/api/instance/self").await;
+    let nodes_before = assert_health_counts_agree_with_instance_self(&health, &instance_self);
+    assert!(
+        health["uptime_secs"]
+            .as_f64()
+            .is_some_and(|uptime| uptime > 0.0),
+        "health uptime must be positive after the first tool call: {health}"
+    );
+
+    // Grow the granted workspace and refresh it: health must follow the graph,
+    // not keep whatever it held before the mutation.
+    std::fs::write(
+        workspace.join("src/lib.rs"),
+        format!("pub mod extra;\npub fn {SYMBOL}() -> u64 {{ 42 }}\n"),
+    )
+    .expect("grow fixture root");
+    std::fs::write(
+        workspace.join("src/extra.rs"),
+        "pub struct HealthProbe;\n\
+         pub fn health_probe_one() -> u64 { 1 }\n\
+         pub fn health_probe_two() -> u64 { health_probe_one() + 1 }\n",
+    )
+    .expect("grow fixture module");
+    let canonical_workspace = std::fs::canonicalize(&workspace).expect("canonical workspace");
+    let refresh = tool_payload(
+        &owner
+            .call_with_root(
+                &workspace,
+                "ingest",
+                serde_json::json!({
+                    "agent_id": AGENT,
+                    "path": canonical_workspace,
+                    "mode": "refresh",
+                    "adapter": "code"
+                }),
+            )
+            .await,
+    );
+    assert_eq!(refresh["ok"], serde_json::json!(true), "{refresh}");
+
+    let health = owner.get_rest("/api/health").await;
+    let instance_self = owner.get_rest("/api/instance/self").await;
+    let nodes_after = assert_health_counts_agree_with_instance_self(&health, &instance_self);
+    assert!(
+        nodes_after > nodes_before,
+        "the refreshed fixture must add nodes ({nodes_before} -> {nodes_after})"
+    );
+    owner.shutdown();
 }

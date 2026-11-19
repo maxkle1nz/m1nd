@@ -567,6 +567,17 @@ impl ProjectBrainRegistry {
         }
     }
 
+    /// The graph census the already-started bound actor published after its
+    /// last completed turn. Like [`Self::bound_runtime_health`] this never
+    /// enters the actor queue, never locks SessionState and never starts the
+    /// actor; `None` means no actor or no census yet.
+    pub(crate) fn bound_runtime_census(&self) -> Option<crate::brain_runtime::BrainGraphCensus> {
+        match self.bound_runtime.get() {
+            Some(Ok(bound)) => bound.runtime.graph_census(),
+            _ => None,
+        }
+    }
+
     /// Resolve the exact actor target used by external source mutations. Hosted
     /// project brains take precedence, matching live MCP selection; otherwise
     /// the selector must be covered by the bound owner. Unknown selectors and
