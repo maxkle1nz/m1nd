@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300" role="img" aria-labelledby="m1nd-icon-title">
+  <title id="m1nd-icon-title">m1nd mark</title>
+  <rect x="0" y="0" width="300" height="300" fill="#050505"/>
+  <g transform="translate(29,29)">
+    <line x1="121" y1="121" x2="20" y2="20" stroke="#F0EDE4" stroke-width="4"/>
+    <line x1="121" y1="121" x2="77" y2="222" stroke="#F0EDE4" stroke-width="4"/>
+    <line x1="121" y1="121" x2="160.5" y2="160.5" stroke="#F0EDE4" stroke-width="4"/>
+    <rect x="52.5" y="52.5" width="136" height="136" fill="none" stroke="#F0EDE4" stroke-width="13"/>
+    <line x1="121" y1="121" x2="222" y2="87" stroke="#8B5CF6" stroke-width="9"/>
+    <rect x="9" y="9" width="22" height="22" fill="#F0EDE4"/>
+    <rect x="66" y="211" width="22" height="22" fill="#F0EDE4"/>
+    <rect x="154" y="154" width="13" height="13" fill="#F0EDE4"/>
+    <rect x="211" y="76" width="22" height="22" fill="#F0EDE4"/>
+    <rect x="92.5" y="92.5" width="57" height="57" fill="#8B5CF6"/>
+  </g>
+</svg>
