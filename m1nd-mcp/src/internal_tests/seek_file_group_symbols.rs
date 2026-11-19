@@ -1,10 +1,11 @@
 //! File-group seek answers carry the file's best symbols (additive contract).
 //!
 //! A narrative `seek` returns one row per source file (`result_granularity:
-//! "file_group"`). The row's own span is the whole file, so each row may also
-//! carry `symbols`: up to three eligible symbols from that file, in the order of
-//! the node-level relevance rank seek computed before grouping. The field is
-//! omitted when empty and never changes the rows themselves.
+//! "file_group"`). The row's own span is the whole file, so each of the first
+//! ten rows may also carry `symbols`: up to three eligible symbols from that
+//! file as `{node_id, line_start, line_end}`, in the order of the node-level
+//! relevance rank seek computed before grouping. The field is omitted when empty
+//! and never changes the rows themselves.
 use crate::layer_handlers::{handle_focus, handle_seek};
 use crate::protocol::layers::SeekInput;
 use crate::server::{dispatch_tool, McpConfig};
@@ -34,6 +35,30 @@ fn add_node(
             source_path: Some(source_path),
             line_start: Some(lines.0),
             line_end: Some(lines.1),
+            excerpt: None,
+            namespace: None,
+            canonical: true,
+        },
+    );
+}
+
+fn add_tagged_file(graph: &mut Graph, path: &str, label: &str, tags: &[&str], last_line: u32) {
+    let node = graph
+        .add_node(
+            &format!("file::{path}"),
+            label,
+            NodeType::File,
+            tags,
+            0.0,
+            0.0,
+        )
+        .expect("add node");
+    graph.set_node_provenance(
+        node,
+        NodeProvenanceInput {
+            source_path: Some(path),
+            line_start: Some(1),
+            line_end: Some(last_line),
             excerpt: None,
             namespace: None,
             canonical: true,
@@ -92,7 +117,18 @@ fn session(root: &std::path::Path, mut graph: Graph) -> SessionState {
 fn guard_state(root: &std::path::Path) -> SessionState {
     let mut graph = Graph::new();
     let guard = "src/auth/session_guard.rs";
-    add_file(&mut graph, guard, "session_guard.rs", 240);
+    add_tagged_file(
+        &mut graph,
+        guard,
+        "session_guard.rs",
+        &[
+            "rust",
+            "m1nd:edge:unresolved",
+            "m1nd:edge:ambiguous",
+            "m1nd:edge:ambiguous:file::src/billing/invoice.rs::fn::compute_invoice_total",
+        ],
+        240,
+    );
     add_fn(&mut graph, guard, "validate_credentials", (12, 40));
     add_fn(&mut graph, guard, "grant_session_access", (44, 80));
     add_fn(&mut graph, guard, "check_account_access", (84, 120));
@@ -173,7 +209,7 @@ fn row_token_estimate(row: &Value) -> u64 {
         chars += text(&connection["label"]) + text(&connection["relation"]);
     }
     for symbol in row["symbols"].as_array().into_iter().flatten() {
-        chars += text(&symbol["node_id"]) + text(&symbol["label"]) + text(&symbol["node_type"]);
+        chars += text(&symbol["node_id"]);
     }
     chars.div_ceil(4) as u64
 }
@@ -192,21 +228,13 @@ fn narrative_seek_attaches_the_files_best_symbols_with_real_spans() {
         (Some(1), Some(240))
     );
 
+    // The row describes the file; graph edge-resolution diagnostics are not
+    // part of that description.
+    assert_eq!(first["intent_summary"], "session_guard.rs (file) [rust]");
+
     let symbols = first["symbols"]
         .as_array()
         .unwrap_or_else(|| panic!("the first file group carries no symbols: {first:#}"));
-    assert_eq!(
-        symbols.len(),
-        3,
-        "at most three symbols per file: {symbols:?}"
-    );
-    let relevant = [
-        "validate_credentials",
-        "grant_session_access",
-        "check_account_access",
-        "session_credentials_cache",
-    ];
-    let mut previous = f64::INFINITY;
     for symbol in symbols {
         let mut keys: Vec<&str> = symbol
             .as_object()
@@ -217,23 +245,9 @@ fn narrative_seek_attaches_the_files_best_symbols_with_real_spans() {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            [
-                "label",
-                "line_end",
-                "line_start",
-                "node_id",
-                "node_type",
-                "score"
-            ],
-            "a symbol carries its span but never an excerpt: {symbol:#}"
+            ["line_end", "line_start", "node_id"],
+            "a symbol carries its id and span, nothing else: {symbol:#}"
         );
-        let label = symbol["label"].as_str().expect("label");
-        assert!(relevant.contains(&label), "unexpected symbol {label}");
-        assert_eq!(
-            symbol["node_id"],
-            format!("file::src/auth/session_guard.rs::fn::{label}")
-        );
-        assert_eq!(symbol["node_type"], "function");
         let (start, end) = (
             symbol["line_start"].as_u64().expect("line_start"),
             symbol["line_end"].as_u64().expect("line_end"),
@@ -242,13 +256,18 @@ fn narrative_seek_attaches_the_files_best_symbols_with_real_spans() {
             start > 1 && end < 240 && start < end,
             "real span: {symbol:#}"
         );
-        let score = symbol["score"].as_f64().expect("score");
-        assert!(
-            score <= previous,
-            "symbols follow the relevance rank: {symbols:?}"
-        );
-        previous = score;
     }
+    // At most three, best first by node-level relevance; the unrelated
+    // `format_audit_line` ranks fifth and is cut.
+    assert_eq!(
+        symbol_ids(first),
+        [
+            "check_account_access",
+            "validate_credentials",
+            "session_credentials_cache"
+        ]
+        .map(|name| format!("file::src/auth/session_guard.rs::fn::{name}"))
+    );
 
     // A file with no eligible symbols omits the field instead of sending [].
     let docs = row(&output, "file::docs/session-access.md");
@@ -375,13 +394,52 @@ fn attached_symbols_break_ties_by_node_index_and_repeat_exactly() {
             "file::src/router.rs::fn::handle_request#2"
         ]
     );
-    let symbols = file["symbols"].as_array().expect("symbols");
-    assert_eq!(symbols[0]["score"], symbols[1]["score"], "an exact tie");
     assert_eq!(
         first["results"], second["results"],
         "identical across calls"
     );
     assert_eq!(first, second);
+}
+
+#[test]
+fn node_granularity_keeps_the_full_intent_summary() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = guard_state(temp.path());
+    let output = seek_json(&mut state, seek_input("session_guard.rs", None, &[]));
+    assert_eq!(output["result_granularity"], "node", "{output:#}");
+    let row = row(&output, "file::src/auth/session_guard.rs");
+    assert_eq!(
+        row["intent_summary"],
+        "session_guard.rs (file) [rust, m1nd:edge:unresolved, m1nd:edge:ambiguous, \
+         m1nd:edge:ambiguous:file::src/billing/invoice.rs::fn::compute_invoice_total]"
+    );
+    assert!(row.get("symbols").is_none(), "{row:#}");
+}
+
+/// Only the first ten rows carry symbols: the rows an agent reads first, and a
+/// bounded packet however large `top_k` is.
+#[test]
+fn only_the_first_ten_file_groups_carry_symbols() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut graph = Graph::new();
+    for file in 0..14 {
+        let path = format!("src/auth/guard_{file:02}.rs");
+        add_file(&mut graph, &path, &format!("guard_{file:02}.rs"), 100);
+        add_fn(&mut graph, &path, "validate_credentials", (10, 30));
+    }
+    let mut state = session(temp.path(), graph);
+    let mut input = seek_input(NARRATIVE, None, &[]);
+    input.top_k = 14;
+    let output = seek_json(&mut state, input);
+    assert_eq!(output["result_granularity"], "file_group");
+    assert_eq!(rows(&output).len(), 14, "{output:#}");
+    for (position, row) in rows(&output).iter().enumerate() {
+        assert_eq!(
+            row.get("symbols").is_some(),
+            position < 10,
+            "row {position}: {row:#}"
+        );
+    }
 }
 
 #[test]
