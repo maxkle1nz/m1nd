@@ -4,37 +4,85 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ---
 
-## [2.0.0] — Development branch preview, unreleased
+## [2.0.0] — Unreleased
 
-- Retains the strict major-version proposal for PR #580's existing partial-feedback no-mutation refusal; authority and calibration floors remain unchanged.
-- Includes thirteen Rust dependency updates, with four maintenance advisories retained under triage.
-- Includes the separately verified local graph/branch/view, relation-edit and conservative Python-call source batch. Freshness checks remain bounded; memory claims are not certified or automatically shared. The combined candidate has no migration or release qualification.
-- See [integration scope and outstanding gates](docs/RELEASE-2.0.0-PROPOSAL.md).
+Source tree on the 2.0.0 release line (`@maxkle1nz/m1nd`, `m1nd-core`,
+`m1nd-ingest`, `m1nd-mcp`, and `server.json` at `2.0.0`; `m1nd-control` at
+`0.2.4`; `m1nd-runnerd` remains `1.6.5`, unpublished). Legacy brain
+upgrade/rollback and signed 2.0.0 release/updater artifacts are not yet
+qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-PROPOSAL.md)).
 
-## [Unreleased]
+### Breaking / Changed
+
+- **Learning feedback is relevance-only (#580):** `learn(correct|wrong)` adjusts
+  graph relevance weights without recording defects, false alarms, observed
+  co-change, or automatic antibodies. Ambiguous `partial` feedback now refuses
+  without mutation (driving the 2.0.0 major bump); zero strength is a no-op.
+  Public learning and calibration authority floors remain unchanged. See
+  [docs/LEARNING-EVENT-SEMANTICS.md](docs/LEARNING-EVENT-SEMANTICS.md).
+- **Lean repository layout (PR #595):** aligned `2.0.0` metadata (`server.json`,
+  `package.json`, `SECURITY.md`, `xray.manifest.json`) and rewrote `README.md`,
+  `CONTRIBUTING.md`, and `AGENTS.md` to match the current tree.
+
+### Added
+
+- **Truthful, atomic host installer (PR #595):**
+  - Host config files are written atomically, with backups stored under
+    `~/.m1nd/backups/` using private `0700`/`0600` permissions on Unix. MCP
+    `env` secrets are excluded from host scoping and status output.
+  - **Claude Code:** installs skills globally to `~/.claude/skills/`, writes
+    project MCP config to `<project>/.mcp.json` without modifying
+    `~/.claude.json`, and reports Claude's real scope precedence
+    (`local > project (.mcp.json) > user`) with the `claude mcp remove m1nd -s local`
+    remediation when a local entry shadows `.mcp.json`.
+  - **Codex:** honors `CODEX_HOME` (default `~/.codex`) for skills,
+    `config.toml`, and `hooks.json`, and detects outdated skills in
+    `hosts status`.
+  - **Antigravity:** installs skills as a plugin under
+    `~/.gemini/config/plugins/m1nd/` (refusing symlinked or foreign
+    directories) and writes global MCP config to
+    `~/.gemini/config/mcp_config.json`.
+- **Automatic isolated freshness and branch views:** isolated agent CLI runs
+  (`agent first-minute`, `orient`, anchored `context`, `kickstart` with
+  `--no-attach --state-dir`) add canonical root/branch/`HEAD` boundary guards,
+  `runtime.view` and persisted `runtime.graph_snapshot_version` receipts,
+  read-only `agent memory-check --no-attach`, and explicit bounded-freshness
+  declarations ([docs/AUTOMATIC-GRAPH-FRESHNESS.md](docs/AUTOMATIC-GRAPH-FRESHNESS.md)).
+- **Conservative Python call extraction:** `m1nd-ingest` extracts direct
+  same-module call edges for a conservative plain-function subset in Python.
+- **Exact relation removal & batched runtime-overlay matching:** relation edits
+  remove exact edges; runtime-overlay span matching reuses batch-local
+  substring filters while preserving existing matching rules
+  ([docs/RUNTIME-OVERLAY-MATCHING.md](docs/RUNTIME-OVERLAY-MATCHING.md)).
 
 ### Fixed
 
-- Internal learning feedback is relevance-only: `learn(correct|wrong)` changes
-  graph weights without recording defects, false alarms, observed co-change or
-  automatic antibodies. Ambiguous `partial` feedback refuses without mutation;
-  zero strength is a no-op. See [learning event semantics](docs/LEARNING-EVENT-SEMANTICS.md).
-  This post-release fix is not part of the sealed 1.6.5 artifacts.
+- **Owned-memory refresh preparation:** `ingest {mode: "refresh"}` prepares
+  code and owned memory together before the unchanged 60% shrink guard so an
+  unchanged source tree can resume after a grounded memory write
+  ([docs/REFRESH-OWNED-MEMORY.md](docs/REFRESH-OWNED-MEMORY.md)).
+- **Cross-platform and UI alignment:** set `USERPROFILE` alongside `HOME` in
+  host installer tests on Windows, applied Rust clippy fixes preserving
+  `cfg(windows)` reparse-point guards, made `root_identity` test expectations
+  OS-neutral, and rebuilt tracked `m1nd-ui/dist/` from current sources.
 
 ### Security
 
-- **November dependency security update (unreleased source candidate):**
-  updates seven locked Rust packages (`crypto-bigint` 0.7.5→0.7.9, `ctutils`
-  0.4.2→0.4.5, `quinn-proto` 0.11.16→0.11.18, `rustls` 0.23.45→0.23.46,
-  `rustls-webpki` 0.103.15→0.103.16, `webpki-root-certs` 1.0.6→1.0.10,
-  `webpki-roots` 1.0.8→1.0.10) plus `vite` 8.1.5→8.1.6 and transitive `zod`
-  4.4.3→4.6.7. Against RustSec `26fd2d43f7280a1fb925a3743ec463017afe7119`
-  (2026-11-05), vulnerability findings drop from 14 to 0 (with 6
-  informational warnings remaining); `npm audit` drops from 12 findings (2
-  high) to 10 moderate (`minimatch` via ESLint). Source APIs, persisted
-  formats, authority rules, and published 1.6.5 binaries are unchanged. See
-  [runtime-overlay matching](docs/RUNTIME-OVERLAY-MATCHING.md) for the preserved
-  overlay contract.
+- **Rust and UI dependency updates (#592, #594):** updated locked Rust
+  dependencies including `quinn-proto` to `0.11.19` (RUSTSEC-2026-0523,
+  RUSTSEC-2026-0524), `quinn-udp` to `0.5.16` (RUSTSEC-2026-0538),
+  `crypto-bigint` `0.7.9`, `ctutils` `0.4.5`, `rustls` `0.23.46`,
+  `rustls-webpki` `0.103.16`, `webpki-root-certs` `1.0.10`, and `webpki-roots`
+  `1.0.10`, plus `vite` `8.1.6` and transitive `zod` `4.6.7` in `m1nd-ui`.
+
+### Removed
+
+- Removed defunct `m1nd-openclaw` crate and macOS openclaw bridge scripts,
+  stale `i18n/README.*.md` translations and translation workflow, the
+  `.github/wiki/` mirror, legacy `tests/e2e/` shell scripts,
+  `docs/INSTALL-1.6.3.md`, legacy macOS proxy/watcher scripts, unused
+  `m1nd-demo` UI components, and unreferenced diagrams/assets; archived legacy
+  PRDs, proof receipts, and historical benchmark dumps.
 
 ## [1.6.5] — 2026-10-11
 
