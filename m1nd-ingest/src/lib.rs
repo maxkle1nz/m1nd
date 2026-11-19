@@ -491,6 +491,11 @@ pub struct IngestStats {
     pub elapsed_ms: f64,
     pub commit_groups: Vec<Vec<String>>,
     pub discovered_files: Vec<walker::DiscoveredFile>,
+    /// The commit the walk observed at `HEAD` for a full-root code ingest
+    /// (`VcsContextV1::head_oid`). `None` for an unversioned root, an unborn
+    /// branch, a partial (exact-file) ingest, and every non-code adapter: an
+    /// absent commit is unknown, never "current".
+    pub vcs_head_oid: Option<String>,
 }
 
 /// A code graph plus the exact per-source ownership needed for safe incremental
@@ -1187,6 +1192,11 @@ impl Ingestor {
         stats.files_scanned = walk_result.files.len() as u64;
         stats.commit_groups = walk_result.commit_groups.clone();
         stats.discovered_files = walk_result.files.clone();
+        // Only a full-root walk observes the whole checkout at one commit; an
+        // exact-file replacement leaves every other source at its old commit.
+        if exact_source_key.is_none() {
+            stats.vcs_head_oid = walk_result.vcs.head_oid.clone();
+        }
         if !walk_result.files.is_empty() && start.elapsed() >= self.config.timeout {
             return Err(M1ndError::IngestionTimeout {
                 elapsed_s: start.elapsed().as_secs_f64(),

@@ -445,6 +445,9 @@ impl GraphIngestA2CandidateStatsV1 {
                 elapsed_ms: self.elapsed_ms,
                 commit_groups: self.commit_groups,
                 discovered_files,
+                // The durable A2 candidate does not carry the walk's commit, so
+                // the graph it installs records no indexed commit (unknown).
+                vcs_head_oid: None,
             },
             self.file_inventory,
         )

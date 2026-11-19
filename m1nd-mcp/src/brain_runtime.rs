@@ -581,6 +581,7 @@ const OPTIONAL_SESSION_SIDECARS: &[(&str, &str)] = &[
     ("auto_ingest_state", "auto_ingest_state.json"),
     ("document_cache_index", "document_cache_index.json"),
     ("embeddings_cache", "embeddings_cache.bin"),
+    ("indexed_vcs_state", "indexed_vcs_state.json"),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

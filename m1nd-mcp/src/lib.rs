@@ -44,6 +44,8 @@ pub mod daemon_handlers;
 /// NOT_INSTALLED and fails closed — never a software-assurance fallback.
 #[cfg(target_os = "macos")]
 pub mod enclave_authority;
+// Freshness at first contact — the indexed commit and the `graph_drift` note.
+pub mod graph_drift;
 pub mod help_guidance;
 pub mod owner_security_config;
 pub mod protected_journal_head;

@@ -967,7 +967,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. When the graph was built at another commit than your checkout it carries graph_drift (indexed vs head commit, commits behind, files changed, and the exact refresh call) — absent when the graph is at HEAD. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -6261,6 +6261,15 @@ fn handle_north(
         .as_ref()
         .and_then(|r| r.get("match").and_then(|m| m.as_str()))
         == Some("caller_root_mismatch");
+    // Freshness at first contact: a graph built at another commit than the
+    // caller's checkout says so in ONE note, and a graph at HEAD adds nothing.
+    // Skipped where the packet already disowns the graph for this caller (a
+    // mismatch, a brainless caller) or there is no graph to be stale.
+    let graph_drift = if graph_populated && !reception_mismatch && !brainless_caller {
+        crate::graph_drift::graph_drift_note(state)
+    } else {
+        None
+    };
     let code = if code_enabled && !context.is_null() && !reception_mismatch {
         let focus_nodes = context
             .get("focus_nodes")
@@ -6396,6 +6405,13 @@ fn handle_north(
     if let Some(card) = human_view {
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("human_view".to_string(), card);
+        }
+    }
+    // The drift note rides ONLY when the graph is behind (or apart from) the
+    // caller's checkout — absent, not null, at HEAD.
+    if let Some(note) = graph_drift {
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("graph_drift".to_string(), note);
         }
     }
     Ok(packet)

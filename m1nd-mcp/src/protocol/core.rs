@@ -566,6 +566,11 @@ pub struct HealthOutput {
     /// a caller_root mismatch; absent on match / unknown caller (serde-skipped).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reception: Option<serde_json::Value>,
+    /// Freshness at first contact: present only when the graph's indexed commit
+    /// differs from the caller's checkout HEAD (`crate::graph_drift`); absent
+    /// (serde-skipped) when the graph is at HEAD or no commit is recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_drift: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

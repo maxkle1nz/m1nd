@@ -92,6 +92,11 @@ this loop by default:
    packet `proof_state: "reception_mismatch"` with `context: null`: it returns
    the reception and the human-voice card WITHOUT orienting over a graph that is
    not yours (a mismatch is a millisecond answer, not a spread-activation).
+   Heed `graph_drift` too: it is present only when the graph was built at another
+   commit than your checkout (`indexed`, `head`, `behind`, `files_changed`), and
+   its `refresh` field is the exact `ingest` call that brings the graph to HEAD.
+   Until it runs, read line numbers as of `indexed`; verify against local files.
+   Absent means the graph is at your HEAD (or no commit was recorded).
    Generic cross-root `ingest` remains withdrawn: never
    add `project_root` or `allow_overlap`, and never treat the internal owner
    bootstrap as an executable repair. A brainless repo now has ONE real path —
