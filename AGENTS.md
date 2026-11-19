@@ -34,9 +34,7 @@ but GitHub still forbids merging a draft.
 `main`, merge-group candidates, nightly and manual dispatch always select the
 three-OS full Rust proof. Whole CI/config/Cargo/build-script/security-policy
 changes also select full. Retrobuilder source/test paths select that same full
-lane: real-repository ingestion exceeded the scoped nextest job budget.
-The current PR's global CI change therefore runs the
-full lane once. This amendment does not claim a measured duration yet. See
+lane: real-repository ingestion exceeded the scoped nextest job budget. See
 `docs/TEST-PORTFOLIO.md` for the path mapping and the preserved history of the
 previous draft/ready policy.
 
@@ -104,7 +102,7 @@ broken under green PRs (an override pinned `brace-expansion@5` beneath the CJS `
 eslint 9 pulled, and every run died with `TypeError: expand is not a function`). Warnings do not
 fail the gate; errors do.
 
-**`m1nd-ui/dist` is tracked on purpose** (`.gitignore:21` — rust-embed compiles it into every
+**`m1nd-ui/dist` is tracked on purpose** (`.gitignore:20` — rust-embed compiles it into every
 `m1nd-mcp` binary), so the build output above is *part of your change*: commit it. `ui-gates`
 rebuilds from a clean checkout and fails if `dist` comes out different. That gate exists because
 nothing else could see the drift: the build digest, the runtime digest and the `ui_bundle`
@@ -113,7 +111,7 @@ reported COHERENT (2026-07-29, mailbox letter `84fde5e4da2e`). The build is byte
 three consecutive host builds and a `linux/amd64` `node:22` container emit an identical tree — so
 a red there is drift, not nondeterminism.
 
-Touching the shell chrome (`src/App.tsx`, navigation, landmarks, any control's label) also runs
+Touching the shell chrome (`m1nd-ui/src/App.tsx`, navigation, landmarks, any control's label) also runs
 the two browser lanes, which CI keeps **separate on purpose** — G7 counts them one by one:
 
 ```bash
@@ -149,80 +147,44 @@ If a test flakes under parallel build-cache contention (e.g. `retrobuilder_real`
 it in isolation (`cargo test -p m1nd-core --test retrobuilder_real`) before concluding.
 
 **Brain-actor hand-off is a signal, never a poll.** A brain session's single-writer fence
-(`actor_active`) is lowered by the OUTGOING owner, and `BrainActorHandle::drop` hands that
-shutdown to a *detached guardian thread* — so when a registry drops, the fence it held is
-still up, and clears at an instant the next binder cannot predict. The bound bind therefore
-waits on the cell's release signal (`BrainSessionCell::wait_for_actor_release`) instead of
-deciding that race on first read. Never answer `brain session already has an active actor
-owner` with a longer wait, a retry budget, or `#[ignore]`: a refusal from the bound bind is
-CACHED in `bound_runtime` for the life of the registry, so a retry loop can only re-read its
-own refusal — which is exactly how a 300×100ms spin sat in `host_for_brain` looking like a
-mitigation while burning 30s and failing anyway. `SOURCE_MATRIX_SERIAL` (the source-recovery
-matrix latch) survives only as a LOAD limiter and no longer guards correctness, so a
-process-per-test runner no longer breaks that family by giving each test its own copy.
+(`actor_active`) is lowered by the outgoing owner's detached shutdown thread. The bound bind waits
+on `BrainSessionCell::wait_for_actor_release` rather than polling or retrying — a refusal from the
+bound bind is cached in `bound_runtime` for the life of the registry, so never answer `brain session
+already has an active actor owner` with sleeps, retry budgets, or `#[ignore]`.
 
-**A gate is evidence only about the tree it ran in.** Cargo's metadata hash does not encode
-the source path, so two checkouts sharing one `CARGO_TARGET_DIR` emit the same artifact name
-and one can link the other's binary. Measured across parallel worktrees on 2026-07-27/28: a
-checkout whose `m1nd-control/src/action_catalog.rs` held 169 entries linked a sibling's 172
-and failed 47 tests with `CatalogDrift` — cured by `touch` alone, with no code change. The
-red is the harmless half; a gate that PASSES on another checkout's binary makes the claim
-unfalsifiable. So before running gates anywhere parallel checkouts exist, take this one's
-own directory:
+**A gate is evidence only about the tree it ran in.** Cargo's metadata hash does not encode the
+source path, so parallel checkouts sharing one `CARGO_TARGET_DIR` can link each other's binaries.
+Before running gates anywhere parallel checkouts exist, take this checkout's own target directory:
 
 ```bash
 export CARGO_TARGET_DIR="$(scripts/cargo_target_dir.sh)"   # deterministic, per-checkout
 ```
 
-Deliberately not a checked-in `.cargo/config.toml`: CI and a lone clone already build in
-isolation, and no contributor should inherit this machine's build layout.
+## Runtime surface invariants
 
-**MCP tool-schema contract:** every advertised tool's `inputSchema` MUST declare a top-level
-`"type": "object"` (MCP spec). Strict clients (Claude Code) reject the ENTIRE `tools/list`
-when a single tool violates it — the 2026-07-22 incident (a bare top-level `oneOf` on
-`mission_service`/`external_mutation_service`) silently unregistered all 48 tools from live
-sessions. The registry-wide regression test `every_tool_input_schema_is_top_level_object`
-(`m1nd-mcp/src/server.rs`) enforces this; never weaken it to land a schema.
-
-**THE MENU IS NOT THE REGISTRY (since 2026-08-01).** `tools/list` advertises a CORE MENU of
-about 15 verbs — `CORE_TOOLS` (the owner-ratified 12: `north`, `memorize`, `ingest`, `seek`,
-`search`, `health`, `trust_selftest`, `view`, `impact`, `session_handshake`, `boot_memory`,
-`surgical_context`) ∪ `HOST_BINDING_REQUIRED_TOOLS` — while the registry holds 140+.
-The cut was measured, not aesthetic: over six weeks of real traffic, 141 advertised verbs
-produced calls to 13, and across every prefix family exactly two calls were ever made.
-
-Three rules follow, and they are load-bearing when you touch this area:
-
-- **The cut lives at ONE seam: `tool_schemas_for_tier` (the menu).** `all_tool_schemas` (the
-  registry) and dispatch are untouched, which is why the two policy-parity guards in
-  `action_routes.rs` still compare the registry to `MCP_TOOL_ROUTE_NAMES` and keep their full
-  meaning, and why the `POLICY-DISABLED` floor annotations still ride on every description
-  (they are applied to the registry BEFORE the filter). A new verb is registered and routed
-  exactly as before; adding it to the menu is a separate, deliberate act.
-- **The menu is DERIVED, never a second hand-typed list.** `core_menu_tool_names()` is
-  `CORE_TOOLS ∪ HOST_BINDING_REQUIRED_TOOLS`. Serving the bare 12 would have made every host
-  report `degraded_host_tool_surface` (the trust contract requires `help`/`doctor`/
-  `recovery_playbook` be visible) and reach for a recovery verb that was not there. Never
-  "fix" a menu test by shrinking `HOST_BINDING_REQUIRED_TOOLS` — that is weakening the honest
-  surface to pass. `CORE_MENU_MAX` bounds the menu, and `const _: () = assert!(CORE_MENU_MAX
-  < 30)` fails the BUILD if the bound stops meaning "fits on one screen".
-- **Hidden is not removed, so discovery is a contract.** `help` catalogs the FULL registry at
-  every tier (`help_guidance::schema_tools` reads `all_tool_schemas`) — never narrow it back
-  to the menu. The menu's `help` entry carries a computed `[CORE MENU]` line, the initialize
-  instructions teach it first, and `health.tool_surface_contract` reports `hidden_tool_count`
-  + `discovery_rule`. Battery: `server::tests::core_menu_*` and
-  `help_sees_every_verb_regardless_of_tier`.
-
-**REST route seating contract:** `POST /api/tools/{tool}` runs the F-01 generic floor gate
-(`enforce_generic_action_policy`) on its way to generic dispatch. A verb that carries its OWN
-interception in `handle_tool_call` — the owner→daemon proxies (`mission_spawn`,
-`candidate_naming`, `curation_spawn`) and the typed G3 facades — is refused by that gate, so
-seating one BEHIND it turns its REST path into dead code behind a 403 while every test stays
-green (it happened twice in the field: #471, #475). Declare every specially routed verb in
-`REST_ROUTE_SEATING` and give every owner proxy a probe in `OWNER_PROXY_PROBES`
-(`m1nd-mcp/src/http_server.rs`): the guard
-`rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate` reads the live route
-source and holds both tables exactly equal to it, in both directions.
+- **MCP tool-schema contract:** every advertised tool's `inputSchema` MUST declare a top-level
+  `"type": "object"` (MCP spec). Strict clients reject the entire `tools/list` when one tool omits
+  it. `every_tool_input_schema_is_top_level_object` (`m1nd-mcp/src/server.rs`) enforces this; never
+  weaken it.
+- **The menu is not the registry:** `tools/list` serves a **15-verb core menu** — `CORE_TOOLS` (12:
+  `north`, `memorize`, `boot_memory`, `ingest`, `seek`, `search`, `view`, `surgical_context`,
+  `impact`, `health`, `trust_selftest`, `session_handshake`) ∪ `HOST_BINDING_REQUIRED_TOOLS`
+  (adding `recovery_playbook`, `doctor`, `help`) — out of **147 registered tools** (`all_tool_schemas`
+  / `MCP_TOOL_ROUTE_NAMES`).
+  - The filter lives at one seam (`tool_schemas_for_tier`). Registry parity and `POLICY-DISABLED`
+    annotations apply to `all_tool_schemas` before filtering.
+  - `core_menu_tool_names()` is derived, never a second hand-typed list. Never shrink
+    `HOST_BINDING_REQUIRED_TOOLS` to pass a menu test; `const _: () = assert!(CORE_MENU_MAX < 30)`
+    pins the menu bound.
+  - `help` catalogs the full 147-verb registry at every tier (`help_guidance::schema_tools` reads
+    `all_tool_schemas`). Battery: `server::tests::core_menu_*` and
+    `help_sees_every_verb_regardless_of_tier`.
+- **REST route seating:** `POST /api/tools/{tool}` runs the generic floor gate
+  (`enforce_generic_action_policy`) before generic dispatch. Every verb with custom interception in
+  `handle_tool_call` (owner→daemon proxies `mission_spawn`, `candidate_naming`, `curation_spawn` and
+  typed G3 facades) must be declared in `REST_ROUTE_SEATING` with probes in `OWNER_PROXY_PROBES`
+  (`m1nd-mcp/src/http_server.rs`), enforced by
+  `rest_route_verb_seating_is_exhaustive_on_both_sides_of_the_floor_gate`.
 
 ## Git identity — ABSOLUTE
 
@@ -248,335 +210,127 @@ owner on port `1338` — all tests use temp dirs.
 
 ## How work lands — bursts, not PR-per-fix
 
-- **Local commits are cheap and atomic** (one per proven logical unit) — they do NOT trigger CI.
-- **The expensive round is push → PR → CI → merge.** Accumulate local commits for one
-  theme/session and land **one PR** that covers the batch — CI runs once per burst, not per fix.
-- For **async cloud agents** (Jules) each task becomes its own PR: scope tasks to
-  **independent, self-contained units** (a bug fix, a hygiene pass, a doc), not to pieces of a
-  themed batch that wants accumulation.
-- **Async-agent close-out (the platform-bot rule):** platform-authored bot commits are never
-  merged to main. The maintainer loop closes the work: cherry-pick the agent's diff re-authored
-  as the maintainer, complete any gate the agent missed (docs coupling above all), then land.
-  State the groundwork's provenance honestly in the commit body — never claim an authorship
-  the platform did not produce.
-- **How PRs merge (owner-ratified 2026-07-24): squash is the default.** One PR = one
-  conventional commit on main — the changelog is generated from commit subjects, branch noise
-  (WIP commits, conflict-resolution merges) never lands individually, and any PR reverts as one
-  gesture. **Merge commits are reserved** for ceremonies where the commit LINEAGE is itself the
-  artifact — the M1ND-10 candidate freezes, where each preserved commit carries its own guard
-  PASS (squash would destroy the proof). Auto-merge (squash) is armed on a PR once it has a
-  review verdict; never arm what nobody read.
-- The universal **documentation gate**: a behaviour/API/architecture change updates the repo's
-  `docs/`, wiki, `README`, and `docs/PATHOS.md` **in the same PR** — a feature is not done until
-  the docs reflect it.
+- **Local commits are cheap and atomic** (one per proven logical unit) — they do not trigger CI.
+  Accumulate commits for one theme/session into **one PR**.
+- **Async cloud agents** (e.g. Jules) should take independent, self-contained units. Platform-authored
+  bot commits are never merged to `main`; the maintainer cherry-picks and re-authors them, stating
+  provenance honestly in the commit body.
+- **Squash is the default merge strategy** (one PR = one conventional commit on `main`). Merge
+  commits are reserved for ceremonies whose commit lineage is itself the artifact. Never arm
+  auto-merge on an unreviewed PR.
+- **Documentation coupling:** behavior, API, or architecture changes update `docs/` (including
+  `docs/wiki/`), `README.md`, `CONTRIBUTING.md`, or `skills/` in the same PR (enforced by
+  `scripts/agent_docs_gate.py`).
 
-## Where the real truth lives (read before non-trivial work)
+## Where the real truth lives
 
-- **`docs/PATHOS.md`** — the canonical handoff: north star, current state, doctrine, next moves.
-  Read this first.
-- **`docs/uml/`** — the structural atlas: code-grounded architecture sheets and
-  open gaps.
-- **`CLAUDE.md`** — the repo's canonical build/gate/automation notes (also read by Claude Code).
+- **`docs/PATHOS.md`** — canonical handoff: north star, current state, doctrine, next moves.
+- **`docs/uml/`** — code-grounded architecture sheets and open gaps.
+- **`CONTRIBUTING.md`** and **`docs/TEST-PORTFOLIO.md`** — build commands, feature flags, and CI
+  scope mapping.
 
 ## The G6 blind benchmark is the owner's, not yours
 
-The G6 knowledge-quality ceremony is staged to one command
-(`scripts/benchmark/g6_formal_run.sh`, described in
-`docs/benchmarks/G6-FORMAL-CEREMONY.md`) and **only the owner runs it**. Agents may
-stage it, verify it, and run `--dry-run` or `g6_formal_preflight.sh`, which touch
-nothing but public artifacts. Three hard rules:
+The G6 knowledge-quality ceremony (`scripts/benchmark/g6_formal_run.sh`,
+`docs/benchmarks/G6-FORMAL-CEREMONY.md`) is **owner-only**. Agents may stage it, verify it, and run
+`--dry-run` or `scripts/benchmark/g6_formal_preflight.sh` (public artifacts only):
 
-- **Never open `docs/benchmarks/**/operator-only/` or `**/runner-results/`.** Those hold
-  the labels and the raw measurements. The blindness is structural — do not be the
-  hole in it. Hashing a sealed file against its pinned digest is fine; parsing it is not.
-- **Never simulate the ceremony.** A run that did not happen is `NOT_RUN`; a verdict
-  that was not measured is fraud. `NOT_PROVEN` is a legitimate, valuable outcome.
+- **Never open `docs/benchmarks/**/operator-only/` or `**/runner-results/`.** Hashing a sealed file
+  against its pinned digest is fine; parsing it is not.
+- **Never simulate the ceremony.** An unrun ceremony is `NOT_RUN`; `NOT_PROVEN` is a valid outcome.
 - **Never re-run to chase green.** The metric spec allows one sealed run per revision
   (`one_sealed_run_only_no_rerun_until_pass`); a `FAIL` stays in the record.
 
 ## The custody ceremony — the one surface no agent may run
 
 `m1nd-mcp --custody-ceremony <verb>` drives the G9 Secure Enclave custody ceremony
-(`docs/benchmarks/G9-CUSTODY-CEREMONY.md`, amendment G9-A1 Path B). Of its five verbs, agents
-may run exactly ONE: `preflight`, which reports prerequisites and provisions nothing.
+(`docs/benchmarks/G9-CUSTODY-CEREMONY.md`). Of its five verbs, agents may run **only `preflight`**.
 
-**`provision-seats`, `owner-seat`, `seal` and `assemble` are the owner's.** No agent may perform,
-simulate, stub, mock or dry-run them, provision any enclave key, touch biometrics, or produce a
-`custody-ceremony.sealed.json`, a seat public key, or any claim that a ceremony happened. The
-ceremony's entire evidentiary value is that a human proved possession of hardware no software
-path can stand in for — an agent that synthesises the artifact has destroyed the thing it
-imitated. An agent that finds the ceremony un-run OFFERS the command and stops.
+- **`provision-seats`, `owner-seat`, `seal`, and `assemble` are owner-only.** No agent may run,
+  simulate, stub, mock, or dry-run them, provision any enclave key, touch biometrics, or synthesize
+  a `custody-ceremony.sealed.json` or seat public key. Offer the command and stop.
+- The ceremony is CLI-only (no MCP tool or REST route), refuses unattended invocations before
+  platform checks, and enforces seat-class separation in `m1nd-mcp/tests/custody_ceremony_wiring.rs`.
+  Unentitled local builds refuse at keychain prerequisite P4 — never work around that refusal.
+- The entitled macOS release bundle (`m1nd-custody-ceremony.app`, see `build/README.md`) is also
+  owner-only; agents never build, sign, or handle its provisioning profile.
+- **Exception:** `--seal-independence-spec <PATH>` is a document-only digest command (opens no
+  enclave, keychain, or ceremony state) and is safe on every platform.
 
-The code holds part of this line mechanically: the ceremony is reachable only from its own CLI
-ingress (the `--birth` precedent — the ingress IS the human-origin fact), it appears in no MCP
-tool and no REST route, the biometric step refuses when no human is attached (asked BEFORE the
-platform question, so an unattended process is refused on every OS), and the two provisioning
-entry points refuse each other's seat class fail-closed — `provision_agent_enclave_seat` refuses
-the human seat, `provision_owner_biometric_seat` refuses every other one, and only the ceremony
-door reaches either. `m1nd-mcp/tests/custody_ceremony_wiring.rs` holds the rest, including a guard
-that fails if a simulation path is ever added and one that fails if any verb goes back to
-answering from a placeholder instead of asking the platform.
+## Dogfood m1nd and the field-report box
 
-The four verbs now reach the real floor, which means a run on any unentitled binary — every local
-build — refuses at the keychain naming prerequisite P4. That refusal is the correct answer and
-must never be worked around: `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §5 R1.
+If a local served owner is reachable, orient with `north(task)` before editing and `memorize`
+durable findings after. Cloud VMs cannot reach a local owner — skip this there.
 
-**One artifact IS entitled, and it changes nothing above.** The release builds a second macOS
-artifact, `m1nd-custody-ceremony.app` (the same binary bytes in an app-like bundle with the owner's
-provisioning profile embedded), because a restricted entitlement on a raw executable is SIGKILLed
-by the kernel — `build/README.md`. It exists so the OWNER can run the ceremony; the four verbs stay
-the owner's on it exactly as on any other build, and `preflight` stays the only one an agent may
-run. Agents do not build it, do not sign it, and never handle the profile: it is a repository
-secret the release step reads and deletes.
+- **Per-verb telemetry (`m1nd-mcp/src/verb_usage.rs`):** `<runtime>/verb_usage_state.json` records
+  only verb name, three counters (`answered`, `refused_at_authority_floor`, `refused_at_dispatch`),
+  and first/last seen. Unrouted names collapse into `<unrouted>`; caller text (`agent_id`,
+  arguments, queries, paths) must never reach the file
+  (`verb_usage_persisted_shape_holds_no_free_text`).
+- **Out-of-scope defects go in the box:** do not fix unrelated defects mid-mission and do not
+  swallow them. Append one JSON line (`bug` / `honesty` / `friction` / `win`) to the spool at
+  `~/.m1nd/field-reports.jsonl` (`m1nd-mcp/src/mailbox.rs`), routed by `repo` into
+  `<repo>/.m1nd/inbox.jsonl`. Read boxes via `GET /api/mailbox?brain=<root>` or
+  `m1nd-mcp --inbox-sweep` (CLI/REST only, never MCP). Answering and closing letters is part of
+  owning a repo; committing `<repo>/.m1nd/inbox.jsonl` in a public repo is a publishing decision.
+  Carry this duty verbatim in subagent specs.
 
-**`--seal-independence-spec <PATH>` is NOT one of these verbs.** It sits next to them in the CLI
-and serves the same ceremony, but it seals a DOCUMENT: it reads the owner's hand-authored
-`IndependenceSpecV1`, fills `independence_spec_digest` from the digest of that spec's own core,
-prints the sealed document, and exits. It opens no enclave, no keychain, no protected root and no
-ceremony state, so it runs on every platform and there is nothing in it an agent is forbidden to
-perform. It produces no seat, no key and no claim that a ceremony happened — the prohibition above
-is untouched by it.
+## Wear the wire (when m1nd is served)
 
-## Dogfood m1nd — for LOCAL agents only
+All three rails are advisory — none is a gate and none lands truth (only human `receipt_import`
+colors the map):
 
-If you can reach the served m1nd owner (a local process on `127.0.0.1:1338`), orient with
-`north(task)` before editing and `memorize` durable findings after — ground yourself in the
-graph, don't start cold. **Cloud VMs (e.g. Jules) cannot reach a local owner**, so skip this
-unless m1nd is served at a reachable address.
+- **Mission cards:** for multi-executor bursts or large changes, open a card with
+  `mission_start {agent_id, repo, task, mode, budget, risk}` (`mode ∈ bug_hunt | review | refactor |
+  docs_drift | architecture | release`, `budget ∈ short | normal | deep`, `risk ∈ low | medium |
+  high`), post progress with **`mission_event`** (not `mission_post`, which is the separate
+  mission-letter board), and close with `mission_close`. Cards are single-writer (`ensure_agent`
+  enforces matching `agent_id`). Over REST, pass `?brain=<root>`.
+- **The voice:** render `north`'s `human_view` card verbatim under the cadence in
+  `M1ND_INSTRUCTIONS` §7 — never re-compose it or invent statistics. `cockpit` is the on-request
+  read-only navigable menu.
+- **Presences & Universe:** activity registers via `m1nd-presence-v0` (`m1nd-mcp/src/presence.rs`).
+  Overlapping mutation signals on the same brain emit an advisory collision line on `north` — stop
+  and coordinate rather than forcing writes. `GET /api/universe` is sidecar-only (never hydrates a
+  brain) and is a human UI surface, not an agent surface.
 
-Every agent is a sensor: if m1nd misbehaves during a mission, append one JSON line to the
-field-report spool (see `CLAUDE.md`) — report, never fix mid-mission.
+## The write laws — reception governs WRITES
 
-**What m1nd records about YOUR use of it, in full:** one row per verb in
-`<runtime>/verb_usage_state.json` — the verb name and three counters (`answered`,
-`refused_at_authority_floor`, `refused_at_dispatch`) plus first/last seen. It is written at ONE
-seam (`server::dispatch_generic_tool`, the door every transport crosses) and read back through
-`report`. What it deliberately does NOT record, and must never grow: your `agent_id`, your
-arguments, your queries, paths, node labels, or anything derived from them — a verb name that
-is not in the compiled route table collapses into a single `<unrouted>` bucket, so caller text
-cannot reach the file even by accident (`m1nd-mcp/src/verb_usage.rs`, pinned by
-`verb_usage_persisted_shape_holds_no_free_text`). Losing the file means the counts start over;
-it is not brain knowledge and is not in the checkpoint.
+One served owner hosts many per-project brains and routes calls by caller root. Follow these laws
+before any m1nd write:
 
-## The box — carve out-of-scope findings in stone (mandatory, every repo)
-
-**The spool above IS the box.** `~/.m1nd/field-reports.jsonl` is the ONE append-only write slot
-(`mailbox.rs`); a distributor routes each entry by its `repo` field into that project's box.
-Writing a field report and writing a letter are the same gesture, not two — the classes are the
-same set (`bug` / `honesty` / `friction` / `win`). What follows is the half that was never
-stated: what the box is FOR, and the duty to read and close it.
-
-Every repo has a box: `<repo>/.m1nd/inbox.jsonl`. It is born LOCAL behind a
-consent-deferred `.gitignore` (`mailbox.rs` §C7.5); the repo's own `m1nd init` is the ONE
-consent moment that flips it to committed, after which what the project knows travels with the
-project. An existing `.gitignore` is never rewritten. **Committing a box publishes its letters —
-in a public repo, treat that as a publishing decision, not a formality.**
-
-The box exists for one specific case, and it is the case that bites subagents hardest: **you
-hit a real defect that is NOT in your scope.** Do not fix it mid-mission (that is how a focused
-change becomes an unreviewable sprawl) and do not swallow it. Write one letter — what you saw,
-what you expected, the evidence — so the system's MAIN agent can fix it at the opportune
-moment. Carving it in stone is the whole point: the finding outlives your session.
-
-**Two boxes, always.** The project you are working in, and m1nd's own — m1nd is the tool every
-agent here depends on, so a defect in it belongs to everyone to report and to its main agent to
-fix. Read a box with `GET /api/mailbox?brain=<root>` or `m1nd-mcp --inbox-sweep`; these are
-CLI/REST surfaces, never MCP tools, never in the agent loop.
-
-**A letter nobody answers is pressure, not honesty** (`mailbox.rs`'s own words). Whoever holds a
-system answers its box: closing a letter is as much the duty as writing one. Proof this matters:
-on 2026-07-04 a subagent filed `Job Test(windows-latest) marks FAIL on the last 3 merges though
-every cargo test inside it passes`. Nobody read the box. Twenty days later the same condition
-was rediscovered from zero, after it had held the entire merge queue hostage and forced an owner
-override to publish 1.5.0. The write half worked perfectly; the read half did not exist.
-
-**Subagents get specs, not session hooks** — so a subagent spec must carry this duty verbatim,
-or the population most likely to find out-of-scope defects is the one least likely to file them.
-
-## Wear the wire — the cards, the voice, the presences (when m1nd is served)
-
-When you can reach the served owner, the organism should SEE the work, SPEAK to the human, and
-SHOW the team. All three rails are advisory — none is a gate, none lands truth (only a human
-`receipt_import` colors the map).
-
-**The cards (WEAR THE WIRE).** When you ORCHESTRATE a burst — dispatching ≥2 executors, or
-landing a BIG change — open a mission-control card so the work is on the board, not off-book.
-The grammar (learn it once, don't spend four tries on it):
-
-- `mission_start {agent_id, repo, task, mode, budget, risk}` opens the card. The enums are
-  CLOSED — an off-list value is refused with the allowed set: `mode ∈ bug_hunt | review |
-  refactor | docs_drift | architecture | release`, `budget ∈ short | normal | deep`,
-  `risk ∈ low | medium | high`.
-- Progress = **`mission_event`**. NOT `mission_post` — that is a DIFFERENT rail (the
-  mission-LETTER board, `m1nd-mission-letter-v0`, whose `landed` is a human `receipt_import`
-  and whose terminal `archived` is the human's set-aside of a superseded receipt, F2.5e),
-  not mission progress. The two share the word "card" but not the verb, the id space, or the store.
-- Close = **`mission_close`** — a seat gesture, its only door is `ensure_agent` (no owner sign-off;
-  landing a receipt stays human-only).
-- A card is **SINGLE-WRITER**: `ensure_agent` refuses any caller whose `agent_id` ≠ the card's own
-  (`mission <id> belongs to agent_id <A>; got <B>`). So you post only to a card you opened under
-  YOUR `agent_id` — the orchestrator holds the umbrella burst card (executors report back to it,
-  they never post into it); an executor that runs its own scoped mission opens its OWN card under
-  its OWN id. Negative default: a card is for a real burst, never a trivial one-file touch. The
-  card is a TRAIL, never a gate.
-- Over REST, always pass an explicit `?brain=<root>` selector.
-
-**The voice (render law → M1ND_INSTRUCTIONS §7).** `north` carries `human_view`
-(`m1nd-human-view-v0`): a server-composed ≤4-line card — the m1nd voice for the HUMAN in the
-conversation, its `pulse` row (`trust · graph · focus · bell · coherence`) the served brain's own
-vital signs, plus a `map <N> blocks` fact. You RENDER it verbatim under the negative-default
-cadence in **§7 (`## 7. THE M1ND VOICE`) of the initialize instructions** — never re-compose it,
-never invent a statistic; under `caller_root_mismatch` the card IS the warning and the pulse drops
-whole. The human's on-request navigable menu is the read-only **`cockpit`** verb (a sibling of
-`north`). §7 is the single source for the render law — this file points at it, it does not restate it.
-
-**The presences (the control room sees the team).** All traffic becomes a visible presence:
-registration rides the verbs you already call (the `track_agent` beat, TTL by last-seen —
-*presence = activity visible to m1nd*); a dead session disappears rather than lingering as a ghost.
-A **collision** is derived at read, never stored: two live presences on the **same brain**, **both
-carrying a mutation signal**, whose declared working sets **overlap** → an advisory line on BOTH
-sessions' `north` packets. It warns; it never blocks. **When you see a collision, STOP and
-coordinate — do not force the write** (the same posture as reception). Contract: `m1nd-presence-v0`
-(`m1nd-mcp/src/presence.rs`); the Hall renders the live roster (`m1nd-ui`).
-
-**The Universe (the human's L0 panorama).** The served UI's landing surface for an owner with ≥1
-project brain is the **Universe** — a per-world panorama fed by one read-only aggregate,
-`GET /api/universe` (`m1nd-universe-v0`). It is **sidecar-only**: it reads project-brain manifests,
-the presence dir, each world's mission-letter box + SystemBlock store, and the owner's own daemon
-alerts — and it NEVER hydrates a brain (an executable RED-first law: the warm map is byte-identical
-before/after). Its unified gesture queue, **the Landing**, aggregates reads (merge_wait stamps,
-candidate ratifies, owner alerts) but every write still goes through the existing per-type verb.
-Not an agent surface — agents keep using `north`/`seek`/the cards (`GET /api/universe`).
-
-## The write laws — reception governs WRITES (read before any m1nd write)
-
-One owner (`:1338`) hosts many per-project brains and routes each request to the brain that
-covers the caller's repo. Three laws keep one agent's work out of another repo's brain. Ignore
-them and you corrupt shared state — a real incident: a foreign skeleton once overwrote a
-bound brain because the writer never checked which brain it was talking to.
-
-1. **No WRITE under a reception mismatch.** A m1nd response may carry a `reception` block;
-   `reception.match == "caller_root_mismatch"` means the brain currently serving you does
-   NOT cover your repo. A read under mismatch is a warning (don't trust retrieval for this
-   repo). A **write** under mismatch is prohibited by doctrine — every write verb
-   (`memorize`, `skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import` /
-   `_ratify` / `_reconcile`, `mission_post`) would land in the WRONG brain. **No public
-   gesture lifts this for AGENTS.** Generic cross-root `ingest` remains withdrawn
-   (`project_root` is absent from the published schema; POSITIVE_SOVEREIGN), and over the
-   wire `brain.bootstrap.birth` answers every client with `human_gesture_required` — the
-   stamp is the binary's own CLI flag, which no MCP or REST payload can forge. The way
-   forward for a brainless repo is the human's one-time ceremony
-   `m1nd init --birth <repo>`: offer that exact command and stop. Until the human runs it,
-   reconnect to an owner that already hosts the intended repo, or stay read-only with the
-   mismatch warning intact — do not write.
-   (The mechanical write-refusal has LANDED — every skeleton write verb
-   (`skeleton_candidate`, `candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`/
-   `_archive`/`_delete`, `candidate_lease` acquire) refuses under mismatch with a teaching
-   `brainless_root` that names both roots; the doctrine holds regardless.)
-2. **No twin brains.** Minting a brain for a root that is the PARENT, CHILD, or WORKTREE of
-   an existing brain is refused with a teaching error (`overlap_parent` / `overlap_child` /
-   `overlap_worktree`) that names the conflict and the two ways forward: bind to the existing
-   brain, or mint a separate one anyway only when you know exactly why. It holds on BOTH
-   doors — the MCP wire and REST `POST /api/tools/ingest` route through one guarded core —
-   but neither way is reachable from the public MCP surface while the bootstrap consumer is
-   absent (`project_root` and `allow_overlap` are not in the published `ingest` schema). A burst worktree does NOT get its own brain; bind to the main
-   repo's. This stops one repo growing two brains (double ingest cost, memories fragmented).
-3. **Memory writes never move your code root.** `memorize` (and any agent-memory ingest
-   merge) can no longer demote a brain's `workspace_root` onto its own memory-store dir —
-   the write path guards it (the #326 family, third member), and a brain found already
-   flipped self-heals at the boot/load seam with an honest log line
-   (`healed workspace_root: <from> -> <to>`). If you ever see a bare-REST
-   `caller_root_mismatch` naming an `agent-memory` dir as the bound workspace, that is this
-   disease on a pre-fix binary — rebuild/restart heals it; never hand-edit the manifest.
-4. **The one ingest you CAN run is `ingest {mode:"refresh"}` — from exactly your own root.**
-   `replace` and `merge` stay policy-disabled for every client; `refresh` re-scans a root the
-   brain has ALREADY declared and is admitted at `SCOPED_GRANT_A2`, A2-locally, with no lease
-   (ratified 2026-07-29). It is admitted by
-   ACTION, never by floor: the two siblings at that same floor — `source.edit.commit` and
-   `graph.ingest.merge_existing` — stay refused, and a test pins their refusal bytes.
-   What it refuses, always with nothing mutated: a caller root that is not EXACTLY a declared
-   root (`refresh_root_not_exact` — a subdirectory is not the root, and neither is an explicit
-   REST `?brain=` selector); a path that does not resolve (`refresh_root_unresolvable`); a
-   second refresh of the same root (`refresh_in_flight`); a root set that would move
-   (`refresh_would_change_roots`); and — the armor that matters — a candidate holding under
-   **60%** of the live graph's nodes (`refresh_would_shrink_graph`, naming both counts). That
-   last one exists because the persist layer's own shrink guard is fail-open by written
-   design: it backs up and writes anyway. Do NOT reach for `refresh` to repair a reception
-   mismatch — it cannot create or rebind anything, and law 1 still governs. It closes the
-   reflex vector, an agent acting from habit or misconfiguration; it is not a defense against
-   a hostile same-UID process (that is the lease plane, still dormant).
-5. **A repo with NO brain has one proven automatic door on direct stdio: the launcher's explicit
-   workspace grant.** When a new `m1nd-mcp` stdio process starts with
-   `M1ND_WORKSPACE_ROOT=<repo>` (or `launcher_workspace_root` in its explicit config) and a
-   private writable runtime, it prepares the empty bound graph before the first public query.
-   On direct stdio, that canonical launcher grant is also the caller identity for the existing
-   exact-root public refresh door; it is installed only at the stdio seam, never in the
-   HTTP/shared preparation seam where identity remains request/session scoped. The isolated npm
-   agent cache consumes that refresh under its existing single-owner lease before trust or
-   retrieval on reuse; a refusal remains `ok:false`/nonzero and cannot be promoted to fresh.
-   This is owner startup work from a preserved launcher fact: it does NOT mint `HumanOrigin`,
-   simulate the old ceremony, trust a prompt/tool path/header, or lower the generic ingest
-   floor. A populated graph for another root refuses rather than being replaced. See
-   `docs/AGENT-AUTONOMY.md`; HTTP, npm CLI, concurrency and overlap matrices are not proven by
-   this slice. For launchers outside that explicit contract, the legacy door remains
-   `m1nd init --birth <repo>`, run once by a person in a terminal. Existing refusals name it — the floor
-   gate's `generic_action_authority_required` for `graph.ingest.replace`/`brain.bootstrap`, the
-   birth verb's `human_gesture_required`, both `refresh_*` root refusals (in a `door` field),
-   `north`/`delegate`'s `next_move`, `recovery_playbook`'s `offer_the_birth_ceremony` step, and
-   the npm CLI's `needs_authority` envelope. That list is the fix for a measured failure, not
-   decoration: on 1.6.2 an agent collected four correct refusals that named no way out and
-   reported that the product could not be used. **Where the ceremony writes depends on where
-   the runtime it is standing in lives, and its receipt says which in a `brain` field** —
-   `owner_bound_graph` when the runtime is INSIDE the named repo (the solo `<repo>/.m1nd`
-   layout: it fills the graph a plain `m1nd-mcp --stdio` there serves), `project_brain`
-   otherwise (a hosted brain on a served owner, reached by attaching to it from inside that
-   repo, never by booting a second runtime there). Cross-root sovereignty is untouched by either
-   split: it is a fact about the OWNER, never about a caller, and a foreign root still takes the
-   hosted path with every one of its guards. A ceremony that scans to zero nodes REFUSES
-   (`birth_produced_empty_graph`, exit 1) rather than reporting a brain nobody has.
-
-**When you withdraw a capability, sweep the prose in the same PR.** The cross-root bootstrap
-was withdrawn in the runtime (the published `ingest` schema lost `project_root` and
-`allow_overlap`, and `server.rs` asserts the served instructions never name them) — but seven
-prose surfaces kept teaching it, and `v1.5.0` shipped that way: quickstart, lifecycle,
-changelog, README, this file, and both agent skills all sent readers to a call that fails
-closed. A guard that covers only the wire is half a guard: the prose IS the interface for
-every agent and every new user. `tests/test_agent_surface_bootstrap_honesty.py` now extends
-the runtime's assertion to every instructional surface, so the two can no longer disagree in
-silence. Withdraw a verb, add it to that list.
-
-Editing the block map (the skeleton) is one atomic verb, `candidate_edit`, and it refuses on
-a ratified skeleton (candidate-only). **Ratifying a skeleton is a human-only gesture — no
-agent ratifies, ever.** The hand proposes; the human signs.
-
-**The same human gate now guards `receipt_import`.** Landing a receipt (the OTHER human write
-that bumps `store_version`) requires an `imported_via` origin token, validated server-side
-against a CLOSED allow-list (today only `"human-ui"`, the value the owner's screen stamps). An
-absent, empty, or off-list origin is refused `human_gesture_required` and nothing is applied.
-Stated plainly: until the sovereign-stamp arc's step 0, `receipt_import` carried **no origin
-check at all** — only `ratify` did — so an agent could land evidence by simply calling the verb.
-Both human writes now carry the mirror. A new origin is a code change plus a test here, never a
-trusted client string; and, like ratify, the token is forgeable on an unauthenticated loopback,
-so it closes the cheap reflex vector, not a same-UID process (cryptographic elevation is a later
-step of the arc).
-
-**F2.5e adds the THIRD human write: archiving a superseded receipt.** The mission-LETTER board
-gained a terminal `archived` phase — the human sets a stale `merge_wait` receipt aside (posting a
-seq+1 `archived` letter that supersedes the head), which drops the landing bell. Because this is
-the board's first SILENT-burial verb (`failed` at least pins loud atop the tray, an `archived`
-head is quiet), `mission_post` of an `archived` letter requires the SAME human origin token —
-`archived_via:"human-ui"`, the closed allow-list, refused `human_gesture_required` with nothing
-appended. Two engine laws back it on the pure post path (both seams): an `archived` letter may
-never carry `receipt.imported==true` (never a landing in disguise), and it may only supersede a
-`merge_wait` head — the board's FIRST transition rule (`invalid_transition` otherwise). **An agent
-never archives; the owner's screen does** — an agent must never silence its own unproven work.
-
-**Two more write-door guards (2026-07-15 field hardening).** (1) A `mission_post` letter carrying a
-`receipt_candidate` is now checked against the LIVE block at post time: a candidate whose
-`scope.boundary_version` no longer matches the block is refused `stale_scope` naming both versions —
-dead evidence is declared at the door instead of surviving as an orphan letter the tray would offer
-for a one-click import that `receipt_import` then rejects. (2) The owner's graph persist gained a
-catastrophic-shrink guard: when an incoming graph holds under 20% of the nodes in the existing
-on-disk snapshot, the prior snapshot is renamed to `<path>.bak-<unix_ts>` before it is overwritten
-(fail-open — a legitimate shrink is never blocked, the large snapshot is never lost in silence).
-This is defense in depth behind the #370 binding fix, after a snapshot was overwritten 10573→704.
+1. **No write under `caller_root_mismatch`.** When `reception.match == "caller_root_mismatch"`,
+   reads are a warning and all write verbs are prohibited (skeleton writes refuse with
+   `brainless_root`). Generic cross-root `ingest` is withdrawn (`project_root` and `allow_overlap`
+   are absent from the published schema), and `brain.bootstrap.birth` refuses over MCP/REST with
+   `human_gesture_required`. For a brainless repo on a shared owner, offer
+   `m1nd init --birth <repo>` and stop.
+2. **No twin brains.** Minting a brain for a parent, child, or worktree of an existing brain refuses
+   (`overlap_parent` / `overlap_child` / `overlap_worktree`). A git worktree binds to its main
+   repository's brain.
+3. **Memory writes never move `workspace_root`.** `memorize` and memory-ingest merges cannot demote
+   a brain's `workspace_root` onto `agent-memory`; boot self-heals pre-fix manifests with
+   `healed workspace_root: <from> -> <to>`. Never hand-edit manifests.
+4. **Only `ingest {mode: "refresh"}` is agent-callable — from the exact declared root.** `replace`
+   and `merge` remain policy-disabled for every client. `refresh` is admitted by action at
+   `SCOPED_GRANT_A2` without a lease, and refuses non-exact roots (`refresh_root_not_exact`),
+   unresolvable paths, concurrent refresh (`refresh_in_flight`), root-set changes, and candidates
+   below 60% of live node count (`refresh_would_shrink_graph`).
+5. **Brainless repo startup doors.** On direct stdio, a launcher's explicit `M1ND_WORKSPACE_ROOT`
+   (or `launcher_workspace_root`) with a private writable runtime prepares an empty bound graph
+   automatically and installs exact-root refresh identity (see `docs/AGENT-AUTONOMY.md`). Outside
+   that contract, the human terminal command `m1nd init --birth <repo>` creates either an
+   `owner_bound_graph` (when the runtime lives inside the repo) or a hosted `project_brain`
+   (reached via `--attach auto`), refusing if scan yields zero nodes (`birth_produced_empty_graph`).
+6. **Withdraw a capability in prose in the same PR.** `tests/test_agent_surface_bootstrap_honesty.py`
+   enforces that agent-facing prose matches runtime withdrawals; extend it whenever a verb or
+   parameter is retired.
+7. **Human-only writes and write-door guards.**
+   - `candidate_edit` is atomic and candidate-only; **ratifying** a skeleton is human-only.
+   - `receipt_import` requires a server-allowlisted `imported_via` origin (`"human-ui"` or
+     `"human-touchid"`); agents never land receipts.
+   - Archiving a superseded `merge_wait` letter via `mission_post` requires `archived_via: "human-ui"`
+     and refuses non-`merge_wait` heads (`invalid_transition`); agents never archive.
+   - `mission_post` with a `receipt_candidate` refuses mismatched `scope.boundary_version`
+     (`stale_scope`). Graph persistence backs up snapshots under 20% shrink to `<path>.bak-<unix_ts>`
+     before overwriting.
