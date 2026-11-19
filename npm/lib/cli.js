@@ -2626,9 +2626,38 @@ function backupExistingFile(file, label = "config") {
   return backup;
 }
 
-function writeFileAtomic(file, text, options = {}) {
+// A user may keep a host config as a symlink into a dotfiles repo. Renaming a
+// temporary file over the link would silently replace it with a regular file,
+// so the atomic write lands on the link's real target instead, and the link
+// stays. A link whose target cannot be resolved is refused rather than guessed.
+function resolveAtomicWriteTarget(file) {
+  let linkStat;
+  try {
+    linkStat = fs.lstatSync(file);
+  } catch (error) {
+    if (error && error.code === "ENOENT") return file;
+    throw error;
+  }
+  if (!linkStat.isSymbolicLink()) return file;
+  let target;
+  try {
+    target = fs.realpathSync(file);
+  } catch (error) {
+    const reason = error && error.code ? error.code : String(error);
+    throw new Error(
+      `refusing to write ${file}: it is a symlink whose target cannot be resolved (${reason}); fix or remove the link and retry`
+    );
+  }
+  if (!fs.statSync(target).isFile()) {
+    throw new Error(`refusing to write ${file}: it is a symlink to ${target}, which is not a regular file`);
+  }
+  return target;
+}
+
+function writeFileAtomic(requestedFile, text, options = {}) {
+  ensureDir(path.dirname(requestedFile));
+  const file = resolveAtomicWriteTarget(requestedFile);
   const directory = path.dirname(file);
-  ensureDir(directory);
   let mode = options.mode !== undefined ? options.mode : 0o644;
   if (options.preserveMode && fs.existsSync(file)) {
     try {

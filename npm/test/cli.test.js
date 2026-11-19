@@ -3748,4 +3748,125 @@ withEnv(
   }
 }
 
+// --- symlinked host configs stay symlinks; the atomic write lands on the link target ---
+// Creating symlinks needs elevated rights on Windows, so these run on macOS/Linux only.
+if (process.platform !== "win32") {
+  const testHome = mkTmpDir();
+  const codexHome = path.join(testHome, ".codex");
+  const project = mkTmpDir();
+  const dotfiles = mkTmpDir();
+  const linkTo = (linkPath, targetName, content) => {
+    const target = path.join(dotfiles, targetName);
+    fs.writeFileSync(target, content);
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.symlinkSync(target, linkPath);
+    return target;
+  };
+
+  const codexLink = path.join(codexHome, "config.toml");
+  const codexTarget = linkTo(codexLink, "codex-config.toml", 'model = "keep-me"\n');
+  fs.chmodSync(codexTarget, 0o600);
+  const mcpLink = path.join(project, ".mcp.json");
+  const mcpTarget = linkTo(
+    mcpLink,
+    "project-mcp.json",
+    `${JSON.stringify({ mcpServers: { other: { command: "other-tool" } } }, null, 2)}\n`
+  );
+  const geminiLink = path.join(project, ".gemini", "settings.json");
+  const geminiTarget = linkTo(geminiLink, "gemini-settings.json", `${JSON.stringify({ theme: "keep-me" }, null, 2)}\n`);
+  const claudeSettingsText = `${JSON.stringify({ hooks: {} }, null, 2)}\n`;
+  const claudeSettingsLink = path.join(testHome, ".claude", "settings.json");
+  const claudeSettingsTarget = linkTo(claudeSettingsLink, "claude-settings.json", claudeSettingsText);
+
+  withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+      M1ND_TEST_HOME: testHome,
+      CODEX_HOME: codexHome,
+    },
+    () => {
+      for (const host of ["codex", "claude", "gemini"]) {
+        const applied = hostApply({
+          _: ["hosts", "apply"],
+          host,
+          project,
+          binary: process.execPath,
+          yes: true,
+          "no-skills": true,
+        });
+        const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+        assert(configAction && configAction.changed, `${host} MCP config written through its symlink`);
+        assert(configAction.backup, `${host} config backup recorded`);
+        assert.strictEqual(
+          applied.blocked_actions.some((a) => a.id.endsWith("-failed")),
+          false,
+          `${host} apply has no failed action: ${JSON.stringify(applied.blocked_actions)}`
+        );
+      }
+    }
+  );
+
+  for (const [linkPath, target] of [
+    [codexLink, codexTarget],
+    [mcpLink, mcpTarget],
+    [geminiLink, geminiTarget],
+    [claudeSettingsLink, claudeSettingsTarget],
+  ]) {
+    assert(fs.lstatSync(linkPath).isSymbolicLink(), `${linkPath} is still a symlink after apply`);
+    assert.strictEqual(fs.realpathSync(linkPath), fs.realpathSync(target), `${linkPath} still points at its target`);
+  }
+
+  const codexText = fs.readFileSync(codexTarget, "utf8");
+  assert(codexText.includes('model = "keep-me"'), "codex link target keeps its own settings");
+  assert(codexText.includes("[mcp_servers.m1nd]"), "codex link target receives the m1nd entry");
+  assert.strictEqual(fs.statSync(codexTarget).mode & 0o777, 0o600, "codex link target keeps its mode");
+
+  const mcpJson = JSON.parse(fs.readFileSync(mcpTarget, "utf8"));
+  assert.deepStrictEqual(mcpJson.mcpServers.other, { command: "other-tool" }, ".mcp.json target keeps other servers");
+  assert.strictEqual(mcpJson.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+
+  const geminiJson = JSON.parse(fs.readFileSync(geminiTarget, "utf8"));
+  assert.strictEqual(geminiJson.theme, "keep-me", "gemini settings.json target keeps its settings");
+  assert(geminiJson.mcpServers && geminiJson.mcpServers.m1nd, "gemini settings.json target receives the m1nd entry");
+
+  // Claude Code's settings.json is printed, never written: the target keeps its bytes.
+  assert.strictEqual(fs.readFileSync(claudeSettingsTarget, "utf8"), claudeSettingsText);
+
+  for (const directory of [dotfiles, codexHome, project, path.join(project, ".gemini")]) {
+    assert.strictEqual(
+      fs.readdirSync(directory).some((name) => name.endsWith(".tmp")),
+      false,
+      `no temporary file left in ${directory}`
+    );
+  }
+
+  // A dangling link is refused: nothing is created at the missing target and the link stays.
+  const danglingProject = mkTmpDir();
+  const missingTarget = path.join(mkTmpDir(), "absent-mcp.json");
+  const danglingLink = path.join(danglingProject, ".mcp.json");
+  fs.symlinkSync(missingTarget, danglingLink);
+  const danglingApply = withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+      M1ND_TEST_HOME: mkTmpDir(),
+    },
+    () =>
+      hostApply({
+        _: ["hosts", "apply"],
+        host: "claude",
+        project: danglingProject,
+        binary: process.execPath,
+        yes: true,
+        "no-skills": true,
+      })
+  );
+  const danglingBlocked = danglingApply.blocked_actions.find((a) => a.id === "write-mcp-config-failed");
+  assert(danglingBlocked, "a dangling .mcp.json symlink blocks the config write");
+  assert(/symlink whose target cannot be resolved/.test(danglingBlocked.error), danglingBlocked.error);
+  assert(fs.lstatSync(danglingLink).isSymbolicLink(), "the dangling link is left in place");
+  assert.strictEqual(fs.existsSync(missingTarget), false, "no file is created at the missing target");
+}
+
 console.log("npm cli tests ok");
