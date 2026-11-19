@@ -3116,6 +3116,74 @@ withEnv(
   }
 );
 
+// 3b. doctrine writes are backed up and atomic: a foreign AGENTS.md / ~/.gemini/GEMINI.md
+// gets a private copy of its original bytes before the managed block is appended.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+    CODEX_HOME: null,
+  },
+  () => {
+    const project = mkTmpDir();
+    const cases = [
+      { host: "codex", file: path.join(project, "AGENTS.md"), original: "# team rules\nkeep this\n" },
+      {
+        host: "antigravity",
+        file: path.join(homeForTest(), ".gemini", "GEMINI.md"),
+        original: "# personal gemini rules\nno trailing newline",
+      },
+    ];
+    for (const { host, file, original } of cases) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, original);
+      const applied = hostApply({
+        _: ["hosts", "apply"],
+        host,
+        project,
+        binary: process.execPath,
+        yes: true,
+        "no-skills": true,
+      });
+      const doctrineAction = applied.applied_actions.find((a) => a.id === "write-doctrine");
+      assert(doctrineAction && doctrineAction.changed, `${host} doctrine appended`);
+      assert(doctrineAction.backup, `${host} doctrine backup recorded`);
+      assert(
+        doctrineAction.backup.startsWith(path.join(homeForTest(), ".m1nd", "backups")),
+        `${host} doctrine backup uses ~/.m1nd/backups`
+      );
+      assert.strictEqual(fs.readFileSync(doctrineAction.backup, "utf8"), original, `${host} backup holds the original bytes`);
+      if (process.platform !== "win32") {
+        assert.strictEqual(fs.statSync(doctrineAction.backup).mode & 0o777, 0o600, `${host} doctrine backup is 0600`);
+      }
+      const text = fs.readFileSync(file, "utf8");
+      assert(text.startsWith(original), `${host} foreign doctrine content kept in front`);
+      assert(text.includes("<!-- BEGIN m1nd-orient (managed) -->"), `${host} managed block appended`);
+      assert.strictEqual(
+        fs.readdirSync(path.dirname(file)).some((name) => name.endsWith(".tmp")),
+        false,
+        `${host} doctrine write leaves no temporary file`
+      );
+    }
+
+    // A doctrine file that did not exist has nothing to back up.
+    const freshProject = mkTmpDir();
+    const fresh = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: freshProject,
+      binary: process.execPath,
+      yes: true,
+      "no-skills": true,
+    });
+    const freshDoctrine = fresh.applied_actions.find((a) => a.id === "write-doctrine");
+    assert(freshDoctrine && freshDoctrine.changed, "claude doctrine created");
+    assert.strictEqual(freshDoctrine.backup, undefined, "a new doctrine file records no backup");
+    assert(fs.existsSync(path.join(freshProject, ".claude", "CLAUDE.md")));
+  }
+);
+
 // 4. never-clobber hook: unrelated codex hook preserved, m1nd entry added.
 withEnv(
   {

@@ -1521,33 +1521,39 @@ function claudeSettingsBlock(command) {
   );
 }
 
+// Doctrine files are user-owned instruction files (AGENTS.md, CLAUDE.md,
+// ~/.gemini/GEMINI.md), so every change gets the same private backup and
+// atomic write as the host MCP configs.
+function replaceDoctrineFile(file, host, text) {
+  const backup = backupExistingFile(file, host);
+  writeFileAtomic(file, text, { preserveMode: true });
+  return { changed: true, file, backup };
+}
+
 function writeDoctrineFile(file, host) {
   ensureDir(path.dirname(file));
   const before = readText(file);
   if (!before.trim()) {
-    fs.writeFileSync(file, doctrineFileContent(host));
-    return { changed: true, file };
+    return replaceDoctrineFile(file, host, doctrineFileContent(host));
   }
   const block = doctrineManagedBlock();
   if (before.includes(DOCTRINE_FENCE_BEGIN) && before.includes(DOCTRINE_FENCE_END)) {
     const pattern = new RegExp(
       `${escapeRegExp(DOCTRINE_FENCE_BEGIN)}[\\s\\S]*?${escapeRegExp(DOCTRINE_FENCE_END)}\\n?`
     );
-    if (before.includes(block)) return { changed: false, file };
+    if (before.includes(block)) return { changed: false, file, backup: null };
     const after = before.replace(pattern, block);
-    if (before === after) return { changed: false, file };
-    fs.writeFileSync(file, after);
-    return { changed: true, file };
+    if (before === after) return { changed: false, file, backup: null };
+    return replaceDoctrineFile(file, host, after);
   }
   if (/m1nd/i.test(before)) {
     // File already mentions m1nd but has no managed fence (e.g. our own body written
     // directly). Stay conservative and do not duplicate.
-    return { changed: false, file };
+    return { changed: false, file, backup: null };
   }
   // Foreign content: append a clearly-fenced managed block, preserving the original.
   const separator = before.endsWith("\n") ? "\n" : "\n\n";
-  fs.writeFileSync(file, `${before}${separator}${block}`);
-  return { changed: true, file };
+  return replaceDoctrineFile(file, host, `${before}${separator}${block}`);
 }
 
 function escapeRegExp(text) {
@@ -2039,6 +2045,7 @@ function hostApply(args) {
             ok: true,
             file: writeResult.file,
             changed: writeResult.changed,
+            ...(writeResult.backup ? { backup: writeResult.backup } : {}),
           };
           appliedActions.push(applied);
           hostResult.applied_actions.push(applied);
