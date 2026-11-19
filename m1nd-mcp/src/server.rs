@@ -17877,6 +17877,210 @@ mod tests {
         }
         audit.assert_clean("the empty-history notes");
     }
+
+    // ---- The clean wire ------------------------------------------------------
+
+    /// Call every advertised menu verb through the MCP `tools/call` seam on a
+    /// small real-source fixture and return each response's wire text.
+    fn menu_wire_responses() -> Vec<(String, String)> {
+        let (_temp, mut state, repo) = build_state_with_real_sources();
+        let repo = repo.to_string_lossy().to_string();
+        let calls: Vec<(&str, serde_json::Value)> = vec![
+            (
+                "north",
+                serde_json::json!({"agent_id": "wire", "task": "lease enforcement"}),
+            ),
+            (
+                "memorize",
+                serde_json::json!({
+                    "agent_id": "wire",
+                    "node_label": "lease",
+                    "claims": [{"label": "lease enforcement"}],
+                    "ingest_after": false
+                }),
+            ),
+            (
+                "boot_memory",
+                serde_json::json!({"agent_id": "wire", "action": "list"}),
+            ),
+            (
+                "ingest",
+                serde_json::json!({"agent_id": "wire", "path": repo, "mode": "refresh"}),
+            ),
+            (
+                "seek",
+                serde_json::json!({"agent_id": "wire", "query": "lease enforcement"}),
+            ),
+            (
+                "search",
+                serde_json::json!({"agent_id": "wire", "query": "lease"}),
+            ),
+            (
+                "view",
+                serde_json::json!({"agent_id": "wire", "file_path": "src/lease.rs"}),
+            ),
+            (
+                "surgical_context",
+                serde_json::json!({"agent_id": "wire", "file_path": "src/lease.rs"}),
+            ),
+            (
+                "impact",
+                serde_json::json!({"agent_id": "wire", "node_id": "file::src/lease.rs"}),
+            ),
+            ("health", serde_json::json!({"agent_id": "wire"})),
+            ("trust_selftest", serde_json::json!({"agent_id": "wire"})),
+            ("session_handshake", serde_json::json!({"agent_id": "wire"})),
+            ("recovery_playbook", serde_json::json!({"agent_id": "wire"})),
+            ("doctor", serde_json::json!({"agent_id": "wire"})),
+            ("help", serde_json::json!({"agent_id": "wire"})),
+            (
+                "help",
+                serde_json::json!({"agent_id": "wire", "tool_name": "impact"}),
+            ),
+            (
+                "help",
+                serde_json::json!({"agent_id": "wire", "stage": "plan", "intent": "change the lease check"}),
+            ),
+            (
+                "help",
+                serde_json::json!({"agent_id": "wire", "error_text": "TypeError: undefined is not a function"}),
+            ),
+            (
+                "help",
+                serde_json::json!({"agent_id": "wire", "tool_name": "about"}),
+            ),
+        ];
+        let mut responses = Vec::new();
+        for (index, (tool, arguments)) in calls.into_iter().enumerate() {
+            let request = crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(index),
+                method: "tools/call".into(),
+                params: serde_json::json!({"name": tool, "arguments": arguments}),
+            };
+            let response = handle_mcp_method(&mut state, &request);
+            let text = response
+                .result
+                .as_ref()
+                .and_then(|result| result.pointer("/content/0/text"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_else(|| panic!("{tool} answered without MCP text content"))
+                .to_string();
+            responses.push((format!("{tool}({arguments})"), text));
+        }
+        responses
+    }
+
+    #[test]
+    fn no_menu_verb_puts_an_ansi_escape_on_the_wire() {
+        let menu: std::collections::BTreeSet<String> = super::core_menu_tool_names()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let responses = menu_wire_responses();
+        let called: std::collections::BTreeSet<String> = responses
+            .iter()
+            .map(|(call, _)| call.split('(').next().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(
+            called, menu,
+            "the battery must call every advertised menu verb"
+        );
+
+        let mut dirty = Vec::new();
+        for (call, text) in &responses {
+            // The JSON text escapes the byte as \u001b; the decoded payload
+            // would carry the raw 0x1b. Neither may appear.
+            let decoded = serde_json::from_str::<serde_json::Value>(text)
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            if text.as_bytes().contains(&0x1b)
+                || text.contains("\\u001b")
+                || decoded.as_bytes().contains(&0x1b)
+            {
+                dirty.push(call.clone());
+            }
+            eprintln!("WIRE_BYTES {} {}", text.len(), call);
+        }
+        assert!(
+            dirty.is_empty(),
+            "tool responses are read by agents, not terminals: no ANSI escape may reach \
+             the wire, but these carried one:\n  {}",
+            dirty.join("\n  ")
+        );
+    }
+
+    #[test]
+    fn help_does_not_repeat_the_same_text_three_times() {
+        let responses = menu_wire_responses();
+        let mut tripled = Vec::new();
+        for (call, text) in responses
+            .iter()
+            .filter(|(call, _)| call.starts_with("help("))
+        {
+            let value: serde_json::Value = serde_json::from_str(text).expect("help is JSON");
+            let mut leaves = Vec::new();
+            collect_string_leaves(&value, &mut leaves);
+            let leaves: Vec<String> = leaves.iter().map(|leaf| strip_ansi(leaf)).collect();
+            let corpus = leaves.join("\n");
+            let mut seen = std::collections::BTreeSet::new();
+            for leaf in &leaves {
+                // A one-line statement long enough to be prose, not a verb name.
+                if leaf.len() < 24 || leaf.contains('\n') || !seen.insert(leaf.clone()) {
+                    continue;
+                }
+                let count = corpus.matches(leaf.as_str()).count();
+                if count >= 3 {
+                    tripled.push(format!("{call}: {count}x {leaf:?}"));
+                }
+            }
+        }
+        assert!(
+            tripled.is_empty(),
+            "help must not repeat itself on the wire — each statement at most once in \
+             the rendered text and once in the structured guidance:\n  {}",
+            tripled.join("\n  ")
+        );
+    }
+
+    fn collect_string_leaves(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(text) => out.push(text.clone()),
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect_string_leaves(item, out);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for item in map.values() {
+                    collect_string_leaves(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Remove CSI escape sequences so the repetition count compares text, not
+    /// colour codes.
+    fn strip_ansi(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    for next in chars.by_ref() {
+                        if next.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            out.push(ch);
+        }
+        out
+    }
 }
 
 #[cfg(test)]
