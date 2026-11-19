@@ -8,6 +8,7 @@
 - [Quick Start](wiki/src/tutorials/quickstart.md): connect a host and recover common failures
 - [First query](wiki/src/tutorials/first-query.md): orient → find → inspect → remember
 - [Agent installation](../llms-install.md): setup for coding agents
+- [Agent best practices](AGENT-BEST-PRACTICES.md): how an agent gets the most out of m1nd, each practice tagged PROVEN, OBSERVED, or RULE
 - [Host integration matrix](HOST-INTEGRATION-MATRIX.md): exact host configuration and hook behavior
 
 ## Choose a workflow
