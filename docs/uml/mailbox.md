@@ -85,7 +85,7 @@ classDiagram
     }
 
     class CaseIntelligence_R11 {
-        <<docs/CASE-INTELLIGENCE-PRD.md, DESIGN ONLY>>
+        <<docs/CASE-INTELLIGENCE-PRD.md archived, DESIGN ONLY>>
         FINGERPRINT : tool_family + symptom_kind
         CASES : N letters -> 1 receipt
         ABSENCE_SENTINELS
@@ -208,7 +208,7 @@ stateDiagram-v2
 
 ## Gaps
 
-- **[high, feature-level] R11 Case Intelligence is entirely unbuilt**: no fingerprint computation, no case derivation, no sentinel runner, no claims export, no abandonment detection, no engine-minted-letter write path. The recurrence the corpus demonstrably contains is invisible to the machine (grep over m1nd-mcp/src + m1nd-core/src for case_id/CaseId/absence_sentinel/abandonment/sentinel_sweep/field-labels/m1nd:engine/symptom_kind/tool_family returns ZERO; docs/CASE-INTELLIGENCE-PRD.md:5 self-declares UNBUILT).
+- **[high, feature-level] R11 Case Intelligence is entirely unbuilt**: no fingerprint computation, no case derivation, no sentinel runner, no claims export, no abandonment detection, no engine-minted-letter write path. The recurrence the corpus demonstrably contains is invisible to the machine (grep over m1nd-mcp/src + m1nd-core/src for case_id/CaseId/absence_sentinel/abandonment/sentinel_sweep/field-labels/m1nd:engine/symptom_kind/tool_family returns ZERO; docs/CASE-INTELLIGENCE-PRD.md:5, archived at tag `archive/pre-cleanup-379fb0d6`, self-declares UNBUILT).
 - **[medium] The InFlight fate is dead code today**: in_flight_ids is hardcoded empty (mailbox.rs:684 — verified: `let in_flight_ids: BTreeSet<String> = BTreeSet::new();`), so no letter can ever be in_flight — yet the fate is counted, rendered, and summed into 'open' across every surface. A referenced-but-unclosed letter is mis-rendered as fired_clay.
 - **[medium] doctor_mailbox over-reports pending_distribution**: the doctor path passes an empty known_repos (tools.rs:4332), so every named project (even one present on this machine) resolves to Pending — an honesty defect on the one case-adjacent MCP-reachable surface (self-documented at mailbox.rs/tools.rs:4315-4321).
 - **[medium] Routing is machine-state-dependent via live is_dir() probes**: the same spool distributes differently on different machines (a Project here is Pending there) — breaks recomputability of the sweep output from the spool alone (mailbox.rs:309, :314, :863).

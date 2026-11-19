@@ -287,7 +287,7 @@ mismatch > needs_ingest > bell > coherence):
   the key.
 
 **The mark is the PULSE** (amendment 7; the owner's explicit stamp 2026-07-12 —
-`M1ND-VOICE-ALIEN.md` §5 variant C). The brand anchor is the WORD `m1nd`
+`docs/voice/M1ND-VOICE-ALIEN.md` §5 variant C, archived at tag `archive/pre-cleanup-379fb0d6`). The brand anchor is the WORD `m1nd`
 (always lowercase) followed by a FIVE-cell pulse row: `m1nd ╷╷╷│╷  <facts>`. A
 cell is calm `╷` (U+2577, narrow-guaranteed) or raised `│` (U+2502, the spine
 standing up). The cell order is FIXED FOREVER (the anti-equalizer law, pinned
@@ -331,7 +331,7 @@ width cap is re-verified by the human_view tests.
 ## cockpit — the navigable menu (`m1nd-cockpit-v0`)
 
 A DEDICATED read-only verb (askGOD verdict "the navigable cockpit", the 10
-amendments — `docs/voice/ASKGOD-VERDICT-COCKPIT.md`), the human's ON-REQUEST
+amendments — `docs/voice/ASKGOD-VERDICT-COCKPIT.md`, archived at tag `archive/pre-cleanup-379fb0d6`), the human's ON-REQUEST
 router over m1nd's read surfaces. It is a **sibling of `north`, never a field**:
 if it breaks it breaks alone, never taking `north` down (fail-open does not
 apply). Full contract + class/sequence: `docs/uml/cockpit.md`. In three lines:

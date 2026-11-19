@@ -1,7 +1,8 @@
 # presences — the control room sees the team (`m1nd-presence-v0`)
 
 ORGANISM-INSIDE **P1** (askGOD verdict 2026-07-13 APPROVE, binding changes 1–3 —
-`docs/voice/ASKGOD-VERDICT-P1.md`; PRD §3.3 `docs/ORGANISM-INSIDE-PRD.md`). The
+`docs/voice/ASKGOD-VERDICT-P1.md`; PRD §3.3 `docs/ORGANISM-INSIDE-PRD.md`; both archived at
+tag `archive/pre-cleanup-379fb0d6`). The
 organism's agents were invisible to the organism itself; P1 makes a live SESSION
 a visible presence — who is working, on what, since when — and derives a
 COLLISION warning before two mutating hands cost hours of recovery. Home:
@@ -60,7 +61,7 @@ hands in ONE worktree; caller_root equality is the measurable signal). Two views
 |---|---|---|
 | cockpit slot 8 `presences` | ONE root line (collision warning rides the LABEL, no new schema field) + a capped in-place drill (`PRESENCE_DRILL_CAP` = 6 rows: agent · theme · where · age · mutating), scope labeled "this brain" | `cockpit.rs` |
 | north collision gap | ONE line on the EXISTING `honest_gaps` mechanism, present only on a real collision, derived per-agent so it lands on BOTH colliding sessions' packets | `server.rs::handle_north` |
-| **`GET /api/presences?brain=`** | **the Hall strip's CONTRACT endpoint** (`m1nd-ui docs/voice/P1-UI-CONTRACT.md`): `{presences, collisions, served_brain?}` — absent `brain` = OWNER-WIDE (the Hall's scope), present = that brain's roster + the §4A.9.4 echo, unknown root = honest 404 (the client degrades to empty); `collisions` ALWAYS present (server-authoritative) | `http_server.rs::handle_presences` · wire mapping `presence.rs::wire_entry/wire_collision/wire_response` |
+| **`GET /api/presences?brain=`** | **the Hall strip's CONTRACT endpoint** (`docs/voice/P1-UI-CONTRACT.md`, archived at tag `archive/pre-cleanup-379fb0d6`): `{presences, collisions, served_brain?}` — absent `brain` = OWNER-WIDE (the Hall's scope), present = that brain's roster + the §4A.9.4 echo, unknown root = honest 404 (the client degrades to empty); `collisions` ALWAYS present (server-authoritative) | `http_server.rs::handle_presences` · wire mapping `presence.rs::wire_entry/wire_collision/wire_response` |
 | `/api/health` `presences` block | owner-wide roster + collisions as a DIAGNOSTIC beside `agent_sessions` (the Hall reads `/api/presences`, not this) | `http_server.rs::handle_health` |
 
 Budget re-pinned + MECHANICALLY enforced by `cockpit_budget_holds_with_the_eighth_slot`
@@ -91,7 +92,7 @@ since when"*, never *"who is alive"*. It never invents a heartbeat.
 - **`task_ref` carries the charter's `msn_` id** (the verdict's binding shape),
   not the task's free text — the UI contract calls the field "the task line";
   the id is what is honestly measured and leak-safe (recorded in
-  `P1-SERVER-DIVERGENCES.md`).
+  `docs/voice/P1-SERVER-DIVERGENCES.md`, archived at tag `archive/pre-cleanup-379fb0d6`).
 - **task_ref is best-effort** — measured only from an OPEN (`status:"active"`)
   mission-control card under the runtime root; absent otherwise (honest).
 - **The h4nd tray team-view is OUT** (queued in the h4nd house, per the verdict).

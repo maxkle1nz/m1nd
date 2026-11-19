@@ -208,7 +208,8 @@ bound soul-check surface is available. Otherwise label freshness `NOT_PROVEN` an
 ### 5.1 Anti-ceremony rules
 
 Owner-ratified 2026-07-20 after an askGOD `CHANGE` verdict shaped the text
-(`docs/proofs/m1nd10-anti-ceremony-doctrine-askgod-verdict-20260720.md`).
+(`docs/proofs/m1nd10-anti-ceremony-doctrine-askgod-verdict-20260720.md`, archived at tag
+`archive/pre-cleanup-379fb0d6`).
 
 1. **Meta-review ceiling.** The canonical cycle per source delta is: review → on `CHANGE`,
    implement every required change → one fresh re-review bound to the corrected diff (§3.5). A

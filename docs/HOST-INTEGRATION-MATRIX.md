@@ -34,7 +34,8 @@ one thing every MCP client already does.
    The one thing *every* MCP client does is **render a tool result.** So the universal
    channel is the *result of a `tools/call`* — deliver the north packet as the answer to
    the session's first call, governed by a "north first" contract. This is the
-   **First-Contact Reception** — `docs/TWO-TIER-BRAIN-PRD.md` §9.5 (the packet
+   **First-Contact Reception** — `docs/TWO-TIER-BRAIN-PRD.md` §9.5, archived at tag
+   `archive/pre-cleanup-379fb0d6` (the packet
    `schema: m1nd-reception-v0`, returned as the result of the session's first tool call
    whatever verb the agent sends). It is the floor precisely because it needs nothing but
    MCP-result rendering — `_meta` is out-of-band (the model never sees it), but
@@ -406,7 +407,7 @@ Spec: root `uri` **MUST** be `file://`; an unsupported host returns `-32601`
 
 **This RESOLVES the TWO-TIER-PRD `roots` `[unverified]` flag** at the *host-capability*
 level: **four named hosts serve `roots`; everything else falls back to cwd/config.**
-Cross-ref `docs/TWO-TIER-BRAIN-PRD.md` §9.5.4.
+Cross-ref `docs/TWO-TIER-BRAIN-PRD.md` §9.5.4 (archived at tag `archive/pre-cleanup-379fb0d6`).
 
 > **One honest reconciliation** (the reports and the PRD ask *different* questions, both
 > true): §5.2 answers "does the host *declare* a `roots` capability" → four do. §9.5.4 of
@@ -495,4 +496,4 @@ Verification labels (`[verified-docs]` / `[verified-hands-on]` / `[unverified]`)
 hands-on corrections (Claude Code renders `instructions`, §5.1; the roots capability
 resolution, §5.2) are folded in and labeled `[verified-hands-on-live-session]`.
 Cross-references: the shim (`skills/m1nd-universal-agent-pack.md:160-176`), reception
-(`docs/TWO-TIER-BRAIN-PRD.md` §9.5 / §9.5.4).
+(`docs/TWO-TIER-BRAIN-PRD.md` §9.5 / §9.5.4, archived at tag `archive/pre-cleanup-379fb0d6`).
