@@ -203,6 +203,20 @@ pub struct CharNgramIndex {
     ngram_size: usize,
 }
 
+/// A sparse n-gram vector's entries in trigram-hash order. Every f32 sum over a
+/// vector goes through this so the result does not depend on HashMap order.
+fn sorted_ngram_weights(vector: &NgramVector) -> impl Iterator<Item = (u32, FiniteF32)> {
+    let mut entries: Vec<(u32, FiniteF32)> = vector.iter().map(|(&h, &w)| (h, w)).collect();
+    entries.sort_unstable_by_key(|&(hash, _)| hash);
+    entries.into_iter()
+}
+
+/// Best score first; equal scores in ascending node order (a total order, so a
+/// later `truncate` keeps the same nodes in every process).
+fn sort_by_score_then_node(results: &mut [(NodeId, FiniteF32)]) {
+    results.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+}
+
 impl CharNgramIndex {
     /// Build index from all node labels in the graph.
     /// Replaces: semantic_v2.py CharNgramEmbedder.build()
@@ -247,10 +261,11 @@ impl CharNgramIndex {
                 tfidf_vec.insert(hash, FiniteF32::new(tfidf));
             }
 
-            // L2 normalize for cosine similarity
-            let norm: f32 = tfidf_vec
-                .values()
-                .map(|v| v.get() * v.get())
+            // L2 normalize for cosine similarity. Summed in trigram-hash order:
+            // f32 addition is not associative, so summing in HashMap order made
+            // the norm (and every score built on it) differ between processes.
+            let norm: f32 = sorted_ngram_weights(&tfidf_vec)
+                .map(|(_, v)| v.get() * v.get())
                 .sum::<f32>()
                 .sqrt();
             if norm > 0.0 {
@@ -341,15 +356,19 @@ impl CharNgramIndex {
             return Vec::new();
         }
 
-        // Query norm
-        let q_norm: f32 = qvec.values().map(|v| v.get() * v.get()).sum::<f32>().sqrt();
+        // Query norm (hash order, as in `build`)
+        let q_norm: f32 = sorted_ngram_weights(&qvec)
+            .map(|(_, v)| v.get() * v.get())
+            .sum::<f32>()
+            .sqrt();
         if q_norm <= 0.0 {
             return Vec::new();
         }
 
-        // Candidate accumulation via inverted index
+        // Candidate accumulation via inverted index, in trigram-hash order so a
+        // node's dot product is summed identically in every process.
         let mut scores: HashMap<u32, f32> = HashMap::new();
-        for (&hash, &q_weight) in &qvec {
+        for (hash, q_weight) in sorted_ngram_weights(&qvec) {
             if let Some(postings) = self.inverted.get(&hash) {
                 for &(node, norm_weight) in postings {
                     if eligible(node) {
@@ -369,7 +388,7 @@ impl CharNgramIndex {
             .filter(|(_, s)| s.get() > 0.01)
             .collect();
 
-        results.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        sort_by_score_then_node(&mut results);
         results.truncate(top_k);
         results
     }
@@ -379,14 +398,21 @@ impl CharNgramIndex {
         if a.is_empty() || b.is_empty() {
             return FiniteF32::ZERO;
         }
+        // Every sum in trigram-hash order, like the index and query paths.
         let mut dot = 0.0f32;
-        for (k, va) in a {
-            if let Some(vb) = b.get(k) {
+        for (k, va) in sorted_ngram_weights(a) {
+            if let Some(vb) = b.get(&k) {
                 dot += va.get() * vb.get();
             }
         }
-        let norm_a: f32 = a.values().map(|v| v.get() * v.get()).sum::<f32>().sqrt();
-        let norm_b: f32 = b.values().map(|v| v.get() * v.get()).sum::<f32>().sqrt();
+        let norm_a: f32 = sorted_ngram_weights(a)
+            .map(|(_, v)| v.get() * v.get())
+            .sum::<f32>()
+            .sqrt();
+        let norm_b: f32 = sorted_ngram_weights(b)
+            .map(|(_, v)| v.get() * v.get())
+            .sum::<f32>()
+            .sqrt();
         let denom = norm_a * norm_b;
         if denom > 0.0 {
             FiniteF32::new((dot / denom).min(1.0))
@@ -1111,7 +1137,9 @@ impl SemanticEngine {
             .filter(|(_, s)| s.get() > 0.01)
             .collect();
 
-        results.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        // `scores` is a HashMap: without the node-id tie-break, which of several
+        // equal scores survived `truncate` depended on per-process hash order.
+        sort_by_score_then_node(&mut results);
         results.truncate(top_k);
         Ok(results)
     }

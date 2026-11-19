@@ -57,6 +57,16 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 
 ### Fixed
 
+- **Ranking no longer depends on hash order:** the semantic engine summed n-gram
+  norms and dot products, and file-group seek summed BM25 terms, in `HashMap`/`HashSet`
+  order, and cut equal semantic scores at top-k in that order. Two processes over the
+  same graph could rank a narrative `seek` differently (on one repository, the top four
+  files reordered and the candidate pool moved between 97 and 98 files). Sums now run in
+  a fixed order and equal scores break by ascending node id, which keeps the
+  first-ingested nodes among identical labels. `seek`, the semantic dimension of
+  `activate` and semantic seed selection are affected: scores can move in their last
+  bits, and ties now resolve one fixed way. See the
+  [seek reference](docs/wiki/src/api-reference/exploration.md#m1ndseek).
 - **Owned-memory refresh preparation:** `ingest {mode: "refresh"}` prepares
   code and owned memory together before the unchanged 60% shrink guard so an
   unchanged source tree can resume after a grounded memory write
