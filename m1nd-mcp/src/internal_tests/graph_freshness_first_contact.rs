@@ -284,3 +284,75 @@ fn the_checkpoint_digest_is_blind_to_the_indexed_commit() {
         "the indexed commit leaked into the checkpoint digest"
     );
 }
+
+/// The warm-session cost contract: the per-call drift check never reads the
+/// graph (so it cannot be O(graph)), spawns no process while the graph is at
+/// HEAD, and pays for a drifted HEAD's git counts once, not per call.
+#[test]
+fn the_drift_check_never_reads_the_graph_and_caches_its_git_work() {
+    use crate::graph_drift::{graph_drift_note, probe};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    if !git_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+    let mut fixture = indexed_fixture();
+    fixture.state.caller_root = Some(canonical(&fixture.main));
+
+    // Hold the graph's write lock on another thread for the whole run. A drift
+    // check that touched the graph would block on it until the holder gives up,
+    // and the holder reports that it had to.
+    let graph = fixture.state.graph.clone();
+    let (locked_tx, locked_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let _write = graph.write();
+        locked_tx.send(()).expect("signal lock held");
+        done_rx.recv_timeout(Duration::from_secs(30)).is_err()
+    });
+    locked_rx.recv().expect("lock held");
+
+    probe::reset();
+    for _ in 0..50 {
+        assert!(graph_drift_note(&mut fixture.state).is_none());
+    }
+    assert_eq!(
+        probe::git_spawns(),
+        0,
+        "at HEAD the drift check must read HEAD from files, not spawn git per call"
+    );
+
+    // HEAD moves: the counts are measured once, then served from the cache.
+    write_crate(&fixture.main, 12);
+    git(
+        &fixture.main,
+        &fixture.git_home,
+        &["commit", "-q", "-am", "c2"],
+    );
+    probe::reset();
+    let first = graph_drift_note(&mut fixture.state).expect("drift after a new commit");
+    let measured = probe::git_spawns();
+    assert!(measured > 0, "the first drifted call measures the counts");
+    for _ in 0..50 {
+        assert_eq!(graph_drift_note(&mut fixture.state), Some(first.clone()));
+    }
+    assert_eq!(
+        probe::git_spawns(),
+        measured,
+        "a drifted HEAD must be measured once per (indexed commit, checkout, HEAD)"
+    );
+    assert_eq!(
+        probe::witness_computations(),
+        0,
+        "the drift check must never fingerprint the graph"
+    );
+
+    done_tx.send(()).expect("release the graph lock");
+    let blocked = holder.join().expect("lock holder");
+    assert!(
+        !blocked,
+        "the drift check waited on the graph lock: it reads the graph per call"
+    );
+}

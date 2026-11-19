@@ -17,11 +17,11 @@
 //! graph (a crash between the graph write and this one) all mean "unknown", and
 //! unknown means no note — never a guessed one, never a failed boot.
 //!
-//! The comparison is read-only. At a matching `HEAD` it costs one
-//! `git rev-parse`; at a drifted `HEAD` the counts (`rev-list --count`,
+//! The comparison is read-only and never touches the graph. At a matching
+//! `HEAD` it reads a few small git files (`HEAD`, the ref, `packed-refs`) and
+//! spawns nothing; at a drifted `HEAD` the counts (`rev-list --count`,
 //! `diff --name-only` between the two commits — no index, no working tree) are
-//! measured once and memoized per (indexed commit, checkout, `HEAD`), so the
-//! next call at the same `HEAD` costs one `git rev-parse` again. The check
+//! measured once and memoized per (indexed commit, checkout, `HEAD`). The check
 //! writes nothing: not the runtime, not the repository, not the index.
 //!
 //! Whose `HEAD`? The bound root's, unless the caller's root is known and sits in
@@ -39,6 +39,27 @@ use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+/// Test-only, per-thread tallies of the drift check's expensive work, so a
+/// regression test can pin its per-call cost without a clock.
+#[cfg(test)]
+pub(crate) mod probe {
+    use std::cell::Cell;
+    thread_local! {
+        pub(crate) static GIT_SPAWNS: Cell<usize> = const { Cell::new(0) };
+        pub(crate) static WITNESS_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
+    }
+    pub(crate) fn reset() {
+        GIT_SPAWNS.with(|count| count.set(0));
+        WITNESS_COMPUTATIONS.with(|count| count.set(0));
+    }
+    pub(crate) fn git_spawns() -> usize {
+        GIT_SPAWNS.with(Cell::get)
+    }
+    pub(crate) fn witness_computations() -> usize {
+        WITNESS_COMPUTATIONS.with(Cell::get)
+    }
+}
 
 /// Runtime-root sidecar that records the indexed commit next to the graph.
 pub const INDEXED_VCS_STATE_FILE: &str = "indexed_vcs_state.json";
@@ -96,6 +117,8 @@ fn is_object_id(oid: &str) -> bool {
 /// `memorize` never disturbs it; any change to the code graph does. It binds the
 /// sidecar to one code graph without touching the checkpoint.
 pub(crate) fn code_graph_witness(graph: &Graph) -> String {
+    #[cfg(test)]
+    probe::WITNESS_COMPUTATIONS.with(|count| count.set(count.get() + 1));
     let mut rows = graph
         .id_to_node
         .iter()
@@ -222,10 +245,18 @@ fn write_atomically(
     written
 }
 
-/// Process-only memo of the last drift measurement. Never persisted.
+/// Process-only memo for the drift check. Never persisted, never part of a
+/// checkpoint.
+///
+/// The per-call path must stay O(1) in the graph: it never takes the graph
+/// lock, reads `HEAD` from a few small files instead of spawning git, and keeps
+/// every git query (worktree identity, commit and file counts) here, keyed by
+/// what it depends on, so a warm session pays for each answer once.
 #[derive(Clone, Debug, Default)]
 pub struct GraphDriftCache {
     entry: Option<CachedDrift>,
+    /// Same-repository verdicts for nested checkouts, by checkout directory.
+    worktrees: Vec<(PathBuf, bool)>,
 }
 
 #[derive(Clone, Debug)]
@@ -248,10 +279,18 @@ struct CheckoutView {
 /// The `graph_drift` note, or `None` when the graph is at `HEAD` — or when no
 /// commit was recorded or `HEAD` cannot be read, since then there is no
 /// measured drift to state.
+///
+/// Cost contract (pinned by `the_drift_check_never_reads_the_graph_and_caches_its_git_work`):
+/// at a matching `HEAD` this reads a few small files and spawns nothing; a
+/// drifted `HEAD` spawns git once per (indexed commit, checkout, `HEAD`).
 pub fn graph_drift_note(state: &mut SessionState) -> Option<serde_json::Value> {
     let indexed = state.indexed_vcs.clone()?;
     let bound = PathBuf::from(&indexed.root);
-    let view = resolve_checkout(&bound, state.caller_root.as_deref())?;
+    let view = resolve_checkout(
+        &mut state.graph_drift_cache,
+        &bound,
+        state.caller_root.as_deref(),
+    )?;
     if view.head == indexed.head_oid {
         return None;
     }
@@ -273,11 +312,25 @@ pub fn graph_drift_note(state: &mut SessionState) -> Option<serde_json::Value> {
     Some(note)
 }
 
-fn resolve_checkout(bound: &Path, caller_root: Option<&str>) -> Option<CheckoutView> {
-    if let Some(nested) = caller_root.and_then(|caller| nested_checkout(bound, Path::new(caller))) {
-        let same_repository = match (git_common_dir(&nested), git_common_dir(bound)) {
-            (Some(caller_common), Some(bound_common)) => caller_common == bound_common,
-            _ => false,
+fn resolve_checkout(
+    cache: &mut GraphDriftCache,
+    bound: &Path,
+    caller_root: Option<&str>,
+) -> Option<CheckoutView> {
+    let nested = caller_root
+        .filter(|caller| Path::new(caller) != bound)
+        .and_then(|caller| nested_checkout(bound, Path::new(caller)));
+    if let Some(nested) = nested {
+        let same_repository = match cache.worktrees.iter().find(|(dir, _)| *dir == nested) {
+            Some((_, verdict)) => *verdict,
+            None => {
+                let verdict = match (git_common_dir(&nested), git_common_dir(bound)) {
+                    (Some(caller_common), Some(bound_common)) => caller_common == bound_common,
+                    _ => false,
+                };
+                cache.worktrees.push((nested.clone(), verdict));
+                verdict
+            }
         };
         if same_repository {
             let head = head_oid(&nested)?;
@@ -370,11 +423,79 @@ fn short_oid(oid: &str) -> String {
     oid.chars().take(SHORT_OID_LEN).collect()
 }
 
+/// The commit at `HEAD` of the checkout holding `dir`. Read from the git
+/// files directly (a detached `HEAD`, a loose ref, or `packed-refs`); git is
+/// spawned only for a layout this reader does not handle (another ref
+/// backend, a symbolic chain, or a git environment override), so a warm call
+/// costs a few small reads instead of a process.
 fn head_oid(dir: &Path) -> Option<String> {
-    let out = git_stdout(dir, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
-    let oid = String::from_utf8(out).ok()?.trim().to_string();
-    ((oid.len() == 40 || oid.len() == 64) && oid.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then_some(oid)
+    let git_environment = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some());
+    let from_files = if git_environment {
+        None
+    } else {
+        head_oid_from_files(dir)
+    };
+    from_files.or_else(|| {
+        let out = git_stdout(dir, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
+        let oid = String::from_utf8(out).ok()?.trim().to_string();
+        is_object_id(&oid).then_some(oid)
+    })
+}
+
+fn head_oid_from_files(dir: &Path) -> Option<String> {
+    let mut checkout = Some(dir);
+    let dot_git = loop {
+        let candidate = checkout?.join(".git");
+        if candidate.exists() {
+            break candidate;
+        }
+        checkout = checkout?.parent();
+    };
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        let pointer = std::fs::read_to_string(&dot_git).ok()?;
+        let target = PathBuf::from(pointer.strip_prefix("gitdir:")?.trim());
+        if target.is_absolute() {
+            target
+        } else {
+            dot_git.parent()?.join(target)
+        }
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    let Some(reference) = head.strip_prefix("ref:").map(str::trim) else {
+        return is_object_id(head).then(|| head.to_string());
+    };
+    if !reference.starts_with("refs/") || reference.contains("..") {
+        return None;
+    }
+    let common_dir = match std::fs::read_to_string(git_dir.join("commondir")) {
+        Ok(text) => {
+            let common = PathBuf::from(text.trim());
+            if common.is_absolute() {
+                common
+            } else {
+                git_dir.join(common)
+            }
+        }
+        Err(_) => git_dir.clone(),
+    };
+    // A loose ref wins over `packed-refs`; per-worktree refs live in the
+    // worktree's own git dir, shared ones in the common dir.
+    for base in [&git_dir, &common_dir] {
+        if let Ok(text) = std::fs::read_to_string(base.join(reference)) {
+            let oid = text.trim();
+            return is_object_id(oid).then(|| oid.to_string());
+        }
+    }
+    let packed = std::fs::read_to_string(common_dir.join("packed-refs")).ok()?;
+    packed.lines().find_map(|line| {
+        let (oid, name) = line.split_once(' ')?;
+        (name.trim() == reference && is_object_id(oid)).then(|| oid.to_string())
+    })
 }
 
 fn git_common_dir(dir: &Path) -> Option<PathBuf> {
@@ -392,6 +513,8 @@ fn git_common_dir(dir: &Path) -> Option<PathBuf> {
 /// Run a read-only git query in `dir`. `GIT_OPTIONAL_LOCKS=0` keeps git from
 /// taking even the opportunistic index lock a status-like command may take.
 fn git_stdout(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    #[cfg(test)]
+    probe::GIT_SPAWNS.with(|count| count.set(count.get() + 1));
     let output = Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -521,6 +644,75 @@ mod tests {
         short.head_oid = "abc".into();
         put(&short);
         assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+    }
+
+    #[test]
+    fn head_read_from_files_agrees_with_git_in_every_ref_layout() {
+        if Command::new("git").arg("--version").output().is_err() {
+            eprintln!("skipping: git is not on PATH");
+            return;
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("git-home");
+        std::fs::create_dir_all(&home).expect("git home");
+        let repo = dir.path().join("repo-alpha");
+        std::fs::create_dir_all(repo.join("src")).expect("repo");
+        let git = |cwd: &Path, args: &[&str]| -> String {
+            let out = Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=fx",
+                    "-c",
+                    "user.email=fx@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "init.defaultBranch=main",
+                ])
+                .args(args)
+                .current_dir(cwd)
+                .env("HOME", &home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .expect("git");
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        std::fs::write(repo.join("src/lib.rs"), "pub fn a() {}\n").expect("file");
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "c1"]);
+        let c1 = git(&repo, &["rev-parse", "HEAD"]);
+
+        // Branch HEAD on a loose ref, read from a subdirectory of the checkout.
+        assert_eq!(head_oid_from_files(&repo.join("src")), Some(c1.clone()));
+        // The same branch once its ref is only in packed-refs.
+        git(&repo, &["pack-refs", "--all"]);
+        assert_eq!(head_oid_from_files(&repo), Some(c1.clone()));
+        // A worktree: `.git` is a file, the branch lives in the common dir.
+        std::fs::write(repo.join("src/lib.rs"), "pub fn b() {}\n").expect("edit");
+        git(&repo, &["commit", "-qam", "c2"]);
+        let c2 = git(&repo, &["rev-parse", "HEAD"]);
+        assert_eq!(head_oid_from_files(&repo), Some(c2.clone()));
+        let worktree = dir.path().join("wt");
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "side",
+                &worktree.to_string_lossy(),
+                &c1,
+            ],
+        );
+        assert_eq!(head_oid_from_files(&worktree), Some(c1.clone()));
+        // A detached HEAD holds the object id itself.
+        git(&worktree, &["checkout", "-q", "--detach", &c2]);
+        assert_eq!(head_oid_from_files(&worktree), Some(c2));
+        // Not a checkout at all: unknown.
+        assert_eq!(head_oid_from_files(&dir.path().join("git-home")), None);
     }
 
     #[test]
