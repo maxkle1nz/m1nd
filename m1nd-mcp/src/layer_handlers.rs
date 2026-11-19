@@ -47,6 +47,12 @@ const L2_FILE_GROUP_MIN_QUERY_TOKENS: usize = 6;
 const L2_FILE_RRF_K: f32 = 10.0;
 const L2_FILE_RRF_LEXICAL_WEIGHT: f32 = 1.25;
 const L2_FILE_RRF_SEMANTIC_WEIGHT: f32 = 0.75;
+// A file-group row names the file; its best few symbols name the spans worth
+// opening inside it. Three per row, on the first ten rows only, keeps the
+// packet near its size before symbols existed (measured on a real repository:
+// rows past the tenth added no answer the first ten lacked).
+const L2_FILE_GROUP_SYMBOLS_MAX: usize = 3;
+const L2_FILE_GROUP_SYMBOL_ROWS: usize = 10;
 
 #[derive(Clone, Debug)]
 struct L2FileGroupRank {
@@ -339,16 +345,99 @@ fn l2_should_group_files(
 }
 
 fn l2_source_file_for_node(graph: &Graph, node_to_ext: &[String], idx: usize) -> Option<String> {
+    l2_source_file_key(graph, node_to_ext, idx).map(str::to_string)
+}
+
+/// The source file a node belongs to, borrowed: provenance `source_path`, else
+/// the path segment of a `file::` id. `l2_source_file_for_node` owns the same key.
+fn l2_source_file_key<'a>(
+    graph: &'a Graph,
+    node_to_ext: &'a [String],
+    idx: usize,
+) -> Option<&'a str> {
     if let Some(path) = graph.nodes.provenance[idx]
         .source_path
         .and_then(|value| graph.strings.try_resolve(value))
         .filter(|path| !path.is_empty())
     {
-        return Some(path.to_string());
+        return Some(path);
     }
     let external = node_to_ext.get(idx)?.strip_prefix("file::")?;
     let path = external.split("::").next().unwrap_or(external);
-    (!path.is_empty()).then(|| path.to_string())
+    (!path.is_empty()).then_some(path)
+}
+
+/// Per source file, the best eligible symbol candidates in node-relevance
+/// order (`ranked` is already sorted best-first, ties in graph order). Files and
+/// directories are not symbols. One spare candidate is kept per file so the
+/// row's own representative can be skipped without losing a slot.
+fn l2_file_group_symbol_candidates<'a>(
+    graph: &'a Graph,
+    node_to_ext: &'a [String],
+    eligible_nodes: &[bool],
+    ranked: impl Iterator<Item = usize>,
+) -> HashMap<&'a str, Vec<usize>> {
+    let mut by_file: HashMap<&'a str, Vec<usize>> = HashMap::new();
+    for idx in ranked {
+        if !eligible_nodes.get(idx).copied().unwrap_or(false)
+            || matches!(
+                graph.nodes.node_type[idx],
+                NodeType::File | NodeType::Directory
+            )
+        {
+            continue;
+        }
+        let Some(path) = l2_source_file_key(graph, node_to_ext, idx) else {
+            continue;
+        };
+        let candidates = by_file.entry(path).or_default();
+        if candidates.len() <= L2_FILE_GROUP_SYMBOLS_MAX {
+            candidates.push(idx);
+        }
+    }
+    by_file
+}
+
+/// The symbols attached to one file-group row whose representative is `row_idx`.
+fn l2_file_group_symbols(
+    graph: &Graph,
+    node_to_ext: &[String],
+    candidates: &HashMap<&str, Vec<usize>>,
+    row_idx: usize,
+) -> Vec<layers::SeekFileGroupSymbol> {
+    let Some(file_candidates) =
+        l2_source_file_key(graph, node_to_ext, row_idx).and_then(|path| candidates.get(path))
+    else {
+        return Vec::new();
+    };
+    file_candidates
+        .iter()
+        .filter(|&&idx| idx != row_idx)
+        .take(L2_FILE_GROUP_SYMBOLS_MAX)
+        .map(|&idx| {
+            let provenance = &graph.nodes.provenance[idx];
+            layers::SeekFileGroupSymbol {
+                node_id: if node_to_ext[idx].is_empty() {
+                    graph.strings.resolve(graph.nodes.label[idx]).to_string()
+                } else {
+                    node_to_ext[idx].clone()
+                },
+                line_start: (provenance.line_start > 0).then_some(provenance.line_start),
+                line_end: (provenance.line_end > 0).then_some(provenance.line_end),
+            }
+        })
+        .collect()
+}
+
+/// Prefix shared by every graph edge-resolution diagnostic tag that ingest
+/// mints (`m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG`, `EDGE_AMBIGUOUS_TAG` and
+/// its targeted form). Matching the prefix keeps a future edge tag out too.
+const L2_EDGE_DIAGNOSTIC_TAG_PREFIX: &str = "m1nd:edge:";
+
+/// Whether a node tag is a graph edge-resolution diagnostic (`m1nd:edge:*`):
+/// bookkeeping about unresolved or ambiguous edges, not a description of the node.
+fn l2_is_edge_diagnostic_tag(tag: &str) -> bool {
+    tag.starts_with(L2_EDGE_DIAGNOSTIC_TAG_PREFIX)
 }
 
 fn l2_bm25_terms(text: &str) -> Vec<String> {
@@ -1134,9 +1223,21 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // file_group rows carry their file's best symbols. Collected from the
+    // node-level order BEFORE grouping replaces it; `node_types=["file"]` asks
+    // for pure files, so no candidates are collected there.
+    let mut file_group_symbol_candidates: HashMap<&str, Vec<usize>> = HashMap::new();
     if file_group_mode {
         let semantic_node_order: Vec<usize> = base_ranked.iter().map(|entry| entry.idx).collect();
         let file_only = !input.node_types.is_empty();
+        if !file_only {
+            file_group_symbol_candidates = l2_file_group_symbol_candidates(
+                &graph,
+                &node_to_ext,
+                &eligible_nodes,
+                semantic_node_order.iter().copied(),
+            );
+        }
         base_ranked = l2_rank_file_groups(
             &graph,
             &node_to_ext,
@@ -1393,7 +1494,18 @@ pub fn handle_seek(
                     temporal_recency: r.trigram, // V1: trigram fills recency slot. V2: real recency.
                 },
                 heuristic_signals: Some(r.heuristic_signals),
-                intent_summary: l2_intent_summary(&label, nt, &tags),
+                // A file-group row describes a file; edge-resolution
+                // diagnostics can run to thousands of characters there.
+                intent_summary: if file_group_mode {
+                    let described: Vec<String> = tags
+                        .iter()
+                        .filter(|tag| !l2_is_edge_diagnostic_tag(tag))
+                        .cloned()
+                        .collect();
+                    l2_intent_summary(&label, nt, &described)
+                } else {
+                    l2_intent_summary(&label, nt, &tags)
+                },
                 file_path,
                 line_start: prov.line_start,
                 line_end: prov.line_end,
@@ -1402,10 +1514,19 @@ pub fn handle_seek(
                 source_agent,
                 origin_brain,
                 connections,
+                symbols: l2_file_group_symbols(
+                    &graph,
+                    &node_to_ext,
+                    &file_group_symbol_candidates,
+                    i,
+                ),
             }
         })
         .collect();
-    let results = dedupe_ranked(results, input.top_k);
+    let mut results = dedupe_ranked(results, input.top_k);
+    for row in results.iter_mut().skip(L2_FILE_GROUP_SYMBOL_ROWS) {
+        row.symbols.clear();
+    }
 
     // Context-budget packing: keep highest-signal hits (already rank-ordered by
     // dedupe_ranked) that fit the agent's declared token budget. Only engages
@@ -1711,7 +1832,8 @@ pub fn handle_focus(
 }
 
 /// Per-result token ESTIMATE for a seek hit, summed over its load-bearing text
-/// fields (label, path, intent summary, excerpt). Uses the chars/4 heuristic —
+/// fields (label, path, intent summary, excerpt, connections, attached
+/// symbols). Uses the chars/4 heuristic —
 /// see `result_shaping::estimate_tokens_from_chars`; this is an approximation,
 /// not exact tokenization.
 fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
@@ -1725,6 +1847,9 @@ fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
     }
     for conn in &entry.connections {
         chars += conn.label.len() + conn.relation.len();
+    }
+    for symbol in &entry.symbols {
+        chars += symbol.node_id.len();
     }
     crate::result_shaping::estimate_tokens_from_chars(chars)
 }
@@ -11235,6 +11360,10 @@ mod seek_filter_contract_tests;
 mod seek_determinism_tests;
 
 #[cfg(test)]
+#[path = "internal_tests/seek_file_group_symbols.rs"]
+mod seek_file_group_symbols_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         compute_modified_nodes, handle_calibrate_envelope, handle_focus, handle_layers,
@@ -14820,6 +14949,67 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "seek should suggest opening the strongest result next"
         );
         assert_eq!(output.proof_state, "proving");
+    }
+
+    /// Attaching symbols to file-group rows is additive: on the natural-language
+    /// fixture the rows, their order, their scores, the pool size and the
+    /// granularity are pinned to the values seek returned before symbols existed.
+    #[test]
+    fn seek_file_group_symbols_leave_natural_language_rows_unchanged() {
+        let queries = [
+            "Where do we normalize alias tool names into the canonical dispatch status name?",
+            "Which helper maps alias tool names into canonical dispatch status values before execution?",
+        ];
+        for query in queries {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let mut state = build_seek_natural_language_state(temp.path());
+            #[cfg(feature = "embed")]
+            {
+                state.orchestrator.semantic.embedder = None;
+                state.orchestrator.semantic.embeddings.clear();
+            }
+            let output = handle_seek(
+                &mut state,
+                SeekInput {
+                    query: query.into(),
+                    agent_id: "test".into(),
+                    top_k: 5,
+                    scope: None,
+                    node_types: vec![],
+                    min_score: 0.0,
+                    graph_rerank: true,
+                    conformance_aware: true,
+                    token_budget: None,
+                },
+            )
+            .expect("seek should succeed");
+            let observed: Vec<(&str, f32)> = output
+                .results
+                .iter()
+                .map(|result| (result.node_id.as_str(), result.score))
+                .collect();
+            assert_eq!(output.result_granularity, "file_group", "{query}");
+            assert_eq!(output.relevance_clearing_total, 2, "{query}");
+            assert_eq!(
+                observed,
+                vec![
+                    (
+                        "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name",
+                        0.99_f32
+                    ),
+                    ("file::docs/dispatch-aliases.md", 0.907_499_9_f32),
+                ],
+                "{query}"
+            );
+            // A row whose representative is itself a symbol (no file node in
+            // this legacy-shaped graph) never lists itself among its symbols.
+            let json = serde_json::to_value(&output).expect("serialize seek");
+            for row in json["results"].as_array().expect("results") {
+                for symbol in row["symbols"].as_array().into_iter().flatten() {
+                    assert_ne!(symbol["node_id"], row["node_id"], "{row:#}");
+                }
+            }
+        }
     }
 
     #[test]

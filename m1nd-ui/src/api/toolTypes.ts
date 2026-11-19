@@ -110,6 +110,18 @@ export interface SeekResultEntry {
   excerpt?: string;
   intent_summary?: string; // the one-line "what this is" the panel shows
   score?: number; // the engine's score VERBATIM — no invented stars (§4A.10)
+  // `file_group` rows only, first ten rows (protocol/layers.rs
+  // SeekResultEntry.symbols): up to three of the file's best eligible symbols,
+  // best first. Omitted when empty.
+  symbols?: SeekFileGroupSymbol[];
+}
+
+/** One symbol attached to a `file_group` seek row: the id (which names the
+ *  symbol and its kind) and the span to open. No excerpt; order is the rank. */
+export interface SeekFileGroupSymbol {
+  node_id: string;
+  line_start?: number;
+  line_end?: number;
 }
 
 /** The sufficiency block — ALWAYS present on SeekOutput (layers.rs:103). */
