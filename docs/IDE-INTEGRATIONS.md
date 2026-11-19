@@ -12,15 +12,15 @@ The high-level rule is simple:
 
 | Client | Integration surface | Config location / entrypoint | What to point at |
 |---|---|---|---|
-| Claude Code | MCP config file | `.claude/mcp.json` or `claude_mcp.json` | `m1nd-mcp` |
-| Codex | MCP config in TOML | `~/.codex/config.toml` | `m1nd-mcp` |
+| Claude Code | MCP config file | project `.mcp.json` (Claude Code's project scope); skills in `~/.claude/skills` | `m1nd-mcp` |
+| Codex | MCP config in TOML | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`); skills in `$CODEX_HOME/skills` | `m1nd-mcp` |
 | Cursor | MCP config file | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` | `m1nd-mcp` or a thin native proxy |
 | Windsurf | MCP config file | Windsurf MCP settings / config JSON | `m1nd-mcp` or a thin native proxy |
 | GitHub Copilot coding agent | Repository MCP config UI | repository settings UI for MCP servers | `m1nd-mcp` or an editor-facing native proxy command |
 | Zed | Assistant MCP config | Zed assistant MCP configuration | `m1nd-mcp` |
 | Continue | MCP / config layer | Continue MCP configuration | `m1nd-mcp` |
 | Cline / Roo Code / OpenCode | MCP-compatible command config | client-specific MCP server config | `m1nd-mcp` |
-| Antigravity | `mcp_config.json` | workspace-local `mcp_config.json` | native proxy recommended |
+| Antigravity | global `mcp_config.json` | `~/.gemini/config/mcp_config.json`; skills as the plugin `~/.gemini/config/plugins/m1nd` | `m1nd-mcp` or `m1nd-mcp --attach auto --stdio` |
 
 ## Why some hosts should use a proxy
 
@@ -97,10 +97,10 @@ Adapters should be very small:
 - forward to the hot native daemon
 - preserve host expectations
 
-Examples:
-
-- Antigravity → `m1nd-antigravity-proxy.py`
-- Cursor / Windsurf → project-local MCP config pointing at a native proxy if desired
+The shipped adapter is the native attach bridge: register
+`m1nd-mcp --attach auto --stdio` as the host's MCP command, and it forwards to a
+served owner (`m1nd-mcp --serve`) that already covers the repository. Any host
+that launches a stdio command can use it; see `docs/deployment.md` §2.
 
 ## Practical recommendations
 
@@ -156,6 +156,24 @@ you still need a host restart/rebind plus `trust_selftest` or
 `session_handshake` afterward. Generic hosts remain manual for config because
 `apply` cannot know every host-specific config path.
 
+The files `apply --yes` writes for the hosts it knows:
+
+| Host | MCP config | Skills |
+|---|---|---|
+| Codex | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `$CODEX_HOME/skills/` |
+| Claude Code | `<project>/.mcp.json` (never `~/.claude.json`) | `~/.claude/skills/` |
+| Gemini CLI | `<project>/.gemini/settings.json` | `<project>/.m1nd/agent-pack/` |
+| Antigravity | `~/.gemini/config/mcp_config.json` | plugin `~/.gemini/config/plugins/m1nd/` |
+
+Every existing config or doctrine file it changes is first copied to a private
+(`0600`) backup under `~/.m1nd/backups/`, then replaced atomically. A file kept
+as a symlink stays a symlink: the link's target receives the new content, and a
+link whose target cannot be resolved is refused. For Claude Code, `plan` and
+`apply` warn that `.mcp.json` is the project scope Claude Code shares through
+version control, while the entry written there holds absolute paths from this
+machine (the runtime binary and `M1ND_WORKSPACE_ROOT`); review it before you
+commit it.
+
 ### Use plain MCP when:
 
 - the host already keeps the MCP server alive
@@ -170,11 +188,14 @@ you still need a host restart/rebind plus `trust_selftest` or
 
 ## Current m1nd-native components
 
-- `scripts/macos/m1nd-antigravity-proxy.py` — editor-facing stdio proxy
+- `m1nd-mcp --serve` — the hot owner that holds the graph
+- `m1nd-mcp --attach auto --stdio` — the thin stdio bridge a host launches
+  instead of loading a second copy of the graph
 
 ## Notes
 
-- Antigravity integration is grounded from the local product schema that recognizes
-  `mcp_config.json`.
+- Antigravity reads MCP servers from the global `~/.gemini/config/mcp_config.json`;
+  `m1nd hosts apply --host antigravity --yes` merges the `m1nd` entry there and
+  keeps every other server entry.
 - Codex, Cursor, Windsurf, Claude Code, GitHub Copilot coding agent, Zed, and Continue
   all fit the same conceptual model: host config chooses the command, env, and working directory.
