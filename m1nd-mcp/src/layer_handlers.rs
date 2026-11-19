@@ -11367,6 +11367,10 @@ mod seek_determinism_tests;
 mod seek_file_group_symbols_tests;
 
 #[cfg(test)]
+#[path = "internal_tests/seek_lean_rows.rs"]
+mod seek_lean_rows_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         compute_modified_nodes, handle_calibrate_envelope, handle_focus, handle_layers,

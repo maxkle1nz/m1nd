@@ -162,6 +162,23 @@ fn seek_input(query: &str, scope: Option<&str>, node_types: &[&str]) -> SeekInpu
     .expect("seek input")
 }
 
+/// `seek_input` with `detail: true`: the full rows, diagnostics included.
+fn detail_input(query: &str, token_budget: Option<usize>) -> SeekInput {
+    let mut args = json!({
+        "agent_id": "file-group-symbols",
+        "query": query,
+        "top_k": 10,
+        "min_score": 0.0,
+        "graph_rerank": false,
+        "conformance_aware": false,
+        "detail": true
+    });
+    if let Some(budget) = token_budget {
+        args["token_budget"] = json!(budget);
+    }
+    serde_json::from_value(args).expect("seek input")
+}
+
 fn seek_json(state: &mut SessionState, input: SeekInput) -> Value {
     let output = handle_seek(state, input).expect("seek");
     let mut value = serde_json::to_value(output).expect("serialize seek");
@@ -425,11 +442,13 @@ fn edge_resolution_tags_share_one_prefix_and_stay_out_of_file_summaries() {
     }
 }
 
+/// With `detail`, a node row keeps every tag in its summary; the default row's
+/// short intent line leaves the edge-resolution tags out.
 #[test]
 fn node_granularity_keeps_the_full_intent_summary() {
     let temp = tempfile::tempdir().expect("tempdir");
     let mut state = guard_state(temp.path());
-    let output = seek_json(&mut state, seek_input("session_guard.rs", None, &[]));
+    let output = seek_json(&mut state, detail_input("session_guard.rs", None));
     assert_eq!(output["result_granularity"], "node", "{output:#}");
     let row = row(&output, "file::src/auth/session_guard.rs");
     assert_eq!(
@@ -438,6 +457,12 @@ fn node_granularity_keeps_the_full_intent_summary() {
          m1nd:edge:ambiguous:file::src/billing/invoice.rs::fn::compute_invoice_total]"
     );
     assert!(row.get("symbols").is_none(), "{row:#}");
+
+    let lean = seek_json(&mut state, seek_input("session_guard.rs", None, &[]));
+    assert_eq!(
+        self::row(&lean, "file::src/auth/session_guard.rs")["intent_summary"],
+        "session_guard.rs (file) [rust]"
+    );
 }
 
 /// Only the first ten rows carry symbols: the rows an agent reads first, and a
@@ -471,15 +496,19 @@ fn token_budget_counts_attached_symbols_in_seek_and_focus() {
     let temp = tempfile::tempdir().expect("tempdir");
     let mut state = guard_state(temp.path());
 
-    let mut input = seek_input(NARRATIVE, None, &[]);
-    input.token_budget = Some(100_000);
-    let output = seek_json(&mut state, input);
+    // The budget is measured on the full (`detail`) rows, so the default rows
+    // report the same budget block and keep the same rows.
+    let output = seek_json(&mut state, detail_input(NARRATIVE, Some(100_000)));
     assert!(
         rows(&output)[0].get("symbols").is_some(),
         "budgeted seek keeps the symbols: {output:#}"
     );
     let expected: u64 = rows(&output).iter().map(row_token_estimate).sum();
     assert_eq!(output["budget"]["estimated_used_tokens"], expected);
+    let mut input = seek_input(NARRATIVE, None, &[]);
+    input.token_budget = Some(100_000);
+    let lean = seek_json(&mut state, input);
+    assert_eq!(lean["budget"], output["budget"]);
 
     let focus = handle_focus(
         &mut state,
