@@ -48,8 +48,11 @@ const L2_FILE_RRF_K: f32 = 10.0;
 const L2_FILE_RRF_LEXICAL_WEIGHT: f32 = 1.25;
 const L2_FILE_RRF_SEMANTIC_WEIGHT: f32 = 0.75;
 // A file-group row names the file; its best few symbols name the spans worth
-// opening inside it. Three keeps the row compact under a token budget.
+// opening inside it. Three per row, on the first ten rows only, keeps the
+// packet near its size before symbols existed (measured on a real repository:
+// rows past the tenth added no answer the first ten lacked).
 const L2_FILE_GROUP_SYMBOLS_MAX: usize = 3;
+const L2_FILE_GROUP_SYMBOL_ROWS: usize = 10;
 
 #[derive(Clone, Debug)]
 struct L2FileGroupRank {
@@ -342,30 +345,40 @@ fn l2_should_group_files(
 }
 
 fn l2_source_file_for_node(graph: &Graph, node_to_ext: &[String], idx: usize) -> Option<String> {
+    l2_source_file_key(graph, node_to_ext, idx).map(str::to_string)
+}
+
+/// The source file a node belongs to, borrowed: provenance `source_path`, else
+/// the path segment of a `file::` id. `l2_source_file_for_node` owns the same key.
+fn l2_source_file_key<'a>(
+    graph: &'a Graph,
+    node_to_ext: &'a [String],
+    idx: usize,
+) -> Option<&'a str> {
     if let Some(path) = graph.nodes.provenance[idx]
         .source_path
         .and_then(|value| graph.strings.try_resolve(value))
         .filter(|path| !path.is_empty())
     {
-        return Some(path.to_string());
+        return Some(path);
     }
     let external = node_to_ext.get(idx)?.strip_prefix("file::")?;
     let path = external.split("::").next().unwrap_or(external);
-    (!path.is_empty()).then(|| path.to_string())
+    (!path.is_empty()).then_some(path)
 }
 
 /// Per source file, the best eligible symbol candidates in node-relevance
 /// order (`ranked` is already sorted best-first, ties in graph order). Files and
 /// directories are not symbols. One spare candidate is kept per file so the
 /// row's own representative can be skipped without losing a slot.
-fn l2_file_group_symbol_candidates(
-    graph: &Graph,
-    node_to_ext: &[String],
+fn l2_file_group_symbol_candidates<'a>(
+    graph: &'a Graph,
+    node_to_ext: &'a [String],
     eligible_nodes: &[bool],
-    ranked: impl Iterator<Item = (usize, f32)>,
-) -> HashMap<String, Vec<(usize, f32)>> {
-    let mut by_file: HashMap<String, Vec<(usize, f32)>> = HashMap::new();
-    for (idx, score) in ranked {
+    ranked: impl Iterator<Item = usize>,
+) -> HashMap<&'a str, Vec<usize>> {
+    let mut by_file: HashMap<&'a str, Vec<usize>> = HashMap::new();
+    for idx in ranked {
         if !eligible_nodes.get(idx).copied().unwrap_or(false)
             || matches!(
                 graph.nodes.node_type[idx],
@@ -374,12 +387,12 @@ fn l2_file_group_symbol_candidates(
         {
             continue;
         }
-        let Some(path) = l2_source_file_for_node(graph, node_to_ext, idx) else {
+        let Some(path) = l2_source_file_key(graph, node_to_ext, idx) else {
             continue;
         };
         let candidates = by_file.entry(path).or_default();
         if candidates.len() <= L2_FILE_GROUP_SYMBOLS_MAX {
-            candidates.push((idx, score));
+            candidates.push(idx);
         }
     }
     by_file
@@ -389,38 +402,38 @@ fn l2_file_group_symbol_candidates(
 fn l2_file_group_symbols(
     graph: &Graph,
     node_to_ext: &[String],
-    candidates: &HashMap<String, Vec<(usize, f32)>>,
+    candidates: &HashMap<&str, Vec<usize>>,
     row_idx: usize,
 ) -> Vec<layers::SeekFileGroupSymbol> {
-    if candidates.is_empty() {
-        return Vec::new();
-    }
     let Some(file_candidates) =
-        l2_source_file_for_node(graph, node_to_ext, row_idx).and_then(|path| candidates.get(&path))
+        l2_source_file_key(graph, node_to_ext, row_idx).and_then(|path| candidates.get(path))
     else {
         return Vec::new();
     };
     file_candidates
         .iter()
-        .filter(|(idx, _)| *idx != row_idx)
+        .filter(|&&idx| idx != row_idx)
         .take(L2_FILE_GROUP_SYMBOLS_MAX)
-        .map(|&(idx, score)| {
-            let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
-            let provenance = graph.resolve_node_provenance(NodeId::new(idx as u32));
+        .map(|&idx| {
+            let provenance = &graph.nodes.provenance[idx];
             layers::SeekFileGroupSymbol {
                 node_id: if node_to_ext[idx].is_empty() {
-                    label.clone()
+                    graph.strings.resolve(graph.nodes.label[idx]).to_string()
                 } else {
                     node_to_ext[idx].clone()
                 },
-                label,
-                node_type: l2_node_type_str(&graph.nodes.node_type[idx]).to_string(),
-                line_start: provenance.line_start,
-                line_end: provenance.line_end,
-                score,
+                line_start: (provenance.line_start > 0).then_some(provenance.line_start),
+                line_end: (provenance.line_end > 0).then_some(provenance.line_end),
             }
         })
         .collect()
+}
+
+/// Whether a node tag is a graph edge-resolution diagnostic (`m1nd:edge:*`):
+/// bookkeeping about unresolved or ambiguous edges, not a description of the node.
+fn l2_is_edge_diagnostic_tag(tag: &str) -> bool {
+    tag == m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG
+        || tag.starts_with(m1nd_ingest::resolve::EDGE_AMBIGUOUS_TAG)
 }
 
 fn l2_bm25_terms(text: &str) -> Vec<String> {
@@ -1209,7 +1222,7 @@ pub fn handle_seek(
     // file_group rows carry their file's best symbols. Collected from the
     // node-level order BEFORE grouping replaces it; `node_types=["file"]` asks
     // for pure files, so no candidates are collected there.
-    let mut file_group_symbol_candidates: HashMap<String, Vec<(usize, f32)>> = HashMap::new();
+    let mut file_group_symbol_candidates: HashMap<&str, Vec<usize>> = HashMap::new();
     if file_group_mode {
         let semantic_node_order: Vec<usize> = base_ranked.iter().map(|entry| entry.idx).collect();
         let file_only = !input.node_types.is_empty();
@@ -1218,9 +1231,7 @@ pub fn handle_seek(
                 &graph,
                 &node_to_ext,
                 &eligible_nodes,
-                base_ranked
-                    .iter()
-                    .map(|entry| (entry.idx, entry.base_score)),
+                semantic_node_order.iter().copied(),
             );
         }
         base_ranked = l2_rank_file_groups(
@@ -1479,7 +1490,18 @@ pub fn handle_seek(
                     temporal_recency: r.trigram, // V1: trigram fills recency slot. V2: real recency.
                 },
                 heuristic_signals: Some(r.heuristic_signals),
-                intent_summary: l2_intent_summary(&label, nt, &tags),
+                // A file-group row describes a file; edge-resolution
+                // diagnostics can run to thousands of characters there.
+                intent_summary: if file_group_mode {
+                    let described: Vec<String> = tags
+                        .iter()
+                        .filter(|tag| !l2_is_edge_diagnostic_tag(tag))
+                        .cloned()
+                        .collect();
+                    l2_intent_summary(&label, nt, &described)
+                } else {
+                    l2_intent_summary(&label, nt, &tags)
+                },
                 file_path,
                 line_start: prov.line_start,
                 line_end: prov.line_end,
@@ -1497,7 +1519,10 @@ pub fn handle_seek(
             }
         })
         .collect();
-    let results = dedupe_ranked(results, input.top_k);
+    let mut results = dedupe_ranked(results, input.top_k);
+    for row in results.iter_mut().skip(L2_FILE_GROUP_SYMBOL_ROWS) {
+        row.symbols.clear();
+    }
 
     // Context-budget packing: keep highest-signal hits (already rank-ordered by
     // dedupe_ranked) that fit the agent's declared token budget. Only engages
@@ -1820,7 +1845,7 @@ fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
         chars += conn.label.len() + conn.relation.len();
     }
     for symbol in &entry.symbols {
-        chars += symbol.node_id.len() + symbol.label.len() + symbol.node_type.len();
+        chars += symbol.node_id.len();
     }
     crate::result_shaping::estimate_tokens_from_chars(chars)
 }

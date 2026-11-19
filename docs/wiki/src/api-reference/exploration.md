@@ -135,24 +135,33 @@ rank with the node-level relevance rank, so related symbols in one file do not f
 every slot. A row's `node_id` is the file node (or, in a graph without file nodes, the
 file's best node), and its `line_start`/`line_end` cover the whole file.
 
-Each `file_group` row may also carry `symbols`: up to three symbols from that file, so
-the caller can open the relevant span instead of the whole file. Each symbol has
-`node_id`, `label`, `node_type`, `line_start`, `line_end` and `score`, and no excerpt.
+Each of the first ten `file_group` rows may also carry `symbols`: up to three symbols
+from that file, so the caller can open the relevant span instead of the whole file.
+Each symbol is `{node_id, line_start, line_end}`: the id (which already names the
+symbol and its kind, as in `file::<path>::fn::<name>`) to pass to other verbs, and the
+span to open. There is no excerpt.
 
-- **Order.** Symbols keep the node-level relevance order seek computes before grouping;
-  equal scores keep graph order, so repeated calls return the same list. `score` is that
-  node-level relevance (before trust/tremor damping), not the row's fused file score.
+- **Order.** Symbols keep the node-level relevance order seek computes before grouping,
+  best first; equal scores keep graph order, so repeated calls return the same list.
 - **Eligibility.** A symbol must pass the same `scope` filter as the rows and must clear
   `min_score`. Files, directories and the row's own node are never listed. Symbols are
   matched to a file by provenance `source_path` (falling back to the `file::` id), the
   same key the file ranking uses.
-- **When absent.** The field is omitted when a file has no eligible symbol, in `"node"`
-  granularity, and when `node_types` is `["file"]`.
-- **Budget.** With `token_budget`, each row's estimate includes its symbols' text, so a
+- **When absent.** The field is omitted when a file has no eligible symbol, on rows after
+  the tenth, in `"node"` granularity, and when `node_types` is `["file"]`.
+- **Summary.** A `file_group` row's `intent_summary` (`label (type) [tags]`) leaves out
+  the `m1nd:edge:*` edge-resolution tags, which can run to thousands of characters on a
+  file. `"node"` rows keep every tag.
+- **Budget.** With `token_budget`, each row's estimate includes its symbol ids, so a
   budget may keep fewer rows than it would without them. `focus` inherits this.
-- **Unchanged.** The rows themselves — their `node_id`s, order, scores, count and
-  `result_granularity` — are the same with or without symbols. Semantic `search` rows
-  and the memory rows `north` builds from a `light::`-scoped seek do not carry the field.
+- **Unchanged.** The rows themselves (their `node_id`s, order, scores, count and
+  `result_granularity`) are the same with or without symbols. Semantic `search` rows and
+  the memory rows `north` builds from a `light::`-scoped seek do not carry the field.
+
+**Hash order does not affect ranking.** Semantic (n-gram) and BM25 sums run in a fixed
+order, and equal semantic scores keep ascending node order through each top-k cut, so two
+processes over the same graph rank alike. Runtime state, such as trust history and its
+decay over time, can still change scores between calls.
 
 ```json
 {
@@ -163,12 +172,13 @@ the caller can open the relevant span instead of the whole file. Each symbol has
       "label": "session_guard.rs",
       "type": "file",
       "score": 0.99,
+      "intent_summary": "session_guard.rs (file) [rust]",
       "file_path": "src/auth/session_guard.rs",
       "line_start": 1,
       "line_end": 240,
       "symbols": [
-        { "node_id": "file::src/auth/session_guard.rs::fn::check_account_access", "label": "check_account_access", "node_type": "function", "line_start": 84, "line_end": 120, "score": 0.41 },
-        { "node_id": "file::src/auth/session_guard.rs::fn::validate_credentials", "label": "validate_credentials", "node_type": "function", "line_start": 12, "line_end": 40, "score": 0.32 }
+        { "node_id": "file::src/auth/session_guard.rs::fn::check_account_access", "line_start": 84, "line_end": 120 },
+        { "node_id": "file::src/auth/session_guard.rs::fn::validate_credentials", "line_start": 12, "line_end": 40 }
       ]
     }
   ]
