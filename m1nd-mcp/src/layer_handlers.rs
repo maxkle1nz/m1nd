@@ -9293,11 +9293,14 @@ pub fn handle_tremor(
         "elapsed_ms": result.elapsed_ms,
     });
     // Honest empty-state guidance: tremor needs change-velocity observations.
+    // Only the structural daemon records them, and arming it sits above the
+    // generic authority floor — so the note names no verb the reader cannot
+    // call, and points at the history a generic caller CAN read.
     if result.nodes_with_sufficient_data == 0 {
         tremor_out.as_object_mut().unwrap().insert(
             "note".into(),
             serde_json::json!(
-                "No velocity observations yet — tremor measures the second derivative of change over time. Run `ghost_edges` (parses git commit history) to seed change velocity, then re-run; or accumulate observations via the daemon."
+                "No velocity observations yet — tremor measures the second derivative of change over time, and only the owner's structural daemon records those observations. Until it has, read one file's change history with `timeline(file)`, or its blast set with `impact(node)`."
             ),
         );
     }

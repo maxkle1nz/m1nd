@@ -416,7 +416,7 @@ orientation pass instead of a long graph investigation:
    human's `m1nd init --birth <repo>` you offer) → re-`north`. Drop to `trust_selftest` /
    scoped `session_handshake` only if the binding looks degraded.
 2. Run at most one or two cheap follow-up calls: `search`, `seek`, or
-   `activate` (or `audit` for the structural map).
+   `activate` (or `panoramic` for module-level risk).
 3. When suspect files or behaviors are visible, switch to direct source reads,
    git diff, tests, compiler/runtime output, and focused probes.
 4. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
@@ -535,18 +535,18 @@ situation.
 - Path pattern -> `glob`
 - Known purpose, unknown location -> `seek`
 - Topic, subsystem, or neighborhood -> `activate`
-- Unfamiliar repo -> `north` (or `audit` for the structural map alone)
+- Unfamiliar repo -> `north` (or `panoramic` for module-level risk alone)
 - Stacktrace or runtime error text -> `trace`
 - Risky change -> `impact`, `predict`, `validate_plan`, then usually
   `surgical_context_v2`
-- Deep architecture/risk -> RETROBUILDER. Use `ghost_edges` for hidden
-  historical co-change, `taint_trace` for trust-boundary or sensitive flow,
-  `twins` for structural duplication, `refactor_plan` for extraction
-  communities, and `runtime_overlay` for span/log heat on graph nodes. These
-  tools produce anchors and hypotheses; direct source/test/runtime proof is
-  still final truth.
-- Docs/specs -> `ingest` with `adapter="universal"` or `adapter="light"`, then
-  document binding/drift tools
+- Deep architecture/risk -> RETROBUILDER. Use `taint_trace` for trust-boundary
+  or sensitive flow, `twins` for structural duplication, and `refactor_plan` for
+  extraction communities; `timeline` reads a file's history. (`ghost_edges` and
+  `runtime_overlay` sit above the generic authority floor.) These tools produce
+  anchors and hypotheses; direct source/test/runtime proof is still final truth.
+- Docs/specs already in the graph -> `document_resolve`, then
+  `document_bindings` / `document_drift`. Grounding a new document is a graph
+  write above the generic floor.
 - Mission loop -> `mission_start`, `mission_event`, `mission_next`,
   `mission_verify`, `mission_handoff`, `mission_close`
 

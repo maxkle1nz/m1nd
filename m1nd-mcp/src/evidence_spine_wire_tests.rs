@@ -378,9 +378,10 @@ async fn canonical_g3_projection_is_queryable_read_only_over_rest_and_streamable
         assert!(is_error);
         assert!(invalid.contains("unknown field `brain_id`"));
 
-        // Even a refused payload carrying agent_id must remain read-only. The
-        // generic REST/MCP wrappers normally track agents before dispatch, so
-        // this locks the pre-decode exception for every accepted alias.
+        // agent_id is accepted like on every verb, and neither an answered nor
+        // a refused payload carrying it may leave a trace. The generic REST/MCP
+        // wrappers normally track agents before dispatch, so this locks the
+        // exception for every accepted alias.
         let registry_root = runtime.join("registry");
         let registry_before = durable_tree_snapshot(&registry_root);
         let evidence_before = evidence_files(&evidence_root);
@@ -396,16 +397,29 @@ async fn canonical_g3_projection_is_queryable_read_only_over_rest_and_streamable
             "m1nd.evidence_query",
             "m1nd_evidence_query",
         ] {
-            let (status, _invalid) =
+            // The bare verb answers a payload carrying agent_id; the prefixed
+            // aliases are not routed for this verb on either transport and
+            // refuse as before. Neither outcome may leave a presence behind.
+            let answers = alias == "evidence_query";
+            let (status, _answered) =
                 rest_call(&router, alias, &json!({"agent_id": "forged-presence"})).await;
-            assert!(status.is_client_error(), "REST alias {alias}");
-            let (is_error, _invalid) = mcp_call_raw(
+            assert_eq!(status == StatusCode::OK, answers, "REST {alias}: {status}");
+            if !answers {
+                assert!(status.is_client_error(), "REST alias {alias}");
+            }
+            let (is_error, answered) = mcp_call_raw(
                 &app,
                 &session,
                 alias,
                 &json!({"agent_id": "forged-presence"}),
             )
             .await;
+            assert_eq!(!is_error, answers, "MCP {alias}: {answered}");
+
+            let refused = json!({"agent_id": "forged-presence", "brain_id": "brain-forged"});
+            let (status, _invalid) = rest_call(&router, alias, &refused).await;
+            assert!(status.is_client_error(), "REST alias {alias}");
+            let (is_error, _invalid) = mcp_call_raw(&app, &session, alias, &refused).await;
             assert!(is_error, "MCP alias {alias}");
         }
         let session_observation = app

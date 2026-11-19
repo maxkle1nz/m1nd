@@ -76,11 +76,29 @@ pub fn gradient_bottom_border(width: usize) -> String {
 // ---------------------------------------------------------------------------
 
 /// Returns suggested next tool calls based on the tool just executed.
+///
+/// Every suggestion is a promise that the reader can take the step, so the
+/// list is filtered through the authority floor table: a suggestion whose verb
+/// a generic caller cannot call never reaches the `_m1nd` envelope, even if a
+/// floor rises after this table was written.
 pub fn suggest_next(tool_name: &str) -> Vec<String> {
+    suggestion_table(tool_name)
+        .into_iter()
+        .filter(|line| {
+            let verb = line
+                .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+                .next()
+                .unwrap_or_default();
+            crate::server::generic_caller_reaches(verb)
+        })
+        .collect()
+}
+
+fn suggestion_table(tool_name: &str) -> Vec<String> {
     match tool_name {
         "activate" | "seek" | "search" => vec![
             "impact(top_result) to check blast radius".into(),
-            "learn(feedback) to strengthen edges".into(),
+            "view(top_result) to read the winning file".into(),
             "hypothesize(claim) to test a theory".into(),
         ],
         "impact" => vec![
@@ -96,18 +114,15 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
         "surgical_context" | "surgical_context_v2" => vec![
             "validate_plan(files) to ground the coupled edit surface".into(),
             "edit_preview(file, content) to preview changes before writing".into(),
-            "apply_batch(edits) for multiple files after proof".into(),
+            "am_i_stale(files) after you write, to see which graph facts went stale".into(),
         ],
-        "edit_preview" => {
-            vec!["edit_commit(preview_id, confirm=true) to apply the previewed change".into()]
-        }
-        "edit_commit" => vec![
+        "edit_preview" => vec![
+            "am_i_stale(files) after you write the previewed change with your own editor".into(),
             "predict(changed_node) for ripple effects".into(),
-            "learn(feedback) to update graph".into(),
         ],
-        "apply" | "apply_batch" => vec![
+        "edit_commit" | "apply" | "apply_batch" => vec![
             "predict(changed_node) for ripple effects".into(),
-            "learn(feedback) to update graph".into(),
+            "am_i_stale(files) to confirm the graph saw the write".into(),
         ],
         "batch_view" => vec![
             "coverage_session to see what remains unread".into(),
@@ -119,8 +134,8 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "validate_plan when grouped findings imply a connected edit surface".into(),
         ],
         "cross_verify" => vec![
-            "audit(path) when you need recommendations and topology around the drift".into(),
             "batch_view(file_paths) on the mismatched files".into(),
+            "panoramic when you need module-level risk around the drift".into(),
         ],
         "coverage_session" => vec![
             "batch_view(unvisited_files) for compact catch-up".into(),
@@ -128,11 +143,11 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
         ],
         "external_references" => vec![
             "federate_auto when you want m1nd to discover sibling repos from explicit paths or manifest/workspace hints and suggest namespaces for you".into(),
-            "audit(path, external_refs=true) to fold the signal into a larger report".into(),
+            "batch_view(file_paths) on the files that carry the outside references".into(),
         ],
         "federate_auto" => vec![
-            "federate when you already know the exact repo list and want direct execution".into(),
-            "audit(path, external_refs=true) when you want discovery wrapped in a broader structural report".into(),
+            "external_references to see the raw path evidence behind each candidate".into(),
+            "batch_view(file_paths) on the manifests that named the sibling repos".into(),
         ],
         "audit" => vec![
             "batch_view(files) on the strongest evidence files".into(),
@@ -153,7 +168,7 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
         ],
         "refactor_plan" => vec![
             "validate_plan to ground the proposed extraction before editing".into(),
-            "apply_batch after the split surface is fully proved".into(),
+            "edit_preview(file, content) to preview the extraction before you write it".into(),
         ],
         "runtime_overlay" => vec![
             "trace when runtime heat and failure text need to converge on one file".into(),
@@ -165,7 +180,7 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
         ],
         "predict" => vec![
             "impact(predicted_node) to verify".into(),
-            "learn(feedback) to calibrate".into(),
+            "timeline(file) to check the history behind a prediction".into(),
         ],
         "panoramic" => vec![
             "impact(critical_module) for deep dive".into(),
@@ -205,7 +220,10 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
                 .map_or(0, |a| a.len());
             let query = result.get("query").and_then(|v| v.as_str()).unwrap_or("?");
             if count == 0 {
-                format!("no results for '{}'. try ingest first, or rephrase.", query)
+                format!(
+                    "no results for '{}'. rephrase, or use search when you know the exact text.",
+                    query
+                )
             } else {
                 let top = result
                     .get("results")
@@ -361,7 +379,7 @@ pub(crate) fn when_to_use(tool_name: &str) -> &'static [&'static str] {
         ],
         "surgical_context_v2" => &[
             "Use when you need the target file plus connected proof files in one edit-prep surface.",
-            "Best for compact multi-file grounding before validate_plan or apply_batch.",
+            "Best for compact multi-file grounding before validate_plan or edit_preview.",
         ],
         "trail_resume" => &[
             "Use when you are resuming an earlier investigation and want the next likely move, not just raw history.",
@@ -377,15 +395,15 @@ pub(crate) fn when_to_use(tool_name: &str) -> &'static [&'static str] {
         ],
         "batch_view" => &[
             "Use when you need to read several files at once without paying one tool call per file.",
-            "Best for audit sweeps, proof packets, and compact repo reading after glob/search/audit.",
+            "Best for review sweeps, proof packets, and compact repo reading after glob/search/seek.",
         ],
         "scan_all" => &[
             "Use when you want grouped structural findings without manually calling scan eight times.",
-            "Best at the start of an audit or before prioritizing a hardening pass.",
+            "Best at the start of a review or before prioritizing a hardening pass.",
         ],
         "cross_verify" => &[
             "Use when you need filesystem truth, not just graph truth.",
-            "Best for checking whether the graph, docs, and disk still agree before trusting an audit claim.",
+            "Best for checking whether the graph, docs, and disk still agree before trusting a structural claim.",
         ],
         "coverage_session" => &[
             "Use when you are asking yourself what you have not inspected yet.",
@@ -396,8 +414,8 @@ pub(crate) fn when_to_use(tool_name: &str) -> &'static [&'static str] {
             "Best in coordination or planning repos that describe other systems.",
         ],
         "federate_auto" => &[
-            "Use when external path evidence or local manifest/workspace hints are real and you want m1nd to turn them into repo candidates instead of assembling the federate input by hand.",
-            "Best after external_references or audit, or when the current repo uses path/workspace manifests to point at sibling repos.",
+            "Use when external path evidence or local manifest/workspace hints are real and you want m1nd to turn them into repo candidates instead of assembling the repo list by hand.",
+            "Best after external_references, or when the current repo uses path/workspace manifests to point at sibling repos.",
         ],
         "audit" => &[
             "Use when you want one top-level structural pass instead of manually chaining health, panoramic, layers, scans, verification, and git context.",
@@ -480,7 +498,7 @@ pub(crate) fn avoid_when(tool_name: &str) -> &'static [&'static str] {
             "Avoid when you need exact clone detection by text alone rather than structural similarity.",
         ],
         "refactor_plan" => &[
-            "Avoid before you know the target region; use audit, scan_all, or twins first.",
+            "Avoid before you know the target region; use north, scan_all, or twins first.",
         ],
         "runtime_overlay" => &["Avoid when you do not have runtime span data to overlay."],
         _ => &["Avoid when a simpler tool answers the question more directly."],
@@ -607,7 +625,7 @@ pub(crate) fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
             "If coverage is low, follow with batch_view on the top unread files instead of reopening files you already saw.",
         ],
         "external_references" => &[
-            "If the outside paths matter, hand off into federate or a broader audit instead of switching immediately to raw shell find.",
+            "If the outside paths matter, hand off into federate_auto for a discovery preview instead of switching immediately to raw shell find.",
         ],
         "audit" => &[
             "If audit feels too broad, rerun it with a narrower profile or scope and then drop to a proof-focused tool.",
@@ -850,7 +868,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Ranked list of activated nodes with scores, dimensions, ghost edges",
             example: r#"{"query": "rate limiting", "agent_id": "jimi", "top_k": 10}"#,
-            next: &["impact", "learn", "hypothesize"],
+            next: &["impact", "hypothesize", "view"],
         },
         ToolDoc {
             name: "impact",
@@ -936,7 +954,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Predicted co-change nodes with probability scores",
             example: r#"{"changed_node": "file::session.py", "agent_id": "jimi"}"#,
-            next: &["impact", "learn"],
+            next: &["impact", "timeline"],
         },
         ToolDoc {
             name: "fingerprint",
@@ -1001,10 +1019,14 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     "code | json | memory | light (default: code)",
                     false,
                 ),
-                ("mode", "replace | merge (default: replace)", false),
+                (
+                    "mode",
+                    "refresh re-scans the brain's exact declared root (the agent-callable mode); replace | merge are policy-disabled",
+                    false,
+                ),
             ],
             returns: "Node/edge counts, ingest stats",
-            example: r#"{"path": "/project/backend", "agent_id": "jimi"}"#,
+            example: r#"{"path": "/path/to/declared/root", "mode": "refresh", "agent_id": "jimi"}"#,
             next: &["activate", "layers", "panoramic"],
         },
         ToolDoc {
@@ -1112,7 +1134,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Ranked results with trigram + PageRank scoring",
             example: r#"{"query": "rate limit retry logic", "agent_id": "jimi"}"#,
-            next: &["impact", "learn"],
+            next: &["view", "impact"],
         },
         ToolDoc {
             name: "scan",
@@ -1160,7 +1182,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "File matches with context lines and graph node cross-references",
             example: r#"{"query": "ANTHROPIC_API_KEY", "agent_id": "jimi", "mode": "literal"}"#,
-            next: &["impact", "learn"],
+            next: &["view", "impact"],
         },
         ToolDoc {
             name: "scan_all",
@@ -1231,7 +1253,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Validation result, proof_state, proof_hint, and guided next-step target",
             example: r#"{"plan": [{"file": "auth.py", "action": "modify"}], "agent_id": "jimi"}"#,
-            next: &["heuristics_surface", "apply_batch", "surgical_context_v2"],
+            next: &["heuristics_surface", "surgical_context_v2", "edit_preview"],
         },
         ToolDoc {
             name: "federate",
@@ -1260,7 +1282,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Graph-vs-disk mismatches with stale confidence",
             example: r#"{"agent_id": "jimi", "scope": "src", "check": ["existence", "loc", "hash"]}"#,
-            next: &["batch_view", "audit"],
+            next: &["batch_view", "panoramic"],
         },
         ToolDoc {
             name: "coverage_session",
@@ -1283,7 +1305,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "External paths with existence checks and suggested follow-up action",
             example: r#"{"agent_id": "jimi", "scope": "docs"}"#,
-            next: &["federate_auto", "audit"],
+            next: &["federate_auto", "batch_view"],
         },
         ToolDoc {
             name: "federate_auto",
@@ -1300,7 +1322,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Suggested namespaces, repo roots, skipped paths, and optional federate result",
             example: r#"{"agent_id": "jimi", "scope": "docs", "execute": false}"#,
-            next: &["federate", "audit"],
+            next: &["external_references", "batch_view"],
         },
         // --- Superpowers: Immunology, Seismology, etc. ---
         ToolDoc {
@@ -1311,7 +1333,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[("agent_id", "Calling agent identifier", true)],
             returns: "Antibody matches with severity and affected nodes",
             example: r#"{"agent_id": "jimi"}"#,
-            next: &["antibody_create", "panoramic"],
+            next: &["view", "panoramic"],
         },
         ToolDoc {
             name: "antibody_list",
@@ -1321,7 +1343,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[("agent_id", "Calling agent identifier", true)],
             returns: "All antibodies with patterns and match counts",
             example: r#"{"agent_id": "jimi"}"#,
-            next: &["antibody_create", "antibody_scan"],
+            next: &["antibody_scan", "panoramic"],
         },
         ToolDoc {
             name: "antibody_create",
@@ -1459,7 +1481,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Proposed extraction communities and refactor candidates",
             example: r#"{"agent_id": "jimi", "scope": "src/payment"}"#,
-            next: &["validate_plan", "apply_batch"],
+            next: &["validate_plan", "edit_preview"],
         },
         ToolDoc {
             name: "runtime_overlay",
@@ -1488,7 +1510,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Relevant code snippets with provenance",
             example: r#"{"query": "session pool initialization", "agent_id": "jimi"}"#,
-            next: &["apply", "apply_batch"],
+            next: &["validate_plan", "edit_preview"],
         },
         ToolDoc {
             name: "surgical_context_v2",
@@ -1501,7 +1523,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Connected code context, proof_state, and guided next-step handoff",
             example: r#"{"query": "chat handler message routing", "agent_id": "jimi"}"#,
-            next: &["validate_plan", "apply_batch", "edit_preview"],
+            next: &["validate_plan", "edit_preview"],
         },
         ToolDoc {
             name: "apply",
@@ -1515,7 +1537,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Apply result with graph update status",
             example: r#"{"file": "backend/auth.py", "content": "...", "agent_id": "jimi"}"#,
-            next: &["predict", "learn"],
+            next: &["predict", "am_i_stale"],
         },
         ToolDoc {
             name: "apply_batch",
@@ -1528,7 +1550,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Batch result with per-file status",
             example: r#"{"edits": [{"file": "a.py", "content": "..."}], "agent_id": "jimi"}"#,
-            next: &["predict", "learn"],
+            next: &["predict", "am_i_stale"],
         },
         ToolDoc {
             name: "edit_preview",
@@ -1543,7 +1565,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Preview handle, source snapshot, unified diff, validation report",
             example: r#"{"file_path": "src/auth.py", "new_content": "...", "agent_id": "jimi"}"#,
-            next: &["edit_commit"],
+            next: &["am_i_stale", "predict"],
         },
         ToolDoc {
             name: "edit_commit",
@@ -1562,7 +1584,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Commit result with bytes written, graph updates",
             example: r#"{"preview_id": "preview_jimi_17...", "confirm": true, "agent_id": "jimi"}"#,
-            next: &["predict", "learn"],
+            next: &["predict", "am_i_stale"],
         },
         // --- Perspective ---
         ToolDoc {
@@ -1938,7 +1960,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Trail ID, persisted node count, saved timestamp",
             example: r#"{"agent_id": "jimi", "label": "auth flow investigation", "tags": ["security", "auth"]}"#,
-            next: &["trail_resume", "trail_list", "trail_merge"],
+            next: &["trail_list", "memorize"],
         },
         ToolDoc {
             name: "trail_resume",
@@ -1975,7 +1997,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Merged trail with cross-connections, shared nodes, combined hypotheses",
             example: r#"{"agent_id": "jimi", "trail_ids": ["trail-abc", "trail-def"]}"#,
-            next: &["trail_resume", "trail_list"],
+            next: &["trail_list", "north"],
         },
         ToolDoc {
             name: "trail_list",
@@ -1998,7 +2020,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Trails with labels, timestamps, node counts, status",
             example: r#"{"agent_id": "jimi", "filter_status": "active"}"#,
-            next: &["trail_resume", "trail_save"],
+            next: &["trail_save", "north"],
         },
         // --- v0.4.0 new tools ---
         ToolDoc {
@@ -2024,7 +2046,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[("agent_id", "Calling agent identifier", true)],
             returns: "Markdown report with query log, graph size, and heuristic hotspots",
             example: r#"{"agent_id": "jimi"}"#,
-            next: &["audit", "trail_save"],
+            next: &["health", "trail_save"],
         },
         ToolDoc {
             name: "audit",
@@ -2080,8 +2102,8 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                 ("risk", "low | medium | high", false),
             ],
             returns: "Mission id, route, trust projection, budget envelope, starter moves, and non-claims",
-            example: r#"{"agent_id": "jimi", "repo": "/project", "task": "audit auth/session boundary", "mode": "review", "budget": "short", "risk": "medium"}"#,
-            next: &["mission_event", "mission_next", "search", "audit"],
+            example: r#"{"agent_id": "jimi", "repo": "/project", "task": "review the auth/session boundary", "mode": "review", "budget": "short", "risk": "medium"}"#,
+            next: &["mission_event", "mission_next", "search", "north"],
         },
         ToolDoc {
             name: "mission_event",
@@ -2177,7 +2199,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "File content with line numbers, total_lines, lines_returned",
             example: r#"{"file_path": "src/main.rs", "offset": 50, "limit": 20, "agent_id": "jimi"}"#,
-            next: &["apply", "surgical_context_v2", "impact"],
+            next: &["surgical_context_v2", "impact", "edit_preview"],
         },
         ToolDoc {
             name: "batch_view",

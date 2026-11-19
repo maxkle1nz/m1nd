@@ -71,6 +71,14 @@ struct OverviewCard {
 }
 
 pub fn catalog_entries() -> Vec<HelpCatalogEntry> {
+    // The registry, the manual and the floor table are all fixed for the life
+    // of the process, so the catalog is built once. Every `help` call and every
+    // runtime error hint used to rebuild all of it — several times per call.
+    static CATALOG: std::sync::OnceLock<Vec<HelpCatalogEntry>> = std::sync::OnceLock::new();
+    CATALOG.get_or_init(build_catalog_entries).clone()
+}
+
+fn build_catalog_entries() -> Vec<HelpCatalogEntry> {
     let manual_docs: HashMap<String, personality::ToolDoc> = personality::tool_docs()
         .into_iter()
         .map(|doc| (doc.name.to_string(), doc))
@@ -96,9 +104,15 @@ pub fn catalog_entries() -> Vec<HelpCatalogEntry> {
                 .unwrap_or_else(|| {
                     "Structured output documented by the live runtime schema.".into()
                 });
+            // A next list is a promise that the reader can take the step. It is
+            // filtered through the authority floor table, so a verb whose floor
+            // rises above what a generic caller holds drops out by itself.
             let next = manual
                 .map(|doc| doc.next.iter().map(|next| (*next).to_string()).collect())
-                .unwrap_or_else(|| inferred_next_tools(&schema.name));
+                .unwrap_or_else(|| inferred_next_tools(&schema.name))
+                .into_iter()
+                .filter(|next: &String| crate::server::generic_caller_reaches(next))
+                .collect();
             let aliases = vec![
                 format!("m1nd.{}", schema.name),
                 format!("m1nd_{}", schema.name),
@@ -720,6 +734,12 @@ fn minimal_call_override(tool_name: &str) -> Option<Value> {
             "agent_id": "jimi",
             "roots": ["docs"]
         })),
+        // The schema's first enum value is the retired `set`; demonstrate the
+        // read a generic caller can actually make.
+        "boot_memory" => Some(json!({
+            "agent_id": "jimi",
+            "action": "list"
+        })),
         "daemon_start" => Some(json!({
             "agent_id": "jimi",
             "watch_paths": ["/path/to/project"]
@@ -814,19 +834,19 @@ fn inferred_next_tools(tool_name: &str) -> Vec<String> {
         "document_provider_health" => vec!["document_resolve".into(), "document_bindings".into()],
         "document_resolve" => vec!["document_bindings".into(), "document_drift".into()],
         "document_bindings" => vec!["document_drift".into(), "search".into()],
-        "document_drift" => vec!["document_bindings".into(), "audit".into()],
-        "auto_ingest_start" => vec!["auto_ingest_status".into(), "auto_ingest_tick".into()],
+        "document_drift" => vec!["document_bindings".into(), "cross_verify".into()],
+        "auto_ingest_start" => vec!["auto_ingest_status".into(), "document_bindings".into()],
         "auto_ingest_tick" | "auto_ingest_status" => {
-            vec!["document_bindings".into(), "audit".into()]
+            vec!["document_bindings".into(), "document_drift".into()]
         }
         "daemon_start" => vec!["daemon_status".into(), "alerts_list".into()],
-        "daemon_status" => vec!["alerts_list".into(), "audit".into()],
+        "daemon_status" => vec!["alerts_list".into(), "health".into()],
         "alerts_list" => vec!["alerts_ack".into(), "daemon_status".into()],
-        "boot_memory" => vec!["trail_save".into(), "trail_resume".into()],
+        "boot_memory" => vec!["north".into(), "trail_save".into()],
         "heuristics_surface" => vec!["batch_view".into(), "validate_plan".into()],
         "type_trace" => vec!["taint_trace".into(), "validate_plan".into()],
-        "metrics" | "persist" => vec!["report".into(), "audit".into()],
-        "diagram" => vec!["audit".into(), "panoramic".into()],
+        "metrics" | "persist" => vec!["report".into(), "health".into()],
+        "diagram" => vec!["panoramic".into(), "layers".into()],
         _ => vec!["help".into()],
     }
 }
@@ -931,8 +951,8 @@ fn likely_wrong_tool(entry: &HelpCatalogEntry) -> Option<(&'static str, &'static
             "Use `trace` when you already have failure text and need the best next file, not a raw text search.",
         )),
         "validate_plan" => Some((
-            "apply_batch",
-            "Do not execute a connected edit before the plan has passed structural validation.",
+            "blind edit",
+            "Do not write a connected edit before the plan has passed structural validation.",
         )),
         "apply_batch" => Some((
             "surgical_context_v2",
@@ -992,94 +1012,103 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
         .unwrap_or(HelpStage::Find);
     let recent = normalize_recent_tools(&input.recent_tools);
     let intent = input.intent.as_deref().unwrap_or_default();
-    let path = input.path.clone();
 
     match stage {
-        HelpStage::Orient => HelpGuidance {
-            decision_type: if workflow { "sequence" } else { "tool" }.into(),
-            recommended_tools: vec!["audit".into()],
-            recommended_sequence: vec![
-                HelpSequenceStep {
-                    tool: "audit".into(),
-                    reason: "Get a one-call structural orientation pass before narrower retrieval."
-                        .into(),
-                },
-                HelpSequenceStep {
-                    tool: "batch_view".into(),
-                    reason: "Open the strongest files or findings after the audit narrows the surface."
-                        .into(),
-                },
-            ],
-            required_inputs: vec!["path".into()],
-            missing_context: path
-                .as_ref()
-                .map(|_| Vec::new())
-                .unwrap_or_else(|| vec!["path".into()]),
-            minimal_calls: vec![HelpMinimalCall {
-                tool: "audit".into(),
-                arguments: json!({
-                    "agent_id": "jimi",
-                    "path": path.unwrap_or_else(|| "/path/to/project".into()),
-                    "profile": "auto"
-                }),
-            }],
-            rejected_alternatives: vec![HelpRejectedAlternative {
-                tool: "search".into(),
-                reason: "Do not start with text search when you do not yet know the repo shape or likely surface.".into(),
-            }],
-            recovery_steps: vec!["If the repo is still too broad after audit, use batch_view or activate on the strongest finding.".into()],
-            next_step: Some("Run audit first, then inspect the strongest finding.".into()),
-            why: "Orientation work should start with a top-level structural pass, not a blind string hunt.".into(),
-            confidence: 0.92,
-            canonical_name: None,
-            aliases: vec![],
-        },
-        HelpStage::Ground => {
-            let adapter = if intent.to_lowercase().contains("light") {
-                "light"
+        HelpStage::Orient => {
+            let task = if intent.is_empty() {
+                "understand this repository before editing".to_string()
             } else {
-                "universal"
+                intent.to_string()
             };
             HelpGuidance {
-                decision_type: "sequence".into(),
-                recommended_tools: vec!["ingest".into(), "document_bindings".into()],
+                decision_type: if workflow { "sequence" } else { "tool" }.into(),
+                recommended_tools: vec!["north".into()],
                 recommended_sequence: vec![
                     HelpSequenceStep {
-                        tool: "ingest".into(),
-                        reason: format!("Ground the document or spec into the graph with adapter=\"{}\".", adapter),
+                        tool: "north".into(),
+                        reason: "One call returns binding trust, the focus nodes for your task, durable memory, and the source of the top nodes.".into(),
                     },
                     HelpSequenceStep {
-                        tool: "document_bindings".into(),
-                        reason: "Resolve the strongest implementation bindings after ingest.".into(),
+                        tool: "batch_view".into(),
+                        reason: "Open the remaining focus files north named in one read.".into(),
                     },
                 ],
-                required_inputs: vec!["path".into()],
-                missing_context: input
-                    .path
-                    .as_ref()
-                    .map(|_| Vec::new())
-                    .unwrap_or_else(|| vec!["path".into()]),
+                required_inputs: vec!["task".into()],
+                missing_context: if intent.is_empty() {
+                    vec!["task".into()]
+                } else {
+                    Vec::new()
+                },
                 minimal_calls: vec![HelpMinimalCall {
-                    tool: "ingest".into(),
+                    tool: "north".into(),
                     arguments: json!({
                         "agent_id": "jimi",
-                        "path": input.path.clone().unwrap_or_else(|| "docs/spec.md".into()),
-                        "adapter": adapter,
-                        "mode": "merge"
+                        "task": task
                     }),
                 }],
                 rejected_alternatives: vec![HelpRejectedAlternative {
                     tool: "search".into(),
-                    reason: "Do not search a spec or PDF blind when you can ingest and bind it to code first.".into(),
+                    reason: "Do not start with text search when you do not yet know the repo shape or likely surface.".into(),
                 }],
-                recovery_steps: vec!["If the document is already ingested, move straight to document_bindings or document_drift.".into()],
-                next_step: Some("Ingest the document, then bind it back to code.".into()),
-                why: "Docs/spec work is strongest after the source is grounded into the graph.".into(),
-                confidence: 0.9,
+                recovery_steps: vec![
+                    "If north reports needs_ingest or a caller_root_mismatch, read its repair before trusting any retrieval.".into(),
+                    "If the focus is still too broad, use batch_view or activate on the strongest focus node.".into(),
+                ],
+                next_step: Some("Run north with your task first, then inspect the strongest focus node.".into()),
+                why: "Orientation work should start from one honest packet about the graph and your task, not a blind string hunt.".into(),
+                confidence: 0.92,
                 canonical_name: None,
                 aliases: vec![],
             }
         }
+        HelpStage::Ground => HelpGuidance {
+            decision_type: "sequence".into(),
+            recommended_tools: vec![
+                "document_resolve".into(),
+                "document_bindings".into(),
+                "document_drift".into(),
+            ],
+            recommended_sequence: vec![
+                HelpSequenceStep {
+                    tool: "document_resolve".into(),
+                    reason: "Resolve the canonical artifact for a document the graph already holds.".into(),
+                },
+                HelpSequenceStep {
+                    tool: "document_bindings".into(),
+                    reason: "Bind the document's claims back to the implementing code.".into(),
+                },
+                HelpSequenceStep {
+                    tool: "document_drift".into(),
+                    reason: "Check where the code has drifted from what the document says.".into(),
+                },
+            ],
+            required_inputs: vec!["path".into()],
+            missing_context: input
+                .path
+                .as_ref()
+                .map(|_| Vec::new())
+                .unwrap_or_else(|| vec!["path".into()]),
+            minimal_calls: vec![HelpMinimalCall {
+                tool: "document_resolve".into(),
+                arguments: json!({
+                    "agent_id": "jimi",
+                    "path": input.path.clone().unwrap_or_else(|| "docs/spec.md".into())
+                }),
+            }],
+            rejected_alternatives: vec![HelpRejectedAlternative {
+                tool: "search".into(),
+                reason: "Do not search a spec blind when the graph can bind it to code and report drift.".into(),
+            }],
+            recovery_steps: vec![
+                "If document_resolve cannot find the document, the graph does not hold it yet. Grounding a NEW document is a graph write above the generic authority floor; ingest {mode: \"refresh\"} from the brain's exact declared root re-scans only what that root already declares.".into(),
+                "Until the document is in the graph, read it directly and use seek or search to find the code it describes.".into(),
+            ],
+            next_step: Some("Resolve the document, then bind it back to code.".into()),
+            why: "Docs/spec work is strongest when the document is already grounded in the graph; resolving and binding it are reads any caller can make.".into(),
+            confidence: 0.86,
+            canonical_name: None,
+            aliases: vec![],
+        },
         HelpStage::Diagnose => HelpGuidance {
             decision_type: "sequence".into(),
             recommended_tools: vec!["trace".into(), "view".into(), "impact".into()],
@@ -1192,8 +1221,8 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                     }
                 }],
                 rejected_alternatives: vec![HelpRejectedAlternative {
-                    tool: "apply_batch".into(),
-                    reason: "Do not execute before impact and plan validity are strong enough.".into(),
+                    tool: "blind edit".into(),
+                    reason: "Do not write before impact and plan validity are strong enough.".into(),
                 }],
                 recovery_steps: vec!["If the plan is still vague, use surgical_context_v2 to ground the coupled surface before validating again.".into()],
                 next_step: Some(format!("Run `{}` first for this planning stage.", first_tool)),
@@ -1208,39 +1237,44 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
             if ready_to_execute {
                 HelpGuidance {
                     decision_type: "sequence".into(),
-                    recommended_tools: vec!["apply_batch".into(), "predict".into()],
+                    recommended_tools: vec![
+                        "edit_preview".into(),
+                        "am_i_stale".into(),
+                        "predict".into(),
+                    ],
                     recommended_sequence: vec![
                         HelpSequenceStep {
-                            tool: "apply_batch".into(),
-                            reason: "The flow already passed through proof; execute atomically and verify.".into(),
+                            tool: "edit_preview".into(),
+                            reason: "The flow already passed through proof; preview the diff and its validation before you write it.".into(),
+                        },
+                        HelpSequenceStep {
+                            tool: "am_i_stale".into(),
+                            reason: "After you write the change with your own editor, see which graph facts went stale.".into(),
                         },
                         HelpSequenceStep {
                             tool: "predict".into(),
-                            reason: "Check ripple effects after the write surface completes.".into(),
+                            reason: "Check ripple effects on the files the change touched.".into(),
                         },
                     ],
-                    required_inputs: vec!["edits".into()],
-                    missing_context: vec!["edits".into()],
+                    required_inputs: vec!["file_path".into(), "new_content".into()],
+                    missing_context: vec!["file_path".into(), "new_content".into()],
                     minimal_calls: vec![HelpMinimalCall {
-                        tool: "apply_batch".into(),
+                        tool: "edit_preview".into(),
                         arguments: json!({
                             "agent_id": "jimi",
-                            "edits": [{
-                                "file_path": "src/example.rs",
-                                "new_content": "...",
-                                "description": "Apply the validated change"
-                            }],
-                            "atomic": true,
-                            "reingest": true,
-                            "verify": true
+                            "file_path": "src/example.rs",
+                            "new_content": "..."
                         }),
                     }],
                     rejected_alternatives: vec![HelpRejectedAlternative {
                         tool: "search".into(),
                         reason: "The search phase should already be over if you are at execution.".into(),
                     }],
-                    recovery_steps: vec!["If execution still feels premature, step back to surgical_context_v2 or validate_plan instead of forcing the write.".into()],
-                    next_step: Some("Run apply_batch with the validated edit set.".into()),
+                    recovery_steps: vec![
+                        "m1nd's own source-write verbs sit above the generic authority floor: write the change with your editor, then let am_i_stale tell you what to re-read.".into(),
+                        "If execution still feels premature, step back to surgical_context_v2 or validate_plan instead of forcing the write.".into(),
+                    ],
+                    next_step: Some("Preview the validated change with edit_preview, write it, then run am_i_stale.".into()),
                     why: "Edit mode can execute once the proof surface is already grounded and validated.".into(),
                     confidence: 0.87,
                     canonical_name: None,
@@ -1252,7 +1286,7 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                     recommended_tools: vec![
                         "surgical_context_v2".into(),
                         "validate_plan".into(),
-                        "apply_batch".into(),
+                        "edit_preview".into(),
                     ],
                     recommended_sequence: vec![
                         HelpSequenceStep {
@@ -1264,8 +1298,8 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                             reason: "Validate the proposed change set once the surface is explicit.".into(),
                         },
                         HelpSequenceStep {
-                            tool: "apply_batch".into(),
-                            reason: "Execute only after the plan is no longer proving.".into(),
+                            tool: "edit_preview".into(),
+                            reason: "Preview the change only after the plan is no longer proving.".into(),
                         },
                     ],
                     required_inputs: vec!["query".into()],
@@ -1281,7 +1315,7 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                         }),
                     }],
                     rejected_alternatives: vec![HelpRejectedAlternative {
-                        tool: "apply_batch".into(),
+                        tool: "blind edit".into(),
                         reason: "Do not write while the edit surface is still implicit.".into(),
                     }],
                     recovery_steps: vec!["If you already know the exact file set, move to validate_plan before executing.".into()],
@@ -1327,7 +1361,7 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                 tool: "search".into(),
                 reason: "Review is about changed seams and history, not a fresh blind query.".into(),
             }],
-            recovery_steps: vec!["If you do not yet know the changed seam, start from audit(path) instead.".into()],
+            recovery_steps: vec!["If you do not yet know the changed seam, start from north(task) instead.".into()],
             next_step: Some("Run timeline on the changed seam, then inspect impact.".into()),
             why: "Review mode should pull in history and blast radius before opening a broad file set.".into(),
             confidence: 0.8,
@@ -1336,11 +1370,11 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
         },
         HelpStage::Operate => HelpGuidance {
             decision_type: "sequence".into(),
-            recommended_tools: vec!["audit".into(), "daemon_status".into(), "alerts_list".into()],
+            recommended_tools: vec!["health".into(), "daemon_status".into(), "alerts_list".into()],
             recommended_sequence: vec![
                 HelpSequenceStep {
-                    tool: "audit".into(),
-                    reason: "Get a current operational health pass over topology, verification, and git state.".into(),
+                    tool: "health".into(),
+                    reason: "Get the current runtime and graph state in one read.".into(),
                 },
                 HelpSequenceStep {
                     tool: "daemon_status".into(),
@@ -1351,27 +1385,21 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                     reason: "Surface pending alerts if the daemon is already watching.".into(),
                 },
             ],
-            required_inputs: vec!["path".into()],
-            missing_context: input
-                .path
-                .as_ref()
-                .map(|_| Vec::new())
-                .unwrap_or_else(|| vec!["path".into()]),
+            required_inputs: vec![],
+            missing_context: vec![],
             minimal_calls: vec![HelpMinimalCall {
-                tool: "audit".into(),
+                tool: "health".into(),
                 arguments: json!({
-                    "agent_id": "jimi",
-                    "path": input.path.clone().unwrap_or_else(|| "/path/to/project".into()),
-                    "profile": "production"
+                    "agent_id": "jimi"
                 }),
             }],
             rejected_alternatives: vec![HelpRejectedAlternative {
                 tool: "search".into(),
                 reason: "Operations work needs system state, not just text retrieval.".into(),
             }],
-            recovery_steps: vec!["If you need standing freshness, arm daemon_start rather than polling search — the daemon advances when the brain is seen (verb traffic; plus watch events on a stdio owner), not as a free-running monitor.".into()],
-            next_step: Some("Run audit first, then inspect daemon status and alerts.".into()),
-            why: "Operations mode should start from repo or runtime health signals rather than content search.".into(),
+            recovery_steps: vec!["Standing freshness is the structural daemon's job, and arming it sits above the generic authority floor. Without it, check am_i_stale on your working set and refresh with ingest {mode: \"refresh\"} from the brain's exact declared root.".into()],
+            next_step: Some("Run health first, then inspect daemon status and alerts.".into()),
+            why: "Operations mode should start from runtime health signals rather than content search.".into(),
             confidence: 0.84,
             canonical_name: None,
             aliases: vec![],
@@ -1381,33 +1409,47 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
             if resume {
                 HelpGuidance {
                     decision_type: "sequence".into(),
-                    recommended_tools: vec!["trail_resume".into(), "coverage_session".into()],
+                    recommended_tools: vec![
+                        "north".into(),
+                        "trail_list".into(),
+                        "coverage_session".into(),
+                    ],
                     recommended_sequence: vec![
                         HelpSequenceStep {
-                            tool: "trail_resume".into(),
-                            reason: "Rehydrate the saved investigation and recover the next likely step.".into(),
+                            tool: "north".into(),
+                            reason: "Start from the task: north carries the durable memory earlier agents left, with each claim's age and author.".into(),
+                        },
+                        HelpSequenceStep {
+                            tool: "trail_list".into(),
+                            reason: "Find the saved investigation trails and what they covered.".into(),
                         },
                         HelpSequenceStep {
                             tool: "coverage_session".into(),
                             reason: "Check what has and has not been inspected in this session.".into(),
                         },
                     ],
-                    required_inputs: vec!["trail_id".into()],
-                    missing_context: vec!["trail_id".into()],
+                    required_inputs: vec!["task".into()],
+                    missing_context: vec![],
                     minimal_calls: vec![HelpMinimalCall {
-                        tool: "trail_resume".into(),
+                        tool: "north".into(),
                         arguments: json!({
                             "agent_id": "jimi",
-                            "trail_id": "trail_auth_flow"
+                            "task": input
+                                .intent
+                                .clone()
+                                .unwrap_or_else(|| "resume the previous investigation".into())
                         }),
                     }],
                     rejected_alternatives: vec![HelpRejectedAlternative {
                         tool: "search".into(),
                         reason: "Do not restart a saved investigation as a blind fresh search.".into(),
                     }],
-                    recovery_steps: vec!["If there is no saved trail yet, use trail_save before ending the current session.".into()],
-                    next_step: Some("Resume the saved trail, then inspect the suggested next move.".into()),
-                    why: "Handoff or resume mode should preserve and reactivate investigation state instead of rebuilding it.".into(),
+                    recovery_steps: vec![
+                        "Rehydrating a saved trail into the live graph sits above the generic authority floor; read what it recorded through trail_list and north instead.".into(),
+                        "If there is no saved trail yet, use trail_save before ending the current session.".into(),
+                    ],
+                    next_step: Some("Run north with the task you are resuming, then open the trail it points to.".into()),
+                    why: "Handoff or resume mode should read back the investigation state instead of rebuilding it.".into(),
                     confidence: 0.82,
                     canonical_name: None,
                     aliases: vec![],
@@ -1439,7 +1481,7 @@ fn route_guidance(input: &HelpInput, workflow: bool) -> HelpGuidance {
                         tool: "search".into(),
                         reason: "Search does not preserve continuity or handoff state.".into(),
                     }],
-                    recovery_steps: vec!["If the work must stay hot across restarts, complement the trail with boot_memory for short canonical doctrine.".into()],
+                    recovery_steps: vec!["If a finding must outlive the session, memorize it: north reads it back for the next agent.".into()],
                     next_step: Some("Save the trail before handing the work to another agent or session.".into()),
                     why: "Handoff mode should preserve continuity explicitly instead of trusting chat history alone.".into(),
                     confidence: 0.83,
@@ -1607,6 +1649,8 @@ fn recovery_guidance(input: &HelpInput) -> HelpGuidance {
     if lowered.contains("missing field")
         || lowered.contains("missing required")
         || lowered.contains("invalid type")
+        || lowered.contains("unknown field")
+        || lowered.contains("unknown argument")
     {
         let tool_name = input.tool_name.as_deref().unwrap_or("help");
         let entry = catalog_entry(tool_name);
@@ -1669,24 +1713,24 @@ fn recovery_guidance(input: &HelpInput) -> HelpGuidance {
     if lowered.contains("path") || lowered.contains("no such file") || lowered.contains("scope") {
         return HelpGuidance {
             decision_type: "recovery".into(),
-            recommended_tools: vec!["audit".into(), "glob".into()],
+            recommended_tools: vec!["glob".into(), "health".into()],
             recommended_sequence: vec![
                 HelpSequenceStep {
-                    tool: "audit".into(),
-                    reason: "Normalize the workspace root or repo path before narrower operations.".into(),
+                    tool: "glob".into(),
+                    reason: "Find the path the graph actually knows by pattern instead of guessing it again.".into(),
                 },
                 HelpSequenceStep {
-                    tool: "glob".into(),
-                    reason: "Confirm the path pattern once the workspace root is right.".into(),
+                    tool: "health".into(),
+                    reason: "Read the graph's roots when the path may sit outside what this brain covers.".into(),
                 },
             ],
             required_inputs: vec!["path".into()],
             missing_context: vec!["A canonical path or scope".into()],
             minimal_calls: vec![HelpMinimalCall {
-                tool: "audit".into(),
+                tool: "glob".into(),
                 arguments: json!({
                     "agent_id": "jimi",
-                    "path": input.path.clone().unwrap_or_else(|| "/path/to/project".into())
+                    "pattern": "**/*"
                 }),
             }],
             rejected_alternatives: vec![HelpRejectedAlternative {
@@ -1694,11 +1738,56 @@ fn recovery_guidance(input: &HelpInput) -> HelpGuidance {
                 reason: "Do not keep searching until the path or scope is canonicalized.".into(),
             }],
             recovery_steps: vec!["Fix the path/scope first, then re-run the narrower tool.".into()],
-            next_step: Some("Canonicalize the path with audit, then narrow again.".into()),
+            next_step: Some("Find the canonical path with glob, then narrow again.".into()),
             why: "Path and scope failures usually mean the tool choice is fine but the target is not canonical yet.".into(),
             confidence: 0.83,
             canonical_name: None,
             aliases: vec![],
+        };
+    }
+
+    // An error an m1nd verb returned is m1nd's own refusal, not a failure in the
+    // caller's program: route it to that verb's contract. `trace` stays the
+    // route for failure text the agent brings from its own code.
+    if let Some(entry) = (!error_text.is_empty())
+        .then(|| input.tool_name.as_deref().and_then(catalog_entry))
+        .flatten()
+    {
+        return HelpGuidance {
+            decision_type: "recovery".into(),
+            recommended_tools: vec!["help".into()],
+            recommended_sequence: vec![HelpSequenceStep {
+                tool: "help".into(),
+                reason: format!(
+                    "Read `{}`'s contract: required inputs, defaults, and what its refusals mean.",
+                    entry.name
+                ),
+            }],
+            required_inputs: vec!["tool_name".into()],
+            missing_context: vec![],
+            minimal_calls: vec![HelpMinimalCall {
+                tool: "help".into(),
+                arguments: json!({
+                    "agent_id": "jimi",
+                    "tool_name": entry.name
+                }),
+            }],
+            rejected_alternatives: vec![HelpRejectedAlternative {
+                tool: "blind retry".into(),
+                reason: "Repeating the same call returns the same refusal.".into(),
+            }],
+            recovery_steps: vec![
+                "Read the refusal text first: it names the field, state, or authority that is missing.".into(),
+                "Retry only after changing what the refusal names.".into(),
+            ],
+            next_step: Some(format!(
+                "Open help(tool_name=\"{}\") and fix what the refusal names before retrying.",
+                entry.name
+            )),
+            why: "This error came from an m1nd verb, so the verb's own contract is the shortest path to a call that succeeds.".into(),
+            confidence: 0.8,
+            canonical_name: Some(entry.name.clone()),
+            aliases: entry.aliases.clone(),
         };
     }
 
@@ -1819,19 +1908,18 @@ fn normalize_recent_tools(recent_tools: &[String]) -> BTreeSet<String> {
 }
 
 fn overview_cards(input: &HelpInput) -> Vec<OverviewCard> {
-    let repo_path = input
-        .path
+    let task = input
+        .intent
         .clone()
-        .unwrap_or_else(|| "/path/to/project".into());
+        .unwrap_or_else(|| "understand this repository before editing".into());
     vec![
         OverviewCard {
             title: "Need repo orientation",
-            why: "Start from a one-call structural pass before narrower retrieval.",
-            tool: "audit",
+            why: "One call returns trust, focus nodes for your task, durable memory, and their source.",
+            tool: "north",
             arguments: json!({
                 "agent_id": "jimi",
-                "path": repo_path,
-                "profile": "auto"
+                "task": task
             }),
             reject_tool: "search",
             reject_reason: "Text search is too early when the repo surface is still unknown.",
@@ -1849,16 +1937,14 @@ fn overview_cards(input: &HelpInput) -> Vec<OverviewCard> {
         },
         OverviewCard {
             title: "Have docs, spec, wiki, or PDF",
-            why: "Ground the document first, then bind it back to code.",
-            tool: "ingest",
+            why: "Resolve a document the graph already holds, then bind it back to code.",
+            tool: "document_resolve",
             arguments: json!({
                 "agent_id": "jimi",
-                "path": "docs/spec.md",
-                "adapter": "universal",
-                "mode": "merge"
+                "path": input.path.clone().unwrap_or_else(|| "docs/spec.md".into())
             }),
             reject_tool: "search",
-            reject_reason: "Searching an ungrounded document loses bindings and drift detection.",
+            reject_reason: "Searching a document blind loses its bindings and drift detection.",
         },
         OverviewCard {
             title: "Have runtime failure text",
@@ -1882,25 +1968,22 @@ fn overview_cards(input: &HelpInput) -> Vec<OverviewCard> {
                     "action": "modify"
                 }]
             }),
-            reject_tool: "apply_batch",
-            reject_reason: "Batch execution is too early until the change stops proving and becomes safe to execute.",
+            reject_tool: "blind edit",
+            reject_reason: "Writing is too early until the change stops proving and becomes safe to execute.",
         },
         OverviewCard {
             title: "Need deep architecture or risk lens",
-            why: "Use RETROBUILDER tools for hidden co-change, taint, duplication, refactor seams, or runtime heat before direct proof.",
-            tool: "ghost_edges",
+            why: "Start from module-level risk concentration, then use twins, taint_trace, or refactor_plan for duplication, trust-boundary, and extraction seams.",
+            tool: "panoramic",
             arguments: json!({
-                "agent_id": "jimi",
-                "depth": "30d",
-                "scope": "src",
-                "top_k": 10
+                "agent_id": "jimi"
             }),
             reject_tool: "search",
-            reject_reason: "Raw text search cannot surface hidden git co-change, taint paths, structural twins, refactor communities, or runtime overlays.",
+            reject_reason: "Raw text search cannot surface risk concentration, taint paths, structural twins, or refactor communities.",
         },
         OverviewCard {
             title: "Need continuity or handoff",
-            why: "Persist or resume investigation state explicitly.",
+            why: "Persist investigation state explicitly; north reads memory back for the next session.",
             tool: "trail_save",
             arguments: json!({
                 "agent_id": "jimi",
@@ -2303,7 +2386,7 @@ fn render_inline_json(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "{}".into())
 }
 
-fn levenshtein_distance(a: &str, b: &str) -> usize {
+pub(crate) fn levenshtein_distance(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let mut prev: Vec<usize> = (0..=b.len()).collect();
@@ -2453,8 +2536,12 @@ pub(crate) mod front_door_oracle {
             }
             // The page of a verb with NO reachable branch may show its own
             // call: it already carries the POLICY-DISABLED mark. A verb with an
-            // open branch must demonstrate that branch.
-            if Some(tool) == subject && !self.reaches(tool) {
+            // open branch must demonstrate that branch. The typed G2/G3
+            // consumers are intercepted before the generic gate and refuse on
+            // their own typed terms, so the gate is not their judge.
+            if Some(tool) == subject
+                && (!self.reaches(tool) || crate::server::TYPED_CONSUMER_TOOLS.contains(&tool))
+            {
                 return;
             }
             let refusal = self

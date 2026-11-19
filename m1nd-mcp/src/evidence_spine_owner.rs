@@ -23,6 +23,11 @@ pub const EVIDENCE_PROJECTION_STATUS_SCHEMA: &str = "m1nd-evidence-projection-st
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EvidenceQueryInputV1 {
+    /// Accepted like on every verb so an agent following the server
+    /// instructions is not refused. Deliberately unused: the query never
+    /// records a presence or any other trace of its caller.
+    #[serde(default, rename = "agent_id")]
+    _agent_id: Option<String>,
     #[serde(default)]
     correlation_id: Option<String>,
     #[serde(default)]

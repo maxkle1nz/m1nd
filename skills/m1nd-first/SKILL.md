@@ -41,7 +41,7 @@ the human-only ceremony remain unavailable to agents.
   - path pattern -> `glob`
   - known purpose, unknown location -> `seek`
   - topic, subsystem, or connected neighborhood -> `activate`
-  - unfamiliar repo orientation -> `north` (or `audit` when you only want the structural map)
+  - unfamiliar repo orientation -> `north` (`panoramic` when you only want module-level risk)
   - stacktrace or runtime error text -> `trace`
 - For docs/specs/knowledge, do not advertise generic ingest adapters while the
   mutation route is policy-disabled. Read the supplied artifacts directly or use
@@ -445,7 +445,7 @@ probes than by extended graph navigation.
      --mode short \
      --json
    ```
-4. Run at most one or two orientation calls such as `audit`, `search`, `seek`,
+4. Run at most one or two orientation calls such as `north`, `search`, `seek`,
    or `activate`.
 5. Switch to direct files, `rg`, git diff, tests, compiler/runtime output, and
    focused probes.
@@ -466,17 +466,18 @@ paths, duplication, refactor seams, or runtime heat, check whether the agent CLI
 returned `capability_suggestions.family_id=retrobuilder`. If it did, use only
 the matching tools, then stop and prove directly:
 
-- hidden co-change or files that "move together" -> `ghost_edges`, then
-  `timeline` or `impact`
+- hidden co-change or files that "move together" -> `timeline` on the files,
+  then `impact` (the co-change builder `ghost_edges` sits above the generic
+  authority floor)
 - untrusted input, sensitive data, auth, privacy, or trust-boundary review ->
   `taint_trace`, then `trust`, `type_trace`, or `validate_plan`
 - duplicate structures, near-equivalent modules, cleanup, extraction, or
   spaghetti -> `twins`, then `refactor_plan`
 - runtime heat, OpenTelemetry spans, logs, latency, production failures, or hot
-  paths -> `runtime_overlay`, then `trace` or `impact`
-- broad architecture/risk audit -> `layers` plus the relevant RETROBUILDER
-  tools: `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`,
-  `runtime_overlay`
+  paths -> `trace` on the failure text, then `impact` (`runtime_overlay` sits
+  above the generic authority floor)
+- broad architecture/risk audit -> `layers` and `panoramic` plus the callable
+  RETROBUILDER tools: `taint_trace`, `twins`, `refactor_plan`
 
 RETROBUILDER output is graph orientation. It can identify strong hypotheses,
 hidden neighbors, and proof targets, but it does not prove bugs or runtime

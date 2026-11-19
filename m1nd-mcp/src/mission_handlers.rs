@@ -834,7 +834,7 @@ fn starter_moves(mission: &MissionState, graph_state: &Value) -> Vec<Value> {
         return vec![json!({
             "tool": "ingest",
             "target": mission.repo,
-            "why": "mission graph has zero nodes; retrieval cannot be trusted before ingest"
+            "why": "mission graph has zero nodes; retrieval cannot be trusted until the brain's declared root is ingested — ingest {mode: \"refresh\"} from that exact root, or, for a repo with no brain yet, offer the human `m1nd init --birth <repo>` and stop"
         })];
     }
     match mission.route.as_str() {
@@ -856,9 +856,9 @@ fn starter_moves(mission: &MissionState, graph_state: &Value) -> Vec<Value> {
             "why": "risky changes should surface gaps and hotspots before edits"
         })],
         _ => vec![json!({
-            "tool": "audit",
-            "target": mission.repo,
-            "why": "repo-level orientation is the cheapest reliable first move for this mode"
+            "tool": "north",
+            "target": mission.task,
+            "why": "one north call on the task is the cheapest reliable orientation for this mode"
         })],
     }
 }
@@ -1075,8 +1075,8 @@ fn next_move(
         "locate".into(),
         json!({
             "type": "graph_query",
-            "tool": if mission.route == "short_audit" { "search" } else { "audit" },
-            "target": if mission.route == "short_audit" { &mission.task } else { &mission.repo },
+            "tool": if mission.route == "short_audit" { "search" } else { "north" },
+            "target": &mission.task,
             "why": "one cheap orientation move is still allowed before direct proof",
             "evidence_required": "orientation_only"
         }),
