@@ -2321,6 +2321,214 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// The oracle behind the honest-front-door battery: can the caller reading an
+/// agent-facing string actually call the verb it names?
+///
+/// The caller in question is a plain generic MCP/REST client — no authority
+/// lease. The answer is DERIVED from the M1ND-10 action catalog, the same floor
+/// table `server::enforce_generic_action_policy` enforces, never from a
+/// hand-kept list: a verb is reachable when at least one of its semantic actions
+/// sits at ORDINARY, or is one of the action-keyed generic admissions
+/// (`GENERIC_A2_LOCAL_ADMITTED_ACTIONS` — today only the declared-root refresh).
+/// An exact call (`tool` + `arguments`) is judged by the gate itself.
+#[cfg(test)]
+pub(crate) mod front_door_oracle {
+    use crate::protocol::layers::HelpGuidance;
+    use serde_json::Value;
+    use std::collections::BTreeSet;
+
+    /// Every verb the registry carries — the vocabulary a string can name.
+    pub(crate) fn registry() -> BTreeSet<String> {
+        super::live_tool_names().into_iter().collect()
+    }
+
+    /// Action -> authority floor, read once from the canonical M1ND-10 catalog.
+    fn floor_table() -> &'static std::collections::BTreeMap<String, m1nd_control::AuthorityFloor> {
+        static TABLE: std::sync::OnceLock<
+            std::collections::BTreeMap<String, m1nd_control::AuthorityFloor>,
+        > = std::sync::OnceLock::new();
+        TABLE.get_or_init(|| {
+            m1nd_control::m1nd10_action_catalog()
+                .expect("M1ND-10 catalog validates")
+                .entries
+                .into_iter()
+                .map(|entry| (entry.action.as_str().to_string(), entry.authority_floor))
+                .collect()
+        })
+    }
+
+    /// Whether a lease-less generic caller reaches at least one branch of `verb`.
+    pub(crate) fn generic_caller_reaches(verb: &str) -> bool {
+        if crate::mission_service_transport::legacy_mutation_refusal(verb).is_some() {
+            return false;
+        }
+        let Some(actions) = crate::action_routes::possible_mcp_actions(verb) else {
+            return false;
+        };
+        actions.into_iter().any(|action| {
+            crate::action_consumers::GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&action)
+                || floor_table().get(action) == Some(&m1nd_control::AuthorityFloor::Ordinary)
+        })
+    }
+
+    fn floors(verb: &str) -> String {
+        crate::action_routes::possible_mcp_authority_floors(verb)
+            .map(|floors| {
+                floors
+                    .into_iter()
+                    .map(|floor| format!("{floor:?}"))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            })
+            .unwrap_or_else(|error| format!("unresolved: {error}"))
+    }
+
+    /// Collects every place an agent-facing surface names a verb its reader is
+    /// refused, then fails once with the whole list.
+    pub(crate) struct FrontDoorAudit {
+        registry: BTreeSet<String>,
+        reaches: std::collections::HashMap<String, bool>,
+        gate: std::collections::HashMap<String, Option<String>>,
+        offences: BTreeSet<String>,
+    }
+
+    impl FrontDoorAudit {
+        pub(crate) fn new() -> Self {
+            Self {
+                registry: registry(),
+                reaches: std::collections::HashMap::new(),
+                gate: std::collections::HashMap::new(),
+                offences: BTreeSet::new(),
+            }
+        }
+
+        fn reaches(&mut self, verb: &str) -> bool {
+            *self
+                .reaches
+                .entry(verb.to_string())
+                .or_insert_with(|| generic_caller_reaches(verb))
+        }
+
+        /// A structured verb slot (a `tool` field, a next-list entry).
+        ///
+        /// `subject` is the verb a page is ABOUT: `help(tool_name=X)` may name X
+        /// even when X is policy-disabled — the page says so — but it may not
+        /// route its reader on to another refused verb.
+        pub(crate) fn verb(&mut self, surface: &str, verb: &str, subject: Option<&str>) {
+            let bare = verb
+                .trim()
+                .strip_prefix("m1nd.")
+                .or_else(|| verb.trim().strip_prefix("m1nd_"))
+                .unwrap_or(verb.trim());
+            if Some(bare) == subject || !self.registry.contains(bare) {
+                return;
+            }
+            if !self.reaches(bare) {
+                self.offences.insert(format!(
+                    "{surface}: names `{bare}` (authority floor {}), which a generic caller cannot call",
+                    floors(bare)
+                ));
+            }
+        }
+
+        /// Free text: every identifier that is a registry verb counts as named.
+        pub(crate) fn text(&mut self, surface: &str, text: &str, subject: Option<&str>) {
+            for token in text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')) {
+                if !token.is_empty() {
+                    self.verb(surface, token, subject);
+                }
+            }
+        }
+
+        /// An exact example call, judged by the generic gate itself.
+        pub(crate) fn call(
+            &mut self,
+            surface: &str,
+            tool: &str,
+            arguments: &Value,
+            subject: Option<&str>,
+        ) {
+            if !self.registry.contains(tool) {
+                return;
+            }
+            // The page of a verb with NO reachable branch may show its own
+            // call: it already carries the POLICY-DISABLED mark. A verb with an
+            // open branch must demonstrate that branch.
+            if Some(tool) == subject && !self.reaches(tool) {
+                return;
+            }
+            let refusal = self
+                .gate
+                .entry(format!("{tool}{arguments}"))
+                .or_insert_with(|| {
+                    crate::server::enforce_generic_action_policy(tool, arguments)
+                        .err()
+                        .map(|error| error.to_string())
+                })
+                .clone();
+            if let Some(error) = refusal {
+                self.offences.insert(format!(
+                    "{surface}: teaches the call {tool}({arguments}), which the generic gate refuses: {error}"
+                ));
+            }
+        }
+
+        pub(crate) fn guidance(
+            &mut self,
+            surface: &str,
+            guidance: &HelpGuidance,
+            subject: Option<&str>,
+        ) {
+            for tool in &guidance.recommended_tools {
+                self.verb(&format!("{surface}.recommended_tools"), tool, subject);
+            }
+            for step in &guidance.recommended_sequence {
+                let at = format!("{surface}.recommended_sequence");
+                self.verb(&at, &step.tool, subject);
+                self.text(&at, &step.reason, subject);
+            }
+            for call in &guidance.minimal_calls {
+                self.call(
+                    &format!("{surface}.minimal_calls"),
+                    &call.tool,
+                    &call.arguments,
+                    subject,
+                );
+            }
+            for alternative in &guidance.rejected_alternatives {
+                let at = format!("{surface}.rejected_alternatives");
+                self.verb(&at, &alternative.tool, subject);
+                self.text(&at, &alternative.reason, subject);
+            }
+            for line in guidance
+                .recovery_steps
+                .iter()
+                .chain(&guidance.missing_context)
+                .chain(&guidance.required_inputs)
+            {
+                self.text(surface, line, subject);
+            }
+            if let Some(next) = &guidance.next_step {
+                self.text(&format!("{surface}.next_step"), next, subject);
+            }
+            // A tool page's `why` is the subject's own description, not a route.
+            if subject.is_none() {
+                self.text(&format!("{surface}.why"), &guidance.why, subject);
+            }
+        }
+
+        pub(crate) fn assert_clean(self, what: &str) {
+            assert!(
+                self.offences.is_empty(),
+                "{what} must name only verbs a generic caller can call — the authority \
+                 floor table refuses every one below ({} offences):\n  {}",
+                self.offences.len(),
+                self.offences.into_iter().collect::<Vec<_>>().join("\n  ")
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2472,5 +2680,216 @@ mod tests {
         let hint = runtime_error_guidance_hint("impact", "Node not found: file::src/missing.rs");
         assert!(hint.contains("minimal call: search("));
         assert!(hint.contains("next: Recover the canonical node_id"));
+    }
+
+    // ---- The honest front door ---------------------------------------------
+    //
+    // An agent that follows m1nd's own directions must not be walked into a
+    // refusal. Every route, card, next list and recovery hint below is checked
+    // against the authority floor table (`front_door_oracle`): a verb a generic
+    // caller cannot call may not be named, and an example call the generic gate
+    // refuses may not be taught.
+
+    use super::front_door_oracle::{registry, FrontDoorAudit};
+
+    const ALL_STAGES: [HelpStage; 9] = [
+        HelpStage::Orient,
+        HelpStage::Find,
+        HelpStage::Ground,
+        HelpStage::Diagnose,
+        HelpStage::Plan,
+        HelpStage::Edit,
+        HelpStage::Review,
+        HelpStage::Operate,
+        HelpStage::Handoff,
+    ];
+
+    /// Intents that select every special branch the router has.
+    const ROUTE_INTENTS: [Option<&str>; 9] = [
+        None,
+        Some("understand the repo"),
+        Some("ground the light spec doc"),
+        Some("resume the saved trail"),
+        Some("regex for an exact symbol"),
+        Some("narrow the file path glob"),
+        Some("connected flow in the subsystem"),
+        Some("track changes in the graph"),
+        Some("where retry backoff is decided"),
+    ];
+
+    const ERROR_TEXTS: [Option<&str>; 9] = [
+        None,
+        Some("Node not found: file::src/missing.rs"),
+        Some("missing field `query`"),
+        Some("invalid type: integer `3`, expected a string"),
+        Some("unknown field `tool`, expected one of `agent_id`, `tool_name`"),
+        Some("path does not exist: docs/spec.md"),
+        Some("No such file or directory (os error 2)"),
+        Some("scope is outside the graph"),
+        Some("refused: no record with that id"),
+    ];
+
+    #[test]
+    fn overview_cards_name_only_verbs_a_generic_caller_can_call() {
+        let mut audit = FrontDoorAudit::new();
+        for path in [None, Some("/path/to/project".to_string())] {
+            let mut input = base_input();
+            input.path = path;
+            for card in overview_cards(&input) {
+                let at = format!("help() card {:?}", card.title);
+                audit.call(&at, card.tool, &card.arguments, None);
+                audit.verb(&at, card.reject_tool, None);
+                for text in [card.title, card.why, card.reject_reason] {
+                    audit.text(&at, text, None);
+                }
+            }
+            let overview = build_overview_resolution(&input, false);
+            audit.guidance(
+                "help() overview",
+                overview.guidance.as_ref().expect("overview guidance"),
+                None,
+            );
+        }
+        audit.assert_clean("the help overview cards");
+    }
+
+    #[test]
+    fn stage_routes_name_only_verbs_a_generic_caller_can_call() {
+        let mut audit = FrontDoorAudit::new();
+        let stages = ALL_STAGES.iter().copied().map(Some).chain([None]);
+        for stage in stages {
+            for intent in ROUTE_INTENTS {
+                for recent in [
+                    vec![],
+                    vec!["impact".to_string()],
+                    vec!["validate_plan".to_string()],
+                ] {
+                    for path in [None, Some("src/example.rs".to_string())] {
+                        for workflow in [false, true] {
+                            let mut input = base_input();
+                            input.stage = stage;
+                            input.intent = intent.map(str::to_string);
+                            input.recent_tools = recent.clone();
+                            input.path = path.clone();
+                            let guidance = route_guidance(&input, workflow);
+                            audit.guidance(
+                                &format!(
+                                    "help(stage={stage:?}, intent={intent:?}, recent={recent:?}, workflow={workflow})"
+                                ),
+                                &guidance,
+                                None,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        audit.assert_clean("the help stage routes");
+    }
+
+    #[test]
+    fn recovery_routes_and_runtime_error_hints_name_only_callable_verbs() {
+        let mut audit = FrontDoorAudit::new();
+        let tools: Vec<Option<String>> = std::iter::once(None)
+            .chain(registry().into_iter().map(Some))
+            .collect();
+        for tool in &tools {
+            for error_text in ERROR_TEXTS {
+                let mut input = base_input();
+                input.mode = Some(HelpMode::Recovery);
+                input.tool_name = tool.clone();
+                input.error_text = error_text.map(str::to_string);
+                let guidance = recovery_guidance(&input);
+                audit.guidance(
+                    &format!("help(mode=recovery, tool_name={tool:?}, error_text={error_text:?})"),
+                    &guidance,
+                    tool.as_deref(),
+                );
+                if let (Some(tool), Some(detail)) = (tool, error_text) {
+                    let hint = runtime_error_guidance_hint(tool, detail);
+                    let routed = hint.strip_prefix(detail).unwrap_or(&hint);
+                    audit.text(
+                        &format!("{tool} error hint for {detail:?}"),
+                        routed,
+                        Some(tool),
+                    );
+                }
+            }
+        }
+        audit.assert_clean("help recovery routes and runtime error hints");
+    }
+
+    #[test]
+    fn tool_pages_and_next_lists_name_only_callable_verbs() {
+        let mut audit = FrontDoorAudit::new();
+        for entry in catalog_entries() {
+            let subject = Some(entry.name.as_str());
+            let at = format!("help(tool_name={})", entry.name);
+            for next in &entry.next {
+                audit.verb(&format!("{at}.next"), next, subject);
+            }
+            let mut input = base_input();
+            input.tool_name = Some(entry.name.clone());
+            audit.guidance(&at, &tool_guidance(&entry, &input), subject);
+            for line in personality::when_to_use(&entry.name)
+                .iter()
+                .chain(personality::avoid_when(&entry.name))
+            {
+                audit.text(&at, line, subject);
+            }
+        }
+        for doc in personality::tool_docs() {
+            for next in doc.next {
+                audit.verb(&format!("ToolDoc({}).next", doc.name), next, Some(doc.name));
+            }
+        }
+        audit.assert_clean("help tool pages and their next lists");
+    }
+
+    #[test]
+    fn suggest_next_names_only_verbs_a_generic_caller_can_call() {
+        let mut audit = FrontDoorAudit::new();
+        let names = registry()
+            .into_iter()
+            .chain(["an_unrouted_verb".to_string()]);
+        for name in names {
+            for line in personality::suggest_next(&name) {
+                audit.text(
+                    &format!("_m1nd.suggest_next after {name}"),
+                    &line,
+                    Some(&name),
+                );
+            }
+        }
+        audit.assert_clean("the _m1nd.suggest_next lists");
+    }
+
+    #[test]
+    fn a_verb_error_routes_to_the_verb_contract_not_to_failure_triage() {
+        // `trace` turns the caller's OWN program failure into a next file. An
+        // m1nd refusal is not that: routing it to `trace` sends the agent to
+        // triage m1nd's error text as if it were their stacktrace.
+        let detail = "refused: no record with that id";
+        let hint = runtime_error_guidance_hint("receipt_recompute", detail);
+        assert!(
+            !hint.contains("trace("),
+            "an m1nd verb's own error must not be routed to trace: {hint}"
+        );
+        assert!(
+            hint.contains("help(") && hint.contains("receipt_recompute"),
+            "an m1nd verb's own error routes to that verb's contract: {hint}"
+        );
+
+        // A failure the agent pastes from ITS program still routes to trace.
+        let mut input = base_input();
+        input.mode = Some(HelpMode::Recovery);
+        input.error_text = Some("TypeError: undefined is not a function".into());
+        assert_eq!(
+            recovery_guidance(&input)
+                .recommended_tools
+                .first()
+                .map(String::as_str),
+            Some("trace")
+        );
     }
 }

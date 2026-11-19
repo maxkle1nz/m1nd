@@ -17648,6 +17648,112 @@ mod tests {
             "the isolated-worktree hand must NOT carry a collision gap: {c_gaps:?}"
         );
     }
+
+    // ---- The honest front door: small honesty fixes ------------------------
+
+    #[test]
+    fn help_rejects_an_unknown_argument_and_names_the_one_it_meant() {
+        let (_temp, mut state) = build_state();
+        // `tool` instead of `tool_name` used to be dropped silently: the agent
+        // asked about `seek` and got the generic overview back.
+        let error = super::dispatch_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "front-door", "tool": "seek"}),
+        )
+        .expect_err("help must not silently ignore an argument it does not accept");
+        let message = error.to_string();
+        assert!(
+            message.contains("`tool`"),
+            "names the rejected key: {message}"
+        );
+        assert!(
+            message.contains("`tool_name`"),
+            "names the key the caller meant: {message}"
+        );
+
+        let answered = super::dispatch_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "front-door", "tool_name": "seek"}),
+        )
+        .expect("the accepted spelling still answers");
+        assert_eq!(answered["tool"], "seek");
+    }
+
+    #[test]
+    fn response_envelope_marks_pure_reads_read_only() {
+        let (_temp, mut state) = build_state_populated(false);
+        assert!(!state.read_only, "a read-write owner");
+        for (tool, params) in [
+            ("health", serde_json::json!({"agent_id": "front-door"})),
+            ("help", serde_json::json!({"agent_id": "front-door"})),
+            (
+                "search",
+                serde_json::json!({"agent_id": "front-door", "query": "lease"}),
+            ),
+        ] {
+            let out = super::dispatch_tool(&mut state, tool, &params).expect(tool);
+            assert_eq!(
+                out["_m1nd"]["read_only"],
+                serde_json::json!(true),
+                "{tool} only reads, so its envelope must say read_only"
+            );
+        }
+        // `seek` is catalogued with plasticity writes: not a pure read.
+        let seek = super::dispatch_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({"agent_id": "front-door", "query": "lease"}),
+        )
+        .expect("seek");
+        assert_eq!(seek["_m1nd"]["read_only"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn empty_history_notes_name_only_verbs_a_generic_caller_can_call() {
+        use crate::help_guidance::front_door_oracle::FrontDoorAudit;
+        use m1nd_core::types::NodeType;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("file::src/alone.rs", "alone", NodeType::File, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+
+        let tremor = super::dispatch_tool(
+            &mut state,
+            "tremor",
+            &serde_json::json!({"agent_id": "front-door"}),
+        )
+        .expect("tremor");
+        let predict = super::dispatch_tool(
+            &mut state,
+            "predict",
+            &serde_json::json!({"agent_id": "front-door", "changed_node": "file::src/alone.rs"}),
+        )
+        .expect("predict");
+
+        let mut audit = FrontDoorAudit::new();
+        for (verb, out) in [("tremor", &tremor), ("predict", &predict)] {
+            let note = out["note"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{verb} with no history carries its note: {out}"));
+            audit.text(&format!("{verb} empty-history note"), note, Some(verb));
+        }
+        audit.assert_clean("the empty-history notes");
+    }
 }
 
 #[cfg(test)]

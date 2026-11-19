@@ -1695,6 +1695,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mission_moves_name_only_verbs_a_generic_caller_can_call() {
+        use crate::help_guidance::front_door_oracle::FrontDoorAudit;
+        let mut audit = FrontDoorAudit::new();
+        let modes = [
+            "bug_hunt",
+            "review",
+            "refactor",
+            "docs_drift",
+            "architecture",
+            "release",
+        ];
+        for mode in modes {
+            for budget in ["short", "normal", "deep"] {
+                for risk in ["low", "medium", "high"] {
+                    let mut mission = test_mission(mode);
+                    mission.route = route_for(mode, budget, risk);
+                    let at = format!("mission(mode={mode}, budget={budget}, risk={risk})");
+                    for node_count in [0, 12] {
+                        for step in starter_moves(&mission, &json!({ "node_count": node_count })) {
+                            let surface = format!("{at}.starter_moves");
+                            audit.verb(&surface, step["tool"].as_str().unwrap_or(""), None);
+                            audit.text(&surface, step["why"].as_str().unwrap_or(""), None);
+                        }
+                    }
+                    let fresh = mission.clone();
+                    let mut read = mission.clone();
+                    read.events
+                        .push(json!({"event": "file_read", "path": "src/lib.rs"}));
+                    let mut verified = read.clone();
+                    verified.claims.push(verified_claim());
+                    for state in [fresh, read, verified] {
+                        let analysis = analyze_events(&state);
+                        let (_, step, do_not, warning) = next_move(&state, &analysis);
+                        let surface = format!("{at}.next_move");
+                        audit.verb(&surface, step["tool"].as_str().unwrap_or(""), None);
+                        audit.text(&surface, step["why"].as_str().unwrap_or(""), None);
+                        for verb in do_not {
+                            audit.verb(&surface, verb, None);
+                        }
+                        audit.text(&surface, warning.as_deref().unwrap_or(""), None);
+                    }
+                }
+            }
+        }
+        audit.assert_clean("mission starter and next moves");
+    }
+
     fn verified_claim() -> MissionClaimState {
         MissionClaimState {
             claim_id: "clm_1".into(),

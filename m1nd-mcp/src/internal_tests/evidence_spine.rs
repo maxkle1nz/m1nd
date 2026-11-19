@@ -486,6 +486,61 @@ fn owner_query_is_read_only_reports_torn_tail_and_refuses_client_brain_selection
 }
 
 #[test]
+fn owner_query_accepts_agent_id_like_every_other_verb_and_stays_read_only() {
+    // Every verb takes `agent_id`; the server instructions tell agents to send it
+    // on every call. EvidenceQuery refusing it as an unknown field made the one
+    // strictly read-only verb the only one an obedient agent could not call.
+    let workspace = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let fixture = fixture(workspace.path());
+    let spine_root = runtime.path().join("evidence-spine");
+    let log_path = {
+        let mut store = EvidenceSpineStore::open(&spine_root, fixture.identity.clone()).unwrap();
+        store.record_receipt(&fixture.receipt, 100).unwrap();
+        store.record_mission_letter(&fixture.landed, 101).unwrap();
+        store.log_path().to_path_buf()
+    };
+    let bytes_before = std::fs::read(&log_path).unwrap();
+
+    let mut state = owner_state(runtime.path(), workspace.path());
+    let without = dispatch_tool(
+        &mut state,
+        "evidence_query",
+        &json!({"transaction_id": "tx-1"}),
+    )
+    .unwrap();
+    let with = dispatch_tool(
+        &mut state,
+        "evidence_query",
+        &json!({"agent_id": "reader-1", "transaction_id": "tx-1"}),
+    )
+    .expect("evidence_query must accept agent_id");
+
+    for field in [
+        "brain_id",
+        "workspace_root",
+        "verified_rows",
+        "integrity",
+        "correlations",
+        "chain_head_digest",
+    ] {
+        assert_eq!(with[field], without[field], "{field}");
+    }
+    // Accepting the field is not tracking the agent: the query stays read-only.
+    assert!(!state.sessions.contains_key("reader-1"));
+    assert_eq!(std::fs::read(&log_path).unwrap(), bytes_before);
+
+    // agent_id is accepted; a field that selects authority still is not.
+    let error = dispatch_tool(
+        &mut state,
+        "evidence_query",
+        &json!({"agent_id": "reader-1", "brain_id": "brain-forged"}),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("unknown field `brain_id`"));
+}
+
+#[test]
 fn owner_link_requires_g3_anchor_and_projects_coordination_without_raw_authority() {
     let workspace = tempfile::tempdir().unwrap();
     let other_workspace = tempfile::tempdir().unwrap();
