@@ -14,7 +14,7 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
 use m1nd_core::seed::source_path_bias;
 use m1nd_core::types::*;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -451,7 +451,9 @@ fn l2_rank_file_groups(
     semantic_node_order: &[usize],
     file_only: bool,
 ) -> Vec<L2FileGroupRank> {
-    let query_terms: HashSet<String> = query_tokens.iter().cloned().collect();
+    // Ordered: the BM25 sum below must add terms in the same order in every
+    // process (f32 addition is not associative, and HashSet order is per-process).
+    let query_terms: BTreeSet<String> = query_tokens.iter().cloned().collect();
     let documents: Vec<&SeekFileIndexDocument> = index
         .documents
         .iter()
@@ -11227,6 +11229,10 @@ fn generate_dot(
 #[cfg(test)]
 #[path = "internal_tests/seek_filter_contract.rs"]
 mod seek_filter_contract_tests;
+
+#[cfg(test)]
+#[path = "internal_tests/seek_determinism.rs"]
+mod seek_determinism_tests;
 
 #[cfg(test)]
 mod tests {

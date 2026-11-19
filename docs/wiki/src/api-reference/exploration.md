@@ -30,6 +30,14 @@ case-insensitive; an empty type list allows every type. If no node passes the fi
 `results` is empty, `total_candidates_scanned` and `relevance_clearing_total` are zero,
 and the response explains the exclusion with `sufficiency.state = "saturated"`.
 
+**Hash order does not affect ranking.** Semantic (n-gram) norms and dot products and the
+BM25 file scores are summed in a fixed order, and equal semantic scores break by ascending
+node id at every top-k cut, so separate processes on the same platform rank the same graph
+the same way. Among nodes with identical labels, the ones ingested first win the cut.
+Runtime state, such as trust history and its decay over time, can still change scores
+between calls. The same ordering applies to the semantic dimension of `activate` and to
+semantic seed selection.
+
 ### Scoring Formula
 
 ```
