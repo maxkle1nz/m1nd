@@ -468,6 +468,7 @@ mod tests {
                     label: "x".into(),
                     relation: "imports".into(),
                 }],
+                symbols: vec![],
             },
             SeekResultEntry {
                 node_id: "sym".into(),
@@ -489,6 +490,7 @@ mod tests {
                 source_agent: None,
                 origin_brain: None,
                 connections: vec![],
+                symbols: vec![],
             },
         ];
 

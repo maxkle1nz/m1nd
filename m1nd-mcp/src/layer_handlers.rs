@@ -47,6 +47,9 @@ const L2_FILE_GROUP_MIN_QUERY_TOKENS: usize = 6;
 const L2_FILE_RRF_K: f32 = 10.0;
 const L2_FILE_RRF_LEXICAL_WEIGHT: f32 = 1.25;
 const L2_FILE_RRF_SEMANTIC_WEIGHT: f32 = 0.75;
+// A file-group row names the file; its best few symbols name the spans worth
+// opening inside it. Three keeps the row compact under a token budget.
+const L2_FILE_GROUP_SYMBOLS_MAX: usize = 3;
 
 #[derive(Clone, Debug)]
 struct L2FileGroupRank {
@@ -349,6 +352,75 @@ fn l2_source_file_for_node(graph: &Graph, node_to_ext: &[String], idx: usize) ->
     let external = node_to_ext.get(idx)?.strip_prefix("file::")?;
     let path = external.split("::").next().unwrap_or(external);
     (!path.is_empty()).then(|| path.to_string())
+}
+
+/// Per source file, the best eligible symbol candidates in node-relevance
+/// order (`ranked` is already sorted best-first, ties in graph order). Files and
+/// directories are not symbols. One spare candidate is kept per file so the
+/// row's own representative can be skipped without losing a slot.
+fn l2_file_group_symbol_candidates(
+    graph: &Graph,
+    node_to_ext: &[String],
+    eligible_nodes: &[bool],
+    ranked: impl Iterator<Item = (usize, f32)>,
+) -> HashMap<String, Vec<(usize, f32)>> {
+    let mut by_file: HashMap<String, Vec<(usize, f32)>> = HashMap::new();
+    for (idx, score) in ranked {
+        if !eligible_nodes.get(idx).copied().unwrap_or(false)
+            || matches!(
+                graph.nodes.node_type[idx],
+                NodeType::File | NodeType::Directory
+            )
+        {
+            continue;
+        }
+        let Some(path) = l2_source_file_for_node(graph, node_to_ext, idx) else {
+            continue;
+        };
+        let candidates = by_file.entry(path).or_default();
+        if candidates.len() <= L2_FILE_GROUP_SYMBOLS_MAX {
+            candidates.push((idx, score));
+        }
+    }
+    by_file
+}
+
+/// The symbols attached to one file-group row whose representative is `row_idx`.
+fn l2_file_group_symbols(
+    graph: &Graph,
+    node_to_ext: &[String],
+    candidates: &HashMap<String, Vec<(usize, f32)>>,
+    row_idx: usize,
+) -> Vec<layers::SeekFileGroupSymbol> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let Some(file_candidates) =
+        l2_source_file_for_node(graph, node_to_ext, row_idx).and_then(|path| candidates.get(&path))
+    else {
+        return Vec::new();
+    };
+    file_candidates
+        .iter()
+        .filter(|(idx, _)| *idx != row_idx)
+        .take(L2_FILE_GROUP_SYMBOLS_MAX)
+        .map(|&(idx, score)| {
+            let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
+            let provenance = graph.resolve_node_provenance(NodeId::new(idx as u32));
+            layers::SeekFileGroupSymbol {
+                node_id: if node_to_ext[idx].is_empty() {
+                    label.clone()
+                } else {
+                    node_to_ext[idx].clone()
+                },
+                label,
+                node_type: l2_node_type_str(&graph.nodes.node_type[idx]).to_string(),
+                line_start: provenance.line_start,
+                line_end: provenance.line_end,
+                score,
+            }
+        })
+        .collect()
 }
 
 fn l2_bm25_terms(text: &str) -> Vec<String> {
@@ -1134,9 +1206,23 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // file_group rows carry their file's best symbols. Collected from the
+    // node-level order BEFORE grouping replaces it; `node_types=["file"]` asks
+    // for pure files, so no candidates are collected there.
+    let mut file_group_symbol_candidates: HashMap<String, Vec<(usize, f32)>> = HashMap::new();
     if file_group_mode {
         let semantic_node_order: Vec<usize> = base_ranked.iter().map(|entry| entry.idx).collect();
         let file_only = !input.node_types.is_empty();
+        if !file_only {
+            file_group_symbol_candidates = l2_file_group_symbol_candidates(
+                &graph,
+                &node_to_ext,
+                &eligible_nodes,
+                base_ranked
+                    .iter()
+                    .map(|entry| (entry.idx, entry.base_score)),
+            );
+        }
         base_ranked = l2_rank_file_groups(
             &graph,
             &node_to_ext,
@@ -1402,6 +1488,12 @@ pub fn handle_seek(
                 source_agent,
                 origin_brain,
                 connections,
+                symbols: l2_file_group_symbols(
+                    &graph,
+                    &node_to_ext,
+                    &file_group_symbol_candidates,
+                    i,
+                ),
             }
         })
         .collect();
@@ -1711,7 +1803,8 @@ pub fn handle_focus(
 }
 
 /// Per-result token ESTIMATE for a seek hit, summed over its load-bearing text
-/// fields (label, path, intent summary, excerpt). Uses the chars/4 heuristic —
+/// fields (label, path, intent summary, excerpt, connections, attached
+/// symbols). Uses the chars/4 heuristic —
 /// see `result_shaping::estimate_tokens_from_chars`; this is an approximation,
 /// not exact tokenization.
 fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
@@ -1725,6 +1818,9 @@ fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
     }
     for conn in &entry.connections {
         chars += conn.label.len() + conn.relation.len();
+    }
+    for symbol in &entry.symbols {
+        chars += symbol.node_id.len() + symbol.label.len() + symbol.node_type.len();
     }
     crate::result_shaping::estimate_tokens_from_chars(chars)
 }

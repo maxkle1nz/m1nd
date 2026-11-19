@@ -123,6 +123,58 @@ only re-orders within the relevance-cleared pool; it never drops a node. With no
 }
 ```
 
+### Narrative queries: file-group rows and their symbols
+
+`result_granularity` says what one row stands for. Explicit identifier or path
+queries (backticks, `::`, `/`, `snake_case`, a file suffix, or a CamelCase word that
+names a graph label), short queries and symbol-only `node_types` return `"node"` rows.
+A narrative question (it starts with a word such as *where*, *which*, *how* or *find*
+and has at least six query tokens) with no `node_types` or only `["file"]` returns
+`"file_group"` rows: one row per source file, ranked by fusing a lexical (BM25) file
+rank with the node-level relevance rank, so related symbols in one file do not fill
+every slot. A row's `node_id` is the file node (or, in a graph without file nodes, the
+file's best node), and its `line_start`/`line_end` cover the whole file.
+
+Each `file_group` row may also carry `symbols`: up to three symbols from that file, so
+the caller can open the relevant span instead of the whole file. Each symbol has
+`node_id`, `label`, `node_type`, `line_start`, `line_end` and `score`, and no excerpt.
+
+- **Order.** Symbols keep the node-level relevance order seek computes before grouping;
+  equal scores keep graph order, so repeated calls return the same list. `score` is that
+  node-level relevance (before trust/tremor damping), not the row's fused file score.
+- **Eligibility.** A symbol must pass the same `scope` filter as the rows and must clear
+  `min_score`. Files, directories and the row's own node are never listed. Symbols are
+  matched to a file by provenance `source_path` (falling back to the `file::` id), the
+  same key the file ranking uses.
+- **When absent.** The field is omitted when a file has no eligible symbol, in `"node"`
+  granularity, and when `node_types` is `["file"]`.
+- **Budget.** With `token_budget`, each row's estimate includes its symbols' text, so a
+  budget may keep fewer rows than it would without them. `focus` inherits this.
+- **Unchanged.** The rows themselves — their `node_id`s, order, scores, count and
+  `result_granularity` — are the same with or without symbols. Semantic `search` rows
+  and the memory rows `north` builds from a `light::`-scoped seek do not carry the field.
+
+```json
+{
+  "result_granularity": "file_group",
+  "results": [
+    {
+      "node_id": "file::src/auth/session_guard.rs",
+      "label": "session_guard.rs",
+      "type": "file",
+      "score": 0.99,
+      "file_path": "src/auth/session_guard.rs",
+      "line_start": 1,
+      "line_end": 240,
+      "symbols": [
+        { "node_id": "file::src/auth/session_guard.rs::fn::check_account_access", "label": "check_account_access", "node_type": "function", "line_start": 84, "line_end": 120, "score": 0.41 },
+        { "node_id": "file::src/auth/session_guard.rs::fn::validate_credentials", "label": "validate_credentials", "node_type": "function", "line_start": 12, "line_end": 40, "score": 0.32 }
+      ]
+    }
+  ]
+}
+```
+
 ### When to Use
 
 - **"Find the code that does X"** -- when you know the purpose, not the filename

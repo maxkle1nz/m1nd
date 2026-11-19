@@ -240,7 +240,10 @@ pub struct SeekOutput {
     pub query: String,
     /// "node" for explicit identifier/path queries and compact lookups;
     /// "file_group" for narrative intent queries, where at most one
-    /// representative node is returned per ranked source file.
+    /// representative node is returned per ranked source file. A `file_group`
+    /// row may also carry `symbols`: up to three of that file's best eligible
+    /// symbols with their line spans (see [`SeekResultEntry::symbols`]); the
+    /// rows, their order and their scores are the same with or without them.
     pub result_granularity: String,
     /// Mechanical query-entity presence receipt. Always present.
     pub grounding: SeekGrounding,
@@ -371,6 +374,32 @@ pub struct SeekResultEntry {
     pub origin_brain: Option<String>,
     /// Connected nodes (callers, callees, importers).
     pub connections: Vec<SeekConnection>,
+    /// `file_group` rows only: up to three symbols from this row's file, best
+    /// first, so a caller can open the relevant span instead of the whole file.
+    /// Candidates are the eligible nodes (same `scope` contract as the rows)
+    /// other than files, directories and the row's own node, mapped to the file
+    /// by the same source-path key the file ranking uses, in the node-level
+    /// relevance order computed before grouping (ties keep graph order).
+    /// Omitted when empty, in `node` granularity, and when `node_types` is
+    /// `["file"]`. Counted by the `token_budget` estimate.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub symbols: Vec<SeekFileGroupSymbol>,
+}
+
+/// One symbol attached to a `file_group` seek row. Carries the span to open,
+/// never an excerpt.
+#[derive(Clone, Debug, Serialize)]
+pub struct SeekFileGroupSymbol {
+    pub node_id: String,
+    pub label: String,
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_start: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_end: Option<u32>,
+    /// The node-level relevance score that ordered this symbol before grouping
+    /// (pre trust/tremor). Not on the same scale as the row's fused `score`.
+    pub score: f32,
 }
 
 #[derive(Clone, Debug, Serialize)]
