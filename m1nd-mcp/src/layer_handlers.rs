@@ -11235,6 +11235,10 @@ mod seek_filter_contract_tests;
 mod seek_determinism_tests;
 
 #[cfg(test)]
+#[path = "internal_tests/seek_file_group_symbols.rs"]
+mod seek_file_group_symbols_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         compute_modified_nodes, handle_calibrate_envelope, handle_focus, handle_layers,
@@ -14820,6 +14824,67 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "seek should suggest opening the strongest result next"
         );
         assert_eq!(output.proof_state, "proving");
+    }
+
+    /// Attaching symbols to file-group rows is additive: on the natural-language
+    /// fixture the rows, their order, their scores, the pool size and the
+    /// granularity are pinned to the values seek returned before symbols existed.
+    #[test]
+    fn seek_file_group_symbols_leave_natural_language_rows_unchanged() {
+        let queries = [
+            "Where do we normalize alias tool names into the canonical dispatch status name?",
+            "Which helper maps alias tool names into canonical dispatch status values before execution?",
+        ];
+        for query in queries {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let mut state = build_seek_natural_language_state(temp.path());
+            #[cfg(feature = "embed")]
+            {
+                state.orchestrator.semantic.embedder = None;
+                state.orchestrator.semantic.embeddings.clear();
+            }
+            let output = handle_seek(
+                &mut state,
+                SeekInput {
+                    query: query.into(),
+                    agent_id: "test".into(),
+                    top_k: 5,
+                    scope: None,
+                    node_types: vec![],
+                    min_score: 0.0,
+                    graph_rerank: true,
+                    conformance_aware: true,
+                    token_budget: None,
+                },
+            )
+            .expect("seek should succeed");
+            let observed: Vec<(&str, f32)> = output
+                .results
+                .iter()
+                .map(|result| (result.node_id.as_str(), result.score))
+                .collect();
+            assert_eq!(output.result_granularity, "file_group", "{query}");
+            assert_eq!(output.relevance_clearing_total, 2, "{query}");
+            assert_eq!(
+                observed,
+                vec![
+                    (
+                        "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name",
+                        0.99_f32
+                    ),
+                    ("file::docs/dispatch-aliases.md", 0.907_499_9_f32),
+                ],
+                "{query}"
+            );
+            // A row whose representative is itself a symbol (no file node in
+            // this legacy-shaped graph) never lists itself among its symbols.
+            let json = serde_json::to_value(&output).expect("serialize seek");
+            for row in json["results"].as_array().expect("results") {
+                for symbol in row["symbols"].as_array().into_iter().flatten() {
+                    assert_ne!(symbol["node_id"], row["node_id"], "{row:#}");
+                }
+            }
+        }
     }
 
     #[test]
