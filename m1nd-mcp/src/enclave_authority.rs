@@ -1,8 +1,8 @@
 //! macOS Secure Enclave custody floor — amendment G9-A1.
 //!
-//! This module reimplements the *contract* of the proven h4nd Secure Enclave
-//! adapter (`docs/proofs/m1nd10-g2-p256-secure-enclave-adapter-20260718.md`) —
-//! the h4nd source is not in this repo. The contract is: explicit provisioning
+//! This module reimplements the *contract* of the Secure Enclave P-256
+//! adapter — the reference source is not in this repo. The contract is: explicit
+//! provisioning
 //! bound to a permit (never open-or-create), `kSecAttrTokenIDSecureEnclave`,
 //! re-attestation of token/type/size on every open, a non-exportable key, and
 //! signing only through `SecKeyCreateSignature`. The human owner seat carries a
@@ -54,7 +54,7 @@ use crate::protected_journal_head::{
 };
 
 /// The custody-floor identifier stamped on every G9/G10 receipt minted under this
-/// amendment (`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5). The single
+/// amendment (G9-A1). The single
 /// source of truth lives in `m1nd-control` so the custody-ceremony receipt here
 /// and the gate/autonomy receipts there name one literal; this crate re-exports
 /// it. `m1nd-control::RATIFIED_CUSTODY_FLOORS` is the closed set validators check.

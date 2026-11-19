@@ -26,24 +26,24 @@ m1nd version   # prints the package version (also: m1nd --version, m1nd -V)
 m1nd doctor
 ```
 
-For Codex:
+Codex, Claude Code, and Antigravity have native skill directories, so their
+skills install globally and need no project:
 
 ```bash
-m1nd install-skills codex
+m1nd install-skills codex         # $CODEX_HOME/skills/ (default ~/.codex/skills/)
+m1nd install-skills claude        # ~/.claude/skills/
+m1nd install-skills antigravity   # plugin at ~/.gemini/config/plugins/m1nd/
 ```
 
-For a project-local generic pack:
+Each writes the `m1nd-first`, `m1nd-guardian`, and `m1nd-operator` skills and
+replaces only those directories; other skills stay untouched.
+
+For hosts without a native skill directory, install the portable pack into the
+project:
 
 ```bash
-m1nd install-skills generic --project /path/to/project
-```
-
-For portable host files:
-
-```bash
-m1nd install-skills claude --project /path/to/project
 m1nd install-skills gemini --project /path/to/project
-m1nd install-skills antigravity --project /path/to/project
+m1nd install-skills generic --project /path/to/project
 ```
 
 Those commands write into `/path/to/project/.m1nd/agent-pack/`. Point the host
@@ -311,7 +311,13 @@ the TIER-A and TIER-B hosts.
 Use `m1nd hosts apply` only as the local mutating follow-through after
 `hosts status` or `hosts plan`. Without `--yes` it remains a dry-run preview.
 With `--yes`, it can install or refresh agent-pack files and write canonical
-MCP config snippets for known hosts. It still does not prove rebind, refresh an
+MCP config snippets for known hosts: `$CODEX_HOME/config.toml` for Codex, the
+project `.mcp.json` for Claude Code, `<project>/.gemini/settings.json` for
+Gemini CLI, and `~/.gemini/config/mcp_config.json` for Antigravity. Each changed
+config or doctrine file is backed up privately under `~/.m1nd/backups/` and
+replaced atomically; a symlinked file keeps its link. For Claude Code it warns
+that `.mcp.json` is shared through version control but holds absolute paths
+from this machine. It still does not prove rebind, refresh an
 already-open host's cached tool list, repair graph state, or remove the manual
 config step for generic hosts.
 
@@ -396,9 +402,7 @@ Generate Windows-safe MCP snippets the same way:
 m1nd mcp-config generic --binary "C:\\Users\\<name>\\.m1nd\\bin\\m1nd-mcp.exe"
 ```
 
-The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`. The
-`m1nd-openclaw` native fast path uses Unix sockets today, so Windows hosts
-should use plain MCP until a Windows-native fast lane is introduced.
+The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`.
 
 ## Front Door For Every Host
 

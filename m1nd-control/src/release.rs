@@ -18,7 +18,7 @@ pub const METRIC_SPEC_SCHEMA: &str = "m1nd-metric-spec-v1";
 pub const METRIC_SPEC_DIGEST_DOMAIN: &str = "m1nd-metric-spec-v1";
 
 /// The custody-floor identifier ratified for the current M1ND-10 activation era
-/// (amendment G9-A1; `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5). It names
+/// (amendment G9-A1, 2026-07-21). It names
 /// the floor the *authority custody era* stands on, not a property of any
 /// candidate. `m1nd-mcp::enclave_authority` re-exports this constant so the
 /// custody-ceremony receipt and the gate/autonomy receipts name one literal.
@@ -244,8 +244,7 @@ pub struct GateReceiptCoreV1 {
     /// its field set grows. Receipts minted before this floor existed are
     /// historical/void and are never re-consumed by the pipeline; an activation
     /// candidate's gates are re-minted under the floor, so the frozen canon is
-    /// regenerated rather than migrated
-    /// (`docs/proofs/m1nd10-g9-a1-custody-floor-ratification-20260721.md`).
+    /// regenerated rather than migrated (G9-A1 custody-floor ratification).
     pub custody_floor: String,
     pub spec_version: String,
     pub metric_spec_digest: Option<String>,

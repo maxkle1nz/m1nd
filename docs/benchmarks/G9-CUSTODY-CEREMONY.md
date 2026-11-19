@@ -10,6 +10,7 @@
 > Amendment: `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §5 (G9-A1, Path B, ratified
 > 2026-07-21). Implementation proof: `docs/proofs/m1nd10-g9-pathb-enclave-floor-implementation-20260721.md`.
 > Prerequisite record: `docs/proofs/m1nd10-g9-ceremony-prerequisites-landed-20260721.md`.
+> These three records are archived at tag `archive/pre-cleanup-379fb0d6`.
 
 ## 0. Agent-side simulation is PROHIBITED
 
@@ -225,7 +226,7 @@ The `assemble` verb is now its production caller, pinned by
 NOT do is install the assembly into a running owner — see §5 R3.
 
 The decision document said this in advance —
-`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §7: *"implement the concrete providers (enclave
+`docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §7 (archived at tag `archive/pre-cleanup-379fb0d6`): *"implement the concrete providers (enclave
 signer wiring … into `assemble_production_owner_authority_v1`, protected-root provisioning
 ceremony, quorum seat minting)"*. The providers were built first; the wiring named in the same
 sentence followed. **Quorum seat minting is the third clause of that sentence and remains open** —

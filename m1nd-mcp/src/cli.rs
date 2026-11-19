@@ -267,9 +267,8 @@ pub struct Cli {
     #[arg(long)]
     pub no_distribute: bool,
 
-    /// THE BIRTH CEREMONY (GENESIS-INGEST-CONSUMERS-SPEC.md §2, owner-ratified
-    /// 2026-07-29). Birth a project brain for the named repo root, print the
-    /// certificate as JSON, and exit. Offline and one-shot, exactly like
+    /// THE BIRTH CEREMONY (owner-ratified 2026-07-29). Birth a project brain
+    /// for the named repo root, print the certificate as JSON, and exit. Offline
     /// `--inbox-sweep` and `--medulla-migrate`.
     ///
     /// THIS FLAG IS THE STAMP. Admission to `brain.bootstrap.birth` is an origin

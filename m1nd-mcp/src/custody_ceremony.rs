@@ -4,9 +4,9 @@
 //! `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §4 measured what was missing: every one
 //! of its ten public entry points had zero references outside its own file, and
 //! `assemble_production_owner_authority_v1` had three callers, all inside
-//! `#[cfg(test)]`. `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §7 named this
-//! wiring as the next mechanical step. This module is that wiring, and nothing
-//! more: it builds the door, not a second floor.
+//! `#[cfg(test)]`. The G9 custody decision named this wiring as the next
+//! mechanical step. This module is that wiring, and nothing more: it builds the
+//! door, not a second floor.
 //!
 //! # The ingress IS the human-origin fact
 //!

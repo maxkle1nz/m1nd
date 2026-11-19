@@ -2038,7 +2038,6 @@ mod tests {
     /// run manually, release, with RSS captured externally:
     ///   /usr/bin/time -l cargo test -p m1nd-mcp --release --lib -- \
     ///     bench_daemon_tick_burst --ignored --nocapture
-    /// Numbers are recorded in docs/voice/GARDENER-V1.md.
     #[test]
     #[ignore = "cost bench — run manually, numbers recorded in the arc doc"]
     fn bench_daemon_tick_burst() {

@@ -1217,7 +1217,7 @@ Commit a previously previewed edit after freshness re-check and explicit confirm
 <a id="m1ndtransplant"></a>
 
 ## `transplant`
-Move a top-level Rust `fn` to another file of the SAME crate by reference. The server computes the whole move from the graph — the item's real extent (doc comments and attributes travel), the dependency trichotomy from `calls` edges (a private dependency travels; a shared one stays, gains `pub(crate)` and is back-imported), and every referencer re-qualified — then writes source, destination and referencers atomically and re-ingests. A refusal writes nothing and names what blocked it. Design and proof addresses: `docs/TRANSPLANT-PRD.md`.
+Move a top-level Rust `fn` to another file of the SAME crate by reference. The server computes the whole move from the graph — the item's real extent (doc comments and attributes travel), the dependency trichotomy from `calls` edges (a private dependency travels; a shared one stays, gains `pub(crate)` and is back-imported), and every referencer re-qualified — then writes source, destination and referencers atomically and re-ingests. A refusal writes nothing and names what blocked it. Design and proof addresses: `docs/TRANSPLANT-PRD.md` (archived at tag `archive/pre-cleanup-379fb0d6`).
 
 ### Parameters
 

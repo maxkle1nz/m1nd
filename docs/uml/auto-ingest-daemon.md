@@ -152,7 +152,7 @@ stateDiagram-v2
 ## Addendum — Gardener v1 (2026-07-12, `feat/gardener-v1`; line refs above predate this arc)
 
 The arc law is `docs/voice/ASKGOD-VERDICT-GARDENER.md`; design + measured cost in
-`docs/voice/GARDENER-V1.md`. What changed structurally in the systems this sheet maps:
+`docs/voice/GARDENER-V1.md` (both archived at tag `archive/pre-cleanup-379fb0d6`). What changed structurally in the systems this sheet maps:
 
 - **Fail-open vigils:** the inline auto-ingest tick in `dispatch_tool` no longer
   propagates (`vigil_fail_open`, server.rs) — a watcher error can never fail an

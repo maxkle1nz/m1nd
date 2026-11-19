@@ -21,6 +21,21 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
   zero strength is a no-op. See [learning event semantics](docs/LEARNING-EVENT-SEMANTICS.md).
   This post-release fix is not part of the sealed 1.6.5 artifacts.
 
+### Security
+
+- **November dependency security update (unreleased source candidate):**
+  updates seven locked Rust packages (`crypto-bigint` 0.7.5→0.7.9, `ctutils`
+  0.4.2→0.4.5, `quinn-proto` 0.11.16→0.11.18, `rustls` 0.23.45→0.23.46,
+  `rustls-webpki` 0.103.15→0.103.16, `webpki-root-certs` 1.0.6→1.0.10,
+  `webpki-roots` 1.0.8→1.0.10) plus `vite` 8.1.5→8.1.6 and transitive `zod`
+  4.4.3→4.6.7. Against RustSec `26fd2d43f7280a1fb925a3743ec463017afe7119`
+  (2026-11-05), vulnerability findings drop from 14 to 0 (with 6
+  informational warnings remaining); `npm audit` drops from 12 findings (2
+  high) to 10 moderate (`minimatch` via ESLint). Source APIs, persisted
+  formats, authority rules, and published 1.6.5 binaries are unchanged. See
+  [runtime-overlay matching](docs/RUNTIME-OVERLAY-MATCHING.md) for the preserved
+  overlay contract.
+
 ## [1.6.5] — 2026-10-11
 
 GitHub/native artifacts and crates.io packages are published from immutable

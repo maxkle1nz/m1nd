@@ -20,9 +20,9 @@
 
 **Owned-memory refresh candidate — 2026-11-08 (unreleased):** The first-use probe found that an unchanged nine-node code tree plus one grounded memory produced seventeen live nodes; the next CLI refresh refused because it measured only code. Refresh now prepares owned memory with code before the unchanged global 60% floor, then installs that prepared candidate without a second memory reload. The existing root/admission checks, cap/legacy policy and negative shrink protection remain. The source candidate has targeted regressions for successful resumption and invariant refusals; full runtime/platform proof stays bound to the exact final revision. Earlier probe refusals and the OTEL RED are preserved. See [the refresh contract](REFRESH-OWNED-MEMORY.md).
 
-**Integration stabilization candidate — 2026-11-08 (unreleased):** The follow-up to #592 imports only the runtime-overlay optimization/regressions from #588 and patches Vite/Zod. Rust/MCP APIs, persisted formats, authority floors, lint rules and the five-second local stress assertion remain unchanged. UI audit comparison is twelve findings (two high) to ten moderate, with no high/critical findings; the ESLint/minimatch migration remains debt. The earlier full run on `d6d91632` stays RED at 5.891 seconds for OTEL; it is not requalified by focused results or another branch. Full-suite/platform results and isolated first-query/resumption receipts belong to the final exact candidate. No integration, installed-runtime update or release is claimed. See [dependency scope](DEPENDENCY-SECURITY-2026-11.md) and [overlay semantics](RUNTIME-OVERLAY-MATCHING.md).
+**Integration stabilization candidate — 2026-11-08 (unreleased):** The follow-up to #592 imports only the runtime-overlay optimization/regressions from #588 and patches Vite/Zod. Rust/MCP APIs, persisted formats, authority floors, lint rules and the five-second local stress assertion remain unchanged. UI audit comparison is twelve findings (two high) to ten moderate, with no high/critical findings; the ESLint/minimatch migration remains debt. The earlier full run on `d6d91632` stays RED at 5.891 seconds for OTEL; it is not requalified by focused results or another branch. Full-suite/platform results and isolated first-query/resumption receipts belong to the final exact candidate. No integration, installed-runtime update or release is claimed. See [dependency scope](../CHANGELOG.md) (Unreleased, Security) and [overlay semantics](RUNTIME-OVERLAY-MATCHING.md).
 
-**Dependency security candidate — 2026-11-06 (unreleased):** Seven locked package updates address the 14 vulnerability findings on main `a3008970` against RustSec `26fd2d43`; the candidate audit reports zero vulnerabilities and six informational warnings without ignores. Crypto and certificate dependency minimum Rust requirements increase, within the existing lockfile's higher toolchain requirement. Source APIs and persisted formats are unchanged. This extends the QUIC/TLS remediation shared by #586/#588; #587 and #588 still need lockfile reconciliation when integrated. The coverage-map API migration in #588 is separate. Exact-candidate test results, independent review and hosted gates remain separate proof; no integration or release is claimed. See [scope and compatibility](DEPENDENCY-SECURITY-2026-11.md).
+**Dependency security candidate — 2026-11-06 (unreleased):** Seven locked package updates address the 14 vulnerability findings on main `a3008970` against RustSec `26fd2d43`; the candidate audit reports zero vulnerabilities and six informational warnings without ignores. Crypto and certificate dependency minimum Rust requirements increase, within the existing lockfile's higher toolchain requirement. Source APIs and persisted formats are unchanged. This extends the QUIC/TLS remediation shared by #586/#588; #587 and #588 still need lockfile reconciliation when integrated. The coverage-map API migration in #588 is separate. Exact-candidate test results, independent review and hosted gates remain separate proof; no integration or release is claimed. See [scope and compatibility](../CHANGELOG.md) (Unreleased, Security).
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
@@ -119,7 +119,7 @@ Next: complete authorized publication, check the exact candidate's hosted gates,
 > The entire ORGANISM ladder R0–R17 is landed on `main` and live on the served owner: medulla
 > storage/tiers/promotion (R2/R3/R4), delegation (R6/R7), the per-project mailbox + UI (R8/R9),
 > Pre-Flight (R10), reconnect-rebind (R13), per-brain counters (R14), eviction (R15), the soul
-> (R16), seek-rerank conformance (R17) — and R11's deliverable, `docs/CASE-INTELLIGENCE-PRD.md`,
+> (R16), seek-rerank conformance (R17) — and R11's deliverable, `docs/CASE-INTELLIGENCE-PRD.md` (archived at tag `archive/pre-cleanup-379fb0d6`),
 > shipped as the last rung's PRD (its implementation slices S0–S4 are the next construction seed).
 > The close-out burst also wired the M5a migration CLI (`--medulla-migrate plan|apply|rollback`),
 > made `restart --binary` honest (loud dry-run + codesign + kickstart), fixed the mailbox roster's
@@ -366,7 +366,7 @@ Update this list in the same PR that closes one; a front that dies silently is a
   served owner's HTTP caller-root routing reaches (`http_server::resolve_brain`), while a plain stdio
   owner serves the runtime's own graph and nothing else. A ceremony that succeeds loudly and delivers
   an empty brain is worse than one that refuses.
-- **What the spec actually says, checked before changing anything.** `docs/GENESIS-INGEST-CONSUMERS-SPEC.md`
+- **What the spec actually says, checked before changing anything.** `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` (archived at tag `archive/pre-cleanup-379fb0d6`)
   admits exactly two ingest doors: SPEC-1 `refresh` (A2-local, exact declared root) and SPEC-2 `birth`
   (PositiveSovereign, owner-stamped `human-cli`, minted only by this ceremony). Same-root `replace` on an
   empty graph is **not** among them, and §1.1's purity rule (classify from `(tool, params)` alone, no
@@ -473,7 +473,7 @@ Update this list in the same PR that closes one; a front that dies silently is a
   help is narrow now, but because those five verbs are in no registry at all; fixing it means
   registering their schemas. (c) The core is a judgement about which verbs a new agent should MEET
   first, and #514's telemetry is what will falsify or confirm it — until those weeks pass the list
-  is ratified, not proven. (d) `docs/uml/tool-surface.md` and `docs/UML-ORGANISM.md` still carry
+  is ratified, not proven. (d) `docs/uml/tool-surface.md` still carries
   pre-existing stale line numbers and catalog counts (117/122/41) from before this front; only the
   lines this change invalidated were corrected.
 - **The red the handoff named is paid (2026-08-02), and it was a real coupling.**
@@ -573,9 +573,9 @@ Update this list in the same PR that closes one; a front that dies silently is a
   em-dash removed from reader-visible site text. Declared debt this branch does NOT close: the 7 i18n
   READMEs now lag the English rewrite (English declared canonical in the new Translations section);
   the MCP Registry entry still publishes 1.3.0 (owner publish gesture). Closed since first written:
-  the wiki token-claim pages now carry the dated snapshot hedge, pt-BR was retranslated by hand from
-  the owner-ratified copy, and `.github/workflows/i18n-translate.yml` re-translates the other six
-  languages via GitHub Models on every README change to main, opening a review PR (English canonical).
+  the wiki token-claim pages now carry the dated snapshot hedge. The translated READMEs and their
+  `.github/workflows/i18n-translate.yml` were later removed in the 2.0 cleanup (archived at tag
+  `archive/pre-cleanup-379fb0d6`); the English README is the only one.
 
 **Blocking the product**
 - **LIFECYCLE PROOF — BOTH CYCLES LANDED 2026-07-29 (clean shutdown AND crash).** m1nd is a
@@ -684,7 +684,7 @@ Update this list in the same PR that closes one; a front that dies silently is a
   reads), and whether the debounce-route verbs above deserve promotion to classified mutations. The
   classification itself is mechanically guarded — `session.rs` freezes the sidecar inventory and scans
   the shipped source, so a new sidecar writer that declares no route fails CI loudly. Doctrine in
-  `docs/UML-ORGANISM.md` § "Who pays the checkpoint".
+  `docs/UML-ORGANISM.md` § "Who pays the checkpoint" (archived at tag `archive/pre-cleanup-379fb0d6`).
 - **The strict `read_snapshot` still deep-clones the graph on EVERY transport call.** Brain resolution asks
   the actor whether the bound brain covers the caller root, so `read_snapshot` runs per call, and it ends
   with an UNCONDITIONAL `rebind_after_callback` — a full `encode_graph_json` + `decode_graph_json` of the
@@ -815,8 +815,8 @@ workflow-level `paths`/`paths-ignore` filters — the required checks are exactl
 levers above capture the waste without that risk.
 
 ## Access Map
-- Battery harness: `scratchpad/m1nd_battery.py` — **TRACKED in-repo** (protected by the `.gitignore`
-  negation `!scratchpad/m1nd_battery.py`, so it survives scratchpad clears). Fresh ingest +
+- Battery harness: `scratchpad/m1nd_battery.py` — no longer tracked; archived at tag
+  `archive/pre-cleanup-379fb0d6` (restore it with `git show` from the tag before running it). Fresh ingest +
   ground-truth PASS/FAIL + `rg` head-to-head; the m1nd suite runs green with zero grep losses.
   (Prior throwaway probes `impact_probe.py`/`edge_proof.py`/`focus_smoke.py` and the
   `M1ND_BATTERY_REPORT.md`/`battery_FINAL.txt` reports were scratchpad-cleared — pruned here by the
@@ -828,8 +828,8 @@ levers above capture the waste without that risk.
 - **The constitution + the build order:** `docs/ORGANISM-PRD.md` (§C10 is THE ladder; §C11 the
   amendment ledger). The five other PRDs: `MEDULLA-PRD.md`, `SOUL-PRD.md`, `HUMAN-LAYER-PRD.md`,
   `TWO-TIER-BRAIN-PRD.md`, `NEXTGEN-AGENT-PRD.md` (§O.12 delegation, §O.10 the OMEGA floor roadmap).
-- Runtime PRDs: `docs/X360-RUNTIME-PRD.md`, `docs/FOCUS-RUNTIME-PRD.md`. Ambient layer per host:
-  `docs/HOST-INTEGRATION-MATRIX.md`.
+  Runtime PRDs: `docs/X360-RUNTIME-PRD.md`, `docs/FOCUS-RUNTIME-PRD.md`. All of these are archived at
+  tag `archive/pre-cleanup-379fb0d6`. Ambient layer per host: `docs/HOST-INTEGRATION-MATRIX.md`.
 - git identity = Max Kle1nz <kleinz@cosmophonix.com>.
 
 ## Known Problems (honest, product-level)
@@ -842,7 +842,7 @@ levers above capture the waste without that risk.
   an immutable candidate, native cross-OS/power-loss/hosted-release proof, production autonomy
   custody, same-UID micro-race/peer-identity evidence, and same-candidate G10 receipts. Exact
   findings and continuation order:
-  `docs/M1ND-10-HANDOFF-20260719.md` §§7–10.
+  `docs/M1ND-10-HANDOFF-20260719.md` §§7–10 (archived at tag `archive/pre-cleanup-379fb0d6`).
 - **The medulla ladder R2→R4 (M5a → M5b → M6) is BUILT — CODE-LANDED, live HELD.** M5a (per-brain
   storage + `Origin-Brain` labels + reversible migration + brainless-root refusal), M5b (`tier` recall
   + the no-leak invariant proven + `all-brains` through the eviction gate), and M6 (the `promote` verb
@@ -890,7 +890,7 @@ levers above capture the waste without that risk.
 
 ## Proof Standard
 Done = `cargo test --workspace` green + clippy `-D warnings` + `cargo fmt` clean + the BATTERY
-(`scratchpad/m1nd_battery.py`, tracked) green on the m1nd suite (zero grep losses) showing the
+(`scratchpad/m1nd_battery.py`, archived at tag `archive/pre-cleanup-379fb0d6`) green on the m1nd suite (zero grep losses) showing the
 targeted tool improved with a concrete example, zero regression. CI green on 3 OSes before merge.
 **For UI/human-layer slices:** INV component tests against REAL captured envelopes
 (`m1nd-ui/src/__fixtures__/`) + the violet-lint (violet reserved for abstain/unknown) + the icon-lint
@@ -906,7 +906,8 @@ current, agent surfaces updated in the SAME PR) → seed the next rung.
 
 ## Next Agent Prompt / next seeds
 
-**CURRENT OVERRIDE — M1ND-10.** Read `docs/M1ND-10-HANDOFF-20260719.md` in full and follow its
+**CURRENT OVERRIDE — M1ND-10.** Read `docs/M1ND-10-HANDOFF-20260719.md` (archived at tag
+`archive/pre-cleanup-379fb0d6`) in full and follow its
 continuation order. The five G6 P1, three P2, and scorer-audit findings are locally closed and the
 final independent corrective re-review is `APPROVE`/none. Preserve that boundary and the closed G7
 version/offline-dependency contract. The dirty tree has a green local aggregate but is not a
@@ -950,7 +951,8 @@ sweeps).
 
 ---
 
-**↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10** — the verifiable
+**↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10** (archived at
+tag `archive/pre-cleanup-379fb0d6`) — the verifiable
 trust substrate, released and live. Moves 0 (conformal calibration harness) + 1 (the Trust-Gated
 Envelope) are DONE and RELEASED (v1.2.0/1.2.1); the honest Move-2 reframe shipped. Read §O.1–O.11 for
 the vision (answer + map + trust receipt), the calibration keystone (consistency ≠ correctness), the

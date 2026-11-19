@@ -254,8 +254,8 @@ which brain answered it. Three laws:
   written design (it backs up and writes anyway), so "root set unchanged" never
   meant "graph intact". Reach for `refresh` when a declared root's graph is stale;
   never as a repair for a reception mismatch, which Law 1 still governs. Honest
-  limit, from the spec itself: it closes the reflex vector, not a malicious
-  same-UID local process. (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.)
+  limit, from the contract itself: it closes the reflex vector, not a malicious
+  same-UID local process.
 
 Not yet built (do not rely on it): `skeleton_coherence`, a vital sign that makes
 a brain flag loudly when it is wearing a skeleton from a foreign repo. Until it

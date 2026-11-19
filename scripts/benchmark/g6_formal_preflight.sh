@@ -439,7 +439,7 @@ else:
         "owner.production_authority",
         MISSING,
         "no pinned production authority assembly; it is minted under the G9 custody "
-        "floor (docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md, amendment G9-A1)",
+        "floor (amendment G9-A1)",
     )
 
 if candidate is not None:

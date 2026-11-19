@@ -13,11 +13,11 @@ The workspace exposes the live MCP tool surface over JSON-RPC stdio, with an HTT
 
 ## Six-Crate Workspace
 
-The system is organized as a Cargo workspace with six members: three core crates, a control crate, an execution daemon, and an auxiliary bridge:
+The system is organized as a Cargo workspace with five members: three core crates, a control crate, and an execution daemon:
 
 ```toml
 [workspace]
-members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-control", "m1nd-runnerd", "m1nd-openclaw"]
+members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-control", "m1nd-runnerd"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -37,7 +37,6 @@ static_assertions = "1"
 | **m1nd-mcp** | JSON-RPC transport, tool dispatch, session management, persistence | `tokio`, `serde_json` |
 | **m1nd-control** | Shared control-plane contracts | See its Cargo manifest |
 | **m1nd-runnerd** | Isolated execution lane; process spawning belongs here | See its Cargo manifest |
-| **m1nd-openclaw** | Auxiliary OpenClaw bridge and transport integration | `m1nd-core`, `m1nd-mcp` |
 
 The core production dependency direction is: `m1nd-mcp` depends on both `m1nd-core` and `m1nd-ingest`; `m1nd-ingest` depends on `m1nd-core`; `m1nd-core` has no production dependency on the other workspace crates (its tests use `m1nd-ingest`).
 

@@ -7,8 +7,7 @@
 //!      `m1nd-mcp --stdio` calling `ingest` with only `agent_id` was refused
 //!      `generic_action_authority_required: semantic_action=graph.ingest.replace
 //!      authority_floor=POSITIVE_SOVEREIGN` — correct policy (the first graph is
-//!      the human's gesture, `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §2) told in
-//!      a way that named no way out.
+//!      the human's gesture) told in a way that named no way out.
 //!   2. The human's ceremony reported success and delivered nothing. `m1nd init
 //!      --birth <repo>` exited 0 printing a node count, and the very next stdio
 //!      session in that repo still served **0 nodes**: the ceremony minted a

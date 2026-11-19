@@ -14,8 +14,7 @@
  * (`?block=`). TRANSIENTS stay out: modals (ingest), the Cmd+K palette, the 3-beat
  * orientation, `hallOpenAlerts` (how you entered the Hall), and the Build Map's own
  * ad-hoc card selection (a click on a block card is exploration, not an address —
- * only the tray-seeded `mapTargetBlock` is addressable). See
- * docs/HUMAN-VIEW-V2-F30-UNIVERSE.md §placement.
+ * only the tray-seeded `mapTargetBlock` is addressable).
  *
  * THE BRAIN KEY (R3, no-leak law): a hosted world is addressed in the URL by the
  * BASENAME of its root, never the absolute root — AGENTS.md forbids personal paths

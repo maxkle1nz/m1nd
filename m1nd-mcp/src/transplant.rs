@@ -2,8 +2,7 @@
 //! move of a top-level `fn`).
 //!
 //! The first verb where the GRAPH WRITES: the caller names a symbol and two
-//! paths, the server computes the whole move. Design and proof addresses:
-//! `docs/TRANSPLANT-PRD.md`. The verb:
+//! paths, the server computes the whole move. The verb:
 //!   1. Resolves the symbol via the code graph (label + `Function` kind +
 //!      provenance path), cross-checked against disk truth.
 //!   2. Computes the dependency trichotomy from `calls` edges (private dep

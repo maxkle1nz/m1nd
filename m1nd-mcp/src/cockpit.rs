@@ -1,7 +1,7 @@
 //! cockpit — the navigable m1nd menu (`m1nd-cockpit-v0`).
 //!
-//! A DEDICATED read-only verb (askGOD verdict "the navigable cockpit",
-//! 2026-07-12 — the 10 amendments; `docs/voice/ASKGOD-VERDICT-COCKPIT.md`).
+//! A DEDICATED read-only verb (verdict "the navigable cockpit",
+//! 2026-07-12 — the 10 amendments).
 //! It is the human's on-request router over m1nd's read surfaces — a sibling of
 //! `north`, NEVER a field of it. The laws it obeys, by amendment:
 //!
@@ -28,10 +28,9 @@
 //!     `help_guidance::catalog_entry` (the one canonical catalog), never a
 //!     parallel one.
 //!
-//! The widget payload law (amendment 7) lives in `docs/voice/WIDGET-TEMPLATE.md`:
-//! a button carries the SAME short reference a human would type — a number +
-//! `menu_sig` — never free command text, never a graph-interpolated string, and
-//! never a write verb.
+//! The widget payload law (amendment 7): a button carries the SAME short
+//! reference a human would type — a number + `menu_sig` — never free command
+//! text, never a graph-interpolated string, and never a write verb.
 
 use serde_json::{json, Value};
 use std::collections::hash_map::DefaultHasher;

@@ -178,7 +178,7 @@ export interface AgentSession {
   query_count: number;
 }
 
-// ---- Presences (ORGANISM-INSIDE-PRD P1 · askGOD-verdict-P1 · P1-UI-CONTRACT) ----
+// ---- Presences (P1 presence contract) ----
 
 /**
  * One agent's presence — activity that is VISIBLE TO m1nd. Projected from the
@@ -257,7 +257,7 @@ export interface PresenceCollision {
 }
 
 /**
- * `GET /api/presences?brain=<root>` (P1-UI-CONTRACT). Absent `brain` = the
+ * `GET /api/presences?brain=<root>` (P1 presence contract). Absent `brain` = the
  * OWNER-WIDE roster (every agent visible to this owner across its brains — the
  * Hall's control-room scope, LABELED per the verdict's scope note); a `brain`
  * scopes it to that brain. The roster is TTL-filtered at read (no ghosts).

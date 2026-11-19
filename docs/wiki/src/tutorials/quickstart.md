@@ -9,11 +9,11 @@ Start with a read-only question about a real repository. You do not need to unde
 Published 1.6.5 is available on [GitHub/native](https://github.com/maxkle1nz/m1nd/releases/tag/v1.6.5), crates.io, and npm at `363bc97f2336c73e90802916804dccd2109c5746`; npm `latest` is 1.6.5 as of 2026-10-12. This wiki also describes `main`; PR580's later learning-event separation is **Unreleased** and absent from sealed 1.6.5.
 
 - **Published 1.6.5:** the matching wrapper/native runtime can prepare an isolated graph under an explicit workspace grant. See [agent autonomy](https://github.com/maxkle1nz/m1nd/blob/v1.6.5/docs/AGENT-AUTONOMY.md).
-- **Historical 1.6.3:** retain [its signed installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.3.md) and [historical README recipe](https://github.com/maxkle1nz/m1nd/blob/main/README.md#historical-pinned-163-install-prepare-connect). Its human birth and nested-runtime recipe are separate from the external-runtime 1.6.5 contract.
+- **Historical 1.6.3:** see the [signed installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md) and [historical README recipe](https://github.com/maxkle1nz/m1nd/blob/main/README.md#historical-pinned-163-install-prepare-connect). Its human birth and nested-runtime recipe are separate from the external-runtime 1.6.5 contract.
 
 ## Install the published release
 
-For source-preview builds, read the [November dependency security update](https://github.com/maxkle1nz/m1nd/blob/main/docs/DEPENDENCY-SECURITY-2026-11.md). Its unreleased lockfile changes preserve source APIs and do not replace published 1.6.5 artifacts.
+For source-preview builds, read the [November dependency security update](https://github.com/maxkle1nz/m1nd/blob/main/CHANGELOG.md#security). Its unreleased lockfile changes preserve source APIs and do not replace published 1.6.5 artifacts.
 
 Prerequisites: Node.js 18+ and a repository you can read. First follow the [signed native 1.6.5 installation guide](https://github.com/maxkle1nz/m1nd/blob/main/docs/INSTALL-1.6.5.md), which pins the exact artifact and verifies its signature with cosign. The 1.6.5 prebuilt assets cover Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell walkthrough from your repository:
 

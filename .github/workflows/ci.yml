@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master, feat/agent-autonomy]
+    branches: [main, master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   merge_group:
   schedule:

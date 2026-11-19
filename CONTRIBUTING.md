@@ -2,11 +2,6 @@
 
 Thanks for your interest in contributing to m1nd. This document covers the basics.
 
-If you are contributing through real agent usage, also keep
-[docs/AGENT-TASKNOTES.md](docs/AGENT-TASKNOTES.md) current. It is the running
-capture surface for moments where an agent used `m1nd`, did not get the exact
-answer it needed, and had to compensate outside the graph.
-
 For large capability waves, move code, docs, built docs, and release surfaces
 together in the same change — a feature is not complete until the documentation
 and wiki reflect it.
@@ -349,26 +344,6 @@ cargo test -p m1nd-mcp
 ```
 
 Each module has inline tests at the bottom of the file (`#[cfg(test)] mod tests { ... }`).
-
-### E2E tests
-
-The `mcp/m1nd/` directory contains end-to-end test scripts that drive the server via
-its JSON-RPC interface:
-
-```bash
-# Shell-based E2E
-./tests/e2e/test_e2e.sh
-./tests/e2e/test_mcp.sh
-./tests/e2e/test_perspective_e2e.sh
-
-# Python-based scenarios
-python3 tests/e2e/test_layers_e2e.py
-python3 tests/e2e/test_advanced_usecases.py
-python3 tests/e2e/test_perspective_usecases.py
-```
-
-These scripts start the binary, send JSON-RPC calls over stdin, and assert on stdout.
-They are the ground truth for behavioral correctness.
 
 ### Integration test guidelines
 

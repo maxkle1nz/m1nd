@@ -26,6 +26,10 @@
 | Executed, lib suite (nextest, dev box) | 1,643 passed / 18 skipped / 376.7s |
 | Executed, workspace (nextest, dev box) | 2,644 passed / 25 skipped / 966s |
 
+The `m1nd-openclaw` crate counted above (2 inline tests) has since left the
+workspace; these denominators stay as measured at `94fff76f` until the next
+re-derivation.
+
 Wall-clock across runners, same suite, step `Test every target` (2026-08-02):
 
 | Leg | `cargo test` | nextest | Verdict |
@@ -80,9 +84,9 @@ Other known scopes, including transplant-only changes, keep their selection.
 
 Known areas are deliberately small: `m1nd-ui/` selects UI; `npm/` and root npm
 manifests select host/cache; root `tests/test_*.py` selects Python; contributor
-launcher changes select Python/UI/cache; the Vite helper selects UI; the six
-Rust source/test trees select Rust/cache. Rust closure is core↔ingest, then MCP,
-runnerd and openclaw; control feeds MCP then runnerd/openclaw. CI workflows,
+launcher changes select Python/UI/cache; the Vite helper selects UI; the five
+Rust source/test trees select Rust/cache. Rust closure is core↔ingest, then MCP
+and runnerd; control feeds MCP then runnerd. CI workflows,
 `.config`, Cargo manifests/lock, `build.rs`, selector/aggregate/lightning
 scripts, security policy and marketing-demo paths are full by rule.
 
@@ -171,8 +175,8 @@ validation must be measured on the exact candidate before claiming CI savings.
 ## 3. Never cut — the fifteen
 
 Ratified 2026-08-02 (owner side: Paco, from the suite-audit verdict; the
-histories live in `docs/PATHOS.md`). Canonical copy in `docs/MANUAL.md` §7 —
-this table is the portfolio view. Removing or weakening any of these is an
+histories live in `docs/PATHOS.md`). The former canonical copy, `docs/MANUAL.md` §7,
+is archived at tag `archive/pre-cleanup-379fb0d6`; this table is the portfolio view. Removing or weakening any of these is an
 owner decision with an amendment here, never a cleanup.
 
 lifecycle clean+crash · checkpoint corruption/fault-injection ·

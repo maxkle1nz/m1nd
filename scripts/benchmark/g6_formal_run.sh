@@ -148,8 +148,7 @@ CORPUS_ID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["cor
 HEAD_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ "$DRY_RUN" -eq 0 ] && [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
   say "ABORTED: the working tree is dirty. A formal run must bind one immutable"
-  say "candidate revision; a dirty tree already produced a discarded run"
-  say "(docs/benchmarks/m1nd10-g6-failed-b59-dirty-af02c141.json)."
+  say "candidate revision; dirty trees are never claimable."
   exit 1
 fi
 SYSTEM_REVISION="git:$HEAD_COMMIT"

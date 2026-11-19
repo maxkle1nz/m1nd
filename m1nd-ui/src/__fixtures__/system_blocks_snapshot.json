@@ -1026,7 +1026,7 @@
       {
         "block_id": "sb_m1nd_distribution",
         "name": "Distribution, Host Packs & Installer",
-        "purpose": "How m1nd reaches machines: the npm wrapper, skills packs, install surfaces and i18n.",
+        "purpose": "How m1nd reaches machines: the npm wrapper, skills packs, and install surfaces.",
         "kind": "scanned",
         "state": "ratified",
         "boundary_version": 1,
@@ -1051,10 +1051,6 @@
           },
           {
             "path": "llms-install.md",
-            "role": "primary"
-          },
-          {
-            "path": "i18n/**",
             "role": "primary"
           }
         ],
@@ -1196,8 +1192,8 @@
       },
       {
         "block_id": "sb_m1nd_ci_scripts_demo",
-        "name": "CI, Scripts, Demo & OpenClaw",
-        "purpose": "Pipelines, release tooling, proofs harnesses, the demo crate and the openclaw crate.",
+        "name": "CI, Scripts & Demo",
+        "purpose": "Pipelines, release tooling, proofs harnesses, and the demo crate.",
         "kind": "scanned",
         "state": "ratified",
         "boundary_version": 1,
@@ -1218,10 +1214,6 @@
           },
           {
             "path": "m1nd-demo/**",
-            "role": "primary"
-          },
-          {
-            "path": "m1nd-openclaw/**",
             "role": "primary"
           },
           {

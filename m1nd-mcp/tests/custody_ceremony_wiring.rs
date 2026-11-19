@@ -2,8 +2,8 @@
 //!
 //! Written from the step list in `docs/benchmarks/G9-CUSTODY-CEREMONY.md` §2 and
 //! the measured gap in its §4, plus the G6 blocker named in
-//! `docs/benchmarks/G6-FORMAL-CEREMONY.md` §8 item 2 and the next step named in
-//! `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` §7.
+//! `docs/benchmarks/G6-FORMAL-CEREMONY.md` §8 item 2 and the G9 custody
+//! decision.
 //!
 //! # What this battery does and does not prove
 //!

@@ -52,7 +52,8 @@ scripts/benchmark/g6_formal_preflight.sh [same owner-held flags]
    owner-held input as present-and-valid or missing. Exit `0` READY, `3`
    READY_PUBLIC_ONLY, `1` FAIL. A formal run demands `0`.
 2. **Run identity.** Refuses a dirty working tree (a dirty tree already produced
-   one discarded run: `m1nd10-g6-failed-b59-dirty-af02c141.json`). Derives
+   one discarded run: `m1nd10-g6-failed-b59-dirty-af02c141.json`, archived at tag
+   `archive/pre-cleanup-379fb0d6`). Derives
    `run_id` and `system_revision` from `HEAD`.
 3. **Isolated source snapshot.** Materialises the exact manifest file set from
    immutable Git objects at the corpus commit into a fresh `0700` directory
@@ -178,7 +179,8 @@ exist in the repository, and none of them can be produced by an agent:
    runner refuses formal mode without one: *"formal run requires a pinned
    production authority assembly"*. This is the G9 custody floor — Path B,
    amendment G9-A1, ratified 2026-07-21 in
-   `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md`, implementation not started.
+   `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` (archived at tag `archive/pre-cleanup-379fb0d6`),
+   implementation not started.
 3. **One frozen immutable candidate binary**, for the current lane and for the
    baseline lane.
 4. **The sealed held-out corpus**, matching the pinned digest
@@ -192,6 +194,9 @@ Everything else in this ceremony is staged, verified and waiting.
 ## 9. Related documents
 
 - `docs/benchmarks/M1ND10_G6_RETRIEVAL_PROTOCOL.md` — the gate's measurement contract
+
+Archived at tag `archive/pre-cleanup-379fb0d6` (read with `git show <tag>:<path>`):
+
 - `docs/proofs/m1nd10-g6-knowledge-quality.md` — the G6 proof receipt
 - `docs/M1ND-10-HANDOFF-20260719.md` §7 — why the run is blocked
 - `docs/M1ND-10-G9-CUSTODY-DECISION-20260721.md` — the custody decision it waits on

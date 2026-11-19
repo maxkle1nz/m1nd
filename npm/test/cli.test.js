@@ -1527,6 +1527,7 @@ withEnv(
   },
   () => {
     const tmp = mkTmpDir();
+    const testHome = homeForTest();
     const missing = hostStatus({
       _: ["hosts", "status"],
       host: "claude",
@@ -1539,14 +1540,14 @@ withEnv(
     assert.strictEqual(missing.hosts[0].host, "claude");
     assert.strictEqual(missing.hosts[0].readiness, "attention");
     assert.strictEqual(missing.hosts[0].agent_pack.installed, false);
+    assert.strictEqual(missing.hosts[0].agent_pack.status, "missing");
     assert.strictEqual(missing.hosts[0].config.status, "missing");
     assert(missing.non_claims.some((claim) => claim.includes("does not mutate")));
 
     installSkills("claude", tmp);
     const staleSkillArtifact = path.join(
-      tmp,
-      ".m1nd",
-      "agent-pack",
+      testHome,
+      ".claude",
       "skills",
       "m1nd-operator",
       "graph_snapshot.json"
@@ -1555,9 +1556,8 @@ withEnv(
     assert(fs.existsSync(staleSkillArtifact));
     installSkills("claude", tmp);
     assert(!fs.existsSync(staleSkillArtifact));
-    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmp, ".claude", "mcp.json"),
+      path.join(tmp, ".mcp.json"),
       mcpConfig("claude", process.execPath, tmp)
     );
 
@@ -1568,7 +1568,8 @@ withEnv(
       binary: process.execPath,
     });
     assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
-    assert.strictEqual(ready.hosts[0].config.status, "configured");
+    assert.strictEqual(ready.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(ready.hosts[0].config.status, "shared project (.mcp.json)");
     assert.strictEqual(ready.hosts[0].config.workspace_configured, true);
     assert.strictEqual(
       ready.hosts[0].readiness,
@@ -1595,7 +1596,7 @@ withEnv(
   }
 );
 
-withEnv(fakeEnvBase, () => {
+withEnv({ ...fakeEnvBase, M1ND_TEST_HOME: mkTmpDir() }, () => {
   const tmp = mkTmpDir();
   const selectedRuntime = path.join(tmp, "managed", runtimeBinaryName());
   const pathRuntimeDir = path.join(tmp, "path");
@@ -1603,8 +1604,7 @@ withEnv(fakeEnvBase, () => {
   writeFakeBinary(selectedRuntime);
   writeFakeBinary(pathRuntime);
   installSkills("claude", tmp);
-  fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
-  fs.writeFileSync(path.join(tmp, ".claude", "mcp.json"), mcpConfig("claude", selectedRuntime, tmp));
+  fs.writeFileSync(path.join(tmp, ".mcp.json"), mcpConfig("claude", selectedRuntime, tmp));
 
   const status = withEnv(
     {
@@ -1701,9 +1701,13 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
   },
   () => {
     const tmp = mkTmpDir();
+    const testHome = homeForTest();
+    const claudeJsonPath = path.join(testHome, ".claude.json");
+    const sharedMcpPath = path.join(tmp, ".mcp.json");
     const dryRun = hostApply({
       _: ["hosts", "apply"],
       host: "claude",
@@ -1713,8 +1717,9 @@ withEnv(
     assert.strictEqual(dryRun.schema, "m1nd-host-apply-v0");
     assert.strictEqual(dryRun.dry_run, true);
     assert.strictEqual(dryRun.applied_actions.length, 0);
-    assert.strictEqual(fs.existsSync(path.join(tmp, ".claude", "mcp.json")), false);
-    assert.strictEqual(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack")), false);
+    assert.strictEqual(fs.existsSync(claudeJsonPath), false);
+    assert.strictEqual(fs.existsSync(sharedMcpPath), false);
+    assert.strictEqual(fs.existsSync(path.join(testHome, ".claude", "skills")), false);
     assert.strictEqual(dryRun.requires_host_rebind, true);
     assert.strictEqual(dryRun.host_rebind_proven, false);
     assert(dryRun.non_claims.some((claim) => claim.includes("cached MCP tool list")));
@@ -1729,12 +1734,17 @@ withEnv(
     assert.strictEqual(applied.dry_run, false);
     assert(applied.applied_actions.some((entry) => entry.id === "install-agent-pack" && entry.ok));
     assert(applied.applied_actions.some((entry) => entry.id === "write-mcp-config" && entry.ok));
-    assert(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack", "CLAUDE.md")));
-    const claudeConfig = JSON.parse(fs.readFileSync(path.join(tmp, ".claude", "mcp.json"), "utf8"));
-    assert.strictEqual(claudeConfig.mcpServers.m1nd.command, process.execPath);
-    assert.strictEqual(claudeConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
-    assert(applied.changed_files.includes(path.join(tmp, ".claude", "mcp.json")));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-guardian", "SKILL.md")));
+    assert(fs.existsSync(path.join(testHome, ".claude", "skills", "m1nd-operator", "SKILL.md")));
+    assert.strictEqual(fs.existsSync(claudeJsonPath), false, "hosts apply must never create ~/.claude.json");
+    const sharedConfig = JSON.parse(fs.readFileSync(sharedMcpPath, "utf8"));
+    assert.strictEqual(sharedConfig.mcpServers.m1nd.command, process.execPath);
+    assert.strictEqual(sharedConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
+    assert(applied.changed_files.includes(sharedMcpPath));
     assert(applied.next_actions.some((entry) => entry.includes("Restart or rebind")));
+    const afterStatus = hostStatus({ _: ["hosts", "status"], host: "claude", project: tmp, binary: process.execPath });
+    assert.strictEqual(afterStatus.hosts[0].config.status, "shared project (.mcp.json)");
 
     const idempotent = hostApply({
       _: ["hosts", "apply"],
@@ -1751,6 +1761,7 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
   },
   () => {
     const tmp = mkTmpDir();
@@ -1816,7 +1827,7 @@ withEnv(
   }
 );
 
-// user-scope ~/.claude.json detection
+// user-scope ~/.claude.json detection and Claude scope/skills truth
 withEnv(
   {
     ...fakeEnvBase,
@@ -1825,27 +1836,172 @@ withEnv(
   () => {
     const testHome = mkTmpDir();
     const project = mkTmpDir();
-    // Write a fake ~/.claude.json as produced by `claude mcp add -s user`
+    const otherProject = mkTmpDir();
+    const claudeJson = path.join(testHome, ".claude.json");
+
+    // 1. Entry under an unrelated project in ~/.claude.json must report missing, never user-scope.
     fs.writeFileSync(
-      path.join(testHome, ".claude.json"),
-      JSON.stringify({ mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } })
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        projects: {
+          [otherProject]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } },
+        },
+      })
     );
-    const status = withEnv(
-      { M1ND_TEST_HOME: testHome },
-      () =>
-        hostStatus({
-          _: ["hosts", "status"],
-          host: "claude",
-          project,
-          binary: process.execPath,
-        })
+    const unrelatedProjectStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
     );
-    assert.strictEqual(status.hosts[0].host, "claude");
-    assert.notStrictEqual(status.hosts[0].config.status, "missing");
+    assert.strictEqual(unrelatedProjectStatus.hosts[0].config.status, "missing");
+
+    // 2. Entry under projects[project] reports project-scope (<dir>), never user-scope.
+    fs.writeFileSync(
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        projects: {
+          [project]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } },
+        },
+      })
+    );
+    const projectScopeStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(projectScopeStatus.hosts[0].config.status, `project-scope (${project})`);
+
+    // 3. Shared project .mcp.json reports shared project (.mcp.json).
+    const sharedProj = mkTmpDir();
+    fs.writeFileSync(
+      path.join(sharedProj, ".mcp.json"),
+      mcpConfig("claude", process.execPath, sharedProj)
+    );
+    const sharedHome = mkTmpDir();
+    const sharedStatus = withEnv({ HOME: sharedHome, USERPROFILE: sharedHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project: sharedProj, binary: process.execPath })
+    );
+    assert.strictEqual(sharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
+
+    // 4. Legacy .claude/mcp.json stays clearly labelled legacy.
+    const legacyProj = mkTmpDir();
+    fs.mkdirSync(path.join(legacyProj, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyProj, ".claude", "mcp.json"),
+      mcpConfig("claude", process.execPath, legacyProj)
+    );
+    const legacyStatus = withEnv({ HOME: sharedHome, USERPROFILE: sharedHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project: legacyProj, binary: process.execPath })
+    );
+    assert.strictEqual(legacyStatus.hosts[0].config.status, "legacy (.claude/mcp.json)");
+
+    // 5. User-scope ~/.claude.json top-level mcpServers reports user-scope.
+    fs.writeFileSync(
+      claudeJson,
+      JSON.stringify({
+        numStartups: 42,
+        mcpServers: {
+          other: { command: "other-bin", args: [] },
+          m1nd: { command: process.execPath, args: [], env: {} },
+        },
+        projects: {
+          [otherProject]: { allowedTools: ["Read"] },
+        },
+      })
+    );
+    const userScopeStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(userScopeStatus.hosts[0].host, "claude");
+    assert.strictEqual(userScopeStatus.hosts[0].config.status, "user-scope");
+
+    // 6. Apply writes <project>/.mcp.json and leaves ~/.claude.json byte-identical; plan and apply report
+    //    precedence when ~/.claude.json already has a user-scope or local project-scope entry;
+    //    modifying one byte in an installed skill switches agent pack status to outdated.
+    const claudeBeforeBytes = fs.readFileSync(claudeJson);
+    const sharedMcpJson = path.join(project, ".mcp.json");
+    const planHuman = spawnSync(
+      process.execPath,
+      [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(planHuman.status, 0, planHuman.stderr);
+    assert(planHuman.stdout.includes(sharedMcpJson), "plan prints .mcp.json target");
+    // Claude Code precedence is local > project (.mcp.json) > user: a user-scope entry is overridden.
     assert(
-      status.hosts[0].config.status.includes("user-scope"),
-      `Expected config.status to include "user-scope", got: ${status.hosts[0].config.status}`
+      planHuman.stdout.includes("is overridden by") && planHuman.stdout.includes(claudeJson),
+      "plan says the existing user-scope entry is overridden by .mcp.json"
     );
+    assert(!planHuman.stdout.includes("takes precedence"), "user scope never takes precedence over .mcp.json");
+
+    const applyHuman = spawnSync(
+      process.execPath,
+      [cli, "hosts", "apply", "--host", "claude", "--project", project, "--binary", process.execPath, "--yes"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(applyHuman.status, 0, applyHuman.stderr);
+    assert(applyHuman.stdout.includes(sharedMcpJson), "apply output states .mcp.json target");
+    assert(
+      applyHuman.stdout.includes("is overridden by") && applyHuman.stdout.includes(claudeJson),
+      "apply output says the existing user-scope entry is overridden by .mcp.json"
+    );
+    assert.strictEqual(
+      Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes),
+      0,
+      "~/.claude.json must stay byte-identical after hosts apply"
+    );
+    // A local project-scope entry for this project is the one that wins over .mcp.json.
+    const localSeed = JSON.parse(fs.readFileSync(claudeJson, "utf8"));
+    localSeed.projects = { ...(localSeed.projects || {}), [project]: { mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } } };
+    fs.writeFileSync(claudeJson, JSON.stringify(localSeed));
+    const planLocal = spawnSync(
+      process.execPath,
+      [cli, "hosts", "plan", "--host", "claude", "--project", project, "--binary", process.execPath],
+      { encoding: "utf8", env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" } }
+    );
+    assert.strictEqual(planLocal.status, 0, planLocal.stderr);
+    assert(
+      planLocal.stdout.includes("local project-scope entry") && planLocal.stdout.includes("takes precedence"),
+      "plan says a local project-scope entry takes precedence over .mcp.json"
+    );
+    fs.writeFileSync(claudeJson, claudeBeforeBytes); // back to the user-scope-only seed
+    const writtenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
+    assert.strictEqual(writtenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+    const afterSharedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(afterSharedStatus.hosts[0].config.status, "shared project (.mcp.json)");
+
+    // Backup is created when rewriting an existing <project>/.mcp.json.
+    fs.writeFileSync(sharedMcpJson, JSON.stringify({ mcpServers: { other: { command: "other-bin", args: [] } } }, null, 2));
+    const applyBackupResult = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes: true })
+    );
+    assert.strictEqual(Buffer.compare(fs.readFileSync(claudeJson), claudeBeforeBytes), 0);
+    const rewrittenSharedMcp = JSON.parse(fs.readFileSync(sharedMcpJson, "utf8"));
+    assert.strictEqual(rewrittenSharedMcp.mcpServers.other.command, "other-bin");
+    assert.strictEqual(rewrittenSharedMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+    const claudeCfgAction = applyBackupResult.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(claudeCfgAction && claudeCfgAction.backup && fs.existsSync(claudeCfgAction.backup));
+
+    const claudeSkillFile = path.join(testHome, ".claude", "skills", "m1nd-first", "SKILL.md");
+    assert(fs.existsSync(claudeSkillFile), "claude global skill installed");
+    const installedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(installedStatus.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installedStatus.hosts[0].readiness, "ready");
+
+    fs.appendFileSync(claudeSkillFile, "\n<!-- local edit -->\n");
+    const outdatedStatus = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostStatus({ _: ["hosts", "status"], host: "claude", project, binary: process.execPath })
+    );
+    assert.strictEqual(outdatedStatus.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdatedStatus.hosts[0].readiness, "attention");
   }
 );
 
@@ -1986,7 +2142,23 @@ assert.strictEqual(hostsPlanJson.schema, "m1nd-host-rebind-plan-v0");
 assert.strictEqual(hostsPlanJson.plans[0].configure_mcp.status, "manual");
 assert(hostsPlanJson.plans[0].configure_mcp.snippet.includes("M1ND_WORKSPACE_ROOT"));
 
+const hostApplyCliHome = mkTmpDir();
 const hostApplyCliProject = mkTmpDir();
+const antigravityMcpPath = path.join(hostApplyCliHome, ".gemini", "config", "mcp_config.json");
+fs.mkdirSync(path.dirname(antigravityMcpPath), { recursive: true });
+fs.writeFileSync(
+  antigravityMcpPath,
+  JSON.stringify(
+    {
+      theme: "dark",
+      mcpServers: {
+        otherServer: { command: "other-cmd", args: ["--flag"] },
+      },
+    },
+    null,
+    2
+  )
+);
 const hostApplyCli = spawnSync(
   process.execPath,
   [cli, "hosts", "apply", "--json", "--host", "antigravity", "--project", hostApplyCliProject, "--binary", process.execPath, "--yes"],
@@ -1995,6 +2167,8 @@ const hostApplyCli = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
+      HOME: hostApplyCliHome,
+      M1ND_TEST_HOME: hostApplyCliHome,
       M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     },
   }
@@ -2004,8 +2178,79 @@ const hostApplyCliJson = JSON.parse(hostApplyCli.stdout);
 assert.strictEqual(hostApplyCliJson.schema, "m1nd-host-apply-v0");
 assert.strictEqual(hostApplyCliJson.dry_run, false);
 assert.strictEqual(hostApplyCliJson.requires_host_rebind, true);
-assert(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")));
-assert(fs.existsSync(path.join(hostApplyCliProject, ".m1nd", "agent-pack", "AGENTS.md")));
+assert.strictEqual(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")), false, "must not write project-local mcp_config.json");
+assert(fs.existsSync(antigravityMcpPath), "antigravity global mcp_config.json written");
+const antigravityMcp = JSON.parse(fs.readFileSync(antigravityMcpPath, "utf8"));
+assert.strictEqual(antigravityMcp.theme, "dark", "unrelated top-level key in mcp_config.json survived");
+assert.deepStrictEqual(antigravityMcp.mcpServers.otherServer, { command: "other-cmd", args: ["--flag"] }, "unrelated mcpServer in mcp_config.json survived");
+assert.strictEqual(antigravityMcp.mcpServers.m1nd.command, process.execPath);
+assert.strictEqual(antigravityMcp.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(hostApplyCliProject));
+const antigravityPluginDir = path.join(hostApplyCliHome, ".gemini", "config", "plugins", "m1nd");
+assert.deepStrictEqual(
+  JSON.parse(fs.readFileSync(path.join(antigravityPluginDir, "plugin.json"), "utf8")),
+  { name: "m1nd" }
+);
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-first", "SKILL.md")));
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-guardian", "SKILL.md")));
+assert(fs.existsSync(path.join(antigravityPluginDir, "skills", "m1nd-operator", "SKILL.md")));
+assert.strictEqual(
+  fs.existsSync(path.join(antigravityPluginDir, "mcp_config.json")),
+  false,
+  "plugin must not contain its own mcp_config.json"
+);
+
+// Antigravity status and plan detect the global config and plugin (installed -> outdated -> missing)
+withEnv(
+  {
+    ...fakeEnvBase,
+    HOME: hostApplyCliHome,
+    USERPROFILE: hostApplyCliHome,
+    M1ND_TEST_HOME: null,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+  },
+  () => {
+    const plan = hostPlan({
+      _: ["hosts", "plan"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.deepStrictEqual(plan.plans[0].configure_mcp.candidate_paths, [antigravityMcpPath]);
+
+    const installed = hostStatus({
+      _: ["hosts", "status"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.strictEqual(installed.hosts[0].config.status, "configured");
+    assert.strictEqual(installed.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installed.hosts[0].readiness, "ready");
+
+    const skillFile = path.join(antigravityPluginDir, "skills", "m1nd-operator", "SKILL.md");
+    fs.appendFileSync(skillFile, "\n<!-- outdated -->\n");
+    const outdated = hostStatus({
+      _: ["hosts", "status"],
+      host: "antigravity",
+      project: hostApplyCliProject,
+      binary: process.execPath,
+    });
+    assert.strictEqual(outdated.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdated.hosts[0].readiness, "attention");
+
+    const freshHome = mkTmpDir();
+    const missing = withEnv({ HOME: freshHome, USERPROFILE: freshHome }, () =>
+      hostStatus({
+        _: ["hosts", "status"],
+        host: "antigravity",
+        project: hostApplyCliProject,
+        binary: process.execPath,
+      })
+    );
+    assert.strictEqual(missing.hosts[0].config.status, "missing");
+    assert.strictEqual(missing.hosts[0].agent_pack.status, "missing");
+  }
+);
 
 const scopeRepo = mkTmpDir();
 const nestedScope = path.join(scopeRepo, "src");
@@ -2871,6 +3116,74 @@ withEnv(
   }
 );
 
+// 3b. doctrine writes are backed up and atomic: a foreign AGENTS.md / ~/.gemini/GEMINI.md
+// gets a private copy of its original bytes before the managed block is appended.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+    CODEX_HOME: null,
+  },
+  () => {
+    const project = mkTmpDir();
+    const cases = [
+      { host: "codex", file: path.join(project, "AGENTS.md"), original: "# team rules\nkeep this\n" },
+      {
+        host: "antigravity",
+        file: path.join(homeForTest(), ".gemini", "GEMINI.md"),
+        original: "# personal gemini rules\nno trailing newline",
+      },
+    ];
+    for (const { host, file, original } of cases) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, original);
+      const applied = hostApply({
+        _: ["hosts", "apply"],
+        host,
+        project,
+        binary: process.execPath,
+        yes: true,
+        "no-skills": true,
+      });
+      const doctrineAction = applied.applied_actions.find((a) => a.id === "write-doctrine");
+      assert(doctrineAction && doctrineAction.changed, `${host} doctrine appended`);
+      assert(doctrineAction.backup, `${host} doctrine backup recorded`);
+      assert(
+        doctrineAction.backup.startsWith(path.join(homeForTest(), ".m1nd", "backups")),
+        `${host} doctrine backup uses ~/.m1nd/backups`
+      );
+      assert.strictEqual(fs.readFileSync(doctrineAction.backup, "utf8"), original, `${host} backup holds the original bytes`);
+      if (process.platform !== "win32") {
+        assert.strictEqual(fs.statSync(doctrineAction.backup).mode & 0o777, 0o600, `${host} doctrine backup is 0600`);
+      }
+      const text = fs.readFileSync(file, "utf8");
+      assert(text.startsWith(original), `${host} foreign doctrine content kept in front`);
+      assert(text.includes("<!-- BEGIN m1nd-orient (managed) -->"), `${host} managed block appended`);
+      assert.strictEqual(
+        fs.readdirSync(path.dirname(file)).some((name) => name.endsWith(".tmp")),
+        false,
+        `${host} doctrine write leaves no temporary file`
+      );
+    }
+
+    // A doctrine file that did not exist has nothing to back up.
+    const freshProject = mkTmpDir();
+    const fresh = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: freshProject,
+      binary: process.execPath,
+      yes: true,
+      "no-skills": true,
+    });
+    const freshDoctrine = fresh.applied_actions.find((a) => a.id === "write-doctrine");
+    assert(freshDoctrine && freshDoctrine.changed, "claude doctrine created");
+    assert.strictEqual(freshDoctrine.backup, undefined, "a new doctrine file records no backup");
+    assert(fs.existsSync(path.join(freshProject, ".claude", "CLAUDE.md")));
+  }
+);
+
 // 4. never-clobber hook: unrelated codex hook preserved, m1nd entry added.
 withEnv(
   {
@@ -2912,6 +3225,64 @@ withEnv(
     assert(block.includes("SessionStart"), "claude hook block includes SessionStart");
   }
 );
+
+// 5b. claude .mcp.json is the VCS-shared project scope but carries machine paths:
+// plan and apply both warn before the user commits it; other hosts do not.
+{
+  const testHome = mkTmpDir();
+  const project = mkTmpDir();
+  const mcpJsonPath = path.join(project, ".mcp.json");
+  const env = {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: testHome,
+  };
+  const isSharedScopeWarning = (text) =>
+    typeof text === "string" &&
+    text.includes(mcpJsonPath) &&
+    text.includes("shared through version control") &&
+    text.includes(`command ${process.execPath}`) &&
+    text.includes(`M1ND_WORKSPACE_ROOT=${path.resolve(project)}`);
+
+  withEnv(env, () => {
+    const plan = hostPlan({ _: ["hosts", "plan"], host: "claude", project, binary: process.execPath });
+    assert(isSharedScopeWarning(plan.plans[0].configure_mcp.shared_scope_warning), "claude plan carries the shared-scope warning");
+    const codexPlan = hostPlan({ _: ["hosts", "plan"], host: "codex", project, binary: process.execPath });
+    assert.strictEqual(codexPlan.plans[0].configure_mcp.shared_scope_warning, undefined, "codex plan has no .mcp.json warning");
+
+    for (const yes of [false, true]) {
+      const applied = hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes, "no-skills": true });
+      assert(applied.warnings.some(isSharedScopeWarning), `claude apply (yes=${yes}) warns about the shared .mcp.json`);
+    }
+    const noConfig = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: mkTmpDir(),
+      binary: process.execPath,
+      yes: true,
+      "no-skills": true,
+      "no-config": true,
+    });
+    assert.strictEqual(
+      noConfig.warnings.some((w) => w.includes("shared through version control")),
+      false,
+      "no .mcp.json warning when the config write is disabled"
+    );
+  });
+
+  for (const verb of ["plan", "apply"]) {
+    const res = spawnSync(
+      process.execPath,
+      [cli, "hosts", verb, "--host", "claude", "--project", project, "--binary", process.execPath, "--no-skills"],
+      { encoding: "utf8", env: { ...process.env, ...env } }
+    );
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert(
+      res.stdout.split("\n").some(isSharedScopeWarning),
+      `hosts ${verb} human output prints the shared-scope warning:\n${res.stdout}`
+    );
+  }
+}
 
 // 6. codex TOML MCP config: exactly one [mcp_servers.m1nd] after apply (regression).
 withEnv(
@@ -3194,5 +3565,434 @@ assert(
   RUNTIME_VERSION_PROBE_AFTER_INSTALL_MS > RUNTIME_VERSION_PROBE_MS,
   "the post-install probe budget is strictly larger than the warm-path default"
 );
+
+// --- safe writes: atomic config updates, timestamped backups, scoped skill replacement ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const testHome = homeForTest();
+    const project = mkTmpDir();
+    const configPath = path.join(testHome, ".codex", "config.toml");
+    const customSkillDir = path.join(testHome, ".codex", "skills", "custom-local-skill");
+    const staleM1ndFile = path.join(testHome, ".codex", "skills", "m1nd-first", "stale-extra.txt");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.mkdirSync(customSkillDir, { recursive: true });
+    fs.mkdirSync(path.dirname(staleM1ndFile), { recursive: true });
+    fs.writeFileSync(path.join(customSkillDir, "SKILL.md"), "# keep custom skill\n");
+    fs.writeFileSync(staleM1ndFile, "stale\n");
+
+    const originalToml = [
+      'model = "gpt-5-codex"',
+      "",
+      "[features]",
+      "hooks = true",
+      "",
+      "[mcp_servers.m1nd]",
+      'command = "old-m1nd"',
+      'args = ["--old"]',
+      "",
+      "[mcp_servers.other]",
+      'command = "other-tool"',
+      "",
+    ].join("\n");
+    fs.writeFileSync(configPath, originalToml);
+
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+
+    const updatedToml = fs.readFileSync(configPath, "utf8");
+    assert(updatedToml.includes('model = "gpt-5-codex"'), "unrelated top-level TOML preserved");
+    assert(updatedToml.includes("[features]\nhooks = true"), "unrelated TOML table preserved");
+    assert(updatedToml.includes('[mcp_servers.other]\ncommand = "other-tool"'), "unrelated MCP entry preserved");
+    assert(!updatedToml.includes('command = "old-m1nd"'), "old m1nd entry replaced");
+    assert(fs.existsSync(path.join(customSkillDir, "SKILL.md")), "unrelated skill dir preserved");
+    assert.strictEqual(fs.existsSync(staleM1ndFile), false, "m1nd skill dir replaced cleanly");
+
+    const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(configAction && configAction.backup, "backup path recorded for modified config");
+    assert(fs.existsSync(configAction.backup), "timestamped backup file exists on disk");
+    assert.strictEqual(fs.readFileSync(configAction.backup, "utf8"), originalToml, "backup preserves original bytes");
+    assert(configAction.backup.startsWith(path.join(testHome, ".m1nd", "backups")), "backup uses ~/.m1nd/backups convention");
+
+    // No leftover temp files in config or skills directory.
+    assert.strictEqual(
+      fs.readdirSync(path.dirname(configPath)).some((name) => name.endsWith(".tmp")),
+      false
+    );
+    assert.strictEqual(
+      fs.readdirSync(path.join(testHome, ".codex", "skills")).some((name) => name.endsWith(".tmp")),
+      false
+    );
+  }
+);
+
+// --- Codex CODEX_HOME support and outdated detection ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    ...(() => {
+      // os.homedir() reads USERPROFILE on Windows and HOME elsewhere; set both.
+      const home = mkTmpDir();
+      return { HOME: home, USERPROFILE: home };
+    })(),
+    M1ND_TEST_HOME: null,
+    CODEX_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const codexHome = process.env.CODEX_HOME;
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+    assert(applied.applied_actions.some((a) => a.id === "install-agent-pack" && a.ok));
+    assert(fs.existsSync(path.join(codexHome, "config.toml")));
+    assert(fs.existsSync(path.join(codexHome, "skills", "m1nd-guardian", "SKILL.md")));
+
+    const installed = hostStatus({
+      _: ["hosts", "status"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+    });
+    assert.strictEqual(installed.hosts[0].agent_pack.status, "installed");
+    assert.strictEqual(installed.hosts[0].config.status, "configured");
+    assert.strictEqual(installed.hosts[0].readiness, "ready");
+
+    fs.appendFileSync(path.join(codexHome, "skills", "m1nd-guardian", "SKILL.md"), "\n<!-- edited -->\n");
+    const outdated = hostStatus({
+      _: ["hosts", "status"],
+      host: "codex",
+      project,
+      binary: process.execPath,
+    });
+    assert.strictEqual(outdated.hosts[0].agent_pack.status, "outdated");
+    assert.strictEqual(outdated.hosts[0].readiness, "attention");
+  }
+);
+
+// --- private backup permissions (0o700 dir, 0o600 files) ---
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const testHome = homeForTest();
+    const project = mkTmpDir();
+    const backupDir = path.join(testHome, ".m1nd", "backups");
+    fs.mkdirSync(backupDir, { recursive: true, mode: 0o755 });
+    if (process.platform !== "win32") {
+      fs.chmodSync(backupDir, 0o755);
+    }
+    const mcpConfigPath = path.join(project, ".mcp.json");
+    const originalBytes = Buffer.from(
+      `${JSON.stringify({ mcpServers: { preexisting: { command: "old-tool", args: [] } } }, null, 2)}\n`,
+      "utf8"
+    );
+    fs.writeFileSync(mcpConfigPath, originalBytes, { mode: 0o644 });
+
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project,
+      binary: process.execPath,
+      yes: true,
+    });
+    const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+    assert(configAction && configAction.backup, "backup created when overwriting .mcp.json");
+    assert.strictEqual(
+      Buffer.compare(fs.readFileSync(configAction.backup), originalBytes),
+      0,
+      "backup bytes match original"
+    );
+    if (process.platform !== "win32") {
+      assert.strictEqual(
+        fs.statSync(backupDir).mode & 0o777,
+        0o700,
+        "~/.m1nd/backups mode must be tightened to 0o700 even if pre-existing"
+      );
+      assert.strictEqual(
+        fs.statSync(configAction.backup).mode & 0o777,
+        0o600,
+        "backup file mode must be 0o600"
+      );
+    }
+  }
+);
+
+// --- Antigravity mcp_config.json preserves other server entries and never prints env secrets ---
+{
+  const secretToken = "FAKE_SECRET_ENV_VALUE_987";
+  const testHome = mkTmpDir();
+  const project = mkTmpDir();
+  const agyConfigPath = path.join(testHome, ".gemini", "config", "mcp_config.json");
+  fs.mkdirSync(path.dirname(agyConfigPath), { recursive: true });
+  fs.writeFileSync(
+    agyConfigPath,
+    `${JSON.stringify(
+      {
+        mcpServers: {
+          otherServer: {
+            command: "other-mcp",
+            args: ["--serve"],
+            env: {
+              API_TOKEN: secretToken,
+              SECOND_VAR: "other-value",
+            },
+          },
+        },
+        customSetting: true,
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  for (const extraArgs of [[], ["--json"]]) {
+    const res = spawnSync(
+      process.execPath,
+      [cli, "hosts", "apply", "--host", "antigravity", "--project", project, "--binary", process.execPath, "--yes", ...extraArgs],
+      {
+        encoding: "utf8",
+        env: { ...process.env, ...fakeEnvBase, HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: "" },
+      }
+    );
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert.strictEqual(res.stdout.includes(secretToken), false, "stdout must never print other server env values");
+    assert.strictEqual(res.stderr.includes(secretToken), false, "stderr must never print other server env values");
+  }
+
+  const updatedAgy = JSON.parse(fs.readFileSync(agyConfigPath, "utf8"));
+  assert.strictEqual(updatedAgy.customSetting, true);
+  assert.deepStrictEqual(updatedAgy.mcpServers.otherServer, {
+    command: "other-mcp",
+    args: ["--serve"],
+    env: {
+      API_TOKEN: secretToken,
+      SECOND_VAR: "other-value",
+    },
+  });
+  assert.strictEqual(updatedAgy.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+
+  const scopedEmpty = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+    hostStatus({ _: ["hosts", "status"], host: "antigravity", project, binary: process.execPath })
+  );
+  assert.strictEqual(JSON.stringify(scopedEmpty).includes(secretToken), false);
+}
+
+// --- Antigravity plugins/m1nd refusal when symlink, non-directory, or foreign plugin.json ---
+{
+  const setupPluginsRoot = () => {
+    const testHome = mkTmpDir();
+    const pluginsRoot = path.join(testHome, ".gemini", "config", "plugins");
+    fs.mkdirSync(pluginsRoot, { recursive: true });
+    const siblingPlugin = path.join(pluginsRoot, "other-plugin", "plugin.json");
+    fs.mkdirSync(path.dirname(siblingPlugin), { recursive: true });
+    fs.writeFileSync(siblingPlugin, JSON.stringify({ name: "other-plugin" }));
+    return {
+      testHome,
+      pluginsRoot,
+      pluginDir: path.join(pluginsRoot, "m1nd"),
+      siblingPlugin,
+    };
+  };
+
+  // 1. Live symlink plugins/m1nd is refused and target is untouched.
+  {
+    const { testHome, pluginDir, siblingPlugin } = setupPluginsRoot();
+    const targetDir = mkTmpDir();
+    const sentinel = path.join(targetDir, "sentinel.txt");
+    fs.writeFileSync(sentinel, "untouched");
+    fs.symlinkSync(targetDir, pluginDir);
+
+    assert.throws(
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*symlink/
+    );
+    const applyBlocked = withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () =>
+      hostApply({ _: ["hosts", "apply"], host: "antigravity", project: mkTmpDir(), binary: process.execPath, yes: true })
+    );
+    assert(applyBlocked.blocked_actions.some((a) => a.id === "install-agent-pack-failed"));
+    assert.strictEqual(fs.readFileSync(sentinel, "utf8"), "untouched");
+    assert(fs.lstatSync(pluginDir).isSymbolicLink());
+    assert.strictEqual(JSON.parse(fs.readFileSync(siblingPlugin, "utf8")).name, "other-plugin");
+  }
+
+  // 2. Dangling symlink plugins/m1nd is refused via lstatSync.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.symlinkSync(path.join(testHome, "does-not-exist"), pluginDir);
+    assert.throws(
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*symlink/
+    );
+    assert(fs.lstatSync(pluginDir).isSymbolicLink());
+  }
+
+  // 3. Regular file at plugins/m1nd is refused.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.writeFileSync(pluginDir, "not a directory\n");
+    assert.throws(
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*not a directory/
+    );
+    assert.strictEqual(fs.readFileSync(pluginDir, "utf8"), "not a directory\n");
+  }
+
+  // 4. Existing dir without plugin.json or with foreign plugin.json name is refused.
+  {
+    const { testHome, pluginDir } = setupPluginsRoot();
+    fs.mkdirSync(pluginDir, { recursive: true });
+    assert.throws(
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*without a regular m1nd plugin\.json/
+    );
+
+    const foreignPluginJson = path.join(pluginDir, "plugin.json");
+    fs.writeFileSync(foreignPluginJson, `${JSON.stringify({ name: "foreign-plugin" })}\n`);
+    assert.throws(
+      () => withEnv({ HOME: testHome, USERPROFILE: testHome, M1ND_TEST_HOME: null }, () => installSkills("antigravity", mkTmpDir())),
+      /refusing Antigravity plugin install.*does not belong to m1nd/
+    );
+    assert.strictEqual(JSON.parse(fs.readFileSync(foreignPluginJson, "utf8")).name, "foreign-plugin");
+  }
+}
+
+// --- symlinked host configs stay symlinks; the atomic write lands on the link target ---
+// Creating symlinks needs elevated rights on Windows, so these run on macOS/Linux only.
+if (process.platform !== "win32") {
+  const testHome = mkTmpDir();
+  const codexHome = path.join(testHome, ".codex");
+  const project = mkTmpDir();
+  const dotfiles = mkTmpDir();
+  const linkTo = (linkPath, targetName, content) => {
+    const target = path.join(dotfiles, targetName);
+    fs.writeFileSync(target, content);
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.symlinkSync(target, linkPath);
+    return target;
+  };
+
+  const codexLink = path.join(codexHome, "config.toml");
+  const codexTarget = linkTo(codexLink, "codex-config.toml", 'model = "keep-me"\n');
+  fs.chmodSync(codexTarget, 0o600);
+  const mcpLink = path.join(project, ".mcp.json");
+  const mcpTarget = linkTo(
+    mcpLink,
+    "project-mcp.json",
+    `${JSON.stringify({ mcpServers: { other: { command: "other-tool" } } }, null, 2)}\n`
+  );
+  const geminiLink = path.join(project, ".gemini", "settings.json");
+  const geminiTarget = linkTo(geminiLink, "gemini-settings.json", `${JSON.stringify({ theme: "keep-me" }, null, 2)}\n`);
+  const claudeSettingsText = `${JSON.stringify({ hooks: {} }, null, 2)}\n`;
+  const claudeSettingsLink = path.join(testHome, ".claude", "settings.json");
+  const claudeSettingsTarget = linkTo(claudeSettingsLink, "claude-settings.json", claudeSettingsText);
+
+  withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+      M1ND_TEST_HOME: testHome,
+      CODEX_HOME: codexHome,
+    },
+    () => {
+      for (const host of ["codex", "claude", "gemini"]) {
+        const applied = hostApply({
+          _: ["hosts", "apply"],
+          host,
+          project,
+          binary: process.execPath,
+          yes: true,
+          "no-skills": true,
+        });
+        const configAction = applied.applied_actions.find((a) => a.id === "write-mcp-config");
+        assert(configAction && configAction.changed, `${host} MCP config written through its symlink`);
+        assert(configAction.backup, `${host} config backup recorded`);
+        assert.strictEqual(
+          applied.blocked_actions.some((a) => a.id.endsWith("-failed")),
+          false,
+          `${host} apply has no failed action: ${JSON.stringify(applied.blocked_actions)}`
+        );
+      }
+    }
+  );
+
+  for (const [linkPath, target] of [
+    [codexLink, codexTarget],
+    [mcpLink, mcpTarget],
+    [geminiLink, geminiTarget],
+    [claudeSettingsLink, claudeSettingsTarget],
+  ]) {
+    assert(fs.lstatSync(linkPath).isSymbolicLink(), `${linkPath} is still a symlink after apply`);
+    assert.strictEqual(fs.realpathSync(linkPath), fs.realpathSync(target), `${linkPath} still points at its target`);
+  }
+
+  const codexText = fs.readFileSync(codexTarget, "utf8");
+  assert(codexText.includes('model = "keep-me"'), "codex link target keeps its own settings");
+  assert(codexText.includes("[mcp_servers.m1nd]"), "codex link target receives the m1nd entry");
+  assert.strictEqual(fs.statSync(codexTarget).mode & 0o777, 0o600, "codex link target keeps its mode");
+
+  const mcpJson = JSON.parse(fs.readFileSync(mcpTarget, "utf8"));
+  assert.deepStrictEqual(mcpJson.mcpServers.other, { command: "other-tool" }, ".mcp.json target keeps other servers");
+  assert.strictEqual(mcpJson.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(project));
+
+  const geminiJson = JSON.parse(fs.readFileSync(geminiTarget, "utf8"));
+  assert.strictEqual(geminiJson.theme, "keep-me", "gemini settings.json target keeps its settings");
+  assert(geminiJson.mcpServers && geminiJson.mcpServers.m1nd, "gemini settings.json target receives the m1nd entry");
+
+  // Claude Code's settings.json is printed, never written: the target keeps its bytes.
+  assert.strictEqual(fs.readFileSync(claudeSettingsTarget, "utf8"), claudeSettingsText);
+
+  for (const directory of [dotfiles, codexHome, project, path.join(project, ".gemini")]) {
+    assert.strictEqual(
+      fs.readdirSync(directory).some((name) => name.endsWith(".tmp")),
+      false,
+      `no temporary file left in ${directory}`
+    );
+  }
+
+  // A dangling link is refused: nothing is created at the missing target and the link stays.
+  const danglingProject = mkTmpDir();
+  const missingTarget = path.join(mkTmpDir(), "absent-mcp.json");
+  const danglingLink = path.join(danglingProject, ".mcp.json");
+  fs.symlinkSync(missingTarget, danglingLink);
+  const danglingApply = withEnv(
+    {
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+      M1ND_TEST_HOME: mkTmpDir(),
+    },
+    () =>
+      hostApply({
+        _: ["hosts", "apply"],
+        host: "claude",
+        project: danglingProject,
+        binary: process.execPath,
+        yes: true,
+        "no-skills": true,
+      })
+  );
+  const danglingBlocked = danglingApply.blocked_actions.find((a) => a.id === "write-mcp-config-failed");
+  assert(danglingBlocked, "a dangling .mcp.json symlink blocks the config write");
+  assert(/symlink whose target cannot be resolved/.test(danglingBlocked.error), danglingBlocked.error);
+  assert(fs.lstatSync(danglingLink).isSymbolicLink(), "the dangling link is left in place");
+  assert.strictEqual(fs.existsSync(missingTarget), false, "no file is created at the missing target");
+}
 
 console.log("npm cli tests ok");

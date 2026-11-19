@@ -265,8 +265,7 @@ def merged_violations(*groups: Iterable[dict[str, str]]) -> list[dict[str, str]]
 # exception bound to the PRD's exact path AND its exact SHA-256. Any byte change
 # breaks the digest and the exception dies, restoring the normal
 # personal_path_content refusal. This is a digest-pinned single-document exception,
-# never a path allowlist.
-# see docs/proofs/m1nd10-public-path-migration-ratification-20260720.md
+# never a path allowlist (ratified in the public-path migration decision).
 FROZEN_PRD_PATH = "docs/M1ND-10-PRD.md"
 FROZEN_PRD_SHA256 = "2745560daf6e5cf6237b84663f895e81e2c4979de4190dfef649b032b680f87b"
 

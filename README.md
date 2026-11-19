@@ -38,7 +38,7 @@ The graph and memory live on your machine. m1nd does not require an LLM API key 
 
 ### Published 1.6.5: get a first result
 
-Source-preview contributors: the [November dependency security update](docs/DEPENDENCY-SECURITY-2026-11.md) addresses findings in the unreleased lockfile; it does not update the published binaries above.
+Source-preview contributors: the [November dependency security update](CHANGELOG.md#security) addresses findings in the unreleased lockfile; it does not update the published binaries above.
 
 The source candidate also preserves the existing [runtime-overlay matching rules](docs/RUNTIME-OVERLAY-MATCHING.md) while reusing batch-local substring filters. UI dependency audit debt and exact-candidate performance proof are tracked separately in the security update.
 
@@ -69,7 +69,7 @@ The unreleased [automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md)
 
 ### Historical pinned 1.6.3: install, prepare, connect
 
-You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native 1.6.3 artifact](docs/INSTALL-1.6.3.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
+You need **Node.js 18+**, an MCP host, and a repository. First [install the signed native artifact](docs/INSTALL-1.6.5.md); that guide uses `cosign` and an exact release URL. The prebuilt 1.6.3 release covers Linux x86_64 and macOS x86_64/ARM64. Run this POSIX-shell recipe from the repository you want to use; it deliberately pins the wrapper:
 
 ```bash
 # After the signed installation guide, select the exact native binary.
@@ -195,19 +195,13 @@ Unresolvable imports (external packages, stdlib, system headers) are left unreso
 
 ## Architecture and deeper documentation
 
-The Cargo workspace has six crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, `m1nd-runnerd` (execution lane), and `m1nd-openclaw` (bridge). The web UI and npm wrapper live outside the Rust workspace.
+The Cargo workspace has five crates: `m1nd-core` (graph engine), `m1nd-ingest` (extraction), `m1nd-mcp` (MCP owner and runtime), `m1nd-control`, and `m1nd-runnerd` (execution lane). The web UI and npm wrapper live outside the Rust workspace.
 
 - [Documentation index](docs/README.md): choose a task, then a guide
 - [Wiki](https://m1nd.world/wiki/): tutorials, concepts, and API reference
 - [Agent installation guide](llms-install.md): setup instructions for coding agents
 - [Changelog](CHANGELOG.md): release history
 - [Contributing](CONTRIBUTING.md): development and verification
-
-## Translations
-
-[Português](i18n/README.pt-BR.md) · [Español](i18n/README.es.md) · [Italiano](i18n/README.it.md) · [Français](i18n/README.fr.md) · [Deutsch](i18n/README.de.md) · [中文](i18n/README.zh.md) · [日本語](i18n/README.ja.md)
-
-Translations have not been refreshed with this English revision and may contain outdated setup or capability claims. Use this English README for current instructions.
 
 ## License
 

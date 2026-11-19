@@ -543,8 +543,8 @@ pub struct SessionState {
     /// transport sets it before dispatch and restores it after.
     ///
     /// It exists for the authority-exclusive predicates that must never be
-    /// satisfied by a selector (`GENESIS-INGEST-CONSUMERS-SPEC.md` §1.2
-    /// SPEC-1g): a selector says WHICH brain to talk to, never that the caller
+    /// satisfied by a selector (SPEC-1g): a selector says WHICH brain to talk
+    /// to, never that the caller
     /// legitimately inhabits that brain's root. `false` on every other path.
     pub explicit_brain_selector: bool,
     /// Dedicated runtime root for persisted sidecar state.
@@ -1394,7 +1394,7 @@ impl SessionState {
     }
 
     /// The exact-root predicate — `covers_root`'s AUTHORITY-EXCLUSIVE sibling
-    /// (`docs/GENESIS-INGEST-CONSUMERS-SPEC.md` §1.2, verdict RC-1).
+    /// (SPEC-1, verdict RC-1).
     ///
     /// `covers_root` above is a PREFIX test by design, and it stays one: it
     /// answers "may this brain legitimately serve that caller's questions?", and

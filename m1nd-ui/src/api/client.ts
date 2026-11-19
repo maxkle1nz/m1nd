@@ -333,7 +333,7 @@ export const api = {
     }).then(parseOrganismManifestResponse),
 
   /**
-   * The Hall presence strip's read (ORGANISM-INSIDE-PRD P1; P1-UI-CONTRACT). A
+   * The Hall presence strip's read (P1 presence contract). A
    * pure GET — safe under a read-only attach. Absent `brain` = the OWNER-WIDE
    * roster (the Hall's control-room scope); a `brain` scopes it to that brain.
    * The roster is TTL-filtered at read (no ghosts) and collisions are derived at

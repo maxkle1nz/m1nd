@@ -56,4 +56,4 @@ Pass `--binary "$M1ND_BINARY"` to the pinned `@maxkle1nz/m1nd@1.6.5` wrapper. `d
 
 In 1.6.5, `agent first-minute --repo <repo>` can prepare the exact launcher-granted repository in an external private cache when no covering owner is found. Source files remain inputs, and later calls reuse the graph. Direct host stdio needs the same explicit grant and a safe external runtime; shared-brain preparation retains its authority requirements. See [agent autonomy](AGENT-AUTONOMY.md).
 
-The learning-event separation merged in PR580 is **Unreleased**, absent from this exact binary. V1 calibration containment already shipped in 1.6.5: running diagnostic calibration cannot enable `act`. The [1.6.3 guide](INSTALL-1.6.3.md) remains a separate historical recipe.
+The learning-event separation merged in PR580 is **Unreleased**, absent from this exact binary. V1 calibration containment already shipped in 1.6.5: running diagnostic calibration cannot enable `act`.

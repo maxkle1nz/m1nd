@@ -1,7 +1,6 @@
 //! SPEC-1 — `graph.ingest.refresh_declared_root`, the freshness door.
 //!
-//! The normative document is `docs/GENESIS-INGEST-CONSUMERS-SPEC.md` (RATIFIED,
-//! owner, 2026-07-29, all four §6 items). This file IS its §5 acceptance list —
+//! Acceptance battery for the owner-ratified freshness door (2026-07-29) —
 //! written before the implementation, born RED against today's binary, and
 //! never edited afterwards to make the implementation pass.
 //!

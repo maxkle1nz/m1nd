@@ -16,11 +16,9 @@ Before changing M1ND-10 implementation, read completely and in order:
 1. repository `AGENTS.md`;
 2. `docs/M1ND-10-PRD.md`;
 3. `docs/M1ND-10-UML.md`;
-4. the owner-ratification receipt named by the current handoff;
-5. the newest `docs/M1ND-10-HANDOFF-*.md`;
-6. `docs/PATHOS.md`;
-7. `docs/M1ND-GUARDIAN-METHOD.md`;
-8. the proof artifact for the active front.
+4. the active owner-ratification receipt;
+5. `docs/PATHOS.md`;
+6. `docs/M1ND-GUARDIAN-METHOD.md`.
 
 The current handoff wins over stale counts, old reviews, previous tasks, and this skill's examples.
 Frozen PRD/UML files are not edited in place.
