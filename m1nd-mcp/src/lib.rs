@@ -348,6 +348,11 @@ mod transplant_two_phase_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/boot_temporal_state_drift.rs"]
 mod boot_temporal_state_drift_internal_tests;
+// `impact` co-change battery: drives refresh + impact through the policy gate
+// and inspects the strict checkpoint digest, an owner-internal surface.
+#[cfg(test)]
+#[path = "internal_tests/impact_co_change.rs"]
+mod impact_co_change_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]
