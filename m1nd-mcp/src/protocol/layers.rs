@@ -2475,10 +2475,16 @@ pub struct HelpGuidance {
 }
 
 /// Output for help.
+///
+/// Each statement travels at most twice: once in the plain-text `formatted`
+/// rendering and once in the structured `guidance`. The cross-verb projection
+/// fields other verbs carry (`next_step_hint`, `why_this_next_step`,
+/// `what_is_missing`, `next_suggested_target`, `confidence`) would only restate
+/// `guidance` a third time, so help lifts just the two workflow signals —
+/// `proof_state` and `next_suggested_tool` — to the top level.
 #[derive(Clone, Debug, Serialize)]
 pub struct HelpOutput {
-    /// Formatted string for terminal/chat display.
-    /// Derived from the structured guidance object below.
+    /// Plain-text rendering of the structured guidance below, for display.
     pub formatted: String,
     /// Tool name that was looked up (None = full index).
     pub tool: Option<String>,
@@ -2490,16 +2496,6 @@ pub struct HelpOutput {
     pub proof_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_suggested_tool: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_suggested_target: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_step_hint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub why_this_next_step: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub what_is_missing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guidance: Option<HelpGuidance>,
 }
