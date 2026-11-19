@@ -1064,11 +1064,12 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "evidence_query",
-                "description": "Read-only G5 EvidenceQuery over the owner-selected brain. Verifies the persisted identity and committed hash-chain prefix, filters correlation records, and never creates a lock, repairs a torn tail, writes cache state, or accepts client-authored evidence events. REST and Streamable MCP share this exact handler.",
+                "description": "Read-only G5 EvidenceQuery over the owner-selected brain. Verifies the persisted identity and committed hash-chain prefix, filters correlation records, and never creates a lock, repairs a torn tail, writes cache state, or accepts client-authored evidence events. REST and Streamable MCP share this exact handler. `agent_id` is accepted like on every verb and changes nothing: it is not recorded as a presence.",
                 "inputSchema": {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier (accepted; not recorded)" },
                         "correlation_id": { "type": "string" },
                         "mission_id": { "type": "string" },
                         "mission_head_id": { "type": "string" },
@@ -3626,6 +3627,123 @@ pub(crate) fn annotate_floor_gated_summary(tool: &str, summary: &str) -> String 
         "{FLOOR_GATE_MARKER} (authority floor {floors} — generic dispatch refuses until an exact \
          typed G2/G3 consumer is installed). {summary}"
     )
+}
+
+/// Whether a plain generic MCP/REST caller — no authority lease — reaches at
+/// least one branch of `tool`.
+///
+/// This is the question every agent-facing next list implicitly answers when it
+/// names a verb: a list that offers a verb the caller is refused walks the agent
+/// into `generic_action_authority_required`. The verdict is derived from the
+/// same floor table [`enforce_generic_action_policy`] enforces — a branch is
+/// reachable at ORDINARY, or when its exact action is one of the action-keyed
+/// generic admissions (today only the declared-root refresh) — so a verb whose
+/// floor rises drops out of every derived list without anyone editing it.
+/// Retired tombstones and verbs the catalog cannot resolve are unreachable.
+pub(crate) fn generic_caller_reaches(tool: &str) -> bool {
+    let bare = tool
+        .strip_prefix("m1nd.")
+        .or_else(|| tool.strip_prefix("m1nd_"))
+        .unwrap_or(tool);
+    if crate::mission_service_transport::legacy_mutation_refusal(bare).is_some() {
+        return false;
+    }
+    let (Some(floors), Some(actions)) = (
+        catalog_floors_by_action(),
+        crate::action_routes::possible_mcp_actions(bare),
+    ) else {
+        return false;
+    };
+    actions.into_iter().any(|action| {
+        crate::action_consumers::GENERIC_A2_LOCAL_ADMITTED_ACTIONS.contains(&action)
+            || floors
+                .get(action)
+                .is_some_and(|floor| generic_dispatch_floor_is_available(*floor))
+    })
+}
+
+/// Whether this exact call only reads: every effect the M1ND-10 catalog records
+/// for the selected action (or, when the branch depends on an owner fact, for
+/// every branch it could select) is `Read`.
+///
+/// Feeds `_m1nd.read_only`, which used to echo only the attach mode — so a pure
+/// read on a read-write owner told the agent it might have written something.
+/// A nominal read that carries plasticity or counters (`seek`, `activate`) is
+/// catalogued with those writes and correctly reports `false`.
+pub(crate) fn call_is_pure_read(tool: &str, params: &serde_json::Value) -> bool {
+    use crate::action_routes::{
+        classify_mcp_action, possible_mcp_effects, McpActionRouteError, TrustedMcpRouteFacts,
+    };
+    use m1nd_control::Effect;
+
+    let effects = match classify_mcp_action(tool, params, TrustedMcpRouteFacts::default()) {
+        Ok(classified) => classified.effects,
+        Err(McpActionRouteError::MissingTrustedFact { .. }) => match possible_mcp_effects(tool) {
+            Ok(effects) => effects,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    !effects.is_empty() && effects.iter().all(|effect| *effect == Effect::Read)
+}
+
+/// Refuse a `help` argument the verb does not accept, naming the one the caller
+/// most likely meant.
+///
+/// `help {tool: "seek"}` used to deserialize into the overview and answer a
+/// question nobody asked — the agent never learned its key was wrong. The
+/// accepted keys are read from `help`'s own published input schema, so the
+/// check cannot drift from what `tools/list` tells the agent.
+fn reject_unknown_help_arguments(params: &serde_json::Value) -> M1ndResult<()> {
+    let Some(arguments) = params.as_object() else {
+        return Ok(());
+    };
+    let schemas = all_tool_schemas();
+    let accepted: Vec<String> = schemas
+        .get("tools")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|tools| {
+            tools
+                .iter()
+                .find(|tool| tool.get("name").and_then(serde_json::Value::as_str) == Some("help"))
+        })
+        .and_then(|tool| tool.pointer("/inputSchema/properties"))
+        .and_then(serde_json::Value::as_object)
+        .map(|properties| properties.keys().cloned().collect())
+        .unwrap_or_default();
+    if accepted.is_empty() {
+        return Ok(());
+    }
+    let Some(unknown) = arguments
+        .keys()
+        .find(|key| !accepted.iter().any(|accepted| accepted == *key))
+    else {
+        return Ok(());
+    };
+    let closest = accepted
+        .iter()
+        .filter(|candidate| candidate.contains(unknown.as_str()) || unknown.contains(*candidate))
+        .min_by_key(|candidate| candidate.len().abs_diff(unknown.len()))
+        .or_else(|| {
+            accepted.iter().min_by_key(|candidate| {
+                crate::help_guidance::levenshtein_distance(unknown, candidate)
+            })
+        });
+    let hint = closest
+        .map(|candidate| format!(" Did you mean `{candidate}`?"))
+        .unwrap_or_default();
+    Err(M1ndError::InvalidParams {
+        tool: "help".into(),
+        detail: format!(
+            "unknown argument `{unknown}`: help does not accept it and will not guess.{hint} \
+             Accepted arguments: {}.",
+            accepted
+                .iter()
+                .map(|key| format!("`{key}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    })
 }
 
 fn authority_session_challenge_tool_schema() -> serde_json::Value {
@@ -7074,7 +7192,10 @@ pub(crate) fn dispatch_tool(
             if !summary.is_empty() {
                 meta["summary"] = serde_json::Value::String(summary);
             }
-            meta["read_only"] = serde_json::json!(state.read_only);
+            // True when nothing this call did could have written: the owner is
+            // attached read-only, or the catalog records this call as a pure read.
+            meta["read_only"] =
+                serde_json::json!(state.read_only || call_is_pure_read(&normalized, params));
 
             // Tier 3: memory at point-of-relevance (additive, capped, best-effort).
             if let Some(nearby) = memory_nearby_for_result(state, &normalized, &snapshot) {
@@ -7650,6 +7771,7 @@ fn dispatch_core_tool(
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "help" => {
+            reject_unknown_help_arguments(params)?;
             let input: layers::HelpInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = search_handlers::handle_help(state, input)?;
@@ -7902,8 +8024,9 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 const MCP_SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Presence is a durable coordination side effect, so the strictly read-only
-/// EvidenceQuery must not inherit per-seam `agent_id` tracking before its
-/// deny-unknown-fields payload is decoded. This also covers prefixed tool names.
+/// EvidenceQuery must not inherit per-seam `agent_id` tracking. It accepts
+/// `agent_id` like every other verb, but never records it. This also covers
+/// prefixed tool names.
 pub(crate) fn tool_tracks_agent_presence(tool_name: &str) -> bool {
     let bare = tool_name
         .strip_prefix("m1nd.")
@@ -17647,6 +17770,112 @@ mod tests {
             !c_gaps.iter().any(|g| g.starts_with("COLLISION:")),
             "the isolated-worktree hand must NOT carry a collision gap: {c_gaps:?}"
         );
+    }
+
+    // ---- The honest front door: small honesty fixes ------------------------
+
+    #[test]
+    fn help_rejects_an_unknown_argument_and_names_the_one_it_meant() {
+        let (_temp, mut state) = build_state();
+        // `tool` instead of `tool_name` used to be dropped silently: the agent
+        // asked about `seek` and got the generic overview back.
+        let error = super::dispatch_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "front-door", "tool": "seek"}),
+        )
+        .expect_err("help must not silently ignore an argument it does not accept");
+        let message = error.to_string();
+        assert!(
+            message.contains("`tool`"),
+            "names the rejected key: {message}"
+        );
+        assert!(
+            message.contains("`tool_name`"),
+            "names the key the caller meant: {message}"
+        );
+
+        let answered = super::dispatch_tool(
+            &mut state,
+            "help",
+            &serde_json::json!({"agent_id": "front-door", "tool_name": "seek"}),
+        )
+        .expect("the accepted spelling still answers");
+        assert_eq!(answered["tool"], "seek");
+    }
+
+    #[test]
+    fn response_envelope_marks_pure_reads_read_only() {
+        let (_temp, mut state) = build_state_populated(false);
+        assert!(!state.read_only, "a read-write owner");
+        for (tool, params) in [
+            ("health", serde_json::json!({"agent_id": "front-door"})),
+            ("help", serde_json::json!({"agent_id": "front-door"})),
+            (
+                "search",
+                serde_json::json!({"agent_id": "front-door", "query": "lease"}),
+            ),
+        ] {
+            let out = super::dispatch_tool(&mut state, tool, &params).expect(tool);
+            assert_eq!(
+                out["_m1nd"]["read_only"],
+                serde_json::json!(true),
+                "{tool} only reads, so its envelope must say read_only"
+            );
+        }
+        // `seek` is catalogued with plasticity writes: not a pure read.
+        let seek = super::dispatch_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({"agent_id": "front-door", "query": "lease"}),
+        )
+        .expect("seek");
+        assert_eq!(seek["_m1nd"]["read_only"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn empty_history_notes_name_only_verbs_a_generic_caller_can_call() {
+        use crate::help_guidance::front_door_oracle::FrontDoorAudit;
+        use m1nd_core::types::NodeType;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(runtime_dir.join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("file::src/alone.rs", "alone", NodeType::File, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+
+        let tremor = super::dispatch_tool(
+            &mut state,
+            "tremor",
+            &serde_json::json!({"agent_id": "front-door"}),
+        )
+        .expect("tremor");
+        let predict = super::dispatch_tool(
+            &mut state,
+            "predict",
+            &serde_json::json!({"agent_id": "front-door", "changed_node": "file::src/alone.rs"}),
+        )
+        .expect("predict");
+
+        let mut audit = FrontDoorAudit::new();
+        for (verb, out) in [("tremor", &tremor), ("predict", &predict)] {
+            let note = out["note"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{verb} with no history carries its note: {out}"));
+            audit.text(&format!("{verb} empty-history note"), note, Some(verb));
+        }
+        audit.assert_clean("the empty-history notes");
     }
 }
 

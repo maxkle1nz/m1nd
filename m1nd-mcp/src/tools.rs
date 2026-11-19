@@ -3140,13 +3140,13 @@ pub fn handle_predict(
         "calibration": calibration_block,
     });
     // Honest empty-state guidance: co-change predictions need the git co-change
-    // matrix, which `ghost_edges` builds. Without it predict falls back to
-    // structural edges only; if both are empty, tell the agent how to populate.
+    // matrix. The verb that builds it sits above the generic authority floor,
+    // so the note names what a generic caller CAN read instead.
     if co_change_count == 0 && structural_fallback_count == 0 {
         predict_out.as_object_mut().unwrap().insert(
             "note".into(),
             serde_json::json!(
-                "No co-change history loaded — run `ghost_edges` (parses git commit history into the co-change matrix) before `predict`, then re-run. Velocity is still computed from change_frequency."
+                "No co-change history loaded and no structural neighbours to fall back on — this brain has not built its git co-change matrix. Read the file's commit history with `timeline(file)` and its structural blast set with `impact(node)`. Velocity is still computed from change_frequency."
             ),
         );
     }

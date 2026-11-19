@@ -26,6 +26,15 @@ FORBIDDEN_TEACHINGS = (
     "ingest project_root=",
     "`ingest` with `project_root=",
     "pass `allow_overlap:true`",
+    # The honest front door: directions may not route an agent to a verb the
+    # generic authority floor refuses. The runtime half is the
+    # `help_guidance::front_door_oracle` battery; these are the prose forms.
+    "or `audit` for the structural map",
+    "or `audit` when you only want the structural map",
+    "orientation calls such as `audit`",
+    "Use `ghost_edges` for hidden",
+    '"move together" -> `ghost_edges`',
+    "Docs/specs -> `ingest` with `adapter=",
 )
 
 # Everything an agent or a new user reads as instruction. AGENTS.md is included
