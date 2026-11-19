@@ -281,6 +281,10 @@ mod ui_bundle_attestation_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/spec1_refresh_declared_root.rs"]
 mod spec1_refresh_declared_root_internal_tests;
+// Freshness at first contact — a stale graph says so on `north`/`health`.
+#[cfg(test)]
+#[path = "internal_tests/graph_freshness_first_contact.rs"]
+mod graph_freshness_first_contact_internal_tests;
 // SPEC-2 — the birth path's acceptance battery, written before its implementation.
 #[cfg(test)]
 #[path = "internal_tests/spec2_brain_bootstrap_birth.rs"]
