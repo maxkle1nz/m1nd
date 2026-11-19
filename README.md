@@ -12,7 +12,7 @@ A local code graph served over MCP — the map an agent reads before it touches 
 
 m1nd is an MCP server, written in Rust, that turns a repository into a graph of files, symbols, and the edges between them, then answers an agent's questions about that graph: where a behavior lives, what reaches a function, whether the graph even covers the repository the agent is standing in. The graph and its memory sidecar stay on your machine, and graph queries need no LLM API key. Installation, updates, optional model downloads, and network-backed document providers can use the network; your MCP host has its own data policy.
 
-It is built for agents first. The default menu is 15 verbs. Every answer says how far to trust it. `absent`, `abstain`, and `insufficient_evidence` are answers, not failures.
+It is built for agents first. The default menu is 15 verbs. `seek` and `north` answers say how far to trust them. `absent`, `abstain`, and `insufficient_evidence` are answers, not failures.
 
 ## Why this exists
 
@@ -38,7 +38,7 @@ m1nd says what it does not know. Under the current calibration every `seek` enve
 
 ### ONE LOCAL BRAIN FOR MANY SESSIONS.
 
-Run one served owner per runtime and attach every other session to it: they read one graph instead of each building its own. A second plain stdio process on an owned runtime refuses to start rather than race the owner on disk. One owner can host several project brains and routes each attached client to its own by caller root. m1nd's repository — 18,078 nodes, 78,981 edges — ingests in 19 s; an exact-root refresh of a ~2.6k-node repository took 0.49 s. The graph is as fresh as your last refresh; there is no continuous watcher. **PROVEN (sandbox).**
+Run one served owner per runtime and attach every other session to it: they read one graph instead of each building its own. A second plain stdio process on an owned runtime exits before the handshake rather than race the owner on disk; today it exits without naming the owner (a typed error is in progress), so attach instead. One owner can host several project brains and routes each attached client to its own by caller root. m1nd's repository — 18,078 nodes, 78,981 edges — ingests in 19 s; an exact-root refresh of a ~2.6k-node repository took 0.49 s. The graph is as fresh as your last refresh; there is no continuous watcher. **PROVEN (sandbox).**
 
 ## Proof
 
